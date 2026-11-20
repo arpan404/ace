@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, readFile, realpath, rm, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rm, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
@@ -181,12 +181,14 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
       name: "test-native",
     });
     expect((await launched.exited).code).toBe(0);
-    expect(z.array(z.string()).parse(JSON.parse(await readFile(marker, "utf8")))).toContain(
-      "--plugin-dir",
-    );
-    await expect(
-      readFile(join(root, "native-session/generated/plugins/sample/commands/check.md")),
-    ).rejects.toMatchObject({ code: "ENOENT" });
+    const invocation = z.array(z.string()).parse(JSON.parse(await readFile(marker, "utf8")));
+    // The launch projected into a directory of its own under the session root, gone at exit.
+    const pluginDir = invocation[invocation.indexOf("--plugin-dir") + 1] ?? "";
+    expect(pluginDir.startsWith(join(root, "native-session", "launch-"))).toBe(true);
+    await expect(readFile(join(pluginDir, "commands/check.md"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(await readdir(join(root, "native-session"))).toEqual([]);
     // A child with ignored output pipes must retain usable plugin content until shutdown.
     const ready = Promise.withResolvers<string>();
     const disconnected = Promise.withResolvers<void>();
@@ -206,17 +208,19 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
       await new Promise<void>((resolve) => resourceServer.listen(0, "127.0.0.1", resolve));
       const address = resourceServer.address();
       if (!address || typeof address === "string") throw new Error("Missing address");
-      const resource = join(root, "child-session/generated/plugins/sample/commands/check.md");
       const childScript = join(root, "native-child.cjs");
+      // The child reads the plugin's command where its launch put it and reports both.
       await writeFile(
         childScript,
-        `const socket = require('node:net').connect(${address.port}, '127.0.0.1');
-socket.once('connect', () => { socket.write(require('node:fs').readFileSync(${JSON.stringify(resource)}, 'utf8') + '\\n'); process.send('ready'); });`,
+        `const resource = require('node:path').join(process.argv[2], 'commands/check.md');
+const socket = require('node:net').connect(${address.port}, '127.0.0.1');
+socket.once('connect', () => { socket.write(JSON.stringify({ resource, text: require('node:fs').readFileSync(resource, 'utf8') }) + '\\n'); process.send('ready'); });`,
       );
       await writeFile(
         script,
-        `const child = require('node:child_process').spawn(process.execPath,
-[${JSON.stringify(childScript)}], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+        `const dir = process.argv[process.argv.indexOf('--plugin-dir') + 1];
+const child = require('node:child_process').spawn(process.execPath,
+[${JSON.stringify(childScript)}, dir], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
 child.once('message', () => { child.disconnect(); child.unref(); }); process.stdin.resume();`,
       );
       await daemon.launchPlugins("claude", join(root, "child-session"), {
@@ -225,7 +229,12 @@ child.once('message', () => { child.disconnect(); child.unref(); }); process.std
         env: {},
         name: "test-child-owner",
       });
-      expect(await ready.promise).toBe("Run project checks.");
+      const reported = z
+        .object({ resource: z.string(), text: z.string() })
+        .parse(JSON.parse(await ready.promise));
+      expect(reported.text).toBe("Run project checks.");
+      const resource = reported.resource;
+      expect(resource.startsWith(join(root, "child-session", "launch-"))).toBe(true);
       expect(await readFile(resource, "utf8")).toBe("Run project checks.");
       await daemon.close();
       await disconnected.promise;

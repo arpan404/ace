@@ -31,3 +31,25 @@ export function stoppableTasks(state: ThreadState): string[] {
     .filter(([, task]) => task.status === "running" && task.owner !== "ace" && !task.internal)
     .map(([key]) => key);
 }
+
+/**
+ * Those of `stoppableTasks` a whole-thread Stop asks the provider to stop: the ones it said it
+ * can stop. Work it can't stop is left to end (ADR 0052) and keeps the thread waiting meanwhile,
+ * as `thread.task.stop` refuses it (`task_not_stoppable`).
+ */
+export function tasksToStop(state: ThreadState): string[] {
+  return stoppableTasks(state).filter((key) => state.tasks[key]?.stoppable === true);
+}
+
+/**
+ * Those of `stoppableTasks` the provider said it can't stop and that take the thread's next
+ * prompt away while they run (an ACP shell that outlived its reply): a whole-thread Stop gives
+ * them a bounded time to end (`Sessions.closeAfter`). Other work it can't stop is left to end, as
+ * the person can send meanwhile; Claude's placeholder for an unbound subagent ends by itself.
+ */
+export function tasksHoldingPrompts(state: ThreadState): string[] {
+  return stoppableTasks(state).filter((key) => {
+    const task = state.tasks[key];
+    return task?.stoppable !== true && task?.blocksPrompts === true;
+  });
+}

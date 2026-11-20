@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { Command, AgentControlResult, ThreadId } from "@ace/protocol";
-import { cliDaemon } from "./cli-test-support.ts";
+import { cliDaemon, holdTurn } from "./cli-test-support.ts";
 
 /** Releases a root queue held after a stop, if the stop held it, as the person would. */
 async function resumeQueue(f: Awaited<ReturnType<typeof cliDaemon>>) {
@@ -35,19 +35,28 @@ for (const parent of ["claude", "codex"] as const)
             ),
           ),
         );
-      const action = (index: number) =>
-        Command.shape.payload.parse({ ...recorded.actions[index], threadId: f.caller.threadId });
+      const action = (index: number, overrides: Record<string, unknown> = {}) =>
+        Command.shape.payload.parse({
+          ...recorded.actions[index],
+          threadId: f.caller.threadId,
+          ...overrides,
+        });
       expect(f.controls.delegations.command("stop-parent", action(0)).ok).toBe(true);
       await f.engine.flush();
-      expect(f.controls.delegations.command("resume-person", action(1)).ok).toBe(true);
+      // The person's next message starts a turn, and that turn's agent delegates, as recorded.
+      const resume = action(1, { input: [{ type: "text", text: holdTurn }] });
+      expect(f.controls.delegations.command("resume-person", resume).ok).toBe(true);
       await f.engine.flush();
       await resumeQueue(f);
-      await f.settled();
       const args = {
         tasks: [{ requestId: "after-stop", provider, task: "Hello", role: "greet-after-stop" }],
         waitSeconds: 600,
       };
-      const result = await f.call("delegate", args);
+      // The provider retries the same call within its turn: the same child, nothing new made.
+      const [result, retried] = await f.duringTurn(async () => {
+        const first = await f.call("delegate", args);
+        return [first, await f.call("delegate", args)] as const;
+      });
       expect(result.isError).not.toBe(true);
       const accepted = AgentControlResult.parse(result.structuredContent);
       const data = z
@@ -64,7 +73,7 @@ for (const parent of ["claude", "codex"] as const)
       );
       expect(f.daemon.store.getThread(data.threadIds[0])?.provider).toBe(provider);
       expect(f.daemon.store.getThread(f.caller.threadId)?.status.state).toBe("done");
-      expect((await f.call("delegate", args)).structuredContent).toEqual(result.structuredContent);
+      expect(retried.structuredContent).toEqual(result.structuredContent);
       expect(f.daemon.store.listThreads()).toHaveLength(2);
     });
   }
@@ -169,12 +178,11 @@ test("one batch delegation awaits every child on a restarted OpenCode root and r
     f.controls.delegations.command("resume", {
       type: "thread.send",
       threadId: f.caller.threadId,
-      input: [{ type: "text", text: "Hello" }],
+      input: [{ type: "text", text: holdTurn }],
     }).ok,
   ).toBe(true);
   await f.engine.flush();
   await resumeQueue(f);
-  await f.settled();
   // Children stay on OpenCode: its root can only vouch for its own exact policy (ADR 0013).
   const batch = {
     tasks: ["first", "second"].map((requestId) => ({
@@ -184,12 +192,22 @@ test("one batch delegation awaits every child on a restarted OpenCode root and r
       role: `greet-${requestId}`,
     })),
   };
-  const result = AgentControlResult.parse(
-    (await f.call("delegate", { ...batch, waitSeconds: 60 })).structuredContent,
-  );
-  const data = z
-    .object({ threadIds: z.array(ThreadId).length(2), wait: z.unknown() })
-    .parse(result.data);
+  // The resumed turn's agent delegates, waits, then retries the batch, all within that turn.
+  const { data, waited, retried } = await f.duringTurn(async () => {
+    const accepted = AgentControlResult.parse(
+      (await f.call("delegate", { ...batch, waitSeconds: 60 })).structuredContent,
+    );
+    const children = z
+      .object({ threadIds: z.array(ThreadId).length(2), wait: z.unknown() })
+      .parse(accepted.data);
+    return {
+      data: children,
+      waited: AgentControlResult.parse(
+        (await f.call("wait", { threadIds: children.threadIds, mode: "any" })).structuredContent,
+      ),
+      retried: AgentControlResult.parse((await f.call("delegate", batch)).structuredContent),
+    };
+  });
   expect(data.wait).toMatchObject({
     status: "ready",
     threads: [
@@ -197,11 +215,7 @@ test("one batch delegation awaits every child on a restarted OpenCode root and r
       { threadId: data.threadIds[1], state: "done", result: "OpenCode delegated result" },
     ],
   });
-  const waited = AgentControlResult.parse(
-    (await f.call("wait", { threadIds: data.threadIds, mode: "any" })).structuredContent,
-  );
   expect(waited.data).toMatchObject({ status: "ready" });
-  const retried = AgentControlResult.parse((await f.call("delegate", batch)).structuredContent);
   // The retry names the same children and reports neither as waiting for a run slot.
   expect(retried.data).toEqual({
     threadIds: data.threadIds,

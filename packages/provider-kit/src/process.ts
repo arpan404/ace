@@ -15,7 +15,8 @@ import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
 import { reportBunStdinFailures } from "./bun-stdin.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
-import { registerGroup, signalTree, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
+import { admitProcess, registerGroup, signalTree, stopRetainedGroup } from "./process-owner.ts";
+import { unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import { windowsTreeRunning } from "./process-owner.ts";
 import { toWindowsCommand } from "./process-owner.ts";
@@ -25,9 +26,7 @@ import {
   type WindowsJobFactory,
 } from "./process-containment.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
-import { findInstalledExecutable } from "./discovery/shim-resolver.ts";
-import { probeLaunch } from "./discovery/probe-launch.ts";
-import { VersionManagerToolMissingError } from "./discovery/version-manager-shim.ts";
+import { resolveProbeLaunch, resolveWithin, type ProbeLaunch } from "./probe-resolve.ts";
 export {
   stopOwnedGroups,
   observeProcessGroups,
@@ -381,52 +380,112 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
 }
 
 /** Bounded, read-only CLI probe. Raw output is returned only to the caller. */
+export type ProbeOptions = {
+  timeoutMs?: number;
+  env?: NodeJS.ProcessEnv;
+  /** Where the CLI will run, so a shim resolves for that project. Defaults to the daemon's. */
+  cwd?: string;
+  maxBytes?: number;
+  signal?: AbortSignal;
+  /** Spawns on this thread instead of the probe worker; tests inject a fake process here. */
+  spawn?: typeof spawnRawSupervised;
+  schedule?: (callback: () => void, milliseconds: number) => () => void;
+  thread?: ProbeThread;
+  /** Resolves what runs, reading the filesystem; tests stand in for one that hangs. */
+  resolve?: typeof resolveProbeLaunch;
+};
+type ProbeResult = { stdout: string; stderr: string; code: number | null };
 export async function probeOutput(
   command: string,
   args: readonly string[],
-  options: {
-    timeoutMs?: number;
-    env?: NodeJS.ProcessEnv;
-    /** Where the CLI will run, so a shim resolves for that project. Defaults to the daemon's. */
-    cwd?: string;
-    maxBytes?: number;
-    signal?: AbortSignal;
-    /** Spawns on this thread instead of the probe worker; tests inject a fake process here. */
-    spawn?: typeof spawnRawSupervised;
-    schedule?: (callback: () => void, milliseconds: number) => () => void;
-    thread?: ProbeThread;
-  } = {},
-): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  options: ProbeOptions = {},
+): Promise<ProbeResult> {
   const maxBytes = byteLimit(options.maxBytes ?? 1_048_576, "maxBytes");
   if (options.signal?.aborted) throw new Error("Probe aborted");
-  // A probe only reads. A version manager's shim can install or update its tool when it runs,
-  // so a shim is probed through the installed binary its manager names, or not at all.
-  const found = await findInstalledExecutable(
-    command,
-    { ...process.env, ...options.env },
-    {
-      ...(options.signal ? { signal: options.signal } : {}),
-      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+  // Owned from the moment it is asked for, as a probe's process is: a global stop while the
+  // command still resolves waits for the probe, which then starts already stopping.
+  const halt = new AbortController();
+  let settled: Promise<unknown> = Promise.resolve();
+  const release = admitProcess(
+    async () => {
+      halt.abort(new Error("Probe stopped"));
+      await settled;
     },
+    () => halt.abort(new Error("Probe stopped")),
   );
-  if (found && "refused" in found) throw found.refused;
-  if (found && "absent" in found) throw new VersionManagerToolMissingError(found.path);
-  // The CLI's own interpreter and anything it starts from PATH must not reach a shim either.
-  const launch = await probeLaunch(
-    found && "run" in found ? found.run : command,
-    args,
-    { ...process.env, ...options.env },
-    {
-      ...(options.signal ? { signal: options.signal } : {}),
-      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    },
-  );
-  const schedule =
+  const running = runProbe(command, args, options, maxBytes, halt.signal);
+  settled = running.catch(() => {});
+  try {
+    return await running;
+  } finally {
+    release();
+  }
+}
+async function runProbe(
+  command: string,
+  args: readonly string[],
+  options: ProbeOptions,
+  maxBytes: number,
+  halt: AbortSignal,
+): Promise<ProbeResult> {
+  const timer =
     options.schedule ??
     ((callback: () => void, ms: number) => {
-      const timer = setTimeout(callback, ms);
-      return () => clearTimeout(timer);
+      const timeout = setTimeout(callback, ms);
+      return () => clearTimeout(timeout);
     });
+  // One deadline from the probe's start: resolving what runs and running it share the timeout.
+  const deadline = new AbortController();
+  const cancelDeadline = timer(
+    () => deadline.abort(new Error("Probe timed out")),
+    options.timeoutMs ?? 30_000,
+  );
+  /** What each phase is given as its timer: that one deadline, never a fresh one. */
+  const schedule = (callback: () => void) => {
+    if (deadline.signal.aborted) {
+      callback();
+      return () => {};
+    }
+    deadline.signal.addEventListener("abort", callback, { once: true });
+    return () => deadline.signal.removeEventListener("abort", callback);
+  };
+  try {
+    return await runResolved(command, args, options, maxBytes, halt, deadline.signal, schedule);
+  } finally {
+    cancelDeadline();
+  }
+}
+async function runResolved(
+  command: string,
+  args: readonly string[],
+  options: ProbeOptions,
+  maxBytes: number,
+  halt: AbortSignal,
+  deadline: AbortSignal,
+  schedule: (callback: () => void, milliseconds: number) => () => void,
+): Promise<ProbeResult> {
+  // A probe only reads: what it runs never reaches a version manager's shim. Resolving reads the
+  // filesystem, so it is given up on the caller's abort, a global stop or the probe's deadline,
+  // even while a read under it hangs; a stop then never waits on a stalled mount.
+  const asked = new AbortController();
+  const ask = () => asked.abort(new Error("Probe aborted"));
+  if (options.signal?.aborted) ask();
+  options.signal?.addEventListener("abort", ask, { once: true });
+  let launch: ProbeLaunch;
+  try {
+    launch = await resolveWithin(
+      (signal) =>
+        (options.resolve ?? resolveProbeLaunch)(
+          command,
+          args,
+          { ...process.env, ...options.env },
+          { signal, cwd: options.cwd },
+        ),
+      AbortSignal.any([asked.signal, halt, deadline]),
+    );
+  } finally {
+    options.signal?.removeEventListener("abort", ask);
+  }
   // A spawn blocks its thread until the child starts, seconds under load: keep it off this one.
   if (!options.spawn)
     return probeOffThread(launch.command, launch.args, {
@@ -437,6 +496,7 @@ export async function probeOutput(
       signal: options.signal,
       schedule,
       thread: options.thread,
+      halt,
     });
   const proc = options.spawn({
     command: launch.command,
@@ -470,6 +530,10 @@ export async function probeOutput(
   };
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) abort();
+  // A global stop ends the process; what it exited with is still the probe's answer.
+  const stopped = () => void proc.stop({ graceMs: 0 }).catch(() => {});
+  halt.addEventListener("abort", stopped, { once: true });
+  if (halt.aborted) stopped();
   const cancel = schedule(() => {
     failure ??= new Error("Probe timed out");
     // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
@@ -489,6 +553,7 @@ export async function probeOutput(
   } finally {
     cancel();
     options.signal?.removeEventListener("abort", abort);
+    halt.removeEventListener("abort", stopped);
   }
 }
 export async function probe(command: string, args: readonly string[]): Promise<string> {

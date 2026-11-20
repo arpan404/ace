@@ -1,6 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
-import type { TalkState } from "./spade-talk.ts";
 
 /*
  * Push to talk from anywhere, in the desktop app (ADR 0134, amended). The desktop's global
@@ -91,7 +90,7 @@ export function resumePushToTalk() {
 }
 
 /** Tells the desktop's indicator how the turn goes; nothing in a browser. */
-export function reportPushToTalk(state: TalkState["kind"], scope: object = globalThis) {
+export function reportPushToTalk(state: string, scope: object = globalThis) {
   void bridgeOf(scope)
     ?.talkState(state)
     .catch(() => {});

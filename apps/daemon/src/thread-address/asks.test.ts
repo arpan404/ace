@@ -28,6 +28,12 @@ afterEach(async () => {
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
 
+const respond = (status: number, value: unknown) => ({
+  kind: "response" as const,
+  status,
+  body: Buffer.from(JSON.stringify(value)),
+});
+
 /** Spade's side of the contract: what it holds for each key, answered as Spade would. */
 class FakeSpade {
   delivered = new Map<string, { body: Record<string, unknown>; answer: Record<string, unknown> }>();
@@ -46,11 +52,6 @@ class FakeSpade {
   call: SpadeCall = async (_connection, input, options) => {
     if (input.headers?.["x-ace-inbox-proof"] !== "signed")
       return { kind: "response", status: 403, body: Buffer.from("{}") };
-    const respond = (status: number, value: unknown) => ({
-      kind: "response" as const,
-      status,
-      body: Buffer.from(JSON.stringify(value)),
-    });
     if (input.method === "POST" && input.path === "/v1/thread-asks") {
       this.posts++;
       if (this.refuse) return respond(this.refuse.status, { error: this.refuse.error });

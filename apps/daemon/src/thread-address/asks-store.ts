@@ -50,16 +50,19 @@ export interface AskRow {
   done: boolean;
 }
 
+const ContentParts = z.array(ContentPart);
+const Strings = z.array(z.string());
+const DeviceItems = z.array(DeviceContextItem);
 const MessageRow = z.object({
   command_id: z.string(),
   thread_id: ThreadId,
   about: z.string(),
-  input: z.string().transform((text) => z.array(ContentPart).parse(JSON.parse(text))),
+  input: z.string().transform((text) => ContentParts.parse(JSON.parse(text))),
   share: AddressedShare,
-  shares: z.string().transform((text) => z.array(z.string()).parse(JSON.parse(text))),
+  shares: z.string().transform((text) => Strings.parse(JSON.parse(text))),
   pack: z.string().nullable(),
   follow_up: z.number(),
-  devices: z.string().transform((text) => z.array(DeviceContextItem).parse(JSON.parse(text))),
+  devices: z.string().transform((text) => DeviceItems.parse(JSON.parse(text))),
 });
 const StoredAsk = z.object({
   key: z.string(),
