@@ -106,11 +106,21 @@ describe("a device tab's top-level navigation to the machine's localhost", () =>
   it.each([
     // The person's: the browser's own navigation, with no initiator, and each redirect of it.
     ["the person types a localhost address", "GET", undefined, false],
-    ["the person's load redirected to localhost with 302, 303, 307 or 308", "GET", undefined, false],
+    [
+      "the person's load redirected to localhost with 302, 303, 307 or 308",
+      "GET",
+      undefined,
+      false,
+    ],
     ["the person reloads a localhost page a localhost form posted to", "POST", undefined, false],
     // A document's: Chromium names its origin on the navigation and on every redirect of it,
     // with the method that hop sends.
-    ["a public page's post redirected to localhost with 301 or 302 (now a GET)", "GET", evil, false],
+    [
+      "a public page's post redirected to localhost with 301 or 302 (now a GET)",
+      "GET",
+      evil,
+      false,
+    ],
     ["a public page's post redirected to localhost with 303 (now a GET)", "GET", evil, false],
     ["a public page links to localhost", "GET", evil, false],
     [
