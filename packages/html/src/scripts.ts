@@ -170,28 +170,80 @@ export const frameBridge = `(() => {
 })();`;
 
 /**
+ * The most a panel message may be, as UTF-8 bytes of its JSON text (ADR 0200 §5.2). Both bridges
+ * measure it before reading anything else of a message; `@ace/protocol`'s `maxPanelMessageBytes`
+ * is the same bound, kept here so this file imports nothing.
+ */
+export const panelMessageBytes = 16 * 1024;
+
+/**
+ * A panel message's text, if it is one within the bound: a string of at most
+ * `panelMessageBytes` UTF-8 bytes. A longer string is refused on its length alone, before a byte
+ * of it is read (a UTF-8 text is never shorter in bytes than in UTF-16 units); anything that
+ * isn't a string, unread. `fitsScript` is the same check as the bridges run it.
+ */
+export function panelText(data: unknown): string | undefined {
+  if (typeof data !== "string" || data.length > panelMessageBytes) return undefined;
+  let bytes = 0;
+  for (let at = 0; at < data.length; at++) {
+    const unit = data.charCodeAt(at);
+    if (unit < 0x80) bytes += 1;
+    else if (unit < 0x800) bytes += 2;
+    // A surrogate pair is four bytes in two units; a lone surrogate is written as U+FFFD, three.
+    else if (unit >> 10 === 0x36 && data.charCodeAt(at + 1) >> 10 === 0x37) {
+      bytes += 4;
+      at++;
+    } else bytes += 3;
+    if (bytes > panelMessageBytes) return undefined;
+  }
+  return data;
+}
+
+/** `panelText`, as the bridges run it. */
+const fitsScript = `(data) => {
+    if (typeof data !== 'string' || data.length > ${panelMessageBytes}) return undefined;
+    let bytes = 0;
+    for (let at = 0; at < data.length; at++) {
+      const unit = data.charCodeAt(at);
+      if (unit < 0x80) bytes += 1;
+      else if (unit < 0x800) bytes += 2;
+      else if (unit >> 10 === 0x36 && data.charCodeAt(at + 1) >> 10 === 0x37) { bytes += 4; at++; }
+      else bytes += 3;
+      if (bytes > ${panelMessageBytes}) return undefined;
+    }
+    return data;
+  }`;
+
+/**
  * A package panel's own bridge (ADR 0200 §5.2), run in its page after `pageBridge` and before any
- * authored script. It gives the page a frozen `acePanel`: `act(name, value)` sends an action, but
+ * authored script. It gives the page a frozen \`acePanel\`: \`act(name, value)\` sends an action, but
  * only while the person is pressing or typing in the page (transient user activation), so a page
- * can't act on its own; `state` and `init` are the last ones received. It dispatches `ace:init`,
- * `ace:state` and `ace:theme` with their data, answers the host's watchdog `ping`, and reports an
- * uncaught error or rejection as a `fault`. The host checks every message again.
+ * can't act on its own; \`state\` and \`init\` are the last ones received. It dispatches \`ace:init\`,
+ * \`ace:state\` and \`ace:theme\` with their data, answers the host's watchdog \`ping\`, and reports an
+ * uncaught error or rejection as a \`fault\`. Every message out is JSON text within
+ * \`panelMessageBytes\`. None of this is a boundary: the page's own script can post anything, so
+ * the outer bridge and the host check every message again, and nothing a page sends ever carries
+ * the person's word (only ace's own confirm outside the page does).
  */
 export const panelPageBridge = `(() => {
   let state;
   let init;
-  const post = (data) => parent.postMessage(data, '*');
+  const fits = ${fitsScript};
+  const post = (data) => {
+    const text = fits(JSON.stringify(data));
+    if (text === undefined) return false;
+    parent.postMessage(text, '*');
+    return true;
+  };
   const deliver = (type, detail) => dispatchEvent(new CustomEvent(type, { detail }));
-  const copy = (value) => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
   const api = Object.freeze({
     act(name, value) {
       if (typeof name !== 'string' || !name) return false;
       const activation = navigator.userActivation;
       if (activation && !activation.isActive) return false;
-      let sent;
-      try { sent = copy(value); } catch { return false; }
-      post(sent === undefined ? { type: 'ace.panel.action', name } : { type: 'ace.panel.action', name, value: sent });
-      return true;
+      try {
+        return post(value === undefined ? { type: 'ace.panel.action', name } : { type: 'ace.panel.action', name, value });
+      } catch { return false; }
     },
     get state() { return state; },
     get init() { return init; },
@@ -214,10 +266,13 @@ export const panelPageBridge = `(() => {
 })();`;
 
 /**
- * The outer document's bridge for a panel: `frameBridge`'s frame, with the panel's channel. Out of
- * the page it relays only the panel's message types, as JSON of at most 16 KB; into it, only
- * `init`, `theme`, `state` and `ping`, and the tokens of `init` and `theme` as the theme message
- * `pageBridge` applies. As the top document of a desktop `<webview>` it reports through its title,
+ * The outer document's bridge for a panel: \`frameBridge\`'s frame, with the panel's channel. Out of
+ * the page it takes only JSON text of at most \`panelMessageBytes\` UTF-8 bytes, measured before it
+ * is parsed (anything else, an object included, is dropped unread), of the panel's message types;
+ * an action only while the person is pressing or typing in the page, which activates this
+ * document too. It relays the text itself, never a copy it made. Into the page go only \`init\`,
+ * \`theme\`, \`state\` and \`ping\`, and the tokens of \`init\` and \`theme\` as the theme message
+ * \`pageBridge\` applies. As the top document of a desktop \`<webview>\` it reports through its title,
  * numbered so every message is a change of title.
  */
 export const panelFrameBridge = `(() => {
@@ -226,21 +281,25 @@ export const panelFrameBridge = `(() => {
   document.body.append(frame);
   template.remove();
   const embedded = parent !== window;
-  const out = new Set(['ace.html.height', 'ace.panel.action', 'ace.panel.fault', 'ace.panel.pong']);
+  const fits = ${fitsScript};
+  const out = new Set(['ace.panel.action', 'ace.panel.fault', 'ace.panel.pong']);
   const into = new Set(['ace.panel.init', 'ace.panel.theme', 'ace.panel.state', 'ace.panel.ping']);
   let sent = 0;
   addEventListener('message', (event) => {
     const data = event.data;
-    if (!data || typeof data !== 'object') return;
     if (event.source === frame.contentWindow && event.origin === 'null') {
-      if (!out.has(data.type)) return;
-      let text;
-      try { text = JSON.stringify(data); } catch { return; }
-      if (typeof text !== 'string' || text.length > ${16 * 1024}) return;
-      if (embedded) parent.postMessage(JSON.parse(text), '*');
+      const text = fits(data);
+      if (text === undefined) return;
+      let message;
+      try { message = JSON.parse(text); } catch { return; }
+      if (!message || typeof message !== 'object' || !out.has(message.type)) return;
+      const activation = navigator.userActivation;
+      if (message.type === 'ace.panel.action' && activation && !activation.isActive) return;
+      if (embedded) parent.postMessage(text, '*');
       else document.title = 'ace.panel:' + (++sent) + ':' + text;
       return;
     }
+    if (!data || typeof data !== 'object') return;
     if (event.source === parent && into.has(data.type)) {
       if (data.type === 'ace.panel.init' || data.type === 'ace.panel.theme') {
         if (data.scheme === 'light' || data.scheme === 'dark') document.documentElement.style.colorScheme = data.scheme;
@@ -251,15 +310,10 @@ export const panelFrameBridge = `(() => {
   });
 })();`;
 
-/** A message a desktop panel's outer document put in its title, as the page sent it. */
-export function panelMessageFromTitle(title: string): unknown {
-  const match = /^ace\.panel:\d{1,12}:(.{1,16384})$/s.exec(title);
-  if (!match?.[1]) return undefined;
-  try {
-    return JSON.parse(match[1]);
-  } catch {
-    return undefined;
-  }
+/** The text of a message a desktop panel's outer document put in its title, within the bound. */
+export function panelMessageFromTitle(title: string): string | undefined {
+  const match = /^ace\.panel:\d{1,12}:/.exec(title);
+  return match ? panelText(title.slice(match[0].length)) : undefined;
 }
 
 /** What a desktop `<webview>`'s outer document puts in its title to report a content height. */

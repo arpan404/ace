@@ -4,9 +4,10 @@ import type { FakeSpadeAnswer } from "./spade.ts";
 /*
  * A packaged bot's panels (ADR 0200 §5.2) as Spade serves them: `GET /v1/conversations/{id}/panels`
  * lists each with its page's hash and its latest state, `GET /v1/panels/pages/{hash}` answers the
- * page as text, and `POST …/panels/{id}/actions {key, action, value?}` stores a declared action
- * once by key, as the person's press. The value's schema check is Spade's; here an action is
- * refused only when its panel doesn't declare it.
+ * page as text, and `POST …/panels/{id}/actions {key, action, value?, confirmed?}` stores a
+ * declared action once by key: the page's, or the person's when confirmed. As Spade does, an
+ * action declared `confirm` goes only confirmed and only it may be. The value's schema check is
+ * Spade's.
  */
 
 type Json = Record<string, unknown>;
@@ -15,7 +16,7 @@ export interface FakePanel {
   id: string;
   title: string;
   html: string;
-  actions: readonly { name: string; label?: string }[];
+  actions: readonly { name: string; label?: string; confirm?: boolean }[];
 }
 
 const reply = (body: unknown, status = 200): FakeSpadeAnswer => ({
@@ -98,6 +99,9 @@ export class FakeSpadePanels {
           title: each.title,
           page: pageHash(each.html),
           actions: each.actions.map((action) => action.name),
+          confirm: each.actions
+            .filter((action) => action.confirm)
+            .map((action) => ({ name: action.name, label: action.label ?? action.name })),
           state:
             events.findLast((event) => event.type === "panel_updated" && event.surface === each.id)
               ?.data ?? null,
@@ -109,6 +113,14 @@ export class FakeSpadePanels {
     const fields = typeof body === "object" && body !== null ? (body as Json) : {};
     const action = declared.actions.find((each) => each.name === fields["action"]);
     if (!action) return problem(400, "The panel declares no such action.");
+    const confirmed = fields["confirmed"] === true;
+    if (Boolean(action.confirm) !== confirmed)
+      return problem(
+        400,
+        confirmed
+          ? "The panel declares no confirm for this action."
+          : "Only the person can send this action, by confirming it in ace.",
+      );
     const key = String(fields["key"] ?? "");
     if (!events.some((event) => event.type === "panel_action" && event.key === key)) {
       this.#store(agent.conversation, {
@@ -118,6 +130,7 @@ export class FakeSpadePanels {
         action: action.name,
         label: action.label ?? action.name,
         ...(fields["value"] === undefined ? {} : { value: fields["value"] }),
+        by: confirmed ? "person" : "page",
       });
       this.#reactions.get(agent.id)?.({ name: action.name, value: fields["value"] });
     }

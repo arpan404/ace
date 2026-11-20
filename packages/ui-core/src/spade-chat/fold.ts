@@ -1027,11 +1027,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.panels.set(event.surface, event.data);
       return true;
     case "panel_action":
-      // The person's own press, where they pressed it.
+      // Where it came in: the page's own, or the person's confirm.
       steer(state, {
         kind: "quiet",
         key,
-        quiet: { kind: "panel-action", label: event.label || event.action },
+        quiet: { kind: "panel-action", label: event.label || event.action, by: event.by },
         ...stamp(stored),
       });
       return true;

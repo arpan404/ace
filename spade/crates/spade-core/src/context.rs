@@ -626,7 +626,7 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     }
                 }
             }
-            // An action the person sent from a panel (ADR 0200 §5.2) reads like a job's result.
+            // An action from a panel (ADR 0200 §5.2) reads like a job's result.
             Known::PanelAction { .. } => {
                 if let Some(text) = crate::panel::action_text(event) {
                     if pending.is_empty() {
@@ -1005,6 +1005,12 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
     match event {
         // A document's words are its author's, not the person's (ADR 0134).
         Event::Known(Known::UserMessage { documents, .. }) if !documents.is_empty() => true,
+        // What a panel's page sent is its package's code speaking, not the person (ADR 0200
+        // §5.2, amendment 1); only an action the person confirmed in ace is theirs.
+        Event::Known(Known::PanelAction {
+            by: crate::event::PanelSender::Page,
+            ..
+        }) => true,
         // Another bot's message can carry text it read anywhere: treated like untrusted output,
         // whether it started the turn or steered it.
         Event::Known(Known::UserMessage {
@@ -1075,6 +1081,9 @@ fn describe_event(before: &[Event], event: &Event) -> String {
             from_agent: Some(agent),
             ..
         }) => format!("a message from {}", agent.name),
+        Event::Known(Known::PanelAction { surface, .. }) => {
+            format!("an action from the page of the panel {surface}")
+        }
         Event::Known(Known::UserMessage { documents, .. }) if !documents.is_empty() => {
             let names: Vec<String> = documents
                 .iter()

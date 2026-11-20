@@ -6,23 +6,92 @@ import {
   type PanelTheme,
 } from "@ace/protocol";
 import { themeMessage, type HtmlTheme } from "./document.ts";
+import { panelText } from "./scripts.ts";
 
 /*
- * The host's half of a package panel's channel (ADR 0200 §5.2). Every message from the page is
- * checked with its schema, and an action only when its panel declares it; the messages into the
- * page are built here; and a watchdog stops a page that throws or stalls three times. Pure: the
- * clock is the caller's.
+ * The host's half of a package panel's channel (ADR 0200 §5.2): every message from the page is
+ * JSON text measured in bytes before it is parsed, then checked with its schema, and an action
+ * only when its panel declares it; the messages into the page are built here; a watchdog stops a
+ * page that throws or stalls three times; and an action the panel declares `confirm` waits on
+ * ace's own line outside the page, where only the person's real press sends it (amendment 1).
+ * Pure: the clock and the press are the caller's.
  */
 
-/** A page message the host acts on; anything else, or an action the panel doesn't declare, is none. */
+/**
+ * A page message the host acts on: JSON text of at most `panelMessageBytes` UTF-8 bytes (the
+ * bridges relay only text), of a type the channel has. Anything else, or an action the panel
+ * doesn't declare, is none.
+ */
 export function readPanelMessage(
   raw: unknown,
   actions: ReadonlySet<string>,
 ): PanelPageMessage | undefined {
-  const read = PanelPageMessage.safeParse(raw);
+  const text = panelText(raw);
+  if (text === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const read = PanelPageMessage.safeParse(parsed);
   if (!read.success) return undefined;
   if (read.data.type === "ace.panel.action" && !actions.has(read.data.name)) return undefined;
   return read.data;
+}
+
+/** An action the panel declares `confirm`, waiting on the person's press on ace's own line. */
+export interface PanelConfirm {
+  readonly name: string;
+  readonly value: unknown;
+  /** The line's words: the panel, the action and its value. */
+  readonly words: string;
+  /** When the line appeared. */
+  readonly shownAt: number;
+}
+
+/**
+ * How long the line shows before Confirm takes a press, so a page can't draw a button where
+ * Confirm will appear and have the person's press on it land there.
+ */
+export const panelConfirmArmMs = 600;
+/** The most of a value the line shows; the rest is in its full text. */
+const valueChars = 80;
+
+/** A value in words: text as it is, anything else as compact JSON, on one line. */
+function valueWords(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** The line that asks the person, for `label` from panel `title` with `value`. */
+export function panelConfirm(
+  title: string,
+  action: { name: string; label: string },
+  value: unknown,
+  shownAt: number,
+): PanelConfirm {
+  const words = valueWords(value);
+  const shown = words.length > valueChars ? `${words.slice(0, valueChars - 1)}…` : words;
+  return {
+    name: action.name,
+    value,
+    words: `${title} asks to send “${action.label}”${shown ? ` with ${shown}` : ""}.`,
+    shownAt,
+  };
+}
+
+/**
+ * Whether a press on Confirm sends the action as the person's: only a real input event the
+ * browser made (never one a script dispatched), and only once the line has shown for
+ * `panelConfirmArmMs`.
+ */
+export function panelConfirmPressed(
+  press: { trusted: boolean; at: number },
+  confirm: PanelConfirm,
+): boolean {
+  return press.trusted && press.at - confirm.shownAt >= panelConfirmArmMs;
 }
 
 const scheme = (theme: HtmlTheme) => theme.colorScheme ?? "dark";

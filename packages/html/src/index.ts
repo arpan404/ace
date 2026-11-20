@@ -21,7 +21,13 @@ export {
   type HtmlThemeMessage,
   type ThemeProperty,
 } from "./document.ts";
-export { heightFromTitle, panelMessageFromTitle, visualizationPartition } from "./scripts.ts";
+export {
+  heightFromTitle,
+  panelMessageBytes,
+  panelMessageFromTitle,
+  panelText,
+  visualizationPartition,
+} from "./scripts.ts";
 export {
   measuredLayoutProblems,
   phoneWidth,
@@ -35,6 +41,9 @@ export {
 } from "./preview.ts";
 export {
   panelActionBudget,
+  panelConfirm,
+  panelConfirmArmMs,
+  panelConfirmPressed,
   panelFaulted,
   panelInit,
   panelMayAct,
@@ -47,5 +56,6 @@ export {
   panelTick,
   panelWatch,
   readPanelMessage,
+  type PanelConfirm,
   type PanelWatch,
 } from "./panel.ts";
