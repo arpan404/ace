@@ -67,6 +67,8 @@ export function useEditorKeys(options: EditorKeyOptions) {
   const { state, path, layout } = options;
   const mac = isMacPlatform();
   const goal = useRef<number | undefined>(undefined);
+  /** Expand selection's steps, newest last, so shrink can walk back through them. */
+  const expansions = useRef<{ before: readonly Selection[]; after: readonly Selection[] }[]>([]);
   /** Cmd+K was pressed: the next key completes a chord. */
   const chord = useRef(false);
   /** The keyboard box selection, while the selections are still the ones it made. */
@@ -302,6 +304,29 @@ export function useEditorKeys(options: EditorKeyOptions) {
         event.preventDefault();
         return;
       }
+    }
+    // Ctrl+Shift+Cmd+Right/Left on macOS, Shift+Alt+Right/Left elsewhere: expand and shrink.
+    const smartSelect = mac
+      ? event.ctrlKey && event.metaKey && event.shiftKey && !event.altKey
+      : event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey;
+    if (smartSelect && (key === "ArrowRight" || key === "ArrowLeft")) {
+      event.preventDefault();
+      goal.current = undefined;
+      const steps = expansions.current;
+      const top = steps.at(-1);
+      // A shrink only walks back while the cursors are still the ones the last expansion made.
+      if (top && !sameSelections(top.after, doc.selections())) steps.length = 0;
+      if (key === "ArrowRight") {
+        const before = doc.selections();
+        if (state.selectBy((target) => target.expandSelection())) {
+          steps.push({ before, after: doc.selections() });
+          revealPrimary();
+        }
+      } else {
+        const last = steps.pop();
+        if (last) commitMove(last.before);
+      }
+      return;
     }
     if (mod && event.altKey && (event.code === "BracketLeft" || event.code === "BracketRight")) {
       if (!options.onFold) return;

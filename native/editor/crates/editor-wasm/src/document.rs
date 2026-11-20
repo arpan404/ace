@@ -380,6 +380,12 @@ impl EditorDocument {
     pub fn skip_occurrence(&mut self) -> bool {
         self.core.skip_occurrence()
     }
+
+    /// Grows every selection to the smallest larger unit around it. False when none can grow.
+    #[wasm_bindgen(js_name = expandSelection)]
+    pub fn expand_selection(&mut self) -> bool {
+        self.core.expand_selection()
+    }
 }
 
 fn query(pattern: &str, regex: bool, case_sensitive: bool, whole_word: bool) -> FindQuery {

@@ -88,6 +88,7 @@ export interface WasmDocument {
   selectNextOccurrence(): boolean;
   selectAllOccurrences(): boolean;
   skipOccurrence(): boolean;
+  expandSelection(): boolean;
   free(): void;
 }
 

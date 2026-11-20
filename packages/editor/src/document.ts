@@ -275,6 +275,14 @@ export class EditorDocument {
     return this.#inner.skipOccurrence();
   }
 
+  /**
+   * Grows every selection to the smallest larger unit around it: word, the text inside the
+   * brackets, the brackets, the line, the indented block, the document. False when none grows.
+   */
+  expandSelection(): boolean {
+    return this.#inner.expandSelection();
+  }
+
   /** Releases the Wasm-side document now instead of at garbage collection. */
   dispose(): void {
     this.#inner.free();
