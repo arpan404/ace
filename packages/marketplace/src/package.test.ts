@@ -155,9 +155,9 @@ describe("agent packages", () => {
       ...watcher,
       effects: [],
       superpowers: { effects: [{ effect: "publish", why: "x" }] },
-      surfaces: [{ id: "fare-drop", kind: "card" }],
+      surfaces: [{ id: "fare-drop", kind: "card", file: "cards/fare-drop.json" }],
     });
-    expect(Object.keys(recipe?.extra ?? {})).toEqual(["superpowers", "surfaces"]);
+    expect(Object.keys(recipe?.extra ?? {})).toEqual(["superpowers"]);
     expect(recipe?.effects).toEqual([]);
   });
 

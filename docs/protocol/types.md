@@ -29671,6 +29671,50 @@ Example:
 {}
 ```
 
+## PackageSurface
+
+[JSON Schema](schema/PackageSurface.json), input validation.
+
+### card
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"card"` |  |
+| id | yes | string | {"maxLength":40} |
+| file | yes | string | {"maxLength":200} |
+
+Example:
+
+```json
+{
+  "file": "example",
+  "id": "example",
+  "kind": "card"
+}
+```
+
+### panel
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"panel"` |  |
+| id | yes | string | {"maxLength":40} |
+| file | yes | string | {"maxLength":200} |
+| title | yes | string | {"minLength":1,"maxLength":60,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| state | no | any JSON value |  |
+| actions | no | array | {"maxItems":16,"items":{"type":"object","properties":{"name":{"type":"string","maxLength":40},"label":{"type":"string","minLength":1,"maxLength":40,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"value":{}},"required":["name"]}} |
+
+Example:
+
+```json
+{
+  "file": "example",
+  "id": "example",
+  "kind": "panel",
+  "title": "example"
+}
+```
+
 ## PackageTrigger
 
 [JSON Schema](schema/PackageTrigger.json), input validation.
@@ -29922,6 +29966,159 @@ Example:
 
 ```json
 "sDBpf8"
+```
+
+## PanelInit
+
+[JSON Schema](schema/PanelInit.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.init"` |  |
+| runtime | yes | `"1"` |  |
+| tokens | yes | object | {"propertyNames":{"type":"string","maxLength":40},"additionalProperties":{"type":"string","maxLength":400}} |
+| scheme | yes | ["light","dark"] |  |
+| reduceMotion | yes | boolean |  |
+| size | yes | object | {"properties":{"width":{"type":"integer","minimum":0,"maximum":100000},"height":{"type":"integer","minimum":0,"maximum":100000}},"required":["width","height"],"additionalProperties":false} |
+
+Example:
+
+```json
+{
+  "reduceMotion": true,
+  "runtime": "1",
+  "scheme": "dark",
+  "size": {
+    "height": 8,
+    "width": 3
+  },
+  "tokens": {},
+  "type": "ace.panel.init"
+}
+```
+
+## PanelPageMessage
+
+[JSON Schema](schema/PanelPageMessage.json), input validation.
+
+### ace.html.height
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.html.height"` |  |
+| height | yes | number | {"minimum":1,"maximum":10000} |
+
+Example:
+
+```json
+{
+  "height": 1,
+  "type": "ace.html.height"
+}
+```
+
+### ace.panel.action
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.action"` |  |
+| name | yes | string | {"minLength":1,"maxLength":40} |
+| value | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "name": "example",
+  "type": "ace.panel.action",
+  "value": null
+}
+```
+
+### ace.panel.fault
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.fault"` |  |
+
+Example:
+
+```json
+{
+  "type": "ace.panel.fault"
+}
+```
+
+### ace.panel.pong
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.pong"` |  |
+| n | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "n": 8,
+  "type": "ace.panel.pong"
+}
+```
+
+## PanelPing
+
+[JSON Schema](schema/PanelPing.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.ping"` |  |
+| n | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "n": 6,
+  "type": "ace.panel.ping"
+}
+```
+
+## PanelState
+
+[JSON Schema](schema/PanelState.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.state"` |  |
+| data | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "type": "ace.panel.state"
+}
+```
+
+## PanelTheme
+
+[JSON Schema](schema/PanelTheme.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.theme"` |  |
+| tokens | yes | object | {"propertyNames":{"type":"string","maxLength":40},"additionalProperties":{"type":"string","maxLength":400}} |
+| scheme | yes | ["light","dark"] |  |
+
+Example:
+
+```json
+{
+  "scheme": "light",
+  "tokens": {},
+  "type": "ace.panel.theme"
+}
 ```
 
 ## ParcelAnswer
@@ -35092,6 +35289,7 @@ Example:
 | contracts | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageContract.json"}} |
 | tests | no | array | {"default":[],"maxItems":64,"items":{"type":"string","pattern":"^tests\\/[A-Za-z0-9._-]+\\.json$"}} |
 | style | no | object | {"properties":{"accent":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"required":["accent"],"additionalProperties":false} |
+| surfaces | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageSurface.json"}} |
 
 Example:
 

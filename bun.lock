@@ -827,6 +827,7 @@
       "name": "@ace/marketplace",
       "dependencies": {
         "@ace/account-grant": "workspace:*",
+        "@ace/html": "workspace:*",
         "@ace/plugins": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/suits": "workspace:*",

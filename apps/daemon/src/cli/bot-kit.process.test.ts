@@ -80,6 +80,9 @@ describe.skipIf(!haveSpade)("a package ace bot init makes", () => {
         expect.arrayContaining([expect.stringMatching(/^skills\/.+\/SKILL\.md$/)]),
       );
       expect(files).toEqual(expect.arrayContaining([expect.stringMatching(/^cards\/.+\.json$/)]));
+      // The watcher ships a panel: its one page, declared in bot.json (ADR 0200 §5.2).
+      if (template === "watcher")
+        expect(files).toEqual(expect.arrayContaining(["panels/watching/index.html"]));
 
       const checked = await ace("bot", "check", folder, "--json");
       expect(checked.code, checked.stderr).toBe(0);

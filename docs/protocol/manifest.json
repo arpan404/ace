@@ -3924,6 +3924,10 @@
       "bytes": 340,
       "sha256": "c526b656ea3ef0ebde9221d1d3c52fd5d59cef46a3c1bad3da1b0bec3d42f6c4"
     },
+    "schema/PackageSurface.json": {
+      "bytes": 1815,
+      "sha256": "3c313efd5e914c9f75dfc533cb244567ae2dfcf121849f060f50afa017e4346f"
+    },
     "schema/PackageTrigger.json": {
       "bytes": 2456,
       "sha256": "6856f557b6436c26bb082340d890131f63b84448673dc3e9af07f6bf3178340c"
@@ -3963,6 +3967,26 @@
     "schema/PaletteName.json": {
       "bytes": 216,
       "sha256": "fb5d21fa826b0ddb4468621d9c4a9e7fad769adb33e12526dfd6f132d609147b"
+    },
+    "schema/PanelInit.json": {
+      "bytes": 1222,
+      "sha256": "073ae786ce44ca27bd9dfa4dfa10e374b0d0a38fffafd3a6cd08221712242f7e"
+    },
+    "schema/PanelPageMessage.json": {
+      "bytes": 1513,
+      "sha256": "c1cbce28194d355c46764401ef17f70dbfdd60e89952840c186ad54d151fd81c"
+    },
+    "schema/PanelPing.json": {
+      "bytes": 411,
+      "sha256": "2275e6bec04d39d9c2ba6142479d771452fff71109d9dcb3a9482b52fedc1cf5"
+    },
+    "schema/PanelState.json": {
+      "bytes": 335,
+      "sha256": "4db62e46ab4b98a540b8a72b2c755206c3b1043ef8130d820ef87798ef24b8d8"
+    },
+    "schema/PanelTheme.json": {
+      "bytes": 660,
+      "sha256": "dae200f9237930e8365c4534e4e11e68780a3ec94879d392eec02cc26c5b2d04"
     },
     "schema/ParcelAnswer.json": {
       "bytes": 1516,
@@ -4573,8 +4597,8 @@
       "sha256": "56549ee3cb5c0441b782e3de8a87e4cfc8504d7310fc9ad34b0d59dba575ea45"
     },
     "schema/Recipe.json": {
-      "bytes": 6679,
-      "sha256": "d4f6fb9a310a4cd67a70f7a168354ba76a12a2badd2c563d0d3d33217c7633ae"
+      "bytes": 6842,
+      "sha256": "eea8fe092d7650127df7ba03a5c8706194a164b4af231d3a7e20b70e129cee34"
     },
     "schema/RecipeConnectorId.json": {
       "bytes": 193,
@@ -6681,10 +6705,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1361712,
-      "sha256": "beeed4fa409783d2cd4d65ff7cb40dbbcb8f9a367ea7ff656a379188eb7c4d5e"
+      "bytes": 1365943,
+      "sha256": "1501971a921307f81b8b929df31788523f60758af764835e71a34403464b1581"
     }
   },
-  "input": "877354e5a9feb44da4d8ca252a75aadd0e3b7103d62c1bd20844a885c938ed8f",
+  "input": "63ed836e871589b250a0de9c0e64365afa961bc94352cfa06ba8a6cf2e9b9fd1",
   "version": 1
 }

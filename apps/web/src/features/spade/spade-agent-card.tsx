@@ -34,6 +34,8 @@ export function SpadeAgentCard(props: {
   style?: SpadeAgentStyle | undefined;
   botName: string;
   onChoose: SpadeCardChoose;
+  /** Opens one of the bot's panels beside its chat; its buttons are left out without it. */
+  onOpenPanel?: ((panel: string) => void) | undefined;
 }) {
   const { item } = props;
   const accent = useCardAccent(props);
@@ -58,13 +60,19 @@ export function SpadeAgentCard(props: {
           block={block}
           item={item}
           onChoose={props.onChoose}
+          onOpenPanel={props.onOpenPanel}
         />
       ))}
     </section>
   );
 }
 
-function Block(props: { block: SpadeCardBlock; item: SpadeCardRow; onChoose: SpadeCardChoose }) {
+function Block(props: {
+  block: SpadeCardBlock;
+  item: SpadeCardRow;
+  onChoose: SpadeCardChoose;
+  onOpenPanel: ((panel: string) => void) | undefined;
+}) {
   const { block } = props;
   switch (block.kind) {
     case "fields":
@@ -177,7 +185,14 @@ function Block(props: { block: SpadeCardBlock; item: SpadeCardRow; onChoose: Spa
         </a>
       );
     case "actions":
-      return <Actions actions={block.actions} item={props.item} onChoose={props.onChoose} />;
+      return (
+        <Actions
+          actions={block.actions}
+          item={props.item}
+          onChoose={props.onChoose}
+          onOpenPanel={props.onOpenPanel}
+        />
+      );
     case "unknown":
       return null;
   }
@@ -187,8 +202,9 @@ function Actions(props: {
   actions: readonly SpadeCardAction[];
   item: SpadeCardRow;
   onChoose: SpadeCardChoose;
+  onOpenPanel: ((panel: string) => void) | undefined;
 }) {
-  const { item } = props;
+  const { item, onOpenPanel } = props;
   const [pressing, setPressing] = useState<string>();
   const [refused, setRefused] = useState<{ version: number; words: string }>();
   const chosen = item.chosen;
@@ -201,7 +217,9 @@ function Actions(props: {
       if (words) setRefused({ version: item.version, words });
     });
   };
-  const opens = props.actions.filter((a) => a.kind === "open");
+  const opens = props.actions.filter(
+    (a) => a.kind === "open" || (a.kind === "open_panel" && onOpenPanel),
+  );
   return (
     <div className="flex flex-col gap-2">
       {chosen ? (
@@ -242,6 +260,15 @@ function Actions(props: {
                 {action.label}
                 <span className="text-subtle-foreground">{action.host}</span>
               </a>
+            ) : action.kind === "open_panel" && onOpenPanel ? (
+              <Button
+                key={`panel:${action.panel}`}
+                size="sm"
+                variant="ghost"
+                onClick={() => onOpenPanel(action.panel)}
+              >
+                {action.label}
+              </Button>
             ) : null,
           )}
         </div>

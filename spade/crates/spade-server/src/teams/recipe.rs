@@ -74,6 +74,8 @@ pub struct RecipeInput {
     pub shipped: Option<PackageId>,
     /// The person's effect switches, by key; one missing is off.
     pub switches: BTreeMap<String, bool>,
+    /// The package's panel pages (ADR 0200 §5.2), by path: kept with the bot as it is made.
+    pub pages: BTreeMap<String, String>,
 }
 
 fn invalid(message: impl Into<String>) -> PortableError {
@@ -195,6 +197,8 @@ pub fn from_recipe(
     input: RecipeInput,
 ) -> Result<Imported, PortableError> {
     let (recipe, package) = checked(engine, &input)?;
+    let pages = packages::panels::pages(&recipe, &input.pages)
+        .map_err(|error| invalid(error.to_string()))?;
     // A package from the market answers the bots' cards that suggested it (ADR 0200 §8).
     let from_market = package
         .as_ref()
@@ -239,10 +243,14 @@ pub fn from_recipe(
             naming: false,
         },
         |id| match &linking {
-            Some(linking) => vec![(
+            // Its panels' pages are kept in the same write as the bot and its link.
+            Some(linking) => [(
                 package_key(id),
                 link_text(&packages::installing(&recipe, linking)),
-            )],
+            )]
+            .into_iter()
+            .chain(packages::panels::rows(id, &pages))
+            .collect(),
             None => Vec::new(),
         },
     )?;

@@ -6,6 +6,7 @@
 //! - [`contract`] reads its contracts: typed calls other agents of the person make to its bot.
 //! - [`link`] is what a bot installed from a version 3 package keeps of it, and its ceiling.
 //! - [`scenario`] reads a package's scenario tests and checks what a run of one showed.
+//! - [`surfaces`] reads the cards and panels a package ships.
 //! - [`update`] plans an update or a rollback: what the package replaces, what stays because
 //!   the person or the bot changed it, and what the new version asks for that starts off.
 
@@ -13,6 +14,7 @@ pub mod contract;
 pub mod link;
 pub mod manifest;
 pub mod scenario;
+pub mod surfaces;
 pub mod update;
 
 pub use manifest::{Declared, Limits, Manifest, PackageTrigger, read};

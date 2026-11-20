@@ -1,0 +1,65 @@
+{
+  "$id": "https://ace.local/protocol/v1/PanelInit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "reduceMotion": {
+      "type": "boolean"
+    },
+    "runtime": {
+      "const": "1",
+      "type": "string"
+    },
+    "scheme": {
+      "enum": [
+        "light",
+        "dark"
+      ],
+      "type": "string"
+    },
+    "size": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "width": {
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "type": "object"
+    },
+    "tokens": {
+      "additionalProperties": {
+        "maxLength": 400,
+        "type": "string"
+      },
+      "propertyNames": {
+        "maxLength": 40,
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "type": {
+      "const": "ace.panel.init",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "runtime",
+    "tokens",
+    "scheme",
+    "reduceMotion",
+    "size"
+  ],
+  "type": "object"
+}

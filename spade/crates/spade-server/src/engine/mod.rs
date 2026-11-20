@@ -47,6 +47,7 @@ pub mod onboarding;
 mod outbox;
 mod oversight;
 pub(crate) mod packages;
+mod panels;
 mod park;
 mod pause;
 mod plugin_hooks;
@@ -98,6 +99,7 @@ pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use panels::{PanelError, PanelView};
 pub use reach::ReachError;
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
 pub use suggest::{MarketBots, MarketFuture};
@@ -354,6 +356,8 @@ impl Engine {
             .with_tool(Arc::new(crate::tools::Notify(handle.clone())))
             .with_tool(Arc::new(crate::tools::PackageSuggest));
         let mut tools = tools;
+        // `panel_update` (ADR 0200 §5.2): the state a packaged bot's panel shows.
+        tools = tools.with_tool(Arc::new(crate::tools::PanelUpdate(handle.clone())));
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -862,6 +866,13 @@ impl Engine {
                 }) =>
                 {
                     return Ok(spade_store::Delivered::Duplicate);
+                }
+                // A panel's action lands once per request (ADR 0200 §5.2), however often sent.
+                Event::Known(Known::PanelAction { key, .. }) => {
+                    if spade_core::panel::acted(&events, key) {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    false
                 }
                 // A wake fires once (ADR 0160): only while it is still open.
                 Event::Known(Known::WakeFired { wake, .. }) => {

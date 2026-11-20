@@ -1,0 +1,81 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageSurface.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "file": {
+          "maxLength": 200,
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 40,
+          "type": "string"
+        },
+        "kind": {
+          "const": "card",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "file"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "actions": {
+          "items": {
+            "properties": {
+              "label": {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string",
+                "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+              },
+              "name": {
+                "maxLength": 40,
+                "type": "string"
+              },
+              "value": {}
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "file": {
+          "maxLength": 200,
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 40,
+          "type": "string"
+        },
+        "kind": {
+          "const": "panel",
+          "type": "string"
+        },
+        "state": {},
+        "title": {
+          "maxLength": 60,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "file",
+        "title"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -42,6 +42,7 @@ export {
   type TrendRow,
 } from "./trending.ts";
 export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe } from "./recipe.ts";
+export { panelFile, panelFiles, surfaceProblems } from "./surfaces.ts";
 export { breakingChanges, contractLimits, readContracts } from "./contracts.ts";
 export {
   botJsonOf,

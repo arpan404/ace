@@ -19,6 +19,8 @@ use crate::personality::Personality;
 use crate::routine::{self, AceEvent, Trigger};
 use crate::tools::Risk;
 
+use super::surfaces::Surface;
+
 pub const FORMAT: &str = "spade-bot";
 /// The runtime API's major version this build serves (ADR 0200 §4): `spade.v1`'s.
 pub const RUNTIME: &str = runtime::VERSION;
@@ -75,11 +77,9 @@ const KNOWN_V3: [&str; 22] = [
     "tests",
     "notes",
     "pricing",
-    // Read in phase 2 (ADR 0200 §5); kept and listed as not used until then.
     "surfaces",
     "contracts",
 ];
-const NOT_YET: [&str; 1] = ["surfaces"];
 const KNOWN_V2: [&str; 14] = [
     "personality",
     "format",
@@ -253,6 +253,9 @@ pub struct Manifest {
     pub limits: Limits,
     pub tests: Vec<String>,
     pub notes: Vec<String>,
+    /// The cards and panels it ships (ADR 0200 §5).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<Surface>,
     /// Fields this build doesn't use, by name, for the review's "Not used by this Spade".
     pub unused: Vec<String>,
 }
@@ -367,10 +370,9 @@ impl Reader<'_> {
             .fields
             .keys()
             .filter(|key| {
-                NOT_YET.contains(&key.as_str())
-                    || !(known.contains(&key.as_str())
-                        || IDENTITY.contains(&key.as_str())
-                        || EXECUTIONS.contains(&key.as_str()))
+                !(known.contains(&key.as_str())
+                    || IDENTITY.contains(&key.as_str())
+                    || EXECUTIONS.contains(&key.as_str()))
             })
             .cloned()
             .collect();
@@ -433,6 +435,11 @@ impl Reader<'_> {
                 Vec::new()
             },
             notes: self.notes(),
+            surfaces: if version == 3 {
+                super::surfaces::read(self.fields.get("surfaces"), &mut self.problems)
+            } else {
+                Vec::new()
+            },
             unused,
         };
         if version == 3 {

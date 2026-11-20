@@ -206,6 +206,13 @@
       ],
       "type": "object"
     },
+    "surfaces": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PackageSurface.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "task": {
       "default": "",
       "maxLength": 4000,

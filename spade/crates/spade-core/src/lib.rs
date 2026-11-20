@@ -30,6 +30,7 @@ pub mod named_devices;
 pub mod outward;
 pub mod oversight;
 pub mod package;
+pub mod panel;
 pub mod personality;
 pub mod provenance;
 pub mod question;

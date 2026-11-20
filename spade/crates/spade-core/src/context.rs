@@ -626,6 +626,16 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     }
                 }
             }
+            // An action the person sent from a panel (ADR 0200 §5.2) reads like a job's result.
+            Known::PanelAction { .. } => {
+                if let Some(text) = crate::panel::action_text(event) {
+                    if pending.is_empty() {
+                        push_person(&mut out, text, Vec::new());
+                    } else {
+                        held.push((text, Vec::new()));
+                    }
+                }
+            }
             // A choice pressed on a card (ADR 0200 §5.1) reads like a job's result; its card is
             // looked up in every event, since it may sit before the compaction's cut.
             Known::CardAction { .. } => {

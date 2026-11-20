@@ -9,6 +9,7 @@ import {
   type MarketEffectRow,
   type MarketProblem,
 } from "@ace/protocol/marketplace";
+import { surfaceProblems } from "./surfaces.ts";
 
 /*
  * An agent package's manifest, `bot.json` at version 3 (ADR 0200 §3), read the way Spade reads it
@@ -55,6 +56,7 @@ const known = new Set([
   "tests",
   "notes",
   "pricing",
+  "surfaces",
   "contracts",
   ...identity,
   ...executions,
@@ -173,12 +175,14 @@ function effectProblems(raw: unknown, at: string): MarketProblem[] {
   return problems;
 }
 
-/** Zod's issues as sentences, less an effect's word and why, which its own check says better. */
+/** Zod's issues as sentences, less what the effect and surface checks say better. */
 function issues(error: z.ZodError): MarketProblem[] {
   return error.issues
     .filter(
       (issue) =>
-        !(issue.path[0] === "effects" && (issue.path[2] === "why" || issue.path[2] === "effect")),
+        !(issue.path[0] === "effects" && (issue.path[2] === "why" || issue.path[2] === "effect")) &&
+        // `surfaceProblems` says what's wrong with a surface, in Spade's words.
+        issue.path[0] !== "surfaces",
     )
     .slice(0, 20)
     .map((issue) => problem(`${issue.path.join(".") || "bot.json"}: ${issue.message}`));
@@ -243,6 +247,7 @@ export function readPackage(
     if (raw !== undefined && (!Array.isArray(raw) || raw.length > most))
       problems.push(problem(`${field} is a list of at most ${most}`));
   }
+  for (const message of surfaceProblems(json["surfaces"])) problems.push(problem(message));
   if (json["uses"] !== undefined && !Array.isArray(json["uses"]))
     problems.push(problem("uses lists runtime modules"));
   const effects: unknown[] = Array.isArray(json["effects"]) ? json["effects"] : [];

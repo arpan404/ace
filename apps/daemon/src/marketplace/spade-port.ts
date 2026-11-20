@@ -107,6 +107,7 @@ function linked(input: Parameters<SpadePort["createBot"]>[0]["linked"]) {
 function identity(input: PackageInput) {
   return {
     recipe: input.manifest,
+    ...(input.pages && Object.keys(input.pages).length > 0 ? { pages: input.pages } : {}),
     ...(input.signed
       ? {
           package: input.signed.package,

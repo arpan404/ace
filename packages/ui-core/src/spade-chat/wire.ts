@@ -3,6 +3,7 @@ import { spadeJson as json } from "./json.ts";
 import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
 import { spadeCapabilityEvents } from "./wire-capabilities.ts";
 import { spadeCardEvents } from "./cards.ts";
+import { spadePanelEvents } from "./panels.ts";
 import { spadeNoticeEvents } from "./notices.ts";
 
 /**
@@ -372,6 +373,7 @@ const known = z.discriminatedUnion("type", [
   }),
   ...spadeCapabilityEvents,
   ...spadeCardEvents,
+  ...spadePanelEvents,
   ...spadeNoticeEvents,
 ]);
 
