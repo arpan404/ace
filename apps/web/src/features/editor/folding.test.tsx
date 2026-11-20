@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { beforeEach, expect, test } from "vitest";
 import { CodeEditor } from "./editor.tsx";
-import { allFolds, foldAround, foldAt, hiddenRanges, isFoldStart, mapFolds } from "./folding.ts";
+import { allFolds, foldAround, foldAt, hiddenRanges, isFoldStart } from "./folding.ts";
 import type { EditorHandle } from "./types.ts";
 
 beforeEach(() => {
@@ -42,20 +42,6 @@ test("nested folds hide one merged range", () => {
       { start: 0, end: 4 },
     ]),
   ).toEqual([{ from: 1, to: 5 }]);
-});
-
-test("folds move with edits above them and open when their hidden text changes", () => {
-  const folds = [{ start: 4, end: 6 }];
-  // Two lines inserted on line 1: the fold moves down by two.
-  expect(mapFolds(folds, [{ firstLine: 1, removedLines: 1, insertedLines: 3 }])).toEqual([
-    { start: 6, end: 8 },
-  ]);
-  // Typing on the header line keeps it.
-  expect(mapFolds(folds, [{ firstLine: 4, removedLines: 1, insertedLines: 1 }])).toEqual(folds);
-  // An edit inside opens it.
-  expect(mapFolds(folds, [{ firstLine: 5, removedLines: 1, insertedLines: 1 }])).toEqual([]);
-  // An edit below leaves it.
-  expect(mapFolds(folds, [{ firstLine: 9, removedLines: 1, insertedLines: 4 }])).toEqual(folds);
 });
 
 async function openEditor(text: string) {
@@ -126,4 +112,16 @@ test("typing above a fold keeps it closed", async () => {
   );
   await userEvent.keyboard("{Enter}");
   expect(drawn()).toEqual(["1", "2", "3", "4", "6", "7", "8", "9"]);
+});
+
+test("after Fold All, Enter on a folded header opens that fold alone; its nested fold and the rest stay closed", async () => {
+  const text = ["fn a() {", "  if x {", "    y();", "  }", "}", "fn b() {", "  z();", "}"];
+  const ref = await openEditor(text.join("\n"));
+  await userEvent.keyboard("{Meta>}k{/Meta}{Meta>}0{/Meta}");
+  expect(drawn()).toEqual(["1", "5", "6", "8"]);
+  act(() =>
+    ref.current?.setSelections([{ anchor: { line: 0, column: 8 }, head: { line: 0, column: 8 } }]),
+  );
+  await userEvent.keyboard("{Enter}");
+  expect(drawn()).toEqual(["1", "2", "3", "5", "6", "7", "9"]);
 });

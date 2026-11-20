@@ -235,6 +235,20 @@ export class WrapIndex implements RowLayout {
     for (const node of next) this.#settle(node);
   }
 
+  /**
+   * Shows the lines in `[from, to)` again (a fold an edit opened) and leaves every other hidden
+   * line as it is: costs those lines only.
+   */
+  showLines(from: number, to: number): void {
+    for (let line = Math.max(0, from); line < Math.min(to, this.#length); line++) {
+      const node = this.#nodeAt(line);
+      if (node === 0 || this.#hidden[node] !== 1) continue;
+      this.#hidden[node] = 0;
+      this.#hiddenNodes.delete(node);
+      this.#settle(node);
+    }
+  }
+
   /** Whether a line is inside a folded region. */
   isHidden(line: number): boolean {
     return this.#hidden[this.#nodeAt(line)] === 1;
