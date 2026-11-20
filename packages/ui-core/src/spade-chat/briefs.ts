@@ -9,17 +9,16 @@ import { z } from "zod";
 
 const words = z.string().catch("").default("");
 const count = z.number().int().nonnegative().catch(0).default(0);
-const list = <T extends z.ZodType>(item: T) =>
-  z
-    .array(z.unknown())
-    .catch([])
-    .default([])
-    .transform((rows) =>
-      rows.flatMap((row) => {
-        const parsed = item.safeParse(row);
-        return parsed.success ? [parsed.data as z.output<T>] : [];
-      }),
-    );
+const rawList = z.array(z.unknown()).catch([]).default([]);
+/** The rows of a list that read as `item`; the rest are left out. */
+const keep =
+  <T extends z.ZodType>(item: T) =>
+  (rows: unknown[]) =>
+    rows.flatMap((row) => {
+      const parsed = item.safeParse(row);
+      return parsed.success ? [parsed.data as z.output<T>] : [];
+    });
+const list = <T extends z.ZodType>(item: T) => rawList.transform(keep(item));
 
 const finished = z.object({
   agent: z.string(),

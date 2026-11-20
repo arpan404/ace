@@ -13,7 +13,7 @@ import { followSpadeNotices } from "./notices.ts";
 
 const stops: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
-  for (const stop of stops.splice(0).reverse()) await stop();
+  for (const stop of stops.splice(0).toReversed()) await stop();
 });
 
 async function fakeSpade() {
@@ -39,7 +39,10 @@ async function fakeSpade() {
   );
   const { port } = server.address() as AddressInfo;
   return {
-    ready: { connection: { host: "127.0.0.1", port, token: "t" }, generation: 1 } satisfies SpadeReady,
+    ready: {
+      connection: { host: "127.0.0.1", port, token: "t" },
+      generation: 1,
+    } satisfies SpadeReady,
     opened: () => opened,
     send(notice: Record<string, unknown>) {
       streams.at(-1)?.write(`event: notice\ndata: ${JSON.stringify(notice)}\n\n`);
@@ -76,16 +79,34 @@ it("what Spade sends to reach the person now reaches ace's alerts, and a closed 
   });
   stops.push(() => follower.close());
   await until(() => spade.opened() === 1);
-  const base = { kind: "event", agent: "a1", name: "Booker", conversation: "c1", category: "needs_you" };
+  const base = {
+    kind: "event",
+    agent: "a1",
+    name: "Booker",
+    conversation: "c1",
+    category: "needs_you",
+  };
   spade.send({ ...base, id: "event:c1:1", text: "Held", reach: "held", why: "dnd" });
-  spade.send({ ...base, id: "event:c1:2", text: "Asks: Window or aisle?", reach: "now", request: "q2" });
+  spade.send({
+    ...base,
+    id: "event:c1:2",
+    text: "Asks: Window or aisle?",
+    reach: "now",
+    request: "q2",
+  });
   await until(() => alerts.length === 1);
   expect(alerts[0]?.id).toBe("spade:event:c1:2");
   expect(alerts[0]?.spade?.request).toBe("q2");
 
   spade.closeStream();
   await until(() => spade.opened() === 2);
-  spade.send({ ...base, id: "event:c1:3", text: "Its reply failed.", reach: "now", category: "escalation" });
+  spade.send({
+    ...base,
+    id: "event:c1:3",
+    text: "Its reply failed.",
+    reach: "now",
+    category: "escalation",
+  });
   await until(() => alerts.length === 2);
   expect(alerts.map((alert) => alert.id)).toEqual(["spade:event:c1:2", "spade:event:c1:3"]);
 });

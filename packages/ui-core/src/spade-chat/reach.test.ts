@@ -5,7 +5,12 @@ import { parseSpadeReach, spadeClock, spadeMinutes } from "./reach.ts";
 describe("reaching the person", () => {
   it("reads the settings with why notices wait now, and defaults for what an older Spade left out", () => {
     const body = JSON.stringify({
-      settings: { notify: true, dnd: true, quiet: { from: 1320, to: 420 }, budget: { per_hour: 2 } },
+      settings: {
+        notify: true,
+        dnd: true,
+        quiet: { from: 1320, to: 420 },
+        budget: { per_hour: 2 },
+      },
       quiet: "dnd",
       held: 3,
     });
@@ -38,7 +43,13 @@ describe("reaching the person", () => {
           text: "Since 21:00: …",
           digest: {
             finished: [
-              { agent: "a1", name: "Builder", conversation: "c1", seq: 4, text: "Build finished after 2h." },
+              {
+                agent: "a1",
+                name: "Builder",
+                conversation: "c1",
+                seq: 4,
+                text: "Build finished after 2h.",
+              },
             ],
             waiting: [
               {
@@ -79,7 +90,10 @@ describe("reaching the person", () => {
         options: ["Now", "Tomorrow"],
       },
     ]);
-    const placed = withSpadeDigests([], rows).map((item) => [item.kind, "name" in item ? item.name : ""]);
+    const placed = withSpadeDigests([], rows).map((item) => [
+      item.kind,
+      "name" in item ? item.name : "",
+    ]);
     expect(placed).toEqual([
       ["digest", ""],
       ["routine", "Morning brief"],

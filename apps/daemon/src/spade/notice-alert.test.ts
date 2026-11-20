@@ -41,7 +41,11 @@ describe("Spade notices as ace's alerts", () => {
   it("each kind reads as what it is, and one that doesn't read alerts no one", () => {
     const cases: [Record<string, unknown>, string, string][] = [
       [{ category: "brief", text: "2 finished" }, "Morning brief", "2 finished"],
-      [{ category: "summary", text: "While you were away: 3 updates" }, "Spade", "While you were away: 3 updates"],
+      [
+        { category: "summary", text: "While you were away: 3 updates" },
+        "Spade",
+        "While you were away: 3 updates",
+      ],
       [{ category: "digest", text: "Booker: from 9:00" }, "Booker", "Digest: Booker: from 9:00"],
       [{ category: "something_new", text: "A new kind" }, "Booker", "A new kind"],
     ];
@@ -51,6 +55,8 @@ describe("Spade notices as ace's alerts", () => {
     }
     expect(alertFromSpadeNotice("not json", host)).toBeUndefined();
     expect(alertFromSpadeNotice(notice({ agent: "" }), host)).toBeUndefined();
-    expect(alertFromSpadeNotice(notice({ text: "x".repeat(900) }), host)?.message).toHaveLength(300);
+    expect(alertFromSpadeNotice(notice({ text: "x".repeat(900) }), host)?.message).toHaveLength(
+      300,
+    );
   });
 });

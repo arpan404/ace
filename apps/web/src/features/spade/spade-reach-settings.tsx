@@ -110,11 +110,7 @@ export function ReachSection(props: { ready: boolean }) {
       note="Approvals, questions a bot waits on and stops always reach you."
     >
       {refusal && <Refusal>{refusal}</Refusal>}
-      <SwitchRow
-        title="Notify me"
-        checked={value.notify}
-        onChange={(notify) => save({ notify })}
-      />
+      <SwitchRow title="Notify me" checked={value.notify} onChange={(notify) => save({ notify })} />
       {value.notify && <QuietRows value={value} save={save} />}
       <BriefRows value={value} save={save} choices={choices} />
       <SpendRows value={value} save={save} />

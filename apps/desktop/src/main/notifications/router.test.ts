@@ -215,20 +215,25 @@ describe("notification actions", () => {
   });
 });
 
-describe("Spade notices", () => {
-  const spade = (id: string, request?: string) =>
-    daemonAlert({
-      id,
-      threadId: "spade-host",
-      title: "Booker",
-      status: "spade",
-      message: "Asks: Window or aisle?",
-      interactionId: undefined,
-      preview: undefined,
-      actions: [],
-      spade: { agent: "a1", conversation: "c1", category: "needs_you", ...(request ? { request } : {}) },
-    });
+const spade = (id: string, request?: string) =>
+  daemonAlert({
+    id,
+    threadId: "spade-host",
+    title: "Booker",
+    status: "spade",
+    message: "Asks: Window or aisle?",
+    interactionId: undefined,
+    preview: undefined,
+    actions: [],
+    spade: {
+      agent: "a1",
+      conversation: "c1",
+      category: "needs_you",
+      ...(request ? { request } : {}),
+    },
+  });
 
+describe("Spade notices", () => {
   it("a bot's question opens its request, and the bot's next notice replaces it", () => {
     const { router: routing, clock } = router();
     const first = routing.route(spade("spade:event:c1:7", "q2"));

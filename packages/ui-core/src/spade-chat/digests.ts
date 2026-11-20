@@ -105,16 +105,28 @@ export function parseSpadeDigests(text: string): SpadeDigest[] | undefined {
   const parsed = digestsShape.safeParse(spadeJson(text));
   if (!parsed.success) return undefined;
   return parsed.data.digests
-    .flatMap((raw) => {
+    .flatMap((raw): SpadeDigest[] => {
       const one = row.safeParse(raw);
       if (!one.success) return [];
       const { id, agent, made_ms, text: plain, polished, digest } = one.data;
       const kind = kindOf(one.data.kind);
-      const text = polished?.trim() || plain;
+      const shown = polished?.trim() || plain;
       if (kind === "brief")
-        return [{ id, kind, agent, at: made_ms, text, body: undefined, brief: parseSpadeBrief(digest) }];
-      const parsed = kind === "digest" ? body.safeParse(digest) : undefined;
-      return [{ id, kind, agent, at: made_ms, text, body: parsed?.success ? parsed.data : undefined }];
+        return [
+          {
+            id,
+            kind,
+            agent,
+            at: made_ms,
+            text: shown,
+            body: undefined,
+            brief: parseSpadeBrief(digest),
+          },
+        ];
+      const read = kind === "digest" ? body.safeParse(digest) : undefined;
+      return [
+        { id, kind, agent, at: made_ms, text: shown, body: read?.success ? read.data : undefined },
+      ];
     })
     .toSorted((a, b) => a.at - b.at);
 }

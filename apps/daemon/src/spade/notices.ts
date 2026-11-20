@@ -21,7 +21,11 @@ export interface SpadeNoticeOptions {
   live(
     connection: SpadeConnection,
     path: string,
-    options: { signal: AbortSignal; maxEventChars: number; onEvent(event: { event: string; data: string }): void },
+    options: {
+      signal: AbortSignal;
+      maxEventChars: number;
+      onEvent(event: { event: string; data: string }): void;
+    },
   ): Promise<LiveEnd>;
   after(ms: number, run: () => void): () => void;
   report(error: unknown): void;

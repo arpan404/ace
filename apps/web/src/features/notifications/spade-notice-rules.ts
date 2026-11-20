@@ -13,7 +13,14 @@ export const burstMs = 10_000;
 
 export type SpadeShow =
   | { kind: "skip"; why: "off" | "open" | "unreadable" }
-  | { kind: "toast" | "system"; title: string; body: string; tag: string; agent: string; request?: string }
+  | {
+      kind: "toast" | "system";
+      title: string;
+      body: string;
+      tag: string;
+      agent: string;
+      request?: string;
+    }
   | { kind: "burst"; title: string; body: string; tag: string; count: number };
 
 export interface SpadeSeen {
@@ -58,7 +65,10 @@ export function withinBurst(recent: readonly number[], now: number): number[] {
 }
 
 /** The bot whose conversation a path shows, `/spade/<id>`; none for any other page. */
-export function openSpadeAgent(pathname: string, search: Record<string, unknown>): string | undefined {
+export function openSpadeAgent(
+  pathname: string,
+  search: Record<string, unknown>,
+): string | undefined {
   const match = /^\/spade\/([^/]+)\/?$/.exec(pathname);
   // A bot on another machine (`on`) is another conversation than this daemon's.
   if (!match?.[1] || match[1] === "new" || search.on !== undefined) return undefined;

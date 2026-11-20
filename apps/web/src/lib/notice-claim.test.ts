@@ -21,7 +21,10 @@ function locks(): ClaimLocks {
     async request(name, callback) {
       const before = held.get(name) ?? Promise.resolve();
       const run = before.then(callback);
-      held.set(name, run.catch(() => {}));
+      held.set(
+        name,
+        run.catch(() => {}),
+      );
       return run;
     },
   };
