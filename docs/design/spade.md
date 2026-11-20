@@ -91,8 +91,8 @@ Spade is one of ace's places. It adds no navigation of its own.
   them too. They open a dialog that first says what goes back, what made since goes and what
   removed since comes back (paths in mono on `--chat-well`), and what undo can't take back, then
   Undo. A step undo can't reach says so plainly in its own line, in full ink: "Can't be undone:
-  it was sent.", "…the push already left this computer.", "…a payment can't be taken back from
-  here.", "Can't be undone here: it changed linear." (ADR 0167, spade/docs/security.md).
+  it was sent in your name.", "…a payment can't be taken back from here.", "…it's published.",
+  "Can't be undone here: it changed linear." The step's declared effect decides it, not its name (ADR 0167, spade/docs/security.md).
 - **What it had in mind.** Under a finished reply whose message recalled notes, one quiet line
   ("Had 2 notes in mind") opens to them; each opens where it's from.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.

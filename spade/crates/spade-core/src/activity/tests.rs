@@ -34,6 +34,7 @@ fn started(call_id: &str, name: &str) -> Event {
         name: name.into(),
         risk: None,
         background: false,
+        effect: None,
     })
 }
 

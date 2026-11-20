@@ -249,6 +249,11 @@ pub enum Known {
         /// Whether it ran as a background job. Only meaningful when `risk` is recorded.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         background: bool,
+        /// What the tool declared it does, as the gate read it (ADR 0171): the app shows a
+        /// send, a payment, a publish or a change outside the bot as a step undo can't reach.
+        /// Missing on events from before it was recorded and for undeclared tools.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effect: Option<crate::effect::Effect>,
     },
     ToolFinished {
         reply: String,

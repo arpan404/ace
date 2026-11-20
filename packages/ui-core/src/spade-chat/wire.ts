@@ -175,6 +175,8 @@ const known = z.discriminatedUnion("type", [
     name: z.string(),
     /** How much the call could change (`read`, `write`, `memory`, `destructive`); missing from older events. */
     risk: z.string().nullish().catch(undefined),
+    /** What the tool declared it does, as the gate read it (`send_as_person`, `pay`…); missing from older events. */
+    effect: z.string().nullish().catch(undefined),
   }),
   z.object({
     type: z.literal("tool_finished"),

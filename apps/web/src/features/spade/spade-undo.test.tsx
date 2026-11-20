@@ -9,7 +9,8 @@ beforeEach(() => localStorage.clear());
 
 /** Spade with a model, and a bot whose chat holds one reply that took `calls`. */
 const withReply =
-  (calls: { id: string; name: string; arguments: unknown }[]) => (api: FakeSpadeApi) => {
+  (calls: { id: string; name: string; arguments: unknown; effect?: string }[]) =>
+  (api: FakeSpadeApi) => {
     withEndpoint(api);
     api.addAgent({
       id: "main",
@@ -33,7 +34,13 @@ const withReply =
       calls: calls.map(({ id, name, arguments: args }) => ({ id, name, arguments: args })),
     });
     for (const call of calls) {
-      api.store(c, { type: "tool_started", reply: "r1", call_id: call.id, name: call.name });
+      api.store(c, {
+        type: "tool_started",
+        reply: "r1",
+        call_id: call.id,
+        name: call.name,
+        ...(call.effect ? { effect: call.effect } : {}),
+      });
       api.store(c, {
         type: "tool_finished",
         reply: "r1",
@@ -52,7 +59,12 @@ test("undoing a turn lists the files it changed first, then puts them back", asy
     "/spade/travel",
     withReply([
       { id: "c1", name: "workspace_write", arguments: { path: "plan.md", content: "x" } },
-      { id: "c2", name: "send_email", arguments: { subject: "The plan" } },
+      {
+        id: "c2",
+        name: "send_email",
+        arguments: { subject: "The plan" },
+        effect: "send_as_person",
+      },
     ]),
   );
   const at = Date.now() - 60_000;
@@ -86,10 +98,12 @@ test("undoing a turn lists the files it changed first, then puts them back", asy
 test("a send can't be undone and says so on its step", async () => {
   await spadeApp(
     "/spade/travel",
-    withReply([{ id: "c1", name: "send_email", arguments: { subject: "Hi" } }]),
+    withReply([
+      { id: "c1", name: "send_email", arguments: { subject: "Hi" }, effect: "send_as_person" },
+    ]),
   );
   await screen.findByRole("feed", { name: "Conversation with Travel" });
-  await screen.findByText("Can't be undone: it was sent.");
+  await screen.findByText("Can't be undone: it was sent in your name.");
   // Nothing in this turn changed its files, so nothing offers to undo.
   expect(screen.queryByRole("button", { name: "Undo these changes" })).toBeNull();
 });

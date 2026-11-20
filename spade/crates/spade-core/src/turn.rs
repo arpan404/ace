@@ -424,6 +424,7 @@ mod tests {
             name: "send_email".into(),
             risk: None,
             background: false,
+            effect: None,
         }));
         assert_eq!(
             statuses(&next_step(&events)),

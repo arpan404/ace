@@ -589,7 +589,9 @@ for a turn's first file-changing step that is the turn's own checkpoint. Before 
 where they differ) and lists what would go back, be removed and come back; the person confirms and
 the restore runs as above. Undo reaches only the workspace: what a step did outside it (a push, a
 send, a payment, an app it changed, a command run outside the sandbox) can't be undone, and the
-step says so. After a restore that changed anything the bot reads a `person_activity` note saying
+step says so. Which steps those are comes from what each tool declared to the gate (ADR 0171):
+`tool_started` records that `effect`, and a `send_as_person`, `pay`, `publish`, `change_access`,
+`network`, `drive` or `unknown` step reads as one undo can't reach, never by its tool's name. After a restore that changed anything the bot reads a `person_activity` note saying
 its workspace went back and how many files changed, so it reads them again before relying on them.
 
 ## API

@@ -84,6 +84,11 @@ export type SpadeReplyPart =
       weight?: SpadeStepWeight;
       /** Where a command ran and how it went, once Spade says (`command_ran`). */
       ran?: SpadeCommandRan;
+      /**
+       * What the tool declared it does, as Spade's gate read it (`send_as_person`, `pay`,
+       * `publish`, `change_access`, `network`…), from its `tool_started`.
+       */
+      effect?: string;
     }
   /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
@@ -648,6 +653,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       if (weight)
         patchCall(state, event.reply, event.call_id, (part) =>
           part.weight === "destructive" || part.weight === weight ? undefined : { ...part, weight },
+        );
+      const effect = event.effect ?? undefined;
+      if (effect)
+        patchCall(state, event.reply, event.call_id, (part) =>
+          part.effect === effect ? undefined : { ...part, effect },
         );
       return true;
     }

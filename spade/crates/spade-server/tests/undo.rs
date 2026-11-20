@@ -72,6 +72,23 @@ async fn undoing_a_turn_restores_the_files_it_changed_and_lists_them_first() -> 
         .await?;
     std::fs::remove_file(workspace.join("old.md"))?;
 
+    // Each step's start carries what its tool declared to the gate: the app reads a send or a
+    // payment from it, never from the tool's name.
+    let (_, rows) = w
+        .spade
+        .get(&format!("/v1/conversations/{}/events", w.conversation))
+        .await?;
+    let effects: Vec<&str> = rows
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter(|row| row["event"]["type"] == "tool_started")
+                .filter_map(|row| row["event"]["effect"].as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(effects, ["write_local"; 3], "{rows}");
+
     // What undoing the second turn (from its first file-changing step) would do, before it does.
     let seq = started_at(&w, "c2").await?;
     let (status, preview) = w

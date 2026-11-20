@@ -128,6 +128,7 @@ fn a_call_that_started_but_never_finished_is_reported_as_unknown_not_unrun() {
             name: "send_email".into(),
             risk: None,
             background: false,
+            effect: None,
         }),
         Event::reply_ended(ReplyEnd::Interrupted, "r1", ""),
     ];

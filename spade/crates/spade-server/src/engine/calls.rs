@@ -996,12 +996,19 @@ async fn run_tools(
                 None if name == TOOL_SEARCH => Some(Risk::Read),
                 None => None,
             };
+            // What it does, as declared to the gate, so the app can say a send or a payment
+            // stays when its files are undone.
+            let effect = engine
+                .tools
+                .get_for(id, &name)
+                .and_then(|tool| tool.effect(&arguments));
             let started = Event::Known(Known::ToolStarted {
                 reply: reply.to_owned(),
                 call_id: call.id.clone(),
                 name: name.clone(),
                 risk,
                 background,
+                effect,
             });
             if let Err(error) = engine.record(id, &started) {
                 return Handled::Failed(error.to_string());

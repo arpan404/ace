@@ -20,32 +20,48 @@ function appOf(name: string): string | undefined {
   return rest.length && app && app !== "ace" ? app : undefined;
 }
 
-/** Words in a tool's name that say it moves money. */
-const paying =
-  /(?:^|_)(?:pay|payment|charge|purchase|checkout|transfer|refund|invoice|order)(?:_|$)/;
+/**
+ * What a declared effect leaves outside the bot's box, said plainly; undefined for one that
+ * stays inside it (`read`, `write_local`, `credential`). The words are Spade's gate's
+ * (`spade_core::effect::Effect`), recorded on the step's `tool_started`.
+ */
+function effectStays(effect: string, app: string | undefined): string | undefined {
+  switch (effect) {
+    case "pay":
+      return "Can't be undone: a payment can't be taken back from here.";
+    case "send_as_person":
+      return "Can't be undone: it was sent in your name.";
+    case "publish":
+      return "Can't be undone: it's published.";
+    case "change_access":
+      return "Can't be undone here: it changed sign-ins or who has access.";
+    case "network":
+      return app
+        ? `Can't be undone here: it changed ${app}.`
+        : "Can't be undone here: it changed something outside the bot.";
+    case "drive":
+      return "Can't be undone here: it acted in a page or an app.";
+    case "unknown":
+      return "Can't be undone here: it may have changed something outside the bot.";
+    default:
+      return undefined;
+  }
+}
 
 /**
  * Why a step can't be undone, said plainly; undefined when it only touched the bot's own files
- * or changed nothing outside. Only steps that ran count.
+ * or changed nothing outside. Only steps that ran count. Read from what the tool declared to
+ * Spade's gate (`effect`) and where a command ran (`ran`), never from the tool's name.
  */
 export function spadeCantUndo(part: CallPart): string | undefined {
   if (part.state !== "done" && part.state !== "failed") return undefined;
-  const base = baseName(part.name);
-  const app = appOf(part.name);
-  if (paying.test(base)) return "Can't be undone: a payment can't be taken back from here.";
-  if (base === "git_push") return "Can't be undone: the push already left this computer.";
-  if (base === "send_email" || base === "send_message" || base === "bot_message")
-    return "Can't be undone: it was sent.";
-  if (base === "pr_comment" || base === "issue_comment")
-    return "Can't be undone: the comment is posted.";
-  if (app && part.weight === "outward") return `Can't be undone here: it changed ${app}.`;
+  const declared = part.effect && effectStays(part.effect, appOf(part.name));
+  if (declared) return declared;
   const ran = part.ran;
   if (ran?.contained === false) return "Can't be undone here: it ran outside the bot's sandbox.";
   // A command that reached the network and acts outward (a push, an upload): what it sent stays.
   if (ran && ran.reached.length > 0 && part.weight === "outward")
     return `Can't be undone: what it sent to ${ran.reached[0]} stays there.`;
-  if (part.weight === "outward" && base !== "shell")
-    return "Can't be undone: it acted outside the bot's computer.";
   return undefined;
 }
 
