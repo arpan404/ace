@@ -9,10 +9,18 @@
 //! between. Whichever half arrives first is held here until its partner has arrived, so both land
 //! in one window. A name moved in from outside the root has no old path to wait for, and one moved
 //! out has no new name, so the wait is bounded and a lone half is then reported alone.
+//!
+//! FSEvents keeps a path's flags for a while, so removing a name that was just renamed into place
+//! arrives as one record flagged both renamed and removed. That record is a removal, not the old
+//! half of another rename: when one of its events says the path was removed and none finds it on
+//! disk, it is reported at once, with every later event of the same record. A real partner that
+//! comes after it is then reported at once too, because its own partner has been seen, so an old
+//! path still reaches the caller no later than the new name it moved to.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use crate::batch::ChangeKind;
 use crate::translate::Notice;
 
 /// How long one half of a rename waits for the other.
@@ -20,6 +28,9 @@ pub(crate) const WAIT: Duration = Duration::from_secs(2);
 
 /// How many recent rename ids are remembered: far more than arrive within [`WAIT`].
 const REMEMBERED: usize = 4_096;
+
+/// How many records reported as removals are remembered, for the events of each that follow.
+const REMOVALS: usize = 256;
 
 /// One half of a rename, waiting for the other.
 #[derive(Debug)]
@@ -36,6 +47,8 @@ struct Waiting {
 pub(crate) struct Pairs {
     seen: VecDeque<u64>,
     waiting: Vec<Waiting>,
+    /// Records reported at once as removals: their remaining events are not held either.
+    removals: VecDeque<u64>,
 }
 
 impl Pairs {
@@ -49,10 +62,20 @@ impl Pairs {
             }
             self.seen.push_back(id);
         }
-        if let Some(waiting) = self.waiting.iter_mut().find(|waiting| waiting.id == id) {
-            // Another event from the same record: it waits with the rest of it.
+        if self.removals.contains(&id) {
+            return notices;
+        }
+        if let Some(index) = self.waiting.iter().position(|waiting| waiting.id == id) {
+            // Another event from the same record: it waits with the rest of it, unless it shows
+            // the record is a removal.
+            let waiting = &mut self.waiting[index];
             waiting.notices.extend(notices);
-            return Vec::new();
+            if !is_a_removal(&waiting.notices) {
+                return Vec::new();
+            }
+            let removal = self.waiting.swap_remove(index);
+            self.remember_removal(id);
+            return removal.notices;
         }
         // A record that names an entry there now is a new name, whose old path is the record
         // before it; any other is an old path, whose new name is the record after it.
@@ -72,6 +95,10 @@ impl Pairs {
             ready.append(&mut self.waiting.swap_remove(index).notices);
             return ready;
         }
+        if is_a_removal(&notices) {
+            self.remember_removal(id);
+            return notices;
+        }
         if self.seen.contains(&partner) {
             return notices;
         }
@@ -82,6 +109,13 @@ impl Pairs {
             until: now + WAIT,
         });
         Vec::new()
+    }
+
+    fn remember_removal(&mut self, id: u64) {
+        if self.removals.len() >= REMOVALS {
+            self.removals.pop_front();
+        }
+        self.removals.push_back(id);
     }
 
     /// When the next waiting half is due.
@@ -102,6 +136,15 @@ impl Pairs {
         });
         ready
     }
+}
+
+/// Whether a record's notices say its path was removed and is gone: a removal of a name that was
+/// renamed lately, which has no partner to wait for.
+fn is_a_removal(notices: &[Notice]) -> bool {
+    notices.iter().all(|notice| notice.present.is_none())
+        && notices
+            .iter()
+            .any(|notice| notice.change.kind == ChangeKind::Deleted && !notice.rename)
 }
 
 /// Whether a record's notices name an entry that is there now: the new half of a rename.
@@ -126,6 +169,14 @@ mod tests {
             },
             rename: true,
             present: present.then_some(true),
+        }
+    }
+
+    /// The event a record's removed flag becomes, for a path that is gone.
+    fn removed(path: &str) -> Notice {
+        Notice {
+            rename: false,
+            ..notice(path, ChangeKind::Deleted, false)
         }
     }
 
@@ -238,5 +289,73 @@ mod tests {
                 .len(),
             3
         );
+    }
+
+    #[test]
+    fn removing_a_name_that_was_just_renamed_is_reported_at_once() {
+        // FSEvents flags the removal renamed as well as removed, and its removed event comes
+        // first: neither event waits for a partner.
+        let mut pairs = Pairs::default();
+        let now = Instant::now();
+        assert_eq!(
+            paths(&pairs.take(60, vec![removed("moved")], now)),
+            vec!["moved"]
+        );
+        assert_eq!(
+            paths(&pairs.take(60, vec![notice("moved", ChangeKind::Deleted, false)], now)),
+            vec!["moved"]
+        );
+        assert!(pairs.next_due().is_none());
+    }
+
+    #[test]
+    fn a_record_that_turns_out_to_be_a_removal_stops_waiting() {
+        // Created, removed and renamed: the created event comes first and waits as an old path
+        // would, until the removed event shows there is no rename to complete.
+        let mut pairs = Pairs::default();
+        let now = Instant::now();
+        let created = Notice {
+            rename: false,
+            ..notice("brief", ChangeKind::Created, false)
+        };
+        assert!(pairs.take(70, vec![created], now).is_empty());
+        assert_eq!(
+            paths(&pairs.take(70, vec![removed("brief")], now)),
+            vec!["brief", "brief"]
+        );
+        assert!(pairs.next_due().is_none());
+        assert_eq!(
+            pairs
+                .take(70, vec![notice("brief", ChangeKind::Deleted, false)], now)
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_removed_old_path_still_completes_the_new_name_waiting_for_it() {
+        let mut pairs = Pairs::default();
+        let now = Instant::now();
+        let new = vec![notice("trash", ChangeKind::Created, true)];
+        assert!(pairs.take(81, new, now).is_empty());
+        assert_eq!(
+            paths(&pairs.take(80, vec![removed("docs/old")], now)),
+            vec!["docs/old", "trash"]
+        );
+        assert!(pairs.next_due().is_none());
+    }
+
+    #[test]
+    fn a_new_name_after_its_removed_old_path_is_reported_at_once() {
+        // The old path went first, so the new name may follow it straight away: old before new.
+        let mut pairs = Pairs::default();
+        let now = Instant::now();
+        assert_eq!(
+            paths(&pairs.take(90, vec![removed("old")], now)),
+            vec!["old"]
+        );
+        let new = vec![notice("new", ChangeKind::Created, true)];
+        assert_eq!(paths(&pairs.take(91, new, now)), vec!["new"]);
+        assert!(pairs.next_due().is_none());
     }
 }
