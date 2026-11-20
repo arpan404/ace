@@ -480,3 +480,37 @@ async fn an_update_a_crash_cut_short_is_taken_again_at_the_next_start() -> Resul
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_packages_uses_narrows_its_bot_to_those_modules_tools() -> Result {
+    let tools: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(FakeTool::new("web_search", Risk::Read, "found it")),
+        Arc::new(FakeTool::new("noop", Risk::Read, "did nothing")),
+    ];
+    let spade = secured(
+        vec![
+            Script::reply("").call("t1", "web_search", json!({ "query": "fares" })),
+            Script::reply("").call("t2", "noop", json!({})),
+            Script::reply("Done."),
+            Script::reply("").plain(r#"{"title":"Fares"}"#),
+        ],
+        tools,
+    )
+    .await?;
+    let mut body = install(hosts_on(), false);
+    body["recipe"]["uses"] = json!(["task", "memory"]);
+    let (status, made) = spade.post("/v1/agents", body).await?;
+    assert_eq!(status, 201, "{made}");
+    let conversation = text(&made["agent"]["conversation"]);
+    spade.say(&conversation, "Check the fares").await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    let done = |call| finished(&events, call).cloned().unwrap_or_default();
+    assert_eq!(
+        done("t1")["is_error"],
+        true,
+        "web isn't among its modules: {}",
+        done("t1")
+    );
+    assert_eq!(done("t2")["is_error"], false, "{}", done("t2"));
+    Ok(())
+}

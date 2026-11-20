@@ -288,11 +288,16 @@ impl Engine {
             .helper_of(id)
             .map_or_else(|| id.to_owned(), |h| h.parent);
         let Some(link) = self.worker_link(&owner) else {
-            // A top-level bot made from a recipe that named its tools has only those (ADR 0168).
-            return match self.recipe_tools(&owner) {
+            // A top-level bot made from a recipe that named its tools has only those (ADR 0168),
+            // and a packaged one only its `uses` modules' (ADR 0200 §4.3).
+            let registry = match self.recipe_tools(&owner) {
                 Some(tools) => {
                     registry.retain(|def| tree::allows(Some(&tools), def.spec.name.as_str()))
                 }
+                None => registry,
+            };
+            return match self.package_uses(&owner) {
+                Some(uses) => registry.retain(|def| uses_allow(&uses, def.spec.name.as_str())),
                 None => registry,
             };
         };
@@ -348,4 +353,12 @@ impl Engine {
             }
         });
     }
+}
+
+/// Whether a packaged bot that uses `uses` keeps tool `name`: a tool of `spade.v1` only when its
+/// module is among them; anything outside the API (a connected app's own tools) is left to the
+/// `apps` module's gate.
+fn uses_allow(uses: &[String], name: &str) -> bool {
+    spade_core::effect::runtime::tool(spade_core::effect::runtime::resolve(name))
+        .is_none_or(|tool| uses.iter().any(|module| module == tool.module.name()))
 }

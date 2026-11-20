@@ -13,19 +13,15 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::effect::{self, Effect};
+use crate::effect::{self, Effect, runtime};
 use crate::grant::{self, Scope};
 use crate::personality::Personality;
 use crate::routine::{self, AceEvent, Trigger};
 use crate::tools::Risk;
 
 pub const FORMAT: &str = "spade-bot";
-/// The runtime API's major version this build serves (ADR 0200 §4).
-pub const RUNTIME: &str = "1";
-/// The runtime modules this build has (ADR 0200 §4.2); `notify` comes in phase 2.
-pub const MODULES: [&str; 10] = [
-    "task", "memory", "files", "web", "apps", "agents", "ui", "schedule", "devices", "outward",
-];
+/// The runtime API's major version this build serves (ADR 0200 §4): `spade.v1`'s.
+pub const RUNTIME: &str = runtime::VERSION;
 
 const MOST_TRIGGERS: usize = 40;
 const MOST_ROUTINES: usize = 32;
@@ -511,7 +507,9 @@ impl Reader<'_> {
         let mut uses = Vec::new();
         for item in items {
             match item.as_str() {
-                Some(module) if MODULES.contains(&module) => uses.push(module.to_owned()),
+                Some(module) if runtime::Module::parse(module).is_some() => {
+                    uses.push(module.to_owned());
+                }
                 Some(module) => self.problem(format!(
                     "Needs a newer Spade: this one has no {module:?} module"
                 )),

@@ -18,7 +18,7 @@ export const PackageEffectWord = z.enum([
 ]);
 export type PackageEffectWord = z.infer<typeof PackageEffectWord>;
 
-/** The runtime modules a package can use (ADR 0200 §4.2). */
+/** The runtime modules a package can use (ADR 0200 §4.2), as `spade_core::effect::runtime` names them. */
 export const PackageModule = z.enum([
   "task",
   "memory",
@@ -30,6 +30,7 @@ export const PackageModule = z.enum([
   "schedule",
   "devices",
   "outward",
+  "notify",
 ]);
 
 const Host = z

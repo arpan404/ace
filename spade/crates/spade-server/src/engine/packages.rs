@@ -58,6 +58,13 @@ impl Engine {
         Some((name.unwrap_or_default(), allows))
     }
 
+    /// The runtime modules the top-level bot whose conversation is `conversation` is narrowed to
+    /// by its package's `uses`; `None` for all.
+    pub(super) fn package_uses(&self, conversation: &str) -> Option<Vec<String>> {
+        let agent = self.store.agent_for_conversation(conversation).ok()??;
+        self.bot_package(&agent.id)?.manifest.uses
+    }
+
     /// The most of `parent`'s workers its package expects to work at once, if it says.
     pub(super) fn package_workers_at_once(&self, parent: &str) -> Option<usize> {
         let agent = self.store.agent_for_conversation(parent).ok()??;
