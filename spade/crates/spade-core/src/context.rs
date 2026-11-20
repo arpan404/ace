@@ -618,6 +618,17 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     }
                 }
             }
+            // A choice pressed on a card (ADR 0200 §5.1) reads like a job's result; its card is
+            // looked up in every event, since it may sit before the compaction's cut.
+            Known::CardAction { .. } => {
+                if let Some(text) = crate::card::action_text(all, event) {
+                    if pending.is_empty() {
+                        push_person(&mut out, text, Vec::new());
+                    } else {
+                        held.push((text, Vec::new()));
+                    }
+                }
+            }
             Known::HookRan { hook, outcomes, .. } => {
                 if let Some(text) = crate::hooks::shown(hook, outcomes) {
                     if pending.is_empty() {

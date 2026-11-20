@@ -278,6 +278,21 @@ export function Conversation(props: {
                 },
               )
             }
+            onCardChoice={(cardId, version, action) =>
+              conversation.chooseOnCard(cardId, version, action).then(
+                () => undefined,
+                (error: unknown) => {
+                  // Spade's own words: the card changed, or its choice was already made.
+                  if (error instanceof SpadeRequestError && error.status === 409)
+                    return error.message;
+                  toast.error({
+                    title: `Couldn't answer ${bot.name}`,
+                    description: message(error),
+                  });
+                  return "";
+                },
+              )
+            }
             onOpenFile={(path) =>
               openComputer("files", { folder: path.split("/").slice(0, -1).join("/"), file: path })
             }

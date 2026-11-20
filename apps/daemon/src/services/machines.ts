@@ -243,6 +243,7 @@ export function startMachines(context: ServiceContext): void {
   resources.own(() => saved.close());
   const connections = new MachineConnections({ schedule, saved });
   resources.own(() => connections.close());
+  services.pairedMachines = { connections, saved: () => saved.list() };
   // A transfer probe goes by every route a transfer may (ADR 0192).
   const probes: TransferTransport = routedTransfers({
     direct: options.transfers?.transport ?? transferTransport,

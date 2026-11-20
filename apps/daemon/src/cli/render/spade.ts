@@ -106,7 +106,9 @@ export function botListLines(bots: readonly CliSpadeBot[], now: number, color = 
         ? (bot.status ?? "working")
         : bot.state === "waiting"
           ? `needs you: ${bot.waitingFor ?? "an answer"}`
-          : (bot.problem ?? age(bot.lastActivity, now));
+          : bot.state === "paused"
+            ? "paused"
+            : (bot.problem ?? age(bot.lastActivity, now));
     return `${botGlyph(bot, color)} ${bot.name.padEnd(width)}  ${bot.id}  ${doing}`;
   });
 }
@@ -121,6 +123,8 @@ export function botLines(bot: CliSpadeBot, now: number, color = false): string[]
   if (bot.parent) lines.push(`Made by       ${bot.parent.name} (${bot.parent.id})`);
   if (bot.state === "working") lines.push(`Working       ${bot.status ?? ""}`.trimEnd());
   if (bot.state === "waiting") lines.push(`Needs you     ${bot.waitingFor ?? "an answer"}`);
+  if (bot.state === "paused")
+    lines.push(`Paused        until you resume it: ace bot resume ${bot.id}`);
   if (bot.problem) lines.push(red(`✕ ${bot.problem}`, color));
   if (bot.lastMessage)
     lines.push(

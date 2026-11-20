@@ -2,6 +2,7 @@ import type { MachineCallRequest, MachinePath } from "@ace/protocol";
 import type { RemoteProfile } from "../cli/profiles.ts";
 import {
   MachineFailure,
+  MachineUnpaired,
   type MachineTransportOptions,
   type PinnedRequest,
 } from "../machines/transport.ts";
@@ -20,7 +21,12 @@ export interface ParcelLinkDeps {
   ): Promise<unknown>;
   /** Kept-open connections for the address the machine was linked on. */
   connections?: MachineTransportOptions["connections"];
-  relay: RelayLink;
+  /**
+   * Whether this pairing (the same link, its device and token there) is still saved, asked
+   * before each route: an unlinked or re-paired machine is sent nothing more on any of them.
+   */
+  current(profile: RemoteProfile): boolean;
+  relay: Pick<RelayLink, "call">;
   /** The paths the machine last said it serves (`describe`), kept across restarts. */
   paths(profile: RemoteProfile): MachinePath[];
   /** Whether a relay address is ace's hosted relay, by this machine's own settings. */
@@ -34,7 +40,8 @@ export interface ParcelLinkDeps {
  * Sends a parcel machine call by whatever path reaches the machine (ADR 0182): its linked
  * address, its other direct addresses under the same pinned key, then a relay. Parcel calls are
  * idempotent under their parcel id, so one lost on a path is sent again on the next. A refusal
- * is the machine's answer and is never retried elsewhere. Which routes there are and which
+ * is the machine's answer and is never retried elsewhere, nor is a call held back because its
+ * pairing is gone. Which routes there are and which
  * answered last is `MachineLink`, shared with transfers.
  */
 export class ParcelLink {
@@ -69,8 +76,11 @@ export class ParcelLink {
   ): Promise<unknown> {
     const { answer } = await this.machines.attempt(profile, this.machines.relays(profile), {
       send: (route) => this.once(profile, route, body, options),
-      // A refusal is the machine's answer; a call that may have reached it isn't sent again.
-      moveOn: (error) => !(error instanceof MachineFailure && error.kind !== "offline"),
+      // A refusal is the machine's answer; a call that may have reached it isn't sent again; an
+      // unpaired one is sent nowhere.
+      moveOn: (error) =>
+        !(error instanceof MachineUnpaired) &&
+        !(error instanceof MachineFailure && error.kind !== "offline"),
       none: () => new NoRelayRoute("offline", undefined, "No relay to reach it through"),
       signal: options.signal,
     });
@@ -84,7 +94,9 @@ export class ParcelLink {
     try {
       return await this.machines.attempt(profile, this.machines.routes(profile), {
         send: (route) => this.once(profile, route, body, options),
-        moveOn: (error) => !(error instanceof MachineFailure && error.kind === "refused"),
+        moveOn: (error) =>
+          !(error instanceof MachineUnpaired) &&
+          !(error instanceof MachineFailure && error.kind === "refused"),
         none: () => new MachineFailure("offline"),
         signal: options.signal,
       });
@@ -104,6 +116,8 @@ export class ParcelLink {
     body: MachineCallRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
   ): Promise<unknown> {
+    if (!this.deps.current(profile))
+      throw new MachineUnpaired("offline", undefined, "Parcel call never sent: unpaired");
     if (route.kind === "relay")
       return this.deps.relay.call(
         {
@@ -129,9 +143,21 @@ export class ParcelLink {
       {
         timeoutMs: options.timeoutMs,
         ...(options.signal ? { signal: options.signal } : {}),
+        // Asked again once connected, before anything is written, on whichever address.
+        current: () => this.deps.current(profile),
         // Only the linked address shares the machine's kept-open connections.
         ...(saved && this.deps.connections ? { connections: this.deps.connections } : {}),
       },
     );
   }
+}
+
+/** The same saved link, with the same device and token there: a link made again is another. */
+export function samePairing(
+  saved: Pick<RemoteProfile, "id" | "deviceId" | "token">,
+  profile: Pick<RemoteProfile, "id" | "deviceId" | "token">,
+): boolean {
+  return (
+    saved.id === profile.id && saved.deviceId === profile.deviceId && saved.token === profile.token
+  );
 }

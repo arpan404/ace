@@ -14,6 +14,7 @@ use crate::tools::Risk;
 pub mod ceiling;
 pub mod drive;
 mod full_access;
+pub mod runtime;
 
 pub use full_access::NO_CLASSIFIER;
 
@@ -161,6 +162,13 @@ const BUILTIN: &[(&str, Effect)] = &[
     (PR_COMMENT, Effect::SendAsPerson),
     (ISSUE_COMMENT, Effect::SendAsPerson),
     (SEND_MESSAGE, Effect::SendAsPerson),
+    // Named for `spade.v1` (ADR 0200 §4): each reads as its risk always read it.
+    (crate::context::ASK_USER, Effect::Read),
+    (crate::tools::TOOL_SEARCH, Effect::Read),
+    ("apps_find", Effect::Read),
+    ("app_connect_request", Effect::Read),
+    // A card in the bot's own conversation, drawn by ace: the bot's output, like its reply.
+    (crate::card::CARD_SHOW, Effect::WriteLocal),
 ];
 
 /// The typed tools that hold the person's sign-in outside the sandbox (ADR 0171 decision 2).
@@ -168,6 +176,14 @@ pub const GIT_PUSH: &str = "git_push";
 pub const PR_COMMENT: &str = "pr_comment";
 pub const ISSUE_COMMENT: &str = "issue_comment";
 pub const SEND_MESSAGE: &str = "send_message";
+
+/// What the table says one of Spade's own tools does, with no fallback on its risk.
+pub fn table(name: &str) -> Option<Effect> {
+    BUILTIN
+        .iter()
+        .find(|(tool, _)| *tool == name)
+        .map(|(_, effect)| *effect)
+}
 
 /// What one of Spade's own tools does.
 pub fn builtin(name: &str, risk: Risk) -> Option<Effect> {

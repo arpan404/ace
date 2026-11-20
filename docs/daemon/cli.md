@@ -936,6 +936,32 @@ With TEXT it sends one message and prints the reply. Without it, on a terminal, 
     ace spade chat writer "Draft the release notes"
     # One message
 
+### `ace bot running`
+
+Every bot: what it does now, its spend today, its network and next wake.
+
+One row per bot, its workers under it, in the order the app's Running page shows: needs you, working, failed, sleeping, paused, then idle.
+
+### `ace bot stop BOT`
+
+End a bot's work now, and its workers'; its routines stay on.
+
+- `BOT`: A bot's id or name
+
+### `ace bot pause BOT`
+
+Stop a bot and hold it: nothing of it fires until you resume it.
+
+Its wakes are kept and its routines' slots wait; messages to it wait too. It holds through a restart of Spade.
+
+- `BOT`: A bot's id or name
+
+### `ace bot resume BOT`
+
+End a pause: what came due fires once, and what waited is answered.
+
+- `BOT`: A bot's id or name
+
 ### `ace feature list`
 
 Beta features and whether each is on.

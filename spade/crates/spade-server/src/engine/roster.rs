@@ -1,8 +1,8 @@
 //! What the roster shows for an agent without loading its transcript (ADR 0127): its latest
 //! message, its state, and a few plain words on what it is doing. Pure functions over events.
 
+use spade_core::Event;
 use spade_core::event::{FromAgent, Known};
-use spade_core::{Event, Transcript};
 use spade_store::StoredEvent;
 
 /// The longest roster preview, in characters.
@@ -28,46 +28,8 @@ pub fn unseen(state: State, last: Option<&LastMessage>, seen: Option<i64>) -> bo
     state == State::Idle && last.is_some_and(|m| m.by_agent && m.seq > seen.unwrap_or(0))
 }
 
-/// What the agent is doing, for the roster.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum State {
-    Idle,
-    Working,
-    /// Needs the person: an approval is pending.
-    Waiting,
-    /// Sleeps or waits on a wake (ADR 0160): not idle, not done. A turn waiting out an outage
-    /// and a task parked for its check read this way too.
-    Sleeping,
-}
-
-impl State {
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Idle => "idle",
-            Self::Working => "working",
-            Self::Waiting => "waiting",
-            Self::Sleeping => "sleeping",
-        }
-    }
-
-    /// From the folded transcript: waiting beats working, and background jobs count as working,
-    /// so an agent is never shown idle while any of its work runs.
-    pub fn of(transcript: &Transcript) -> Self {
-        // A helper waiting on the person (ADR 0152) counts, even after the reply that started it.
-        if transcript.waiting_on_you() {
-            Self::Waiting
-        } else if transcript.outage.is_some() && transcript.jobs.is_empty() {
-            // The open turn waits out its endpoint's outage (ADR 0158): not done, not running.
-            Self::Sleeping
-        } else if transcript.open_reply().is_some() || !transcript.jobs.is_empty() {
-            Self::Working
-        } else if !transcript.wakes.is_empty() {
-            Self::Sleeping
-        } else {
-            Self::Idle
-        }
-    }
-}
+/// What the agent is doing, for the roster: the process model's state (ADR 0200 §6.2).
+pub use spade_core::running::State;
 
 /// The latest message: the person's (or another bot's) or the agent's reply text, never tool
 /// output, cut to [`PREVIEW`] characters of plain text.
@@ -271,6 +233,8 @@ pub const WRITING: &str = "Writing";
 /// A model step failed before anything streamed and is being sent again.
 pub const RETRYING: &str = "Retrying";
 pub const WAITING_FOR_YOU: &str = "Waiting for you";
+/// The person paused the bot (ADR 0200 §6.1).
+pub const PAUSED: &str = "Paused";
 pub const IN_BACKGROUND: &str = "Working in the background";
 /// A worker of the bot waits on the person (ADR 0161).
 pub const WORKER_WAITING: &str = "A worker is waiting for you";

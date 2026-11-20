@@ -210,7 +210,8 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "pinned_at": agent.pinned_ms,
         "personality": agent.personality,
         "state": view.state.name(),
-        "working": view.state != AgentState::Idle,
+        // A paused bot isn't working: a client from before `paused` reads it at rest.
+        "working": !matches!(view.state, AgentState::Idle | AgentState::Paused),
         "waiting_for": view.waiting_for,
         "questions_for_later": view.questions_for_later,
         "status": view.status,

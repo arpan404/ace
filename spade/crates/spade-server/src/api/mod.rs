@@ -4,6 +4,7 @@
 mod agents;
 mod body;
 mod brains;
+mod cards;
 mod computer;
 mod connectors;
 mod digests;
@@ -22,6 +23,7 @@ mod reach;
 mod recipes;
 mod routines;
 mod routing;
+mod running;
 mod search;
 mod security;
 mod skills;
@@ -148,6 +150,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/conversations/{id}/questions", get(questions::list))
         .route(
+            "/conversations/{id}/cards/{card}/actions",
+            post(cards::choose),
+        )
+        .route(
             "/conversations/{id}/questions/{call_id}",
             post(questions::reply),
         )
@@ -193,6 +199,7 @@ pub fn router(state: AppState) -> Router {
         .merge(wakes::routes())
         .merge(digests::routes())
         .merge(reach::routes())
+        .merge(running::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()

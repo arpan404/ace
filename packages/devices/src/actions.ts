@@ -17,7 +17,7 @@ export async function performDeviceAction(
   switch (operation.op) {
     case "clipboard.get":
       return session.capture?.clipboard
-        ? boundedClipboard(await session.capture.clipboard.read(guard))
+        ? boundedClipboard(await session.capture.clipboard.read(guard, actor.owner))
         : platform.clipboardRead(session.device, guard);
     case "clipboard.set":
       if (session.capture?.clipboard) await session.capture.clipboard.write(operation.text, guard);

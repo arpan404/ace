@@ -65,7 +65,8 @@ impl Engine {
             match self.node_state(&child, 1) {
                 State::Waiting => around.children_waiting = true,
                 State::Working | State::Sleeping => around.children_working = true,
-                State::Idle => {}
+                // Paused by the person: it holds, and holds nothing of its maker's up.
+                State::Idle | State::Paused => {}
             }
         }
         for child in tree::ace_children(events) {

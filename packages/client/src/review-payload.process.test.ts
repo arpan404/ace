@@ -53,8 +53,10 @@ test("a multi-megabyte shell output can be subscribed without killing the client
   expect(store.item(id)).toMatchObject({
     call: { detail: { output: { bytes: 2 * 1024 * 1024, truncated: true } } },
   });
+  // One read returns at most 16 KiB however much is asked (commit 883589740); the reader goes on
+  // from nextOffset.
   const chunk = await client.outputRead({ streamId: `output:${id}`, offset: 0, limit: 256 * 1024 });
-  expect(chunk.bytes).toHaveLength(256 * 1024);
+  expect(chunk.bytes).toHaveLength(16 * 1024);
   expect(chunk.bytes[0]).toBe(120);
   expect(chunk.eof).toBe(false);
 });

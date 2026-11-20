@@ -125,7 +125,9 @@ export function foldSpadeGroup(state: SpadeGroupState, input: SpadeFoldInput): b
           waiting !== undefined &&
           sameBot(state.waitingMember, waiting));
       // A group never sleeps itself; a stream that says so reads as at work, as older clients do.
-      const next = input.state === "sleeping" ? "working" : input.state;
+      // Nor is it paused: only bots are (ADR 0200 §6.1), so one that says so reads at rest.
+      const next =
+        input.state === "sleeping" ? "working" : input.state === "paused" ? "idle" : input.state;
       const first = !state.reported;
       state.reported = true;
       if (state.state === next && state.status === status && sameWaiting) return first;

@@ -45,11 +45,17 @@ pub async fn tick(engine: &Arc<Engine>) -> Result<Option<i64>, StoreError> {
     recover(engine)?;
     let now = engine.now_ms();
     for r in engine.store().due_routines(now)? {
+        // A paused bot's slot stays due, unclaimed: Resume catches it up once (ADR 0200 §6.1).
+        if engine.paused_since(&r.agent_id).is_some() {
+            continue;
+        }
         if let Err(error) = fire_due(engine, &r, now) {
             tracing::warn!(%error, routine = %r.id, "a routine could not run");
         }
     }
-    engine.store().next_routine_due()
+    // A slot still due now is a paused bot's (or one that couldn't run): looked at again on the
+    // timer's next minute, never in a loop.
+    engine.store().next_routine_due_after(now)
 }
 
 fn fire_due(engine: &Arc<Engine>, r: &StoredRoutine, now: i64) -> Result<(), RoutineError> {
@@ -199,6 +205,12 @@ fn fire(
         ))
     } else if heartbeat && !engine.idle(&agent.conversation)? {
         Some(("skipped_busy", "The bot was busy.".to_owned()))
+    } else if matches!(firing.cause, "event" | "webhook")
+        && engine.paused_since(&agent.id).is_some()
+    {
+        // A paused bot's triggers don't fire; the person's own Run now waits for Resume, as a
+        // message does.
+        Some(("skipped_paused", "The bot was paused.".to_owned()))
     } else {
         None
     };

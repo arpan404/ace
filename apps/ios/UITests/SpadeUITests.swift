@@ -4,7 +4,8 @@ import XCTest
 /// machine shows it, the bots in web's order, a conversation streaming a reply, an approval
 /// answered and a message sent, a card of questions answered (and locked while Spade's update is
 /// on its way, and kept as filled in through Answer later), and the tab gone once Settings ›
-/// Beta turns Spade off.
+/// Beta turns Spade off; a group's conversation with each member's face and name; a bot's
+/// profile sheet.
 @MainActor final class SpadeUITests: XCTestCase {
     private let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
     override func setUp() async throws {
@@ -198,6 +199,61 @@ import XCTest
         // Never mind settles it, so the next test starts with one card for later again.
         app.buttons["spade.question.dismiss"].tap()
         XCTAssertTrue(app.buttons["spade.question.option.1"].waitForNonExistence(timeout: 10))
+    }
+
+    func testAGroupListsWithItsMembersAndShowsEachMembersFaceAndName() {
+        let app = launch()
+        _ = openSpade(app)
+        let group = app.buttons["spade.group.launch"]
+        XCTAssertTrue(group.waitForExistence(timeout: 20))
+        XCTAssertTrue(group.label.contains("Launch team"))
+        XCTAssertTrue(group.label.contains("Spade: Want me to post it Friday morning?"))
+        screenshot("spade-13-list-group")
+
+        group.tap()
+        XCTAssertTrue(element(app, labelled: "Plan the launch post for Friday").waitForExistence(timeout: 15))
+        // Each member speaks under its own name; a handoff is one line, never a tool call.
+        XCTAssertTrue(element(app, labelled: "Research: Installs are up").waitForExistence(timeout: 10))
+        XCTAssertTrue(element(app, labelled: "Spade: I'll ask Research").exists)
+        XCTAssertTrue(app.staticTexts["Spade asked Research"].exists)
+        // A group's title shows its members and opens no bot's profile.
+        XCTAssertFalse(app.buttons["spade.profile"].exists)
+        screenshot("spade-14-group")
+    }
+
+    func testABotsProfileOpensFromItsNameWithDetailsLibraryAndComputer() {
+        let app = launch()
+        _ = openSpade(app)
+        let notes = app.buttons["spade.bot.notes"]
+        XCTAssertTrue(notes.waitForExistence(timeout: 20))
+        notes.tap()
+        let profile = app.buttons["spade.profile"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 15))
+        profile.tap()
+
+        XCTAssertTrue(element(app, labelled: "Summarise what merged each day").waitForExistence(timeout: 15))
+        XCTAssertTrue(element(app, labelled: "Morning summary").exists)
+        XCTAssertTrue(element(app, labelled: "Sonnet").exists)
+        screenshot("spade-15-profile-details")
+
+        app.buttons["Library"].tap()
+        XCTAssertTrue(element(app, labelled: "Keep summaries to three lines.").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, labelled: "Daily digest").exists)
+        screenshot("spade-16-profile-library")
+
+        app.buttons["Computer"].tap()
+        XCTAssertTrue(element(app, labelled: "Asleep until it's needed").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, labelled: "Digest preview").exists)
+        screenshot("spade-17-profile-computer")
+
+        app.buttons["spade.profile.done"].tap()
+        XCTAssertTrue(profile.waitForExistence(timeout: 5))
+        XCTAssertTrue(profile.isHittable)
+    }
+
+    /// The first element whose label holds `text`, wherever SwiftUI put it.
+    private func element(_ app: XCUIApplication, labelled text: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
     func testTheTabGoesWhenBetaTurnsSpadeOff() async throws {

@@ -35,12 +35,13 @@ export const botFaceMotion: Record<BotFaceState, BotFaceMotion> = {
 
 /** What an agent's face shows, from what Spade says the agent is doing. */
 export function botFaceStateOf(agent: {
-  state: "idle" | "working" | "waiting" | "sleeping";
+  state: "idle" | "working" | "waiting" | "sleeping" | "paused";
   status?: string | undefined;
   problem?: string | undefined;
 }): BotFaceState {
   if (agent.state === "waiting") return "needs-you";
-  if (agent.state === "sleeping") return "sleeping";
+  // Paused (ADR 0200 §6.1) holds still like sleep: never idle, so stopping it never reads done.
+  if (agent.state === "sleeping" || agent.state === "paused") return "sleeping";
   if (agent.state === "working") return agent.status === "Thinking" ? "thinking" : "working";
   if (agent.problem) return "blocked";
   return "idle";

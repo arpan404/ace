@@ -13,11 +13,17 @@ extension ClientModel {
         spade.active = on
         action(["type": "spade.active", "active": on])
     }
-    /// Follow `id` live, or no conversation.
-    func spadeOpen(_ id: String?) {
-        guard spade.opened != id else { return }
+    /// Follow `id` live, or no conversation; a group's (ADR 0132) names its `group`.
+    func spadeOpen(_ id: String?, group: String? = nil) {
+        guard spade.opened != id || spade.openedGroup != group else { return }
         spade.opened = id
-        action(["type": "spade.open", "conversationId": id.map { $0 as Any } ?? NSNull()])
+        spade.openedGroup = id == nil ? nil : group
+        action(Self.spadeOpening(id, group: spade.openedGroup))
+    }
+    private static func spadeOpening(_ id: String?, group: String?) -> [String: Any] {
+        var payload: [String: Any] = ["type": "spade.open", "conversationId": id.map { $0 as Any } ?? NSNull()]
+        if let group { payload["group"] = group }
+        return payload
     }
     func spadeRetry() { action(["type": "spade.retry"]) }
     /// Read Spade's state and the bots again now.
@@ -26,7 +32,7 @@ extension ClientModel {
     func spadeResume() {
         if !spade.active { action(["type": "spade.active", "active": false]) }
         if spade.watching { action(["type": "spade.watch", "on": true]) }
-        if let id = spade.opened { action(["type": "spade.open", "conversationId": id]) }
+        if let id = spade.opened { action(Self.spadeOpening(id, group: spade.openedGroup)) }
     }
     /// A Spade request; a transport failure reads as a refusal with its words.
     func spadeRequest(_ payload: [String: Any], failing title: String) async -> SpadeOutcome {
@@ -54,6 +60,30 @@ extension ClientModel {
     func spadeQuestionRead(_ conversation: String, callId: String) async -> SpadeOutcome {
         await spadeRequest(["type": "spade.question.read", "conversationId": conversation, "callId": callId],
                            failing: "Couldn't read the conversation")
+    }
+    /// A message to a group: it starts a run its lead answers.
+    func spadeGroupSend(_ group: String, conversation: String, text: String) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.group.send", "groupId": group, "conversationId": conversation, "text": text],
+                           failing: "Couldn't send")
+    }
+    /// Stop ends the group's whole run.
+    func spadeGroupStop(_ group: String) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.group.stop", "groupId": group], failing: "Couldn't stop")
+    }
+    /// A bot's profile, read afresh.
+    func spadeProfile(_ agent: String) async -> SpadeProfileAnswer {
+        let failed = { (message: String?) in
+            SpadeProfileAnswer(ok: false, profile: nil, title: "Couldn't read the profile", message: message)
+        }
+        do {
+            return try await service(["type": "spade.profile", "agentId": agent], as: SpadeProfileAnswer.self,
+                                     timeout: .seconds(30))
+        } catch is CancellationError { return failed(nil) }
+        catch { return failed(error.localizedDescription) }
+    }
+    /// The bot's task, as the person rewrote it.
+    func spadeTask(_ agent: String, task: String) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.task", "agentId": agent, "task": task], failing: "Couldn't save the task")
     }
     func spadeTurnOn() async -> SpadeOutcome {
         await spadeRequest(["type": "spade.enable"], failing: "Couldn't turn on Spade")
