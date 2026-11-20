@@ -1,36 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { socksReply } from "./socks5.ts";
-import {
-  failureMemoryMs,
-  failureReply,
-  loadFailure,
-  TunnelFailures,
-  tunnelFailure,
-} from "./tunnel-failure.ts";
+import { failureMemoryMs, loadFailure, TunnelFailures, tunnelFailure } from "./tunnel-failure.ts";
 
 const coded = (code: string) => Object.assign(new Error(code), { code });
 
 describe("why a tunnel stream didn't open", () => {
   it.each([
-    ["tunnel_off", "off", socksReply.notAllowed],
-    ["tunnel_forbidden", "forbidden", socksReply.notAllowed],
-    ["tunnel_port_refused", "refused", socksReply.notAllowed],
-    ["tunnel_limit", "limit", socksReply.generalFailure],
-    ["tunnel_reset", "closed", socksReply.connectionRefused],
-    ["offline", "offline", socksReply.networkUnreachable],
-    ["timeout", "failed", socksReply.generalFailure],
-  ])("%s is %s, answered %s", (code, failure, reply) => {
+    ["tunnel_off", "off"],
+    ["tunnel_forbidden", "forbidden"],
+    ["tunnel_port_refused", "refused"],
+    ["tunnel_limit", "limit"],
+    ["tunnel_reset", "closed"],
+    ["offline", "offline"],
+    // The machine didn't open the stream before the proxy's deadline.
+    ["tunnel_cancelled", "offline"],
+    ["timeout", "failed"],
+  ])("%s is %s", (code, failure) => {
     expect(tunnelFailure(coded(code))).toBe(failure);
-    expect(failureReply(tunnelFailure(coded(code)))).toBe(reply);
   });
 
   it("anything without a code just failed", () => {
     expect(tunnelFailure(new Error("boom"))).toBe("failed");
     expect(tunnelFailure("boom")).toBe("failed");
-  });
-
-  it("nothing listening is a refused connection", () => {
-    expect(failureReply("closed")).toBe(socksReply.connectionRefused);
   });
 });
 

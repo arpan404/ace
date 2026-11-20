@@ -1,3 +1,4 @@
+import { loopbackNavigationAllowed } from "@ace/ui-core/loopback-navigation";
 import { isMachineLoopbackHost } from "@ace/ui-core/machine-loopback";
 
 export { isMachineLoopbackHost };
@@ -19,19 +20,32 @@ export function isLoopbackUrl(url: string | undefined): boolean {
 }
 
 /**
- * Whether a device tab's request is cancelled: it goes to the machine's loopback while the
- * page it serves is not itself on a loopback host, so a public page can never reach the
- * machine's localhost (Electron runs with Local Network Access checks off). A top-level
- * navigation to loopback always goes, so an OAuth flow can come back to `localhost`. A
- * request whose top-level page is unknown is cancelled.
+ * Whether a device tab's request is cancelled, so a public page never reaches the machine's
+ * localhost (Electron runs with Local Network Access checks off). Only requests to loopback are
+ * judged; Electron asks again for each redirect, with the method that hop sends.
+ *
+ * - A top-level navigation follows `loopbackNavigationAllowed`, the rule the phone keeps too: the
+ *   person's own, a loopback page's, or any GET (a link, or an OAuth provider's redirect back to
+ *   `localhost`) goes; a public page's form post, or a 307 or 308 that keeps it, doesn't.
+ * - Anything else needs a loopback initiator: the origin of the document or worker that sent it,
+ *   which Chromium checks against the frame itself. A public frame inside a localhost page is
+ *   refused, while a localhost page's own service worker, which has no frame, still works.
+ *   A request with no initiator, or an opaque one, is refused.
  */
 export function blocksLoopbackRequest(request: {
   url: string;
   resourceType: string;
-  /** The URL of the request's top-level frame, or undefined when unknown. */
-  topUrl: string | undefined;
+  method: string;
+  /** Electron's `initiatorOrigin`: undefined for a request the browser started itself. */
+  initiator: string | undefined;
 }): boolean {
   if (!isLoopbackUrl(request.url)) return false;
-  if (request.resourceType === "mainFrame") return false;
-  return !isLoopbackUrl(request.topUrl);
+  const initiatorIsLoopback = isLoopbackUrl(request.initiator);
+  if (request.resourceType === "mainFrame")
+    return !loopbackNavigationAllowed({
+      method: request.method,
+      initiatorIsLoopback,
+      byPerson: request.initiator === undefined,
+    });
+  return !initiatorIsLoopback;
 }

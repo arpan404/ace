@@ -1,4 +1,5 @@
 import type { Socket } from "node:net";
+import type { Duplex } from "node:stream";
 import type { TunnelStream } from "./tunnel-contract.ts";
 
 export interface PipeEvents {
@@ -19,7 +20,11 @@ const bytesOf = (chunk: Buffer) => new Uint8Array(chunk.buffer, chunk.byteOffset
  * anything abrupt (a socket error, a stream reset, a close before both sides ended) resets the
  * other side. The socket must allow half-open connections.
  */
-export function pipeTunnel(socket: Socket, stream: TunnelStream, events: PipeEvents = {}): void {
+export function pipeTunnel(
+  socket: Duplex & Partial<Pick<Socket, "resetAndDestroy">>,
+  stream: TunnelStream,
+  events: PipeEvents = {},
+): void {
   let sentEnd = false;
   let receivedEnd = false;
   let served = false;

@@ -17,10 +17,12 @@ export function machinePartition(machineId: string): string {
 
 /**
  * The partition's proxy: every host direct (`*`), then loopback taken back from Chromium's
- * built-in bypass (`<-loopback>`) and sent to the SOCKS5 proxy on `port`. The last matching
- * bypass rule wins, so the order matters: `<-loopback>,*` would send everything direct.
+ * built-in bypass (`<-loopback>`) and sent to the machine's HTTP proxy on `port`. The last
+ * matching bypass rule wins, so the order matters: `<-loopback>,*` would send everything direct.
+ * An HTTP proxy rather than SOCKS5, because Chromium's SOCKS5 has no authentication, and the
+ * proxy must tell the partition's own browser from any other process on this computer.
  */
 export function machineProxy(port: number): { proxyRules: string; proxyBypassRules: string } {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new RangeError("Bad proxy port");
-  return { proxyRules: `socks5://127.0.0.1:${port}`, proxyBypassRules: "*,<-loopback>" };
+  return { proxyRules: `http://127.0.0.1:${port}`, proxyBypassRules: "*,<-loopback>" };
 }

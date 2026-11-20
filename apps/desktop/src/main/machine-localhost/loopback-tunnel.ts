@@ -4,26 +4,53 @@ import type { MachineTunnel, TunnelStream } from "./tunnel-contract.ts";
 /**
  * A `MachineTunnel` to this computer's own loopback, for tests and for running the desktop app
  * against a dev server with no second machine (`ACE_DEV_LOOPBACK_TUNNEL=1`). It behaves as the
- * contract says: a refused port rejects with the code `refuse` names, and nothing listening
- * rejects with `tunnel_reset`.
+ * contract says: a refused port rejects with the code `refuse` names, nothing listening
+ * rejects with `tunnel_reset`, and an aborted open rejects with `tunnel_cancelled`.
  */
 export function loopbackTunnel(
-  options: { refuse?(port: number): string | undefined } = {},
+  options: {
+    refuse?(port: number): string | undefined;
+    /** Holds an open back until this settles, as a machine slow to answer does. */
+    hold?(port: number): Promise<void> | undefined;
+  } = {},
 ): MachineTunnel {
   const open = new Set<Socket>();
   let closed = false;
   return {
-    async open(port) {
+    async open(port, openOptions) {
+      const signal = openOptions?.signal;
+      if (signal?.aborted) throw coded("tunnel_cancelled");
       if (closed) throw coded("offline");
       const code = options.refuse?.(port);
       if (code) throw coded(code);
+      const hold = options.hold?.(port);
+      if (hold)
+        await Promise.race([
+          hold,
+          new Promise<never>((_resolve, reject) =>
+            signal?.addEventListener("abort", () => reject(coded("tunnel_cancelled")), {
+              once: true,
+            }),
+          ),
+        ]);
       const socket = connect({ host: "127.0.0.1", port, allowHalfOpen: true });
       open.add(socket);
       socket.on("close", () => open.delete(socket));
       // As the machine does: a port with nothing listening rejects before the stream opens.
       await new Promise<void>((resolve, reject) => {
-        socket.once("connect", resolve);
-        socket.once("error", () => reject(coded("tunnel_reset")));
+        const give = () => {
+          socket.destroy();
+          reject(coded("tunnel_cancelled"));
+        };
+        signal?.addEventListener("abort", give, { once: true });
+        socket.once("connect", () => {
+          signal?.removeEventListener("abort", give);
+          resolve();
+        });
+        socket.once("error", () => {
+          signal?.removeEventListener("abort", give);
+          reject(coded("tunnel_reset"));
+        });
       });
       return socketStream(socket);
     },

@@ -1,5 +1,3 @@
-import { socksReply, type SocksReplyCode } from "./socks5.ts";
-
 /*
  * Why a device tab's connection to the machine's localhost failed, in terms a person can act
  * on (ADR 0194). Pure. Chromium only says "the proxy failed", so the proxy keeps each port's
@@ -32,6 +30,8 @@ const byCode: Readonly<Record<string, TunnelFailure>> = {
   // The machine reset the stream before READY: nothing listens on the port.
   tunnel_reset: "closed",
   offline: "offline",
+  // The machine didn't open the stream within the proxy's deadline.
+  tunnel_cancelled: "offline",
   auth: "forbidden",
 };
 
@@ -42,13 +42,14 @@ export function tunnelFailure(error: unknown): TunnelFailure {
   return (typeof code === "string" && byCode[code]) || "failed";
 }
 
-/** The SOCKS5 reply Chromium gets for a failure before the stream opened. */
-export function failureReply(failure: TunnelFailure): SocksReplyCode {
-  if (failure === "off" || failure === "forbidden" || failure === "refused")
-    return socksReply.notAllowed;
-  if (failure === "offline") return socksReply.networkUnreachable;
-  if (failure === "closed") return socksReply.connectionRefused;
-  return socksReply.generalFailure;
+/**
+ * The status a refused CONNECT is answered with. Chromium shows every one as the same
+ * `ERR_TUNNEL_CONNECTION_FAILED`; the tab names the recorded failure instead.
+ */
+export function failureStatus(failure: TunnelFailure): number {
+  if (failure === "off" || failure === "forbidden" || failure === "refused") return 403;
+  if (failure === "offline" || failure === "limit") return 503;
+  return 502;
 }
 
 /** How long a port's failure explains a failed load. */

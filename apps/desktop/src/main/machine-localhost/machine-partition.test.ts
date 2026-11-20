@@ -20,7 +20,7 @@ describe("a machine's partition", () => {
 describe("a machine's proxy", () => {
   it("sends every host direct, then takes loopback back for the proxy, in that order", () => {
     expect(machineProxy(41234)).toEqual({
-      proxyRules: "socks5://127.0.0.1:41234",
+      proxyRules: "http://127.0.0.1:41234",
       proxyBypassRules: "*,<-loopback>",
     });
   });
