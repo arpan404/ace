@@ -15,8 +15,12 @@ export type PreviewChannel = {
 /**
  * Native bridges expose bounded socket queues and Node-like stream events. A close that follows
  * an end is graceful: the mux still sends every byte it holds and the END before it drops the
- * stream, however soon after the end the close comes. A close without an end, or an error, is
- * abortive and resets the stream at once.
+ * stream, however soon after the end the close comes. If the peer has not ended by then, the
+ * stream stays half-closed, as a TCP connection does when one side closes after its answer: it
+ * goes without a RESET at the peer's END, is reset if the peer sends more data (which nothing can
+ * read now), and is reset after `gracefulDrainMs` without a frame from the peer. A close without
+ * an end, or an error, is abortive and resets the stream at once. RESET is always abortive: the
+ * side that gets one drops what still waited for its socket.
  */
 export type PreviewSocket = {
   readonly readableLength: number;
@@ -50,6 +54,11 @@ type Stream = {
   writing: boolean;
   /** The peer's END came while bytes still waited: the socket ends once they are written. */
   endPending: boolean;
+  /**
+   * The socket closed after its END while the peer had not ended: the stream waits for the
+   * peer's END, within the drain deadline.
+   */
+  halfClosed: boolean;
   /** Set while a closed stream drains; restarts its deadline whenever a frame is admitted. */
   progress: (() => void) | undefined;
   cancelDeadline: (() => void) | undefined;
@@ -201,23 +210,6 @@ export function createMux(options: MuxOptions) {
       flush(stream);
     });
   };
-  /**
-   * A RESET after the peer's END is its socket closing once it had sent everything (a server that
-   * closes after its answer, while this side has not ended): what it sent before the END stands.
-   * The bytes still queued go to the socket in one write, past its backpressure (at most one
-   * window, already counted), then its end, before the stream is removed. The client's tunnel
-   * stream keeps what it was given once it has ended, whatever destroy follows; a machine-side
-   * socket never meets this, since a client stream sends no RESET after its END.
-   */
-  const deliverRest = (stream: Stream) => {
-    const chunks = stream.writeQueue.splice(0);
-    if (chunks.length > 0)
-      stream.socket.write(chunks.length === 1 && chunks[0] ? chunks[0] : joined(chunks), () => {});
-    if (stream.endPending) {
-      stream.endPending = false;
-      stream.socket.end();
-    }
-  };
   const transmit = async (stream: Stream, chunk: Uint8Array) => {
     stream.payloadBytes = chunk.byteLength;
     pendingPayloadBytes += chunk.byteLength;
@@ -276,6 +268,7 @@ export function createMux(options: MuxOptions) {
       queuedBytes: 0,
       writing: false,
       endPending: false,
+      halfClosed: false,
       progress: undefined,
       cancelDeadline: undefined,
     };
@@ -315,21 +308,28 @@ export function createMux(options: MuxOptions) {
       void send(kinds.reset, id).catch(close);
       remove(stream);
     };
+    const arm = () => {
+      stream.cancelDeadline?.();
+      stream.cancelDeadline = options.timer(expire, gracefulDrainMs);
+    };
     socket.on("close", () => {
       if (!socketEnded) return finish();
       // After an end, the END is queued behind any bytes still waiting for credit, within a
       // deadline so a peer that stops returning credit cannot hold the stream's slot.
-      const arm = () => {
-        stream.cancelDeadline?.();
-        stream.cancelDeadline = options.timer(expire, gracefulDrainMs);
-      };
       arm();
       stream.progress = arm;
       stream.pending = stream.pending.then(() => {
         stream.progress = undefined;
         stream.cancelDeadline?.();
         stream.cancelDeadline = undefined;
-        finish();
+        if (!alive(stream)) return;
+        if (stream.incomingEnded) return finish();
+        // Bytes the peer sent that the closed socket never took can't be delivered now.
+        if (stream.writing || stream.writeQueue.length > 0) return expire();
+        // Half-closed: the peer's END finishes the stream, its silence resets it.
+        stream.halfClosed = true;
+        arm();
+        stream.progress = arm;
       });
     });
     return stream;
@@ -396,8 +396,23 @@ export function createMux(options: MuxOptions) {
       const stream = streams.get(frame.id);
       if (!stream) return; // Late frames for a locally reset stream cannot revive it.
       if (frame.kind === kinds.reset) {
-        if (stream.incomingEnded) deliverRest(stream);
         remove(stream);
+        return;
+      }
+      if (stream.halfClosed) {
+        if (frame.kind === kinds.end) {
+          if (stream.incomingEnded) throw new Error("Duplicate stream end");
+          // Both sides have ended: the stream goes without a RESET.
+          remove(stream);
+        } else if (frame.kind === kinds.data) {
+          // Nothing reads this side any more, as a closed TCP socket answers data with RST.
+          remove(stream);
+          void send(kinds.reset, stream.id).catch(close);
+        } else if (frame.kind === kinds.credit) {
+          stream.progress?.();
+        } else {
+          throw new Error("Duplicate stream ready");
+        }
         return;
       }
       if (frame.kind === kinds.ready) {

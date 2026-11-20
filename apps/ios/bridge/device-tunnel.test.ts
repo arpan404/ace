@@ -20,10 +20,11 @@ async function until(done: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 1));
 }
 
-function phone() {
+/** `machineSchedule` runs the machine's own timers (its half-closed streams' deadline). */
+function phone(machineSchedule = schedule) {
   const host = new FakeLoopbackHost();
   const problems = new Map<number, string | undefined>();
-  const machine = memoryMachine({ ports: [5173], schedule });
+  const machine = memoryMachine({ ports: [5173], schedule: machineSchedule });
   const tunnel = openMachineTunnel({
     path: { get: () => machine, subscribe: () => () => {} },
     schedule,
@@ -56,15 +57,32 @@ describe("a device tab's connection through the tunnel", () => {
     expect(received("c1")).toBe(header(5 * 1024 * 1024) + 5 * 1024 * 1024);
   });
 
-  test("a machine that closed after its answer closes the page's connection without a reset", async () => {
+  test("a machine that closed after its answer ends the page's connection, which goes once the page ends too", async () => {
     const { host, loopback, received } = phone();
     loopback.event("accept", "c1", 5173);
     await until(() => host.of("c1", "read").length > 0);
     loopback.event("data", "c1", request(64));
-    // The page never ends its half; the machine's close still finishes the connection.
+    await until(() => host.of("c1", "end").length > 0);
+    expect(received("c1")).toBe(header(64) + 64);
+    // As a browser does on the end of a `Connection: close` answer.
+    loopback.event("end", "c1", 0);
+    await until(() => loopback.open === 0);
+    expect(loopback.open).toBe(0);
+    expect(host.of("c1", "reset")).toHaveLength(0);
+  });
+
+  test("a page that never ends after the machine closed is closed, not reset, when the machine gives up", async () => {
+    // The machine's half-closed deadline (15 s) comes at once here.
+    const { host, loopback, received } = phone((run, delayMs) =>
+      schedule(run, delayMs >= 15_000 ? 20 : delayMs),
+    );
+    loopback.event("accept", "c1", 5173);
+    await until(() => host.of("c1", "read").length > 0);
+    loopback.event("data", "c1", request(64));
     await until(() => host.of("c1", "close").length > 0);
     expect(received("c1")).toBe(header(64) + 64);
     expect(host.of("c1", "end")).toHaveLength(1);
+    expect(host.of("c1", "close")).toHaveLength(1);
     expect(host.of("c1", "reset")).toHaveLength(0);
   });
 

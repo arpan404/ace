@@ -124,9 +124,10 @@ export class DeviceLoopback {
           return;
         }
         connection.stream = stream;
-        // The machine's side is gone (it closed its socket, or the tunnel went). Once its last
-        // bytes reach the page, the page's connection closes too: after END the read loop is
-        // over, and a page that never writes or ends again would hold its socket forever.
+        // The machine's side is gone (the tunnel went, or the machine gave up a stream whose
+        // socket closed after its answer while the page never ended). Once its last bytes reach
+        // the page, the page's connection closes too: after END the read loop is over, and a
+        // page that never writes or ends again would hold its socket forever.
         void stream.closed.then(() => {
           connection.gone = true;
           if (connection.machineEnded) this.#close(id);

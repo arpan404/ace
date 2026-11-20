@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { createServer, connect, type Socket } from "node:net";
+import { createServer, connect, Socket } from "node:net";
 import { afterEach, expect, test } from "vitest";
 import { previewSocket } from "./node-socket.ts";
 import { createMux, gracefulDrainMs, systemTimer, type MuxTimer } from "./relay-mux.ts";
@@ -302,5 +302,161 @@ test.each(["peer reset", "mux close"])(
 
     expect(drain.mux.stats().streams).toBe(0);
     expect(drain.after).toEqual([]);
+  },
+);
+
+/** Waits on real I/O: up to five seconds for `condition`. */
+const within = async (condition: () => boolean) => {
+  for (const started = Date.now(); !condition() && Date.now() - started < 5_000;)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  if (!condition()) throw new Error("Condition never held");
+};
+
+/**
+ * Both ends of the mux over real TCP: a dev server on the machine's side, dialed as a socket that
+ * closes once the server's end arrives (not half-open, as Bun's are), and a browser's connection
+ * on the device's side. The browser reads at once, or holds its reads so the device's socket
+ * pushes back. Frames cross in memory, each way in order.
+ */
+async function overRealTcp(serve: (socket: Socket) => void, reads: "at once" | "held") {
+  const frames: { from: "machine" | "device"; kind: number; bytes: number }[] = [];
+  const ends: Record<"machine" | "device", ((frame: Uint8Array) => void) | undefined> = {
+    machine: undefined,
+    device: undefined,
+  };
+  const channel = (from: "machine" | "device"): PreviewChannel => ({
+    async send(bytes) {
+      const frame = decodeFrame(bytes);
+      frames.push({ from, kind: frame.kind, bytes: frame.data.byteLength });
+      const copy = bytes.slice();
+      queueMicrotask(() => ends[from === "machine" ? "device" : "machine"]?.(copy));
+    },
+    close() {},
+    subscribe(onFrame) {
+      ends[from] = onFrame;
+      return () => {
+        ends[from] = undefined;
+      };
+    },
+  });
+  const devServer = createServer(serve);
+  devServer.listen(0, "127.0.0.1");
+  await once(devServer, "listening");
+  cleanup.push(() => new Promise<void>((resolve) => devServer.close(() => resolve())));
+  const devAddress = devServer.address();
+  if (!devAddress || typeof devAddress === "string") throw new Error("Missing dev server");
+  const machine = createMux({
+    channel: channel("machine"),
+    maxStreams: 4,
+    timer: systemTimer,
+    allowPort: async () => true,
+    socketFactory: (port) => {
+      const socket = new Socket();
+      socket.on("error", () => {});
+      return {
+        socket: previewSocket(socket, systemTimer),
+        connect: () => socket.connect(port, "127.0.0.1"),
+      };
+    },
+  });
+  const device = createMux({ channel: channel("device"), maxStreams: 4, timer: systemTimer });
+  cleanup.push(machine.close, device.close);
+  const listener = createServer({ allowHalfOpen: true }, (socket) => {
+    socket.on("error", () => {});
+    device.open(previewSocket(socket, systemTimer), devAddress.port);
+  });
+  listener.listen(0, "127.0.0.1");
+  await once(listener, "listening");
+  cleanup.push(() => new Promise<void>((resolve) => listener.close(() => resolve())));
+  const address = listener.address();
+  if (!address || typeof address === "string") throw new Error("Missing listener");
+  // A small receive buffer, so held reads push back on the device's socket within a few windows.
+  const browser = connect({ host: "127.0.0.1", port: address.port });
+  browser.on("error", () => {});
+  cleanup.push(() => {
+    browser.destroy();
+  });
+  let received = 0;
+  const outcome = { ended: false, closed: false };
+  if (reads === "held") browser.pause();
+  browser.on("data", (bytes: Buffer) => {
+    received += bytes.byteLength;
+  });
+  browser.on("end", () => {
+    outcome.ended = true;
+  });
+  browser.on("close", () => {
+    outcome.closed = true;
+  });
+  await once(browser, "connect");
+  browser.write("GET / HTTP/1.1\r\n\r\n");
+  return {
+    frames,
+    outcome,
+    machine,
+    device,
+    received: () => received,
+    /** Lets a held browser read from now on. */
+    read: () => browser.resume(),
+    hold: () => browser.pause(),
+  };
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test.each(["at once", "held"] as const)(
+  "a server that closes after its whole answer, before the browser ends, delivers every byte (browser reads %s)",
+  async (reads) => {
+    const answer = Buffer.alloc(24 * 1024 * 1024, 7);
+    const run = await overRealTcp((socket) => {
+      socket.on("error", () => {});
+      socket.once("data", () => socket.end(answer));
+    }, reads);
+    if (reads === "held") {
+      // The browser reads in short bursts, so the machine sends the whole answer and its END,
+      // and its socket closes, while part of the answer still waits on the device's side.
+      const machineEnded = () =>
+        run.frames.some((frame) => frame.from === "machine" && frame.kind === kinds.end);
+      for (let bursts = 0; !machineEnded() && bursts < 500; bursts++) {
+        run.read();
+        await sleep(2);
+        run.hold();
+        await sleep(20);
+      }
+      await sleep(50);
+      expect(machineEnded()).toBe(true);
+      expect(run.received()).toBeLessThan(answer.byteLength);
+      run.read();
+    }
+    await within(() => run.outcome.ended);
+    expect(run.received()).toBe(answer.byteLength);
+    // A close after an answer is no abort: neither side resets.
+    expect(run.frames.filter((frame) => frame.kind === kinds.reset)).toEqual([]);
+  },
+);
+
+test.each(["at once", "held"] as const)(
+  "a server that aborts mid-answer resets the stream on both sides (browser reads %s)",
+  async (reads) => {
+    const sent = 24 * 1024 * 1024;
+    const run = await overRealTcp((socket) => {
+      socket.on("error", () => {});
+      socket.once("data", () => {
+        socket.write(Buffer.alloc(sent, 7));
+        setTimeout(() => socket.resetAndDestroy(), 50);
+      });
+    }, reads);
+    await within(() =>
+      run.frames.some((frame) => frame.from === "machine" && frame.kind === kinds.reset),
+    );
+    // An abort drops what still waited for the browser's socket.
+    if (reads === "held") run.read();
+    await within(() => run.outcome.closed);
+    const carried = run.frames
+      .filter((frame) => frame.from === "machine")
+      .reduce((total, frame) => total + frame.bytes, 0);
+    if (reads === "held") expect(run.received()).toBeLessThan(carried);
+    expect(run.frames.some((frame) => frame.kind === kinds.end)).toBe(false);
+    await within(() => run.machine.stats().streams === 0 && run.device.stats().streams === 0);
   },
 );
