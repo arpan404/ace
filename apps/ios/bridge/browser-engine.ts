@@ -8,7 +8,7 @@ import { reason } from "./browser-tools.ts";
 /*
  * "Engine for this thread" from the phone, as web's ⋯ menu offers it: the thread's browser runs
  * in the desktop app or in ace's Chrome, and the menu names the default other threads use. The
- * move itself is the daemon's (ADR 0194), asked through `@ace/client` as web asks it.
+ * move itself is the daemon's (ADR 0199), asked through `@ace/client` as web asks it.
  */
 
 export const EngineAction = z.object({

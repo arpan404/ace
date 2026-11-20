@@ -2,7 +2,7 @@ import { BrowserState, BrowserTabsResult, ThreadId, WorkspaceId } from "@ace/pro
 import type { ClientApi } from "./api.ts";
 
 /*
- * An engine move made by the client, for a daemon older than `browser.engine.move` (ADR 0194):
+ * An engine move made by the client, for a daemon older than `browser.engine.move` (ADR 0199):
  * keep the thread's `browser.backend`, snapshot the tabs, close the browser, open it on the new
  * engine and load every page again. Two devices doing this at once can still step on each
  * other; a daemon that owns the move can't.

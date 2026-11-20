@@ -101,7 +101,7 @@ export function fakeBrowserSession(
       let result: unknown;
       switch (message.type) {
         case "browser.engine.move": {
-          // The daemon's own move (ADR 0194), on this fixture's browser.
+          // The daemon's own move (ADR 0199), on this fixture's browser.
           if (!options.engine) throw new Error("Engine moves aren't available on this machine");
           const open = async (at: { threadId: string; workspaceId: string }) =>
             BrowserState.parse(

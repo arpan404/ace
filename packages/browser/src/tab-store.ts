@@ -25,7 +25,7 @@ export interface BrowserTabStore {
 }
 
 /**
- * An engine move's own copy of the tabs it carries (ADR 0194), injected by the daemon (SQLite
+ * An engine move's own copy of the tabs it carries (ADR 0199), injected by the daemon (SQLite
  * there). It is written before the browser closes and ended only once the move settled, so a
  * daemon that stops mid-move reopens these tabs even after the new engine's session saved a
  * shorter list to the tab store.

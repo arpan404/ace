@@ -2,7 +2,7 @@ import type { BrowserEngineMoved, BrowserState } from "@ace/protocol";
 import type { BrowserTabRecord } from "./tab-store.ts";
 
 /*
- * "Engine for this thread" (ADR 0194): the thread's browser runs in the desktop app (`embedded`)
+ * "Engine for this thread" (ADR 0199): the thread's browser runs in the desktop app (`embedded`)
  * or in ace's Chrome (`headless`). The daemon owns a move so devices asking at once can't close
  * a browser another is restoring or load its pages twice: moves of one thread run one at a time,
  * and a move that finds the browser already there leaves it alone. The thread's setting is

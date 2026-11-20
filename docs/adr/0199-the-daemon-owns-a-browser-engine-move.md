@@ -1,4 +1,4 @@
-# 0194: The daemon owns a browser engine move
+# 0199: The daemon owns a browser engine move
 
 Status: accepted. Date: 2026-11-19. Proposed in issue #2013. Builds on
 [ADR 0055](0055-browser-backends.md) and [ADR 0069](0069-shared-native-browser.md); the engine

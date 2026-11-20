@@ -107,7 +107,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       ((threadId) => grantOfCaller(threadId) !== undefined),
     dataDir: config.dataDir,
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
-    // An engine move's own copy of its tabs, until it settles (ADR 0194).
+    // An engine move's own copy of its tabs, until it settles (ADR 0199).
     moveJournal:
       options.browser?.moveJournal ?? new SqliteEngineMoveJournal((sql) => store.statement(sql)),
     // A fork (not a delegated thread) starts its browser with a copy of its parent's tabs.
@@ -281,7 +281,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
     local: context.local === true,
     // Subscribes naming a media connection go to ace-media (D1) while it serves.
     media: { owner: () => mediaOwner(context), delivery: () => options.mediaDelivery?.() },
-    // An engine move keeps the thread's choice as the person's settings write would (ADR 0194).
+    // An engine move keeps the thread's choice as the person's settings write would (ADR 0199).
     ...(options.settings
       ? {
           engine: engineSetting(options.settings, async () => {

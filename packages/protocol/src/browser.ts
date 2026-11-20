@@ -523,7 +523,7 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.open"), requestId: short, options: BrowserOpen }),
   base.extend({ type: z.literal("browser.close") }),
   /**
-   * Moves the thread's browser to another engine (ADR 0194). The daemon keeps the choice as the
+   * Moves the thread's browser to another engine (ADR 0199). The daemon keeps the choice as the
    * thread's `browser.backend` and, when a browser is open, closes it and opens it again there
    * with its web pages loaded, one move per thread at a time. Answered with `BrowserEngineMoved`.
    */

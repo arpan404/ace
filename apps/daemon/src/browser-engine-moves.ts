@@ -22,7 +22,7 @@ const Tab = z.object({
 const Tabs = z.array(Tab).max(512);
 
 /**
- * The tabs an engine move carries (ADR 0194), kept in the daemon database until the move
+ * The tabs an engine move carries (ADR 0199), kept in the daemon database until the move
  * settles, so a daemon that stops mid-move reopens all of them. One row per thread with a move
  * under way; a deleted thread takes its row with it.
  */

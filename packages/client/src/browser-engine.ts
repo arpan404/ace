@@ -5,7 +5,7 @@ import { ClientError } from "./errors.ts";
 
 /*
  * "Engine for this thread": the thread's browser runs in the desktop app (`embedded`) or in
- * ace's Chrome (`headless`). The daemon owns the move (ADR 0194): it keeps the choice as the
+ * ace's Chrome (`headless`). The daemon owns the move (ADR 0199): it keeps the choice as the
  * thread's `browser.backend` and moves a browser already open there, one move per thread at a
  * time, so two devices switching at once can't lose or duplicate pages. Shared by web and the
  * phone so a move reads the same from either.
@@ -26,7 +26,7 @@ interface Move {
   browserOpen: boolean;
 }
 
-/** The daemon doesn't know `browser.engine.move`: it predates the move (ADR 0194). */
+/** The daemon doesn't know `browser.engine.move`: it predates the move (ADR 0199). */
 function olderDaemon(error: unknown): boolean {
   return error instanceof ClientError && error.code === "daemon" && error.message === "unsupported";
 }

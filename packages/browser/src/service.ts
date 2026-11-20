@@ -998,14 +998,14 @@ export class BrowserService {
     return this.get(threadId).stopRecording(actor);
   }
   /**
-   * Moves the thread's browser to another engine for a person (ADR 0194), one move per thread at
+   * Moves the thread's browser to another engine for a person (ADR 0199), one move per thread at
    * a time: `preference` is where the daemon keeps the thread's `browser.backend`.
    */
   moveEngine(move: EngineMove, preference: EnginePreferencePort) {
     return this.engineMoves.run(move, preference);
   }
   /**
-   * Moves the thread's open browser to `engine` with its tabs (ADR 0194): it closes as a daemon
+   * Moves the thread's open browser to `engine` with its tabs (ADR 0199): it closes as a daemon
    * shutdown does, its tabs kept in the move journal and the tab store, and opens on `engine`
    * with them. When that open fails, the tabs open again on the engine the browser was on.
    * Nothing here writes the thread's setting or settles the move, so a daemon that stops before
