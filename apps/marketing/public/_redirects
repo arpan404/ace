@@ -1,0 +1,6 @@
+# Short legal addresses that makers' OAuth consoles ask for (Google, Slack, Zoom) and that Spade's
+# outreach cites. Cloudflare Pages reads this file; the pages themselves live at the long paths.
+/privacy /privacy-policy/ 301
+/privacy/ /privacy-policy/ 301
+/terms /terms-of-service/ 301
+/terms/ /terms-of-service/ 301
