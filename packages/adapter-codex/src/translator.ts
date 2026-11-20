@@ -168,8 +168,13 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           status: "completed",
         });
       }
-      if (message["event"] === "queue-state" && typeof message["count"] === "number")
+      if (message["event"] === "queue-state" && typeof message["count"] === "number") {
         facts.push({ type: "queue.changed", count: message["count"] });
+        // Codex's queue is empty: no turn it starts now takes an input of ace's from there.
+        if (message["count"] === 0)
+          for (const agent of agents.values())
+            if (agent.pendingTrigger === "queue") delete agent.pendingTrigger;
+      }
       if (message["event"] === "stop") deliberate = true;
       if (message["event"] === "process-exit")
         facts.push({ type: "process.exited", deliberate, message: "Codex app-server exited" });
@@ -375,15 +380,19 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       agent.hadTurn = true;
       delete agent.plan;
       delete agent.failureText;
+      // ace's input waiting in Codex's own queue is what a turn Codex starts takes first: a
+      // child's or shell's result that arrived meanwhile goes into that same turn.
       const trigger: RunTrigger = userTurns.has(turn)
         ? "user"
         : agent.parent
           ? (agent.pendingTrigger ?? "spawn")
-          : agent.childResult
-            ? "subagent_result"
-            : agent.backgroundResult
-              ? "background_completion"
-              : (agent.pendingTrigger ?? "unknown");
+          : agent.pendingTrigger === "queue"
+            ? "queue"
+            : agent.childResult
+              ? "subagent_result"
+              : agent.backgroundResult
+                ? "background_completion"
+                : (agent.pendingTrigger ?? "unknown");
       userTurns.delete(turn);
       agent.childResult = false;
       agent.backgroundResult = false;

@@ -9,6 +9,7 @@ import type { TransitionReadiness } from "./transition-readiness.ts";
 import { coalesceFacts } from "./delta-batch.ts";
 import { capFact } from "./raw.ts";
 import { retireEndedTurnInputs } from "./stale-inputs.ts";
+import { rootRunStart } from "./root-run-start.ts";
 import { bindConsumedInput, bindStartedRun } from "./transcript-inputs.ts";
 import { shapeProviderError, structuredError } from "./provider-errors.ts";
 import { forkReplaySource, inheritedReplay } from "./fork-replay.ts";
@@ -41,6 +42,8 @@ export function foldProviderFacts(
     ports.snapshot ? { deadline: ports.snapshot.deadline() } : undefined,
   );
   let continuationStarted = false;
+  /** Root runs started in this batch, by whether their start takes the input ace handed. */
+  const takesInput = new Map<string, boolean>();
   const replayedFrom = ports.opening ? forkReplaySource(repo, id) : undefined;
   const events = coalesceFacts(facts).flatMap((input) => {
     if (repo.interactions.obsolete(id, input)) return [];
@@ -116,15 +119,12 @@ export function foldProviderFacts(
     // A provider's own wake input (a finished shell, a child's result) is classified by its
     // adapter, which holds the native evidence. The run's trigger is no evidence: Claude writes
     // other notes into a woken run too (an image's scale, an interruption), and they are not it.
+    // The start, not its label, says whether the run takes the input ace handed the session.
+    let startTakesInput: boolean | undefined;
     if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
-      const pending = repo.pending.awaiting(id);
-      if (
-        pending &&
-        (pending.kind === "thread.create" || pending.kind === "thread.send") &&
-        pending.trigger &&
-        ["user", "queue", "unknown"].includes(fact.trigger)
-      )
-        fact = { ...fact, trigger: pending.trigger };
+      const start = rootRunStart(fact.trigger, repo.pending.handedOver(id));
+      if (start.trigger !== fact.trigger) fact = { ...fact, trigger: start.trigger };
+      startTakesInput = start.takesInput;
     }
     if (fact.type === "turn.ended" && fact.agent === (state.rootKey ?? "root")) {
       const record = state.agents[fact.agent];
@@ -180,6 +180,9 @@ export function foldProviderFacts(
           for (const settled of repo.interactions.closed(state, event))
             emitted.push(...batch.apply(settled, { now, ids: ports.ids }));
       repo.interactions.observe(id, emitted);
+      if (startTakesInput !== undefined)
+        for (const event of emitted)
+          if (event.type === "run.started") takesInput.set(event.run.id, startTakesInput);
       if (fact.type === "turn.ended" && fact.error)
         for (const event of emitted)
           if (event.type === "run.ended") {
@@ -234,20 +237,10 @@ export function foldProviderFacts(
       event.type === "run.started" &&
       !ports.opening &&
       event.run.agentId === root &&
-      [
-        "user",
-        "queue",
-        "unknown",
-        "spawn",
-        "parent_agent",
-        "subagent_result",
-        "schedule",
-        "restart",
-        "limit_resume",
-      ].includes(event.run.trigger);
+      (takesInput.get(event.run.id) ?? rootRunStart(event.run.trigger, undefined).takesInput);
     const pending =
       event.type === "input.admitted" || rootStarted
-        ? (repo.pending.awaiting(id) ??
+        ? (repo.pending.handedOver(id) ??
           (rootStarted ? repo.pending.uncertainContinuation(id) : undefined))
         : undefined;
     const commandId =
