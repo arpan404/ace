@@ -27,6 +27,7 @@ pub mod memory;
 pub mod named_devices;
 pub mod outward;
 pub mod oversight;
+pub mod package;
 pub mod personality;
 pub mod provenance;
 pub mod question;
