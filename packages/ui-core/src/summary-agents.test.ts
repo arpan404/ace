@@ -1,4 +1,4 @@
-import { Agent, Interaction, type AgentStatus } from "@ace/protocol";
+import { Agent, BackgroundTask, Interaction, type AgentStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { agentForest, forestAgentWords, summaryAgents, type ThreadWork } from "./index.ts";
 
@@ -277,4 +277,52 @@ test("a working agent with a request it doesn't wait on stays working", () => {
   expect(names(agents?.asks ?? [])).toEqual([]);
   expect(names(agents?.working ?? [])).toEqual(["busy"]);
   expect(agents?.working[0]?.request).toBeUndefined();
+});
+
+test("a delegate whose work still runs never says done, even when its own status is idle", () => {
+  // The hold its parent keeps for a child on another machine: the work runs, the row is idle.
+  const remote = Agent.parse({
+    id: "remote",
+    parentId: "root",
+    threadId: "t1",
+    childThreadId: "machine-child",
+    machine: { machine: "build-box", name: "Build box" },
+    origin: "ace",
+    native: { provider: "codex" },
+    fidelity: "summary",
+    cwd: "",
+    status: idle,
+    createdAt: clock++,
+  });
+  const hold = BackgroundTask.parse({
+    id: "hold",
+    agentId: "root",
+    owner: "ace",
+    kind: "subagent",
+    title: "Remote · Build box",
+    status: "running",
+    childAgentId: "remote",
+    stoppable: true,
+    startedAt: 0,
+  });
+  // And a delegate whose thread is working but couldn't be held (a refused lease).
+  const works = new Map<string, ThreadWork>([
+    [
+      "t1",
+      work([agent("t1", "root", idle), remote, agent("t1", "far", idle, "root", "t2")], {
+        tasks: [hold],
+        status: { state: "done" },
+      }),
+    ],
+    ["t2", { ...work([]), facts: "not_loaded" }],
+  ]);
+  const agents = summaryAgents("t1", agentForest("t1", works), works);
+  const none = { request: undefined, tool: undefined, spawn: undefined };
+  const steps = (agents?.working ?? []).map((entry) => [
+    entry.node.agent.id,
+    forestAgentWords(true, entry.node, none).step,
+  ]);
+  expect(steps.map(([id]) => id)).toContain("remote");
+  for (const [, step] of steps) expect(step).not.toMatch(/^(done|finished)/i);
+  expect(Object.fromEntries(steps).remote).toBe("working");
 });
