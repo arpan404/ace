@@ -31,6 +31,8 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
     private(set) var refused: String?
     /// The device tab shown in the browser instead of ace's Chrome; nil shows ace's Chrome.
     var shown: String?
+    /// The browser is on screen and the app in front (`frontDeviceTab`, `hideDeviceTabs`).
+    @ObservationIgnored var onScreen = false
     /// Each tab's live page, kept while the tab is open.
     @ObservationIgnored private var views: [String: WKWebView] = [:]
     /// The last load each tab's page ran (`Tab.load`).
@@ -86,6 +88,12 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
     /// The web view already made for a tab, if any.
     func existingView(_ id: String) -> WKWebView? { views[id] }
 
+    /// The open tabs as a new runtime takes them (`restore`), each with the loads its page has
+    /// already run, so none loads again.
+    func restoreEntries() -> [[String: Any]] {
+        tabs.map { tab in ["id": tab.id, "url": tab.url, "title": tab.title, "load": max(tab.load, loaded[tab.id] ?? 0)] }
+    }
+
     func reset() {
         for view in views.values { view.stopLoading() }
         views.removeAll(); loaded.removeAll(); statuses.removeAll()
@@ -103,4 +111,6 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
     var unsafe = false
     /// The last load failed before a page came; the next page clears it.
     var failed = false
+    /// A public page tried to send a form to the machine's localhost and was stopped.
+    var refused = false
 }

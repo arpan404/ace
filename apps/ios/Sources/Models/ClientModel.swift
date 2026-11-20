@@ -246,8 +246,9 @@ import QuartzCore
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset(); spade.reset()
-        // The new runtime starts with no device tabs; another machine's pages never carry over.
-        deviceTabs.reset()
+        // Another machine's pages never carry over. Another route to the same machine keeps the
+        // device tabs and their pages: the new runtime takes them (`restoreDeviceTabs`).
+        if !sameMachine { deviceTabs.reset() }
         // Cards for later keep what was filled in across another route to the same machine.
         if !sameMachine { spade.cards.reset() }
         inboxLayout = .empty; chatLayout = .empty
@@ -287,6 +288,7 @@ import QuartzCore
         self.runtime = runtime
         // The restored inbox's sort, so the live list opens in the order already on screen.
         runtime.start(itemLimit: itemLimit, inboxSort: inboxLayout.sortBy)
+        restoreDeviceTabs()
         if readAheadAllowed { action(["type": "readAhead", "allowed": true]) }
         spadeResume()
         // The thread on screen (the kept one, or one tapped while the old runtime shut down) is

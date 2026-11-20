@@ -173,7 +173,10 @@ struct BrowserAddressEditor: View {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         editing = false
         guard !typed.isEmpty else { return }
-        if let device = model.deviceTabs.shownTab { model.navigateDeviceTab(device.id, address: typed) } else { model.browserGo(typed) }
+        // With no page in ace's Chrome (no agent opened one), the person's page runs on this phone.
+        if let device = model.deviceTabs.shownTab { model.navigateDeviceTab(device.id, address: typed) }
+        else if model.chromeHasPage { model.browserGo(typed) }
+        else { model.openDeviceTab(typed) }
     }
 }
 

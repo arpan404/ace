@@ -93,6 +93,40 @@ describe("which ports a machine's device tabs take", () => {
     expect(host.listening).toEqual([3000]);
   });
 
+  test("leaving the device page lets the ports go, and coming back takes them again", async () => {
+    const { tabs, host, patch, open } = machine({ ports: [3000] });
+    const id = await open("localhost:3000");
+    tabs.handle({ kind: "hidden" });
+    await settle();
+    expect(host.asked.at(-1)).toEqual([]);
+    expect(patch()?.holding).toBe(false);
+    tabs.handle({ kind: "front", tabId: id });
+    await settle();
+    expect(host.listening).toEqual([3000]);
+    expect(patch()?.holding).toBe(true);
+  });
+
+  test("a runtime that replaced another on the same machine keeps its tabs without loading them again", async () => {
+    const { tabs, host, patch } = machine({ ports: [3000] });
+    tabs.handle({
+      kind: "restore",
+      tabs: [
+        { id: "kept-1", url: "http://localhost:3000/app", title: "App", load: 3 },
+        { id: "kept-2", url: "https://example.com/", title: "Example", load: 1 },
+      ],
+    });
+    tabs.handle({ kind: "front", tabId: "kept-1" });
+    await settle();
+    expect(patch()?.tabs.map(({ id, load, title }) => ({ id, load, title }))).toEqual([
+      { id: "kept-1", load: 3, title: "App" },
+      { id: "kept-2", load: 1, title: "Example" },
+    ]);
+    expect(host.listening).toEqual([3000]);
+    // A later navigation loads past the restored count, so the page runs it.
+    tabs.handle({ kind: "navigate", tabId: "kept-1", address: "localhost:4000" });
+    expect(patch()?.tabs[0]?.load).toBe(4);
+  });
+
   test("a port another app on the phone holds says so on its page", async () => {
     const host = new FakeLoopbackHost();
     host.busy.add(3000);

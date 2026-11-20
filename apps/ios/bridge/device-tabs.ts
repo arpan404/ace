@@ -40,6 +40,25 @@ export const DeviceTabAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("failed"), tabId, url }),
   /** The tab is in front on the phone. */
   z.object({ kind: z.literal("front"), tabId }),
+  /** No device tab is on screen (the browser shows ace's Chrome or closed, or the app is away). */
+  z.object({ kind: z.literal("hidden") }),
+  /**
+   * Another route to the same machine replaced the runtime: the tabs the phone still shows, with
+   * the loads their pages already ran, so none loads again and each keeps its id.
+   */
+  z.object({
+    kind: z.literal("restore"),
+    tabs: z
+      .array(
+        z.object({
+          id: tabId,
+          url,
+          title: z.string().max(512),
+          load: z.number().int().min(0),
+        }),
+      )
+      .max(64),
+  }),
 ]);
 export type DeviceTabAction = z.infer<typeof DeviceTabAction>;
 export const DeviceTabControl = z.object({
@@ -158,6 +177,17 @@ export class DeviceTabs {
       case "front":
         if (this.#tabs.some((tab) => tab.id === action.tabId)) this.#holdEvent({ kind: "front" });
         return;
+      case "hidden":
+        // The page left the screen: its ports and connections go until it is back in front.
+        this.#holdEvent({ kind: "hidden" });
+        return;
+      case "restore": {
+        for (const tab of action.tabs)
+          if (!this.#tabs.some((entry) => entry.id === tab.id))
+            this.#tabs.push({ ...tab, failed: undefined });
+        this.#tabsChanged();
+        return;
+      }
     }
   }
 

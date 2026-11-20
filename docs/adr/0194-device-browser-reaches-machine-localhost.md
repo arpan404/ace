@@ -118,8 +118,19 @@ never a host.
     keyed by the machine), so cookies stay apart.
   - A port already taken on the phone isn't listened on. A page that needs it says which port is
     busy.
-  - The listeners close when the last device tab closes. While they're open, other apps on the
-    phone could connect to them too, the way any app can reach another app's loopback port.
+  - The listeners, and the connections they accepted, close when no device tab is on screen: the
+    last device tab closes, the browser shows ace's Chrome or is left, or the app goes to the
+    background. They open again when a device tab is back in front. While they're open, other
+    apps on the phone could connect to them too, the way any app can reach another app's loopback
+    port.
+  - A port listens once both `127.0.0.1` and `::1` are bound (or the phone has no IPv6
+    loopback), so a page never reaches a half-bound port. An address in use is tried again
+    briefly before the port reads as busy.
+  - A route change to the same machine (relay to direct, Wi-Fi to cellular) replaces the phone's
+    runtime for that machine. Its device tabs and their pages stay where they are, and the new
+    runtime opens the tunnel on the new path. Two runtimes can't share a machine's local store,
+    so the old one stops before the new one starts, and streams open on the old path are reset
+    rather than drained. The page retries, as after any dropped connection.
   - Swift only owns the listeners and moves bytes. Which ports to take and which machine owns them
     are decided in the shared JavaScript, behind the native host contract.
 - **Android**, later: `ProxyController` with `removeImplicitRules()`.

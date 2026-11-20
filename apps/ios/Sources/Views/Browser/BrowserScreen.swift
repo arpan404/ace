@@ -51,7 +51,7 @@ struct BrowserScreen: View {
                 if let deviceTab {
                     DevicePageView(model: model, tab: deviceTab)
                         .id(deviceTab.id)
-                    if let problem = deviceTab.problem ?? (model.deviceTabs.status(deviceTab.id).failed ? "This page couldn't load." : nil) {
+                    if let problem = deviceTab.problem ?? deviceProblem(model.deviceTabs.status(deviceTab.id)) {
                         BrowserStrip(sentence: problem) { EmptyView() }
                             .accessibilityIdentifier("device.problem")
                     }
@@ -124,11 +124,15 @@ struct BrowserScreen: View {
         } message: { Text(browser.problem?.message ?? "") }
         .onChange(of: scenePhase, initial: true) { _, phase in
             browser.setVisible(phase == .active)
-            // Back in front, a device tab takes this machine's ports again.
-            if phase == .active { model.frontDeviceTab() }
+            // Back in front, a device tab takes this machine's ports again; in the background
+            // they go, with their connections. Inactive (Control Centre over the app) keeps them.
+            if phase == .active { model.frontDeviceTab() } else if phase == .background { model.hideDeviceTabs() }
         }
         .onChange(of: state?.tabs.map(\.id)) { _, ids in if let splitTab, !(ids ?? []).contains(splitTab) { self.splitTab = nil } }
-        .onDisappear { model.closeBrowser() }
+        .onDisappear {
+            model.closeBrowser()
+            model.hideDeviceTabs()
+        }
     }
 
     /// The page's two actions that matter most, always in reach: ask the agent about the page,
@@ -285,6 +289,11 @@ struct BrowserScreen: View {
 }
 
 extension BrowserScreen {
+    /// What the shown device page's own load says when the bridge has nothing to say.
+    fileprivate func deviceProblem(_ status: DevicePageStatus) -> String? {
+        if status.refused { return "This page can't send a form to the machine's localhost." }
+        return status.failed ? "This page couldn't load." : nil
+    }
     /// The annotate strip's one sentence: how many comments are pinned, or that it starts.
     fileprivate var annotationSentence: String {
         if annotate?.mode == "starting" { return "Getting the page ready to draw on…" }

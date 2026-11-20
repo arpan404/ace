@@ -15,21 +15,48 @@ extension ClientModel {
         deviceTabAction(["kind": "navigate", "tabId": id, "address": address])
     }
     func closeDeviceTab(_ id: String) {
-        if deviceTabs.shown == id { deviceTabs.shown = nil }
+        let wasShown = deviceTabs.shown == id
+        if wasShown { deviceTabs.shown = nil }
         deviceTabAction(["kind": "close", "tabId": id])
+        // The browser shows ace's Chrome now: no device page is on screen.
+        if wasShown { deviceTabAction(["kind": "hidden"]) }
     }
     /// Shows a device tab in the browser; it takes the phone's loopback ports for this machine.
     func showDeviceTab(_ id: String) {
         deviceTabs.shown = id
         deviceTabAction(["kind": "front", "tabId": id])
     }
-    /// The tab's page is on screen again (the browser came back to the front).
+    /// The browser is on screen with the app in front: a shown device tab takes the ports again.
     func frontDeviceTab() {
+        deviceTabs.onScreen = true
         guard let id = deviceTabs.shown else { return }
         deviceTabAction(["kind": "front", "tabId": id])
     }
-    /// Shows ace's Chrome again; the device tabs stay open.
-    func showChrome() { deviceTabs.shown = nil }
+    /// The browser left the screen, or the app went to the background: the phone's loopback
+    /// ports and the connections on them go until a device tab is in front again.
+    func hideDeviceTabs() {
+        deviceTabs.onScreen = false
+        deviceTabAction(["kind": "hidden"])
+    }
+    /// Shows ace's Chrome again; the device tabs stay open, their ports go.
+    func showChrome() {
+        guard deviceTabs.shown != nil else { return }
+        deviceTabs.shown = nil
+        deviceTabAction(["kind": "hidden"])
+    }
+    /// A new runtime on another route to the same machine: it takes the device tabs the phone
+    /// still shows, so their pages stay where they are and the shown one takes the ports again.
+    func restoreDeviceTabs() {
+        guard !deviceTabs.tabs.isEmpty else { return }
+        deviceTabAction(["kind": "restore", "tabs": deviceTabs.restoreEntries()])
+        if deviceTabs.onScreen, let id = deviceTabs.shown { deviceTabAction(["kind": "front", "tabId": id]) }
+    }
+    /// Whether ace's Chrome has a page open in this thread; without one, a page the person opens
+    /// runs on this phone.
+    var chromeHasPage: Bool {
+        guard let state = browser.view?.state else { return false }
+        return !state.closed && !state.tabs.isEmpty
+    }
     /// The page went somewhere, or its title changed.
     func deviceTabPage(_ id: String, url: String, title: String?) {
         var value: [String: Any] = ["kind": "page", "tabId": id, "url": url]

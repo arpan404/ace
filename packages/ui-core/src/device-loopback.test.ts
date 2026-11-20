@@ -99,6 +99,16 @@ describe("which machine holds the ports", () => {
       false,
     ],
     [
+      "leaving the device page lets them go",
+      [{ kind: "tabs", count: 1 }, { kind: "front" }, { kind: "hidden" }],
+      false,
+    ],
+    [
+      "the device page back on screen takes them again",
+      [{ kind: "tabs", count: 1 }, { kind: "front" }, { kind: "hidden" }, { kind: "front" }],
+      true,
+    ],
+    [
       "a new tab after the last one closed waits for the front again",
       [
         { kind: "tabs", count: 1 },

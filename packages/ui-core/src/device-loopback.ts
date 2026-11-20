@@ -48,7 +48,9 @@ export function listenPorts(input: ListenInput): number[] {
 /**
  * Whether this machine holds the phone's loopback ports. A listener can't tell which web view
  * connected, so one machine holds them at a time: the one whose device tab came to the front
- * last, until its last device tab closes or another machine's comes to the front.
+ * last, until its last device tab closes, another machine's comes to the front, or the device
+ * page leaves the screen (the person left the browser, or the app went to the background). It
+ * takes them again when the page is back in front.
  */
 export interface LoopbackHold {
   readonly tabs: number;
@@ -60,7 +62,9 @@ export type LoopbackHoldEvent =
   /** This machine now has `count` device tabs open. */
   | { kind: "tabs"; count: number }
   /** Another machine's device tab came to the front and took the ports. */
-  | { kind: "released" };
+  | { kind: "released" }
+  /** No device tab is on screen: the browser shows ace's Chrome, closed, or the app is away. */
+  | { kind: "hidden" };
 
 export const noLoopbackHold: LoopbackHold = { tabs: 0, holding: false };
 
@@ -73,6 +77,7 @@ export function nextLoopbackHold(hold: LoopbackHold, event: LoopbackHoldEvent): 
       return { tabs, holding: hold.holding && tabs > 0 };
     }
     case "released":
+    case "hidden":
       return { ...hold, holding: false };
   }
 }
