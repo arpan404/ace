@@ -12,9 +12,9 @@ import { installDeckProbe, loadOutcome, nextSwitch, quantile, readProbe } from "
  * walks them back from the newest: the newest are still resident, the oldest were freed, so one
  * walk gives both kinds of switch. Which kind each was is what the page showed: a freed buffer
  * shows the group's loading state before its rows. The registry's own byte count isn't reachable
- * from the production page, so the cap is checked by what it leaves resident: the switches that
- * found their buffer resident, plus the shown editors, times the file size, are within the cap,
- * and some switches found theirs freed.
+ * from the production page, so the cap is checked by what it leaves resident: the files whose
+ * switch found their buffer resident (the shown editors among them, since the walk starts from
+ * them), times the file size, are within the cap, and some switches found theirs freed.
  */
 
 const lines = 200_000;
@@ -165,7 +165,8 @@ test(
           failedSwitches: failed.map((s) => `${s.path}: ${s.error}`),
           keyToPaint: { samples: keys.length, p95: quantile(keys, 0.95) },
           reload: { ...reload, ms: reloadMs },
-          residentBytesAtMost: (resident.length + 2) * fileBytes,
+          // The walk starts from the two shown editors, so they are among these already.
+          residentBytesAtMost: new Set(resident.map((each) => each.path)).size * fileBytes,
         };
         process.stdout.write(`Deck budgets: ${JSON.stringify(report, null, 2)}\n`);
 

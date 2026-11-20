@@ -48,7 +48,7 @@ export function installDeckProbe() {
   globalThis.aceDeckProbe = probe;
   const groupOf = (target: EventTarget | null) =>
     target instanceof Element
-      ? target.closest<HTMLElement>('[role="region"][aria-label^="Group "]')
+      ? target.closest<HTMLElement>('[data-group-id]')
       : null;
   const editorOf = (group: Element) => group.querySelector('[data-part="deck-editor"]');
   /** The editor's rows for `path` are on screen. */
@@ -110,7 +110,7 @@ export function installDeckProbe() {
       document.querySelector('[data-connection="ready"]') !== null
     )
       load.connectedAt = performance.now();
-    const groups = [...document.querySelectorAll('[role="region"][aria-label^="Group "]')];
+    const groups = [...document.querySelectorAll('[data-group-id]')];
     const errors = groups.flatMap((group) => {
       const text = failure(group);
       return text ? [text] : [];

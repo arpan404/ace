@@ -22,6 +22,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
   useLayoutEffect,
+  lazy,
+  Suspense,
 } from "react";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import {
@@ -69,9 +71,7 @@ import {
   type DeckActionsHost,
   type SaveProblem,
 } from "./deck-actions.ts";
-import { DeckCompare } from "./deck-compare.tsx";
 import { DeckExplorer, type ExplorerOpen } from "./deck-explorer.tsx";
-import { DeckFileView } from "./deck-file-view.tsx";
 import { DeckTabMenuItems } from "./deck-tab-menu.tsx";
 import { deckKeys, type DeckCommand } from "./deck-keys.ts";
 import { groupIds, openPaths } from "./deck-layout.ts";
@@ -448,7 +448,20 @@ function emptyOf(layout: EditorLayout): EditorLayout {
   return { ...layout, root: { kind: "group", id: focusedGroup(layout).id, tabs: [], mru: [] } };
 }
 
-const renderCompare = (props: DeckCompareProps) => <DeckCompare key={props.path} {...props} />;
+// Compare and the read-only viewers are cold: their code (the Changes diff, the Files viewer)
+// loads when one is first shown, never with the Deck's first paint.
+const DeckCompare = lazy(() =>
+  import("./deck-compare.tsx").then((module) => ({ default: module.DeckCompare })),
+);
+const DeckFileView = lazy(() =>
+  import("./deck-file-view.tsx").then((module) => ({ default: module.DeckFileView })),
+);
+
+const renderCompare = (props: DeckCompareProps) => (
+  <Suspense fallback={null}>
+    <DeckCompare key={props.path} {...props} />
+  </Suspense>
+);
 
 const renderers = new Map<string, (editor: DeckEditorProps) => ReactNode>();
 const viewers = new Map<string, (viewer: DeckViewerProps) => ReactNode>();
@@ -478,7 +491,11 @@ function editorFor(threadId: string): (editor: DeckEditorProps) => ReactNode {
 function viewerFor(threadId: string): (viewer: DeckViewerProps) => ReactNode {
   let render = viewers.get(threadId);
   if (!render) {
-    render = (viewer) => <DeckFileView key={viewer.path} threadId={threadId} {...viewer} />;
+    render = (viewer) => (
+      <Suspense fallback={null}>
+        <DeckFileView key={viewer.path} threadId={threadId} {...viewer} />
+      </Suspense>
+    );
     viewers.set(threadId, render);
   }
   return render;

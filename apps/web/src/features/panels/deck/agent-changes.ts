@@ -112,6 +112,20 @@ function inCheckout(path: string, checkout: string): string | undefined {
   return own.startsWith(`${root}/`) ? own.slice(root.length + 1) : undefined;
 }
 
+/** The checkout paths these edit calls touched, each once. */
+export function editedPathsOf(
+  calls: readonly EditCall[],
+  checkout: string | undefined,
+): ReadonlySet<string> {
+  const paths = new Set<string>();
+  if (!checkout) return paths;
+  for (const call of calls) {
+    const path = inCheckout(call.path, checkout);
+    if (path !== undefined) paths.add(path);
+  }
+  return paths;
+}
+
 /**
  * The explorer rows' agent marks (spec 21, as the tabs carry them): files this thread's agent
  * edited within `treeMarkMs` and since the person last looked at each, with the newest edit. An

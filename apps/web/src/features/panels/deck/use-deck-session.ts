@@ -14,6 +14,7 @@ import {
   noChanges,
   recordChange,
   seeChanges,
+  editedPathsOf,
   treeMarks,
   type AgentChanges,
   type TreeMark,
@@ -185,14 +186,22 @@ export function useDeckSession(
     const timer = setInterval(() => setNow(Date.now()), ageTickMs);
     return () => clearInterval(timer);
   }, []);
+  // Only a file an agent edited can carry a row mark: looking at any other changes nothing, so
+  // a tab switch doesn't re-render the panel for it.
+  const edited = useMemo(() => editedPathsOf(calls, checkout), [calls, checkout]);
+  const editedNow = useRef(edited);
+  useEffect(() => {
+    editedNow.current = edited;
+  }, [edited]);
   const see = useCallback((seen: Iterable<string>) => {
     const paths = [...seen];
-    const at = Date.now();
-    setNow(at);
     setChanges((current) => seeChanges(current, paths));
+    const marked = paths.filter((path) => editedNow.current.has(path));
+    if (marked.length === 0) return;
+    const at = Date.now();
     setLooked((current) => {
       const next = new Map(current);
-      for (const path of paths) next.set(path, at);
+      for (const path of marked) next.set(path, at);
       return next;
     });
   }, []);

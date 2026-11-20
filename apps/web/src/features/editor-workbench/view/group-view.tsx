@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { AgentNotice } from "./agent-notice.tsx";
 import { Breadcrumbs } from "./breadcrumbs.tsx";
@@ -9,7 +9,12 @@ import type { DeckEditorProps, DeckHost } from "./deck-host.ts";
 import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
 import { FileProblem, LoadingLines, NoFileOpen } from "./editor-states.tsx";
 import type { GroupActions } from "./group-actions.ts";
-import { MarkdownChoice, MarkdownPreview, markdownShow } from "./markdown-view.tsx";
+import { MarkdownChoice, markdownShow } from "./markdown-choice.tsx";
+
+// Rendered Markdown is cold: markit's prose loads when a Markdown tab first shows rendered.
+const MarkdownPreview = lazy(() =>
+  import("./markdown-view.tsx").then((module) => ({ default: module.MarkdownPreview })),
+);
 import { dropZone, type GroupNode, type Side } from "@ace/ui-core/editor-workbench";
 import { TabStrip } from "./tab-strip.tsx";
 
@@ -132,7 +137,9 @@ export function GroupView(props: {
           compare({ path, buffer })
         ) : buffer && load?.kind === "ready" ? (
           markdown === "preview" ? (
-            <MarkdownPreview buffer={buffer} />
+            <Suspense fallback={<LoadingLines />}>
+              <MarkdownPreview buffer={buffer} />
+            </Suspense>
           ) : (
             showEditor(host, { path, buffer, group: group.id, focused: props.focused, onStatus })
           )
