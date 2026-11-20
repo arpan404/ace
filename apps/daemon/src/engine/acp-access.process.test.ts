@@ -292,7 +292,7 @@ async function acpTree(
     },
     { installed: true, auth: "logged_in", loginHint: "unused" },
   );
-  const create = async (access?: AccessMode) => {
+  const create = async (access?: AccessMode, model?: string) => {
     const created = h.command({
       type: "thread.create",
       workspaceId: h.workspace,
@@ -301,6 +301,7 @@ async function acpTree(
       installationId: "test-install",
       instanceId: "test-instance",
       ...(access ? { access } : {}),
+      ...(model ? { model } : {}),
       input: [{ type: "text", text: "work" }],
     });
     if (!created.ok || !created.threadId) throw new Error(created.error);
@@ -587,6 +588,20 @@ test("an Antigravity session's reported models and levels refresh its catalog ro
           ?.efforts.map((effort) => effort.id),
       )
       .toEqual(["low", "high"]);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a saved model the agent no longer lists leaves the thread on the agent's default, and says so", async () => {
+  const h = await acpTree({ session: () => ({ refusedOptions: ["model"] }) });
+  try {
+    const id = await h.create("ask", "retired-model");
+    expect(h.contexts.get(id)?.model).toBe("retired-model");
+    expect(h.store.getThread(id)?.model).toBeUndefined();
+    expect(
+      h.notices(id, "execution_option_refused").map((item) => item.type === "notice" && item.text),
+    ).toEqual(["This agent didn't take model retired-model, so it runs at its default."]);
   } finally {
     await h.close();
   }
