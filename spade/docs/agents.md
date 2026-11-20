@@ -70,7 +70,8 @@ is in view, `profile_update` runs without asking. Otherwise it asks the person.
 "standing", name, task, face?, model?, apps?}` makes a top-level bot for the person: the
 auto-review, no apps or plugins, `made_by {id, name, apps}` on its Agent JSON; each of `apps`
 Spade knows and the bot can't use yet is a connect card in its own conversation (filed under
-reply `made`, call `made-app-<n>`), left for later. `club_add {club,
+reply `made`, call `made-app-<n>`), left for later, stored in the same transaction that makes
+the bot. `club_add {club,
 bot}` adds a bot to a club the caller is in. Both run, ask or are refused by the caller's
 `may_create_bots` (`yes` for Spade, `ask` for other bots until the person sets it with
 `PATCH /agents/{id} {may_create_bots}`), and ask whenever untrusted content is in view. The

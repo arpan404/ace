@@ -75,7 +75,10 @@ impl Engine {
                 "Only a bot can ask for an app.",
             )));
         };
-        let card = match self.connect_card(hub, &agent, &app).await {
+        let card = match self
+            .connect_card(hub, &agent.id, agent.kind == MAIN, &app)
+            .await
+        {
             Card::Has(name) => {
                 return Ok(Requested::Answered(ToolOutput::ok(connect::already(&name))));
             }
@@ -102,16 +105,17 @@ impl Engine {
         }
     }
 
-    /// The connect card `agent` would show for `app` (a catalogue id or name, or a server added
-    /// by address): what way it connects, from the catalogue and the person's connectors.
-    /// `Has` when the bot may use it already.
+    /// The connect card bot `agent` would show for `app` (a catalogue id or name, or a server
+    /// added by address): what way it connects, from the catalogue and the person's connectors.
+    /// `Has` when the bot may use it already. A bot not made yet reads as one with no apps.
     pub(super) async fn connect_card(
         &self,
         hub: &Connectors,
-        agent: &spade_store::Agent,
+        agent: &str,
+        main: bool,
         app: &str,
     ) -> Card {
-        let access = hub.access(&agent.id, agent.kind == MAIN);
+        let access = hub.access(agent, main);
         let connectors = hub.list();
         let listed = hub.listed().await;
         let entry = listed

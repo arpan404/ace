@@ -44,12 +44,20 @@ struct Standing {
     apps: Vec<String>,
 }
 
-/// A standing bot just made: who made it and the apps it suggested.
+/// A standing bot just made.
 struct Made {
     id: String,
     name: String,
-    maker: String,
-    apps: Vec<String>,
+}
+
+/// The apps a maker suggested, trimmed, at most eight.
+fn apps_of(asked: &[String]) -> Vec<String> {
+    asked
+        .iter()
+        .map(|a| a.trim().to_owned())
+        .filter(|a| !a.is_empty())
+        .take(8)
+        .collect()
 }
 
 /// The reply a made bot's suggested-app cards are filed under: none of its own replies.
@@ -144,41 +152,40 @@ impl Engine {
             Ok(asked) => asked,
             Err(refused) => return refused,
         };
-        match self.store_standing(caller, key, asked) {
-            Ok(made) => {
-                self.suggest_apps(&made).await;
-                made_answer(&(made.id, made.name))
-            }
+        let maker = match self.store.agent_for_conversation(caller) {
+            Ok(Some(me)) => me.name,
+            Ok(None) => return ToolOutput::error("Only a bot can make bots."),
+            Err(error) => return ToolOutput::error(error.to_string()),
+        };
+        let cards = self.suggested_cards(&apps_of(&asked.apps), &maker).await;
+        match self.store_standing(caller, key, asked, &cards) {
+            Ok(made) => made_answer(&(made.id, made.name)),
             Err(why) => ToolOutput::error(why),
         }
     }
 
-    /// The apps its maker suggested, as connect cards in the made bot's own chat, each left for
+    /// The apps its maker suggested, as connect cards for the made bot's own chat, each left for
     /// later: the person connects one with a click when they open it, and nothing waits on them.
-    /// An app the bot may use already, or one Spade doesn't know, gets no card.
-    async fn suggest_apps(&self, made: &Made) {
-        let Some(hub) = self.apps() else { return };
-        let Ok(Some(agent)) = self.store.agent(&made.id) else {
-            return;
+    /// An app Spade doesn't know gets no card; a bot not made yet can use none, so every app Spade
+    /// knows gets one. Built before the bot is made, so they are stored with it, in one write.
+    async fn suggested_cards(&self, apps: &[String], maker: &str) -> Vec<Event> {
+        let Some(hub) = self.apps() else {
+            return Vec::new();
         };
-        for (n, app) in made.apps.iter().enumerate() {
-            let super::apps::Card::Ask(card) = self.connect_card(hub, &agent, app).await else {
+        let mut events = Vec::new();
+        for (n, app) in apps.iter().enumerate() {
+            let super::apps::Card::Ask(card) = self.connect_card(hub, "", false, app).await else {
                 continue;
             };
             let call = format!("made-app-{n}");
-            let why = format!("{} thought I'd need this when it made me.", made.maker);
-            let events = [
-                super::apps::asked(SUGGESTED, &call, why, card),
-                Event::Known(Known::QuestionDeferred {
-                    call_id: call,
-                    by_bot: true,
-                }),
-            ];
-            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if let Err(error) = self.append_events(&agent.conversation, &events) {
-                tracing::warn!(%error, "a made bot's suggested app was not offered");
-            }
+            let why = format!("{maker} thought I'd need this when it made me.");
+            events.push(super::apps::asked(SUGGESTED, &call, why, card));
+            events.push(Event::Known(Known::QuestionDeferred {
+                call_id: call,
+                by_bot: true,
+            }));
         }
+        events
     }
 
     /// The bot an earlier run of the call with `key` made, from the maker's `bot_made`.
@@ -192,7 +199,13 @@ impl Engine {
         })
     }
 
-    fn store_standing(&self, caller: &str, key: &str, asked: Standing) -> Result<Made, String> {
+    fn store_standing(
+        &self,
+        caller: &str,
+        key: &str,
+        asked: Standing,
+        cards: &[Event],
+    ) -> Result<Made, String> {
         let me = self
             .store
             .agent_for_conversation(caller)
@@ -219,19 +232,16 @@ impl Engine {
                     .map(AvatarInput::Character),
             )
             .map_err(|e| e.to_string())?;
-        let first = [Event::Known(Known::AgentConfigured {
+        // Its task, then the connect cards for the apps its maker suggested: stored with the bot
+        // in one transaction, so it is never listed without them.
+        let mut first = vec![Event::Known(Known::AgentConfigured {
             task: task.clone(),
             model: model.clone(),
             personality: None,
             change: None,
         })];
-        let apps: Vec<String> = asked
-            .apps
-            .iter()
-            .map(|a| a.trim().to_owned())
-            .filter(|a| !a.is_empty())
-            .take(8)
-            .collect();
+        first.extend_from_slice(cards);
+        let apps = apps_of(&asked.apps);
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(caller) {
@@ -269,12 +279,7 @@ impl Engine {
                 tracing::warn!(%error, "a made bot was not noted in its maker's conversation");
             }
         }
-        Ok(Made {
-            id,
-            name,
-            maker: me.name,
-            apps,
-        })
+        Ok(Made { id, name })
     }
 
     /// Undo on a bot another bot made: removed when nothing it did reached outside it, else

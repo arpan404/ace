@@ -348,6 +348,14 @@ async fn a_made_bots_suggested_apps_wait_as_connect_cards_in_its_own_chat() -> R
     let events = spade
         .events(boards["conversation"].as_str().unwrap_or_default())
         .await?;
+    // Stored with the bot, in the one write that made it: its task, then the card and its "for
+    // later", before anything else, so no reader ever finds the bot without them.
+    let kinds: Vec<&str> = events.iter().filter_map(|e| e["type"].as_str()).collect();
+    assert_eq!(
+        kinds[..3],
+        ["agent_configured", "question_asked", "question_deferred"],
+        "{events:?}"
+    );
     // One card, for the app Spade knows, left for later: the bot's chat offers it, nothing waits.
     let cards: Vec<&Value> = events
         .iter()
