@@ -15,7 +15,14 @@ const source = [
 ];
 const at = (lines: readonly string[]) => (line: number) => lines[line] ?? "";
 const headers = (top: number, max = 5, lookback = 1000) =>
-  stickyHeaders({ lineAt: at(source), lineCount: source.length, top, indentSize: 2, max, lookback });
+  stickyHeaders({
+    lineAt: at(source),
+    lineCount: source.length,
+    top,
+    indentSize: 2,
+    max,
+    lookback,
+  });
 
 test("the blocks around the top line pin their headers, outermost first", () => {
   expect(headers(3)).toEqual([0, 1, 2]);

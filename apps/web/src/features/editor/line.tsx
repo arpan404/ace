@@ -5,7 +5,7 @@ import type { LineMark } from "@ace/ui-core";
 import { memo } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { MatchSegment } from "./find-matches.ts";
-import { lineHeight, tabSize } from "./geometry.ts";
+import { tabSize } from "./geometry.ts";
 import type { Token } from "./highlighter.ts";
 
 const clipped = 20_000;
@@ -83,6 +83,8 @@ export const EditorLine = memo(function EditorLine(props: {
   tokens: readonly Token[] | undefined;
   gutter: number;
   top: number;
+  /** The row's height; the font and its size come from the editor's frame. */
+  lineHeight: number;
   mark: LineMark | undefined;
   current: boolean;
   matches: readonly MatchSegment[] | undefined;
@@ -105,11 +107,8 @@ export const EditorLine = memo(function EditorLine(props: {
       data-line={props.number === undefined ? undefined : props.line}
       data-row={props.row}
       data-long-line={props.long || undefined}
-      className={cn(
-        "absolute left-0 flex w-max min-w-full font-mono text-ui leading-[22px]",
-        props.current && "bg-foreground/5",
-      )}
-      style={{ top: props.top, height: lineHeight }}
+      className={cn("absolute left-0 flex w-max min-w-full", props.current && "bg-foreground/5")}
+      style={{ top: props.top, height: props.lineHeight, lineHeight: `${props.lineHeight}px` }}
     >
       <span
         aria-hidden

@@ -9,7 +9,6 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { CommentPopover, MarkerNumber } from "@/features/annotations/index.ts";
 import type { Span } from "./annotate-anchor.ts";
-import { lineHeight } from "./geometry.ts";
 import type { EditorLayerView } from "./layer.ts";
 import { rowOffset } from "./wrap.ts";
 
@@ -93,7 +92,7 @@ function rowBoxes(view: EditorLayerView, span: Span, key: string) {
       boxes.push({
         key: `${key}-${line}-${at}`,
         left,
-        top: (startRow + at) * lineHeight,
+        top: (startRow + at) * view.lineHeight,
         width: right - left,
       });
     }
@@ -109,8 +108,8 @@ function anchorAt(view: EditorLayerView, position: Position, below: boolean) {
     getBoundingClientRect: () => {
       const rect = host?.getBoundingClientRect();
       const left = (rect?.left ?? 0) + point.left;
-      const top = (rect?.top ?? 0) + point.top + (below ? lineHeight : 0);
-      return new DOMRect(left, top, 0, below ? 0 : lineHeight);
+      const top = (rect?.top ?? 0) + point.top + (below ? view.lineHeight : 0);
+      return new DOMRect(left, top, 0, below ? 0 : view.lineHeight);
     },
     ...(host ? { contextElement: host } : {}),
   };
@@ -175,7 +174,12 @@ export function AnnotationLayer(props: {
                   key={box.key}
                   data-annotated-range={each.number}
                   className="absolute bg-ring/14"
-                  style={{ left: box.left, top: box.top, width: box.width, height: lineHeight }}
+                  style={{
+                    left: box.left,
+                    top: box.top,
+                    width: box.width,
+                    height: view.lineHeight,
+                  }}
                 />
               )),
         )}
@@ -184,7 +188,7 @@ export function AnnotationLayer(props: {
             <div
               key={box.key}
               className="absolute bg-ring/20"
-              style={{ left: box.left, top: box.top, width: box.width, height: lineHeight }}
+              style={{ left: box.left, top: box.top, width: box.width, height: view.lineHeight }}
             />
           ))}
       </div>
@@ -208,8 +212,8 @@ export function AnnotationLayer(props: {
                 className="absolute w-0.5 rounded-full bg-tint/60"
                 style={{
                   left: markerLeft + 7,
-                  top: top * lineHeight + 4,
-                  height: (bottom - top) * lineHeight - 8,
+                  top: top * view.lineHeight + 4,
+                  height: (bottom - top) * view.lineHeight - 8,
                 }}
               />
             );
@@ -219,7 +223,7 @@ export function AnnotationLayer(props: {
           .map((each) => {
             const index = onLine.get(each.start.line) ?? 0;
             onLine.set(each.start.line, index + 1);
-            const top = view.layout.startOf(each.start.line) * lineHeight + 3;
+            const top = view.layout.startOf(each.start.line) * view.lineHeight + 3;
             const lines = linesBadge(each);
             const words = each.comment || (each.intent ? codeIntentWords[each.intent] : "");
             return (
@@ -340,7 +344,7 @@ function SelectionBar(props: {
         props.material,
         "absolute z-[4] flex h-8 items-center gap-0.5 rounded-lg p-1 font-sans",
       )}
-      style={{ left, top: (row + 1) * lineHeight + 4 }}
+      style={{ left, top: (row + 1) * view.lineHeight + 4 }}
     >
       <Tip label="Annotate" keys="mod+shift+a" resolve={false}>
         <Button

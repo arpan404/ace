@@ -26,7 +26,7 @@ export function StickyHeaders(props: {
           data-sticky-line={line}
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => props.onPick(line)}
-          className="flex w-full cursor-pointer items-center text-left font-mono text-ui hover:bg-foreground/5"
+          className="flex w-full cursor-pointer items-center text-left hover:bg-foreground/5"
           style={{ height: props.lineHeight, lineHeight: `${props.lineHeight}px` }}
         >
           <span

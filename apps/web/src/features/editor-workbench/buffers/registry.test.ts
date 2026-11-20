@@ -242,3 +242,34 @@ describe("buffer registry", () => {
     expect(registry.folders("m1/t1")).toEqual(["", "src"]);
   });
 });
+
+describe("indentation of a buffer's file", () => {
+  it("writes what the file already uses, and the device's default where it shows none", async () => {
+    const disk = fakeDisk({
+      "tabs.go": "func a() {\n\treturn\n}\n",
+      "flat.txt": "one\ntwo\n",
+      "later.txt": "x\n",
+    });
+    const time = manualTime();
+    let indent = { tabs: false, size: 4 };
+    const registry = createBufferRegistry({
+      files: disk.port,
+      drafts: memoryDrafts().store,
+      merge: inlineMerge().port,
+      now: time.now,
+      schedule: time.schedule,
+      ready,
+      indent: () => indent,
+    });
+    const tabs = registry.open(key("tabs.go"));
+    const flat = registry.open(key("flat.txt"));
+    await settle();
+    expect(tabs.buffer.document()?.indent().tabs).toBe(true);
+    expect(flat.buffer.document()?.indent()).toEqual({ tabs: false, size: 4 });
+    // A new default applies to files read after it.
+    indent = { tabs: true, size: 8 };
+    const later = registry.open(key("later.txt"));
+    await settle();
+    expect(later.buffer.document()?.indent()).toEqual({ tabs: true, size: 8 });
+  });
+});

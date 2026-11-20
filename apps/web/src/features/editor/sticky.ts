@@ -26,7 +26,11 @@ export function stickyHeaders(options: {
   const { lineAt, lineCount, top, indentSize, max, lookback } = options;
   if (max <= 0 || top <= 0 || top >= lineCount) return [];
   let depth = indentOf(lineAt(top), indentSize);
-  for (let next = top + 1; depth === undefined && next < Math.min(lineCount, top + blankLookout); next++)
+  for (
+    let next = top + 1;
+    depth === undefined && next < Math.min(lineCount, top + blankLookout);
+    next++
+  )
     depth = indentOf(lineAt(next), indentSize);
   if (depth === undefined) return [];
   const headers: number[] = [];

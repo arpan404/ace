@@ -1,4 +1,4 @@
-import { EditorDocument } from "@ace/editor";
+import { EditorDocument, type Indent } from "@ace/editor";
 import type { Author } from "./attribution.ts";
 import { DocumentViews } from "./document-views.ts";
 import { DraftSlot } from "./draft-slot.ts";
@@ -35,6 +35,8 @@ export interface BufferContext {
   /** Typing has to pause this long before the draft is written. */
   draftDelay: number;
   attribute(key: BufferKey, at: number): Author;
+  /** The indentation for a file that shows none of its own; the document's default when unset. */
+  indent?: (() => Indent) | undefined;
   /** Resident size or holdability changed: the registry checks its cap. */
   changed(): void;
 }
@@ -515,6 +517,9 @@ export class Buffer implements TextBuffer {
   #adopt(text: string, base: Theirs, dirty: boolean, clash?: Clash): void {
     this.#free();
     const doc = new EditorDocument(text);
+    // Tab, Enter and the indent keys write what the file already uses, else the device's default.
+    const indent = doc.detectIndent() ?? this.#ctx.indent?.();
+    if (indent) doc.setIndent(indent);
     this.#doc = doc;
     this.#base = base;
     this.#dirty = dirty;

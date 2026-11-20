@@ -84,6 +84,16 @@ export interface CodeEditorProps {
   onStatus?: ((status: EditorStatus) => void) | undefined;
   /** Draw a mark for every space and tab. Off by default; the status line can turn it on. */
   renderWhitespace?: boolean;
+  /** The text's size in pixels; 13 by default. */
+  fontSize?: number | undefined;
+  /** One row's height in pixels; 22 by default. */
+  lineHeight?: number | undefined;
+  /** A CSS font family list for the text; the app's monospace font when unset or empty. */
+  fontFamily?: string | undefined;
+  /** Indentation guides under the text. On by default. */
+  indentGuides?: boolean | undefined;
+  /** Blink the carets. Off by default. */
+  cursorBlinking?: boolean | undefined;
   /** Pin the headers of the blocks around the top line above the text. On by default. */
   stickyScroll?: boolean;
   /** Vertical rulers at these columns. None by default. */

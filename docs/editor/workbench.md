@@ -402,7 +402,9 @@ that refused a silent overwrite, full view's width.
   client already receives; if those records prove unreliable (finding 2), the fix is a daemon
   bug fix, not a new message.
 - **Keymap** entries get a `editor` scope in `lib/keymap.ts`.
-- **Settings › Editor** gains Auto save.
+- **Settings › Editor** (this device): Auto save; font size, line height and font; tab size and
+  indent with (for files whose own indentation can't be detected); word wrap, whitespace, indent
+  guides, sticky scroll and cursor blinking. Open editors follow each change at once.
 - Related ADRs: [0178](../adr/0178-rust-files-and-editor-core.md) (Rust files and editor core),
   [0193](../adr/0193-one-editor-per-thread.md) (this decision), [0056](../adr/0056-web-performance-architecture.md) (first-chunk budgets:
   the editor's code loads with its kind, never in the thread's first chunk).
