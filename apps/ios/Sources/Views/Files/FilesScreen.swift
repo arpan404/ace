@@ -14,7 +14,8 @@ struct FileTarget: Hashable, Identifiable {
 /// folders first, a folder listed when it opens and a page at a time, each uncommitted change
 /// lettered as the web does, folders holding one open at first, and open folders listed again
 /// when the computer says they changed. The system search field finds any file through the
-/// computer's path index. A thread's files can be created, renamed, moved and deleted to
+/// computer's path index, and in a thread's checkout its Contents scope searches what the files
+/// say (`ContentSearchRows`). A thread's files can be created, renamed, moved and deleted to
 /// Recently deleted.
 struct FilesScreen: View {
     let model: ClientModel
@@ -28,6 +29,10 @@ struct FilesScreen: View {
     /// Whether the bridge is counting this screen as showing the tree.
     @State private var shown = false
     @State private var query = ""
+    @State private var searching = false
+    @State private var searchScope = FilesSearchScope.names
+    /// The Contents scope's switches; the text is the search field's.
+    @State private var contentSwitches = ContentQuery()
     @State private var results: FileSearch?
     @State private var searchFailure: String?
     @State private var opened: FileTarget?
@@ -51,13 +56,20 @@ struct FilesScreen: View {
 
     var body: some View {
         List {
-            if query.trimmingCharacters(in: .whitespaces).isEmpty { treeRows } else { searchRows }
+            if let threadId = contentThread {
+                ContentSearchRows(query: contentBinding, search: contentResults(threadId),
+                                  open: { opened = $0 }, retry: { searchContents(threadId, now: true) })
+            } else if query.trimmingCharacters(in: .whitespaces).isEmpty { treeRows } else { searchRows }
         }
         .listStyle(.plain)
         .environment(\.defaultMinListRowHeight, AceDesign.Size.rowLine)
         .scrollContentBackground(.hidden)
         .background(AceTheme.Colours.background)
-        .searchable(text: $query, prompt: "Search files")
+        .searchable(text: $query, isPresented: $searching,
+                    prompt: searchScope == .contents ? "Search in files" : "Search files")
+        .modifier(ContentSearchScopes(enabled: scope.changes, scope: $searchScope))
+        .onSubmit(of: .search) { if let threadId = contentThread { searchContents(threadId, now: true) } }
+        .onChange(of: contentQuery) { old, new in contentQueryChanged(from: old, to: new) }
         .autocorrectionDisabled().textInputAutocapitalization(.never)
         .refreshable { await refreshTree() }
         .modifier(PageTitle(title: "Files", subtitle: subtitle))
@@ -99,7 +111,7 @@ struct FilesScreen: View {
         .alert("Couldn't add those files", isPresented: Binding(get: { importProblem != nil }, set: { if !$0 { importProblem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(importProblem ?? "") }
-        .task(id: query) { await search() }
+        .task(id: "\(query)|\(searchScope)") { await search() }
         .navigationDestination(item: $opened) { target in
             FileScreen(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 })
         }
@@ -204,6 +216,52 @@ struct FilesScreen: View {
         }
     }
 
+    // MARK: Contents
+
+    /// The thread whose contents the search field is searching; nil in the Names scope, while
+    /// the field is closed, or in a project's own folder (only a checkout can be searched).
+    private var contentThread: String? {
+        guard searching, searchScope == .contents, case .thread(let id) = scope else { return nil }
+        return id
+    }
+
+    /// The query the Contents scope asks for, or nil when it isn't showing.
+    private var contentQuery: ContentQuery? {
+        guard contentThread != nil else { return nil }
+        var asked = contentSwitches
+        asked.pattern = query.trimmingCharacters(in: .whitespaces).isEmpty ? "" : query
+        return asked
+    }
+
+    /// The switches as the rows change them, with the field's text.
+    private var contentBinding: Binding<ContentQuery> {
+        Binding(get: { contentQuery ?? contentSwitches }, set: { next in
+            contentSwitches = ContentQuery(matchCase: next.matchCase, wholeWord: next.wholeWord, regex: next.regex)
+        })
+    }
+
+    /// The bridge's answer, only when it answers what is asked now.
+    private func contentResults(_ threadId: String) -> ContentSearch? {
+        guard let asked = contentQuery, let found = model.files.contents[threadId], found.answers(asked) else { return nil }
+        return found
+    }
+
+    private func searchContents(_ threadId: String, now: Bool) {
+        guard let asked = contentQuery, !asked.pattern.isEmpty else { return }
+        model.searchFileContents(threadId, asked, now: now)
+    }
+
+    /// Every change of text or switch starts a new search (the bridge stops the old one at once);
+    /// clearing the field or leaving the scope stops it.
+    private func contentQueryChanged(from old: ContentQuery?, to new: ContentQuery?) {
+        guard case .thread(let threadId) = scope else { return }
+        if let new, !new.pattern.isEmpty {
+            model.searchFileContents(threadId, new)
+        } else if let old, !old.pattern.isEmpty {
+            model.stopFileContentsSearch(threadId)
+        }
+    }
+
     /// A folder found by search opens in the tree; a file opens.
     private func pick(_ row: FileSearchRow) {
         if row.isFolder {
@@ -222,6 +280,7 @@ struct FilesScreen: View {
     }
 
     private func search() async {
+        guard contentThread == nil else { return }
         let text = query.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { results = nil; searchFailure = nil; return }
         try? await Task.sleep(for: .milliseconds(150))
@@ -349,6 +408,22 @@ struct FilesScreen: View {
             reveal(folder)
         case .delete?:
             break
+        }
+    }
+}
+
+/// The search field's Names and Contents scopes, in a thread's checkout only.
+private struct ContentSearchScopes: ViewModifier {
+    let enabled: Bool
+    @Binding var scope: FilesSearchScope
+    func body(content: Content) -> some View {
+        if enabled {
+            content.searchScopes($scope, activation: .onSearchPresentation) {
+                Text("Names").tag(FilesSearchScope.names)
+                Text("Contents").tag(FilesSearchScope.contents)
+            }
+        } else {
+            content
         }
     }
 }
