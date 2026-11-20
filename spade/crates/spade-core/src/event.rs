@@ -946,6 +946,10 @@ pub struct FromThread {
     pub title: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub untrusted: bool,
+    /// The person's other machine the thread is on, by name, when its ace asked through the
+    /// fleet; `None` for this machine's ace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
 }
 
 /// A bot as a group names it: its id, name and machine (host id; `None` for this machine).

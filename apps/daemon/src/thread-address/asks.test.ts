@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ItemDraft } from "@ace/core";
-import { HostId, ThreadId, type Addressee, type SpadeRemoteOutcome } from "@ace/protocol";
+import {
+  HostId,
+  ThreadId,
+  type Addressee,
+  type DeviceContextItem,
+  type SpadeRemoteOutcome,
+} from "@ace/protocol";
 import type { SpadeConnection } from "@ace/service/spade";
 import { Store } from "../store.ts";
 import { ThreadAskStore, type AskRow } from "./asks-store.ts";
@@ -157,7 +163,12 @@ function harness(
     log: () => undefined,
   });
   open.push({ asks, store });
-  const send = (to: Addressee[], share: "thread" | "message" = "thread", id = "cmd-1") => {
+  const send = (
+    to: Addressee[],
+    share: "thread" | "message" = "thread",
+    id = "cmd-1",
+    devices: DeviceContextItem[] = [],
+  ) => {
     const rows: AskRow[] = to.map((each, index) => ({
       key: askKey(id, index),
       commandId: id,
@@ -184,7 +195,7 @@ function harness(
             ? 'From the ace thread "Fix login".\nperson: the login page fails'
             : undefined,
         followUp: false,
-        devices: [],
+        devices,
       },
       rows,
       clock,
@@ -514,4 +525,30 @@ it("a bot waiting on the person marks the thread's row as waiting on them until 
   });
   await vi.waitFor(() => expect(h.states()).toEqual(["answered"]));
   expect(h.holds.at(-1)).toBe(`ace-ask:${key} completed`);
+});
+
+const simulatorOnStudio: DeviceContextItem = {
+  type: "device",
+  id: "ios:6F1C0D52-3C3A-4F5B-9C1E-0D6E2B1F7A10",
+  name: "iPhone 17",
+  kind: "simulator",
+  machine: { id: "studio", name: "Studio", here: false },
+  online: true,
+};
+
+it("a club mentioned with a device gets the device's facts, as the club's own machine sees them", async () => {
+  const here = harness();
+  const [key = ""] = here.send([launch], "thread", "cmd-1", [simulatorOnStudio]);
+  await vi.waitFor(() => expect(here.spade.delivered.has(key)).toBe(true));
+  expect(here.spade.delivered.get(key)?.body["devices"]).toEqual([simulatorOnStudio]);
+
+  // The same simulator, named with a club on Studio: there it is the club's own machine.
+  const peer = new FakePeer();
+  const elsewhere = harness(new FakeSpade(), undefined, peer);
+  const club: Addressee = { ...launch, machine: { id: HostId.parse("studio"), name: "Studio" } };
+  const [remoteKey = ""] = elsewhere.send([club], "thread", "cmd-1", [simulatorOnStudio]);
+  await vi.waitFor(() => expect(peer.spade.delivered.has(remoteKey)).toBe(true));
+  expect(peer.spade.delivered.get(remoteKey)?.body["devices"]).toEqual([
+    { ...simulatorOnStudio, machine: { id: "studio", name: "Studio", here: true } },
+  ]);
 });

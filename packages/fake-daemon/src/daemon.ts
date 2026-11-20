@@ -962,6 +962,7 @@ export class FakeDaemon implements Host {
     }
     if (this.transfers.handle(message, connection.push)) return true;
     if (this.computerAccess.handle(message, connection.push)) return true;
+    if (this.appDevices.answerList(message, connection.push)) return true;
     if (this.spade.handle(message, connection.push)) return true;
     return this.services.handle(message, connection.push, connection.deviceId);
   }

@@ -7,6 +7,7 @@ import {
   askedLineDraft,
   askProgress,
   botRepliesText,
+  devicesFor,
   holdTitle,
   personText,
   replyDraft,
@@ -243,6 +244,8 @@ export class ThreadAsks {
       to: { kind: to.kind, id: to.id },
       text: personText(message.input),
       ...(context ? { context } : {}),
+      // The devices named with it, first in the turn there (a club's members' too).
+      ...(message.devices.length ? { devices: devicesFor(to, message.devices) } : {}),
       thread: { id: ask.threadId, title: this.ports.title(ask.threadId).slice(0, 200) },
     };
     const answer = await route.ask(body).catch(() => undefined);

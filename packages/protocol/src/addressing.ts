@@ -97,6 +97,8 @@ export interface Speaker {
   name: string;
   avatar?: SpadeFaceJson | undefined;
   club?: { id: string; name: string } | undefined;
+  /** The person's other machine its Spade is on, so a follow-up goes there too. */
+  machine?: { id: HostId; name: string } | undefined;
   /** The person's message it answers, as `AskedLine.about` names it. */
   about: string;
   /** The ask it answers, for a follow-up's `thread.address`. */
@@ -108,6 +110,7 @@ export const Speaker: z.ZodType<Speaker> = z.object({
   name: shownName,
   avatar: SpadeFaceJson.optional(),
   club: z.object({ id: spadeId, name: shownName }).optional(),
+  machine: SpadeElsewhere.optional(),
   about: z.string().min(1).max(256),
   ask: z.string().min(1).max(160).optional(),
 });

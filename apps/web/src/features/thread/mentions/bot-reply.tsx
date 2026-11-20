@@ -37,12 +37,19 @@ export function BotReply(props: { threadId: string; itemId: string }) {
         input: [{ type: "text", text: `@${speaker.club?.name ?? speaker.name} ${said}` }],
         to: [
           speaker.club
-            ? { kind: "club", id: speaker.club.id, name: speaker.club.name, faces: [] }
+            ? {
+                kind: "club",
+                id: speaker.club.id,
+                name: speaker.club.name,
+                faces: [],
+                ...(speaker.machine ? { machine: speaker.machine } : {}),
+              }
             : {
                 kind: "bot",
                 id: speaker.id,
                 name: speaker.name,
                 ...(speaker.avatar !== undefined ? { avatar: speaker.avatar } : {}),
+                ...(speaker.machine ? { machine: speaker.machine } : {}),
               },
         ],
         devices: [],
@@ -68,6 +75,7 @@ export function BotReply(props: { threadId: string; itemId: string }) {
         <p className="mb-0.5 text-xs text-muted-foreground">
           <span className="font-medium text-foreground">{speaker.name}</span>
           {speaker.club && <span> in {speaker.club.name}</span>}
+          {speaker.machine && <span> on {speaker.machine.name}</span>}
         </p>
         <div className="font-prose text-prose leading-[1.6] wrap-break-word">
           <Prose

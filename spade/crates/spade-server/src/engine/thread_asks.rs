@@ -19,6 +19,29 @@ use crate::teams::Outcome;
 
 /// The sender every thread ask is stored under; no paired machine's device id looks like it.
 pub const FROM_ACE: &str = "ace:thread";
+
+/// Who an ask comes from: this machine's ace, or the ace of another of the person's machines
+/// through the inbox (its pairing here, and its name).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct AskedFrom<'a> {
+    /// The sender its keys are stored under: [`FROM_ACE`], or [`remote_sender`] of a machine.
+    pub host: &'a str,
+    pub name: &'a str,
+    /// The machine's name the thread is on; `None` for this machine.
+    pub machine: Option<&'a str>,
+}
+
+const HERE: AskedFrom<'static> = AskedFrom {
+    host: FROM_ACE,
+    name: "ace",
+    machine: None,
+};
+
+/// The sender a machine's thread asks are kept under: apart from its own bots' asks, so neither
+/// can read or stop the other's by key.
+pub(super) fn remote_sender(host: &str) -> String {
+    format!("{FROM_ACE}:{host}")
+}
 /// The longest a read of an answer waits.
 const LONGEST_WAIT_MS: u64 = 25_000;
 /// The longest context pack, in characters.
@@ -56,11 +79,20 @@ fn bot_json(id: &str, name: &str, avatar: Option<&str>) -> Value {
 impl Engine {
     /// `POST /v1/thread-asks`: delivers the person's words to a bot or a club, once by key.
     pub fn thread_ask(self: &Arc<Self>, body: &Value) -> InboxAnswer {
+        self.thread_ask_from(HERE, body)
+    }
+
+    /// [`Engine::thread_ask`] from `from`: this machine's ace, or another machine's.
+    pub(super) fn thread_ask_from(
+        self: &Arc<Self>,
+        from: AskedFrom<'_>,
+        body: &Value,
+    ) -> InboxAnswer {
         let key = body["key"].as_str().unwrap_or("");
         if !valid_key(key) {
             return refuse(400, "a key is 1 to 160 of A-Za-z0-9_.:-");
         }
-        if self.store.inbox(FROM_ACE, key).ok().flatten().is_some() {
+        if self.store.inbox(from.host, key).ok().flatten().is_some() {
             return (200, json!({ "status": "duplicate" }));
         }
         let text = body["text"].as_str().unwrap_or("").trim();
@@ -75,23 +107,52 @@ impl Engine {
             .as_str()
             .map(|pack| pack.chars().take(LONGEST_PACK).collect::<String>())
             .filter(|pack| !pack.trim().is_empty());
+        // The devices the person named with it (ADR 0198), told first in the turn's context.
+        let devices: Vec<spade_core::named_devices::NamedDevice> = body["devices"]
+            .as_array()
+            .map(|all| {
+                all.iter()
+                    .take(spade_core::named_devices::MOST)
+                    .filter_map(|value| serde_json::from_value(value.clone()).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let named = spade_core::named_devices::context(&devices);
+        let asked = from;
         let from = FromThread {
             id: thread_id,
             title: one_line(&body["thread"]["title"], 200),
             untrusted: pack.is_some(),
+            machine: asked.machine.map(|name| one_line(&Value::from(name), 100)),
         };
         let now = self.now_ms();
         let _ = self.store.prune_inbox(now - KEEP_KEYS_MS);
         let id = body["to"]["id"].as_str().unwrap_or("");
         match body["to"]["kind"].as_str() {
-            Some("bot") => self.thread_ask_bot(key, id, text, pack, from, now),
-            Some("club") => self.thread_ask_club(key, id, text, pack, from, now),
+            Some("bot") => {
+                // A bot reads them as in its own chat: first, before the thread's pack.
+                let context = match (named, pack) {
+                    (Some(named), Some(pack)) => Some(format!("{named}\n\n{pack}")),
+                    (named, pack) => named.or(pack),
+                };
+                self.thread_ask_bot(asked, key, id, text, context, from, now)
+            }
+            Some("club") => {
+                let thread = super::group_run::FromAceThread {
+                    from,
+                    pack,
+                    devices: named,
+                };
+                self.thread_ask_club(asked, key, id, text, thread, now)
+            }
             _ => refuse(400, "an ask goes to a bot or a club"),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn thread_ask_bot(
         self: &Arc<Self>,
+        asked: AskedFrom<'_>,
         key: &str,
         id: &str,
         text: &str,
@@ -118,9 +179,9 @@ impl Engine {
             from_thread: Some(Box::new(from)),
         });
         let entry = InboxEntry {
-            from_host: FROM_ACE.to_owned(),
+            from_host: asked.host.to_owned(),
             key: key.to_owned(),
-            from_name: "ace".to_owned(),
+            from_name: asked.name.to_owned(),
             agent_id: agent.id.clone(),
             conversation: agent.conversation.clone(),
             seq: 0,
@@ -140,20 +201,20 @@ impl Engine {
 
     fn thread_ask_club(
         self: &Arc<Self>,
+        asked: AskedFrom<'_>,
         key: &str,
         id: &str,
         text: &str,
-        pack: Option<String>,
-        from: FromThread,
+        thread: super::group_run::FromAceThread,
         now: i64,
     ) -> InboxAnswer {
         let Ok(Some(group)) = self.store.group(id) else {
             return refuse(404, "That club isn't on this machine's Spade.");
         };
         let entry = InboxEntry {
-            from_host: FROM_ACE.to_owned(),
+            from_host: asked.host.to_owned(),
             key: key.to_owned(),
-            from_name: "ace".to_owned(),
+            from_name: asked.name.to_owned(),
             agent_id: group.id.clone(),
             conversation: group.conversation.clone(),
             seq: 0,
@@ -163,7 +224,7 @@ impl Engine {
             since_ms: now - 24 * 60 * 60_000,
             most: MOST_PER_DAY,
         };
-        match self.post_group_as(id, text, Some((from, pack)), Some(delivery)) {
+        match self.post_group_as(id, text, Some(thread), Some(delivery)) {
             Ok(Some(_)) => (200, json!({ "status": "accepted" })),
             Ok(None) => (200, json!({ "status": "duplicate" })),
             Err(GroupError::NotFound) => refuse(404, "That club isn't on this machine's Spade."),
@@ -175,7 +236,17 @@ impl Engine {
     /// `GET /v1/thread-asks/{key}`: where the ask stands, its replies so far, the reply being
     /// written and who is working or waiting for the person. Waits up to `wait_ms` for a change.
     pub async fn thread_answer(&self, key: &str, wait_ms: u64) -> InboxAnswer {
-        let Ok(Some(entry)) = self.store.inbox(FROM_ACE, key) else {
+        self.thread_answer_from(FROM_ACE, key, wait_ms).await
+    }
+
+    /// [`Engine::thread_answer`] for the asks stored under `host`.
+    pub(super) async fn thread_answer_from(
+        &self,
+        host: &str,
+        key: &str,
+        wait_ms: u64,
+    ) -> InboxAnswer {
+        let Ok(Some(entry)) = self.store.inbox(host, key) else {
             return (200, json!({ "status": "unknown" }));
         };
         let before = self.thread_view(&entry);
@@ -307,7 +378,12 @@ impl Engine {
 
     /// `POST /v1/thread-asks/{key}/stop`.
     pub fn thread_stop(self: &Arc<Self>, key: &str) -> InboxAnswer {
-        let Ok(Some(entry)) = self.store.inbox(FROM_ACE, key) else {
+        self.thread_stop_from(FROM_ACE, key)
+    }
+
+    /// [`Engine::thread_stop`] for the asks stored under `host`.
+    pub(super) fn thread_stop_from(self: &Arc<Self>, host: &str, key: &str) -> InboxAnswer {
+        let Ok(Some(entry)) = self.store.inbox(host, key) else {
             return (200, json!({ "status": "unknown" }));
         };
         if let Ok(Some(agent)) = self.store.agent(&entry.agent_id) {

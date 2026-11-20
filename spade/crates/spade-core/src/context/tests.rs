@@ -946,6 +946,7 @@ fn from_thread(untrusted: bool) -> Event {
             id: "t1".into(),
             title: "Fix login".into(),
             untrusted,
+            machine: None,
         }));
         if untrusted {
             *context = Some("agent: I changed auth.ts".into());
