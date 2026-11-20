@@ -48,8 +48,38 @@ in `@ace/marketplace` (the shared `package/rules.json` holds both to the same re
 - `effects`: what the callee may use while it answers, beyond reading and its own notes and
   files. Each must be one the package declares; `read` and `write_local` are dropped as implied.
 - `examples`: at most 8, each an input and its output that fit the schemas.
-- At most 16 contracts. The schemas live in `bot.json` itself, so the market's signed `bot.json`
-  carries them; a `file` reference alone is refused.
+- At most 16 contracts.
+
+### Schemas in a file
+
+A contract may keep its schemas in a file of the package instead (ADR 0200 §3.1): `"file":
+"contracts/cheapest-fare.json"` in place of `input` and `output`, the file holding exactly those
+two (`{"input": {…}, "output": {…}}`, at most 40 KiB).
+
+```json
+{
+  "name": "cheapest_fare",
+  "summary": "The cheapest fare seen for a route this week.",
+  "file": "contracts/cheapest-fare.json",
+  "effects": ["network"]
+}
+```
+
+- The path is `contracts/<name>.json`: lower-case letters, digits, `-` and `_`. A contract names
+  its schemas in one place: both `file` and `input` or `output` are refused, and so is a file
+  that isn't in the package, isn't a JSON object, or holds any other field.
+- The file is written into the contract before `bot.json` is read
+  (`spade_core::package::contract_files`, `inlineContractFiles` in `@ace/marketplace`, held
+  together by `rules.json`), so every reader, check, comparison and view sees one form.
+- **The signature covers it.** The market's signed version manifest lists every file of the
+  package with its size and sha256, and signs the list. The daemon sends each schema file beside
+  `bot.json` in the envelope (`files`), and Spade takes one only when it is a `contracts/` file
+  the signed manifest lists at exactly those bytes, as it takes `bot.json`; the step's proof keeps
+  them, so a restart proves the step again the same way. The signing format is unchanged.
+- A local package (`ace bot dev`, `ace bot test`, a git catalog) has no signature: the daemon or
+  the dev kit writes the files in before Spade sees the manifest, whose hash is its identity.
+- `ace bot check --against`, `ace bot publish` and the signer compare contracts with their files
+  written in, so moving a contract's schemas into a file breaks no caller.
 
 ### The schema subset
 

@@ -1,5 +1,6 @@
 import type { MarketProblem } from "@ace/protocol/marketplace";
 import type { ArchiveFile } from "../archive.ts";
+import { contractFileReader } from "../contract-files.ts";
 import { text } from "../listing.ts";
 import type { Recipe } from "@ace/protocol/marketplace";
 import { readRecipe } from "../recipe.ts";
@@ -65,7 +66,10 @@ export function checkBot(
     problems.push({ path: "bot.json", message: "bot.json is missing or isn't text" });
     return { inspection: undefined, problems };
   }
-  const read = readRecipe(bot, new Set(folders.map((folder) => `skills/${folder.name}`)), options);
+  const read = readRecipe(bot, new Set(folders.map((folder) => `skills/${folder.name}`)), {
+    ...options,
+    files: contractFileReader(files),
+  });
   problems.push(...read.problems);
   // A package that doesn't read is still held to a package's rules, so all its problems show.
   const raw = written(bot);

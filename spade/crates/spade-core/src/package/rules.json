@@ -1,5 +1,5 @@
 {
-  "about": "What a version 3 bot.json is accepted or refused for: one rule set, run through Spade's reader (spade_core::package::read, package/tests.rs) and the marketplace's (readRecipe, packages/marketplace/src/package.test.ts). Each case is the base manifest with `with` merged over it; `refused` says a problem is expected and a word it contains.",
+  "about": "What a version 3 bot.json is accepted or refused for: one rule set, run through Spade's reader (spade_core::package::read, package/tests.rs) and the marketplace's (readRecipe, packages/marketplace/src/package.test.ts). Each case is the base manifest with `with` merged over it, and `files` the package's other files (a contract's schema file, written in first); `refused` says a problem is expected and a word it contains.",
   "base": {
     "format": "spade-bot",
     "version": 3,
@@ -884,7 +884,7 @@
       "refused": "examples[0].output.fare"
     },
     {
-      "name": "a contract whose schemas live in a file",
+      "name": "a contract whose schemas live in its file",
       "with": {
         "contracts": [
           {
@@ -894,7 +894,116 @@
           }
         ]
       },
-      "refused": "write the input and output schemas in bot.json"
+      "files": {
+        "contracts/cheapest-fare.json": "{\"input\": {\"type\": \"object\", \"properties\": {\"from\": {\"type\": \"string\", \"maxLength\": 3}, \"to\": {\"type\": \"string\", \"maxLength\": 3}}, \"required\": [\"from\", \"to\"]}, \"output\": {\"type\": \"object\", \"properties\": {\"fare\": {\"type\": \"number\", \"minimum\": 0}}, \"required\": [\"fare\"]}}"
+      }
+    },
+    {
+      "name": "a contract whose schema file isn't in the package",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare.",
+            "file": "contracts/cheapest-fare.json"
+          }
+        ]
+      },
+      "refused": "contracts/cheapest-fare.json isn't in the package"
+    },
+    {
+      "name": "a contract schema file outside contracts/",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare.",
+            "file": "schemas/fare.json"
+          }
+        ]
+      },
+      "files": {
+        "schemas/fare.json": "{\"input\": {\"type\": \"object\", \"properties\": {\"from\": {\"type\": \"string\", \"maxLength\": 3}, \"to\": {\"type\": \"string\", \"maxLength\": 3}}, \"required\": [\"from\", \"to\"]}, \"output\": {\"type\": \"object\", \"properties\": {\"fare\": {\"type\": \"number\", \"minimum\": 0}}, \"required\": [\"fare\"]}}"
+      },
+      "refused": "contracts[0].file is contracts/<name>.json"
+    },
+    {
+      "name": "a contract with schemas both in bot.json and in a file",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare.",
+            "file": "contracts/cheapest-fare.json",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "maxLength": 3
+                }
+              },
+              "required": ["from", "to"]
+            }
+          }
+        ]
+      },
+      "files": {
+        "contracts/cheapest-fare.json": "{\"input\": {\"type\": \"object\", \"properties\": {\"from\": {\"type\": \"string\", \"maxLength\": 3}, \"to\": {\"type\": \"string\", \"maxLength\": 3}}, \"required\": [\"from\", \"to\"]}, \"output\": {\"type\": \"object\", \"properties\": {\"fare\": {\"type\": \"number\", \"minimum\": 0}}, \"required\": [\"fare\"]}}"
+      },
+      "refused": "either in bot.json or in contracts/cheapest-fare.json"
+    },
+    {
+      "name": "a contract schema file with another field",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare.",
+            "file": "contracts/cheapest-fare.json"
+          }
+        ]
+      },
+      "files": {
+        "contracts/cheapest-fare.json": "{\"input\": {\"type\": \"object\", \"properties\": {\"from\": {\"type\": \"string\", \"maxLength\": 3}, \"to\": {\"type\": \"string\", \"maxLength\": 3}}, \"required\": [\"from\", \"to\"]}, \"output\": {\"type\": \"object\", \"properties\": {\"fare\": {\"type\": \"number\", \"minimum\": 0}}, \"required\": [\"fare\"]}, \"examples\": []}"
+      },
+      "refused": "it holds only input and output"
+    },
+    {
+      "name": "a contract schema file that isn't JSON",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare.",
+            "file": "contracts/cheapest-fare.json"
+          }
+        ]
+      },
+      "files": {
+        "contracts/cheapest-fare.json": "input: {}"
+      },
+      "refused": "isn't a JSON object of input and output"
+    },
+    {
+      "name": "a contract schema file whose schema is outside the subset",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare.",
+            "file": "contracts/cheapest-fare.json"
+          }
+        ]
+      },
+      "files": {
+        "contracts/cheapest-fare.json": "{\"input\": {\"type\": \"string\"}, \"output\": {\"type\": \"object\", \"properties\": {\"fare\": {\"type\": \"number\", \"minimum\": 0}}, \"required\": [\"fare\"]}}"
+      },
+      "refused": "contracts[0].input"
     },
     {
       "name": "contracts as an object",

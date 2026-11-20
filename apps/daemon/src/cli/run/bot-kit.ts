@@ -116,15 +116,13 @@ async function dev(context: CommandContext): Promise<void> {
 }
 
 async function publish(context: CommandContext): Promise<void> {
-  const { checkAgainstPublished, checkPackage, marketOf, marketReads } =
+  const { checkAgainstPublished, checkPackage, marketOf, marketReads, packageJson } =
     await import("../bot-kit/check.ts");
   const { testPackage } = await import("../bot-kit/test.ts");
   const root = folderOf(context);
   const checked = await checkPackage(root, { against: option(context.args, "against") });
   // Callers of the latest published version keep working, or nothing uploads (ADR 0200 §7).
-  const { readFile } = await import("node:fs/promises");
-  const { resolve } = await import("node:path");
-  const bot: unknown = JSON.parse(await readFile(resolve(root, "bot.json"), "utf8"));
+  const bot = await packageJson(root);
   await checkAgainstPublished(
     option(context.args, "name") ?? checked.name,
     bot,

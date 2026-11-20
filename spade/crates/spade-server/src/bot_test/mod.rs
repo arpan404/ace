@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::{Value, json};
 use spade_core::package::scenario::{self, Observed, Scenario};
-use spade_core::package::{Manifest, read};
+use spade_core::package::{Manifest, contract_files, read};
 use spade_keys::Keys;
 use spade_models::{Catalog, Models};
 use spade_store::Store;
@@ -87,6 +87,21 @@ pub async fn run(folder: &Path) -> Report {
         Ok(value) => value,
         Err(error) => {
             report.problems.push(format!("bot.json: {error}"));
+            return report;
+        }
+    };
+    // Its contracts' schema files are written in, as the daemon sends a package's (ADR 0200 §7).
+    let read_file = |path: &str| {
+        contract_files::schema_path(path)
+            .then(|| std::fs::read_to_string(folder.join(path)).ok())
+            .flatten()
+    };
+    let recipe = match contract_files::inline(&recipe, read_file) {
+        Ok(recipe) => recipe,
+        Err(problems) => {
+            report
+                .problems
+                .extend(problems.into_iter().map(|p| format!("bot.json: {p}")));
             return report;
         }
     };

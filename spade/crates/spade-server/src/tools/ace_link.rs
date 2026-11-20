@@ -680,6 +680,7 @@ impl crate::engine::MarketBots for AceLink {
             Ok(bot.map(|bot| crate::packages::envelope::Envelope {
                 signed: bot.signed,
                 bot_json: bot.bot_json,
+                files: bot.files,
             }))
         })
     }

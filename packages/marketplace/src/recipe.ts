@@ -10,6 +10,7 @@ import {
   type MarketNeed,
   type MarketProblem,
 } from "@ace/protocol/marketplace";
+import { inlineContractFiles } from "./contract-files.ts";
 import { readPackage } from "./package.ts";
 import { secretFieldNames, secretValueProblems } from "./secrets.ts";
 
@@ -108,7 +109,11 @@ function fromV1(file: z.infer<typeof BotFileV1>, notes: string[]): Recipe {
 export function readRecipe(
   text: string,
   folders: ReadonlySet<string> = new Set(),
-  options: { spade?: string | undefined } = {},
+  options: {
+    spade?: string | undefined;
+    /** The package's other files, for its contracts' schema files: a path to its text. */
+    files?: ((path: string) => string | undefined) | undefined;
+  } = {},
 ): ReadRecipe {
   const problems: MarketProblem[] = [];
   const notes: string[] = [];
@@ -128,7 +133,10 @@ export function readRecipe(
     if (v1.success) recipe = fromV1(v1.data, notes);
     else problems.push(...issues(v1.error));
   } else if (version.success && version.data.version === 3) {
-    const read = readPackage(AnyRecord.parse(json), options);
+    // Its contracts' schema files are written in first, as Spade does (ADR 0200 §7).
+    const inlined = inlineContractFiles(json, options.files ?? (() => undefined));
+    problems.push(...inlined.problems.map((message) => ({ path, message })));
+    const read = readPackage(AnyRecord.parse(inlined.bot), options);
     problems.push(...read.problems);
     recipe = read.recipe;
   } else {

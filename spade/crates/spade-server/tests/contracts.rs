@@ -485,3 +485,70 @@ async fn a_caller_reads_waiting_while_the_callee_waits_on_the_person_for_its_cal
     assert_ne!(state(&agents, "Trip planner"), "waiting");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_market_packages_contract_schemas_in_a_file_count_only_as_the_market_signed_them()
+-> Result {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    support::market::trust(&spade.engine);
+    let inline = support::contracts::watcher();
+    let path = "contracts/cheapest-fare.json";
+    let schemas = serde_json::to_string_pretty(&json!({
+        "input": inline["contracts"][0]["input"],
+        "output": inline["contracts"][0]["output"],
+    }))?;
+    let mut recipe = inline.clone();
+    recipe["contracts"][0] = json!({
+        "name": "cheapest_fare",
+        "summary": "The cheapest fare seen for a route this week.",
+        "file": path,
+        "effects": [],
+    });
+    let sealed =
+        support::market::envelope_with("flight-watcher", "1.0.0", &recipe, &[(path, &schemas)]);
+    let body = |envelope: Value| {
+        json!({
+            "envelope": envelope,
+            "from_recipe": { "source": "market", "name": "flight-watcher", "version": "1.0.0", "transaction": "install-1" },
+            "grants": { "connectors": [], "plugins": [], "skills": [] },
+            "switches": {},
+        })
+    };
+    // A schema file other than the one signed, or none, makes nothing.
+    let mut changed = sealed.clone();
+    changed["files"][path] = json!(schemas.replace("\"minimum\": 0", "\"minimum\": 1"));
+    let (status, refused) = spade.post("/v1/agents", body(changed)).await?;
+    assert_eq!(status, 400, "{refused}");
+    assert!(
+        refused.to_string().contains("isn't one the market signed"),
+        "{refused}"
+    );
+    let mut missing = sealed.clone();
+    missing["files"] = json!({});
+    let (status, refused) = spade.post("/v1/agents", body(missing)).await?;
+    assert_eq!(status, 400, "{refused}");
+    assert!(
+        refused.to_string().contains("isn't in the package"),
+        "{refused}"
+    );
+    let (_, listed) = spade.get("/v1/agents").await?;
+    assert!(!listed.to_string().contains("Flight watcher"), "{listed}");
+
+    // As signed, the bot publishes the file's schemas as if bot.json held them.
+    let (status, made) = spade.post("/v1/agents", body(sealed)).await?;
+    assert_eq!(status, 201, "{made}");
+    let bot = text(&made["agent"]["id"]);
+    let (status, view) = spade.get(&format!("/v1/agents/{bot}/contracts")).await?;
+    assert_eq!(status, 200, "{view}");
+    let published = &view["contracts"][0];
+    assert_eq!(published["name"], "cheapest_fare", "{view}");
+    assert_eq!(
+        published["input"], inline["contracts"][0]["input"],
+        "{view}"
+    );
+    assert_eq!(
+        published["output"], inline["contracts"][0]["output"],
+        "{view}"
+    );
+    Ok(())
+}

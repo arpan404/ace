@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import type { CliBotDev } from "@ace/protocol/cli-outputs";
 import { CliFailure } from "../output.ts";
 import type { SpadeAnswer, SpadeExchange } from "../spade-call.ts";
-import { checkPackage } from "./check.ts";
+import { checkPackage, packageJson } from "./check.ts";
 import { allOn, asksMore, devBotOf, devFolderKey, effectLines, installBody } from "./dev-plan.ts";
 
 /*
@@ -86,11 +86,11 @@ async function panelPages(root: string, surfaces: unknown): Promise<Record<strin
 /** The package as it is now: checked, read, its effect switches' keys and its panel pages. */
 async function current(root: string) {
   const checked = await checkPackage(root);
-  const text = await readFile(join(root, "bot.json"), "utf8");
+  // As Spade reads it: its contracts' schema files written in (ADR 0200 §7).
+  const recipe = (await packageJson(root)) as Record<string, unknown>;
   const { readRecipe, recipeEffects } = await import("@ace/marketplace");
-  const read = readRecipe(text, await skillFolders(root));
+  const read = readRecipe(JSON.stringify(recipe), await skillFolders(root));
   const keys = read.recipe ? recipeEffects(read.recipe).map((row) => row.key) : [];
-  const recipe = JSON.parse(text) as Record<string, unknown>;
   return { checked, recipe, keys, pages: await panelPages(root, recipe["surfaces"]) };
 }
 

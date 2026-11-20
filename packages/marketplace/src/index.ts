@@ -45,6 +45,14 @@ export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe }
 export { panelFile, panelFiles, surfaceProblems } from "./surfaces.ts";
 export { breakingChanges, contractLimits, readContracts } from "./contracts.ts";
 export {
+  contractFileReader,
+  contractFileTexts,
+  contractFiles,
+  contractSchemaPath,
+  inlineContractFiles,
+  type InlinedContracts,
+} from "./contract-files.ts";
+export {
   botJsonOf,
   breaksReason,
   contractBreaks,

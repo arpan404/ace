@@ -2,7 +2,7 @@
 //! daemon fetched the package, but anything that can reach Spade's API could say any package id
 //! with any recipe; so Spade believes a name, version and hash only from the market's signed
 //! version manifest (ADR 0168 §6), checked here with the market keys this build trusts, and only
-//! for the `bot.json` whose bytes that manifest lists. Without one, a version 3 package installs
+//! for the `bot.json` whose bytes that manifest lists, with the contract schema files it lists. Without one, a version 3 package installs
 //! as a local package: `local/<name>`, claiming no publisher and no market version.
 //!
 //! The signature is `packages/marketplace/src/signing.ts`'s: Ed25519 over
@@ -10,11 +10,14 @@
 //! spaces). The content hash is `hash.ts`'s: sha256 over one JSON line per file,
 //! `[path, bytes, executable, sha256]`, in path order. Pure: the keys are passed in.
 
+use std::collections::BTreeMap;
+
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use spade_core::package::contract_files;
 use spade_core::package::link::PackageId;
 
 /// What signed manifests are signed behind, so a signature on another kind never verifies.
@@ -47,11 +50,14 @@ pub fn shipped() -> Vec<MarketKey> {
 }
 
 /// What the daemon passes for a market package: the signed version manifest as the market
-/// served it, and `bot.json` exactly as the archive has it.
+/// served it, `bot.json` exactly as the archive has it, and the schema files its contracts name
+/// (`contracts/<name>.json`, ADR 0200 §7), by path, as the archive has them.
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct Envelope {
     pub signed: Value,
     pub bot_json: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub files: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -80,7 +86,17 @@ struct File {
     sha256: String,
 }
 
-/// The identity `envelope` proves, and the `bot.json` it covers, read as JSON; else why not.
+/// Whether `text` is the file the signed manifest lists at `path`, by its size and sha256.
+fn listed(files: &[File], path: &str, text: &str) -> bool {
+    files.iter().any(|file| {
+        file.path == path
+            && file.bytes == text.len() as u64
+            && file.sha256 == hex(&Sha256::digest(text.as_bytes()))
+    })
+}
+
+/// The identity `envelope` proves, and the `bot.json` it covers, read as JSON with its
+/// contracts' schema files written in (each one the manifest lists, by its bytes); else why not.
 pub fn verify(envelope: &Envelope, keys: &[MarketKey]) -> Result<(PackageId, Value), String> {
     let signed: Signed = serde_json::from_value(envelope.signed.clone())
         .map_err(|_| "the signed manifest is malformed".to_owned())?;
@@ -106,17 +122,22 @@ pub fn verify(envelope: &Envelope, keys: &[MarketKey]) -> Result<(PackageId, Val
     if content_hash(&body.files) != body.hash {
         return Err("the signed manifest's files don't make its hash".to_owned());
     }
-    let bytes = envelope.bot_json.as_bytes();
-    let listed = body
-        .files
-        .iter()
-        .find(|file| file.path == "bot.json")
-        .ok_or_else(|| "the signed package has no bot.json".to_owned())?;
-    if listed.bytes != bytes.len() as u64 || listed.sha256 != hex(&Sha256::digest(bytes)) {
+    if !body.files.iter().any(|file| file.path == "bot.json") {
+        return Err("the signed package has no bot.json".to_owned());
+    }
+    if !listed(&body.files, "bot.json", &envelope.bot_json) {
         return Err("bot.json isn't the one the market signed".to_owned());
     }
-    let recipe: Value =
-        serde_json::from_slice(bytes).map_err(|_| "the signed bot.json isn't JSON".to_owned())?;
+    // Only schema files, each exactly as signed: the signature covers them as it does bot.json.
+    for (path, text) in &envelope.files {
+        if !contract_files::schema_path(path) || !listed(&body.files, path, text) {
+            return Err(format!("{path} isn't one the market signed"));
+        }
+    }
+    let written: Value = serde_json::from_str(&envelope.bot_json)
+        .map_err(|_| "the signed bot.json isn't JSON".to_owned())?;
+    let recipe = contract_files::inline(&written, |path| envelope.files.get(path).cloned())
+        .map_err(|problems| problems.join("; "))?;
     Ok((
         PackageId {
             source: MARKET.to_owned(),

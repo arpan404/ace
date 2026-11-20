@@ -11,6 +11,7 @@
 //!   the person or the bot changed it, and what the new version asks for that starts off.
 
 pub mod contract;
+pub mod contract_files;
 pub mod link;
 pub mod manifest;
 pub mod scenario;
