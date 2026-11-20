@@ -29,6 +29,15 @@ pub(super) enum Requested {
     Stopped,
 }
 
+/// The card for an app a bot asks for, or why there is none.
+pub(super) enum Card {
+    /// The bot may use it already; its name.
+    Has(String),
+    /// No such app: what to say.
+    Unknown(String),
+    Ask(Connect),
+}
+
 /// A connector the bot can use now, or a reason it can't.
 fn usable(view: &ConnectorView) -> bool {
     !matches!(view.state, "needs_reconnect" | "signing_in")
@@ -66,54 +75,14 @@ impl Engine {
                 "Only a bot can ask for an app.",
             )));
         };
-        let access = hub.access(&agent.id, agent.kind == MAIN);
-        let connectors = hub.list();
-        let listed = hub.listed().await;
-        let entry = listed
-            .iter()
-            .find(|l| l.entry.id == app || l.entry.name.eq_ignore_ascii_case(&app));
-        // A server the person added by address is asked for by its connector's id or name.
-        let added = connectors
-            .iter()
-            .find(|c| c.catalogue.is_none() && (c.id == app || c.name.eq_ignore_ascii_case(&app)));
-        let (key, name) = match (entry, added) {
-            (Some(listed), _) => (listed.entry.id.clone(), listed.entry.name.clone()),
-            (None, Some(view)) => (view.id.clone(), view.name.clone()),
-            (None, None) => {
-                return Ok(Requested::Answered(ToolOutput::error(unknown_app(
-                    hub, &app,
-                ))));
+        let card = match self.connect_card(hub, &agent, &app).await {
+            Card::Has(name) => {
+                return Ok(Requested::Answered(ToolOutput::ok(connect::already(&name))));
             }
+            Card::Unknown(why) => return Ok(Requested::Answered(ToolOutput::error(why))),
+            Card::Ask(card) => card,
         };
-        let existing: Vec<&ConnectorView> = connectors
-            .iter()
-            .filter(|c| c.catalogue.as_deref() == Some(key.as_str()) || c.id == key)
-            .collect();
-        if existing.iter().any(|c| usable(c) && access.allows(&c.id)) {
-            return Ok(Requested::Answered(ToolOutput::ok(connect::already(&name))));
-        }
-        let usable_one = existing.iter().find(|c| usable(c));
-        let expired = existing.iter().find(|c| c.state == "needs_reconnect");
-        let way = match (usable_one, expired, entry.map(|l| l.ready)) {
-            (Some(_), _, _) => Way::Use,
-            (None, Some(_), _) => Way::Reconnect,
-            (None, None, Some(Ready::SignIn)) => Way::SignIn,
-            (None, None, Some(Ready::Key)) => Way::Key,
-            (None, None, Some(Ready::Later)) => Way::Later,
-            // Added by address, signing in now: the person finishes that sign-in.
-            (None, None, None) => Way::Reconnect,
-        };
-        let card = Connect {
-            app: key,
-            name,
-            way,
-            can: entry
-                .map(|l| spade_connect::fit::can_do(l.entry))
-                .unwrap_or_default(),
-            connector: usable_one.or(expired).map(|c| c.id.clone()),
-            key_url: entry.and_then(|l| l.entry.key_url.clone()),
-            retry: false,
-        };
+        let way = card.way;
         let later = way == Way::Later;
         let unavailable = connect::dismissed(&card);
         let mut events = vec![asked(reply, &call.id, why, card)];
@@ -131,6 +100,61 @@ impl Engine {
             Ok(false) => Ok(Requested::Stopped),
             Err(error) => Err(error.to_string()),
         }
+    }
+
+    /// The connect card `agent` would show for `app` (a catalogue id or name, or a server added
+    /// by address): what way it connects, from the catalogue and the person's connectors.
+    /// `Has` when the bot may use it already.
+    pub(super) async fn connect_card(
+        &self,
+        hub: &Connectors,
+        agent: &spade_store::Agent,
+        app: &str,
+    ) -> Card {
+        let access = hub.access(&agent.id, agent.kind == MAIN);
+        let connectors = hub.list();
+        let listed = hub.listed().await;
+        let entry = listed
+            .iter()
+            .find(|l| l.entry.id == app || l.entry.name.eq_ignore_ascii_case(app));
+        // A server the person added by address is asked for by its connector's id or name.
+        let added = connectors
+            .iter()
+            .find(|c| c.catalogue.is_none() && (c.id == app || c.name.eq_ignore_ascii_case(app)));
+        let (key, name) = match (entry, added) {
+            (Some(listed), _) => (listed.entry.id.clone(), listed.entry.name.clone()),
+            (None, Some(view)) => (view.id.clone(), view.name.clone()),
+            (None, None) => return Card::Unknown(unknown_app(hub, app)),
+        };
+        let existing: Vec<&ConnectorView> = connectors
+            .iter()
+            .filter(|c| c.catalogue.as_deref() == Some(key.as_str()) || c.id == key)
+            .collect();
+        if existing.iter().any(|c| usable(c) && access.allows(&c.id)) {
+            return Card::Has(name);
+        }
+        let usable_one = existing.iter().find(|c| usable(c));
+        let expired = existing.iter().find(|c| c.state == "needs_reconnect");
+        let way = match (usable_one, expired, entry.map(|l| l.ready)) {
+            (Some(_), _, _) => Way::Use,
+            (None, Some(_), _) => Way::Reconnect,
+            (None, None, Some(Ready::SignIn)) => Way::SignIn,
+            (None, None, Some(Ready::Key)) => Way::Key,
+            (None, None, Some(Ready::Later)) => Way::Later,
+            // Added by address, signing in now: the person finishes that sign-in.
+            (None, None, None) => Way::Reconnect,
+        };
+        Card::Ask(Connect {
+            app: key,
+            name,
+            way,
+            can: entry
+                .map(|l| spade_connect::fit::can_do(l.entry))
+                .unwrap_or_default(),
+            connector: usable_one.or(expired).map(|c| c.id.clone()),
+            key_url: entry.and_then(|l| l.entry.key_url.clone()),
+            retry: false,
+        })
     }
 
     /// A call to `connector` refused because its sign-in expired: holds it on a Reconnect card
@@ -341,7 +365,7 @@ pub(super) fn after_reconnect(events: &[Event], call_id: &str) -> AfterReconnect
 }
 
 /// A connect card, as `question_asked` keeps it.
-fn asked(reply: &str, call_id: &str, why: String, card: Connect) -> Event {
+pub(super) fn asked(reply: &str, call_id: &str, why: String, card: Connect) -> Event {
     let summary = connect::summary(&card, &why);
     let later = card.way == Way::Later;
     Event::Known(Known::QuestionAsked {

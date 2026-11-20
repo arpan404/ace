@@ -44,6 +44,17 @@ struct Standing {
     apps: Vec<String>,
 }
 
+/// A standing bot just made: who made it and the apps it suggested.
+struct Made {
+    id: String,
+    name: String,
+    maker: String,
+    apps: Vec<String>,
+}
+
+/// The reply a made bot's suggested-app cards are filed under: none of its own replies.
+const SUGGESTED: &str = "made";
+
 #[derive(Deserialize)]
 struct ClubAdd {
     club: String,
@@ -122,7 +133,7 @@ impl Engine {
 
     /// `bot_create {kind: standing}` from the call with `key`: a bot of the person's own, made
     /// once even when the call runs again after a restart.
-    pub(crate) fn make_standing(&self, key: &str, arguments: Value) -> ToolOutput {
+    pub(crate) async fn make_standing(&self, key: &str, arguments: Value) -> ToolOutput {
         let Some((caller, _)) = key.split_once('.') else {
             return ToolOutput::error("Spade could not tell which bot asked.");
         };
@@ -134,8 +145,39 @@ impl Engine {
             Err(refused) => return refused,
         };
         match self.store_standing(caller, key, asked) {
-            Ok(bot) => made_answer(&bot),
+            Ok(made) => {
+                self.suggest_apps(&made).await;
+                made_answer(&(made.id, made.name))
+            }
             Err(why) => ToolOutput::error(why),
+        }
+    }
+
+    /// The apps its maker suggested, as connect cards in the made bot's own chat, each left for
+    /// later: the person connects one with a click when they open it, and nothing waits on them.
+    /// An app the bot may use already, or one Spade doesn't know, gets no card.
+    async fn suggest_apps(&self, made: &Made) {
+        let Some(hub) = self.apps() else { return };
+        let Ok(Some(agent)) = self.store.agent(&made.id) else {
+            return;
+        };
+        for (n, app) in made.apps.iter().enumerate() {
+            let super::apps::Card::Ask(card) = self.connect_card(hub, &agent, app).await else {
+                continue;
+            };
+            let call = format!("made-app-{n}");
+            let why = format!("{} thought I'd need this when it made me.", made.maker);
+            let events = [
+                super::apps::asked(SUGGESTED, &call, why, card),
+                Event::Known(Known::QuestionDeferred {
+                    call_id: call,
+                    by_bot: true,
+                }),
+            ];
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            if let Err(error) = self.append_events(&agent.conversation, &events) {
+                tracing::warn!(%error, "a made bot's suggested app was not offered");
+            }
         }
     }
 
@@ -150,12 +192,7 @@ impl Engine {
         })
     }
 
-    fn store_standing(
-        &self,
-        caller: &str,
-        key: &str,
-        asked: Standing,
-    ) -> Result<(String, String), String> {
+    fn store_standing(&self, caller: &str, key: &str, asked: Standing) -> Result<Made, String> {
         let me = self
             .store
             .agent_for_conversation(caller)
@@ -232,7 +269,12 @@ impl Engine {
                 tracing::warn!(%error, "a made bot was not noted in its maker's conversation");
             }
         }
-        Ok((id, name))
+        Ok(Made {
+            id,
+            name,
+            maker: me.name,
+            apps,
+        })
     }
 
     /// Undo on a bot another bot made: removed when nothing it did reached outside it, else

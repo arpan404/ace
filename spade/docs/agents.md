@@ -68,7 +68,9 @@ is in view, `profile_update` runs without asking. Otherwise it asks the person.
 
 [ADR 0161, amendment 1](../../docs/adr/0161-spade-orchestration-trees.md). `bot_create {kind:
 "standing", name, task, face?, model?, apps?}` makes a top-level bot for the person: the
-auto-review, no apps or plugins, `made_by {id, name, apps}` on its Agent JSON. `club_add {club,
+auto-review, no apps or plugins, `made_by {id, name, apps}` on its Agent JSON; each of `apps`
+Spade knows and the bot can't use yet is a connect card in its own conversation (filed under
+reply `made`, call `made-app-<n>`), left for later. `club_add {club,
 bot}` adds a bot to a club the caller is in. Both run, ask or are refused by the caller's
 `may_create_bots` (`yes` for Spade, `ask` for other bots until the person sets it with
 `PATCH /agents/{id} {may_create_bots}`), and ask whenever untrusted content is in view. The
