@@ -236,6 +236,14 @@ const failures: readonly [RegExp, string][] = [
   [/^Select a local package manager/, "ace couldn't find the package manager this agent needs."],
   [/^Agent registry unavailable/, "This daemon can't install from the ACP registry yet."],
   [/changed again/, "It changed again since you looked. Check it and approve again."],
+  [
+    /already approved or replaced/,
+    "This update changed since you looked. Check it and approve again.",
+  ],
+  [
+    /^This is yours to do/,
+    "Approve agents in the ace app signed in as you, or on a device you paired from it.",
+  ],
   [/^Nothing changed since approval/, "This update is already approved."],
   [/^Native bridge CLI changed or unavailable/, "ace can't find the CLI this agent drives."],
   [/^Approved ACP installation unavailable/, "This agent isn't added on this computer anymore."],

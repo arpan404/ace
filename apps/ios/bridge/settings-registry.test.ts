@@ -131,29 +131,44 @@ test("an agent that updated itself waits above the registry until the person app
     source: "user-local",
     evidence: "user_local_binding",
   });
-  registry.updates = [
-    {
-      ...identity,
-      changed: ["native_cli"],
-      executableDigest: "c".repeat(64),
-      bridgeDigest: "d".repeat(64),
-      observedAt: 1,
-    },
-  ];
+  const update = (executableDigest: string) => ({
+    ...identity,
+    changed: ["native_cli" as const],
+    executableDigest,
+    bridgeDigest: "d".repeat(64),
+    previousExecutableDigest: "a".repeat(64),
+    previousBridgeDigest: "b".repeat(64),
+    generation: 0,
+    observedAt: 1,
+  });
+  registry.updates = [update("c".repeat(64))];
   const listed = await ask({ type: "acp.registry", query: "" });
   expect(listed.screen.updates).toEqual([
     {
       installationId: "kiro-1",
+      approval: expect.any(String),
       title: expect.stringMatching(/changed$/),
       detail: "The CLI it drives was updated. ace won't run it until you approve.",
     },
   ]);
-  const approved = await ask({ type: "acp.registry.approve-update", installationId: "kiro-1" });
+  const shown = listed.screen.updates[0].approval;
+  // It changes again after the phone drew the row: the tap approves what it showed, so the
+  // daemon refuses it rather than approve the new files unseen.
+  registry.updates = [update("e".repeat(64))];
+  expect(await ask({ type: "acp.registry.approve-update", approval: shown })).toEqual({
+    ok: false,
+    problem: "It changed again since you looked. Check it and approve again.",
+  });
+  expect(
+    registry.installations.find((entry) => entry.installationId === "kiro-1")?.approvals,
+  ).toBeUndefined();
+  const again = (await ask({ type: "acp.registry", query: "" })).screen.updates[0].approval;
+  const approved = await ask({ type: "acp.registry.approve-update", approval: again });
   expect(approved).toMatchObject({ ok: true, screen: { updates: [] } });
   expect(
     registry.installations.find((entry) => entry.installationId === "kiro-1")?.approvals,
   ).toHaveLength(1);
-  expect(await ask({ type: "acp.registry.approve-update", installationId: "kiro-1" })).toEqual({
+  expect(await ask({ type: "acp.registry.approve-update", approval: again })).toEqual({
     ok: false,
     problem: "This update is already approved.",
   });

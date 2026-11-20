@@ -13,6 +13,8 @@ struct RegistryRowData: Decodable, Identifiable, Equatable {
 /// An agent that changed since the person approved it; ace won't run it until they approve.
 struct RegistryUpdateData: Decodable, Identifiable, Equatable {
     let installationId: String
+    /// Exactly the update this row shows; Approve sends it back, so a newer one is refused.
+    let approval: String
     let title: String
     let detail: String
     var id: String { installationId }
@@ -128,7 +130,7 @@ struct AcpRegistryView: View {
     private func approve(_ update: RegistryUpdateData) async {
         approving = update.installationId; approveProblem = nil
         do {
-            let answer = try await model.manage(["type": "acp.registry.approve-update", "installationId": update.installationId], as: RegistryAnswer.self)
+            let answer = try await model.manage(["type": "acp.registry.approve-update", "approval": update.approval], as: RegistryAnswer.self)
             if let next = answer.screen { screen = next }
         } catch { approveProblem = error.localizedDescription }
         approving = nil

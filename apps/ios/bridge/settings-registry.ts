@@ -1,5 +1,9 @@
 import type { ClientCore } from "@ace/client";
-import type { ProviderInstallProgress, RegistryAgent } from "@ace/protocol";
+import {
+  RegistryPendingUpdate,
+  type ProviderInstallProgress,
+  type RegistryAgent,
+} from "@ace/protocol";
 import {
   latestInstallation,
   planFacts,
@@ -44,8 +48,11 @@ export const RegistryScreenRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("acp.registry.progress"), session }),
   z.object({ type: z.literal("acp.registry.cancel"), session }),
   z.object({ type: z.literal("acp.manual") }),
-  /** The person approves an agent's listed update (ADR 0044 amendment). */
-  z.object({ type: z.literal("acp.registry.approve-update"), installationId: agentId }),
+  /**
+   * The person approves the update the row showed (ADR 0044 amendment): its `approval` key, as
+   * the screen gave it, so an update that changed since is refused, never approved unseen.
+   */
+  z.object({ type: z.literal("acp.registry.approve-update"), approval: z.string().max(4096) }),
 ]);
 export type RegistryScreenRequest = z.infer<typeof RegistryScreenRequest>;
 
@@ -65,6 +72,8 @@ export interface RegistryRow {
 /** An agent that changed since the person approved it, waiting for them to approve its update. */
 export interface RegistryUpdateRow {
   installationId: string;
+  /** Exactly this update (its files, what it replaces, its generation); Approve sends it back. */
+  approval: string;
   /** "Gemini CLI changed". */
   title: string;
   /** What changed, and that ace won't run it until they approve. */
@@ -113,6 +122,16 @@ function row(agent: RegistryAgent, view: RegistryView): RegistryRow {
   };
 }
 
+/** The update a row showed, from its `approval` key; undefined when the key isn't one. */
+function shownUpdate(approval: string): RegistryPendingUpdate | undefined {
+  try {
+    const parsed = RegistryPendingUpdate.safeParse(JSON.parse(approval));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The registry for one search: matches by name first, what can't install here last. */
 export function registryScreen(view: RegistryView, query: string, now: number): RegistryScreen {
   const rows = searchRegistry(view.agents, query).map((agent) => row(agent, view));
@@ -127,6 +146,7 @@ export function registryScreen(view: RegistryView, query: string, now: number): 
   return {
     updates: view.updates.map((update) => ({
       installationId: update.installationId,
+      approval: JSON.stringify(update),
       title: `${
         view.agents.find((agent) => agent.acpAgentId === update.acpAgentId)?.name ??
         providerDisplayName("acp", update.acpAgentId)
@@ -331,11 +351,9 @@ export async function answerRegistryScreen(
       case "acp.manual":
         return { ok: true, manual: manualScreen() };
       case "acp.registry.approve-update": {
-        const view = await readRegistry(owner, signal);
-        const update = view.updates.find(
-          (entry) => entry.installationId === request.installationId,
-        );
-        if (!update) return { ok: false, problem: "This update is already approved." };
+        // What the row showed, not what the daemon lists now: the daemon refuses it if it moved.
+        const update = shownUpdate(request.approval);
+        if (!update) return { ok: false, problem: registryFailure("") };
         await approveAgentUpdate(owner, update);
         return { ok: true, screen: registryScreen(await readRegistry(owner, signal), "", now) };
       }

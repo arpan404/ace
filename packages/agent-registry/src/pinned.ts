@@ -30,16 +30,16 @@ const markerTail = Math.max(...siblingMarkers.map((marker) => marker.length)) - 
 const inPlaceMarker = "in-place";
 
 /** ELF, Mach-O (thin, either byte order, and universal) or a Windows PE. */
-export function nativeExecutable(head: Buffer): boolean {
-  if (head.length >= 4 && head.readUInt32BE(0) === 0x7f454c46) return true;
+export function nativeExecutable(start: Buffer): boolean {
+  if (start.length >= 4 && start.readUInt32BE(0) === 0x7f454c46) return true;
   if (
-    head.length >= 4 &&
+    start.length >= 4 &&
     [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca].includes(
-      head.readUInt32BE(0),
+      start.readUInt32BE(0),
     )
   )
     return true;
-  return head.length >= 2 && head[0] === 0x4d && head[1] === 0x5a;
+  return start.length >= 2 && start[0] === 0x4d && start[1] === 0x5a;
 }
 
 async function head(path: string): Promise<Buffer> {

@@ -214,11 +214,13 @@ test("an approval covers only the files the person was shown", async () => {
   }
 });
 
+/** One release of a fake agent, always reporting 1.0.0. */
+const release = (name: string) => `#!/bin/sh\n# ${name}\n# version 1.0.0\n`;
+
 test("an approval is good once: after A to B, B to C and back to B, replaying the first approves nothing", async () => {
   const root = await home();
   const registry = await open(root);
   try {
-    const release = (name: string) => `#!/bin/sh\n# ${name}\n# version 1.0.0\n`;
     const agent = await executable(root, "agent", release("A"));
     await bind(registry, custom, agent);
     await writeFile(agent, release("B"));

@@ -132,8 +132,9 @@ export async function installAgent(
 }
 
 /**
- * The person approves an agent's update: exactly the files the daemon listed, for the same
- * agent, so its threads keep running. A file that changed again since is refused.
+ * The person approves an agent's update: exactly the update the daemon listed and they saw (its
+ * files, what it replaces, its generation), for the same agent, so its threads keep running.
+ * The daemon refuses one that changed since.
  */
 export async function approveAgentUpdate(
   client: RegistryClient,
@@ -146,6 +147,9 @@ export async function approveAgentUpdate(
     instanceId: update.instanceId,
     executableDigest: update.executableDigest,
     ...(update.bridgeDigest ? { bridgeDigest: update.bridgeDigest } : {}),
+    previousExecutableDigest: update.previousExecutableDigest,
+    ...(update.previousBridgeDigest ? { previousBridgeDigest: update.previousBridgeDigest } : {}),
+    generation: update.generation,
   });
   const error = refused(reply.result);
   if (error) throw error;
