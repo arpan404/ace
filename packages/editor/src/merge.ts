@@ -1,5 +1,5 @@
 import { wasm } from "./loader.ts";
-import type { MergeChunk, MergeResult } from "./types.ts";
+import type { LineChange, MergeChunk, MergeResult } from "./types.ts";
 
 /**
  * Three-way merge by line of `mine` (the buffer) and `theirs` (the disk), both edits of `base`
@@ -32,4 +32,22 @@ export function merge3(base: string, mine: string, theirs: string): MergeResult 
     text: chunks.map((chunk) => (chunk.kind === "clean" ? chunk.text : "")).join(""),
     chunks,
   };
+}
+
+/**
+ * How to turn `before` into `after` by whole lines, one change per changed block, in order.
+ * Applied to a document, text between the blocks (and the carets in it) does not move.
+ */
+export function lineChanges(before: string, after: string): LineChange[] {
+  const flat = wasm().lineChanges(before, after);
+  try {
+    const { ranges, texts } = flat;
+    return texts.map((text, index) => ({
+      start: ranges[index * 2] ?? 0,
+      end: ranges[index * 2 + 1] ?? 0,
+      text,
+    }));
+  } finally {
+    flat.free();
+  }
 }
