@@ -159,11 +159,12 @@ import XCTest
     }
 
     /// Closes a confirmation dialog without choosing: its Cancel on a phone's action sheet, else a
-    /// tap outside the popover.
+    /// tap outside the popover, at the screen's left edge halfway down: the popover is centred,
+    /// and a notification banner can cover the top of the screen.
     private func dismissDialog(_ app: XCUIApplication) {
         let cancel = app.buttons["Cancel"]
         if cancel.exists && cancel.isHittable { cancel.tap() }
-        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap() }
+        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).tap() }
     }
 
     /// The Forget and Sign out requests the fake account backend has logged, read once they

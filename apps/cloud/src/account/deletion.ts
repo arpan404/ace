@@ -105,6 +105,10 @@ async function complete(
   return true;
 }
 
+/** The answer once a deletion was tried: done, or WorkOS failed and it waits for a retry. */
+const finished = (done: boolean) =>
+  done ? json(200, { deleted: true }) : fail(502, "delete_failed");
+
 /**
  * DELETE /v1/account (App Store guideline 5.1.1(v)). Only the person's own session may ask
  * (`person` standing, read at the decision): a session a daemon keeps, or one from before
@@ -121,8 +125,6 @@ export function deleteAccountRoute(deps: {
   now: () => number;
   forgotten?: (hostId: string, accountId: string) => Promise<void>;
 }) {
-  const finished = (done: boolean) =>
-    done ? json(200, { deleted: true }) : fail(502, "delete_failed");
   return async (request: Request): Promise<Response> => {
     const token = bearer(request);
     if (!token) return fail(401, "unauthenticated");
