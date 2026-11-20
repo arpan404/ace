@@ -67,12 +67,28 @@ final class NativeHost: @unchecked Sendable {
             self?.runtime?.vm.check("aceHost.cancelTimer")
             self?.timers.removeValue(forKey: id)?.invalidate()
         }
-        let own: [String: Any] = ["call": call, "emit": emit, "socket": socket, "timer": timer, "cancelTimer": cancel]
+        // One binary message, read by pointer: the tunnel's frames (`socketBytes`).
+        let socketBytes: @convention(block) (String, JSValue) -> Void = { [weak self] id, value in
+            self?.runtime?.vm.check("aceHost.socketBytes")
+            guard let bytes = NativeBytes.withBytes(of: value, { Data($0) }), !bytes.isEmpty, bytes.count <= Self.socketBytesLimit else { return }
+            self?.sockets[id]?.send(bytes: bytes)
+        }
+        // A loopback connection's next step (`loopback`, ADR 0194); `write` copies the bytes once.
+        let loopback: @convention(block) (String, String, JSValue) -> Void = { [weak self] id, action, value in
+            guard let self else { return }
+            self.runtime?.vm.check("aceHost.loopback")
+            let bytes = action == "write" ? NativeBytes.withBytes(of: value, { Data($0) }) : nil
+            self.services.loopback.act(id, action: action, bytes: bytes)
+        }
+        let own: [String: Any] = ["call": call, "emit": emit, "socket": socket, "timer": timer, "cancelTimer": cancel,
+                                  "socketBytes": socketBytes, "loopback": loopback]
         HostContract.install(HostContract.stateless().merging(own) { _, runtime in runtime }, in: context)
     }
     /// Inputs past this are refused before any work; bodies have each operation's own cap.
     private static let inputLimit = 1024 * 1024
     private static let bodyLimit = 9 * 1024 * 1024
+    /// A tunnel frame is at most 16 KiB and its header; anything far past that is a bug.
+    private static let socketBytesLimit = 1024 * 1024
     private func call(_ request: HostRequest, value: JSValue) {
         let operation = request.operation
         let callback = HostTrace.enabled ? Callback(value, runtime: runtime, traced: operation, began: CACurrentMediaTime())
@@ -82,6 +98,7 @@ final class NativeHost: @unchecked Sendable {
         }
         if operation == "http" { http(request.input, callback: callback); return }
         if operation == "media.delivery" { mediaDelivery(request.input, callback: callback); return }
+        if operation == "loopback.listen" { listenLoopback(request.input, callback: callback); return }
         if operation == "credential", let grants = target?.relay?.grants { accountGrant(grants, callback: callback) { try await $0.current() }; return }
         if operation == "credential.fresh", let grants = target?.relay?.grants { accountGrant(grants, callback: callback) { try await $0.fresh() }; return }
         if operation.hasPrefix("snapshot.") { snapshot(request, callback: callback); return }
@@ -151,6 +168,17 @@ final class NativeHost: @unchecked Sendable {
         runtime?.browserStreams?.setDelivery(MediaDelivery(generation: value.generation, path: value.path, revision: value.revision, poster: value.poster),
                                              for: DeliveryKey(view: value.view, source: value.source))
         reply(.success(""), to: callback)
+    }
+    private struct ListenInput: Decodable { let ports: [Int] }
+    /// The ports this runtime listens on at the phone's loopback, taking them from any other.
+    private func listenLoopback(_ input: Data, callback: Callback) {
+        guard let value = try? JSONDecoder().decode(ListenInput.self, from: input), value.ports.count <= 1024 else {
+            reply(.failure(HostError.encoding), to: callback); return
+        }
+        services.loopback.listen(value.ports, for: self) { [weak self] answer in
+            let text = (try? JSONEncoder().encode(answer)).map { String(decoding: $0, as: UTF8.self) }
+            self?.reply(text.map { .success($0) } ?? .failure(HostError.encoding), to: callback)
+        }
     }
     private func reply(_ result: Result<String, Error>, to callback: Callback) {
         callback.finish()
@@ -251,6 +279,7 @@ final class NativeHost: @unchecked Sendable {
         RunLoop.current.add(timer, forMode: .default)
     }
     func close() {
+        services.loopback.release(self)
         for socket in sockets.values { socket.close() }
         sockets.removeAll()
         for timer in timers.values { timer.invalidate() }
@@ -258,5 +287,23 @@ final class NativeHost: @unchecked Sendable {
         pinnedSession?.close()
         pinnedSession = nil
         storageQueue.sync { store = nil }
+    }
+}
+
+extension NativeHost: LoopbackClient {
+    /// A loopback event for this runtime's script, on its thread; bytes cross as a `Uint8Array`.
+    func loopback(_ event: LoopbackEvent) {
+        runtime?.execute { context in
+            let name: String, id: String, value: Any
+            switch event {
+            case .accept(let connection, let port): (name, id, value) = ("accept", connection, port)
+            case .data(let connection, let bytes): (name, id, value) = ("data", connection, bytes.withUnsafeBytes { NativeBytes.makeArray($0, in: context) })
+            case .written(let connection): (name, id, value) = ("written", connection, 0)
+            case .end(let connection): (name, id, value) = ("end", connection, 0)
+            case .reset(let connection): (name, id, value) = ("reset", connection, 0)
+            case .released: (name, id, value) = ("released", "", 0)
+            }
+            HostTrace.measure("js.loopback") { _ = context.objectForKeyedSubscript("aceLoopback")?.call(withArguments: [name, id, value]) }
+        }
     }
 }

@@ -86,12 +86,16 @@ describe("which ports the phone listens on", () => {
   });
 });
 
-describe("which machine holds the ports", () => {
-  const run = (events: LoopbackHoldEvent[]): LoopbackHold =>
-    events.reduce(nextLoopbackHold, noLoopbackHold);
+const run = (events: LoopbackHoldEvent[]): LoopbackHold =>
+  events.reduce(nextLoopbackHold, noLoopbackHold);
 
+describe("which machine holds the ports", () => {
   test.each<[string, LoopbackHoldEvent[], boolean]>([
-    ["a device tab in front takes the ports", [{ kind: "tabs", count: 1 }, { kind: "front" }], true],
+    [
+      "a device tab in front takes the ports",
+      [{ kind: "tabs", count: 1 }, { kind: "front" }],
+      true,
+    ],
     ["coming to the front with no device tab takes nothing", [{ kind: "front" }], false],
     [
       "another machine's tab coming to the front moves them away",
@@ -115,7 +119,12 @@ describe("which machine holds the ports", () => {
     ],
     [
       "a new tab after the last one closed waits for the front again",
-      [{ kind: "tabs", count: 1 }, { kind: "front" }, { kind: "tabs", count: 0 }, { kind: "tabs", count: 1 }],
+      [
+        { kind: "tabs", count: 1 },
+        { kind: "front" },
+        { kind: "tabs", count: 0 },
+        { kind: "tabs", count: 1 },
+      ],
       false,
     ],
   ])("%s", (_, events, holding) => {
@@ -126,7 +135,9 @@ describe("which machine holds the ports", () => {
 describe("what a failed page says", () => {
   test("each refusal names its cause, and the port where it matters", () => {
     expect(loopbackProblemWords("busy", 3000)).toContain("port 3000");
-    expect(loopbackProblemWords("nothing", 5173)).toBe("Nothing is running on port 5173 on the machine.");
+    expect(loopbackProblemWords("nothing", 5173)).toBe(
+      "Nothing is running on port 5173 on the machine.",
+    );
     expect(loopbackProblemWords("tunnel_off", 3000)).toContain("Remote access settings");
   });
 

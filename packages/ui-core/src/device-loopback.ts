@@ -47,11 +47,11 @@ const validPort = (port: number) => Number.isInteger(port) && port >= 1 && port 
 /** The ports to listen on, ascending: the pages' own first, then the machine's, minus busy ones. */
 export function listenPorts(input: ListenInput): number[] {
   const chosen = new Set<number>();
-  for (const port of [...input.pagePorts, ...[...input.machinePorts].sort((a, b) => a - b)]) {
+  for (const port of [...input.pagePorts, ...input.machinePorts.toSorted((a, b) => a - b)]) {
     if (chosen.size >= maxListenedPorts) break;
     if (validPort(port) && !input.busy.has(port)) chosen.add(port);
   }
-  return [...chosen].sort((a, b) => a - b);
+  return [...chosen].toSorted((a, b) => a - b);
 }
 
 /**

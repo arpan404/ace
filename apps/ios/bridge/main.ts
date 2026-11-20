@@ -71,6 +71,9 @@ import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
 import { NativeSpade, NativeSpadeAction } from "./spade.ts";
 import { ReadAhead } from "./read-ahead.ts";
 import { ThreadLinger } from "./thread-linger.ts";
+import { DeviceTabControl, DeviceTabs } from "./device-tabs.ts";
+import { nativeLoopbackHost } from "./device-host.ts";
+import { openMachineTunnel } from "./machine-tunnel-open.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -163,6 +166,8 @@ let readAheadAllowed = false;
 let workspace: NativeWorkspace | undefined;
 /** Spade on this machine, through its daemon (`spade.ts`). */
 let spade: NativeSpade | undefined;
+/** Pages the person opens in the phone's own web view, and their way to the machine's localhost. */
+let deviceTabs: DeviceTabs | undefined;
 const pump = new PatchPump();
 const deviceStats = new DeviceStats(pump);
 const trust = new TrustMonitor();
@@ -353,6 +358,14 @@ async function start(json: string): Promise<void> {
     later: (delay, callback) => scheduler.set(delay, callback),
   });
   spade.start();
+  deviceTabs?.close();
+  const tunnelClient = client;
+  deviceTabs = new DeviceTabs({
+    sink: pump,
+    host: nativeLoopbackHost(host, call),
+    tunnel: () => openMachineTunnel(tunnelClient),
+    id: () => host.uuid(),
+  });
   ahead?.stop();
   const reading = client;
   ahead = new ReadAhead({
@@ -559,6 +572,12 @@ function action(json: string): void {
       else error();
       return;
     }
+    const deviceTab = DeviceTabControl.safeParse(raw);
+    if (deviceTab.success) {
+      if (deviceTabs) deviceTabs.handle(deviceTab.data.action);
+      else error();
+      return;
+    }
     const screenControl = NativeScreenControl.safeParse(raw);
     if (screenControl.success) {
       screen?.handle(screenControl.data);
@@ -727,4 +746,6 @@ Object.assign(globalThis, {
   aceAck: (accepted: boolean) => pump.ack(accepted),
   aceSocket: socketEvent,
   aceAccess,
+  aceLoopback: (event: string, connection: string, value: number | Uint8Array) =>
+    deviceTabs?.loopback.event(event, connection, value),
 });
