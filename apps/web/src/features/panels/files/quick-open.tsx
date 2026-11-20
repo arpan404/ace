@@ -14,7 +14,7 @@ import { Kbd } from "@/components/ui/kbd.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { fileIcon } from "@/components/file-icon.ts";
-import { useDeck } from "./file-tree-deck.ts";
+import { useEditor } from "./file-tree-editor.ts";
 import { useRecentFiles } from "./files-state.ts";
 import { emptyQuickOpenRows } from "./quick-open-rows.ts";
 import { useCheckoutSearch, useEditedPaths } from "./use-checkout.ts";
@@ -61,8 +61,8 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
   const search = useCheckoutSearch(props.threadId, query);
   const recent = useRecentFiles(props.threadId);
   const edited = useEditedPaths(props.threadId);
-  const deck = useDeck(props.threadId);
-  const openEditors = deck.openEditors;
+  const editor = useEditor(props.threadId);
+  const openEditors = editor.openEditors;
   const listId = useId();
   const rows = useMemo<Row[]>(
     () =>
@@ -77,7 +77,7 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
     if (!row) return;
     props.onClose();
     // The keyboard goes on into the file, not back to where it was before the palette.
-    deck.open(row.path, { preview: false, line, focus: true });
+    editor.open(row.path, { preview: false, line, focus: true });
   };
   const optionId = (index: number) => `${listId}-${index}`;
   // Enter pressed before the results arrived opens the best one once they do.

@@ -18,7 +18,7 @@ import {
   type TabRef,
   type ViewState,
 } from "@ace/ui-core/editor-workbench";
-import type { DeckBuffers } from "./deck-buffers.ts";
+import type { EditorBuffers } from "./editor-buffers.ts";
 import type { TabDrag } from "./drag.ts";
 
 /** What one group's chrome can do, bound to that group and the layout it was drawn from. */
@@ -40,7 +40,7 @@ export interface GroupActions {
   setView(path: string, view: ViewState): void;
 }
 
-/** What the group's actions need from the Deck around them. */
+/** What the group's actions need from the editor around them. */
 export interface GroupContext {
   layout: EditorLayout;
   change(next: EditorLayout): void;
@@ -51,18 +51,18 @@ export interface GroupContext {
   confirmClose(refs: readonly TabRef[]): void;
 }
 
-/** The layout props the Deck and Open editors share. */
-export interface DeckLayoutProps {
+/** The layout props the editor and Open editors share. */
+export interface EditorLayoutProps {
   layout: EditorLayout;
   onLayoutChange(next: EditorLayout): void;
   /** Ids for groups that splits and drops create. */
   newGroupId: NewGroupId;
-  buffers: DeckBuffers;
+  buffers: EditorBuffers;
   /** Closing would lose unsaved text in these tabs: ask "Save changes?" (W5's dialog). */
   onConfirmClose?: ((refs: readonly TabRef[]) => void) | undefined;
 }
 
-export function groupContext(props: DeckLayoutProps): GroupContext {
+export function groupContext(props: EditorLayoutProps): GroupContext {
   const { layout, buffers } = props;
   return {
     layout,

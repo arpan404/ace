@@ -18,7 +18,7 @@ export function TabMenu(props: {
   group: GroupNode;
   tab: EditorTab;
   actions: GroupActions;
-  /** The host's items, after the Deck's own. */
+  /** The host's items, after the editor's own. */
   extra?: ReactNode;
   children: ReactNode;
 }) {

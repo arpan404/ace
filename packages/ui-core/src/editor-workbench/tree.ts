@@ -23,7 +23,7 @@ import {
 } from "./types.ts";
 
 /*
- * The Deck's split tree (spec 15, 17, 18): groups and row/column splits, focus, and room.
+ * The editor's split tree (spec 15, 17, 18): groups and row/column splits, focus, and room.
  * Every operation returns the same layout when nothing changed.
  */
 
@@ -32,7 +32,7 @@ const minimumShare = 0.05;
 
 export const emptyGroup = (id: string): GroupNode => ({ kind: "group", id, tabs: [], mru: [] });
 
-/** A Deck with one empty group, focused. */
+/** An editor with one empty group, focused. */
 export function emptyLayout(groupId: string): EditorLayout {
   return { root: emptyGroup(groupId), focused: groupId, explorer: defaultExplorer, closed: [] };
 }

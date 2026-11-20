@@ -131,7 +131,7 @@ test("a merge the registry lands shows in the mounted editor, and unmounting kee
   expect(buffer.document()?.text()).toBe("a!\nb\nc\ntheirs\n");
 });
 
-/** A view that follows the buffer to a new document, as the Deck's editor does. */
+/** A view that follows the buffer to a new document, as the editor's editor does. */
 function LiveView({
   ref,
   buffer,

@@ -28,10 +28,10 @@ import { browserTabData, daemonTabId } from "./browser/browser-data.ts";
 import { closeBrowserTab } from "./browser/browser-closers.ts";
 import { BrowserTabBadge, BrowserTabMark } from "./browser/tab-mark.tsx";
 import { BrowserTabMenuItems } from "./browser/tab-menu.tsx";
-import { prepareDeckClose } from "./deck/deck-close.ts";
-import { deckKind as deckKindId } from "./deck/deck-layout.ts";
-import { upgradeWorkspace } from "./deck/deck-migration.ts";
-import { DeckOverlay } from "./deck/deck-overlay.tsx";
+import { prepareEditorClose } from "./editor/editor-close.ts";
+import { editorKind as editorKindId } from "./editor/editor-layout.ts";
+import { upgradeWorkspace } from "./editor/editor-migration.ts";
+import { EditorOverlay } from "./editor/editor-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
 import { logsKind } from "./logs/logs-kind.tsx";
 import { shellKind, terminalKind } from "./terminal/terminal-kinds.tsx";
@@ -61,22 +61,22 @@ export const changesKind = defineTabKind({
 });
 
 /**
- * The thread's Deck (docs/editor/workbench.md, ADR 0193): one tab holding the explorer and the
+ * The thread's editor (docs/editor/workbench.md, ADR 0193): one tab holding the explorer and the
  * editor groups; every checkout file opens there. Its data is the workbench layout. ⌘P opens
  * quick open rather than toggling the tab. Closing it with unsaved files asks first.
  */
-export const deckKind = defineTabKind({
-  kind: deckKindId,
-  label: "Deck",
+export const editorKind = defineTabKind({
+  kind: editorKindId,
+  label: "Editor",
   icon: FilesIcon,
   singleton: true,
   launcher: 30,
-  title: () => "Deck",
+  title: () => "Editor",
   Skeleton: FilesSkeleton,
-  load: () => import("./deck/deck-panel.tsx"),
-  prepareClose: (scope) => prepareDeckClose(scope),
+  load: () => import("./editor/editor-panel.tsx"),
+  prepareClose: (scope) => prepareEditorClose(scope),
   onShortcut: (scope) => quickOpen.set(() => scope),
-  Overlay: DeckOverlay,
+  Overlay: EditorOverlay,
 });
 
 /**
@@ -230,7 +230,7 @@ export const threadKinds: readonly TabKind[] = [
   workKind,
   changesKind,
   terminalKind,
-  deckKind,
+  editorKind,
   filePreviewKind,
   textEditKind,
   browserKind,
@@ -248,5 +248,5 @@ export const threadKinds: readonly TabKind[] = [
 
 export default threadKinds;
 
-/** Stored tabs from before the Deck: per-file panel tabs move into it (spec 55). */
+/** Stored tabs from before the editor: per-file panel tabs move into it (spec 55). */
 export const upgrade = upgradeWorkspace;

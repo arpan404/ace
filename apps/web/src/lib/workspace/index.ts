@@ -39,7 +39,7 @@ export {
   usePreferredSize,
   useScopeWorkspace,
   useOptionalWorkspace,
-  useOpenInDeck,
+  useOpenInEditorPanel,
   useWorkspaceActions,
   useWorkspaceStore,
 } from "./react.tsx";
@@ -47,19 +47,19 @@ export { defaultBottomSize, defaultSize, WorkspaceStore, type ClosedTab } from "
 export { allTabs, bottomOf, isShowing, locateTab, placeOf, type PanelPlace } from "./places.ts";
 
 export {
-  deckKind,
-  deckLayoutOf,
-  deckRoom,
-  findInDeck,
+  editorKind,
+  editorLayoutOf,
+  editorRoom,
+  findInEditor,
   groupIds,
-  openInDeck,
+  openInEditorPanel,
   openInLayout,
-  type DeckOpen,
-  type DeckTarget,
-  type OpenInDeckOptions,
-} from "./deck-tab.ts";
-export { requestReveal, settleReveal, useReveal, type Reveal } from "./deck-reveal.ts";
-export { settleExplorerAsk, useExplorerAsk } from "./deck-explorer-ask.ts";
+  type EditorOpen,
+  type EditorPanelTarget,
+  type OpenInEditorPanelOptions,
+} from "./editor-tab.ts";
+export { requestReveal, settleReveal, useReveal, type Reveal } from "./editor-reveal.ts";
+export { settleExplorerAsk, useExplorerAsk } from "./editor-explorer-ask.ts";
 export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
 export {
   filePreviewTab,

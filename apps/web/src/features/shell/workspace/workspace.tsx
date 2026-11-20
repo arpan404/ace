@@ -195,7 +195,7 @@ export function Workspace(props: {
   const bottom = place === "bottom";
   const phone = place === "replace";
   // Once the kinds load, tabs stored in an older shape take today's (per-file tabs into the
-  // Deck); a no-op after the first time.
+  // Editor); a no-op after the first time.
   useEffect(() => {
     let live = true;
     void definition.load().then(

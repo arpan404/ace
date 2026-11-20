@@ -15,16 +15,16 @@ import { TabContent } from "./tab-content.tsx";
  * lands; a tool already loaded draws at once; a failed load says so in the tab and tries again.
  */
 
-const tab: WorkspaceTab = { key: "deck", kind: "deck", id: "deck", pinned: false };
+const tab: WorkspaceTab = { key: "editor", kind: "editor", id: "editor", pinned: false };
 
 async function workspaceWith(load: () => Promise<TabModule>) {
   const kind = defineTabKind({
-    kind: "deck",
-    label: "Deck",
+    kind: "editor",
+    label: "Editor",
     icon: FileIcon,
     singleton: true,
     load,
-    Skeleton: () => <p>Deck skeleton</p>,
+    Skeleton: () => <p>Editor skeleton</p>,
   });
   const definition = defineWorkspace({
     label: "Thread panel",
@@ -36,11 +36,17 @@ async function workspaceWith(load: () => Promise<TabModule>) {
   return { definition, kind };
 }
 
-const view: TabModule = { default: () => <p>Deck view</p> };
+const view: TabModule = { default: () => <p>Editor view</p> };
 
 function show(definition: Awaited<ReturnType<typeof workspaceWith>>["definition"]) {
   return render(
-    <TabContent scope="t1" definition={definition} tabs={[tab]} shown="deck" onClose={() => {}} />,
+    <TabContent
+      scope="t1"
+      definition={definition}
+      tabs={[tab]}
+      shown="editor"
+      onClose={() => {}}
+    />,
   );
 }
 
@@ -48,17 +54,17 @@ test("a tool whose code is loading shows its skeleton, then its view as soon as 
   const code = Promise.withResolvers<TabModule>();
   const { definition } = await workspaceWith(() => code.promise);
   show(definition);
-  expect(screen.getByText("Deck skeleton")).toBeTruthy();
+  expect(screen.getByText("Editor skeleton")).toBeTruthy();
   await act(async () => code.resolve(view));
-  expect(screen.getByText("Deck view")).toBeTruthy();
-  expect(screen.queryByText("Deck skeleton")).toBeNull();
+  expect(screen.getByText("Editor view")).toBeTruthy();
+  expect(screen.queryByText("Editor skeleton")).toBeNull();
 });
 
 test("a tool whose code already loaded draws its view in the first render", async () => {
   const { definition, kind } = await workspaceWith(async () => view);
   await kind.load();
   show(definition);
-  expect(screen.getByText("Deck view")).toBeTruthy();
+  expect(screen.getByText("Editor view")).toBeTruthy();
 });
 
 test("a tool whose code fails to load says so in its tab, and Try again loads it", async () => {
@@ -69,7 +75,7 @@ test("a tool whose code fails to load says so in its tab, and Try again loads it
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { definition } = await workspaceWith(load);
   show(definition);
-  expect((await screen.findByRole("alert")).textContent).toContain("Deck couldn't load");
+  expect((await screen.findByRole("alert")).textContent).toContain("Editor couldn't load");
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-  expect(await screen.findByText("Deck view")).toBeTruthy();
+  expect(await screen.findByText("Editor view")).toBeTruthy();
 });

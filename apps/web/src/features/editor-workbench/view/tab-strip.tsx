@@ -2,8 +2,8 @@ import { CaretDownIcon, DotsThreeIcon } from "@ace/icons";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
-import { DeckTabView } from "./deck-tab.tsx";
-import type { DeckBuffers } from "./deck-buffers.ts";
+import { EditorTabView } from "./editor-tab.tsx";
+import type { EditorBuffers } from "./editor-buffers.ts";
 import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
 import type { GroupActions } from "./group-actions.ts";
 import { tabLabels, type GroupNode } from "@ace/ui-core/editor-workbench";
@@ -17,7 +17,7 @@ import { TabMenu } from "./tab-menu.tsx";
 export function TabStrip(props: {
   group: GroupNode;
   focused: boolean;
-  buffers: DeckBuffers;
+  buffers: EditorBuffers;
   actions: GroupActions;
   /** Room before the tabs (compact layout's "Show files"). */
   lead?: ReactNode;
@@ -69,7 +69,7 @@ export function TabStrip(props: {
 
   return (
     <div
-      data-part="deck-strip"
+      data-part="editor-strip"
       className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border pr-1 pl-1.5"
     >
       {props.lead}
@@ -107,7 +107,7 @@ export function TabStrip(props: {
               actions={actions}
               extra={props.tabMenuItems?.(tab.path)}
             >
-              <DeckTabView
+              <EditorTabView
                 group={group.id}
                 tab={tab}
                 hint={labels[index]?.folder}

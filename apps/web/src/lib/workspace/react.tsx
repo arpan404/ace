@@ -1,7 +1,11 @@
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { useLayoutServices, useOptionalLayoutServices } from "@/lib/layout.tsx";
 import { workspaceActions, type WorkspaceActions } from "./actions.ts";
-import { openInDeck, type DeckTarget, type OpenInDeckOptions } from "./deck-tab.ts";
+import {
+  openInEditorPanel,
+  type EditorPanelTarget,
+  type OpenInEditorPanelOptions,
+} from "./editor-tab.ts";
 import { emptyWorkspace, type ScopeWorkspace } from "./model.ts";
 import type { PanelPlace } from "./places.ts";
 import { WorkspaceStore } from "./store.ts";
@@ -56,8 +60,8 @@ export function useOptionalWorkspace(scope: string):
       actions: WorkspaceActions;
       read: () => ScopeWorkspace;
       subscribe: (listener: () => void) => () => void;
-      /** The scope's Deck, for opening checkout files (`openInDeck`). */
-      deck: DeckTarget;
+      /** The scope's editor, for opening checkout files (`openInEditorPanel`). */
+      editor: EditorPanelTarget;
     }
   | undefined {
   const services = useOptionalLayoutServices();
@@ -71,18 +75,20 @@ export function useOptionalWorkspace(scope: string):
       actions,
       read,
       subscribe: (listener: () => void) => store.subscribe(scope, listener),
-      deck: { scope, read, actions, preferred: () => store.preferred },
+      editor: { scope, read, actions, preferred: () => store.preferred },
     };
   }, [services, scope, here]);
 }
 
-/** Open checkout files in a scope's Deck from a component on its screen (`openInDeck`). */
-export function useOpenInDeck(scope: string): (path: string, options?: OpenInDeckOptions) => void {
+/** Open checkout files in a scope's editor from a component on its screen (`openInEditorPanel`). */
+export function useOpenInEditorPanel(
+  scope: string,
+): (path: string, options?: OpenInEditorPanelOptions) => void {
   const store = useWorkspaceStore();
   const actions = useWorkspaceActions(scope);
   return useCallback(
     (path, options) =>
-      openInDeck(
+      openInEditorPanel(
         { scope, read: () => store.get(scope), actions, preferred: () => store.preferred },
         path,
         options,

@@ -11,13 +11,13 @@ import {
   type Draft,
   type FilePort,
 } from "../../buffers/index.ts";
-import { useDeckBuffers } from "../deck-buffers.ts";
-import { Deck } from "../deck.tsx";
+import { useEditorBuffers } from "../editor-buffers.ts";
+import { Editor } from "../editor.tsx";
 import { OpenEditors } from "../open-editors.tsx";
 import { sampleCode } from "./sample-code.ts";
 
 /*
- * Dev-only: the Deck on the real buffer registry and editor over an in-memory checkout, for
+ * Dev-only: the editor on the real buffer registry and editor over an in-memory checkout, for
  * screenshots against the mockup. `?scheme=light`, `?state=empty|loading|binary` pick what it
  * shows. Not part of the app's build.
  */
@@ -153,7 +153,7 @@ function Harness() {
     let next = 2;
     return () => `g${++next}`;
   });
-  const buffers = useDeckBuffers(registry, root, layout, providerOf);
+  const buffers = useEditorBuffers(registry, root, layout, providerOf);
   useEffect(() => void stage(), []);
   const shared = { layout, onLayoutChange: setLayout, newGroupId: ids, buffers };
   return (
@@ -162,7 +162,7 @@ function Harness() {
         <OpenEditors {...shared} onSaveAll={() => {}} open={listOpen} onOpenChange={setListOpen} />
       </aside>
       <div className="min-w-0 flex-1">
-        <Deck {...shared} onQuickOpen={() => {}} />
+        <Editor {...shared} onQuickOpen={() => {}} />
       </div>
     </div>
   );

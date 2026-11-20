@@ -6,7 +6,7 @@ import { defaultExplorer, type EditorLayout, type EditorTab, type ExplorerState 
 
 /*
  * Spec 55: the one-time move of a thread's stored Files tab and per-file panel tabs
- * (`files:file:<path>`) into the Deck. A pure transform of stored UI state, run on the client.
+ * (`files:file:<path>`) into the editor. A pure transform of stored UI state, run on the client.
  */
 
 /** The Files kind's key; per-file tabs are `files:file:<path>`. */
@@ -41,9 +41,9 @@ export interface MigratedDraft {
 export interface PanelTabMigration {
   layout: EditorLayout;
   drafts: readonly MigratedDraft[];
-  /** Panel tab keys the Deck replaces (the Files tab and every per-file tab). */
+  /** Panel tab keys the editor replaces (the Files tab and every per-file tab). */
   replaced: readonly string[];
-  /** Where the Deck goes among the panel tabs that remain: the first replaced tab's place. */
+  /** Where the editor goes among the panel tabs that remain: the first replaced tab's place. */
   index: number;
   /** One of the replaced tabs was the active panel tab. */
   wasActive: boolean;
@@ -66,7 +66,7 @@ function explorerFrom(data: OldFileTab | undefined): ExplorerState {
 }
 
 /**
- * Move a thread's stored Files and per-file panel tabs into one Deck group, in their order, with
+ * Move a thread's stored Files and per-file panel tabs into one editor group, in their order, with
  * their preview flags (one preview per group: the showing one, else the last). Unsaved drafts
  * come back for the draft store. Undefined when there is nothing to move.
  */

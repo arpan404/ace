@@ -17,7 +17,7 @@ import {
 } from "react";
 import type { VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { useLayout } from "@/lib/layout.tsx";
-import { onRevealInExplorer } from "./file-tree-deck.ts";
+import { onRevealInExplorer } from "./file-tree-editor.ts";
 
 /*
  * The explorer following the focused editor (workbench spec 33): the open file's folders open

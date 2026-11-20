@@ -39,7 +39,7 @@ export interface DocumentView {
 }
 
 /**
- * A document its caller owns and shares between views (the Deck's buffer registry). Each mounted
+ * A document its caller owns and shares between views (the editor's buffer registry). Each mounted
  * view joins through `attach`: text the owner lands (a reload, a merge) runs through a view's edit
  * path, and every edit, whichever view or owner made it, reaches every other view, so two splits
  * of one file keep their rows, colours and carets on the same text.

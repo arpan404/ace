@@ -1,5 +1,5 @@
 /*
- * The Deck's buffers (docs/editor/workbench.md 46–58): one shared buffer per file, drafts on the
+ * The editor's buffers (docs/editor/workbench.md 46–58): one shared buffer per file, drafts on the
  * device, saving through the versioned write, and the three-way merge when the disk moves under
  * unsaved edits.
  */

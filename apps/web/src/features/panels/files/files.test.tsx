@@ -173,7 +173,7 @@ test("a checkout of hundreds of files lists one folder at a time, and search fin
   const side = await panel();
   await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
   const tools = await within(side).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(tools).getByRole("button", { name: /^Deck/ }));
+  await userEvent.click(within(tools).getByRole("button", { name: /^Editor/ }));
   const tree = await within(side).findByRole("tree", { name: "Checkout files" });
   // The root lists the checkout's top folders only: nothing below is asked for until it opens.
   const pkg = await within(tree).findByRole("treeitem", { name: "pkg" });

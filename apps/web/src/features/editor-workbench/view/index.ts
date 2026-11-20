@@ -1,26 +1,26 @@
 /*
- * The Deck: a thread's editor workbench view (docs/editor/workbench.md, W3). Layout rules come
+ * The editor: a thread's editor workbench view (docs/editor/workbench.md, W3). Layout rules come
  * from W1's model (`@ace/ui-core/editor-workbench`); buffers from W2's registry
- * (`editor-workbench/buffers`), held per open path by `useDeckBuffers`.
+ * (`editor-workbench/buffers`), held per open path by `useEditorBuffers`.
  */
 
-export { Deck, type DeckProps } from "./deck.tsx";
+export { Editor, type EditorProps } from "./editor.tsx";
 export { OpenEditors } from "./open-editors.tsx";
-export type { DeckLayoutProps } from "./group-actions.ts";
+export type { EditorLayoutProps } from "./group-actions.ts";
 export {
-  deckBuffers,
-  useDeckBuffers,
+  editorBuffers,
+  useEditorBuffers,
   useSnapshot,
   type Changer,
-  type DeckBuffers,
-} from "./deck-buffers.ts";
-export { DeckEditor } from "./deck-editor.tsx";
-export { compactBelowPx } from "./deck.tsx";
+  type EditorBuffers,
+} from "./editor-buffers.ts";
+export { BufferEditor } from "./buffer-editor.tsx";
+export { compactBelowPx } from "./editor.tsx";
 export type {
-  DeckCompareProps,
-  DeckEditorProps,
-  DeckViewerProps,
+  EditorCompareProps,
+  BufferEditorProps,
+  EditorViewerProps,
   EditorReveal,
   StatusNotice,
   StatusReport,
-} from "./deck-host.ts";
+} from "./editor-host.ts";

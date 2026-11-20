@@ -1,8 +1,8 @@
 import { EditorStatusLine } from "@/features/editor";
-import type { StatusNotice, StatusReport } from "./deck-host.ts";
+import type { StatusNotice, StatusReport } from "./editor-host.ts";
 
 /**
- * The Deck's one 24px status line, about the focused group's editor only (spec 41): on the
+ * The editor's one 24px status line, about the focused group's editor only (spec 41): on the
  * left what needs a look, on the right the editor's own status line (editor-commands'), drawn
  * once here instead of under every editor.
  */
@@ -15,7 +15,7 @@ export function StatusLine(props: {
   const notice = props.notice ?? (report?.status.readOnly ? { text: "Read only" } : undefined);
   return (
     <div
-      data-part="deck-status"
+      data-part="editor-status"
       className="flex h-6 shrink-0 items-center gap-3 border-t border-border pl-3 text-xs whitespace-nowrap text-subtle-foreground"
     >
       {notice && (

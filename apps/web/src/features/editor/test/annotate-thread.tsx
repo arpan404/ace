@@ -14,7 +14,7 @@ import type { EditorHandle, SharedDocument } from "../types.ts";
 
 /*
  * A thread for annotation tests: its composer's draft (the real store and chip) and one editor
- * per file, each with the annotation layer, as the Deck mounts them. Tests only.
+ * per file, each with the annotation layer, as the editor mounts them. Tests only.
  */
 
 export const threadId = "thread-1";
@@ -28,7 +28,7 @@ export interface File {
   text: string;
   readOnly?: boolean;
   side?: "old" | "new";
-  /** Two editors over one shared document, as two Deck groups showing one file. */
+  /** Two editors over one shared document, as two editor groups showing one file. */
   shared?: SharedDocument | undefined;
   /** Which view of a shared document this is. */
   view?: 1 | 2;

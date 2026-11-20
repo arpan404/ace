@@ -10,7 +10,7 @@ configure({ asyncUtilTimeout: 10_000 });
 const threadId = ThreadId.parse("thread-cold-start");
 const path = "apps/web/src/relay/socket.ts";
 
-/** ⌘P to socket.ts: it opens in the Deck, always editable, with the keyboard in it. */
+/** ⌘P to socket.ts: it opens in the editor, always editable, with the keyboard in it. */
 async function openEditor() {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");

@@ -1,6 +1,6 @@
 import { cleanPath, folderKey, pathParts } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
-import { useDeck } from "./file-tree-deck.ts";
+import { useEditor } from "./file-tree-editor.ts";
 import type { RevealTarget } from "./file-tree-follow.ts";
 import { checkoutError } from "./checkout-source.ts";
 import { useCheckoutSource } from "./use-checkout.ts";
@@ -26,7 +26,7 @@ export interface InlineRename {
 /**
  * Rename in the row (workbench spec 34): the entry's folder stays, the name changes. Once the
  * daemon has it, open editors of the entry (or inside a renamed folder) follow it through the
- * Deck, and the tree reveals and selects the new entry.
+ * Editor, and the tree reveals and selects the new entry.
  */
 export function useInlineRename(
   threadId: string,
@@ -35,7 +35,7 @@ export function useInlineRename(
   const [entry, setEntry] = useState<{ path: string; folder: boolean }>();
   const mutations = useFileMutations(threadId);
   const source = useCheckoutSource();
-  const deck = useDeck(threadId);
+  const editor = useEditor(threadId);
   return {
     key: entry ? (entry.folder ? folderKey(entry.path) : entry.path) : undefined,
     start: (path, folder) => setEntry({ path: cleanPath(path), folder }),
@@ -64,7 +64,7 @@ export function useInlineRename(
         return checkoutError(failure).message;
       }
       setEntry(undefined);
-      deck.renamed({ from: entry.path, to, folder: entry.folder });
+      editor.renamed({ from: entry.path, to, folder: entry.folder });
       reveal({ path: to, folder: entry.folder, focus: true });
       return undefined;
     },

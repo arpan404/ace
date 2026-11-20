@@ -23,7 +23,7 @@ const fileTab = (
 });
 const tool = (kind: string): WorkspaceTab => ({ key: kind, kind, id: kind, pinned: true });
 
-describe("moving per-file panel tabs into the Deck", () => {
+describe("moving per-file panel tabs into the editor", () => {
   it("keeps the tabs' order and preview flags in one group", () => {
     const tabs = [
       tool("summary"),
@@ -48,7 +48,7 @@ describe("moving per-file panel tabs into the Deck", () => {
     });
   });
 
-  it("the file tab that was showing is the Deck's active editor", () => {
+  it("the file tab that was showing is the editor's active editor", () => {
     const tabs = [filesTab(), fileTab("a.ts"), fileTab("b.ts")];
     const migration = migratePanelTabs({ tabs, active: "files:file:b.ts" }, "g1");
     expect(focusedGroup(migration!.layout)).toMatchObject({
@@ -113,7 +113,7 @@ describe("moving per-file panel tabs into the Deck", () => {
     });
   });
 
-  it("a Files tab with no files open becomes an empty Deck", () => {
+  it("a Files tab with no files open becomes an empty editor", () => {
     const migration = migratePanelTabs(
       { tabs: [tool("summary"), filesTab()], active: "files" },
       "g1",

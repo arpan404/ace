@@ -12,7 +12,7 @@ import { fakeClient } from "@/test/fake-client.ts";
 import { workspaceActions } from "@/lib/workspace/actions.ts";
 import { groupsOf } from "@ace/ui-core/editor-workbench";
 import {
-  deckLayoutOf,
+  editorLayoutOf,
   defineTabKind,
   defineWorkspace,
   WorkspaceStore,
@@ -155,7 +155,7 @@ it("a cache emptied while a finished answer is still on screen is swept once tha
   expect(kept.records).toBe(0);
 });
 
-/** A Deck kind, so a file mention has a tab to open in. */
+/** An editor kind, so a file mention has a tab to open in. */
 const workspace = defineWorkspace({
   label: "Thread panel",
   launcher: "new-tab",
@@ -163,8 +163,8 @@ const workspace = defineWorkspace({
   kinds: async () => ({
     default: [
       defineTabKind({
-        kind: "deck",
-        label: "Deck",
+        kind: "editor",
+        label: "Editor",
         singleton: true,
         icon: BrowserIcon,
         load: async () => ({ default: () => null }),
@@ -183,7 +183,7 @@ function LinkedAnswer(props: { client: ClientApi; store: WorkspaceStore; text: s
   const { client, store } = props;
   const scope = useMemo(
     () => ({
-      deck: {
+      editor: {
         scope: "thread",
         actions: workspaceActions(store, "thread"),
         read: () => store.get("thread"),
@@ -255,7 +255,7 @@ it("a file mention whose lookup was cut short when its row left is linked once i
   });
   fireEvent.click(link);
   await waitFor(() =>
-    expect(groupsOf(deckLayoutOf(store.get("thread")))[0]?.tabs.map((tab) => tab.path)).toEqual([
+    expect(groupsOf(editorLayoutOf(store.get("thread")))[0]?.tabs.map((tab) => tab.path)).toEqual([
       path,
     ]),
   );

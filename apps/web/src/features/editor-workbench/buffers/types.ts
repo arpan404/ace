@@ -4,7 +4,7 @@ import type { MigratedDraft } from "@ace/ui-core/editor-workbench";
 import type { Author } from "./attribution.ts";
 
 /*
- * The Deck's buffers (docs/editor/workbench.md 46–58, ADR 0193 §3–5): one buffer per file per
+ * The editor's buffers (docs/editor/workbench.md 46–58, ADR 0193 §3–5): one buffer per file per
  * checkout, shared by every view of it, outside React. What the registry cannot control (disk,
  * device storage, the merge's thread, time) comes in through the ports below.
  */

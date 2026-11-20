@@ -80,7 +80,7 @@ const fileGcTime = 60_000;
 
 /**
  * Read a checkout file ahead of its opening (the pointer resting on its row), so the click shows
- * it at once: source for the Deck's buffer to take, a picture or player into the cache
+ * it at once: source for the editor's buffer to take, a picture or player into the cache
  * `useFileContent` reads (a fresh copy already cached is kept).
  */
 export function usePrefetchFile(threadId: string): (path: string) => void {

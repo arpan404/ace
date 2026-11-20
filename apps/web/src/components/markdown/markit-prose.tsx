@@ -19,7 +19,7 @@ import {
 import { displayName } from "../attachment-format.ts";
 import { LinkedFileOpener } from "../linked-file.tsx";
 import type { LinkClick } from "@/lib/web-links.ts";
-import { openInDeck, pullRequestTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
+import { openInEditorPanel, pullRequestTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
 import { watchImageCaptures } from "./image-refresh.ts";
 import { useFileLinks } from "./use-file-links.ts";
 import { keptAnswersFor, keptAnswersOwnedBy, type ProseKeep } from "./kept-answers.ts";
@@ -242,9 +242,9 @@ function MarkitThreadProse(
     const openFile = (target: string) => {
       const path = localLinkPath(target) ?? target;
       const relative = checkoutLinkPath(path, root, cwd);
-      // A glance: the file shows as the Deck's preview and the chat keeps focus.
+      // A glance: the file shows as the editor's preview and the chat keeps focus.
       if (relative && isCheckoutPath(relative))
-        return workspace && openInDeck(workspace.deck, relative);
+        return workspace && openInEditorPanel(workspace.editor, relative);
       // Outside the checkout: the host serves the file because this message links it.
       if (itemId)
         downloadLinked?.({ threadId, itemId, reference: target, name: displayName(path) });

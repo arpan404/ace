@@ -2,7 +2,7 @@ import { act, configure, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { openExplorer, row, threadId } from "./explorer-test-support.ts";
-import { revealInExplorer } from "./file-tree-deck.ts";
+import { revealInExplorer } from "./file-tree-editor.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 

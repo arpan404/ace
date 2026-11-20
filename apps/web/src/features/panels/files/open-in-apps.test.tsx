@@ -8,7 +8,7 @@ import { folderFixture } from "./folders-test-support.ts";
 configure({ asyncUtilTimeout: 10000 });
 
 /*
- * A Deck tab's "Open in" menu: the daemon machine's editors, terminals and file manager,
+ * An editor tab's "Open in" menu: the daemon machine's editors, terminals and file manager,
  * grouped, opening the file on that machine.
  */
 

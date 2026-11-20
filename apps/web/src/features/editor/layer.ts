@@ -29,7 +29,7 @@ export interface EditorLayerView {
   version: number;
   /**
    * The document this view shows and its edit count now: two views of one shared document (a
-   * file in two Deck groups) report the same one, so a layer maps its ranges once per edit.
+   * file in two editor groups) report the same one, so a layer maps its ranges once per edit.
    */
   revision(): { document: object; version: number } | undefined;
   /** The element the rows are positioned in, for anchoring a popup to a point in the text. */

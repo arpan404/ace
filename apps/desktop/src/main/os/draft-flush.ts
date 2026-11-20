@@ -12,7 +12,7 @@ export interface DraftFlushPorts {
 }
 
 /**
- * The quit's check that keeps the Deck's drafts (docs/editor/workbench.md 50, hot exit): the
+ * The quit's check that keeps the editor's drafts (docs/editor/workbench.md 50, hot exit): the
  * window is asked to write every pending draft, and the quit waits until it says whether they
  * are kept, or until the bound. Quitting asks the person only when the window could not keep
  * them (storage full or unavailable); the window asks, so the quit stops.

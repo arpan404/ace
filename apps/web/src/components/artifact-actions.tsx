@@ -2,14 +2,14 @@ import { useClient } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import { DownloadSimpleIcon, ArrowSquareOutIcon } from "@ace/icons";
 import { useState } from "react";
-import { useOpenInDeck } from "@/lib/workspace/index.ts";
+import { useOpenInEditorPanel } from "@/lib/workspace/index.ts";
 import { DownloadError, saveDownload } from "@/lib/save-download.ts";
 import { IconButton } from "./ui/icon-button.tsx";
 import { useToast } from "./ui/toast.tsx";
 
 export function ArtifactActions(props: { threadId: string; path: string }) {
   const client = useClient();
-  const openInDeck = useOpenInDeck(props.threadId);
+  const openInEditorPanel = useOpenInEditorPanel(props.threadId);
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const download = async () => {
@@ -44,7 +44,7 @@ export function ArtifactActions(props: { threadId: string; path: string }) {
         label="Open saved file"
         className="size-7"
         // A deliberate open: the tab stays (an open one comes forward) and takes the keyboard.
-        onClick={() => openInDeck(props.path, { keep: true, focus: true })}
+        onClick={() => openInEditorPanel(props.path, { keep: true, focus: true })}
       />
       <IconButton
         icon={DownloadSimpleIcon}

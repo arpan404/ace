@@ -2,7 +2,7 @@ import { useThreadMeta } from "@ace/client-react";
 import { lazy, Suspense, useState } from "react";
 import { loadCreateFile } from "@/features/panels/index.ts";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { useOpenInDeck } from "@/lib/workspace/index.ts";
+import { useOpenInEditorPanel } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { useCheckoutMove } from "./checkout-move.tsx";
 import { useGitFlow } from "./use-git-flow.tsx";
@@ -42,7 +42,7 @@ export function WorkCard(props: { threadId: string; onClose(): void }) {
 function WorkGroups(props: { thread: ThreadRef; onClose(): void }) {
   const git = useGitFlow(props.thread);
   const checkout = useCheckoutMove(props.thread);
-  const openInDeck = useOpenInDeck(props.thread.id);
+  const openInEditorPanel = useOpenInEditorPanel(props.thread.id);
   const [addingScript, setAddingScript] = useState(false);
   // A chat's folder is not a repository (ADR 0099): no branch, no pull request.
   const chat = useIsChat()(props.thread.workspaceId);
@@ -65,7 +65,7 @@ function WorkGroups(props: { thread: ThreadRef; onClose(): void }) {
           <CreateFile
             threadId={props.thread.id}
             onClose={() => setAddingScript(false)}
-            onCreated={(path) => openInDeck(path, { keep: true, focus: true })}
+            onCreated={(path) => openInEditorPanel(path, { keep: true, focus: true })}
           />
         </Suspense>
       )}

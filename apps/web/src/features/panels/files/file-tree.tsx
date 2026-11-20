@@ -73,7 +73,7 @@ export function FileTree(props: {
   /** Shown under the tree: an upload in progress or what stopped it. */
   footer?: ReactNode;
   /**
-   * The explorer's first section, above the filter: the Deck's Open editors (workbench spec 29),
+   * The explorer's first section, above the filter: the editor's Open editors (workbench spec 29),
    * which draws and folds itself.
    */
   openEditors?: ReactNode;

@@ -23,8 +23,8 @@ export async function openExplorer() {
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   const tools = await within(panel).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(tools).getByRole("button", { name: /^Deck/ }));
-  await within(panel).findByRole("tab", { name: "Deck", selected: true });
+  await userEvent.click(within(tools).getByRole("button", { name: /^Editor/ }));
+  await within(panel).findByRole("tab", { name: "Editor", selected: true });
   const tree = await within(panel).findByRole("tree", { name: "Checkout files" });
   await within(tree).findByRole("treeitem", { name: "README.md" });
   return { app, panel, tree, folders };

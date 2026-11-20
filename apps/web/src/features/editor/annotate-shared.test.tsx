@@ -13,7 +13,7 @@ import {
 import { markers, openThread, select } from "./test/annotate-thread.tsx";
 
 /*
- * One file in two Deck groups: two editors over the file's one buffer (W2). An annotation's range
+ * One file in two editor groups: two editors over the file's one buffer (W2). An annotation's range
  * is mapped once per edit to the document, whichever view typed, so its marker stays on its code.
  */
 

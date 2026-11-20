@@ -1,11 +1,11 @@
 import { CaretDownIcon, CaretRightIcon } from "@ace/icons";
 import { useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useAgentMark, useSnapshot, type DeckBuffers } from "./deck-buffers.ts";
+import { useAgentMark, useSnapshot, type EditorBuffers } from "./editor-buffers.ts";
 import {
   bindGroupActions,
   groupContext,
-  type DeckLayoutProps,
+  type EditorLayoutProps,
   type GroupActions,
 } from "./group-actions.ts";
 import { groupsOf, type EditorTab, type GroupNode } from "@ace/ui-core/editor-workbench";
@@ -18,7 +18,7 @@ import { slotShows, TabSlot } from "./tab-slot.tsx";
  * shows only while something is unsaved. Folding is the caller's to remember per device.
  */
 export function OpenEditors(
-  props: DeckLayoutProps & {
+  props: EditorLayoutProps & {
     onSaveAll(paths: readonly string[]): void;
     open: boolean;
     onOpenChange(open: boolean): void;
@@ -85,7 +85,7 @@ function OpenEditorRow(props: {
   group: GroupNode;
   tab: EditorTab;
   current: boolean;
-  buffers: DeckBuffers;
+  buffers: EditorBuffers;
   actions: GroupActions;
 }) {
   const { tab, actions } = props;
@@ -130,7 +130,7 @@ function OpenEditorRow(props: {
 }
 
 /** The unsaved open paths, as a stable string so the list re-renders only when it changes. */
-function useUnsaved(buffers: DeckBuffers, paths: readonly string[]): string[] {
+function useUnsaved(buffers: EditorBuffers, paths: readonly string[]): string[] {
   const key = useSyncExternalStore(buffers.subscribe, () =>
     paths.filter((path) => buffers.snapshot(path)?.dirty).join("\n"),
   );

@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { noticeClash, type DeckBuffers } from "./deck-buffers.ts";
+import { noticeClash, type EditorBuffers } from "./editor-buffers.ts";
 import type { BufferSnapshot } from "../buffers/index.ts";
 
 /**
@@ -11,7 +11,7 @@ import type { BufferSnapshot } from "../buffers/index.ts";
  */
 export function AgentNotice(props: {
   snapshot: BufferSnapshot | undefined;
-  buffers: DeckBuffers;
+  buffers: EditorBuffers;
   comparing: boolean;
   onMerge(): void;
   /** Unset: nothing to compare with. */
@@ -26,7 +26,7 @@ export function AgentNotice(props: {
   return (
     <div
       role="status"
-      data-part="deck-notice"
+      data-part="editor-notice"
       className="flex h-9 shrink-0 items-center gap-2 border-y border-border pr-2.5 pl-3.5 text-ui whitespace-nowrap text-foreground"
     >
       {changer?.provider && <ProviderIcon provider={changer.provider} size={14} decorative />}

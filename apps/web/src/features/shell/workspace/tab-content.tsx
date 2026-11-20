@@ -74,7 +74,7 @@ export function TabContent(props: {
  * A tab's view. Its code loaded, it draws at once; still loading, the kind's skeleton shows as a
  * plain element, not a Suspense fallback, and the view replaces it the moment the chunk lands.
  * React holds back revealing what a fallback stood in for until 300 ms after the fallback
- * showed, which a reload of an open tool (the Deck's editors) would otherwise wait out.
+ * showed, which a reload of an open tool (the editor's editors) would otherwise wait out.
  */
 function KindView(props: { kind: TabKind; scope: string; tab: WorkspaceTab }) {
   const { kind } = props;

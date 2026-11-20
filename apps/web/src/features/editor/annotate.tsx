@@ -35,7 +35,7 @@ const randomId = () => crypto.randomUUID();
 
 /**
  * The last edit each document's annotations were mapped through. Views of one shared document
- * (a file open in two Deck groups) all carry the layer; the edit moves the ranges once.
+ * (a file open in two editor groups) all carry the layer; the edit moves the ranges once.
  */
 const mappedThrough = new WeakMap<object, number>();
 

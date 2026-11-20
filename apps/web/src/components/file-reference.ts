@@ -8,13 +8,18 @@ import {
   type FileReference,
   type FileResolution,
 } from "@ace/ui-core/file-references";
-import { filePreviewTab, findInDeck, openInDeck, type DeckTarget } from "@/lib/workspace/index.ts";
+import {
+  filePreviewTab,
+  findInEditor,
+  openInEditorPanel,
+  type EditorPanelTarget,
+} from "@/lib/workspace/index.ts";
 
 /*
  * A file an answer mentions (`loader.ts`, `src/app/x.tsx:42`), linked once the thread's checkout
  * confirms it. Resolution asks ace-files' path index once per path per thread, and only for
- * settled text. A unique match opens in the thread's Deck at its line, as a glance; several
- * matches open the Deck's explorer filtered to the name. An absolute or home path (`~/Downloads/a.pdf`) the
+ * settled text. A unique match opens in the thread's editor at its line, as a glance; several
+ * matches open the editor's explorer filtered to the name. An absolute or home path (`~/Downloads/a.pdf`) the
  * checkout doesn't hold (outside the project, or ignored inside it) opens beside the thread as a file the answer names, which
  * the daemon serves because the answer names it. Anything else stays plain text or code.
  */
@@ -143,19 +148,19 @@ async function checkoutFile(
 }
 
 /**
- * Follow a resolved mention: the file in the thread's Deck at its line, as a glance (the chat
+ * Follow a resolved mention: the file in the thread's editor at its line, as a glance (the chat
  * keeps focus) unless `focus` (a keyboard open) moves the keyboard into the editor; for a name
- * several files share, the Deck's explorer filtered to it; a file outside the checkout beside
+ * several files share, the editor's explorer filtered to it; a file outside the checkout beside
  * the thread.
  */
 export function openFileMention(
-  deck: DeckTarget,
+  editor: EditorPanelTarget,
   reference: FileReference,
   resolution: Exclude<MentionResolution, { kind: "none" }>,
   options: { focus?: boolean | undefined } = {},
 ): void {
   if (resolution.kind === "outside")
-    return deck.actions.open(
+    return editor.actions.open(
       filePreviewTab({
         name: resolution.path.split(/[\\/]/).at(-1) || resolution.path,
         source: {
@@ -167,8 +172,11 @@ export function openFileMention(
       }),
     );
   if (resolution.kind === "file")
-    return openInDeck(deck, resolution.path, { line: reference.line, focus: options.focus });
-  findInDeck(deck, reference.path.split(/[\\/]/).at(-1) ?? reference.path);
+    return openInEditorPanel(editor, resolution.path, {
+      line: reference.line,
+      focus: options.focus,
+    });
+  findInEditor(editor, reference.path.split(/[\\/]/).at(-1) ?? reference.path);
 }
 
 /** What a resolved mention's link says it does. */

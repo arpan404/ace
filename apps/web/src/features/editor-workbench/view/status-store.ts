@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import type { StatusReport } from "./deck-host.ts";
+import type { StatusReport } from "./editor-host.ts";
 
 /**
  * Each group's latest status report, outside React state: a caret move tells the store, and only

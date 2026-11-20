@@ -3,7 +3,7 @@ import type { CheckoutSource, FileContent } from "./checkout-source.ts";
 
 /*
  * Reads of checkout files started before they open (the pointer resting on an explorer row),
- * taken once by the open that follows, so the Deck shows the file without waiting on a second
+ * taken once by the open that follows, so the editor shows the file without waiting on a second
  * read. A read nobody takes is dropped after a short while: an older copy than that would be
  * read again anyway.
  */

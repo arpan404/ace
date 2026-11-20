@@ -275,7 +275,7 @@ type OpenHit = Parameters<typeof ContentSearch>[0]["onOpen"];
 /**
  * F4 and ⇧F4 open the next and previous hit as a glance, while focus is in the panel the search
  * sits in (or nowhere, as after the list mounted again). Several mounted views of one search
- * step once: the first to see the key takes it. The Deck binds these in its keymap scope.
+ * step once: the first to see the key takes it. The editor binds these in its keymap scope.
  */
 function useStepKeys(
   store: ContentSearchStore,

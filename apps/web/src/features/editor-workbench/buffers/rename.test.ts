@@ -55,7 +55,7 @@ describe("renaming a file with unsaved edits", () => {
 
     moveOnDisk(disk, "a.ts", "b.ts");
     registry.rename(root, (path) => (path === "a.ts" ? "b.ts" : undefined));
-    // The Deck's tabs follow: the old path's hold goes, the new path's comes.
+    // The editor's tabs follow: the old path's hold goes, the new path's comes.
     old.release();
     const moved = registry.open({ root, path: "b.ts" });
     moved.setVisible(true);

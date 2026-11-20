@@ -1,5 +1,5 @@
 /*
- * The Deck's stored shape (docs/editor/workbench.md, "Decisions"): a split tree of editor groups,
+ * The editor's stored shape (docs/editor/workbench.md, "Decisions"): a split tree of editor groups,
  * the focused group, the explorer's state and the closed-editor stack. Local UI state of one
  * thread, kept with the workspace store on the device.
  *
@@ -99,7 +99,7 @@ export type NewGroupId = () => string;
 export type Side = "left" | "right" | "up" | "down";
 
 export const limits = {
-  /** Groups in one Deck (spec 15). */
+  /** Groups in one editor (spec 15). */
   groups: 9,
   /** Closed editors kept for Reopen closed (spec 25). */
   closed: 20,

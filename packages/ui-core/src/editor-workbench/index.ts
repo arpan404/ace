@@ -1,5 +1,5 @@
 /*
- * The Deck's pure model: groups in a split tree, tab rules, drop targets, the stored layout and
+ * The editor's pure model: groups in a split tree, tab rules, drop targets, the stored layout and
  * its migration from per-file panel tabs. No I/O; ids are injected. Spec: docs/editor/workbench.md.
  */
 export * from "./types.ts";
