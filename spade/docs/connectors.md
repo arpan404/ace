@@ -36,6 +36,14 @@ list at `GET /v1/oauth/apps`. The app offers Sign in only for `sign_in`; a `late
 "Coming soon." Its marks are bundled in the app (`@ace/ui-core/app-icons`). Any other server is
 added by URL. Which apps are listed and why is in [connector-apps.md](connector-apps.md).
 
+`config/connector-setups.json` ([ADR 0197](../../docs/adr/0197-connector-setup-steps.md)) ships
+setup steps for catalogue entries that take the person's own client ID (Asana, Box, Canva, HubSpot):
+where to create the app (`where`, `where_label`), the `steps` in order with one marked
+`redirect: true`, `values`, `scopes`, `source` and `notes`. `GET /v1/connectors` attaches `setup` to
+each entry that has one, filling in `setup.redirect` with the connector's own loopback callback
+(`http://127.0.0.1:<Spade's port>/v1/connectors/callback/<id>`), and the connect dialog shows the
+steps, console link, copyable redirect and scopes above the client ID and secret fields.
+
 ## Signing in
 
 Spade follows the MCP authorization spec (2026-07-28):
