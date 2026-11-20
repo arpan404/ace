@@ -39,6 +39,16 @@ import XCTest
         XCTAssertTrue(offline.exists, "an offline machine stays listed")
         XCTAssertFalse(offline.isEnabled, "and can't be chosen")
         screenshot("2-machines")
+        // One that doesn't take this machine's projects says why, with Allow projects where it can.
+        let desk = app.buttons["transfer.machine.ios-spike-desk"]
+        XCTAssertTrue(desk.isEnabled, "a machine that doesn't take projects can be chosen")
+        desk.tap()
+        let why = app.staticTexts["transfer.allow.words"].firstMatch
+        XCTAssertTrue(why.waitForExistence(timeout: 10))
+        XCTAssertTrue(why.label.hasPrefix("Desk doesn't take projects from"), why.label)
+        screenshot("2b-allow")
+        app.buttons["transfer.back"].tap()
+        XCTAssertTrue(machine.waitForExistence(timeout: 10))
         machine.tap()
 
         let send = app.buttons["transfer.send"]
