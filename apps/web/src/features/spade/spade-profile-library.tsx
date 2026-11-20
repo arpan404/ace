@@ -1,3 +1,4 @@
+import { spadeSkillsOf } from "@ace/ui-core/spade-chat";
 import { formatAge } from "@ace/ui-core/time";
 import { FileIcon, FolderIcon, StackIcon } from "@ace/icons";
 import { useQuery } from "@tanstack/react-query";
@@ -17,7 +18,7 @@ import { LibraryResults, LibrarySearchField } from "./spade-library-search.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { SpadeNotes } from "./spade-notes.tsx";
 import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
-import { readSkillStore, type SpadeStoredSkill } from "./spade-skills-api.ts";
+import { readSkillStore } from "./spade-skills-api.ts";
 import { readFolder } from "./spade-workspace-api.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 
@@ -150,14 +151,6 @@ function Files(props: { bot: RosterBot; onOpen(files: FilesAt): void }) {
   );
 }
 
-/** Whether the bot wrote a skill or only uses it. */
-const skillWord = (skill: SpadeStoredSkill, bot: string) =>
-  skill.writtenBy.includes(bot)
-    ? "Wrote it"
-    : skill.origin === "plugin"
-      ? "From a plugin"
-      : "Uses it";
-
 /** The skills it wrote or loaded, from Spade's skill store; none: one line. */
 function Skills(props: { bot: RosterBot }) {
   const { bot } = props;
@@ -167,10 +160,7 @@ function Skills(props: { bot: RosterBot }) {
     queryKey: ["spade", "skill-store", machine.key],
     queryFn: ({ signal }) => readSkillStore(client, { signal }),
   });
-  const mine =
-    store.data?.skills.filter(
-      (skill) => skill.usedBy.includes(bot.id) || skill.writtenBy.includes(bot.id),
-    ) ?? [];
+  const mine = store.data ? spadeSkillsOf(store.data, bot.id) : [];
   return (
     <ProfileSection label="Skills" bare={store.isSuccess && mine.length === 0}>
       {store.isPending ? (
@@ -180,7 +170,7 @@ function Skills(props: { bot: RosterBot }) {
       ) : mine.length === 0 ? (
         <ProfileNone>{`${bot.name} hasn't used a skill yet.`}</ProfileNone>
       ) : (
-        mine.map((skill) => (
+        mine.map(({ skill, word }) => (
           <div
             key={skill.id}
             data-setting-slot=""
@@ -189,9 +179,7 @@ function Skills(props: { bot: RosterBot }) {
           >
             <Icon icon={StackIcon} size={16} className="shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">{skill.name}</span>
-            <span className="shrink-0 text-xs text-subtle-foreground">
-              {skillWord(skill, bot.id)}
-            </span>
+            <span className="shrink-0 text-xs text-subtle-foreground">{word}</span>
           </div>
         ))
       )}

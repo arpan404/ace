@@ -79,6 +79,9 @@ it("a client that stops reading holds the daemon to one window, then gets every 
 it("without credit, a client that falls a megabyte behind is cut off", async () => {
   const { server, client } = await connect({ flowControl: false });
   const sent = stream(server, 96);
-  await expect(sent.all).rejects.toThrow();
-  await expect(client.receive()).rejects.toThrow();
+  // Whether the daemon's own sends fail first is the kernel's business: on Linux loopback the
+  // socket buffers take all 5.6 MiB before the cut-off reaches it. Its end closes either way.
+  await sent.all.catch(() => {});
+  await expect(server.closed).resolves.toBeInstanceOf(Error);
+  await expect(client.receive()).rejects.toThrow("Relay frame queue limit");
 });

@@ -595,11 +595,11 @@ export async function scrcpyCapture(options: {
       held.apply(input);
     },
     clipboard: {
-      async read(guard) {
+      async read(guard, owner) {
         const current = link;
         if (!current || stopped) throw unavailable();
         guard();
-        return current.clipboard.read();
+        return current.clipboard.read(owner);
       },
       async write(text, guard) {
         const current = link;

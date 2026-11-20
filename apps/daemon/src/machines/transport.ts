@@ -63,6 +63,12 @@ export interface MachineTransportOptions {
   maxBytes?: number;
   /** Open connections to reuse; without them the call opens its own and closes it after. */
   connections?: MachineConnections;
+  /**
+   * Whether the pairing the call goes as is still saved, asked once the connection is up and
+   * immediately before its first byte, on any address: a kept-open connection's lease asks its
+   * own as well. Without it, only a lease's own check applies.
+   */
+  current?: () => boolean;
 }
 export type MachineTransport = (
   profile: RemoteProfile,
@@ -134,12 +140,13 @@ export const machineRequest: MachineTransport = async (profile, body, options) =
 };
 
 /**
- * Whether the lease's pairing is still saved, asked inside a socket callback: nothing thrown may
- * escape it, so a check that fails for any reason counts as not current and nothing is sent.
+ * Whether the call's pairing is still saved, by the lease's check and the caller's, asked inside
+ * a socket callback: nothing thrown may escape it, so a check that fails for any reason counts as
+ * not current and nothing is sent.
  */
-function stillCurrent(lease: ConnectionLease): boolean {
+function stillCurrent(lease: ConnectionLease, options: MachineTransportOptions): boolean {
   try {
-    return lease.current ? lease.current() : true;
+    return (lease.current ? lease.current() : true) && (options.current ? options.current() : true);
   } catch {
     return false;
   }
@@ -267,10 +274,14 @@ function pinnedOnce(
     let received = 0;
     const count = (chunk: Buffer) => void (received += chunk.length);
     request.on("socket", (socket) => {
-      // Nothing is written before the request has its socket. Then, immediately before the
-      // first byte, the pairing must still be the one saved: one removed while the request
-      // waited (unlinked, re-paired, `ace remote remove`) gets nothing sent.
-      if (!stillCurrent(lease)) {
+      // Nothing is written, headers included, before the request has its socket, and a new
+      // socket is handed over only once its TLS handshake is done and pinned (`pinnedAgent`).
+      // Then, immediately before the first byte, the pairing must still be the one saved, by the
+      // lease's check and the caller's, on whichever address: one removed while the request
+      // waited or connected (unlinked, re-paired, `ace remote remove`) gets nothing sent. What
+      // a send already handed to the socket before a removal can't be recalled; that is the only
+      // window left.
+      if (!stillCurrent(lease, options)) {
         request.destroy();
         finish(new MachineUnpaired("offline", undefined, "Machine call never sent: unpaired"));
         return;

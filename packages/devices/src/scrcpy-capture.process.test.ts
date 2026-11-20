@@ -89,7 +89,7 @@ it("Unicode text is pasted and the action finishes only when the device acknowle
 it("the emulator clipboard is read from the device's reply and set without pasting", async () => {
   const { capture, device, frames } = await fixture();
   await until(() => (frames.length ? true : undefined));
-  const reading = capture.clipboard?.read(() => {});
+  const reading = capture.clipboard?.read(() => {}, "agent");
   // A read asks without pressing copy first, then takes the device's clipboard message.
   await until(() => (device.control().length >= 2 ? true : undefined));
   expect(device.control()).toEqual(Buffer.from([8, 0]));
@@ -124,7 +124,7 @@ it("the emulator clipboard is read from the device's reply and set without pasti
 it("an empty emulator clipboard, which the device never answers, reads as empty", async () => {
   const { capture, frames } = await fixture();
   await until(() => (frames.length ? true : undefined));
-  expect(await capture.clipboard?.read(() => {})).toBe("");
+  expect(await capture.clipboard?.read(() => {}, "agent")).toBe("");
 });
 
 it("a viewer's keyframe request resets the device encoder once the stream is running", async () => {

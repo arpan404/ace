@@ -5,6 +5,7 @@ import { useState } from "react";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { ThreadActionItems } from "@/features/organize/index.ts";
 import { PrLinksDialog, useLatestForkPoint, useOpenFork } from "@/features/thread/index.ts";
+import { useIsChatThread } from "@/lib/projects.ts";
 
 /** What the row menus open beyond themselves: the pull request links, and a fork's own thread. */
 export function useRowDialogs(entry: ThreadListEntry) {
@@ -18,7 +19,8 @@ export function useRowDialogs(entry: ThreadListEntry) {
 
 /**
  * A row's menu items, the same in its right-click menu and its ⋯ menu. Mounted only while the
- * menu is open: that is when the fork point is read.
+ * menu is open: that is when the fork point is read. A chat has no repository, so it offers no
+ * pull request to link; Unlink still shows if one was linked before it became a chat.
  */
 export function RowItems(props: {
   entry: ThreadListEntry;
@@ -28,6 +30,7 @@ export function RowItems(props: {
   onFork(point: ForkPoint): void;
 }) {
   const point = useLatestForkPoint(props.entry.id);
+  const chat = useIsChatThread()(props.entry);
   return (
     <ThreadActionItems
       entry={props.entry}
@@ -36,12 +39,14 @@ export function RowItems(props: {
       fork={{ point, onFork: props.onFork }}
       extra={
         <>
-          <MenuItem
-            icon={<GitPullRequestIcon aria-hidden size={16} />}
-            onClick={() => props.onPr("link")}
-          >
-            Link pull request…
-          </MenuItem>
+          {!chat && (
+            <MenuItem
+              icon={<GitPullRequestIcon aria-hidden size={16} />}
+              onClick={() => props.onPr("link")}
+            >
+              Link pull request…
+            </MenuItem>
+          )}
           {(props.entry.details?.linkedPrs?.length || props.entry.details?.linkedPr) && (
             <MenuItem
               icon={<LinkBreakIcon aria-hidden size={16} />}
