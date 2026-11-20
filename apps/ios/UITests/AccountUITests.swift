@@ -52,7 +52,9 @@ import XCTest
         delete.tap()
         let confirm = app.buttons["account.delete.confirm"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        confirm.tap()
+        // A tap at the button's own point: the fixture's notification banners otherwise make
+        // XCTest stop to handle them first, and the question is gone by the time it taps.
+        confirm.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let deleted = [["kind": "delete"]]
         let afterDelete = try await accountRequests(settling: deleted)
         let said = app.alerts["Account deleted"].waitForExistence(timeout: 10)
