@@ -58,6 +58,7 @@ export function GroupView(props: {
         actions={actions}
         lead={props.stripLead}
         groupMenu={props.groupMenu}
+        tabMenuItems={host.tabMenuItems}
       />
       <Breadcrumbs path={path} />
       {path !== undefined && (

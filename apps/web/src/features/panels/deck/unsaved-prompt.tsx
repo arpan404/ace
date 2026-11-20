@@ -23,7 +23,7 @@ export type ReplaceAnswer = "merge" | "replace" | "cancel";
 /** Every question can be answered Cancel; each kind takes its own other answers. */
 type Question = (
   | { kind: "unsaved"; paths: readonly string[] }
-  | { kind: "replace"; path: string; who: string }
+  | { kind: "replace"; path: string; who: string | undefined }
 ) & { answer(value: string): void };
 
 let current: Question | undefined;
@@ -55,8 +55,8 @@ export function askUnsaved(paths: readonly string[]): Promise<UnsavedAnswer> {
   );
 }
 
-/** A save met `who`'s change on disk: merge, write over it, or keep editing. */
-export function askReplace(path: string, who: string): Promise<ReplaceAnswer> {
+/** A save met `who`'s change on disk (nobody named: "the disk"): merge, write over it, or not. */
+export function askReplace(path: string, who: string | undefined): Promise<ReplaceAnswer> {
   return new Promise((resolve) =>
     ask({ kind: "replace", path, who, answer: pick(["cancel", "merge", "replace"], resolve) }),
   );
@@ -66,6 +66,14 @@ const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
 };
+
+/** The person answered the question showing (outside React: it reads and clears the queue). */
+function respond(value: string): void {
+  const asked = current;
+  current = undefined;
+  emit();
+  asked?.answer(value);
+}
 
 export function UnsavedPrompt() {
   const question = useSyncExternalStore(subscribe, () => current);
@@ -77,12 +85,6 @@ export function UnsavedPrompt() {
   useEffect(() => () => current?.answer("cancel"), []);
   const primary = useRef<HTMLButtonElement>(null);
   const card = question ?? shown;
-  const respond = (value: string) => {
-    const asked = current;
-    current = undefined;
-    emit();
-    asked?.answer(value);
-  };
   return (
     <Dialog open={question !== undefined} onOpenChange={(open) => !open && respond("cancel")}>
       <DialogContent initialFocus={primary} showCloseButton={false}>
@@ -124,7 +126,11 @@ export function UnsavedPrompt() {
         {card?.kind === "replace" && (
           <>
             <DialogHeader>
-              <DialogTitle>{`Replace ${card.who}'s changes in ${fileName(card.path)}?`}</DialogTitle>
+              <DialogTitle>
+                {card.who
+                  ? `Replace ${card.who}'s changes in ${fileName(card.path)}?`
+                  : `${fileName(card.path)} changed on disk. Replace it?`}
+              </DialogTitle>
               <DialogDescription>
                 Merge keeps both. Replace writes your version over theirs.
               </DialogDescription>

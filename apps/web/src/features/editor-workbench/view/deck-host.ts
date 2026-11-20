@@ -1,3 +1,4 @@
+import type { LineMark } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import type { EditorStatus, EditorStatusActions } from "@/features/editor";
 import type { TextBuffer } from "../buffers/index.ts";
@@ -44,6 +45,11 @@ export interface DeckEditorProps {
   /** Where to look once shown; `onRevealed` hears its token when the editor has done so. */
   reveal?: EditorReveal | undefined;
   onRevealed?: ((token: number) => void) | undefined;
+  /**
+   * The file's lines changed since the last commit (spec 44), drawn while the buffer has no
+   * unsaved edits; while it has, the gutter marks the person's own lines against the saved text.
+   */
+  marks?: ReadonlyMap<number, LineMark> | undefined;
 }
 
 /** Everything a group needs from outside the layout. */
@@ -57,4 +63,6 @@ export interface DeckHost {
   /** Compare opens a diff of disk against the buffer in a new tab (W5). */
   onCompare(path: string): void;
   onQuickOpen?: (() => void) | undefined;
+  /** The host's own items at the end of a tab's menu: Reveal in Files, Open in ›, the paths. */
+  tabMenuItems?: ((path: string) => ReactNode) | undefined;
 }

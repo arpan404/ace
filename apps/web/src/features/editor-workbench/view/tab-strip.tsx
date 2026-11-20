@@ -23,6 +23,8 @@ export function TabStrip(props: {
   lead?: ReactNode;
   /** Extra items for the ⋯ menu (compact layout lists the other groups). */
   groupMenu?: ReactNode;
+  /** The host's items at the end of each tab's menu. */
+  tabMenuItems?: ((path: string) => ReactNode) | undefined;
 }) {
   const { group, actions } = props;
   const scroller = useRef<HTMLDivElement>(null);
@@ -99,7 +101,12 @@ export function TabStrip(props: {
           <div key={tab.path} className="relative flex shrink-0">
             {drop === index && <DropMark side="before" />}
             {drop === index + 1 && index === group.tabs.length - 1 && <DropMark side="after" />}
-            <TabMenu group={group} tab={tab} actions={actions}>
+            <TabMenu
+              group={group}
+              tab={tab}
+              actions={actions}
+              extra={props.tabMenuItems?.(tab.path)}
+            >
               <DeckTabView
                 group={group.id}
                 tab={tab}

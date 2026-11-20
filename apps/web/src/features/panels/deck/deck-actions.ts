@@ -55,7 +55,7 @@ export async function saveFile(host: DeckActionsHost, path: string): Promise<boo
   if (outcome.kind === "clash") {
     const clash = buffer.snapshot().clash;
     const who = clash ? host.buffers.changer(clash.by)?.name : undefined;
-    const answer = await askReplace(path, who ?? "the disk");
+    const answer = await askReplace(path, who);
     if (answer === "replace") return (await buffer.replace()).kind === "saved";
     if (answer === "merge") await buffer.merge();
     return false;

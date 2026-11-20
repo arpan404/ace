@@ -19,6 +19,7 @@ export function DeckEditor(props: DeckEditorProps) {
   // What the gutter compares against: the last saved or read text, so unsaved lines stay marked
   // when this view remounts (a tab switch) and clear once saved.
   const base = useSyncExternalStore(subscribe, () => buffer.baseText()) ?? "";
+  const dirty = useSyncExternalStore(subscribe, () => buffer.snapshot().dirty);
   // The setters reach whichever editor is mounted when a status-line menu is used.
   const actions = useMemo<EditorStatusActions>(
     () => ({
@@ -74,6 +75,7 @@ export function DeckEditor(props: DeckEditorProps) {
       path={props.path}
       label={`Source of ${props.path}`}
       statusLine={false}
+      marks={dirty ? undefined : props.marks}
       line={reveal?.line}
       column={reveal?.column}
       onEdit={edited}

@@ -13,6 +13,7 @@ import {
   type ExplorerState,
 } from "@ace/ui-core/editor-workbench";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -43,6 +44,7 @@ import {
 import { contentSearchStore } from "../files/content-search-store.ts";
 import { openInDeck, type OpenInDeckOptions } from "../files/open-file.ts";
 import { useRecentFilesStore } from "../files/files-state.ts";
+import { useChangeMarks } from "../files/use-change-marks.ts";
 import { quickOpen } from "../files/quick-open-store.ts";
 import { changeNotice, nextChange } from "./agent-changes.ts";
 import {
@@ -59,6 +61,7 @@ import {
   type SaveProblem,
 } from "./deck-actions.ts";
 import { DeckExplorer, type ExplorerOpen } from "./deck-explorer.tsx";
+import { DeckTabMenuItems } from "./deck-tab-menu.tsx";
 import { deckKeys, type DeckCommand } from "./deck-keys.ts";
 import { groupIds, openPaths } from "./deck-layout.ts";
 import { draftsOf, withoutDrafts } from "./deck-migration.ts";
@@ -372,6 +375,15 @@ export function DeckPanel(props: TabViewProps) {
           }
           onQuickOpen={() => quickOpen.set(() => threadId)}
           renderEditor={(editor) => <RevealedEditor threadId={threadId} {...editor} />}
+          tabMenuItems={(path) => (
+            <DeckTabMenuItems
+              threadId={threadId}
+              path={path}
+              onReveal={() =>
+                compact ? setOverlay(true) : setExplorer({ open: true, side: "files" })
+              }
+            />
+          )}
           explorerToggle={
             <button
               type="button"
@@ -399,10 +411,13 @@ function emptyOf(layout: EditorLayout): EditorLayout {
 /** The Deck's editor, taking the place an open asked it to reveal (spec 12–13). */
 function RevealedEditor(props: DeckEditorProps & { threadId: string }) {
   const { threadId, ...editor } = props;
+  const { buffer } = editor;
   const reveal = useReveal(threadId, editor.group, editor.path);
-  return (
-    <DeckEditor {...editor} reveal={reveal} onRevealed={(token) => settleReveal(threadId, token)} />
-  );
+  const subscribe = useCallback((changed: () => void) => buffer.subscribe(changed), [buffer]);
+  const version = useSyncExternalStore(subscribe, () => buffer.snapshot().version);
+  const marks = useChangeMarks(threadId, editor.path, version);
+  const onRevealed = useCallback((token: number) => settleReveal(threadId, token), [threadId]);
+  return <DeckEditor {...editor} reveal={reveal} marks={marks} onRevealed={onRevealed} />;
 }
 
 export default DeckPanel;
