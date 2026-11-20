@@ -8,6 +8,11 @@ export const FileVersion = z.string().min(1).max(256);
 const expected = FileVersion.nullable();
 /** The most one `read` returns: big enough for most source files, small enough to share a link. */
 export const FILE_READ_PART = 256 * 1024;
+/**
+ * File requests the daemon runs at once on one connection; one more is refused with BUSY until a
+ * slot frees. Clients pace their reads under it.
+ */
+export const FILE_REQUESTS_PER_CONNECTION = 8;
 /** The most matches one content search reports; a search that finds more ends `truncated`. */
 export const FILE_SEARCH_MAX_MATCHES = 5000;
 const glob = z.string().min(1).max(512);

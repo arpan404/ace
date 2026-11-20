@@ -53,6 +53,8 @@ export interface SpadeRunningBot {
   nextWake: { at: number; what: string } | undefined;
   workers: SpadeRunningWorker[];
   actions: SpadeRunningAction[];
+  /** A development bot (ADR 0200 §9): linked to a package folder on its machine. */
+  development: boolean;
 }
 
 const count = z.number().int().nonnegative().catch(0).default(0);
@@ -122,6 +124,7 @@ const rowShape = z.object({
     .catch([])
     .default([]),
   actions: z.array(z.string()).catch([]).default([]),
+  development: z.boolean().catch(false).default(false),
 });
 
 const isAction = (action: string): action is SpadeRunningAction =>
@@ -161,6 +164,7 @@ export function parseSpadeRunningBot(raw: unknown): SpadeRunningBot | undefined 
     nextWake: row.next_wake ? { at: row.next_wake.at_ms, what: row.next_wake.what } : undefined,
     workers: row.workers.map((worker) => ({ ...worker, name: worker.name || "Worker" })),
     actions: row.actions.filter(isAction),
+    development: row.development,
   };
 }
 

@@ -19,6 +19,7 @@ mod seen;
 mod skills;
 mod spend;
 mod teams;
+mod used;
 mod workers;
 
 pub use agents::{

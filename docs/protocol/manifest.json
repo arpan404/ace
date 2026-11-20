@@ -996,6 +996,34 @@
       "bytes": 579,
       "sha256": "922169330012b41e633758ea99e512766573611236b9c026d87995d23edf50be"
     },
+    "schema/CliBotCall.json": {
+      "bytes": 887,
+      "sha256": "be1293a75d0668af807b6f5464b1cc04a344b0489704ff04c5db3f4668cb3598"
+    },
+    "schema/CliBotCheck.json": {
+      "bytes": 678,
+      "sha256": "14c35e3c22a2acd0d9f8a86aa555a8707f7ad87843dfc958ad7aab27990f5a62"
+    },
+    "schema/CliBotDev.json": {
+      "bytes": 621,
+      "sha256": "74268c800be97a6784509d3d27b407430000b1a9282df24f377eb7388def8a20"
+    },
+    "schema/CliBotInit.json": {
+      "bytes": 636,
+      "sha256": "8e3dcc89ba2cc99bb3fe67e6c3cbe0437330a88e4bfde7a06fd11be512f41a24"
+    },
+    "schema/CliBotScenario.json": {
+      "bytes": 622,
+      "sha256": "434ffe952836a4e969c8a52311e5cfa33230f7f0465256fd409521efed0c9b55"
+    },
+    "schema/CliBotStarter.json": {
+      "bytes": 208,
+      "sha256": "a3bc46cb7e054ddc6f61808d81623e6cd308e85b88a40b99e963d1993d7329e5"
+    },
+    "schema/CliBotTest.json": {
+      "bytes": 608,
+      "sha256": "2d34455ee722892e8f3afad6658a8dea2c63a53cd574d8a90b89ba855d39512f"
+    },
     "schema/CliCleanupReceipt.json": {
       "bytes": 1208,
       "sha256": "8818698ec1923f3d9cfb0127e90609cb6154bb79f3c794d964dd72989b50fba9"
@@ -6649,10 +6677,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1355146,
-      "sha256": "762fc7e951505841e72d6e9933e53dddd39c2eca7f629079275cfe463d7cd341"
+      "bytes": 1358354,
+      "sha256": "9b26cd298c49330de6e83d9ebd394d522dc1ef6a4492e148bf12f9e6e0f0c67c"
     }
   },
-  "input": "df4889f2f61bba05b99b5bd8d59c1b55a5f947132bcf29db74400bffa6ec7fc2",
+  "input": "50f8747ccc5a9b2f4aa9ebc2042d5995bf022fab455e1557f4dcd69c63740633",
   "version": 1
 }

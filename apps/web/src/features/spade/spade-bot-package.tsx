@@ -1,4 +1,4 @@
-import type { SpadePackage } from "@ace/ui-core/spade-chat";
+import { spadeIsDevelopment, type SpadePackage } from "@ace/ui-core/spade-chat";
 import { MarketResult } from "@ace/protocol/marketplace";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -49,6 +49,10 @@ const marketAt = (link: SpadePackage) =>
  * still: "Updates when Flight watcher is done with its turn."
  */
 export function packageSentence(link: SpadePackage, bot: string): string {
+  if (spadeIsDevelopment(link)) {
+    const held = link.held ? ` Its latest save applies when ${bot} is done with its turn.` : "";
+    return `Updated from its package folder on this machine with ace bot dev.${held}`;
+  }
   const from = `${link.name} ${link.version}`;
   if (link.withdrawn) return `Paused: ${from} was withdrawn. ${link.withdrawn}`;
   if (link.updating) return `Updating from ${from} to ${link.updating}.`;
@@ -63,7 +67,8 @@ export function ProfilePackageLine(props: { bot: RosterBot }) {
   const link = bot.package;
   const market = useBetaEnabled("marketplace") === true;
   // Updates come from the Marketplace of the machine the bot runs on.
-  const here = market && bot.machine.primary && link !== undefined;
+  // A development bot is updated from its folder, never through the Marketplace.
+  const here = market && bot.machine.primary && link !== undefined && !spadeIsDevelopment(link);
   const update = useMarketUpdate(bot, here);
   const open = useOpenMarket();
   if (!link) return null;
