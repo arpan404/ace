@@ -2,6 +2,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import {
   buildFileTree,
   checkoutTreeRows,
+  cleanPath,
   folderKey,
   openedFolders,
   pathParts,
@@ -35,6 +36,7 @@ import { FileTreeRowView } from "./file-tree-row.tsx";
 import { FileTreeSearch } from "./file-tree-search.tsx";
 import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
 import { useExplorerFollows, useRevealRows } from "./file-tree-follow.ts";
+import { useInlineRename } from "./file-tree-rename.tsx";
 import { useFolderTree } from "./use-folder-tree.ts";
 import { useTreeCommands, type OpenHow, type TreeCommands } from "./tree-commands.ts";
 import { entryOf, onRowKey as onKeyFor, type RowKeyContext } from "./tree-row-keys.ts";
@@ -166,7 +168,7 @@ export function FileTree(props: {
   // A file opened from elsewhere (quick open, a tab) is revealed by opening its ancestors, each
   // of which lists on the way, then scrolled to and selected. Folding one by hand stays folded
   // until another file is revealed.
-  useRevealRows({
+  const reveal = useRevealRows({
     threadId: props.threadId,
     current: currentPath,
     follows,
@@ -175,11 +177,13 @@ export function FileTree(props: {
     rows,
     list,
     handle: rowsHandle,
-    onRevealed: (key) => {
-      setFocusKey(key);
+    onRevealed: (key, focus) => {
+      if (focus) focusRow(key);
+      else setFocusKey(key);
       if (key !== currentPath) selection.only(key);
     },
   });
+  const rename = useInlineRename(props.threadId, reveal);
   const order = useMemo(
     () => navigable.filter((row) => row.kind !== "more").map((row) => row.key),
     [navigable],
@@ -206,7 +210,12 @@ export function FileTree(props: {
       });
     },
     open: props.onOpen,
-    operation: props.onOperation,
+    // Rename happens in the row; every other operation is the tab's dialog.
+    operation: (operation) => {
+      if (operation.kind !== "rename") return props.onOperation(operation);
+      const path = cleanPath(operation.path);
+      rename.start(path, operation.path.endsWith("/") || byKey.has(folderKey(path)));
+    },
     findInFolder: props.onFindInFolder,
     download: props.onDownload,
     opened,
@@ -313,11 +322,13 @@ export function FileTree(props: {
                 onActivate={activate}
                 onKeyDown={onRowKey}
                 onFocus={setFocusKey}
+                onRefocus={focusRow}
                 commands={commands}
                 onHoverStart={hoverStart}
                 onHoverEnd={hoverEnd}
                 onRetry={tree.retry}
                 onMore={tree.showMore}
+                renaming={!searching && rename.key === row.key ? rename : undefined}
               />
             )}
           />

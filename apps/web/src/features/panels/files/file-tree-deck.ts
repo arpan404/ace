@@ -94,7 +94,10 @@ export function openEditorsMru(
   return open.toSorted((a, b) => rank(a) - rank(b));
 }
 
-/** Today: every file tab showing a renamed path shows its new path, keeping its state. */
+/**
+ * Today: every file tab showing a renamed path shows its new path, keeping its state, and every
+ * tree keeps a renamed folder (and the folders inside it) open.
+ */
 function followInPanelTabs(
   workspace: ScopeWorkspace,
   actions: WorkspaceActions,
@@ -103,9 +106,17 @@ function followInPanelTabs(
   for (const tab of workspace.tabs) {
     if (tab.kind !== "files") continue;
     const data = fileTabData(tab);
+    const expanded = data.expanded?.map((key) => renamedPath(key, rename) ?? key);
+    const moved = expanded?.some((key, index) => key !== data.expanded?.[index]) ?? false;
+    const kept = { ...data, ...(expanded ? { expanded } : {}) };
     const next = data.path === undefined ? undefined : renamedPath(data.path, rename);
-    if (next === undefined) continue;
-    actions.replace(tab.key, { kind: "files", id: fileTabId(next), data: { ...data, path: next } });
+    if (next !== undefined)
+      actions.replace(tab.key, {
+        kind: "files",
+        id: fileTabId(next),
+        data: { ...kept, path: next },
+      });
+    else if (moved) actions.update(tab.key, { data: kept });
   }
 }
 

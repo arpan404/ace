@@ -70,6 +70,8 @@ export function useExplorerFollows(): [boolean, (follows: boolean) => void] {
 export interface RevealTarget {
   path: string;
   folder: boolean;
+  /** Put the keyboard on the row too (after a rename the tree started). */
+  focus?: boolean | undefined;
 }
 
 /**
@@ -88,7 +90,7 @@ export function useRevealRows(options: {
   rows: readonly FolderRow[];
   list: RefObject<HTMLElement | null>;
   handle: RefObject<VirtualRowsHandle | null>;
-  onRevealed(key: string): void;
+  onRevealed(key: string, focus: boolean): void;
 }): (target: RevealTarget) => void {
   const { threadId, current, follows, opened, onExpanded, rows } = options;
   const [target, setTarget] = useState<RevealTarget | undefined>(() =>
@@ -128,7 +130,7 @@ export function useRevealRows(options: {
     const row = list.current?.querySelector<HTMLElement>(`[data-row="${CSS.escape(key)}"]`);
     if (row) row.scrollIntoView?.({ block: "nearest" });
     else handle.current?.scrollToIndex(index, "auto");
-    onRevealed(key);
+    onRevealed(key, target.focus === true);
   }, [target, rows]);
   return reveal;
 }

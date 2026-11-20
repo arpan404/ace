@@ -137,14 +137,16 @@ test("new folders appear, F2 renames a file, and the Move shortcut changes its f
   await create(panel, "New folder", "drafts");
   expect(await within(panel).findByRole("treeitem", { name: "drafts" })).toBeTruthy();
   await create(panel, "New file", "notes.txt");
-  let dialog = await rowKey(panel, "notes.txt", "{F2}");
-  await userEvent.clear(within(dialog).getByRole("textbox", { name: "Path" }));
-  await userEvent.type(within(dialog).getByRole("textbox", { name: "Path" }), "plan.txt");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const notes = await within(panel).findByRole("treeitem", { name: "notes.txt" });
+  notes.focus();
+  await userEvent.keyboard("{F2}");
+  // The row's name turns into a field; Enter renames in place, no dialog.
+  const name = await within(panel).findByRole("textbox", { name: "Rename notes.txt" });
+  await userEvent.clear(name);
+  await userEvent.type(name, "plan.txt{Enter}");
   expect(await within(panel).findByRole("treeitem", { name: "plan.txt" })).toBeTruthy();
   expect(within(panel).queryByRole("treeitem", { name: "notes.txt" })).toBeNull();
-  dialog = await rowKey(panel, "plan.txt", "{Control>}{Shift>}m{/Shift}{/Control}");
+  const dialog = await rowKey(panel, "plan.txt", "{Control>}{Shift>}m{/Shift}{/Control}");
   await userEvent.clear(within(dialog).getByRole("textbox", { name: "Destination path" }));
   await userEvent.type(
     within(dialog).getByRole("textbox", { name: "Destination path" }),
@@ -179,7 +181,8 @@ test("a file's actions are a Tab away from its row, without a pointer or Shift+F
   );
   await userEvent.keyboard("{Enter}");
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Rename/ }));
-  expect(await screen.findByRole("dialog", { name: "Rename" })).toBeTruthy();
+  const field = await within(panel).findByRole("textbox", { name: "Rename README.md" });
+  await waitFor(() => expect(document.activeElement).toBe(field));
 });
 
 test("a row context menu deletes a folder and Recently deleted restores it without replacing a new file", async () => {
