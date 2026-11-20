@@ -518,8 +518,15 @@ export class ToolRegistry {
         else this.activeThreads.delete(threadId);
       }
     };
+    // One deadline from the call's start: the host's hook and the tool share the tool's budget.
+    let reason: PublicToolCode = "cancelled";
+    const stopTimer = this.scheduler.after(entry.timeoutMs, () => {
+      reason = "tool_timeout";
+      controller.abort();
+    });
     /** A call that ends before its tool runs gives its slot back. */
     const unstarted = (result: CallToolResult) => {
+      stopTimer();
       executionSettled = true;
       observationSettled = true;
       release();
@@ -531,10 +538,8 @@ export class ToolRegistry {
       const answer = await actWithin(
         this.actAs?.(entry.name, entry.capability, context.caller, context.actingFor),
         signal,
-        entry.timeoutMs,
-        this.scheduler,
       );
-      if (answer.kind === "stopped") return unstarted(failure(answer.code));
+      if (answer.kind === "stopped") return unstarted(failure(reason));
       act = answer.act;
     } catch (caught: unknown) {
       return unstarted(toolFailure(caught, this.report(entry.name, context.caller, caught)));
@@ -546,11 +551,9 @@ export class ToolRegistry {
     }
     if (signal.aborted) {
       act?.settled?.();
-      return unstarted(failure("cancelled"));
+      return unstarted(failure(reason));
     }
     const runAs = act ? { ...context, caller: act.caller } : context;
-    let reason: PublicToolCode = "cancelled";
-    let stopTimer: () => void = noop;
     let stopAbort: () => void = noop;
     const executing = Promise.resolve()
       .then(() => entry.execute(input, { ...runAs, signal }))
@@ -567,16 +570,10 @@ export class ToolRegistry {
         act?.settled?.();
         release();
       });
-    // The backend is queued to start before its deadline is armed, so a deadline that fires at
-    // once still finds it started, holding its slot until it settles.
     const stopped = new Promise<CallToolResult>((resolve) => {
       const abort = () => resolve(failure(reason));
       signal.addEventListener("abort", abort, { once: true });
       stopAbort = () => signal.removeEventListener("abort", abort);
-      stopTimer = this.scheduler.after(entry.timeoutMs, () => {
-        reason = "tool_timeout";
-        controller.abort();
-      });
     });
     // An uncooperative backend retains its slot until it settles, bounding detached work.
     try {
