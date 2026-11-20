@@ -474,9 +474,7 @@ function RunItem(props: {
         />
       );
     case "recalled":
-      return (
-        <SpadeRecalledLine notes={item.notes} bot={bot.id} />
-      );
+      return <SpadeRecalledLine notes={item.notes} bot={bot.id} />;
     case "files":
       return (
         <div {...part("spade-message", undefined, sender(bot))} className={chatBubble}>

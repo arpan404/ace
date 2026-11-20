@@ -58,7 +58,9 @@ test("LM Studio is offered under From even when it isn't running, filled in with
   await userEvent.click(await screen.findByRole("button", { name: "Add an endpoint" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Add endpoint" }));
   await userEvent.click(dialog.getByRole("combobox", { name: "From" }));
-  await userEvent.click(await screen.findByRole("option", { name: "LM Studio (on this computer)" }));
+  await userEvent.click(
+    await screen.findByRole("option", { name: "LM Studio (on this computer)" }),
+  );
   await userEvent.click(dialog.getByRole("button", { name: "Add endpoint" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/endpoints")).toEqual([

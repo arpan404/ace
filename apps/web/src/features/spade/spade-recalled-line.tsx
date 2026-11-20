@@ -67,12 +67,7 @@ export function SpadeRecalledLine(props: { notes: readonly string[]; bot: string
   );
 }
 
-function RecalledNote(props: {
-  id: string;
-  correcting: boolean;
-  onWhy(): void;
-  onDone(): void;
-}) {
+function RecalledNote(props: { id: string; correcting: boolean; onWhy(): void; onDone(): void }) {
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
   const note = useQuery({

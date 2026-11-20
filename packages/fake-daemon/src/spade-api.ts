@@ -922,8 +922,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       local.endpoint = server;
     }
     const models = endpoint.models as Json[];
-    if (!models.some((saved) => saved.id === model))
-      models.push({ id: model, source: "typed" });
+    if (!models.some((saved) => saved.id === model)) models.push({ id: model, source: "typed" });
     return reply({ endpoint, value: `${String(endpoint.id)}/${model.trim()}` });
   }
 
