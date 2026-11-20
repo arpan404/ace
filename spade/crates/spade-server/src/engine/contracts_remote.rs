@@ -38,6 +38,24 @@ pub(super) fn is_call(key: &str) -> bool {
     key.starts_with("cc.")
 }
 
+/// Whether the callee of a call sent to another machine waits on the person for it, as that
+/// machine last said (kept on the outbox entry while the call is open).
+pub(super) fn waiting_of(entry: &OutboxEntry) -> bool {
+    entry.state == "sent"
+        && entry
+            .answer
+            .as_deref()
+            .and_then(|a| serde_json::from_str::<Value>(a).ok())
+            .is_some_and(|a| a["waiting"] == true)
+}
+
+/// The calling conversation of call `key` (`cc.<conversation>.<job>`).
+fn caller_of(key: &str) -> Option<&str> {
+    key.strip_prefix("cc.")?
+        .split_once('.')
+        .map(|(caller, _)| caller)
+}
+
 fn refuse(status: u16, error: &str) -> InboxAnswer {
     (status, json!({ "error": error }))
 }
@@ -300,7 +318,37 @@ impl Engine {
         }
     }
 
-    /// `answer` for a call: how it ended, waiting up to `wait_ms` while it is open.
+    /// Tells the caller of call `key` its state changed: its callee started or stopped waiting.
+    pub(super) fn announce_caller(&self, key: &str) {
+        if let Some(caller) = caller_of(key) {
+            self.announce(caller);
+        }
+    }
+
+    /// Whether the callee in `conversation` waits on the person while call `call` is open.
+    fn call_waiting(&self, conversation: &str, call: &str) -> bool {
+        let open = self
+            .load(conversation)
+            .is_ok_and(|events| contract::open(&events).iter().any(|r| r.call == call));
+        open && self
+            .activity(conversation)
+            .is_ok_and(|a| a.state == super::roster::State::Waiting)
+    }
+
+    /// The calls a conversation made to other machines whose callee waits on the person now.
+    pub(super) fn remote_waiting(&self, calls: &[String]) -> bool {
+        calls.iter().any(|call| {
+            self.store
+                .outbox(call)
+                .ok()
+                .flatten()
+                .is_some_and(|entry| waiting_of(&entry))
+        })
+    }
+
+    /// `answer` for a call: how it ended, waiting up to `wait_ms` while it is open. It answers
+    /// `pending` early when its callee's waiting on the person differs from what the caller
+    /// last read (`waiting`), and says which it is.
     pub(super) async fn inbox_call_answer(&self, sender: &Sender, body: &Value) -> InboxAnswer {
         let key = body["key"].as_str().unwrap_or("");
         let Ok(Some(entry)) = self.store.inbox(&sender.host, key) else {
@@ -313,6 +361,7 @@ impl Engine {
                 json!({ "status": "failed", "problems": ["The bot was deleted."], "text": "The bot was deleted." }),
             );
         };
+        let known = body["waiting"].as_bool() == Some(true);
         let mut frames = self.live(&agent.conversation).frames.subscribe();
         let until = tokio::time::Instant::now() + Duration::from_millis(wait);
         let mut from = None;
@@ -320,9 +369,10 @@ impl Engine {
             if let Some(outcome) = self.call_outcome(&agent.conversation, key, &mut from) {
                 return (200, answer_of(&outcome));
             }
+            let waiting = self.call_waiting(&agent.conversation, key);
             let left = until.saturating_duration_since(tokio::time::Instant::now());
-            if left.is_zero() {
-                return (200, json!({ "status": "pending" }));
+            if left.is_zero() || waiting != known {
+                return (200, json!({ "status": "pending", "waiting": waiting }));
             }
             let _ = tokio::time::timeout(left.min(Duration::from_secs(1)), frames.recv()).await;
         }

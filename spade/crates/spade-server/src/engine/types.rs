@@ -312,4 +312,6 @@ pub struct Activity {
     pub workers: usize,
     /// The bots on this machine its open contract calls wait on, by id (ADR 0200 §6.2).
     pub calls: Vec<String>,
+    /// Its open contract calls to bots of other machines, by call id (ADR 0200 §6.2).
+    pub remote_calls: Vec<String>,
 }

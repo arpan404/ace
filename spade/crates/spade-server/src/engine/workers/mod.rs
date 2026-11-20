@@ -241,12 +241,28 @@ impl Engine {
             .filter_map(|bot| self.store.agent(bot).ok().flatten())
             .map(|agent| agent.conversation)
             .collect();
-        if children.is_empty() && callees.is_empty() && !own.ace_waiting && !own.ace_working {
+        // A callee on another machine waits on the person, as that machine last said.
+        let remote = (!own.remote_calls.is_empty()).then(|| {
+            if self.remote_waiting(&own.remote_calls) {
+                State::Waiting
+            } else {
+                State::Working
+            }
+        });
+        if children.is_empty()
+            && callees.is_empty()
+            && remote.is_none()
+            && !own.ace_waiting
+            && !own.ace_working
+        {
             return own;
         }
         let mut activity = own;
-        if !callees.is_empty() {
-            let states = callees.iter().map(|callee| self.node_state(callee, 0));
+        if !callees.is_empty() || remote.is_some() {
+            let states = callees
+                .iter()
+                .map(|callee| self.node_state(callee, 0))
+                .chain(remote);
             let state = spade_core::contract::caller_state(activity.state, states);
             if state == State::Waiting && activity.state != State::Waiting {
                 activity.waiting_for = Some("callee");

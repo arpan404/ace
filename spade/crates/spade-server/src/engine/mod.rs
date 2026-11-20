@@ -603,6 +603,11 @@ impl Engine {
                 .filter(|called| called.machine.is_none())
                 .map(|called| called.bot.clone())
                 .collect(),
+            remote_calls: spade_core::contract::calling(events.iter(), &transcript.jobs)
+                .into_iter()
+                .filter(|called| called.machine.is_some())
+                .map(|called| called.call.clone())
+                .collect(),
         };
         self.activity
             .lock()
