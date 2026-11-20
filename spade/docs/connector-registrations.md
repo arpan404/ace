@@ -16,8 +16,8 @@ Slack can: `bun run docs:connectors slack --yes` creates the app from its manife
 | --- | --- | --- | --- | --- |
 | Figma | maker approval | Submitted | 10 | Figma paused new MCP clients; the access request is on file for when they resume |
 | Vercel | maker approval | Submitted | 10 |  |
-| Pipedrive | maker approval | Not started | 15 |  |
-| Ramp | maker approval | Not started | 10 |  |
+| Pipedrive | maker approval | Not started | 15 | Posting on Pipedrive's developer community needs the owner's signed-in account |
+| Ramp | maker approval | Submitted | 10 |  |
 | Canva | ace cloud app | Not started | 20 |  |
 | Slack | ace cloud app | Not started | 10 |  |
 | Box | ace cloud app | Not started | 15 |  |
@@ -87,6 +87,8 @@ Notes:
 
 Kind: maker approval. Status: not started. About 15 minutes.
 
+**Blocked on:** Posting on Pipedrive's developer community needs the owner's signed-in account.
+
 Send to: [A post on Pipedrive's developer community](https://devcommunity.pipedrive.com/). The message, ready to send, is written to `tools/connector-registrations/out/outreach/pipedrive.md`.
 
 > We build Spade, the assistant in ace, an open-source MCP client that runs on people's own computers. We'd like Pipedrive to approve Spade's client ID metadata document and its loopback redirect, on any port, so our users can connect Pipedrive's MCP server.
@@ -107,7 +109,7 @@ Notes:
 
 ## 4. Ramp
 
-Kind: maker approval. Status: not started. About 10 minutes.
+Kind: maker approval. Status: submitted. Started 2026-11-20. About 10 minutes.
 
 Send to: [Ramp's redirect URI allowlist request](https://docs.ramp.com/developer-api/v1/mcp-redirect-whitelist-request). The message, ready to send, is written to `tools/connector-registrations/out/outreach/ramp.md`.
 
