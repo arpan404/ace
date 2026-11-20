@@ -132,6 +132,8 @@ class AcpSession implements ProviderSession {
   readonly schedule: (delay: number, run: () => void) => () => void;
   /** Cancellation confirmations still owed: "children", "root", "shells", "child:<id>". */
   readonly deadlines: Deadlines;
+  /** Children cancelled directly whose end is still owed; only these are checked per update. */
+  readonly cancellingChildren = new Set<string>();
   fault?: Error;
   readonly queue: Queued[] = [];
   active = false;
@@ -227,8 +229,11 @@ class AcpSession implements ProviderSession {
       this.shells.receive(object(notification.params));
       if (!this.routing.hasLiveChildren) this.deadlines.clear("children");
       if (!this.shells.blocked) this.deadlines.clear("shells");
-      for (const child of this.routing.children.values())
-        if (!child.live) this.deadlines.clear(`child:${child.id}`);
+      for (const id of this.cancellingChildren)
+        if (!this.routing.live.has(id)) {
+          this.cancellingChildren.delete(id);
+          this.deadlines.clear(`child:${id}`);
+        }
       // drain() settles each turn it takes, so its rejection has no reporter here.
       void this.drain().catch(() => {});
     };
@@ -763,7 +768,9 @@ class AcpSession implements ProviderSession {
         void this.rpc.notify("session/cancel", { sessionId: descendant.id }).catch(() => {});
   }
   expireAfterGrace(id: string): void {
+    this.cancellingChildren.add(id);
     this.deadlines.arm(`child:${id}`, cancellationGraceMs, () => {
+      this.cancellingChildren.delete(id);
       if (!this.routing.expire(id)) return;
       if (!this.routing.hasLiveChildren) this.deadlines.clear("children");
       // drain() settles each turn it takes, so its rejection has no reporter here.
