@@ -5,6 +5,49 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
  * card in most block kinds, then updated it in place when the fare moved again, and waits for the
  * person's choice on it. For checking cards by eye in both schemes.
  */
+/** The fare card as it stood at each check. */
+const card = (fare: string, change: string, checked: number) => ({
+  title: "Porto to Lisbon, 14 May",
+  blocks: [
+    { kind: "metric", label: "Cheapest fare", value: fare, unit: "EUR", change },
+    {
+      kind: "fields",
+      rows: [
+        { label: "Leaves", value: "07:40, back 19:15" },
+        { label: "Your limit", value: "€90" },
+      ],
+    },
+    { kind: "progress", label: "Carriers checked", value: checked, max: 4 },
+    {
+      kind: "table",
+      columns: ["Carrier", "Fare", "Bag"],
+      rows: [
+        ["TAP", fare, "Included"],
+        ["Ryanair", "79", "€25"],
+      ],
+    },
+    {
+      kind: "link",
+      url: "https://fares.example.com/opo-lis",
+      host: "fares.example.com",
+      label: "The fare",
+    },
+    {
+      kind: "actions",
+      actions: [
+        { kind: "choose", id: "keep", label: "Keep watching" },
+        { kind: "choose", id: "stop", label: "Stop" },
+        {
+          kind: "open",
+          label: "Book",
+          url: "https://www.flytap.example/book",
+          host: "flytap.example",
+        },
+      ],
+    },
+  ],
+});
+
 export function seedFakeAgentCards(here: FakeSpadeApi) {
   const bot = here.addAgent({
     id: "fares",
@@ -33,47 +76,6 @@ export function seedFakeAgentCards(here: FakeSpadeApi) {
     reply: "r-fares",
     text: "Watching it. Here's where it stands now.",
     calls: [{ id: "s-fares", name: "card_show" }],
-  });
-  const card = (fare: string, change: string, checked: number) => ({
-    title: "Porto to Lisbon, 14 May",
-    blocks: [
-      { kind: "metric", label: "Cheapest fare", value: fare, unit: "EUR", change },
-      {
-        kind: "fields",
-        rows: [
-          { label: "Leaves", value: "07:40, back 19:15" },
-          { label: "Your limit", value: "€90" },
-        ],
-      },
-      { kind: "progress", label: "Carriers checked", value: checked, max: 4 },
-      {
-        kind: "table",
-        columns: ["Carrier", "Fare", "Bag"],
-        rows: [
-          ["TAP", fare, "Included"],
-          ["Ryanair", "79", "€25"],
-        ],
-      },
-      {
-        kind: "link",
-        url: "https://fares.example.com/opo-lis",
-        host: "fares.example.com",
-        label: "The fare",
-      },
-      {
-        kind: "actions",
-        actions: [
-          { kind: "choose", id: "keep", label: "Keep watching" },
-          { kind: "choose", id: "stop", label: "Stop" },
-          {
-            kind: "open",
-            label: "Book",
-            url: "https://www.flytap.example/book",
-            host: "flytap.example",
-          },
-        ],
-      },
-    ],
   });
   here.showCard(bot, "card-fares", 1, card("84", "−6 since this morning", 3));
   here.store(bot.conversation, {
