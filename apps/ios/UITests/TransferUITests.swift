@@ -29,9 +29,9 @@ import XCTest
         XCTAssertTrue(moved.label.contains("Moved to \(name)"), "the moved row names where its work went: \(moved.label)")
         screenshot("0-moved-row")
         moved.press(forDuration: 1.0)
-        let openThere = app.buttons["row.openMoved"]
-        XCTAssertTrue(openThere.waitForExistence(timeout: 10))
-        XCTAssertEqual(openThere.label, "Open on \(name)")
+        // A context menu's items reach XCTest by their words, not their identifiers.
+        let openThere = app.buttons["Open on \(name)"].firstMatch
+        XCTAssertTrue(openThere.waitForExistence(timeout: 10), "the moved row's menu offers Open on \(name)")
         screenshot("0b-moved-menu")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).tap()
         XCTAssertTrue(app.waitForInbox(timeout: 15))
