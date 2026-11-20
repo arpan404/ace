@@ -518,6 +518,14 @@ export class ModelCatalog implements ModelCatalogApi {
   hasInstance(instance: string): boolean {
     return this.#states.has(instance);
   }
+  /**
+   * The instance as registered now, for a session to report into later: its metadata is taken
+   * only while the instance is still registered with this same login (`updateFromSession`).
+   */
+  registered(id: string): ModelInstance | undefined {
+    const state = this.#states.get(id);
+    return state ? structuredClone(state.config) : undefined;
+  }
   registerInstance(input: InstanceInput, admit?: () => Promise<void>): void {
     if (this.#closed) throw new Error("Catalog closed");
     const parsed = ModelInstance.parse(input);

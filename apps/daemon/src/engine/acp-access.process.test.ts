@@ -11,6 +11,8 @@ import type {
   ThreadId,
 } from "@ace/protocol";
 import type { PermissionSettings } from "./permissions.ts";
+import { AdapterRegistry } from "./registry.ts";
+import { acpEngineOptions } from "../acp-engine.ts";
 import { scriptedModelDiscovery, scriptedModelInstance } from "../testing/models.ts";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
@@ -532,6 +534,59 @@ test("Read-only picked for a new Antigravity thread runs with Full access and sa
     expect(notices.map((notice) => notice.type === "notice" && notice.text)).toEqual([
       "This agent doesn't offer Read-only, so it runs with Full access.",
     ]);
+  } finally {
+    await h.close();
+  }
+});
+
+test("an Antigravity session's reported models and levels refresh its catalog row", async () => {
+  const h = await antigravity();
+  try {
+    const id = createFullAccess(h);
+    await h.engine.flush();
+    const unused = (): never => {
+      throw new Error("An Antigravity session uses no generic ACP launch");
+    };
+    const context = await acpEngineOptions({
+      registry: new AdapterRegistry(),
+      agents: { has: () => false, resolve: unused, inventory: { list: () => [] } } as never,
+      models: h.catalog,
+      mcp: undefined as never,
+      store: h.store,
+      options: {},
+      report: (error) => {
+        throw error;
+      },
+    }).sessionContext?.(id, new AbortController().signal);
+    context?.onSessionMetadata?.({
+      configOptions: [
+        {
+          id: "model",
+          category: "model",
+          type: "select",
+          currentValue: "gemini-next",
+          options: [{ value: "gemini-next", name: "Gemini Next" }],
+        },
+        {
+          id: "thinking",
+          category: "thought_level",
+          type: "select",
+          currentValue: "high",
+          options: [
+            { value: "low", name: "Low" },
+            { value: "high", name: "High" },
+          ],
+        },
+      ],
+    });
+    await expect
+      .poll(() =>
+        h.catalog
+          .list({ instance: "antigravity-cli-default" })
+          .models.find((model) => model.id === "gemini-next")
+          ?.efforts.map((effort) => effort.id),
+      )
+      .toEqual(["low", "high"]);
   } finally {
     await h.close();
   }
