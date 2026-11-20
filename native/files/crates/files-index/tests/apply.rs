@@ -350,3 +350,32 @@ fn a_folder_walked_again_leaves_an_index_no_larger_than_the_one_it_replaces() {
         rebuilt.bytes_used()
     );
 }
+
+#[test]
+fn a_folder_replaced_by_a_file_of_the_same_name_drops_the_folder_and_its_subtree() {
+    // Inside one debounce window the watcher sees `pkg` change, not go: what is on disk now is a
+    // file, so the folder entry and everything below it must go as the file comes in.
+    let (dir, root) = checkout(&["other.rs"]);
+    write(dir.path(), "pkg", "now a file");
+    let mut index = PathIndex::from_paths(
+        ["pkg/", "pkg/a.rs", "pkg/sub/", "pkg/sub/b.rs", "other.rs"].map(str::to_owned),
+    );
+    index.apply(&root, &[created("pkg", false)]);
+    assert_eq!(index.len(), 2, "only pkg and other.rs stay");
+    assert_eq!(paths(&index.search("pkg", 5)), ["pkg"]);
+    assert!(index.search("b.rs", 5).is_empty());
+    assert!(index.search("a.rs", 5).is_empty());
+}
+
+#[test]
+fn a_file_replaced_by_a_folder_of_the_same_name_drops_the_file() {
+    let (dir, root) = checkout(&["pkg/a.rs", "x.rs"]);
+    let mut index = PathIndex::from_paths(["pkg", "x.rs"].map(str::to_owned));
+    assert!(dir.path().join("pkg").is_dir());
+    index.apply(&root, &[created("pkg", true)]);
+    let hits = index.search("pkg", 10);
+    let mut found = paths(&hits);
+    found.sort_unstable();
+    assert_eq!(found, ["pkg/", "pkg/a.rs"], "the file entry is gone");
+    assert_eq!(index.len(), 3);
+}

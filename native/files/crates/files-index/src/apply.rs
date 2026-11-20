@@ -28,7 +28,15 @@ pub(crate) fn prepare(index: &PathIndex, root: &Root, changes: &[IndexChange]) -
             if !change.path.is_empty() && Root::check(&change.path).is_ok() {
                 prepared.deletes.push(change.path.clone());
             }
-        } else if change.directory {
+            continue;
+        }
+        if changed_kind(index, change) {
+            // A folder replaced by a file of the same name, or the other way round, inside one
+            // watcher window arrives as a change, not a deletion: what the index holds under the
+            // old kind (a folder's whole subtree) goes before the new entry comes in.
+            prepared.deletes.push(change.path.clone());
+        }
+        if change.directory {
             add_subtree(
                 index,
                 &filters,
@@ -49,6 +57,20 @@ pub(crate) fn prepare(index: &PathIndex, root: &Root, changes: &[IndexChange]) -
         }
     }
     prepared
+}
+
+/// Whether the index holds `change.path` as the other kind: a file where a folder now is, or a
+/// folder where a file now is.
+fn changed_kind(index: &PathIndex, change: &IndexChange) -> bool {
+    if change.path.is_empty() || Root::check(&change.path).is_err() {
+        return false;
+    }
+    let held_as = |path: &str| index.members.find(&index.arena, path).is_some();
+    if change.directory {
+        held_as(&change.path)
+    } else {
+        held_as(&format!("{}/", change.path))
+    }
 }
 
 /// Drop every deleted path and its subtree, then add the new paths.
