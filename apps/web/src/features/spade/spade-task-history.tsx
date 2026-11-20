@@ -53,7 +53,11 @@ export function TaskHistory(props: { bot: RosterBot }) {
     if (!refused) await cache.invalidateQueries({ queryKey: ["spade", "task-history"] });
   };
   return (
-    <Disclosure summary="Earlier versions" summaryClassName="text-ui" className="mt-2 flex flex-col">
+    <Disclosure
+      summary="Earlier versions"
+      summaryClassName="text-ui"
+      className="mt-2 flex flex-col"
+    >
       <ol aria-label="Earlier versions" className="mt-1 flex flex-col gap-2">
         {earlier.map((version) => (
           <li key={version.seq} className="flex items-start gap-3 rounded-xl px-1 py-1">

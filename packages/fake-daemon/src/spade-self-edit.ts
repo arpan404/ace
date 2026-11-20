@@ -70,7 +70,7 @@ export class FakeSpadeTasks {
 
   /** `GET /v1/agents/{id}/task/history`: newest first. */
   history(id: string): Json {
-    return { versions: [...(this.versions.get(id) ?? [])].reverse() };
+    return { versions: (this.versions.get(id) ?? []).toReversed() };
   }
 
   private push(id: string, task: string, by: string, why: string) {

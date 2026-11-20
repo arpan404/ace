@@ -241,7 +241,9 @@ export function SuggestedApps(props: { task: string }) {
   const [adding, setAdding] = useState(false);
   const data = connectors.data;
   if (!data) return null;
-  const connected = new Set(data.connectors.flatMap((each) => (each.catalogue ? [each.catalogue] : [])));
+  const connected = new Set(
+    data.connectors.flatMap((each) => (each.catalogue ? [each.catalogue] : [])),
+  );
   const apps = appsNamedIn(props.task, data.catalogue, connected);
   if (apps.length === 0) return null;
   const names = apps.map((app) => app.name);

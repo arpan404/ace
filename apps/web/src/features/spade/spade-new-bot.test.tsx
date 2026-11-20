@@ -96,7 +96,9 @@ test("the bot names itself and the person can rename it in place", async () => {
 test("the bot updates its task and the chat shows Updated its task with Undo", async () => {
   await spadeApp("/spade/ivy", ivyWithSlack);
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Ivy" }));
-  const line = within(await chat.findByRole("note", { name: "Updated its task: Also covers Slack" }));
+  const line = within(
+    await chat.findByRole("note", { name: "Updated its task: Also covers Slack" }),
+  );
   expect(line.getByRole("button", { name: "Undo" })).toBeTruthy();
   // The change itself waits behind See change: what it said, and what it says now.
   expect(chat.queryByLabelText("Task change")).toBeNull();
@@ -111,7 +113,9 @@ test("the bot updates its task and the chat shows Updated its task with Undo", a
 test("undo restores the previous task", async () => {
   const { spade } = await spadeApp("/spade/ivy", ivyWithSlack);
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Ivy" }));
-  const line = within(await chat.findByRole("note", { name: "Updated its task: Also covers Slack" }));
+  const line = within(
+    await chat.findByRole("note", { name: "Updated its task: Also covers Slack" }),
+  );
   await userEvent.click(line.getByRole("button", { name: "Undo" }));
   await waitFor(() =>
     expect(spade.sent("PATCH", "/v1/agents/ivy")).toEqual([
@@ -136,7 +140,9 @@ test("the profile lists the task's earlier versions, and Restore puts one back",
   expect(earlier.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
     expect.stringContaining("Sort my inbox every morning"),
   ]);
-  await userEvent.click(earlier.getByRole("button", { name: "Restore: Sort my inbox every morning" }));
+  await userEvent.click(
+    earlier.getByRole("button", { name: "Restore: Sort my inbox every morning" }),
+  );
   await waitFor(() =>
     expect(spade.sent("PATCH", "/v1/agents/ivy")).toEqual([
       { task: "Sort my inbox every morning", task_why: "Restored an earlier task" },

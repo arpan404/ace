@@ -140,12 +140,7 @@ export function StartChips(props: {
         </ul>
       )}
       {marketplace && (
-        <button
-          type="button"
-          onClick={() => openMarket("bots")}
-          {...part("link")}
-          className={word}
-        >
+        <button type="button" onClick={() => openMarket("bots")} {...part("link")} className={word}>
           From the marketplace
         </button>
       )}
