@@ -3,7 +3,7 @@ import {
   cursorModelParseFailure,
   type CursorModelRejection,
 } from "./cursor.ts";
-import { sessionSelectors, matchProfile } from "@ace/agent-registry";
+import { displayLabel, listedModels, matchProfile, sessionSelectors } from "@ace/agent-registry";
 import { CatalogModel } from "@ace/protocol";
 import {
   AcpSession,
@@ -138,24 +138,27 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
     ? matchProfile(instance.acpAgentId.slice(9), instance.installationVersion ?? "")
     : undefined;
   const generic = instance.provider === "acp" && instance.acpAgentId !== undefined;
-  const selectors = sessionSelectors(payload, profile, !generic);
+  // Every agent, profiled or not, offers the models it lists: through its `configOptions`
+  // model selector, else its legacy `models` list and `session/set_model` (ADR 0044).
+  const selectors = sessionSelectors(payload, profile);
   if (generic && !selectors?.model) return [];
   const session = AcpSession.parse(payload);
   const modelConfig = session.configOptions
     ?.filter(isSelectConfig)
     .find((config) => config.id === selectors.model?.configId);
-  const current = modelConfig?.currentValue ?? session.models?.currentModelId;
-  const rows = modelConfig
-    ? options(modelConfig).map((option) => ({
-        modelId: option.value,
-        name: option.name,
-        native: option,
-      }))
-    : (session.models?.availableModels ?? []).map((option) => ({
-        modelId: option.modelId,
-        name: option.name,
-        native: option,
-      }));
+  const legacy = modelConfig ? undefined : listedModels(payload);
+  const current = modelConfig?.currentValue ?? legacy?.current;
+  // Only ids the session's selector would send are listed: never one it would refuse.
+  const sendable = selectors.model ? new Set(selectors.model.values) : undefined;
+  const rows = (
+    modelConfig
+      ? options(modelConfig).map((option) => ({
+          modelId: option.value,
+          name: displayLabel(option.name) || option.value,
+          native: option,
+        }))
+      : (legacy?.models ?? [])
+  ).filter((row) => !sendable || sendable.has(row.modelId));
   if (rows.length > 512) throw new Error("Too many models");
   const sessionConfigs = session.configOptions ?? [];
   const sessionExtensions = sessionConfigs.filter((config) => !isSelectConfig(config));
@@ -172,7 +175,8 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
     }
     if (!modelConfig && selectors?.model) model.selectorMethod = selectors.model.method;
     model.isDefault = row.modelId === current;
-    const perModel = PerModelConfigOptions.parse(row.native).configOptions;
+    // A malformed per-model list is the agent's to fix; the model is still listed without it.
+    const perModel = PerModelConfigOptions.safeParse(row.native).data?.configOptions;
     const configs = perModel ?? (model.isDefault ? sessionConfigs : []);
     // Metadata association does not imply model support. Preserve session extensions once,
     // even when per-model configs override semantics or no listed model is current.

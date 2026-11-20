@@ -41,7 +41,12 @@ const safeId = (id: string) => !unsafeText.test(id);
 export function displayLabel(text: string): string {
   return text.replace(unsafeTextAll, "").trim().slice(0, 256);
 }
-export type ListedModel = Readonly<{ modelId: string; name: string }>;
+/** One listed model: its id, a label safe to show, and the entry as the agent sent it. */
+export type ListedModel = Readonly<{
+  modelId: string;
+  name: string;
+  native: Readonly<Record<string, unknown>>;
+}>;
 /**
  * The agent's legacy `models: {availableModels, currentModelId}` list (ACP's unstable shape),
  * decoded leniently: an entry without a usable, displayable id is skipped, a duplicate keeps its
@@ -64,6 +69,7 @@ export function listedModels(
     listed.push({
       modelId: id.data,
       name: (typeof name === "string" && displayLabel(name)) || id.data,
+      native: record(entry),
     });
   }
   const current = label.safeParse(models["currentModelId"]);

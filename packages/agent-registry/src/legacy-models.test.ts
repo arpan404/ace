@@ -31,9 +31,9 @@ test("a malformed legacy model list skips bad entries and never throws", () => {
       { modelId: "kept", name: "Kept", extra: [1, 2] },
     ]),
   );
-  expect(listed?.models).toEqual([
-    { modelId: "good", name: "good" },
-    { modelId: "kept", name: "Kept" },
+  expect(listed?.models.map(({ modelId, name }) => [modelId, name])).toEqual([
+    ["good", "good"],
+    ["kept", "Kept"],
   ]);
   for (const raw of [null, "x", legacy("not a list"), legacy({}), { models: [] }])
     expect(() => sessionSelectors(raw)).not.toThrow();
@@ -60,9 +60,9 @@ test("model labels drop control and bidi characters, and ids carrying them are n
       { modelId: "blank", name: "⁦⁩" },
     ]),
   );
-  expect(listed?.models).toEqual([
-    { modelId: "safe", name: "Name" },
-    { modelId: "blank", name: "blank" },
+  expect(listed?.models.map(({ modelId, name }) => [modelId, name])).toEqual([
+    ["safe", "Name"],
+    ["blank", "blank"],
   ]);
   const config = sessionSelectors({
     configOptions: [

@@ -185,7 +185,7 @@ test("shutdown leaves storage open until an admitted session write finishes", as
   expect(closed).toBe(true);
 });
 
-test("generic catalogs do not offer unprofiled legacy setters or infer capacity from option names", async () => {
+test("generic catalogs list an unprofiled agent's legacy models and infer no capacity from option names", async () => {
   const config = instance("one");
   const catalog = new ModelCatalog({
     instances: [config],
@@ -201,7 +201,9 @@ test("generic catalogs do not offer unprofiled legacy setters or infer capacity 
         availableModels: [{ modelId: "legacy", name: "Legacy" }],
       },
     });
-    expect(catalog.list().models).toEqual([]);
+    expect(catalog.list().models.map((row) => [row.id, row.selectorMethod, row.isDefault])).toEqual(
+      [["legacy", "session/set_model", true]],
+    );
     await catalog.updateFromSession(config, {
       configOptions: [
         ...metadata("native").configOptions,
