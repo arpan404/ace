@@ -39,8 +39,10 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
     search: "search",
     fetch: "web.fetch",
   };
+  const mcp = object(object(update["_meta"])["mcp"]);
   let kind =
     quirks.toolKind(update) ??
+    (typeof mcp["server"] === "string" && typeof mcp["tool"] === "string" ? "mcp" : undefined) ??
     (Object.hasOwn(mapping, string(update["kind"]))
       ? (mapping[string(update["kind"])] ?? "custom")
       : "custom");
@@ -59,14 +61,19 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
     case "shell":
       return {
         kind,
-        command: string(input["command"] ?? input["CommandLine"] ?? input["commandLine"]),
-        ...(typeof input["Cwd"] === "string" ? { cwd: input["Cwd"] } : {}),
+        command: firstString(input, ["command", "CommandLine", "commandLine", "command_line"]),
+        ...(firstString(input, cwdFields) ? { cwd: firstString(input, cwdFields) } : {}),
         ...(typeof output["exitCode"] === "number" && Number.isInteger(output["exitCode"])
           ? { exitCode: output["exitCode"] }
           : {}),
       };
     case "file.read":
-      return { kind, path: string(input["path"] ?? input["TargetFile"] ?? input["file_path"]) };
+      return {
+        kind,
+        path:
+          firstString(input, ["path", "TargetFile", "file_path"]) ||
+          string(object(list(update["locations"])[0])["path"]),
+      };
     case "file.edit":
     case "file.write":
     case "file.delete":
@@ -84,15 +91,13 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
       return { kind, query: string(input["query"] ?? input["Query"]) };
     case "web.fetch":
       return { kind, url: string(input["url"] ?? input["Url"]) };
-    case "mcp": {
-      const meta = object(object(update["_meta"])["mcp"]);
+    case "mcp":
       return {
         kind,
-        server: string(input["providerIdentifier"] ?? meta["server"]),
-        tool: string(input["toolName"] ?? meta["tool"]),
-        arguments: input["args"] ?? input,
+        server: string(input["providerIdentifier"] ?? mcp["server"]),
+        tool: string(input["toolName"] ?? mcp["tool"]),
+        arguments: mcpArguments(input),
       };
-    }
     case "agent.spawn":
       return {
         kind,
@@ -109,6 +114,37 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
   }
 }
 
+const cwdFields = ["Cwd", "cwd", "working_dir", "workingDir"];
+function firstString(input: Data, keys: readonly string[]): string {
+  for (const key of keys) if (typeof input[key] === "string") return input[key];
+  return "";
+}
+
+/** MCP call arguments, unwrapped from the `args` or `arguments` envelope agents send them in. */
+export function mcpArguments(input: Data): unknown {
+  if (Object.hasOwn(input, "args")) return input["args"];
+  const wrapped = input["arguments"];
+  if (wrapped !== null && typeof wrapped === "object" && !Array.isArray(wrapped)) return wrapped;
+  return input;
+}
+
+/** The failure text a terminal update carries: a bare string result or its `error` field. */
+export function toolError(update: Data): string | undefined {
+  const output = update["rawOutput"];
+  const error = typeof output === "string" ? output : object(output)["error"];
+  const text = typeof error === "string" ? error : string(object(error)["message"]);
+  return text.trim() ? text.slice(0, errorLimit) : undefined;
+}
+const errorLimit = 16 * 1024;
+
+/** Agents title some calls with a running label ("Running view_file") that outlives the call. */
+export function toolTitle(data: Data, detail: ToolDetailDraft): string {
+  const title = string(data["title"]);
+  if (detail.kind === "file.read" && detail.path && (!title || /^Running [\w.-]+$/.test(title)))
+    return `Read ${detail.path}`;
+  return title;
+}
+
 export function todos(value: unknown): TodoEntry[] {
   return list(value).flatMap((entry) => {
     const parsed = TodoEntry.safeParse(entry);
@@ -118,7 +154,16 @@ export function todos(value: unknown): TodoEntry[] {
 
 /** Carry interpreted fields between partial refreshes; opaque history belongs to the raw collector. */
 export function mergeToolData(data: Data, update: Data): void {
-  for (const field of ["kind", "title", "name", "rawInput", "rawOutput", "content", "_meta"]) {
+  for (const field of [
+    "kind",
+    "title",
+    "name",
+    "rawInput",
+    "rawOutput",
+    "content",
+    "_meta",
+    "locations",
+  ]) {
     if (!Object.hasOwn(update, field)) continue;
     const value = update[field];
     if (["name", "title", "kind"].includes(field) && typeof value !== "string") continue;
@@ -149,7 +194,11 @@ const inputFields = [
   "command",
   "CommandLine",
   "commandLine",
+  "command_line",
   "Cwd",
+  "cwd",
+  "working_dir",
+  "workingDir",
   "path",
   "TargetFile",
   "file_path",
@@ -162,6 +211,7 @@ const inputFields = [
   "providerIdentifier",
   "toolName",
   "args",
+  "arguments",
   "description",
   "prompt",
   "subagentType",

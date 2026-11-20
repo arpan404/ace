@@ -1,14 +1,18 @@
 import {
+  type ApprovalOption,
   InteractionRequest,
   InteractionResolution as ResolutionSchema,
   type InteractionResolution,
 } from "@ace/protocol";
 import { list, object, string, type Data } from "./data.ts";
+import type { AcpQuirks } from "./quirks/types.ts";
+import { mcpArguments, toolDetail } from "./tools.ts";
 export function interactionRequest(
   method: string,
   params: Data,
-  antigravity: boolean,
+  quirks: AcpQuirks,
 ): InteractionRequest | undefined {
+  const antigravity = quirks.provider === "antigravity";
   const call = object(params["toolCall"]);
   let request: unknown;
   if (method === "cursor/create_plan")
@@ -47,45 +51,7 @@ export function interactionRequest(
           },
         ],
       };
-    else
-      request = {
-        kind: "approval",
-        title: string(call["title"]),
-        target: {
-          // ACP kinds and follow-along locations do not prove an exact file operation.
-          // Preserve the category without impersonating a trusted provider Read tool.
-          tool: call["kind"] === "execute" ? "shell" : `acp/${string(call["kind"]) || "other"}`,
-          access:
-            call["kind"] === "read"
-              ? "read"
-              : call["kind"] === "edit"
-                ? "write"
-                : call["kind"] === "execute"
-                  ? "execute"
-                  : "unknown",
-          input: call["rawInput"],
-          ...(typeof object(call["rawInput"])["command"] === "string"
-            ? { command: object(call["rawInput"])["command"] }
-            : {}),
-          ...(typeof object(call["rawInput"])["cwd"] === "string"
-            ? { cwd: object(call["rawInput"])["cwd"] }
-            : {}),
-          paths: list(call["locations"])
-            .map(object)
-            .map((location) => string(location["path"]))
-            .filter(Boolean),
-        },
-        options: options.map((o) => ({
-          id: string(o["optionId"]),
-          label: string(o["name"]),
-          kind:
-            o["kind"] === "reject_once"
-              ? "deny"
-              : o["kind"] === "reject_always"
-                ? "deny_always"
-                : o["kind"],
-        })),
-      };
+    else request = approvalRequest(call, options, quirks);
   }
   const parsed = InteractionRequest.safeParse(request);
   return parsed.success ? parsed.data : undefined;
@@ -178,6 +144,78 @@ export function encodeResolution(
     };
   throw new Error("ACP does not support this interaction resolution");
 }
+/**
+ * Any legal permission request reaches the person: oversized fields are bounded and native option
+ * kinds outside ace's set take the nearest one. The complete native request stays in raw.
+ */
+function approvalRequest(call: Data, options: Data[], quirks: AcpQuirks): InteractionRequest {
+  // One reading of the call for its transcript item and its approval.
+  const detail = toolDetail(call, quirks);
+  const input = object(call["rawInput"]);
+  const paths = list(call["locations"])
+    .map((location) => string(object(location)["path"]))
+    .filter((path) => path.length > 0 && path.length <= limits.cwd)
+    .slice(0, limits.paths);
+  const mcp =
+    detail.kind === "mcp" && detail.server && detail.tool
+      ? { server: detail.server, tool: detail.tool }
+      : undefined;
+  const tool = mcp
+    ? `mcp__${mcp.server}__${mcp.tool}`
+    : detail.kind === "shell"
+      ? "shell"
+      : // ACP kinds and follow-along locations do not prove an exact file operation.
+        // Preserve the category without impersonating a trusted provider Read tool.
+        `acp/${string(call["kind"]) || "other"}`;
+  return {
+    kind: "approval",
+    title: string(call["title"]) || tool,
+    target: {
+      tool: tool.slice(0, limits.tool),
+      access:
+        detail.kind === "shell" ? "execute" : (accessByKind[string(call["kind"])] ?? "unknown"),
+      input: mcp ? mcpArguments(input) : call["rawInput"],
+      ...(detail.kind === "shell" && detail.command
+        ? { command: detail.command.slice(0, limits.command) }
+        : {}),
+      ...(detail.kind === "shell" && detail.cwd ? { cwd: detail.cwd.slice(0, limits.cwd) } : {}),
+      paths,
+    },
+    ...(mcp ? { mcpServer: { name: mcp.server.slice(0, limits.tool), source: "acp" } } : {}),
+    options: options.map((o) => ({
+      id: string(o["optionId"]),
+      label: string(o["name"]),
+      kind: optionKind(string(o["kind"])),
+    })),
+  };
+}
+const limits = { tool: 256, command: 32768, cwd: 4096, paths: 128 };
+const accessByKind: Record<string, "read" | "write" | "execute"> = {
+  read: "read",
+  edit: "write",
+  delete: "write",
+  move: "write",
+  execute: "execute",
+};
+const optionKinds: Record<string, ApprovalOption["kind"]> = {
+  allow_once: "allow_once",
+  allow_session: "allow_session",
+  allow_always: "allow_always",
+  reject_once: "deny",
+  reject_always: "deny_always",
+  deny: "deny",
+  deny_always: "deny_always",
+  cancel: "cancel",
+};
+function optionKind(kind: string): ApprovalOption["kind"] {
+  if (Object.hasOwn(optionKinds, kind)) return optionKinds[kind] ?? "allow_once";
+  if (kind.startsWith("reject") || kind.startsWith("deny")) return "deny";
+  // An unknown kind only shapes how the choice is styled and whether ace marks the call
+  // declined. Calling it a denial could show a call the person let run as declined, so the
+  // provider's later updates settle it instead.
+  return "allow_once";
+}
+
 /** Stable process-local request key, shared by the session and translator. */
 export function interactionKey(id: string | number): string {
   return `request:${typeof id}:${id}`;
