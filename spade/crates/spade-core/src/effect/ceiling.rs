@@ -6,6 +6,7 @@
 //! nothing; the person-only effects still go to the person every time.
 
 use super::Effect;
+use crate::autonomy::{Class, Sensitive};
 
 /// The effects a package may declare, in the words its manifest uses.
 pub const DECLARABLE: [Effect; 5] = [
@@ -69,11 +70,42 @@ pub struct Ceiling<'a> {
     pub allows: Effects,
 }
 
+/// What the ceiling reads a call as: the gate's reading of its effect, raised by what the shell
+/// classifier read in a command that runs (or asks to run) outside the sandbox. A command's tool
+/// is a local write, but what it runs outside the box can publish or send: that is the call's
+/// effect here. `None`: the tool declares nothing.
+pub fn reading(effect: Option<Effect>, command: Option<Class>) -> Option<Effect> {
+    let effect = effect?;
+    Some(command.map_or(effect, |class| effect.max(command_effect(class))))
+}
+
+/// What a command the classifier read does, in effect words. A command it can't read whole, or
+/// a script it can't show, is [`Effect::Unknown`]: unresolved.
+pub fn command_effect(class: Class) -> Effect {
+    match class {
+        Class::Inside => Effect::WriteLocal,
+        Class::Outward => Effect::Network,
+        Class::Sensitive(kind) => match kind {
+            Sensitive::Payment => Effect::Pay,
+            Sensitive::MessageAsPerson => Effect::SendAsPerson,
+            Sensitive::Publish | Sensitive::RemoteChange => Effect::Publish,
+            Sensitive::Credentials => Effect::ChangeAccess,
+            Sensitive::Network
+            | Sensitive::DeleteOutside
+            | Sensitive::WriteOutside
+            | Sensitive::Admin
+            | Sensitive::TaintedRoutine => Effect::Network,
+            // Driving other apps acts outside the bot, as a driving step does.
+            Sensitive::Automation => Effect::Drive,
+            Sensitive::Unknown | Sensitive::Unclear | Sensitive::UnseenScript => Effect::Unknown,
+        },
+    }
+}
+
 /// The declared word a call's effect needs, if it needs one. A read and a change to the bot's
 /// own things need none; a driving step acts outside the bot, so it needs `network` (its place
-/// is granted one app or site at a time, under that word). A tool that declares nothing, or a
-/// word Spade doesn't know, needs none here: it already goes to the person every time. A secret
-/// was refused before this.
+/// is granted one app or site at a time, under that word). An unresolved effect is decided by
+/// [`refusal`] on where it runs, and a secret was refused before this.
 pub fn needs(effect: Option<Effect>) -> Option<Effect> {
     match effect? {
         Effect::Read | Effect::WriteLocal | Effect::Unknown | Effect::Credential => None,
@@ -82,9 +114,34 @@ pub fn needs(effect: Option<Effect>) -> Option<Effect> {
     }
 }
 
-/// Why `ceiling` refuses a call with `effect`, if it does.
-pub fn refusal(ceiling: Option<Ceiling<'_>>, effect: Option<Effect>) -> Option<String> {
+/// Whether a packaged bot's call with `effect` needs the person's own answer every time, however
+/// they answered before: a send, a payment, an access change, or something Spade can't name. No
+/// Always allow, typed grant or answer kept for the tool carries to it (ADR 0200 §3.4).
+pub fn fresh_each_time(effect: Option<Effect>) -> bool {
+    matches!(
+        effect,
+        None | Some(Effect::SendAsPerson | Effect::Pay | Effect::ChangeAccess | Effect::Unknown)
+    )
+}
+
+/// Why `ceiling` refuses a call with `effect` (as [`reading`] reads it), if it does. `confined`:
+/// it runs in the bot's sandbox, which holds its files and network, with nothing that reaches a
+/// server. A packaged bot may do only what its package declared, so a call whose effect Spade
+/// can't resolve is refused unless it is confined that way.
+pub fn refusal(
+    ceiling: Option<Ceiling<'_>>,
+    effect: Option<Effect>,
+    confined: bool,
+) -> Option<String> {
     let ceiling = ceiling?;
+    if matches!(effect, None | Some(Effect::Unknown)) {
+        return (!confined).then(|| {
+            format!(
+                "Spade can't tell what this does, and {} may only do what its package declares.",
+                ceiling.bot
+            )
+        });
+    }
     let needed = needs(effect)?;
     if ceiling.allows.has(needed) {
         return None;

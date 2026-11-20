@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 pub mod fleet;
 pub mod gated;
+pub mod market;
+pub mod packaged;
 pub mod plugins;
 #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 pub mod sandbox;

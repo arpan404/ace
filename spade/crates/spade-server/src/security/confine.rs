@@ -11,6 +11,16 @@ use spade_sandbox::{Facts, Policy};
 use super::{Security, toolchains};
 use crate::workspace::shell::{Confine, Confined, Confinement, Kind};
 
+impl Security {
+    /// Whether `bot` is held by a package's ceiling that leaves out `network`.
+    pub(crate) fn reaches_nothing(&self, bot: &str) -> bool {
+        self.bots
+            .get()
+            .and_then(|engine| engine.bot_ceiling(bot))
+            .is_some_and(|(_, allows)| !allows.has(spade_core::effect::Effect::Network))
+    }
+}
+
 impl Confine for Security {
     fn confine(&self, home: &Path, kind: &Kind) -> Result<Confinement, String> {
         let Some(bot) = self.bot_of(home) else {
@@ -35,6 +45,13 @@ impl Confine for Security {
             Kind::Command => (held.network, Vec::new(), Vec::new()),
             Kind::Terminal { scratch } => (held.network, Vec::new(), vec![scratch.clone()]),
             Kind::Plugin { root } => (held.plugin_network, vec![root.clone()], Vec::new()),
+        };
+        // Under a package's ceiling without `network`, the bot's runs reach nothing, whatever
+        // its own or the machine's policy says (ADR 0200 §3.4).
+        let network = if self.reaches_nothing(&bot) {
+            spade_sandbox::egress::NetworkPolicy::off()
+        } else {
+            network
         };
         let run = self.ids.next("run");
         let ticket = match (&self.proxy, network.mode) {

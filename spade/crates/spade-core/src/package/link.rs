@@ -112,6 +112,11 @@ pub struct Link {
     pub withdrawn: Option<Withdrawn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending: Option<Pending>,
+    /// Stored with the bot by an install that hasn't finished: its ceiling holds from the bot's
+    /// first moment, nothing is scheduled for it, and one a crash left is removed at the next
+    /// start, before any work.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub installing: bool,
 }
 
 impl Link {

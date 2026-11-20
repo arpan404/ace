@@ -294,6 +294,40 @@ impl Proxy {
     }
 }
 
+impl Proxy {
+    /// Ends the access of every live run whose bot `cut` names, as if its ticket dropped: no new
+    /// request is accepted for it, and its open and pending connections end. Its ticket still
+    /// ends nothing more when it drops.
+    pub fn cut(&self, cut: &dyn Fn(&str) -> bool) {
+        let bots: std::collections::HashSet<String> = self
+            .inner
+            .sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+            .map(|session| session.bot.clone())
+            .collect();
+        // Asked with no lock held: `cut` may read what decides it.
+        let ended: std::collections::HashSet<String> =
+            bots.into_iter().filter(|bot| cut(bot)).collect();
+        if ended.is_empty() {
+            return;
+        }
+        let mut sessions = self
+            .inner
+            .sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        sessions.retain(|_, session| {
+            let keep = !ended.contains(&session.bot);
+            if !keep {
+                session.cancel.send_replace(true);
+            }
+            keep
+        });
+    }
+}
+
 /// One run's access to the proxy, ended when dropped: no new request is accepted for it, and
 /// its open and pending connections end.
 pub struct Ticket {

@@ -287,6 +287,7 @@ fn link_of(manifest: Manifest, on: &[&str]) -> Link {
         previous: None,
         withdrawn: None,
         pending: None,
+        installing: false,
     }
 }
 
