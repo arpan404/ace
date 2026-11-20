@@ -1,4 +1,4 @@
-import type { ServerMessage } from "@ace/protocol";
+import type { ServerMessage, TunnelRefusalCode } from "@ace/protocol";
 import type { HostChannel } from "@ace/relay";
 import type { TunnelAttachment, TunnelHost } from "./host.ts";
 
@@ -8,16 +8,30 @@ import type { TunnelAttachment, TunnelHost } from "./host.ts";
  * closes: binary messages are the mux's frames, pings are answered, anything else is ignored.
  */
 export async function serveRelayTunnel(
-  channel: HostChannel,
+  channel: Pick<
+    HostChannel,
+    "send" | "sendBinary" | "close" | "frames" | "bufferedBytes" | "bufferedReceiveBytes"
+  >,
   host: TunnelHost,
   options: {
     device: string;
     operate(): boolean;
     welcome: Extract<ServerMessage, { type: "welcome" }>;
-    /** The served connection, for the relay to refuse it (a revoked device). */
+    /**
+     * The connection, for the relay to refuse it (a revoked device), from before its welcome is
+     * sent: a refusal made meanwhile reaches the device after the welcome, as one made later does.
+     */
     attached?(attachment: TunnelAttachment): void;
   },
 ): Promise<void> {
+  let served: TunnelAttachment | undefined;
+  let refusal: TunnelRefusalCode | undefined;
+  options.attached?.({
+    refuse(code) {
+      if (served) served.refuse(code);
+      else refusal ??= code;
+    },
+  });
   await channel.send(options.welcome);
   let frames: ((frame: Uint8Array) => void) | undefined;
   let lost: (() => void) | undefined;
@@ -46,7 +60,8 @@ export async function serveRelayTunnel(
     },
     close: () => channel.close(),
   });
-  options.attached?.(attachment);
+  served = attachment;
+  if (refusal) attachment.refuse(refusal);
   try {
     for await (const frame of channel.frames()) {
       if (frame instanceof Uint8Array) frames?.(frame);
