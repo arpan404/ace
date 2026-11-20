@@ -21,8 +21,15 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Profile** (ace's side panel). One place per bot: Details, Library, Computer. The person keeps
   talking while they change the bot, and watches its computer beside the chat. Below 680px the
   profile takes the window; on iPhone it is a sheet.
-- **Settings › Spade.** General (run, model for new bots, fast, review, transcription, voice,
-  spending), Models, Web search, Apps.
+- **Settings › Spade › Apps** lists each connected app with its health (Working, Needs
+  reconnect), the account, the bots that use it and when one last did, with Reconnect and
+  Disconnect. A bot's Apps (in Details) offer Use <App> for apps connected already and the apps
+  that fit its task, each a click from connected.
+- **Settings › Spade.** General (run, model for new bots, fast, review, transcription, speech,
+  Speak replies and voice, notifications, spending), Models, Web search, Apps. Notifications
+  (ADR 0195): Notify me, Do not disturb, Quiet hours, Interruptions an hour and a day, Morning
+  brief (its time, the bots and clubs it covers, a rewrite with the fast model) and Unusual
+  spending, each a switch that applies at once.
 
 ## 2. List
 
@@ -93,6 +100,15 @@ Spade is one of ace's places. It adds no navigation of its own.
   primary at the footer's right, a pill: Send (⌘↵), Next before the last question, Allow (↵, Esc
   denies). Quieter answers are ghost words on the left. Fields and options sit on `--chat-well`.
   A refused answer says why under the field.
+- **Connect card** (a bot asking for an app, ADR 0131 amendment 1): a raised card whose first
+  line is the app's mark and name, with "<Bot> asks to use it" (or that its sign-in ended); the
+  bot's reason; "<Bot> will be able to:" and the catalogue's lines; one quiet line that the person
+  signs in on the app's own page. One primary in words: Connect <App>, Add a key (its two steps
+  and a field inline), Use <App> or Reconnect <App>; Later and Not now as ghost words; "Let every
+  bot use <App>" as a checkbox. While signing in, one line says what to do in the browser, with
+  Cancel; a failure says what fixes it. Connected, it settles to one quiet line with the mark
+  ("Connected as ada@example.com"); an app not available yet is the bot's bubble with "Not
+  available yet", and nothing waits.
 - **Settled cards.** An answered question becomes a quiet bot bubble, the answer the person's own
   bubble. A request becomes one line ("Allowed · curl -s …"); in a run, they fold into the reply's
   steps. Left for later, a card folds to one line in place with Answer, and one pill above the
@@ -100,18 +116,23 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Composer.** The capsule: + on the left, the field, then the trailing slot. Empty, a mic for
   dictation and a filled round voice button (the accent, 40px); typed, the filled button is Send;
   while the bot works, Stop. Waiting on the person is not working, so a card shows Send. Spade
-  off is said once, above the composer. Voice mode comes later: until it ships, the voice button
-  is drawn but off.
+  off is said once, above the composer. The voice button starts a hands-free conversation
+  (ADR 0134, amended): while it lasts, one quiet line above the composer says where it is in
+  words (Listening, Hearing you, Turning it into words, "Flights is thinking", "Flights is
+  speaking · Esc to stop") with End; nothing is tinted. With no way to turn speech into words
+  yet, the mic or the voice button first shows a strip with one button per endpoint that can.
 
 ## 4. Profile
 
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
   22/28 at 600 ("Full access" under it, quiet, while the bot is in it), then Details · Library ·
   Computer as a segmented control in the body.
-- **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps, security
+- **Details:** task, model (one picker, grouped by endpoint), machine, voice (Speak replies and
+  the bot's voice, kept on this device), routines, apps, security
   (first "How it decides": Auto-review or Full access, with one sentence under Full access saying
   what still asks; turning it on asks first in a dialog, words only, the first time for that bot),
-  spending, then Duplicate and Delete. The machine row carries Move to…, a menu of the other
+  spending, notifications (Notify me, on unless turned off for this bot), then Duplicate and
+  Delete. The machine row carries Move to…, a menu of the other
   machines with Spade (an offline one named and not choosable); Spade read through a machine that
   isn't its host offers Move Spade to this machine (ADR 0187). A move, a failed move or what needs
   the person after one is one sentence above the task with its text buttons (Cancel; Try again

@@ -53,6 +53,9 @@ pub enum Capability {
     /// Serves the OpenAI-format `POST /audio/transcriptions` route.
     #[serde(rename = "transcription")]
     Transcription,
+    /// Serves the OpenAI-format `POST /audio/speech` route: words read aloud.
+    #[serde(rename = "speech")]
+    Speech,
     /// Searches the web with its endpoint's own tool (Anthropic Messages' server web search,
     /// OpenAI Responses' web search), which `web_search` uses first.
     #[serde(rename = "web-search")]
@@ -91,7 +94,7 @@ pub struct Model {
 }
 
 impl Capability {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Tools,
         Self::Images,
         Self::Reasoning,
@@ -100,6 +103,7 @@ impl Capability {
         Self::ImageGeneration,
         Self::ImageOutput,
         Self::Transcription,
+        Self::Speech,
         Self::WebSearch,
     ];
 
@@ -114,6 +118,7 @@ impl Capability {
             Self::ImageGeneration => "image-generation",
             Self::ImageOutput => "image-output",
             Self::Transcription => "transcription",
+            Self::Speech => "speech",
             Self::WebSearch => "web-search",
         }
     }

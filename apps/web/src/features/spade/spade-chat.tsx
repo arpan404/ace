@@ -36,6 +36,7 @@ import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
+import { SpadeBriefBubble } from "./spade-brief-bubble.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { SpadeStepsLine } from "./spade-steps-line.tsx";
@@ -493,6 +494,19 @@ function RunItem(props: {
       );
     }
     case "digest":
+      // The morning brief and a spend alert sit where digests do (ADR 0195).
+      if (item.digest.kind === "brief")
+        return <SpadeBriefBubble digest={item.digest} when={props.when} />;
+      if (item.digest.kind === "spend")
+        return (
+          <QuietLine
+            line={{
+              lead: { kind: "none" },
+              words: [{ text: "Spending fast: ", strong: true }, { text: item.digest.text }],
+              label: `Spending fast: ${item.digest.text}`,
+            }}
+          />
+        );
       return <SpadeDigestBubble digest={item.digest} when={props.when} face={handlers.face} />;
     case "skill": {
       const answer = handlers.onProposal;

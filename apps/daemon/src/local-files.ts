@@ -9,6 +9,7 @@ import {
 import { chmodSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
+import { sqliteBusy } from "./busy-open.ts";
 
 /**
  * The data directory holds every transcript, tool output and credential, so only its owner may
@@ -80,11 +81,6 @@ export function acquireLock(dataDir: string): () => void {
   };
 }
 
-/** SQLITE_BUSY or SQLITE_LOCKED: another connection holds the lock. */
-function sqliteBusy(error: unknown): boolean {
-  const code: unknown = error instanceof Error ? Reflect.get(error, "errcode") : undefined;
-  return typeof code === "number" && ((code & 0xff) === 5 || (code & 0xff) === 6);
-}
 export function loadToken(dataDir: string): { token: string; tokenPath: string } {
   const tokenPath = join(dataDir, "daemon-token");
   try {

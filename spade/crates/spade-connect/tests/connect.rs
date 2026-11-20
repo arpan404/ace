@@ -250,27 +250,27 @@ async fn an_access_token_about_to_expire_is_refreshed_before_it_is_used() -> Res
 }
 
 #[tokio::test]
-async fn a_refused_call_is_not_resent_and_the_sign_in_is_renewed_for_the_next_try() -> Result {
+async fn a_call_refused_for_an_expired_sign_in_runs_once_on_the_renewed_one() -> Result {
     let app = FakeConnector::start(app_tools()).await;
     let spade = spade()?;
     let view = signed_in(&spade, &app).await?;
     app.expire_access_tokens();
-    let runs = app.tool_runs();
-    let refused = spade
-        .connectors
-        .call(&view.id, "create_issue", serde_json::json!({}))
-        .await;
-    match refused {
-        Err(CallError::NotRun(why)) => assert!(why.contains("renewed"), "{why}"),
-        other => panic!("expected not run, got {other:?}"),
-    }
-    assert_eq!(app.tool_runs(), runs, "the refused call ran");
-    let again = spade
+    let (runs, renewals) = (app.tool_runs(), app.token_requests());
+    // Refused before it ran, then renewed and sent once more: the bot only sees the result.
+    let call = spade
         .connectors
         .call(&view.id, "create_issue", serde_json::json!({}))
         .await?;
-    assert_eq!(text(&again), "ran create_issue");
-    assert_eq!(app.tool_runs(), runs + 1);
+    assert_eq!(text(&call), "ran create_issue");
+    assert_eq!(app.tool_runs(), runs + 1, "it ran exactly once");
+    assert!(
+        app.token_requests() > renewals,
+        "the sign-in was not renewed"
+    );
+    assert_eq!(
+        spade.connectors.get(&view.id).map(|v| v.state),
+        Some("connected")
+    );
     Ok(())
 }
 

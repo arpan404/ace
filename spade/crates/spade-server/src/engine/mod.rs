@@ -4,9 +4,11 @@
 
 mod adopt;
 mod agents;
+mod apps;
 mod autonomy;
 mod bots;
 mod brain;
+mod brief;
 mod calls;
 mod classify;
 mod compact;
@@ -38,6 +40,7 @@ mod oversight;
 mod park;
 mod plugin_hooks;
 mod questions;
+mod reach;
 mod recipes;
 mod retry;
 mod review;
@@ -47,6 +50,7 @@ mod routing;
 mod search;
 mod security;
 mod services;
+mod speech;
 mod trim;
 mod try_again;
 mod turn;
@@ -74,6 +78,8 @@ pub use knowledge_api::KnowledgeInput;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use reach::ReachError;
+pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
 
@@ -207,6 +213,8 @@ pub struct Engine {
     computers: std::sync::OnceLock<Arc<crate::computer::Computers>>,
     /// The person's plugins (ADR 0151, `plugin_hooks`), once the server has set them.
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
+    /// The person's apps (ADR 0131, `apps`), once the server has set them.
+    apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
     /// The scope each call about to run was allowed with, by call key, for the tool to check
     /// again where it runs (a terminal command's folder and variables, ADR 0142).
     allowed_scopes: Mutex<HashMap<String, String>>,
@@ -239,6 +247,8 @@ pub struct Engine {
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
     digests: digests::Shared,
+    /// What reaches the person and what waits for them (ADR 0195, `reach`).
+    reach: reach::Shared,
     /// Bots moving to or from another machine (ADR 0187, `moves`).
     moves: moves::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
@@ -341,6 +351,7 @@ impl Engine {
             brains: brain::Brains::default(),
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
+            apps: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             launches: Mutex::default(),
@@ -352,6 +363,7 @@ impl Engine {
             security: std::sync::OnceLock::new(),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
+            reach: reach::Shared::default(),
             moves: moves::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),

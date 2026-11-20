@@ -2,6 +2,7 @@
 export {
   startStallWatchdog,
   takePreviousStallReports,
+  readStallReport,
   defaultStallTiming,
   systemHeartbeat,
   type HeartbeatClock,

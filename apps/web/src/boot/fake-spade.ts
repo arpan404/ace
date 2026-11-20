@@ -4,6 +4,7 @@ import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeLibrary } from "./fake-spade-library.ts";
 import { seedFakeTranscript } from "./fake-spade-transcript.ts";
 import { seedFakeCapabilities } from "./fake-spade-capabilities.ts";
+import { seedFakeReach } from "./fake-spade-reach.ts";
 import { seedFakeWork } from "./fake-spade-work.ts";
 
 /*
@@ -68,6 +69,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     },
   ];
   here.liveModels.set("openrouter", [
+    // A model that turns speech into words, for the mic's one-click setup (ADR 0134, amended).
+    { id: "openai/whisper-1", name: "Whisper" },
     {
       id: "anthropic/claude-sonnet-5.5",
       name: "Claude Sonnet 5.5",
@@ -529,6 +532,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   seedFakeTranscript(here, (back) => {
     rewound = back * 60_000;
   });
+  seedFakeReach(here, now);
   seedFakeCapabilities(
     here,
     (back) => {

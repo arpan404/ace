@@ -115,3 +115,85 @@ proxied through ace, the relay or any hosted service.
   follows the annotations; output is untrusted.
 - A bot not allowed a connector cannot find or run its tools; Spade can by default.
 - An expired sign-in that cannot be refreshed shows as needing reconnect, and its calls say so.
+
+## Amendment 1 (2026-11-19): a bot asks to connect an app, and an expired sign-in heals
+
+Decided by: the owner (2026-11-19: "make it easier for every user to connect apps, and agents
+should be able to ask to connect an app if it's not connected"). Builds on
+[ADR 0154](0154-spade-questions-and-answering-later.md) (question cards, answering later),
+[ADR 0171](0171-spade-decides-on-effects.md) (effects) and
+[ADR 0193](0193-spade-catalogue-says-what-connects.md) (what connects today).
+
+### Context
+
+A bot asked for something in an app the person hadn't connected ("what's on my Linear board?")
+could only say so in words, and the person then went to Settings, found the app, signed in, came
+back to the bot and asked again. A sign-in that expired made the bot's calls fail with "ask the
+person to reconnect it", which reads like an error and leaves the person to retry by hand.
+
+### Decision
+
+1. **Two tools.** Every bot (not helpers) has `apps_find {need}`, which names the catalogue apps
+   that fit a need with their id, name, whether this bot can use them now (`yours`,
+   `connected_for_other_bots`, `needs_reconnect`, `no`) and how they connect (`sign_in`, `key`,
+   `not_available_yet`); and `app_connect_request {app, why}`. The match is by words only: each
+   catalogue entry lists `words`, scored with its name and its category's words, no model call.
+2. **The request is a question card of kind `connect`.** Spade makes it from the catalogue and the
+   person's connectors; the bot gives only the app and a one-line reason. The card holds the
+   app's id and name, the way the person gives it (`sign_in`, `key`, `use` for an app connected
+   already for other bots, `reconnect`, `later` for one not available yet), what the bot may do
+   with it (from the catalogue's effects), the existing connector and where to make a key. As a
+   question card it waits like one, reads as waiting on the person, survives restarts, and takes
+   Later (answer later) and Not now (dismiss) exactly as ADR 0154 says.
+3. **Only the person connects.** The tool takes no key, token, address or client: any other field
+   is refused, and the bot never sees a secret or a connector it wasn't given. A connect card can't
+   be answered with `answers` either; it is answered by
+   `POST /v1/conversations/{id}/questions/{call}/connected {connector, everyone?}`, which Spade
+   accepts only for a signed-in connector of that very app. Spade then lets the bot that asked use
+   it (every bot with `everyone`) before it stores the answer, so the turn it wakes has the app's
+   tools; every other open card in the conversation for the same app reads the same answer.
+4. **No card when there's nothing to ask.** A bot that can use the app already is told so at once.
+   An app that isn't available yet stores its card already dismissed: the card says "Not
+   available yet" and the bot reads that it can't be had, so nothing waits on the person.
+5. **What the bot reads.** Connected: "The person connected <App> as <account>. Its tools are
+   yours now…". Later: that the person will connect it later and a `<question_answer>` follows.
+   Not now: carry on without it, and don't ask again for this task. A late connection arrives as
+   a `<question_answer>` like a late answer.
+6. **An expired sign-in heals.** A call refused for an expired token is renewed and sent once more
+   (it never ran, so this is safe), and the bot only sees the result. When the sign-in can't be
+   renewed, the call isn't answered with a failure: it waits on a `reconnect` card with `retry`,
+   and once the person reconnects and the card is answered, Spade runs the call again. Later or
+   Not now answer it as not run. A call that already started again when Spade restarted reads as
+   an unknown outcome, never run twice. A helper can't ask, so its call reads the failure.
+7. **Where it works.** A worker's or a club member's card stands in its own conversation, whose
+   row reads as needing the person; the grant goes to the bot that asked.
+8. **Connecting is easier everywhere.** `GET /v1/connectors/fit?need=` gives the apps that fit a
+   bot's task, which the app suggests in a bot's apps and when a bot is made from a template, each
+   a click from connected. A bot's apps menu offers Use <App> for apps already connected. A
+   connector's view says when a bot last used it (`last_used_ms`, written at most once a minute)
+   and, for a few minutes after a browser sign-in failed, why (`failed`: `declined`,
+   `needs_admin`, `expired`, `wrong_server`, `failed`), so the app can say what fixes it ("Linear
+   says your account needs admin approval. Ask your admin to allow Spade, then connect again.").
+   A first sign-in that failed is found by its id only, never listed as a connected app.
+
+### Consequences
+
+- Bots can recover a missing or expired app inside the task, and the person never retypes the
+  request or sees a raw 401.
+- Older clients read a connect card as a text question; an answer typed there is the person's
+  reply, and the card's own answer stays with clients that know the kind.
+- A call held on a Reconnect card keeps its started event without a result until it runs again;
+  the transcript treats a call that stopped to ask as no longer running.
+
+### Tests
+
+- A bot asking for an unconnected app shows a connect card and continues after the person
+  connects, with the app's tools; the bot can't connect by itself (a key in the call is refused,
+  nothing connects, a forged answer is refused); Not now and Later let the bot carry on, and a
+  late connection reaches it; an expired sign-in shows Reconnect and retries the call once; an app
+  connected once is given to another bot without signing in again; a Coming soon app's card says
+  it isn't available yet and nothing waits.
+- Matching: an app named in the need comes first, a need without an app name finds apps by what
+  they're for, and a need nothing fits finds nothing; a server's refusal naming an admin reads as
+  `needs_admin`.
+- App: the card's action in words per way, the settled line, the failure words.

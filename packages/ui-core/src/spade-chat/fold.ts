@@ -9,7 +9,12 @@ import type {
   SpadeStoppedKind,
 } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
-import { spadeCardQuestions, type SpadeQuestion, type SpadeQuestionStanding } from "./questions.ts";
+import {
+  spadeCardQuestions,
+  spadeConnectOf,
+  type SpadeQuestion,
+  type SpadeQuestionStanding,
+} from "./questions.ts";
 import {
   emptySpadeCapabilities,
   foldSpadeCapability,
@@ -693,13 +698,29 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ],
       }));
     case "question_asked": {
-      // Asked again (a replay): the card already stands where it was first asked.
-      if (updateQuestion(state, event.call_id, (card) => card)) return false;
+      // A call that stopped to ask the person (its sign-in to reconnect) runs no longer: the bot
+      // waits on them, as for any question.
+      if (state.running.delete(event.call_id))
+        setCall(state, event.reply, event.call_id, undefined, "waiting");
+      const questions = spadeCardQuestions(event.questions, event.question);
+      // A call held on a Reconnect card that was refused again asks again, in the same place.
+      const again = spadeConnectOf(questions)?.retry === true;
+      const known = updateQuestion(state, event.call_id, (card) =>
+        again && card.standing !== "waiting"
+          ? { ...card, questions, standing: "waiting", answers: undefined, typed: false }
+          : card,
+      );
+      if (known) {
+        if (again && state.open?.reply === event.reply)
+          state.question = { reply: event.reply, callId: event.call_id };
+        // Asked again as a replay: the card already stands where it was first asked.
+        return again;
+      }
       const card: { kind: "question"; key: string } & SpadeQuestionCard = {
         kind: "question",
         key,
         callId: event.call_id,
-        questions: spadeCardQuestions(event.questions, event.question),
+        questions,
         standing: "waiting",
         answers: undefined,
         typed: false,

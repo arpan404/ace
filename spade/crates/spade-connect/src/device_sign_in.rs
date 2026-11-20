@@ -303,6 +303,8 @@ impl Connectors {
                     device: Some(device),
                     via: None,
                     notice: None,
+                    last_used_ms: None,
+                    failed: None,
                 })
             })
             .collect()

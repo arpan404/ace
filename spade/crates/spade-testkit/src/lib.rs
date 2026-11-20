@@ -30,7 +30,7 @@ use tokio::net::TcpListener;
 pub use client_document::ClientDocument;
 pub use cloud::FakeCloud;
 pub use connector::FakeConnector;
-pub use media::FakeMedia;
+pub use media::{FakeMedia, SPEECH_REST, SPEECH_START};
 pub use models::FakeModelList;
 
 /// A tool call the fake makes.
