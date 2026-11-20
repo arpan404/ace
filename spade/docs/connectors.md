@@ -189,6 +189,10 @@ retry?}`, with `way` `sign_in`, `key`, `use`, `reconnect` or `later`, and waits 
   again (a call that had started again before a restart reads as an unknown outcome); Later, Not
   now or a typed reply answer it as not run.
 
+In a debug build, `SPADE_DEV_CATALOGUE` names a JSON list of catalogue entries that replace the
+shipped ones with the same id and are marked local, so a development run signs in to a fake app on
+this machine. A release never reads it.
+
 ## Who may use what
 
 Each bot has an allow list. Spade, the main bot, may use every connected connector unless the

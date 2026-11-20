@@ -220,3 +220,15 @@ test("when an app was last used reads in words", () => {
     "Used 1 day ago",
   ]);
 });
+
+const startKind = (url: string) =>
+  parseSpadeConnectStart(JSON.stringify({ id: "local", sign_in_url: url }))?.kind;
+
+test("a sign-in opens only over https, or over http on this machine for a server the person marked theirs", () => {
+  expect(startKind("https://auth.example/authorize")).toBe("sign_in");
+  expect(startKind("http://127.0.0.1:47821/authorize?x=1")).toBe("sign_in");
+  expect(startKind("http://localhost:8080/authorize")).toBe("sign_in");
+  expect(startKind("http://auth.example/authorize")).toBeUndefined();
+  expect(startKind("http://127.0.0.1.evil.example/authorize")).toBeUndefined();
+  expect(startKind("javascript:alert(1)")).toBeUndefined();
+});

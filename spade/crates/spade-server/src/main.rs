@@ -590,7 +590,10 @@ async fn run() -> Result<(), Failure> {
 /// on this machine. Debug builds only: a release never reads it.
 fn dev_catalogue(shipped: Vec<spade_connect::Entry>) -> Vec<spade_connect::Entry> {
     #[cfg(debug_assertions)]
-    if let Some(path) = std::env::var("SPADE_DEV_CATALOGUE").ok().filter(|v| !v.trim().is_empty()) {
+    if let Some(path) = std::env::var("SPADE_DEV_CATALOGUE")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+    {
         let read = std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
             .and_then(|text| {

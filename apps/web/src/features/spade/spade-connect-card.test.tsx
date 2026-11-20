@@ -265,3 +265,25 @@ test("a bot's apps suggest the ones that fit its task, each a click from connect
     expect(spade.sent("POST", "/v1/connectors")).toEqual([{ catalogue: "linear" }]),
   );
 });
+
+test("a browser that blocks the sign-in's tab gets it as a link, and the card still follows it", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const { spade } = await spadeApp("/spade/boards", asking("sign_in"));
+    vi.spyOn(window, "open").mockReturnValue(null);
+    const asked = await card();
+    await userEvent.click(asked.getByRole("button", { name: "Connect Linear" }));
+    const link = await asked.findByRole("link", { name: "Open Linear's sign-in" });
+    expect(link.getAttribute("href")).toBe("https://auth.example/authorize?client=linear");
+    expect(asked.queryByRole("alert")).toBeNull();
+    spade.connectors.finishSignIn("linear", "me@example.com");
+    await vi.advanceTimersByTimeAsync(2_000);
+    await waitFor(() =>
+      expect(spade.sent("POST", "/v1/conversations/c-boards/questions/q1/connected")).toHaveLength(
+        1,
+      ),
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});

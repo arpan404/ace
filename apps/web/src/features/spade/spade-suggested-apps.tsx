@@ -57,7 +57,7 @@ export function SuggestedApps(props: {
       return !connectors.some((each) => each.catalogue === entry.id && hasIt(each));
     })
     // Apps connected already lead: one click and no sign-in. Otherwise Spade's order.
-    .sort(
+    .toSorted(
       (a, b) =>
         Number(connectors.some((each) => each.catalogue === b.id)) -
         Number(connectors.some((each) => each.catalogue === a.id)),
