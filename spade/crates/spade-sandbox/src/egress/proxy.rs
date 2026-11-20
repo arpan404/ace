@@ -299,17 +299,26 @@ impl Proxy {
     /// request is accepted for it, and its open and pending connections end. Its ticket still
     /// ends nothing more when it drops.
     pub fn cut(&self, cut: &dyn Fn(&str) -> bool) {
-        let bots: std::collections::HashSet<String> = self
+        self.cut_where(&|bot, _| cut(bot));
+    }
+
+    /// [`Proxy::cut`] for each live run whose bot and policy `cut` names: a run issued a policy
+    /// that has since narrowed ends, and its next run is issued the narrower one.
+    pub fn cut_where(&self, cut: &dyn Fn(&str, &NetworkPolicy) -> bool) {
+        let live: Vec<(String, Arc<Session>)> = self
             .inner
             .sessions
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .values()
-            .map(|session| session.bot.clone())
+            .iter()
+            .map(|(token, session)| (token.clone(), session.clone()))
             .collect();
         // Asked with no lock held: `cut` may read what decides it.
-        let ended: std::collections::HashSet<String> =
-            bots.into_iter().filter(|bot| cut(bot)).collect();
+        let ended: std::collections::HashSet<String> = live
+            .into_iter()
+            .filter(|(_, session)| cut(&session.bot, &session.policy))
+            .map(|(token, _)| token)
+            .collect();
         if ended.is_empty() {
             return;
         }
@@ -318,8 +327,8 @@ impl Proxy {
             .sessions
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        sessions.retain(|_, session| {
-            let keep = !ended.contains(&session.bot);
+        sessions.retain(|token, session| {
+            let keep = !ended.contains(token);
             if !keep {
                 session.cancel.send_replace(true);
             }

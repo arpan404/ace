@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Condvar, Mutex};
 
 /// The bots whose package is being changed now.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Changing(Arc<(Mutex<HashSet<String>>, Condvar)>);
 
 impl Changing {

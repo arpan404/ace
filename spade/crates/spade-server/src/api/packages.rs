@@ -33,7 +33,7 @@ fn refused(error: &PackageError) -> Response {
     let status = match error {
         PackageError::NotFound | PackageError::NotLinked => StatusCode::NOT_FOUND,
         PackageError::Busy(_) => StatusCode::CONFLICT,
-        PackageError::Invalid(_) => StatusCode::BAD_REQUEST,
+        PackageError::Invalid(_) | PackageError::Unproven(_) => StatusCode::BAD_REQUEST,
         PackageError::Failed(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     let message = error.to_string();
@@ -164,6 +164,7 @@ async fn update(
                 Step {
                     manifest,
                     package,
+                    proof: body.envelope.as_ref().and_then(packages::proof::kept),
                     transaction: body.transaction,
                     time_zone: body.time_zone,
                 },

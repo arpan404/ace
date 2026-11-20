@@ -89,6 +89,11 @@ pub struct Pending {
     pub notes_added: Vec<MadeNote>,
     #[serde(default)]
     pub notes_removed: Vec<MadeNote>,
+    /// What proves a market version's identity: the market's signed manifest and `bot.json` as
+    /// it signed it, kept as received (ADR 0200 §3.2). A step taken again after a crash is taken
+    /// only on it; a local package's has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof: Option<Value>,
 }
 
 /// The link, as stored under `package:<bot>`.
@@ -110,6 +115,10 @@ pub struct Link {
     pub previous: Option<PackageId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub withdrawn: Option<Withdrawn>,
+    /// The hashes of every version of its package withdrawn while it had them: never moved to
+    /// again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub withdrawn_hashes: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending: Option<Pending>,
     /// Stored with the bot by an install that hasn't finished: its ceiling holds from the bot's
@@ -120,6 +129,32 @@ pub struct Link {
 }
 
 impl Link {
+    /// Why the bot may not move to the market version `target`, if it may not: a version
+    /// withdrawn while it had it, or an older one than it has that isn't the version it had just
+    /// before (a rollback goes back one step, to what the person approved before). The version it
+    /// has, unless withdrawn, and any newer one may be moved to. A local package moves freely
+    /// between its own versions.
+    pub fn may_move_to(&self, target: &PackageId) -> Result<(), &'static str> {
+        if target.source == "local" && self.package.source == "local" {
+            return Ok(());
+        }
+        let withdrawn_now = self.withdrawn.is_some() && target.hash == self.package.hash;
+        if withdrawn_now || self.withdrawn_hashes.contains(&target.hash) {
+            return Err("that version was withdrawn");
+        }
+        let back = self
+            .previous
+            .as_ref()
+            .is_some_and(|previous| previous.hash == target.hash);
+        if target.hash == self.package.hash
+            || back
+            || super::manifest::newer(&target.version, &self.package.version)
+        {
+            return Ok(());
+        }
+        Err("a bot rolls back only to the version it had before")
+    }
+
     /// The effects its package declared that the person left on: its ceiling.
     pub fn allows(&self) -> Effects {
         self.manifest

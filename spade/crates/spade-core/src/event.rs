@@ -401,6 +401,15 @@ pub enum Known {
             deserialize_with = "lenient_authorized"
         )]
         launch: Option<Authorized>,
+        /// For a call Spade's classifier raised to the person (ADR 0172): the effect it read in
+        /// it, which the call is then held to as well as to its own (ADR 0200 §3.4). A word this
+        /// build doesn't know reads as [`crate::effect::Effect::Unknown`], never as none.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_effect"
+        )]
+        raised: Option<crate::effect::Effect>,
     },
     /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
     /// events naming `ask` or `full_access` read as `auto_review`.
@@ -894,6 +903,13 @@ fn lenient_authorized<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Option<Authorized>, D::Error> {
     let value = Option::<Value>::deserialize(deserializer)?;
     Ok(value.map(|value| serde_json::from_value(value).unwrap_or(Authorized::Contained)))
+}
+
+fn lenient_effect<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<crate::effect::Effect>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| crate::effect::Effect::declared(&value)))
 }
 
 /// The helper behind an approval asked in its bot's conversation (ADR 0152).

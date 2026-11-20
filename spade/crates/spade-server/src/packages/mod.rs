@@ -9,6 +9,7 @@ pub mod apply;
 mod busy;
 pub mod envelope;
 pub mod held;
+pub mod proof;
 pub mod switches;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -50,6 +51,9 @@ pub enum PackageError {
     Busy(String),
     #[error("{0}")]
     Invalid(String),
+    /// A step to a market version nothing proves: it waits for the person to accept it again.
+    #[error("{0}")]
+    Unproven(String),
     #[error("{0}")]
     Failed(String),
 }
@@ -189,6 +193,7 @@ pub fn installing(manifest: &Manifest, linking: &Linking<'_>) -> Link {
         transaction: linking.transaction.clone(),
         previous: None,
         withdrawn: None,
+        withdrawn_hashes: Vec::new(),
         pending: None,
         installing: true,
     }
@@ -269,6 +274,10 @@ pub fn withdraw(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, P
     let mut link = link_of(engine, bot)?;
     if link.withdrawn.is_some() {
         return Ok(link);
+    }
+    // Never moved to again, whatever asks later.
+    if !link.withdrawn_hashes.contains(&link.package.hash) {
+        link.withdrawn_hashes.push(link.package.hash.clone());
     }
     // Paused first: the reason is only words, the pause is what keeps the bot from acting.
     engine.pause_agent(bot).map_err(failed)?;

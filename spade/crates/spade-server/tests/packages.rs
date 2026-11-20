@@ -422,13 +422,13 @@ async fn an_update_held_while_the_bot_works_survives_a_restart_and_applies_once(
     Ok(())
 }
 
-#[tokio::test]
-async fn an_update_a_crash_cut_short_is_taken_again_at_the_next_start() -> Result {
+/// As a crash leaves an update to 2.0.0: the step written down, nothing of it done yet, with what
+/// proved it, or (as a build before proofs wrote it) nothing.
+async fn crashed_mid_update(proof: Option<Value>) -> Result<(Spade, String)> {
     let spade = Spade::start(Vec::new(), Vec::new()).await?;
     secure(&spade).await?;
     let agent = installed(&spade, hosts_on(), false).await?;
     let bot = text(&agent["id"]);
-    // As a crash leaves it: the step written down, nothing of it done yet.
     let Some(mut link) = spade.engine.bot_package(&bot) else {
         panic!("the bot is linked");
     };
@@ -441,12 +441,18 @@ async fn an_update_a_crash_cut_short_is_taken_again_at_the_next_start() -> Resul
         routines: Default::default(),
         notes_added: Vec::new(),
         notes_removed: Vec::new(),
+        proof,
     });
     spade
         .engine
         .set_bot_package(&bot, &link)
         .unwrap_or_else(|e| panic!("{e}"));
-    let spade = spade.restart(Vec::new(), Vec::new()).await?;
+    Ok((spade.restart(Vec::new(), Vec::new()).await?, bot))
+}
+
+#[tokio::test]
+async fn an_update_a_crash_cut_short_is_taken_again_at_the_next_start() -> Result {
+    let (spade, bot) = crashed_mid_update(Some(sealed("2.0.0"))).await?;
     let (_, body) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
     assert_eq!(body["package"]["version"], "2.0.0", "{body}");
     assert!(body["package"]["updating"].is_null(), "{body}");
@@ -459,6 +465,26 @@ async fn an_update_a_crash_cut_short_is_taken_again_at_the_next_start() -> Resul
         1,
         "{after:?}"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_update_cut_short_that_nothing_proves_waits_for_the_person() -> Result {
+    let (spade, bot) = crashed_mid_update(None).await?;
+    let (_, body) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
+    assert_eq!(body["package"]["version"], "1.0.0", "not taken: {body}");
+    assert_eq!(body["package"]["updating"], "2.0.0", "{body}");
+    assert_eq!(
+        routines(&spade, &bot)
+            .await?
+            .iter()
+            .filter(|(name, _, _)| name == "Evening check")
+            .count(),
+        0
+    );
+    // The person accepts the version again, proved: it moves.
+    let moved = move_to(&spade, &bot, "2.0.0", "update-again").await?;
+    assert_eq!(moved["version"], "2.0.0");
     Ok(())
 }
 

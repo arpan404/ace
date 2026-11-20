@@ -98,6 +98,7 @@ fn installed() -> Link {
         transaction: None,
         previous: None,
         withdrawn: None,
+        withdrawn_hashes: Vec::new(),
         pending: None,
         installing: false,
     }

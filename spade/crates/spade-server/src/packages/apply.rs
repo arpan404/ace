@@ -12,7 +12,7 @@ use spade_core::package::Manifest;
 use spade_core::package::link::{Link, MadeNote, MadeRoutine, PackageId, Pending};
 use spade_core::package::update::{Field, RoutineStep, plan};
 
-use super::{Now, PackageError, failed, link_of, switches};
+use super::{Now, PackageError, failed, link_of, proof, switches};
 use crate::engine::roster::State;
 use crate::engine::{AgentChange, AvatarInput, Engine, NoteScope};
 use crate::routines::{self, By, RoutineInput};
@@ -24,6 +24,9 @@ pub struct Step {
     pub transaction: String,
     /// The IANA zone new routines run in; the machine's when absent.
     pub time_zone: Option<String>,
+    /// What proves a market version: the market's signed manifest and `bot.json` as it signed
+    /// it (`proof`). A step without one to a market version isn't taken.
+    pub proof: Option<serde_json::Value>,
 }
 
 /// Applies an update or rollback to `bot`. The same transaction asked again answers with the
@@ -43,6 +46,11 @@ pub fn update(engine: &Engine, bot: &str, step: Step) -> Result<Link, PackageErr
             "a linked bot updates from a version 3 package".to_owned(),
         ));
     }
+    if let Some(why) = proof::unproven(engine, &step.package, &step.manifest, step.proof.as_ref()) {
+        return Err(PackageError::Unproven(why));
+    }
+    link.may_move_to(&step.package)
+        .map_err(|why| PackageError::Invalid(why.to_owned()))?;
     let view = engine
         .agent_view(bot)
         .map_err(failed)?
@@ -53,18 +61,32 @@ pub fn update(engine: &Engine, bot: &str, step: Step) -> Result<Link, PackageErr
             view.agent.name
         )));
     }
-    // One cut short before, under another transaction, finishes first.
-    let link = match link.pending {
-        Some(_) => resume_pending(engine, bot, link)?,
-        None => link,
+    // One cut short before, under another transaction, finishes first, if what proves it
+    // still holds. One nothing proves is never taken: this step takes over what it did.
+    let mut link = link;
+    let carried = match link.pending.take() {
+        Some(earlier) if unproven_pending(engine, &earlier).is_none() => {
+            link.pending = Some(earlier);
+            link = resume_pending(engine, bot, link)?;
+            None
+        }
+        earlier => earlier,
     };
+    let carried = carried.unwrap_or_else(|| Pending {
+        transaction: String::new(),
+        package: step.package.clone(),
+        manifest: step.manifest.clone(),
+        routines: BTreeMap::new(),
+        notes_added: Vec::new(),
+        notes_removed: Vec::new(),
+        proof: None,
+    });
     let pending = Pending {
         transaction: step.transaction,
         package: step.package,
         manifest: step.manifest,
-        routines: BTreeMap::new(),
-        notes_added: Vec::new(),
-        notes_removed: Vec::new(),
+        proof: step.proof,
+        ..carried
     };
     run(engine, bot, link, pending, step.time_zone)
 }
@@ -79,12 +101,31 @@ pub fn recover(engine: &Engine) {
         let Some(link) = engine.bot_package(&agent.id) else {
             continue;
         };
+        // Taken again only on what proved it; one nothing proves waits for the person.
+        if let Some(why) = link
+            .pending
+            .as_ref()
+            .and_then(|pending| unproven_pending(engine, pending))
+        {
+            tracing::warn!(bot = %agent.id, %why, "a package update cut short waits for the person");
+            continue;
+        }
         if link.pending.is_some()
             && let Err(error) = resume_pending(engine, &agent.id, link)
         {
             tracing::warn!(%error, bot = %agent.id, "a package update cut short waits for the next start");
         }
     }
+}
+
+/// Why nothing proves the step `pending` is to, if nothing does, and whether it may be taken.
+fn unproven_pending(engine: &Engine, pending: &Pending) -> Option<String> {
+    proof::unproven(
+        engine,
+        &pending.package,
+        &pending.manifest,
+        pending.proof.as_ref(),
+    )
 }
 
 fn resume_pending(engine: &Engine, bot: &str, mut link: Link) -> Result<Link, PackageError> {
@@ -259,8 +300,11 @@ fn run(
         link.pending = Some(pending.clone());
         save(engine, bot, &link)?;
     }
-    // A newer version isn't the withdrawn one: what the withdrawal paused runs again.
-    if let Some(withdrawn) = link.withdrawn.take() {
+    // Another version isn't the withdrawn one: what the withdrawal paused runs again. The same
+    // version taken again stays withdrawn.
+    if pending.package.hash != link.package.hash
+        && let Some(withdrawn) = link.withdrawn.take()
+    {
         for id in &withdrawn.paused {
             let _ = routines::update(
                 engine,

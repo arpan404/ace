@@ -24,19 +24,29 @@ pub(super) fn not_used(name: &str) -> String {
     )
 }
 
-/// Why the call may not start now under the ceiling over `id` as it is now; `Some(None)` when it
-/// may, and `None` when Stop came while it was read.
-pub(super) async fn refused_now(
+/// What the ceiling reads a call as, read before it starts: its declared effect, what a command
+/// runs and where, and whether it reaches a server. Read without any lock (it may wait on a
+/// command's files); checked against the ceiling as it is at the moment the call starts.
+pub(super) struct Reading {
+    declared: Option<effect::Effect>,
+    command: Option<Class>,
+    place: Place,
+    remote: bool,
+}
+
+/// The call's [`Reading`], when a package's ceiling is over `id`; `Some(None)` when none is, and
+/// `None` when Stop came while it was read.
+pub(super) async fn read(
     engine: &Engine,
     id: &str,
     call_id: &str,
     name: &str,
     arguments: &Value,
     stop: &mut watch::Receiver<bool>,
-) -> Option<Option<String>> {
-    let Some((bot, allows)) = engine.ceiling(id) else {
+) -> Option<Option<Reading>> {
+    if engine.ceiling(id).is_none() {
         return Some(None);
-    };
+    }
     let tool = engine.tools.get_for(id, name);
     let (declared, classed) = match &tool {
         Some(tool) => {
@@ -63,12 +73,73 @@ pub(super) async fn refused_now(
         Runs::AsksOutside => Place::AsksOutside,
         Runs::Outside => Place::Unsandboxed(classed.class),
     };
-    let ceiling = effect::ceiling::Ceiling { bot: &bot, allows };
-    Some(effect::ceiling_holds(
-        Some(ceiling),
+    Some(Some(Reading {
         declared,
-        outside_class(&classed),
+        command: outside_class(&classed),
         place,
         remote,
-    ))
+    }))
+}
+
+/// Why the ceiling over `id`, as it is now, refuses a call read as `reading`, with `raised` (what
+/// Spade's classifier read in it when it raised it to the person) held to it as well.
+pub(super) fn refusal(
+    engine: &Engine,
+    id: &str,
+    reading: &Reading,
+    raised: Option<effect::Effect>,
+) -> Option<String> {
+    let (bot, allows) = engine.ceiling(id)?;
+    let ceiling = Some(effect::ceiling::Ceiling { bot: &bot, allows });
+    let declared = match (reading.declared, raised) {
+        (Some(declared), Some(raised)) => Some(declared.max(raised)),
+        (declared, None) => declared,
+        (None, raised) => raised,
+    };
+    effect::ceiling_holds(
+        ceiling,
+        declared,
+        reading.command,
+        reading.place,
+        reading.remote,
+    )
+}
+
+/// Why the ceiling refuses a call the classifier raised to the person for `raised`, if it does:
+/// a payment or send the package never declared is refused, never asked (ADR 0200 §3.4).
+pub(super) fn raised_refusal(
+    ceiling: Option<&(String, spade_core::effect::ceiling::Effects)>,
+    raised: Option<effect::Effect>,
+    place: Place,
+    remote: bool,
+) -> Option<String> {
+    let (bot, allows) = ceiling?;
+    effect::ceiling_holds(
+        Some(effect::ceiling::Ceiling {
+            bot,
+            allows: *allows,
+        }),
+        Some(raised?),
+        None,
+        place,
+        remote,
+    )
+}
+
+/// Holds the package of every packaged bot whose ceiling is over `id`, so no switch of theirs
+/// changes between the ceiling's last check and the call's start. Waited for off the async
+/// workers; let go when dropped.
+pub(super) async fn hold(engine: &Engine, id: &str) -> Vec<crate::packages::Busy> {
+    let mut holders = engine.ceiling_holders(id);
+    holders.sort();
+    holders.dedup();
+    let changing = engine.package_busy.clone();
+    tokio::task::spawn_blocking(move || {
+        holders
+            .iter()
+            .map(|bot| changing.hold(bot))
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default()
 }

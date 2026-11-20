@@ -115,6 +115,17 @@ pub fn stored(
     stored_at(events, call_id, None, launch)
 }
 
+/// The effect Spade's classifier read in the call `call_id` when it raised it to the person, if it
+/// did: its latest verdict's.
+pub fn raised(events: &[Event], call_id: &str) -> Option<crate::effect::Effect> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::CallReviewed {
+            call_id: c, raised, ..
+        }) if c == call_id => Some(*raised),
+        _ => None,
+    })?
+}
+
 /// A verdict already stored for the call, reused only where it was given: for a driving step,
 /// the place it acts in now must be the one it was reviewed at; a verdict with no place, or
 /// another, is no verdict for it. Any other call has no place, as when it was reviewed.
@@ -285,6 +296,7 @@ mod tests {
                 bound: None,
                 acts_in: acts_in.map(Box::new),
                 launch: None,
+                raised: None,
             })]
         };
         let allowed = Some((Verdict::Allow, String::new()));
@@ -324,6 +336,7 @@ mod tests {
                 bound: None,
                 acts_in: None,
                 launch,
+                raised: None,
             })]
         };
         let allowed = Some((Verdict::Allow, String::new()));

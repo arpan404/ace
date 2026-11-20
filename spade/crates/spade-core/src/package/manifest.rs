@@ -951,7 +951,7 @@ fn host(text: &str) -> bool {
 }
 
 /// Whether dotted version `wanted` is newer than `have` (`0.0.30` over `0.0.25`).
-fn newer(wanted: &str, have: &str) -> bool {
+pub fn newer(wanted: &str, have: &str) -> bool {
     let parts = |v: &str| -> Vec<u64> {
         v.trim_start_matches('v')
             .split(['.', '-', '+'])

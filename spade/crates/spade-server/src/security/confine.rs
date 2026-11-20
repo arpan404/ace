@@ -31,7 +31,11 @@ impl Confine for Security {
             return Ok(Confinement::None);
         }
         let settings = self.bot(&bot);
-        let held = self.effective(&bot);
+        // The policy is read and its ticket issued as one step against a narrowing
+        // (`Security::narrowing`): a switch turned off either comes first, and this run gets the
+        // narrower policy, or after, and cuts this ticket.
+        let issuing = self.egress.lock().unwrap_or_else(|p| p.into_inner());
+        let [commands_policy, plugins_policy] = self.issued(&bot);
         let folders: Vec<(PathBuf, bool)> = self
             .effective_grants(&bot)
             .into_iter()
@@ -42,22 +46,17 @@ impl Confine for Security {
             .collect();
         let toolchain_dirs: Vec<PathBuf> = settings.toolchains.iter().map(PathBuf::from).collect();
         let (network, also_read, scratch) = match kind {
-            Kind::Command => (held.network, Vec::new(), Vec::new()),
-            Kind::Terminal { scratch } => (held.network, Vec::new(), vec![scratch.clone()]),
-            Kind::Plugin { root } => (held.plugin_network, vec![root.clone()], Vec::new()),
-        };
-        // Under a package's ceiling without `network`, the bot's runs reach nothing, whatever
-        // its own or the machine's policy says (ADR 0200 §3.4).
-        let network = if self.reaches_nothing(&bot) {
-            spade_sandbox::egress::NetworkPolicy::off()
-        } else {
-            network
+            Kind::Command => (commands_policy, Vec::new(), Vec::new()),
+            Kind::Terminal { scratch } => (commands_policy, Vec::new(), vec![scratch.clone()]),
+            Kind::Plugin { root } => (plugins_policy, vec![root.clone()], Vec::new()),
         };
         let run = self.ids.next("run");
+        self.issuing(&bot);
         let ticket = match (&self.proxy, network.mode) {
             (Some(proxy), Mode::AllowList | Mode::Open) => Some(proxy.open(&bot, &run, network)),
             _ => None,
         };
+        drop(issuing);
         let policy = Policy::build(&Facts {
             home: self.home.clone(),
             spade_data: self.spade_data.clone(),

@@ -63,12 +63,22 @@ in every mode, Full access too. What it holds a call to:
   the person every call: no Always allow, typed grant (`git_push`, `pr_comment`) or kept answer
   carries to it.
 - It is read again right before a call starts, so one decided, approved, held on a Reconnect card
-  or queued while a switch was on never runs after the person turned it off.
+  or queued while a switch was on never runs after the person turned it off. The call is read
+  first (a command's files may be waited on), then checked and started, its first poll included,
+  with every packaged bot over it held, so no switch changes in between.
+- A send, payment or access change Spade's classifier reads in a call is stored with its verdict
+  (`raised`): refused, not asked, when the package never declared it or the person turned it off,
+  and held to again when a call the person allowed starts.
+- A run's egress ticket is issued from the policy read in the same step, against a package commit
+  that narrows what bots reach; the commit ends every live ticket whose policy is no longer what
+  its bot would be issued (a host turned off while another stays on included).
 
 A worker or helper under a packaged bot is held to every packaged bot above it. A bot a packaged
 bot makes for the person (`bot_create {kind: standing}`) is held to its maker's ceiling: the one
 it was made under is stored with it (`package_ceiling:<bot>`, in the bot's own transaction, and
-moved with it), narrowed by its maker's as it is now while the maker is there.
+moved with it), narrowed by its maker's as it is now while the maker is there. That stored ceiling is narrowed
+to what its makers allow after every package commit and before the bot moves, so it never widens
+again once the maker is gone or on another machine.
 
 `uses` narrows the bot to its modules' tools, the ones the turn loop answers itself included:
 with `uses: []` there is no `tool_search`, `ask_user` or `app_connect_request`, and an app's or
@@ -84,7 +94,12 @@ canonical JSON, its files' content hash, and the sha256 of `bot.json`'s exact te
 `package` the caller sends is believed only when it matches. Without a signed manifest a version 3
 package installs as a local package, `local/<name>` at version `local`: linked, so its ceiling
 holds, but claiming no publisher and no market version. A local bot moves only between local
-versions; a market bot only to versions of the same package the market signed.
+versions; a market bot only to versions of the same package the market signed, never to one
+withdrawn while it had it (`withdrawn_hashes`), and back only to the version it had just before
+(`previous`); taking the same version again doesn't end a withdrawal. An update keeps its proof
+wherever it waits (held while the bot works, written down before a crash) and is taken again only
+on it; one recorded with none, or whose proof no longer verifies, waits for the person to accept
+the version again.
 
 ## Install, update and switches, each one step
 

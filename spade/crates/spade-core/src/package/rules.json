@@ -260,6 +260,34 @@
         "uses": ["task", "telepathy"]
       },
       "refused": "telepathy"
+    },
+    {
+      "name": "effects as an object",
+      "with": {
+        "effects": {}
+      },
+      "refused": "effects is a list"
+    },
+    {
+      "name": "effects as a word",
+      "with": {
+        "effects": "network"
+      },
+      "refused": "effects is a list"
+    },
+    {
+      "name": "triggers as an object",
+      "with": {
+        "triggers": {}
+      },
+      "refused": "triggers is a list"
+    },
+    {
+      "name": "uses as a word",
+      "with": {
+        "uses": "task"
+      },
+      "refused": "uses lists runtime modules"
     }
   ]
 }

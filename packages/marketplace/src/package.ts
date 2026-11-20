@@ -231,6 +231,18 @@ export function readPackage(
         problems.push(
           problem(`Needs a newer Spade: this one has no ${JSON.stringify(module)} module`),
         );
+  // The raw shape first, as Spade's reader checks it: a list where a list is meant, never an
+  // object or a word read as nothing.
+  for (const [field, most] of [
+    ["effects", 32],
+    ["triggers", 40],
+  ] as const) {
+    const raw = json[field];
+    if (raw !== undefined && (!Array.isArray(raw) || raw.length > most))
+      problems.push(problem(`${field} is a list of at most ${most}`));
+  }
+  if (json["uses"] !== undefined && !Array.isArray(json["uses"]))
+    problems.push(problem("uses lists runtime modules"));
   const effects: unknown[] = Array.isArray(json["effects"]) ? json["effects"] : [];
   const kept: unknown[] = [];
   effects.forEach((raw, at) => {
