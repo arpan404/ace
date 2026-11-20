@@ -122,6 +122,9 @@ pub const PER_BOT_SETTINGS: &[&str] = &[
     "package_ceiling:",
     // The accent the person chose for it, over its package's (ADR 0200 §5.3).
     "bot_style:",
+    // The person turned calls to its contracts from their other bots off (ADR 0200 §7): a
+    // move never turns them back on.
+    "contracts_incoming_off:",
     "security:",
     "knowledge_bytes.",
 ];
