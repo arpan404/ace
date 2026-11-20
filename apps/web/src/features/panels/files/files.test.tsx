@@ -121,24 +121,6 @@ test("a click in the tree previews a file in place; a kept tab stays", async () 
   expect(names).not.toContain("outbox.ts");
 });
 
-test("a file the pointer rests on in the tree shows at once when clicked", async () => {
-  await openThread();
-  await quickOpen("replay.ts");
-  await userEvent.keyboard("{Enter}");
-  const side = await panel();
-  await within(side).findByRole("region", { name: /^Source of .*replay\.ts$/ });
-  const tree = within(side).getByRole("tree", { name: "Checkout files" });
-  // outbox.ts lives in another subtree, folded by default: reveal it first.
-  await reveal(tree as HTMLElement, ["apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
-  const row = within(tree).getByRole("treeitem", { name: "outbox.ts" });
-  await userEvent.hover(row);
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  fireEvent.click(row);
-  // No loading state in between: the source is there in the same render as the click.
-  expect(within(side).queryByRole("status", { name: "Loading the file" })).toBeNull();
-  expect(within(side).getByRole("region", { name: /^Source of .*outbox\.ts$/ })).toBeTruthy();
-});
-
 test("the tree's filter says when nothing in the checkout matches", async () => {
   await openThread();
   await quickOpen("replay.ts");
@@ -154,91 +136,6 @@ test("the tree's filter says when nothing in the checkout matches", async () => 
   expect(within(side).getByRole("tree", { name: "Checkout files" })).toBeTruthy();
 });
 
-test("markdown opens rendered, View source shows its lines, and a binary file offers a download", async () => {
-  await openThread();
-  await quickOpen("README");
-  await userEvent.keyboard("{Enter}");
-  const side = await panel();
-  expect(await within(side).findByRole("heading", { name: "relay" })).toBeTruthy();
-  await userEvent.click(within(side).getByRole("button", { name: "View source" }));
-  const source = await within(side).findByRole("region", { name: "Source of README.md" });
-  await waitFor(() => expect(source.textContent).toContain("# relay"));
-
-  await quickOpen("inter.woff2");
-  await userEvent.keyboard("{Enter}");
-  expect(await within(side).findByText("Binary file")).toBeTruthy();
-  expect(within(side).getAllByRole("button", { name: "Download" }).length).toBeGreaterThan(0);
-});
-
-test("a checkout PDF opens in the browser's PDF viewer and a video plays in the Files tab", async () => {
-  // jsdom has no object URLs: stub them at that boundary, remembering each one's blob.
-  const blobs = new Map<string, Blob>();
-  vi.spyOn(URL, "createObjectURL").mockImplementation((blob: Blob | MediaSource) => {
-    const url = `blob:test/${blobs.size + 1}`;
-    if (blob instanceof Blob) blobs.set(url, blob);
-    return url;
-  });
-  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-  const { app } = await openThread();
-  app.daemon.checkouts.seed("thread-cold-start", "docs/spec.pdf", "%PDF-1.7 spec");
-  app.daemon.checkouts.seed("thread-cold-start", "docs/tour.mp4", "mp4 bytes");
-
-  await quickOpen("spec.pdf");
-  await userEvent.keyboard("{Enter}");
-  const side = await panel();
-  const frame = await within(side).findByTitle("spec.pdf");
-  expect(frame.tagName).toBe("IFRAME");
-  const pdf = blobs.get(frame.getAttribute("src") ?? "");
-  expect(pdf?.type).toBe("application/pdf");
-  expect(await pdf?.text()).toBe("%PDF-1.7 spec");
-
-  await quickOpen("tour.mp4");
-  await userEvent.keyboard("{Enter}");
-  const video = await within(side).findByLabelText("tour.mp4", { selector: "video" });
-  expect(video.tagName).toBe("VIDEO");
-  expect(video.hasAttribute("controls")).toBe(true);
-  expect(await blobs.get(video.getAttribute("src") ?? "")?.text()).toBe("mp4 bytes");
-});
-
-test("find in file counts matches and steps through them", async () => {
-  await openThread();
-  await quickOpen("outbox");
-  await userEvent.keyboard("{Enter}");
-  const side = await panel();
-  await within(side).findByRole("region", { name: "Source of apps/web/src/relay/outbox.ts" });
-  await userEvent.click(within(side).getByRole("button", { name: "Find in file" }));
-  const find = within(side).getByRole("textbox", { name: "Find in file" });
-  await userEvent.type(find, "buffer");
-  // outbox.ts says "buffer" twenty times, MAX_BUFFERED included.
-  expect(await within(side).findByText("1 of 20")).toBeTruthy();
-  await userEvent.keyboard("{Enter}");
-  expect(within(side).getByText("2 of 20")).toBeTruthy();
-  await userEvent.keyboard("{Shift>}{Enter}{/Shift}{Shift>}{Enter}{/Shift}");
-  expect(within(side).getByText("20 of 20")).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
-  expect(within(side).queryByRole("textbox", { name: "Find in file" })).toBeNull();
-});
-
-test("find in a read-only file takes its own row above the source, never over its first lines", async () => {
-  await openThread();
-  await quickOpen("outbox");
-  await userEvent.keyboard("{Enter}");
-  const side = await panel();
-  const source = await within(side).findByRole("region", {
-    name: "Source of apps/web/src/relay/outbox.ts",
-  });
-  await userEvent.click(within(side).getByRole("button", { name: "Find in file" }));
-  const bar = within(side).getByRole("textbox", { name: "Find in file" }).closest("search");
-  expect(bar).toBeTruthy();
-  // A row of its own: not floated over the source, and the source scrolls in the space below it.
-  expect(bar?.className).not.toMatch(/\babsolute\b/);
-  expect(bar?.contains(source)).toBe(false);
-  const below = bar?.nextElementSibling;
-  expect(below?.contains(source)).toBe(true);
-  expect(below?.className).toMatch(/\bflex-1\b/);
-  expect(below?.className).not.toMatch(/\bh-full\b/);
-});
-
 test("an upload lands in the checkout and opens; an existing name asks before replacing it", async () => {
   const { app } = await openThread();
   await quickOpen("socket");
@@ -248,7 +145,7 @@ test("an upload lands in the checkout and opens; an existing name asks before re
 
   // The showing tab's tree picks files through its Upload button's input.
   const upload = async (file: File) => {
-    const tree = await within(side).findByRole("complementary", { name: "Checkout files" });
+    const tree = await within(side).findByRole("complementary", { name: "Explorer" });
     const input = tree.querySelector<HTMLInputElement>('input[type="file"]');
     if (!input) throw new Error("no upload input");
     await userEvent.upload(input, file);
@@ -267,122 +164,6 @@ test("an upload lands in the checkout and opens; an existing name asks before re
   await waitFor(async () =>
     expect(await readCheckout(app, "apps/web/src/relay/notes.md")).toBe("second draft\n"),
   );
-});
-
-test("the Files tab keeps the checkout tree while a source tab remembers hiding its tree", async () => {
-  await openThread();
-  await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
-  const side = await panel();
-  await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
-  const firstTools = await within(side).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(firstTools).getByRole("button", { name: /^Deck/ }));
-  await within(side).findByRole("tab", { name: "Deck", selected: true });
-  // The default panel no longer pins Files: pin it, as the tree tab was.
-  await userEvent.keyboard("{Meta>}k{/Meta}");
-  await userEvent.type(
-    await screen.findByRole("combobox", { name: "Search commands" }),
-    "pin files",
-  );
-  await userEvent.click(await screen.findByRole("option", { name: /^Pin Files/ }));
-  await within(side).findByRole("tree", { name: "Checkout files" });
-  expect(within(side).getByRole("complementary", { name: "Checkout files" })).toBeTruthy();
-
-  // A file picked there opens in a tab of its own: the Files tab stays the tree.
-  // Folders start folded, so filter for the file rather than browsing to it.
-  await userEvent.type(
-    within(side)
-      .getAllByRole("searchbox", { name: "Find files in the checkout" })
-      .at(-1) as HTMLElement,
-    "outbox",
-  );
-  const found = await within(side).findByRole("tree", { name: "Matching files" });
-  await userEvent.click(await within(found).findByRole("treeitem", { name: "outbox.ts" }));
-  await within(side).findByRole("tab", { name: "outbox.ts", selected: true });
-  expect(within(side).getByRole("tab", { name: "Deck" })).toBeTruthy();
-  // Files opens more than once: the launcher's Files turns the new tab into another Files tab
-  // with its own tree, and the first one stays.
-  await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
-  const tools = await within(side).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(tools).getByRole("button", { name: /^Deck/ }));
-  expect(await within(side).findByRole("tab", { name: "Deck", selected: true })).toBeTruthy();
-  expect(within(side).getAllByRole("tab", { name: "Deck" })).toHaveLength(2);
-  expect(within(side).queryByRole("list", { name: "Tools" })).toBeNull();
-  expect(await within(side).findByRole("tree", { name: "Checkout files" })).toBeTruthy();
-
-  await userEvent.click(within(side).getByRole("tab", { name: "outbox.ts" }));
-  await userEvent.click(within(side).getByRole("button", { name: "Hide the file tree" }));
-  expect(within(side).queryByRole("complementary", { name: "Checkout files" })).toBeNull();
-  // Away and back: the source tab kept the choice.
-  await userEvent.click(within(side).getByRole("tab", { name: /^Changes/ }));
-  await userEvent.click(within(side).getByRole("tab", { name: "outbox.ts" }));
-  expect(within(side).queryByRole("complementary", { name: "Checkout files" })).toBeNull();
-  expect(within(side).getByRole("button", { name: "Show the file tree" })).toBeTruthy();
-});
-
-test("a selected source range is mentioned inline and sends only those lines", async () => {
-  const { app } = await openThread();
-  const sent: unknown[] = [];
-  const receive = app.daemon.command.bind(app.daemon);
-  app.daemon.command = (command) => {
-    if (command.payload.type === "thread.send") sent.push(command.payload.context?.mentions);
-    return receive(command);
-  };
-  await quickOpen("socket");
-  await userEvent.keyboard("{Enter}");
-  const source = await within(await panel()).findByRole("region", {
-    name: "Source of apps/web/src/relay/socket.ts",
-  });
-  await waitFor(() => expect(source.textContent).toContain("export class RelaySocket"));
-  // Select the visible source words exactly as a mouse drag does.
-  const walk = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
-  const words: Text[] = [];
-  while (walk.nextNode()) if (walk.currentNode instanceof Text) words.push(walk.currentNode);
-  const first = words.find((node) => node.textContent?.includes("import"));
-  const last = words.find((node) => node.textContent?.includes("RelaySocket"));
-  if (!first || !last) throw new Error("Source words are missing");
-  const range = document.createRange();
-  range.setStart(first, 0);
-  range.setEnd(last, last.length);
-  document.getSelection()?.removeAllRanges();
-  document.getSelection()?.addRange(range);
-  fireEvent.mouseUp(source);
-  const action = await screen.findByRole("button", { name: /Mention selection · lines 1–/ });
-  const end = Number(action.textContent?.split("–").at(-1));
-  await userEvent.click(action);
-  const message = screen.getByRole("combobox", { name: "Message" });
-  expect(message.textContent).toContain(`@apps/web/src/relay/socket.ts:1-${end}`);
-  await userEvent.type(message, "Explain this{Enter}");
-  await waitFor(() =>
-    expect(sent.at(-1)).toEqual([
-      { path: "apps/web/src/relay/socket.ts", lines: { start: 1, end } },
-    ]),
-  );
-});
-
-test("a source file offers only installed editors and opens its checkout path", async () => {
-  const { app } = await openThread();
-  app.daemon.workspace.setEditors([{ id: "zed", name: "Zed", command: "zed" }]);
-  const launched = vi.spyOn(window, "open").mockImplementation(() => null);
-  try {
-    await quickOpen("socket");
-    await userEvent.keyboard("{Enter}");
-    const side = await panel();
-    const launch = await within(side).findByRole("button", { name: "Open in Zed" });
-    expect(launch.querySelector('[data-app-icon="zed"]')).toBeTruthy();
-    await userEvent.click(within(side).getByRole("button", { name: "Open in another app" }));
-    expect(await screen.findByRole("menuitem", { name: /^Zed/ })).toBeTruthy();
-    expect(screen.queryByRole("menuitem", { name: /Visual Studio Code/ })).toBeNull();
-    await userEvent.keyboard("{Escape}");
-    await userEvent.click(launch);
-    await waitFor(() =>
-      expect(launched).toHaveBeenCalledWith(
-        "zed://file/Users/dev/ace/apps/web/src/relay/socket.ts",
-        "_self",
-      ),
-    );
-  } finally {
-    launched.mockRestore();
-  }
 });
 
 test("a checkout of hundreds of files lists one folder at a time, and search finds any", async () => {

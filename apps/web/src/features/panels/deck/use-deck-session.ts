@@ -62,6 +62,19 @@ export function useDeckSession(
   // The disk moved: a watched folder changed, an ace file operation, or the watcher fell behind.
   const open = useRef(paths);
   open.current = paths;
+  // A write that landed after a file was read but before its folder was watched gets no notice:
+  // once the daemon has a folder newly, its open files look at the disk once more.
+  useEffect(() => {
+    let confirmed = new Set<string>();
+    return watch.listen((folders) => {
+      const fresh = folders.filter((folder) => !confirmed.has(folder));
+      confirmed = new Set(folders);
+      if (fresh.length === 0) return;
+      const added = new Set(fresh);
+      for (const path of open.current)
+        if (added.has(folderOf(path))) registry.diskChanged({ root: threadId, path });
+    });
+  }, [watch, registry, threadId]);
   useEffect(
     () =>
       client.onMessage((message) => {
