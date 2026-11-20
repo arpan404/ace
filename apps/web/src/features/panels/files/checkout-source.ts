@@ -1,4 +1,4 @@
-import { readFile, type ClientApi } from "@ace/client";
+import { readFile, type ClientApi, type ReadPriority } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
 import { wholeFileBytes } from "@/components/attachment-content.ts";
 import { describeFile } from "@/components/attachment-kind.ts";
@@ -67,8 +67,16 @@ export interface CheckoutSource {
     signal?: AbortSignal,
   ): Promise<{ paths: string[]; ready: boolean }>;
   stat(threadId: string, path: string, signal?: AbortSignal): Promise<Stat>;
-  /** A file to show: text, an image, a PDF or media, or why it can't be shown. */
-  read(threadId: string, path: string, signal?: AbortSignal): Promise<FileContent>;
+  /**
+   * A file to show: text, an image, a PDF or media, or why it can't be shown. `priority` places
+   * it among the connection's other reads ("visible" by default; a prefetch is "background").
+   */
+  read(
+    threadId: string,
+    path: string,
+    signal?: AbortSignal,
+    priority?: () => ReadPriority,
+  ): Promise<FileContent>;
   /**
    * Put `file` at `path`. `expected` is the version it replaces (null: nothing is there); a
    * file that appeared or changed meanwhile fails with CONFLICT instead of being overwritten.
@@ -143,7 +151,7 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
       return { paths: result.paths.filter(isCheckoutPath), ready: result.ready };
     },
     stat,
-    async read(threadId, path, signal) {
+    async read(threadId, path, signal, priority) {
       guard(path);
       const media = mediaOf(path);
       const image = imageType(path);
@@ -152,7 +160,7 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
       const read = await readFile(
         client,
         { threadId: ThreadId.parse(threadId), path, maxSize },
-        options(signal),
+        { ...options(signal), ...(priority ? { priority } : {}) },
       ).catch((error: unknown) => {
         throw checkoutError(error);
       });
