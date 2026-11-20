@@ -103,3 +103,17 @@ The "Local authentication and accounts" section allows extra accounts for an age
 - An added account's model catalog is registered only once it is signed in, validates its home before each discovery, and carries no sign-in method. A lapsed login is reported rather than starting a browser sign-in. The declared `agy /usage` source reads the CLI's default login and is not applied to added accounts.
 
 Other agents stay single-account until their own home and credential store are verified the same way.
+
+## Amendment: models before the first thread (owner, 2026-11-19)
+
+A generic ACP agent had no model catalog row until one of its threads opened a session, so a newly added agent showed no models and no access offers in the picker. Its row's identity also hashed the session's working folder, so a thread in another project counted as another identity and deleted the cached row. The owner decided to list an agent's models before its first thread.
+
+**Decision.**
+
+- **One row per agent and account, in every project.** The working folder is no part of an ACP row's identity. A row an older build wrote with its folder in the identity is kept while its revision (agent, installation, account instance, login and profile revisions, installed version) still matches; the next write stores the new identity. Nothing is rewritten at open.
+- **Rows at daemon start, with no launch.** Each approved installation gets its catalog row at start from the stored inventory alone: no process, digest or probe, bounded by the inventory. An agent installed while the daemon runs gets its row at install. Antigravity's installation keeps its own provider and rows. The agent's default account (its CLI login) is registered the first time ace needs it, as before.
+- **A restart serves the cached row.** A restored ACP row is never refreshed by the restart, the background revalidation tick or a sign-in. Its sessions keep it current, as before.
+- **The probe.** Loading a row before a thread opens runs a metadata-only probe: `initialize`, then `session/new` with no MCP servers, then selecting each listed model to read its options (configuration only). It never sends `session/prompt` or `authenticate`, and the process stops at once. It opens in ace's own folder, `<dataDir>/acp-model-probe`, made when a probe starts, never in a project.
+- **When it runs.** An agent with a reviewed compatibility profile is probed once, the first time a picker or `models` listing reads a row that has never loaded. An unprofiled agent keeps this ADR's rule against unasked empty sessions: it is probed only when the person asks for that agent's models, a `models.refresh` naming its own row (the picker's Load models). A refresh of every model or every ACP agent does not start it. Either way the result is cached, and an agent that lists no models is cached as a loaded, empty row, not retried.
+- **Folder trust.** ace grants the probe folder no trust: it sets no trust variable and writes no trust file. Gemini CLI hides its privileged approval modes in a folder it does not trust, so a Gemini probe in an untrusted folder keeps its models but stores no modes. The row then offers no access modes until a session in the person's project reports them. A folder the person trusts (directly or through a parent) is honoured, and the probe's modes are kept.
+- **Protocol.** `ModelInstanceStatus.modelProbe` (`automatic` or `on-request`) tells clients which rule applies, so a picker can offer Load models for an unprofiled agent that has not loaded.
