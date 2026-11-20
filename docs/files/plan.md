@@ -321,6 +321,24 @@ lowercase_query`, `whole_word_skips_substrings`, `include_and_exclude_globs`,
 `sink_false_stops_search`, `long_line_preview_is_bounded`. Bench: literal search over this repo
 (`apps/` and `packages/`), report time and bytes.
 
+Confinement: each file is opened through its folder's handle with no link following, then
+`files_safe::Root::is_at` proves before any read that its checkout path, resolved from the root
+with no link followed anywhere and nothing outside the root reached, is the open file (Linux
+`openat2` with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`, macOS `fstatat` with
+`AT_SYMLINK_NOFOLLOW_ANY`, a no-link walk from the root elsewhere). Folders open with
+`Root::open_dir_unlinked`, and the `.gitignore` files above a nested checkout are read only as
+regular files, never through a link. Accepted limits, as for files-io's save:
+
+- A file or a folder above it moved out of the checkout in the instant between that per-file
+  proof and the read can be read once: no check made before a read can cover a move after it, and
+  main had the same window.
+- If the checkout root is renamed and its path replaced by a link to where it went, the search
+  reads that same moved checkout through its root handle, never another tree's data.
+- Mount points the person makes inside the checkout (bind mounts) are searched, as `rg` and
+  VS Code search them: the person put that tree there.
+- Bench: `cargo bench -p ace-files --bench search` measures ace end to end next to `rg` on a
+  generated 200k-file tree (see the bench's header for its options).
+
 ### files-io
 
 Crates: `files-safe`, `cap-std`, `encoding_rs`, `chardetng`, `tempfile`, `content_inspector` (or
