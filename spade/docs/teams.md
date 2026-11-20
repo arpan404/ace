@@ -227,6 +227,10 @@ holds their order and versions. The market's seed lists the same folders.
 first turn ([agents.md](agents.md)); `POST /v1/agents` may give its own `personality`, which
 wins. `schedule` is a phrase routines read (`weekdays at 8:00`).
 
+A bot made from a template stays linked to it: when this Spade ships a newer version of the
+template, the bot's package offers it (`template_update`), and it moves only through the update
+review the person accepts ([packages.md](packages.md), The ten templates).
+
 `POST /v1/agents` takes `template` (an id) and makes the bot through the package install path:
 it is linked to `package {source: "spade", name: <id>, version, hash}` (the hash is ADR 0014's
 over the folder's files), its schedule triggers become routines in `time_zone` (an IANA zone in

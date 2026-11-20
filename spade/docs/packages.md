@@ -120,15 +120,20 @@ name, version, hash}` (checked against the envelope, refused without one), `swit
 bool}` (missing is off), `grants`, `from_recipe`, `start_routines`: makes the linked bot. Schedule, event and webhook triggers start paused unless
   `start_routines`. A failure part-way removes the bot and whatever its switches made.
 - `GET /v1/agents/{id}/package`: `{package}` with `version`, `previous`, `withdrawn {reason}`,
-  `updating`, `held {version}`, `effects [{key, effect, hosts, grant, why, on}]` and `limits`. The
-  agent view carries the same under `package`.
+  `updating`, `held {version}`, `template_update {version}` (a bot from an ace template whose
+  newer version this Spade ships), `effects [{key, effect, hosts, grant, why, on}]` and `limits`.
+  The agent view carries the same under `package`.
+- `GET /v1/agents/{id}/package/template`: that newer template version, for the update review:
+  `{package, recipe, plan, effects}` (the switches as the update would leave them); `404` when
+  there is none.
 - `POST /v1/agents/{id}/package/plan {recipe}`: `{plan}`, what moving to that manifest does:
   `name`, `task`, `face`, `personality` each `same`, `replace` or `kept` (the person or the bot
   changed it), routine steps (`add` paused, `replace`, `remove`, `kept`), `notes_kept`,
   `asks_more` (effect keys that start off) and `off`.
 - `POST /v1/agents/{id}/package {recipe, envelope, package, transaction}` (the envelope as
-  above; a local bot's without one): applies an update or a
-  rollback, the same path both ways. While the bot works or waits on the person it isn't refused:
+  above; a local bot's without one; a template bot's with only `package`, which must be exactly
+  the version `template_update` offers): applies an update or a rollback, the same path both
+  ways. While the bot works or waits on the person it isn't refused:
   it answers `202` with `held {version}`, the step is stored (`bot_package_held:<bot>`), and it is
   applied when the bot's turn ends with nothing of it working, or at the next start; a later one
   replaces one still held. The profile says "Updates when Flight watcher is done with its turn."
@@ -154,8 +159,18 @@ A move (ADR 0187) carries `bot_package:<bot>` and `bot_package_held:<bot>` with 
 settings, so it keeps its link and installed version. At its next refresh the target's daemon
 finds the linked bot it has no install for and fetches the pinned bytes by hash: from its own
 store, else from the bot's source at that version, kept only when they hash to the link's. The
-bot is then an install there: Update, Roll back and withdrawals reach it. A package already
-installed there for another bot is left as it is.
+bot is then an install there: Update, Roll back and withdrawals reach it.
+
+The Marketplace keeps one install per bot, not per package: installing a package again makes a
+second linked bot with its own record, a moved bot is adopted where the package is already
+installed for another bot (from the bytes pinned for it), and Update, Roll back, Remove and Turn
+on name their bot (`bot` in the operation; `bot/<name>/update/<bot id>` in the app). At each
+refresh the Marketplace forgets the install of a linked bot Spade no longer has, so the machine a
+bot moved away from leaves it to the one it went to; a Spade that can't answer changes nothing.
+
+An update Spade holds for the end of a bot's turn (`202`) keeps the install at the version Spade
+runs, with `held {version}`: Installed shows "Update to 2.1.0 waits for its turn", and the record
+becomes that version once Spade runs it (or drops the wait if Spade let it go).
 
 ## The ten templates
 
@@ -163,9 +178,13 @@ The templates New bot offers are packages by ace, one folder each in `spade/temp
 (`bot.json`, `README.md`, `tests/`), built into the binary ([teams.md](teams.md), Templates). A bot
 made from one is linked to `{source: "spade", name: <id>, version, hash}`, the hash ADR 0014's over
 the folder's files (the same `ace bot check` prints), so a later Spade's corrected template updates
-it the way any package update does. Unlike another publisher's package, a template's routines
-start when New bot makes it (its switch is on by default), since the person chose to make that
-bot. The market's seed lists the same folders.
+it the way any package update does: when a newer Spade ships a newer version of the template,
+the bot's package shows `template_update`, its profile offers Update, and the update review lists
+what changes, what stays because the person or the bot changed it, and what it asks for that
+starts off. Nothing moves until the person accepts that exact version, proven by the built-in
+bytes. Earlier template versions aren't kept, so a template bot has no Roll back. Unlike another
+publisher's package, a template's routines start when New bot makes it (its switch is on by
+default), since the person chose to make that bot. The market's seed lists the same folders.
 
 ## Developer kit
 
@@ -177,7 +196,14 @@ ADR 0200 §9, in ADR 0178's grammar:
 | `ace bot check [PATH]`               | `@ace/marketplace`'s checks with `readRecipe`, the reader that agrees with this one; every problem at its place, exit 1. Warns (never refuses) on a `why` under four words and on no tests                                                                            |
 | `ace bot test [PATH]`                | Runs `spade --bot-test PATH` with a bare environment and prints its report; exit 1 when a scenario fails                                                                                                                                                              |
 | `ace bot dev [PATH] [--spade DIR]`   | Installs the package through `POST /v1/agents`, claiming no identity, so it is linked to the local package `local/<name>`, its declared switches on once the person said yes; then each save is checked and posted as an update; a save that asks for more asks again |
-| `ace bot publish [PATH] --version V` | `check`, then `test`, then `ace market publish spade-bot PATH`                                                                                                                                                                                                        |
+| `ace bot publish [PATH] --version V` | `check`, then `test`, then `ace market publish spade-bot PATH`; the market's signer runs the tests again before it signs                                                                                                                                              |
+
+The market's signer (`ace market maintainer sign`, on a maintainer's machine, never the Worker,
+which can't run Spade) runs a version 3 package's `tests` the same way before it signs it: offline
+on Spade's program with the scripted model, from the bytes the market stored. A version whose
+tests fail is refused for good, with each failure a finding in the report the publisher reads on
+their entry's page; a signer without Spade's program leaves it pending. A publisher's own report
+proves nothing, so none is recorded in the signed manifest.
 
 `ace bot dev` reaches the person's Spade through the daemon, or a development Spade directly by
 its data folder (`server.json` and `token`). It is the person's: an agent's shell is refused.

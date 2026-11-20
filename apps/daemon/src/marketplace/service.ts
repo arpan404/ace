@@ -117,8 +117,9 @@ export class MarketplaceService {
   #daily(ms: number): void {
     this.#cancelTimer = this.#options.schedule(() => {
       if (this.#closed) return;
-      // Off, the refresh stops at its first fetch; the next day tries again.
-      void this.#refreshAll()
+      // Off, the refresh stops at its first fetch; the next day tries again. In turn with every
+      // install, so a bot made meanwhile is never read as gone.
+      void this.#serial(() => this.#refreshAll())
         .catch(() => {})
         .finally(() => this.#daily(dayMs));
     }, ms);
