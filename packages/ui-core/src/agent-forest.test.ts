@@ -14,6 +14,7 @@ import {
 
 const idle: AgentStatus = { state: "idle" };
 const working: AgentStatus = { state: "working", activity: "tool" };
+const blocked: AgentStatus = { state: "blocked", on: "human" };
 
 let clock = 0;
 const agent = (
@@ -128,6 +129,68 @@ test("threads that delegate back to each other are each shown once and the walk 
   const forest = agentForest("t1", works);
   expect(shape(forest.roots)).toEqual(["root", "  to2", "    to1"]);
   expect(forest.reach).toEqual(["t2"]);
+});
+
+test("a delegate back to a thread already shown stays live while that thread works", () => {
+  const works = new Map([
+    [
+      "t1",
+      thread(
+        [
+          agent("t1", "root", idle),
+          agent("t1", "to2", idle, "root", "t2"),
+          agent("t1", "busy", working, "root"),
+        ],
+        { state: "done" },
+      ),
+    ],
+    [
+      "t2",
+      thread([agent("t2", "root", idle), agent("t2", "to1", idle, "root", "t1")], {
+        state: "done",
+      }),
+    ],
+  ]);
+  const forest = agentForest("t1", works);
+  // t2's delegate back to t1 isn't placed again, but t1's live work still counts on it.
+  expect(shape(forest.roots)).toEqual(["root live", "  to2 live", "    to1 live", "  busy live"]);
+  expect(forestTally(forest.roots).done).toBe(0);
+});
+
+test("a second delegate to a thread already shown under another reads its work, not done", () => {
+  const works = new Map([
+    [
+      "t1",
+      thread(
+        [
+          agent("t1", "root", idle),
+          agent("t1", "first", idle, "root", "t2"),
+          agent("t1", "again", idle, "root", "t2"),
+        ],
+        { state: "done" },
+      ),
+    ],
+    [
+      "t2",
+      thread([agent("t2", "root", idle), agent("t2", "asks", blocked, "root")], {
+        state: "needs_you",
+      }),
+    ],
+  ]);
+  const forest = agentForest("t1", works);
+  const [root] = forest.roots;
+  const again = root?.children.find((node) => node.kind === "agent" && node.agent.id === "again");
+  expect(again).toMatchObject({ live: true, needsYou: true });
+  expect(forestTally(forest.roots).done).toBe(0);
+
+  // A thread placed elsewhere that is still syncing leaves the second delegate unconfirmed too.
+  works.set("t2", { ...thread([agent("t2", "root", idle)], { state: "done" }), facts: "syncing" });
+  const syncing = agentForest("t1", works);
+  const second = syncing.roots[0]?.children.find(
+    (node) => node.kind === "agent" && node.agent.id === "again",
+  );
+  expect(second).toMatchObject({ live: false, unconfirmed: true });
+  expect(syncing.confirmed).toBe(false);
 });
 
 test("delegation deeper than the bound stops loading but keeps the delegate's row", () => {

@@ -204,6 +204,45 @@ function layerOf(facts: ThreadWork): Layer {
 
 const noTally = (): ForestTally => ({ working: 0, done: 0, syncing: 0, commands: 0 });
 
+/** What a thread and every thread it delegates to, at any depth, hold: as a row's flags read. */
+interface Reached {
+  live: boolean;
+  needsYou: boolean;
+  unconfirmed: boolean;
+}
+
+/**
+ * What `start` and every loaded thread it reaches by delegation hold, from their own facts. For a
+ * delegate whose thread isn't placed under it (a cycle, or a thread delegated twice): its row
+ * still reads that work, so it never counts as done while the thread works or waits. Linear in
+ * the threads reached; cycles end on the threads already seen.
+ */
+function reachedWork(
+  start: string,
+  works: ReadonlyMap<string, ThreadWork>,
+  layer: (facts: ThreadWork) => Layer,
+): Reached {
+  const out: Reached = { live: false, needsYou: false, unconfirmed: false };
+  const seen = new Set([start]);
+  const queue = [start];
+  for (let at = 0; at < queue.length; at++) {
+    const facts = works.get(queue[at] ?? "");
+    if (!facts) continue;
+    if (facts.facts === "syncing" || facts.facts === "not_loaded") out.unconfirmed = true;
+    if (facts.facts === "not_loaded") continue;
+    const own = layer(facts);
+    if (own.running.size) out.live = true;
+    if (own.needsYou.size) out.needsYou = true;
+    for (const agent of facts.agents) {
+      const child = agent.machine ? undefined : agent.childThreadId;
+      if (!child || seen.has(child)) continue;
+      seen.add(child);
+      queue.push(child);
+    }
+  }
+  return out;
+}
+
 /** Add a row and everything below it to a tally. */
 function count(into: ForestTally, entry: ForestNode): void {
   if (entry.kind === "command") into.commands++;
@@ -246,7 +285,7 @@ function ordered(entries: readonly ForestNode[]): ForestNode[] {
  * folds into its latest run (its subagents move under it), as the thread's own tree does. Every
  * node is live while anything under it at any depth works or waits, so a branch never reads done
  * while a delegated great-grandchild still runs. A thread shows once, under the first delegate
- * that reaches it, which also ends any cycle. Linear in the agents and tasks of the joined
+ * that reaches it, which also ends any cycle; every other delegate to it still reads its work. Linear in the agents and tasks of the joined
  * threads; pass the same `layers` between joins so unchanged threads aren't worked out again.
  */
 export function agentForest(
@@ -264,6 +303,12 @@ export function agentForest(
     const made = layerOf(facts);
     layers.set(facts, made);
     return made;
+  };
+  const reached = new Map<string, Reached>();
+  const reachedOf = (threadId: string) => {
+    let kept = reached.get(threadId);
+    if (!kept) reached.set(threadId, (kept = reachedWork(threadId, works, layer)));
+    return kept;
   };
   const build = (threadId: string): ForestNode[] => {
     const facts = works.get(threadId);
@@ -311,12 +356,20 @@ export function agentForest(
             } else children.push(top);
         }
       }
+      // Its thread shows elsewhere (a cycle, or delegated twice): this row still reads its work.
+      const elsewhere = child && placed.has(child) && !childThread ? reachedOf(child) : undefined;
       const tally = noTally();
       // Work still running for it keeps it live, whatever its own status last said.
-      let live = running.has(agent.id) || hold !== undefined || childRoot?.live === true;
-      let asks = needsYou.has(agent.id) || childRoot?.needsYou === true;
+      let live =
+        running.has(agent.id) ||
+        hold !== undefined ||
+        childRoot?.live === true ||
+        elsewhere?.live === true;
+      let asks =
+        needsYou.has(agent.id) || childRoot?.needsYou === true || elsewhere?.needsYou === true;
       // A thread that couldn't load may be working: its branch is as uncertain as a syncing one.
-      let unconfirmed = stale || notLoaded || childRoot?.unconfirmed === true;
+      let unconfirmed =
+        stale || notLoaded || childRoot?.unconfirmed === true || elsewhere?.unconfirmed === true;
       for (const entry of children) {
         count(tally, entry);
         live ||= entry.live;
