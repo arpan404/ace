@@ -107,7 +107,7 @@ export function deckBuffers(
       for (const path of open) {
         let entry = held.get(path);
         if (!entry) {
-          const lease = registry.open({ root, path });
+          const lease = registry.hold({ root, path });
           const created: Held = { lease, unsubscribe: () => {}, snapshot: lease.buffer.snapshot() };
           created.unsubscribe = lease.buffer.subscribe(() => {
             created.snapshot = lease.buffer.snapshot();

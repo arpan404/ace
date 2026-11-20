@@ -34,6 +34,11 @@ export interface BufferRegistryOptions {
 export interface BufferRegistry {
   /** Holds the file's buffer, reading it on first open. */
   open(key: BufferKey): BufferLease;
+  /**
+   * Holds the file's buffer for a tab that may be hidden (spec 54): a new buffer reads the file
+   * once it is first shown, or at once when a draft of it is kept, so its unsaved dot shows.
+   */
+  hold(key: BufferKey): BufferLease;
   /** The buffer if something holds it or it is unsaved. */
   get(key: BufferKey): TextBuffer | undefined;
   /** The watcher saw the file change (or `file` was read already): reload, or raise a clash. */
@@ -110,40 +115,43 @@ export function createBufferRegistry(options: BufferRegistryOptions): BufferRegi
   const of = (root?: string) =>
     [...buffers.values()].filter((buffer) => root === undefined || buffer.key.root === root);
 
+  const lease = (key: BufferKey, start: (buffer: Buffer) => void): BufferLease => {
+    let buffer = buffers.get(id(key));
+    if (!buffer) {
+      buffer = new Buffer({ ...key }, context);
+      buffers.set(id(key), buffer);
+      start(buffer);
+    }
+    const held = buffer;
+    held.holders++;
+    let visible = false;
+    let released = false;
+    const setVisible = (next: boolean) => {
+      if (released || next === visible) return;
+      visible = next;
+      held.visible += next ? 1 : -1;
+      held.lastShown = options.now();
+      if (next) held.shown();
+      else check();
+    };
+    return {
+      buffer: held,
+      setVisible,
+      release() {
+        if (released) return;
+        setVisible(false);
+        released = true;
+        held.holders--;
+        if (held.holders > 0 || held.keeps()) return check();
+        held.dispose();
+        if (buffers.get(id(key)) === held) buffers.delete(id(key));
+      },
+    };
+  };
+
   return {
-    open(key) {
-      let buffer = buffers.get(id(key));
-      if (!buffer) {
-        buffer = new Buffer({ ...key }, context);
-        buffers.set(id(key), buffer);
-        void buffer.load();
-      }
-      const held = buffer;
-      held.holders++;
-      let visible = false;
-      let released = false;
-      const setVisible = (next: boolean) => {
-        if (released || next === visible) return;
-        visible = next;
-        held.visible += next ? 1 : -1;
-        held.lastShown = options.now();
-        if (next) held.shown();
-        else check();
-      };
-      return {
-        buffer: held,
-        setVisible,
-        release() {
-          if (released) return;
-          setVisible(false);
-          released = true;
-          held.holders--;
-          if (held.holders > 0 || held.keeps()) return check();
-          held.dispose();
-          if (buffers.get(id(key)) === held) buffers.delete(id(key));
-        },
-      };
-    },
+    open: (key) => lease(key, (buffer) => void buffer.load()),
+    hold: (key) => lease(key, (buffer) => buffer.defer()),
     get: (key) => buffers.get(id(key)),
     diskChanged(key, file) {
       void buffers.get(id(key))?.diskChanged(file);

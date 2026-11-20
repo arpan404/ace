@@ -257,7 +257,23 @@ export class Buffer implements TextBuffer {
     await this.load();
   }
 
-  /** Shown again after the cap freed it. */
+  /**
+   * Not read yet: the file is read when first shown (spec 54), or now when a draft of it is kept,
+   * so a hidden tab still says it is unsaved.
+   */
+  defer(): void {
+    const generation = this.#generation;
+    this.#setStatus({ kind: "evicted" });
+    void this.#ctx.drafts.get(this.key).then(
+      (draft) => {
+        if (draft && generation === this.#generation && this.#status.kind === "evicted")
+          void this.load();
+      },
+      () => undefined,
+    );
+  }
+
+  /** Shown again after the cap freed it, or for the first time after `defer`. */
   shown(): void {
     if (this.#status.kind === "evicted") void this.load();
   }

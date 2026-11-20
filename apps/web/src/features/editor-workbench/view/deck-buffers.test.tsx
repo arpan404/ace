@@ -75,7 +75,8 @@ test("files the editor can't take say what in one line", async () => {
   });
   expect(screen.getByText("store.db is a binary file.")).toBeTruthy();
   fireEvent.click(within(strip(1)).getByRole("tab", { name: /bundle\.js/ }));
-  expect(screen.getByText("bundle.js is too large to edit here.")).toBeTruthy();
+  // A hidden tab reads its file only once shown.
+  expect(await screen.findByText("bundle.js is too large to edit here.")).toBeTruthy();
 });
 
 test("a deleted file says so and offers Close", async () => {
