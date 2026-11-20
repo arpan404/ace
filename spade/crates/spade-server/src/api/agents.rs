@@ -76,6 +76,10 @@ pub(super) struct NewAgent {
     grants: Option<crate::teams::RecipeGrants>,
     #[serde(default)]
     start_routines: bool,
+    /// Made from one message: the bot names itself in its first reply, and is "New bot" until
+    /// then when no name was given.
+    #[serde(default)]
+    naming: bool,
 }
 
 /// A first message: its text and images, as `POST /conversations/{id}/messages` takes them.
@@ -121,6 +125,9 @@ pub(super) struct Change {
     /// Only `auto_review`, Spade's one level (ADR 0163); any other word is refused.
     #[serde(default)]
     access: Option<String>,
+    /// The person's one line on a task change (Undo, a restore), kept in its history.
+    #[serde(default)]
+    task_why: Option<String>,
 }
 
 /// Checks a body's `access`: Spade has one level, so only `auto_review` (or none) is accepted,
@@ -317,6 +324,7 @@ fn make(
             task: body.task,
             model,
             avatar,
+            naming: false,
         };
         return match crate::teams::from_template(
             &state.engine,
@@ -341,6 +349,7 @@ fn make(
         task: body.task,
         model: body.model.unwrap_or_else(|| state.engine.new_bot_default()),
         avatar,
+        naming: body.naming,
     };
     state
         .engine
@@ -394,11 +403,32 @@ pub(super) async fn update(
         task: body.task,
         model: body.model,
         avatar,
+        why: body.task_why,
+        by: None,
     };
     match state.engine.update_agent(&id, change) {
         Ok(view) => Json(json!({ "agent": agent_json(&view) })).into_response(),
         Err(error) => agent_problem(&error),
     }
+}
+
+/// `GET /agents/{id}/task/history`: each version of the bot's task, newest first, with who
+/// changed it and why (`by` is `person`, `bot` or empty for one from before task history).
+pub(super) async fn task_history(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    off_thread(move || match state.engine.task_history(&id) {
+        Ok(versions) => {
+            let versions: Vec<Value> = versions
+                .into_iter()
+                .map(|v| json!({ "seq": v.seq, "at": v.at, "task": v.task, "by": v.by, "why": v.why }))
+                .collect();
+            Json(json!({ "versions": versions })).into_response()
+        }
+        Err(error) => agent_problem(&error),
+    })
+    .await
 }
 
 /// `?workers=stop|keep`: what becomes of a deleted bot's workers (ADR 0161).

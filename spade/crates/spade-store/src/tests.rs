@@ -300,7 +300,7 @@ fn a_task_change_is_stored_on_the_row_and_as_an_event_together() -> Result<()> {
     let (_dir, path) = temp();
     let store = Store::open(&path)?;
     store.create_agent(bot("a1", "c1", "e/m"), &[], 5)?;
-    let stored = store.configure_agent("a1", "Track parcels.", "e/n", 7)?;
+    let stored = store.configure_agent("a1", "Track parcels.", "e/n", None, 7)?;
     assert_eq!(stored.seq, 1);
     let agent = store.agent("a1")?.ok_or(StoreError::Poisoned)?;
     assert_eq!(

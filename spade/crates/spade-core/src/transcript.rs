@@ -286,6 +286,8 @@ impl Transcript {
             | Known::EpisodeStored { .. }
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. }
+            | Known::NamingOpened {}
+            | Known::ProfileChanged { .. }
             | Known::CallReviewed { .. }
             | Known::GroupMessage { .. }
             | Known::GroupAsked { .. }

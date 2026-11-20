@@ -281,6 +281,7 @@ pub fn from_recipe(
             .face
             .clone()
             .map(|face| AvatarInput::Character(Value::Object(face))),
+        naming: false,
     })?;
     let id = made.agent.id.clone();
     let furnished = furnish(

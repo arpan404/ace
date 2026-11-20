@@ -5,7 +5,7 @@
 use rusqlite::{OptionalExtension, Row, Transaction, params};
 use serde_json::json;
 use spade_core::Event;
-use spade_core::event::Known;
+use spade_core::event::{Known, TaskChange};
 use spade_core::face;
 
 use crate::gate::ARRIVING_AGENTS;
@@ -206,6 +206,7 @@ impl Store {
         id: &str,
         task: &str,
         model: &str,
+        change: Option<Box<TaskChange>>,
         now_ms: i64,
     ) -> Result<StoredEvent> {
         let mut connection = self.lock()?;
@@ -227,10 +228,36 @@ impl Store {
         let event = Event::Known(Known::AgentConfigured {
             task: task.to_owned(),
             model: model.to_owned(),
+            change,
         });
         let mut stored = append_in(&tx, &conversation, &[event], now_ms)?;
         tx.commit()?;
         stored.pop().ok_or(StoreError::NoConversation(conversation))
+    }
+
+    /// The conversation's `agent_configured` events, oldest first, with their numbers and times:
+    /// what a task's history is read from. Only those rows' bodies are decoded.
+    pub fn task_events(&self, conversation: &str) -> Result<Vec<StoredEvent>> {
+        let connection = self.lock()?;
+        if crate::gate::arriving(&connection, crate::gate::CONVERSATION, conversation)? {
+            return Ok(Vec::new());
+        }
+        let mut statement = connection.prepare(
+            "SELECT seq, at_ms, body FROM events
+             WHERE conversation_id = ?1 AND substr(body, 1, 26) = '{\"type\":\"agent_configured\"'
+             ORDER BY seq",
+        )?;
+        let rows = statement.query_map(params![conversation], |row| {
+            let body: String = row.get(2)?;
+            Ok(StoredEvent {
+                seq: row.get(0)?,
+                at_ms: row.get(1)?,
+                event: Event::from_json(
+                    serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body)),
+                ),
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     /// Sets the model of agents that have none (migrated ones whose conversation never replied).

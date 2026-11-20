@@ -178,6 +178,7 @@ impl Engine {
             Event::Known(Known::AgentConfigured {
                 task: task.clone(),
                 model: model.clone(),
+                change: None,
             }),
             // Named by its maker: no model call for a title.
             Event::renamed(name.clone()),

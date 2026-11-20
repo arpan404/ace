@@ -143,6 +143,9 @@ const BUILTIN: &[(&str, Effect)] = &[
     (crate::tree::WORKER_STATUS, Effect::Read),
     (crate::tree::WORKER_RESULT, Effect::Read),
     (crate::tree::WORKER_STOP, Effect::WriteLocal),
+    // The bot's own task, name and face; `self_edit::route` decides them before anything here.
+    (crate::self_edit::TASK_UPDATE, Effect::WriteLocal),
+    (crate::self_edit::PROFILE_UPDATE, Effect::WriteLocal),
     ("bots_list", Effect::Read),
     ("bot_message", Effect::Network),
     // Asks another member of the group the bot is answering in, where the person sees it.

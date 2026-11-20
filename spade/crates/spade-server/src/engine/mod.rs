@@ -46,6 +46,7 @@ mod routines;
 mod routing;
 mod search;
 mod security;
+mod self_edit;
 mod services;
 mod trim;
 mod try_again;
@@ -287,7 +288,10 @@ impl Engine {
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
             .with_tool(Arc::new(BotMessage(handle.clone())))
-            .with_tool(Arc::new(HelperTool(handle.clone())));
+            .with_tool(Arc::new(HelperTool(handle.clone())))
+            // A bot's own task, name and face.
+            .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ProfileUpdate(handle.clone())));
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }

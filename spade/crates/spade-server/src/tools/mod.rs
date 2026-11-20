@@ -14,6 +14,7 @@ mod knowledge;
 mod memory;
 pub mod outward;
 mod plugins;
+mod self_edit;
 mod services;
 mod skill_tools;
 mod skills;
@@ -44,6 +45,7 @@ pub use helper::HelperTool;
 pub use knowledge::KnowledgeTool;
 pub use memory::{AskUser, MemoryTool};
 pub use plugins::PluginTools;
+pub use self_edit::{ProfileUpdate, TaskUpdate};
 pub use services::service_tools;
 pub use skill_tools::{SkillLoad, SkillSearch};
 pub use skills::{

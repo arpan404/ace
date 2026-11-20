@@ -30,6 +30,7 @@ pub mod research;
 pub mod review;
 pub mod routine;
 pub mod routing;
+pub mod self_edit;
 pub mod service;
 pub mod skills;
 pub mod spending;

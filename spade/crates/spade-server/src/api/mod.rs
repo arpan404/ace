@@ -94,6 +94,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/agents/{id}/pin", put(agents::pin))
         .route("/agents/{id}/task", get(goals::read))
+        .route("/agents/{id}/task/history", get(agents::task_history))
         .route("/agents/{id}/tree", get(workers::tree))
         .route(
             "/agents/{id}/task/goal",

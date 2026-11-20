@@ -17,6 +17,8 @@ pub const NAME_CHARS: usize = 40;
 pub const TASK_CHARS: usize = 4_000;
 const MODEL_CHARS: usize = 400;
 pub const MAIN: &str = "main";
+/// What a bot made from one message is called until it names itself.
+pub const UNNAMED: &str = "New bot";
 pub const BOT: &str = "bot";
 const MAIN_NAME: &str = "Spade";
 /// Set while Spade's model is the placeholder it was created with before keys could be read.
@@ -128,7 +130,11 @@ impl Engine {
 
     /// Creates a bot and its one conversation.
     pub fn create_agent(&self, input: AgentInput) -> Result<AgentView, AgentError> {
-        let name = name(&input.name)?;
+        let name = if input.naming && input.name.trim().is_empty() {
+            UNNAMED.to_owned()
+        } else {
+            name(&input.name)?
+        };
         let task = task(&input.task)?;
         let model = self.check_model(&input.model)?;
         let id = self.ids.next("a");
@@ -136,15 +142,19 @@ impl Engine {
         let conversation = self.ids.next("c");
         // The task the first turn reads. With none there is nothing to read: the model is named
         // by each `reply_started`.
-        let configured: Vec<Event> = (!task.is_empty())
+        let mut configured: Vec<Event> = (!task.is_empty())
             .then(|| {
                 Event::Known(Known::AgentConfigured {
                     task: task.clone(),
                     model: model.clone(),
+                    change: None,
                 })
             })
             .into_iter()
             .collect();
+        if input.naming {
+            configured.push(Event::Known(Known::NamingOpened {}));
+        }
         self.store.create_agent(
             NewAgent {
                 id: &id,
@@ -195,19 +205,40 @@ impl Engine {
             .avatar
             .map(|a| self.avatar(id, Some(a)))
             .transpose()?;
+        let by = change.by.unwrap_or(spade_core::self_edit::BY_PERSON);
         if new_name.is_some() || new_avatar.is_some() {
+            let name = new_name.as_deref().unwrap_or(&agent.name);
             self.store.set_agent_profile(
                 id,
-                new_name.as_deref().unwrap_or(&agent.name),
+                name,
                 new_avatar.as_deref().unwrap_or(&agent.avatar),
                 self.now_ms(),
             )?;
+            // Kept in the conversation: it closes the bot's own naming, and the chat says when
+            // the bot renamed itself.
+            let event = Event::Known(Known::ProfileChanged {
+                name: name.to_owned(),
+                by: by.to_owned(),
+                face: new_avatar.is_some(),
+            });
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let stored = self
+                .store
+                .append(&agent.conversation, &event, self.now_ms())?;
+            let _ = self
+                .live(&agent.conversation)
+                .frames
+                .send(super::Frame::Stored(stored));
         }
         let task = new_task.unwrap_or_else(|| agent.task.clone());
         let model = new_model.unwrap_or_else(|| agent.model.clone());
         if task != agent.task || model != agent.model {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let stored = self.store.configure_agent(id, &task, &model, self.now_ms());
+            let why = change.why.as_deref().unwrap_or("");
+            let recorded = spade_core::self_edit::change(&agent.task, &task, by, why);
+            let stored = self
+                .store
+                .configure_agent(id, &task, &model, recorded, self.now_ms());
             self.forget_activity(&agent.conversation);
             let stored = stored?;
             let _ = self
