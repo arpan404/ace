@@ -1,6 +1,8 @@
+import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { ParcelId } from "@ace/protocol";
+import { Profiles } from "../cli/profiles.ts";
 import { pairedMachines } from "../machines/machine-test-support.ts";
 import { MachineFailure, pinnedRequest } from "../machines/transport.ts";
 import type { ParcelLinkDeps } from "./link.ts";
@@ -86,4 +88,34 @@ it("a parent's file reaches its child on another machine over the LAN intact, th
     saveAs: "inputs/dataset.bin",
   }).catch((error: unknown) => error);
   expect(again).toMatchObject({ detail: expect.stringMatching(/already exists/) });
+});
+
+it("a push to a machine unlinked while it runs sends that machine nothing more, on any route", async () => {
+  // Every parcel call that reaches a route, and those made once the pairing is gone.
+  const state = { chunks: 0, unlinked: false, after: [] as string[] };
+  let unlink: (() => void) | undefined;
+  const pinned: ParcelLinkDeps["pinned"] = async (profile, route, options) => {
+    if (state.unlinked) state.after.push(`${profile.origin} ${String(route.body).slice(0, 80)}`);
+    else if (String(route.body).includes('"action":"chunk"') && ++state.chunks === 2) unlink?.();
+    return pinnedRequest(profile, route, options);
+  };
+  const pair = await pairedMachines({ access: "operate", sourceParcels: { pinned, pollMs: 50 } });
+  unlink = () => {
+    const profiles = new Profiles(join(pair.source.h.home, "daemon"));
+    try {
+      profiles.remove("studio");
+    } finally {
+      profiles.close();
+    }
+    state.unlinked = true;
+  };
+  const parent = pair.source.caller.threadId;
+  const child = await delegateChild(pair);
+  randomFile(await folderOf(pair.source, parent), "dataset.bin", 700 * 1024);
+  await pair.source.call({ op: "data.send", to: child, path: "dataset.bin" });
+
+  await vi.waitFor(() => expect(state.unlinked).toBe(true), { timeout: 15_000 });
+  // Resends and outbox polls run every 50 ms: none of them goes anywhere now.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  expect(state.after).toEqual([]);
 });

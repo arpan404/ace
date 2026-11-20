@@ -18,7 +18,7 @@ import type { ServiceContext } from "../services/types.ts";
 import { ParcelFileError, ParcelFiles } from "./files.ts";
 import { isHostedRelay } from "../relay-account.ts";
 import { pairingKey, recordDescription } from "./descriptions.ts";
-import { ParcelLink } from "./link.ts";
+import { ParcelLink, samePairing } from "./link.ts";
 import { arrivalText, receivedView, sentView } from "./messages.ts";
 import { ParcelPuller } from "./puller.ts";
 import { RelayLink } from "../machines/relay-link.ts";
@@ -112,7 +112,16 @@ export function startParcels(context: ServiceContext): void {
     pinned: options.parcels?.pinned ?? pinnedRequest,
     // Polling every linked machine must not open a TLS connection per call: parcels share the
     // machine's kept-open connections, which also refuse a pairing no longer saved.
-    ...(services.machineConnections ? { connections: services.machineConnections } : {}),
+    ...(services.pairedMachines ? { connections: services.pairedMachines.connections } : {}),
+    current: (profile) => {
+      try {
+        const saved = services.pairedMachines ? services.pairedMachines.saved() : profiles();
+        return saved?.some((entry) => samePairing(entry, profile)) ?? false;
+      } catch {
+        // Pairings that can't be read hold nothing: nothing is sent.
+        return false;
+      }
+    },
     relay,
     paths: (profile) => rows.paths(profile.id)?.paths ?? [],
     hosted: (url) => isHostedRelay(url, config.hostedRelayUrl),

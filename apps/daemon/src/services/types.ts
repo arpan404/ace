@@ -97,10 +97,14 @@ export interface Services {
   /** Projects and threads this machine sends to other machines (ADR 0101). */
   transfers?: import("../transfers/service.ts").DaemonTransfers;
   /**
-   * One kept-open, pinned connection set per paired machine (ADR 0078), shared by machine calls,
-   * transfers and parcels on the address each machine was linked on.
+   * The paired machines' kept-open, pinned connections (ADR 0078), shared by machine calls,
+   * transfers and parcels on the address each machine was linked on, and the one kept-open
+   * reader of the saved pairings they check: undefined while it can't be read.
    */
-  machineConnections?: import("../machines/connections.ts").MachineConnections;
+  pairedMachines?: {
+    connections: import("../machines/connections.ts").MachineConnections;
+    saved(): import("../cli/profiles.ts").RemoteProfile[] | undefined;
+  };
   machines?: {
     caller: import("../machines/caller.ts").MachineCaller;
     children: import("../machines/children.ts").MachineChildren;
