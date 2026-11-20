@@ -262,7 +262,9 @@ private struct SummaryAutomationsLine: View {
     private struct Reply: Decodable, Sendable, Equatable { let ok: Bool; let line: String?; let failed: String? }
 
     var body: some View {
-        Group {
+        // A stack, not a Group: a Group hands its modifiers to its children, and before the first
+        // reply there are none, so the read below would never start.
+        VStack(alignment: .leading, spacing: 0) {
             if let failed = reply?.failed {
                 Button(failed) { Task { await read() } }
                     .buttonStyle(.plain)
