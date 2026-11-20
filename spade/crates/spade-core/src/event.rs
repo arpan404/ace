@@ -46,6 +46,22 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         change: Option<Box<TaskChange>>,
     },
+    /// This bot made a standing bot for the person (ADR 0161, amendment 1): its chat shows it with
+    /// Open and Undo.
+    BotMade {
+        bot: String,
+        name: String,
+        task: String,
+        /// The `bot_create` call's key: a run of the same call finds this bot.
+        call: String,
+    },
+    /// This bot added a bot to a club it is a member of (ADR 0161, amendment 1).
+    ClubAdded {
+        club: String,
+        club_name: String,
+        bot: String,
+        bot_name: String,
+    },
     /// The bot was made from the person's first message without a name: its first turn chooses
     /// its name and face (`profile_update`) until it does, the person names it, or that reply
     /// ends (spade/docs/agents.md, New bots).

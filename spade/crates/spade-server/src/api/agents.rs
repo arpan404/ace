@@ -128,6 +128,9 @@ pub(super) struct Change {
     /// The person's one line on a task change (Undo, a restore), kept in its history.
     #[serde(default)]
     task_why: Option<String>,
+    /// Whether it may make bots for the person: `yes`, `ask` or `no` (ADR 0161, amendment 1).
+    #[serde(default)]
+    may_create_bots: Option<String>,
 }
 
 /// Checks a body's `access`: Spade has one level, so only `auto_review` (or none) is accepted,
@@ -398,6 +401,14 @@ pub(super) async fn update(
     if let Err(response) = access(body.access.as_deref()) {
         return *response;
     }
+    if let Some(word) = body.may_create_bots.as_deref() {
+        let Some(may) = spade_core::made::May::parse(word) else {
+            return problem(StatusCode::BAD_REQUEST, "may_create_bots is yes, ask or no");
+        };
+        if let Err(error) = state.engine.set_may_create(&id, may) {
+            return agent_problem(&error);
+        }
+    }
     let change = AgentChange {
         name: body.name,
         task: body.task,
@@ -429,6 +440,15 @@ pub(super) async fn task_history(
         Err(error) => agent_problem(&error),
     })
     .await
+}
+
+/// `POST /agents/{id}/undo-made`: Undo on a bot another bot made. `{"undone": "removed"}` when
+/// nothing it did reached outside it, else `{"undone": "archived"}` (stopped, routines paused).
+pub(super) async fn undo_made(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.engine.undo_made(&id).await {
+        Ok(undone) => Json(json!({ "undone": undone.name() })).into_response(),
+        Err(error) => agent_problem(&error),
+    }
 }
 
 /// `?workers=stop|keep`: what becomes of a deleted bot's workers (ADR 0161).

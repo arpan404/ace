@@ -346,6 +346,16 @@ pub(super) async fn handle_calls(
                         untrusted || !in_view.is_empty(),
                         spade_core::self_edit::naming_open(events),
                     );
+                    // A bot made for the person, or added to a club: its setting, and the person
+                    // whenever untrusted content is in view (ADR 0161, amendment 1).
+                    let own = own.or_else(|| {
+                        spade_core::made::route(
+                            &name,
+                            &arguments,
+                            untrusted || !in_view.is_empty(),
+                            engine.may_create(id),
+                        )
+                    });
                     let route = match own {
                         Some(route) => route,
                         None => effect::route(effect::Call {

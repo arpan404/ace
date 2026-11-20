@@ -93,3 +93,38 @@ impl Tool for ProfileUpdate {
         })
     }
 }
+
+/// `club_add`: adds a bot to a club the caller is in (ADR 0161, amendment 1).
+pub struct ClubAdd(pub EngineHandle);
+
+impl Tool for ClubAdd {
+    fn def(&self) -> ToolDef {
+        ToolDef {
+            spec: ToolSpec {
+                name: spade_core::made::CLUB_ADD.to_owned(),
+                description: "Adds a bot of this machine to a club you are in, so it answers \
+                              there too. The person sees it in your chat."
+                    .to_owned(),
+                schema: json!({ "type": "object",
+                                "properties": {
+                                    "club": { "type": "string", "description": "The club's id or name." },
+                                    "bot": { "type": "string", "description": "The bot's id or name." } },
+                                "required": ["club", "bot"] }),
+            },
+            risk: Risk::Write,
+            untrusted_output: false,
+            deferred: true,
+            background: false,
+        }
+    }
+
+    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        let (engine, key) = (self.0.get(), key.to_owned());
+        Box::pin(async move {
+            match engine {
+                Some(engine) => engine.club_add(&key, arguments).await,
+                None => ToolOutput::error("Spade is stopping."),
+            }
+        })
+    }
+}

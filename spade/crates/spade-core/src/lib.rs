@@ -20,6 +20,7 @@ pub mod group;
 pub mod helper;
 pub mod hooks;
 pub mod knowledge;
+pub mod made;
 pub mod maintenance;
 pub mod memory;
 pub mod outward;

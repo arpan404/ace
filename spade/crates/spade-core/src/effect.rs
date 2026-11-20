@@ -146,6 +146,8 @@ const BUILTIN: &[(&str, Effect)] = &[
     // The bot's own task, name and face; `self_edit::route` decides them before anything here.
     (crate::self_edit::TASK_UPDATE, Effect::WriteLocal),
     (crate::self_edit::PROFILE_UPDATE, Effect::WriteLocal),
+    // A club the bot is in; `made::route` decides it before anything here.
+    (crate::made::CLUB_ADD, Effect::WriteLocal),
     ("bots_list", Effect::Read),
     ("bot_message", Effect::Network),
     // Asks another member of the group the bot is answering in, where the person sees it.

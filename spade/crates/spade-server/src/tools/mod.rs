@@ -45,7 +45,7 @@ pub use helper::HelperTool;
 pub use knowledge::KnowledgeTool;
 pub use memory::{AskUser, MemoryTool};
 pub use plugins::PluginTools;
-pub use self_edit::{ProfileUpdate, TaskUpdate};
+pub use self_edit::{ClubAdd, ProfileUpdate, TaskUpdate};
 pub use services::service_tools;
 pub use skill_tools::{SkillLoad, SkillSearch};
 pub use skills::{

@@ -287,6 +287,8 @@ impl Transcript {
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. }
             | Known::NamingOpened {}
+            | Known::BotMade { .. }
+            | Known::ClubAdded { .. }
             | Known::ProfileChanged { .. }
             | Known::CallReviewed { .. }
             | Known::GroupMessage { .. }

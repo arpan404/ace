@@ -376,6 +376,11 @@ impl Engine {
             shown.insert("access".into(), Access::AutoReview.name().into());
             // How it decides (ADR 0163, amendment 2), for its profile and its conversation's head.
             shown.insert("autonomy".into(), self.autonomy_of(&agent.id).name().into());
+            // Whether it may make bots, who made it, and whether Undo archived it (ADR 0161,
+            // amendment 1).
+            for (key, value) in self.made_fields(&agent) {
+                shown.insert(key.into(), value);
+            }
             // The marketplace recipe it was made from (ADR 0168), for its profile.
             if let Some(recipe) = self.bot_recipe(&agent.id) {
                 shown.insert(
