@@ -55,8 +55,8 @@ mod search;
 mod security;
 mod self_edit;
 mod services;
-mod thread_asks;
 mod speech;
+mod thread_asks;
 mod trim;
 mod try_again;
 mod turn;
@@ -86,9 +86,9 @@ pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
-pub use thread_asks::FROM_ACE;
 pub use reach::ReachError;
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
+pub use thread_asks::FROM_ACE;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
 
