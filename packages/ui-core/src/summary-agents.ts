@@ -1,4 +1,5 @@
-import type { Interaction, Item } from "@ace/protocol";
+import { isActionableInteraction } from "@ace/core/human";
+import type { AgentStatus, Interaction, Item } from "@ace/protocol";
 import type { AgentForest, AgentForestNode, ForestNode, ThreadWork } from "./agent-forest.ts";
 import { agentOutcome } from "./agent-prs.ts";
 import { agentStep } from "./agent-step.ts";
@@ -100,16 +101,42 @@ export function forestAgentWords(
   };
 }
 
-/** The pending request an agent row answers for: its own, else its delegated thread's root's. */
+/** Each agent's oldest request the person can answer now, by `thread/agent`. */
+export type ForestRequests = ReadonlyMap<string, Interaction>;
+
+/**
+ * The requests the person can answer, indexed once for the whole tree: pending, and either
+ * blocking or from an agent that isn't working on without the answer (the tree's own rule,
+ * `isActionableInteraction`). Linear in the agents and requests of the joined threads.
+ */
+export function forestRequests(
+  works: ReadonlyMap<string, Pick<ThreadWork, "agents" | "interactions">>,
+): ForestRequests {
+  const index = new Map<string, Interaction>();
+  for (const [threadId, work] of works) {
+    if (!work.interactions.length) continue;
+    const status = new Map<string, AgentStatus>();
+    for (const agent of work.agents) status.set(agent.id, agent.status);
+    for (const interaction of work.interactions) {
+      const key = `${threadId}/${interaction.agentId}`;
+      if (index.has(key) || !isActionableInteraction(interaction, status.get(interaction.agentId)))
+        continue;
+      index.set(key, interaction);
+    }
+  }
+  return index;
+}
+
+/** The request an agent row answers for: its own, else its delegated thread's root's. */
 export function forestRequest(
   node: AgentForestNode,
-  works: ReadonlyMap<string, Pick<ThreadWork, "interactions">>,
+  requests: ForestRequests,
 ): Interaction | undefined {
-  const pending = (thread: string, agent: string) =>
-    works.get(thread)?.interactions.find((interaction) => interaction.agentId === agent);
   return (
-    pending(node.threadId, node.agent.id) ??
-    (node.childThread && node.childRoot ? pending(node.childThread, node.childRoot.id) : undefined)
+    requests.get(`${node.threadId}/${node.agent.id}`) ??
+    (node.childThread && node.childRoot
+      ? requests.get(`${node.childThread}/${node.childRoot.id}`)
+      : undefined)
   );
 }
 
@@ -170,8 +197,9 @@ function groupOf(node: AgentForestNode, request: Interaction | undefined): Summa
 export function summaryAgents(
   threadId: string,
   forest: Pick<AgentForest, "roots">,
-  works: ReadonlyMap<string, Pick<ThreadWork, "interactions">>,
+  works: ReadonlyMap<string, Pick<ThreadWork, "agents" | "interactions">>,
 ): SummaryAgents | undefined {
+  const requests = forestRequests(works);
   const lists: Record<SummaryAgentGroup, SummaryAgentEntry[]> = {
     asks: [],
     working: [],
@@ -180,12 +208,14 @@ export function summaryAgents(
   };
   /** The listed agents above the one being placed, with the group each went to. */
   const above: { node: AgentForestNode; group: SummaryAgentGroup }[] = [];
+  /** How many of `above` sit in each group, kept as the walk goes down and back up. */
+  const inGroup: Record<SummaryAgentGroup, number> = { asks: 0, working: 0, failed: 0, done: 0 };
   const visit = (node: ForestNode) => {
     if (node.kind !== "agent") return;
-    const request = forestRequest(node, works);
+    const request = forestRequest(node, requests);
     const group = groupOf(node, request);
     const parent = above.at(-1);
-    const same = above.filter((entry) => entry.group === group).length;
+    const same = inGroup[group];
     const indent = Math.min(same, summaryIndentLimit);
     const shown = parent !== undefined && parent.group === group && same <= summaryIndentLimit;
     lists[group].push({
@@ -196,7 +226,9 @@ export function summaryAgents(
       under: parent && !shown ? parent.node : undefined,
     });
     above.push({ node, group });
+    inGroup[group]++;
     for (const child of node.children) visit(child);
+    inGroup[group]--;
     above.pop();
   };
   for (const root of forest.roots) {

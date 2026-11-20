@@ -253,3 +253,28 @@ test("a remote child that didn't confirm its stop is never listed done, and says
     done: false,
   });
 });
+
+test("a working agent with a request it doesn't wait on stays working", () => {
+  // A non-blocking question while the agent keeps working isn't the person's to answer yet.
+  const aside = Interaction.parse({
+    id: "aside",
+    threadId: "t1",
+    agentId: "busy",
+    blocking: false,
+    state: "pending",
+    createdAt: clock++,
+    request: { kind: "question", questions: [{ id: "q", text: "Which branch?", options: [] }] },
+  });
+  const works = new Map([
+    [
+      "t1",
+      work([agent("t1", "root", idle), agent("t1", "busy", working, "root")], {
+        interactions: [aside],
+      }),
+    ],
+  ]);
+  const agents = summaryAgents("t1", agentForest("t1", works), works);
+  expect(names(agents?.asks ?? [])).toEqual([]);
+  expect(names(agents?.working ?? [])).toEqual(["busy"]);
+  expect(agents?.working[0]?.request).toBeUndefined();
+});
