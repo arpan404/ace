@@ -210,7 +210,7 @@ export function richPullRequest(now: number): PullRequestFixture {
 const fence = (words: string, lines: string) => `${words}\n\n\`\`\`suggestion\n${lines}\n\`\`\``;
 
 /**
- * Mira's suggested changes: two on the current diff of the settings guide, to commit one by one
+ * Mira's suggested changes: three on the current diff of the settings guide, to commit one by one
  * or as a batch, and one on the save bar that a later push outdated, which only an agent can
  * still apply.
  */
@@ -260,6 +260,10 @@ function reviewSuggestions(now: number) {
           "The save bar stays in view as you scroll, and above the keyboard as you type.",
         ),
       ),
+      false,
+    ),
+    thread(
+      suggested(2459, guide, 10, fence("Plainer:", "> Unsaved changes show under the save bar.")),
       false,
     ),
     thread(

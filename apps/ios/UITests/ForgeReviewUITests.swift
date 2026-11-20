@@ -120,9 +120,9 @@ import XCTest
         screenshot("task-ticked")
     }
 
-    /// #245's settings guide carries two of mira's suggestions on the current diff and one on
-    /// the save bar that a push outdated. Commit opens GitHub's message; a batch commits both at
-    /// once, after which their lines changed and only the agent is offered.
+    /// #245's settings guide carries three of mira's suggestions on the current diff and one on
+    /// the save bar that a push outdated. One commits alone, with GitHub's message, and only it
+    /// is applied; then the other two commit together as a batch.
     func testSuggestionsCommitOneByOneOrAsABatch() {
         let app = openPull()
         let timeline = app.buttons["forge.pull.timeline"]
@@ -139,23 +139,34 @@ import XCTest
         // The sheet's editor, prefilled; the Timeline's own comment box shares its identifier.
         XCTAssertTrue(editor(app, holding: "Apply suggestion from @mira").waitForExistence(timeout: 10))
         screenshot("suggestion-commit")
-        app.buttons["Cancel"].tap()
-        app.buttons["forge.suggestion.batch.2456"].tap()
+        app.buttons["forge.write.primary"].tap()
+        // Committed alone: its lines left the diff, so only the agent is offered for it now,
+        // while the other two can still be committed.
+        let applied = app.buttons["forge.suggestion.agent.2456"]
+        XCTAssertTrue(applied.waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["forge.suggestion.commit.2456"].exists)
         let second = app.buttons["forge.suggestion.batch.2457"]
+        let third = app.buttons["forge.suggestion.batch.2459"]
         app.reveal(second)
+        XCTAssertTrue(app.buttons["forge.suggestion.commit.2457"].exists)
         second.tap()
+        app.reveal(third)
+        XCTAssertTrue(app.buttons["forge.suggestion.commit.2459"].exists)
+        third.tap()
         let batch = app.buttons["forge.batch.commit"]
         XCTAssertTrue(batch.waitForExistence(timeout: 5))
         XCTAssertEqual(batch.label, "Commit 2 suggestions")
-        XCTAssertEqual(app.buttons["forge.suggestion.batch.2456"].label, "Remove from batch")
+        XCTAssertEqual(app.buttons["forge.suggestion.batch.2457"].label, "Remove from batch")
         screenshot("suggestion-batch")
         batch.tap()
         XCTAssertTrue(editor(app, holding: "Apply suggestions from code review").waitForExistence(timeout: 10))
         app.buttons["forge.write.primary"].tap()
         // One commit took both: the batch empties and their lines are no longer on the diff.
-        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["forge.suggestion.commit.2456"])
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["forge.suggestion.commit.2459"])
         wait(for: [gone], timeout: 20)
         XCTAssertFalse(app.buttons["forge.batch.commit"].exists)
+        XCTAssertTrue(app.buttons["forge.suggestion.agent.2459"].exists)
+        app.reveal(app.buttons["forge.suggestion.agent.2457"])
         XCTAssertTrue(app.buttons["forge.suggestion.agent.2457"].exists)
         screenshot("suggestion-committed")
     }
