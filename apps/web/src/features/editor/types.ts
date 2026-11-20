@@ -2,6 +2,7 @@ import type { Applied, EditorDocument, Selection } from "@ace/editor";
 import type { LineMark } from "@ace/ui-core";
 import type { Ref } from "react";
 import type { EditorStatus, EditorStatusActions } from "./editor-status.ts";
+import type { EditorLayer } from "./layer.ts";
 
 /** What the editor exposes to code that needs to place a caret or read the text. */
 export interface EditorHandle {
@@ -76,6 +77,8 @@ export interface CodeEditorProps {
   /** How long typing settles before colours are rebuilt; tests stretch it. */
   highlightDelay?: number;
   focusOnMount?: boolean;
+  /** Drawn over the text and told of its edits: code annotations (`useEditorAnnotations`). */
+  layer?: EditorLayer | undefined;
   className?: string;
   ref?: Ref<EditorHandle>;
 }
