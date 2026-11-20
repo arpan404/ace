@@ -75,7 +75,19 @@ async function entriesUnder(tools: CopyTools, folder: string) {
   return found;
 }
 
-/** Copy a file, or a folder and everything in it, to a free `destination`. */
+/** The version `path` has now, for a change that must name it. */
+async function versionOf(tools: CopyTools, path: string) {
+  const version = (await tools.source.stat(tools.threadId, path)).version;
+  if (version === null) throw new Error(`${path} is gone. Try again.`);
+  return version;
+}
+
+/**
+ * Copy a file, or a folder and everything in it, to a free `destination`. A folder is built
+ * under a hidden name beside it and renamed into place once whole, so a copy that fails
+ * partway leaves no partial folder at `destination` (its staging goes to Recently deleted) and
+ * a retry makes one copy, not a second.
+ */
 export async function copyEntry(
   tools: CopyTools,
   path: string,
@@ -85,10 +97,28 @@ export async function copyEntry(
   if (!folder) return copyFile(tools, path, destination);
   if (destination.startsWith(`${path}/`)) throw new Error("A folder can't be copied into itself.");
   const inside = await entriesUnder(tools, path);
-  await tools.manager.mutate({ op: "mkdir", path: destination, expected: null });
-  for (const entry of inside) {
-    const target = `${destination}${entry.path.slice(path.length)}`;
-    if (entry.folder) await tools.manager.mutate({ op: "mkdir", path: target, expected: null });
-    else await copyFile(tools, entry.path, target);
+  const { folder: parent, name } = pathParts(destination);
+  const taken = async (candidate: string) =>
+    (await tools.source.stat(tools.threadId, candidate)).version !== null;
+  const staging = await freeName(parent, `.${name}.copying`, true, taken);
+  await tools.manager.mutate({ op: "mkdir", path: staging, expected: null });
+  try {
+    for (const entry of inside) {
+      const target = `${staging}${entry.path.slice(path.length)}`;
+      if (entry.folder) await tools.manager.mutate({ op: "mkdir", path: target, expected: null });
+      else await copyFile(tools, entry.path, target);
+    }
+    await tools.manager.mutate({
+      op: "rename",
+      path: staging,
+      expected: await versionOf(tools, staging),
+      destination,
+      destinationExpected: null,
+    });
+  } catch (failure) {
+    await versionOf(tools, staging)
+      .then((expected) => tools.manager.mutate({ op: "delete", path: staging, expected }))
+      .catch(() => undefined);
+    throw failure;
   }
 }
