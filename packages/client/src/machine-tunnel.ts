@@ -79,7 +79,9 @@ interface Connection {
   waiting: { resolve(): void; reject(error: ClientError): void }[];
   /** A refusal of the whole tunnel, from the machine. */
   refusal: TunnelRefusalCode | undefined;
-  /** Per-stream refusals, read when that stream's RESET comes. */
+  /** Streams opened and not yet READY or failed: only their refusals are kept. */
+  pending: Set<number>;
+  /** Per-stream refusals of pending streams, read when that stream's RESET comes. */
   refusals: Map<number, TunnelRefusalCode>;
   streams: number;
   draining: boolean;
@@ -119,8 +121,8 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
   /** The machine's refusal of the whole tunnel, until a connection is welcomed again. */
   let refused: TunnelRefusalCode | undefined;
   let cancelRetry: (() => void) | undefined;
-  /** Opens waiting for the scheduled attempt; settled when it runs or is called off. */
-  let nextAttempt: PromiseWithResolvers<void> | undefined;
+  /** Opens waiting for the scheduled attempt; called when it runs or is called off. */
+  const attemptWaiters = new Set<() => void>();
 
   const setPorts = (next: readonly number[]) => {
     if (next.length === ports.length && next.every((port, index) => port === ports[index])) return;
@@ -138,10 +140,27 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
     draining.delete(connection);
   };
   const settleAttempt = () => {
-    const waiting = nextAttempt;
-    nextAttempt = undefined;
-    waiting?.resolve();
+    const waiting = [...attemptWaiters];
+    attemptWaiters.clear();
+    for (const resume of waiting) resume();
   };
+  /**
+   * Waits for the scheduled attempt, shared with every other open. An abort takes only this
+   * waiter away: the attempt's timer keeps running for the rest.
+   */
+  const untilAttempt = (signal: AbortSignal | undefined) =>
+    new Promise<void>((resolve, reject) => {
+      const resume = () => {
+        signal?.removeEventListener("abort", give);
+        resolve();
+      };
+      function give() {
+        attemptWaiters.delete(resume);
+        reject(cancelled());
+      }
+      signal?.addEventListener("abort", give, { once: true });
+      attemptWaiters.add(resume);
+    });
   const stopRetry = () => {
     cancelRetry?.();
     cancelRetry = undefined;
@@ -168,6 +187,7 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
       mux: undefined,
       waiting: [],
       refusal: undefined,
+      pending: new Set(),
       refusals: new Map(),
       streams: 0,
       draining: false,
@@ -211,8 +231,10 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
           accepted(connection);
           if (connection === current) setPorts(message.ports);
         } else if (message.type === "tunnel.refused") {
-          if (message.stream !== undefined) connection.refusals.set(message.stream, message.code);
-          else connection.refusal = message.code;
+          if (message.stream === undefined) connection.refusal = message.code;
+          // A refusal of a stream already READY, cancelled or failed has no open left to explain.
+          else if (connection.pending.has(message.stream))
+            connection.refusals.set(message.stream, message.code);
         }
       },
       close() {
@@ -268,6 +290,7 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
   };
   const welcomed = (connection: Connection, signal: AbortSignal | undefined) => {
     if (connection.mux) return Promise.resolve();
+    if (signal?.aborted) return Promise.reject(cancelled());
     return new Promise<void>((resolve, reject) => {
       const waiter = {
         resolve: () => {
@@ -301,8 +324,7 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
       if (!current && refused) throw new ClientError(refused, "Tunnel refused");
       if (!current && cancelRetry) {
         // Never ahead of the backoff: wait for its attempt, with every other open.
-        nextAttempt ??= Promise.withResolvers<void>();
-        await nextAttempt.promise;
+        await untilAttempt(signal);
         if (closed) throw new ClientError("offline", "Tunnel closed");
       } else if (!current) connect();
       const connection = current;
@@ -320,23 +342,29 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
           // Before READY: the mux sends RESET and the stream fails as cancelled.
           if (!ready) stream.reset();
         };
+        /** The open is settled: its refusal, if any, is read once and forgotten. */
+        const settled = () => {
+          signal?.removeEventListener("abort", give);
+          if (id === undefined) return undefined;
+          connection.pending.delete(id);
+          const code = connection.refusals.get(id);
+          connection.refusals.delete(id);
+          return code;
+        };
         const { socket, stream } = tunnelStream(Readable, {
           opened: () => {
             ready = true;
-            signal?.removeEventListener("abort", give);
+            settled();
             accepted(connection);
             resolve(stream);
           },
           failed: () => {
-            signal?.removeEventListener("abort", give);
+            const refusal = settled();
             if (signal?.aborted) {
-              if (id !== undefined) connection.refusals.delete(id);
               reject(cancelled());
               return;
             }
-            const code =
-              (id === undefined ? undefined : connection.refusals.get(id)) ?? connection.refusal;
-            if (id !== undefined) connection.refusals.delete(id);
+            const code = refusal ?? connection.refusal;
             reject(
               code
                 ? new ClientError(code, "Tunnel stream refused")
@@ -357,8 +385,12 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
               end(connection, new ClientError("offline", "Tunnel path drained"));
           })
           .catch(() => {});
-        id = mux.open(socket, target);
+        // Before the open: a mux with no room fails the stream synchronously, and that cleanup
+        // must find the listener to remove.
         signal?.addEventListener("abort", give, { once: true });
+        id = mux.open(socket, target);
+        // READY and RESET come later, from the machine: the stream is pending until then.
+        if (id !== undefined) connection.pending.add(id);
       });
     },
     ports: {

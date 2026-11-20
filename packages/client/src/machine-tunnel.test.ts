@@ -105,3 +105,26 @@ test("an open under way when the machine refuses the tunnel reports the refusal,
   await expect(open).rejects.toMatchObject({ code: "tunnel_off" });
   await expect(tunnel.open(3000)).rejects.toMatchObject({ code: "tunnel_off" });
 });
+
+test("an open given up during the backoff rejects at once, and the others still get the attempt", async () => {
+  const { tunnel, links, latest, fire } = harness();
+  latest().close();
+  const controller = new AbortController();
+  let outcome = "pending";
+  const given = tunnel.open(3000, { signal: controller.signal });
+  given.catch((error: { code?: string }) => {
+    outcome = error.code ?? "error";
+  });
+  const other = tunnel.open(3001);
+  other.catch(() => {});
+  await settle();
+  controller.abort();
+  await settle();
+  // Before the scheduled attempt has run.
+  expect(outcome).toBe("tunnel_cancelled");
+  fire();
+  await settle();
+  expect(links).toHaveLength(2);
+  latest().close();
+  await expect(other).rejects.toMatchObject({ code: "offline" });
+});
