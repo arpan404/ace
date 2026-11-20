@@ -31,6 +31,9 @@ import Foundation
     private static let pace: Duration = .milliseconds(50)
     private var values: [String: String] = [:]
     private var posting: Task<Void, Never>?
+    /// Each post's place in this run: posts go concurrently and may land out of order, and the
+    /// fixture keeps the highest.
+    private var sequence = 0
 
     /// Records numbers from any thread; the main thread stores them.
     nonisolated static func record(_ entries: [String: String]) {
@@ -58,15 +61,16 @@ import Foundation
             try? await Task.sleep(for: Self.pace)
             guard let self else { return }
             self.posting = nil
-            Self.post(self.text, to: destination.url, run: destination.run)
+            self.sequence += 1
+            Self.post(self.text, sequence: self.sequence, to: destination.url, run: destination.run)
         }
     }
     /// Off the main thread; a lost post is replaced by the next one.
-    nonisolated private static func post(_ text: String, to url: URL, run: String) {
+    nonisolated private static func post(_ text: String, sequence: Int, to url: URL, run: String) {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["run": run, "text": text])
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["run": run, "seq": sequence, "text": text])
         URLSession.shared.dataTask(with: request).resume()
     }
 }

@@ -27,6 +27,15 @@ describe("spike perf probe", () => {
     expect(await read(probe, "launch-1")).toBe("opens=2.0;open.readyMs=310");
   });
 
+  it("keeps a run's newest sample when its posts land out of order", async () => {
+    const probe = new SpikePerfProbe();
+    await post(probe, { run: "launch-1", seq: 2, text: "opens=2.0" });
+    await post(probe, { run: "launch-1", seq: 1, text: "opens=1.0" });
+    expect(await read(probe, "launch-1")).toBe("opens=2.0");
+    await post(probe, { run: "launch-1", seq: 3, text: "opens=3.0" });
+    expect(await read(probe, "launch-1")).toBe("opens=3.0");
+  });
+
   it("never answers one launch with another launch's numbers", async () => {
     const probe = new SpikePerfProbe();
     await post(probe, { run: "launch-1", text: "pages.older=25.0" });
