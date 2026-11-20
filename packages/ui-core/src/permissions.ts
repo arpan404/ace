@@ -4,7 +4,7 @@ import type {
   NativePermissionMode,
   PermissionState,
 } from "@ace/protocol";
-import { accessModeOrder, stricterOffer } from "@ace/provider-kit/access-modes";
+import { accessModeOrder, nearestOffer } from "@ace/provider-kit/access-modes";
 
 /** ace's four access modes as people read them (ADR 0075), least capable first. */
 export const accessModes: readonly AccessMode[] = accessModeOrder;
@@ -44,13 +44,13 @@ export function accessChoices(offers: readonly AccessModeOffer[] | undefined): A
 
 /**
  * The mode a requested default runs as on a provider: itself when supported, else the nearest
- * stricter mode it supports. Undefined when nothing that strict is supported.
+ * stricter mode it supports, else the nearest looser one. Undefined when it offers no mode.
  */
 export function supportedAccess(
   requested: AccessMode,
   offers: readonly AccessModeOffer[] | undefined,
 ): AccessMode | undefined {
-  return stricterOffer(requested, offers ?? [])?.mode;
+  return nearestOffer(requested, offers ?? [])?.mode;
 }
 
 /** A native selector's name for Settings → Providers → Advanced. */
@@ -74,13 +74,13 @@ export interface AccessSummary {
   custom: string | undefined;
   /** The thread follows its project's or this daemon's default. */
   inherited: boolean;
-  /** Why the mode in effect is stricter than the default it follows. */
+  /** Why the mode in effect differs from the one asked for (stricter, or looser when nothing that strict exists). */
   stricter: string | undefined;
 }
 
 /**
- * A thread's access chip: the mode in effect, a pending change, and — when a default had to
- * step down to a stricter mode the provider supports — a short reason for the tooltip.
+ * A thread's access chip: the mode in effect, a pending change, and — when the mode asked for
+ * isn't one the provider supports — a short reason for the tooltip.
  */
 export function threadAccessSummary(
   state: PermissionState | undefined,
@@ -120,7 +120,7 @@ export function threadAccessSummary(
 export interface NewThreadAccess {
   /** The person's choice, else the project's default, else the daemon's. */
   wanted: AccessMode | undefined;
-  /** The mode it runs as on this provider: the wanted one, or the nearest stricter one. */
+  /** The mode it runs as on this provider: the wanted one, else the nearest it offers. */
   admitted: AccessMode | undefined;
   summary: AccessSummary | undefined;
   /** Send waits: the provider has nothing as strict as the mode asked for. */
@@ -132,7 +132,7 @@ export interface NewThreadAccess {
 /**
  * Access for a thread that hasn't started (ADR 0075). The draft's own choice wins over the
  * project's default, which wins over this daemon's. A mode the provider can't express runs as
- * the nearest stricter mode it supports, never a looser one. Before the provider's modes are
+ * the nearest stricter mode it supports, else the nearest looser one. Before the provider's modes are
  * read only a mode picked here is sent; otherwise the daemon applies the defaults itself.
  */
 export function newThreadAccess(input: {

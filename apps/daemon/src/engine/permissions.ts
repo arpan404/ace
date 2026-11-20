@@ -1,4 +1,4 @@
-import { reportedOrTable, stricterOffer } from "@ace/provider-kit/access-modes";
+import { nearestOffer, reportedOrTable } from "@ace/provider-kit/access-modes";
 import {
   AccessMode,
   PermissionPolicyIdentity,
@@ -50,6 +50,8 @@ export type PermissionSettings = (id: ThreadId) => Promise<AccessDefaults>;
 export interface ResolvedAccess {
   selection: AccessSelection | null;
   native: PermissionMode | null;
+  /** The ace mode asked for (the thread's own or the default), when one was resolved. */
+  wanted?: AccessMode;
 }
 export class AccessError extends Error {
   readonly code: CeilingRefusal["reason"] | "access_mode_unavailable";
@@ -300,8 +302,8 @@ export class Permissions {
   }
   /**
    * What the thread runs next: an Advanced native override, else its own mode, else the
-   * project's and daemon's default, stepped down to the nearest stricter mode the provider
-   * offers, then contained by its ancestry. A provider with no ace modes runs its default.
+   * project's and daemon's default, as the nearest mode the provider offers (stricter first,
+   * else looser), then contained by its ancestry. A provider with no ace modes runs its default.
    */
   async resolve(
     id: ThreadId,
@@ -329,22 +331,20 @@ export class Permissions {
       return { selection, native: readOnly.native };
     }
     let selection: AccessSelection | null;
+    let wanted: AccessMode | undefined;
     if (defaults.custom && supportsPermissionMode(capabilities, defaults.custom))
       selection = customSelection(defaults.custom);
     else if (!offers.length) selection = null;
     else {
       const requested = AccessMode.safeParse(this.read(id).override);
-      const target = requested.success ? requested.data : defaults.access;
-      const offer = stricterOffer(target, offers);
+      wanted = requested.success ? requested.data : defaults.access;
+      const offer = nearestOffer(wanted, offers);
       if (!offer)
-        throw new AccessError(
-          "access_mode_unavailable",
-          `${provider} offers no mode as strict as ${target}; choose one of ${offers.map((o) => o.mode).join(", ")}`,
-        );
+        throw new AccessError("access_mode_unavailable", `${provider} offers no access mode`);
       selection = offer.mode;
     }
     selection = this.contained(id, provider, selection, offers);
-    return { selection, native: nativeFor(selection, offers) };
+    return { selection, native: nativeFor(selection, offers), ...(wanted ? { wanted } : {}) };
   }
   applied(id: ThreadId, selection: AccessSelection | null, at: number): void {
     const provider = this.repo.requireState(id).config.provider;

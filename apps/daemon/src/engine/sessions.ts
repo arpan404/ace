@@ -9,7 +9,7 @@ import type { EngineModels } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { StartupOutput, withStartupOutput } from "@ace/provider-kit/startup-output";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
-import { PermissionMode, NativeSessionId } from "@ace/protocol";
+import { AccessMode, PermissionMode, NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
 import { AcpIdentity } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
@@ -18,9 +18,9 @@ import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
 import { nativeFor } from "./permissions.ts";
-import { customNative } from "./permission-ceiling.ts";
+import { customNative, type AccessSelection } from "./permission-ceiling.ts";
 import { refusedOptionsNotice, unhonouredAccessNotice } from "./selection-notices.ts";
-import { reportedOrTable } from "@ace/provider-kit/access-modes";
+import { accessRank, reportedOrTable } from "@ace/provider-kit/access-modes";
 import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
 import { unavailableNativeHistory } from "./resume-open-error.ts";
@@ -153,7 +153,7 @@ export class Sessions {
       this.dependencies.repo.backend(actor.id),
     );
     const generation = actor.generation;
-    const { selection, native } = await permissions.resolve(
+    const { selection, native, wanted } = await permissions.resolve(
       actor.id,
       this.dependencies.permissionSettings,
       this.accessCapabilities(actor.id, provider, capabilities),
@@ -165,17 +165,35 @@ export class Sessions {
     const agent = this.dependencies.repo.requireState(actor.id).rootKey ?? "root";
     actor.enqueue(() => {
       if (actor.session === session && actor.generation === generation)
-        this.settleAccess(actor, selection, agent);
+        this.settleAccess(actor, selection, agent, wanted);
     });
   }
-  /** Records what the open session runs, and says so when that isn't the thread's choice. */
-  private settleAccess(actor: ThreadActor, access: string | null, agent: string): void {
+  /**
+   * Records what the open session runs, and says so when that isn't the thread's choice, or
+   * when its default runs looser because the agent has nothing that strict (said once).
+   */
+  private settleAccess(
+    actor: ThreadActor,
+    access: string | null,
+    agent: string,
+    wanted?: AccessMode,
+  ): void {
     const permissions = this.dependencies.repo.permissions;
     const at = this.dependencies.clock.now();
+    const before = permissions.effective(actor.id);
     permissions.applied(actor.id, access, at);
     const requested = permissions.unhonoured(actor.id, access, at);
-    if (requested)
-      actor.apply([unhonouredAccessNotice({ agent, at, requested, selection: access })]);
+    const running = AccessMode.safeParse(access);
+    const looser =
+      wanted &&
+      running.success &&
+      before !== access &&
+      accessRank(running.data) > accessRank(wanted)
+        ? wanted
+        : undefined;
+    const said = requested ?? looser;
+    if (said)
+      actor.apply([unhonouredAccessNotice({ agent, at, requested: said, selection: access })]);
   }
   isClosing(id: ThreadId): boolean {
     return this.closing.has(id);
@@ -212,7 +230,15 @@ export class Sessions {
       entry.capabilities,
     );
     const permissions = this.dependencies.repo.permissions;
-    const { selection: access, native: mode } = ownLive
+    const {
+      selection: access,
+      native: mode,
+      wanted,
+    }: {
+      selection: AccessSelection | null;
+      native: PermissionMode | null;
+      wanted?: AccessMode;
+    } = ownLive
       ? {
           selection: permissions.effective(actor.id),
           native: nativeFor(
@@ -235,7 +261,7 @@ export class Sessions {
       await this.close(actor, "idle");
     if (actor.session) {
       await this.assertWorkspaceAvailable(this.dependencies.repo.session(actor.id).cwd, actor.id);
-      this.settleAccess(actor, access, stateBefore.rootKey ?? "root");
+      this.settleAccess(actor, access, stateBefore.rootKey ?? "root", wanted);
       return;
     }
     this.dependencies.repo.beginSessionOpen(actor.id);
@@ -555,7 +581,7 @@ export class Sessions {
       actor.session = session;
       // Applied once the provider took it: a session that refused its mode never shows it.
       if (state.config.provider !== "codex" || this.turnPermissions.get(actor.id) !== generation)
-        this.settleAccess(actor, access, rootKey);
+        this.settleAccess(actor, access, rootKey, wanted);
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.store.atomic(() => {
         // Account/backend selection is durable even before the native ID is confirmed.

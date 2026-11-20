@@ -28,7 +28,7 @@ test("the access chip offers ace's four modes, starting in Auto review on a firs
   expect(await menu()).toEqual(["Read-only", "Ask", "Auto review", "Full access"]);
 });
 
-test("a provider that can't express a mode doesn't list it, and a default steps down stricter", async () => {
+test("a provider that can't express a mode doesn't list it, and a default runs as its nearest", async () => {
   const app = made();
   app.daemon.services.settings.write("access.defaultMode", "full-access");
   await app.open("/new?project=relay");
@@ -40,10 +40,9 @@ test("a provider that can't express a mode doesn't list it, and a default steps 
   expect(await menu()).toEqual(["Auto review", "Full access"]);
   await userEvent.keyboard("{Escape}");
   app.daemon.services.settings.write("access.defaultMode", "ask");
-  // Nothing as strict as Ask: sending waits for a choice rather than running looser.
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true"),
-  );
+  // Nothing as strict as Ask: it runs as the next looser mode, with no choice to make first.
+  await screen.findByRole("button", { name: "Access: Auto review" });
+  expect(screen.queryByText(/Choose its access before sending/)).toBeNull();
 });
 
 test("a mode chosen for a draft starts its thread but leaves the default for new threads alone", async () => {

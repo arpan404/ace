@@ -32,7 +32,7 @@ test("the access menu shows ace's four modes, without the ones a provider can't 
 
 test("a default a provider lacks runs as its nearest stricter mode and the chip says why", () => {
   expect(supportedAccess("auto-review", offers("opencode"))).toBe("ask");
-  expect(supportedAccess("ask", offers("cursor"))).toBeUndefined();
+  expect(supportedAccess("ask", offers("cursor"))).toBe("auto-review");
   const summary = threadAccessSummary(
     { override: null, effective: "ask", pending: false },
     offers("opencode"),
@@ -76,7 +76,7 @@ test("a new thread runs at the draft's choice, else the project's default, else 
   expect([chosen.admitted, chosen.summary?.label]).toEqual(["full-access", "Full access"]);
 });
 
-test("a new thread never runs looser than asked: it steps down, or Send waits with the reason", () => {
+test("a new thread runs its mode's nearest offer: it steps down, else up, and the chip says why", () => {
   const stepped = newThreadAccess({
     chosen: "auto-review",
     projectDefault: undefined,
@@ -92,10 +92,8 @@ test("a new thread never runs looser than asked: it steps down, or Send waits wi
     offers: offers("cursor"),
     provider: "Cursor",
   });
-  expect(none.permission).toBeUndefined();
-  expect(none.problem).toBe(
-    "Cursor has nothing as strict as Ask. Choose its access before sending.",
-  );
+  expect([none.permission, none.problem]).toEqual(["auto-review", undefined]);
+  expect(none.summary?.stricter).toBe("Ask isn't available for Cursor");
 });
 
 test("before the provider's modes are read only a mode picked here goes with the create", () => {

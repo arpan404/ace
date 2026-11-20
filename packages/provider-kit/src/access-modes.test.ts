@@ -5,6 +5,7 @@ import {
   accessModeOrder,
   accessRank,
   instanceAccessModes,
+  nearestOffer,
   stricterOffer,
   storedAccess,
 } from "./access-modes.ts";
@@ -75,6 +76,19 @@ test("a mode a provider lacks resolves to the nearest stricter one, never looser
   expect(stricterOffer("ask", accessModeOffers({ provider: "pi" }))?.mode).toBe("read-only");
   // Nothing as strict as Ask on Cursor: no mode, rather than a looser one.
   expect(stricterOffer("ask", accessModeOffers({ provider: "cursor" }))).toBeUndefined();
+});
+
+test("a thread's own mode runs as the nearest offer: stricter first, else the next looser", () => {
+  const antigravity = [{ mode: "full-access" as const, native: "yolo" }];
+  expect(nearestOffer("read-only", antigravity)?.mode).toBe("full-access");
+  expect(nearestOffer("auto-review", antigravity)?.mode).toBe("full-access");
+  // Read-only on Cursor takes Auto review, the next looser mode, before Full access.
+  expect(nearestOffer("read-only", accessModeOffers({ provider: "cursor" }))?.mode).toBe(
+    "auto-review",
+  );
+  // A stricter offer still wins over a looser one.
+  expect(nearestOffer("auto-review", accessModeOffers({ provider: "opencode" }))?.mode).toBe("ask");
+  expect(nearestOffer("ask", [])).toBeUndefined();
 });
 
 test.each([

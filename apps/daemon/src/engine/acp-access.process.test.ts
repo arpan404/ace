@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { antigravityQuirks, genericQuirks } from "@ace/adapter-acp";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { ModelCatalog } from "@ace/models";
-import type { NativePermissionMode } from "@ace/protocol";
+import type { AccessMode, NativePermissionMode } from "@ace/protocol";
 import { scriptedModelDiscovery, scriptedModelInstance } from "../testing/models.ts";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
@@ -14,7 +14,7 @@ const mode = (id: string): NativePermissionMode => ({
 });
 
 /** An Antigravity daemon whose catalog row exists but knows no session modes yet. */
-async function antigravity(refuseMode = false) {
+async function antigravity(refuseMode = false, defaultAccess?: AccessMode) {
   const frames = scriptFrames();
   const instance = scriptedModelInstance("antigravity", process.cwd());
   const catalog = new ModelCatalog({
@@ -36,6 +36,7 @@ async function antigravity(refuseMode = false) {
       provider: "antigravity",
       capabilities: antigravityQuirks.capabilities("1.2.1"),
       models: catalog,
+      ...(defaultAccess ? { permissionSettings: async () => ({ access: defaultAccess }) } : {}),
       ...(refuseMode
         ? {
             // The daemon's default, so the thread's own row starts with no mode in effect.
@@ -195,6 +196,38 @@ test("Full access chosen while an ACP turn runs reaches the agent in that turn",
     });
     expect(h.store.getThread(created.threadId)?.status?.state).toBe("working");
     expect(h.contexts).toHaveLength(1);
+  } finally {
+    await h.close();
+  }
+});
+
+test("an Antigravity thread whose default is Read-only runs with Full access and says so once", async () => {
+  const h = await antigravity(false, "read-only");
+  try {
+    const created = h.command({
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "antigravity",
+      input: [{ type: "text", text: "first" }],
+    });
+    if (!created.ok || !created.threadId) throw new Error(created.error);
+    const id = created.threadId;
+    await h.engine.flush();
+    expect(h.contexts.at(-1)?.permissionMode).toBe("yolo");
+    expect(h.store.getThread(id)?.permission).toMatchObject({
+      override: null,
+      effective: "full-access",
+      pending: false,
+    });
+    h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "second" }] });
+    await h.engine.flush();
+    expect(h.contexts.at(-1)?.permissionMode).toBe("yolo");
+    const notices = Object.values(h.store.snapshotThread(id).items).filter(
+      (item) => item.type === "notice" && item.code === "access_mode_unavailable",
+    );
+    expect(notices.map((notice) => notice.type === "notice" && notice.text)).toEqual([
+      "This agent doesn't offer Read-only, so it runs with Full access.",
+    ]);
   } finally {
     await h.close();
   }
