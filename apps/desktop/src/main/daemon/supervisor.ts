@@ -20,6 +20,14 @@ import type { AdmissionFacts, LocalDaemon } from "./probe.ts";
 import { personPaused, readAdmission, waitForDaemon } from "./readiness.ts";
 import { failure, fresh, startFailed } from "./status.ts";
 import { watchHealth } from "./watchdog.ts";
+import { restartBackoff } from "./grace.ts";
+import {
+  assessStartup,
+  assessUnresponsive,
+  loadAware,
+  progressMark,
+  readPressure,
+} from "./load-checks.ts";
 
 import {
   supervisorDefaults,
@@ -62,6 +70,9 @@ export class DaemonSupervisor {
   private maintenanceRevision = 0;
   private draining = false;
   private runningSince = 0;
+  /** When the running daemon last answered a health check, and the graces given since. */
+  private answeredAt = 0;
+  private graces = 0;
   /** When our daemons first started finding another daemon's lock, while that lasts. */
   private lockWaitSince: number | undefined;
   /** False once the app asked to stop: nothing may spawn or restart after that. */
@@ -423,24 +434,49 @@ export class DaemonSupervisor {
     return child;
   }
 
-  /** Report the child as running once it answers; kill it if it never does. */
+  /**
+   * Report the child as running once it answers; stop it if it never does. Past the ready budget,
+   * a start still making progress, or one on an overloaded machine, is given longer (ADR 0195).
+   */
   private awaitChild(generation: number, child: Child): void {
-    void this.waitForDaemon(generation, () => !child.done)
-      .then(async (found) => {
-        if (this.stale(generation) || child.done) return;
-        if (found) {
-          await this.running(found, "app", generation);
-          if (this.daemon === found && !child.done) await this.record(child);
-        } else {
-          this.ports.log("error", "The daemon did not become ready; restarting it", {
-            readyTimeoutMs: this.options.readyTimeoutMs,
-          });
-          this.terminate(child, "not-ready");
-        }
-      })
-      .catch((error: unknown) =>
-        this.ports.log("error", "Waiting for the daemon failed", { error: String(error) }),
-      );
+    void this.untilReady(generation, child).catch((error: unknown) =>
+      this.ports.log("error", "Waiting for the daemon failed", { error: String(error) }),
+    );
+  }
+
+  private async untilReady(generation: number, child: Child): Promise<void> {
+    const since = this.ports.now();
+    const pid = child.process.pid;
+    let mark = await progressMark(this.ports, pid);
+    let budgetMs = this.options.readyTimeoutMs;
+    for (;;) {
+      const found = await this.waitForDaemon(generation, () => !child.done, budgetMs);
+      if (this.stale(generation) || child.done) return;
+      if (found) {
+        await this.running(found, "app", generation);
+        if (this.daemon === found && !child.done) await this.record(child);
+        return;
+      }
+      if (!loadAware(this.ports)) break;
+      const assessed = await assessStartup(this.ports, {
+        pid,
+        waitedMs: this.ports.now() - since,
+        mark,
+      });
+      if (this.stale(generation) || child.done) return;
+      if (assessed.verdict.kind === "stop") {
+        this.ports.log("error", "The daemon did not become ready; restarting it", assessed.data);
+        this.terminate(child, "not-ready");
+        return;
+      }
+      this.ports.log("warn", "The daemon is still starting; waiting longer", assessed.data);
+      mark = assessed.mark;
+      budgetMs = assessed.verdict.graceMs;
+    }
+    this.ports.log("error", "The daemon did not become ready; restarting it", {
+      readyTimeoutMs: this.options.readyTimeoutMs,
+    });
+    this.terminate(child, "not-ready");
   }
 
   private onChildExit(
@@ -528,7 +564,25 @@ export class DaemonSupervisor {
       retry: { attempt: this.crashes, of: this.options.maxRestarts },
       ...(decision.safeMode ? { safeMode: true } : {}),
     });
-    this.cancelTimer = this.ports.timers.set(delay, () => {
+    if (!this.ports.pressure) return this.restartIn(delay);
+    const generation = this.generation;
+    // `crashes` already counts this exit; the backoff's first step is attempt 0.
+    const attempt = this.crashes - 1;
+    void readPressure(this.ports).then((pressure) => {
+      if (generation !== this.generation || !this.wanted || this.cancelTimer) return;
+      const backoff = restartBackoff(delay, attempt, pressure?.verdict.heavy === true);
+      if (backoff > delay)
+        this.ports.log("warn", "The machine is overloaded; waiting longer before the restart", {
+          delayMs: backoff,
+          ...pressure?.fields,
+          pressure: pressure?.verdict.reasons,
+        });
+      this.restartIn(backoff);
+    });
+  }
+
+  private restartIn(delayMs: number): void {
+    this.cancelTimer = this.ports.timers.set(delayMs, () => {
       this.cancelTimer = undefined;
       void this.start().catch((restartError: unknown) =>
         this.ports.log("warn", "The restart failed", { error: String(restartError) }),
@@ -560,10 +614,14 @@ export class DaemonSupervisor {
     }
   }
 
-  private waitForDaemon(generation: number, alive: () => boolean) {
+  private waitForDaemon(
+    generation: number,
+    alive: () => boolean,
+    budgetMs = this.options.readyTimeoutMs,
+  ) {
     return waitForDaemon(
       this.ports,
-      this.options.readyTimeoutMs,
+      budgetMs,
       () => !this.stale(generation) && alive(),
       () => this.stage("warming"),
     );
@@ -592,6 +650,8 @@ export class DaemonSupervisor {
     this.daemon = daemon;
     this.lockWaitSince = undefined;
     this.runningSince = this.ports.now();
+    this.answeredAt = this.runningSince;
+    this.graces = 0;
     this.status = {
       ...fresh(this.status),
       state: "running",
@@ -607,17 +667,25 @@ export class DaemonSupervisor {
     this.monitor(this.generation, daemon);
   }
 
-  private monitor(generation: number, daemon: LocalDaemon): void {
-    const { healthIntervalMs, healthTimeoutMs, healthFailures } = this.options;
+  private monitor(
+    generation: number,
+    daemon: LocalDaemon,
+    failures = this.options.healthFailures,
+  ): void {
+    const { healthIntervalMs, healthTimeoutMs } = this.options;
     // The one pending timer is the watch itself; any transition stops it.
     this.cancelTimer = watchHealth({
       intervalMs: healthIntervalMs,
       timeoutMs: healthTimeoutMs,
-      failures: healthFailures,
+      failures,
       // The request itself may run past the check's own deadline, so a late answer still
       // counts as one; it ends before the next check could send another.
       probe: async () => {
         const answer = await this.ports.health(daemon, healthTimeoutMs + healthIntervalMs);
+        if (answer.healthy && !this.stale(generation)) {
+          this.answeredAt = this.ports.now();
+          this.graces = 0;
+        }
         if (answer.healthy)
           // followAdmission keeps its own request failure and reads it again next check.
           void this.followAdmission(generation, daemon, answer.admission).catch(() => {});
@@ -632,25 +700,62 @@ export class DaemonSupervisor {
       onUnresponsive: (missed) => {
         this.cancelTimer = undefined;
         if (this.stale(generation)) return;
-        this.daemon = undefined;
         const facts = { missed, timeoutMs: healthTimeoutMs, intervalMs: healthIntervalMs };
-        this.update({ state: "unreachable" });
-        const child = this.child;
-        if (child && !child.done) {
-          // Our own daemon: ask it to stop, and let the crash path restart it.
-          this.ports.log("error", "The daemon stopped answering health checks; stopping it", facts);
-          this.terminate(child, "unresponsive");
-          return;
-        }
-        // Someone else's daemon went away: run our own instead.
-        this.ports.log("warn", "The daemon stopped answering health checks", facts);
-        void this.start().catch((error: unknown) =>
-          this.ports.log("warn", "The start after an unresponsive daemon failed", {
+        if (!loadAware(this.ports)) return this.unresponsive(facts);
+        void this.assessUnresponsive(generation, daemon, facts).catch((error: unknown) =>
+          this.ports.log("warn", "Could not judge the unanswered daemon", {
             error: String(error),
           }),
         );
       },
     });
+  }
+
+  /**
+   * The daemon missed its checks on a supervisor that can read the machine's load: stop it only
+   * when it is silent with CPU to spare, else keep checking for a grace that doubles each time
+   * (ADR 0195). It stays running meanwhile: its clients and agents carry on.
+   */
+  private async assessUnresponsive(
+    generation: number,
+    daemon: LocalDaemon,
+    facts: Record<string, unknown>,
+  ): Promise<void> {
+    const child = this.child && !this.child.done ? this.child : undefined;
+    const { verdict, data } = await assessUnresponsive(this.ports, {
+      pid: child?.process.pid,
+      unansweredMs: this.ports.now() - this.answeredAt,
+      graces: this.graces,
+    });
+    if (this.stale(generation) || this.daemon !== daemon || this.cancelTimer) return;
+    if (verdict.kind === "stop") return this.unresponsive({ ...facts, ...data });
+    this.graces++;
+    this.ports.log("warn", "The daemon is slow to answer; giving it longer", { ...facts, ...data });
+    const { healthIntervalMs, healthTimeoutMs } = this.options;
+    this.monitor(
+      generation,
+      daemon,
+      Math.max(1, Math.ceil(verdict.graceMs / (healthTimeoutMs + healthIntervalMs))),
+    );
+  }
+
+  private unresponsive(facts: Record<string, unknown>): void {
+    this.daemon = undefined;
+    this.update({ state: "unreachable" });
+    const child = this.child;
+    if (child && !child.done) {
+      // Our own daemon: ask it to stop, and let the crash path restart it.
+      this.ports.log("error", "The daemon stopped answering health checks; stopping it", facts);
+      this.terminate(child, "unresponsive");
+      return;
+    }
+    // Someone else's daemon went away: run our own instead.
+    this.ports.log("warn", "The daemon stopped answering health checks", facts);
+    void this.start().catch((error: unknown) =>
+      this.ports.log("warn", "The start after an unresponsive daemon failed", {
+        error: String(error),
+      }),
+    );
   }
 
   /**
