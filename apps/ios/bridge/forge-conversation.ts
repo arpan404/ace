@@ -100,6 +100,11 @@ export const shownKey = (source: CommentSource, id: number) => `${source}:${id}`
 
 export interface Conversation {
   state: ForgeReviewState | undefined;
+  /**
+   * The head of the pull request read this page shows: what a suggestion is committed at. The
+   * review state is read after it and may already name a newer head.
+   */
+  head: string;
   capabilities?: ForgeCapabilitySource;
   /** The pull request's address, under which each comment has its own. */
   url: string;
@@ -152,7 +157,7 @@ function suggestionView(
   const pr = { number: conversation.number, url: conversation.url };
   return {
     commit: offer.commit,
-    headSha: state.headSha,
+    headSha: conversation.head,
     message: conversation.preview(suggestionCommitMessage(comment.author), 4_096),
     batchMessage: suggestionBatchMessage,
     agent: conversation.preview(suggestionFixRequest(comment, offer.lines, pr), 200_000),

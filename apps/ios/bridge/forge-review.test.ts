@@ -339,3 +339,32 @@ test("a suggestion committed after the branch moved is refused in plain words an
   });
   expect(sent.filter((payload) => payload.type === "forge.hosted.review")).toEqual([]);
 });
+
+test("a push between reading the pull request and its review state leaves suggestions on the head shown, and committing one is refused", async () => {
+  let pushed = false;
+  const fixture = await connected(undefined, undefined, undefined, undefined, (request) => {
+    // GitHub moves on after the page's detail was read, before its review state is.
+    const operation = (request as { operation?: { op?: string } }).operation;
+    if (operation?.op === "forge.pr.review-state" && !pushed) {
+      pushed = fixture.daemon.workspace.pushPullRequest(245);
+    }
+  });
+  const { ask, sent } = fixture;
+  const shown = await timeline(ask, pr245);
+  expect(pushed).toBe(true);
+  const suggestion = threadComment(shown, "RT_2456")?.suggestion;
+  expect(suggestion?.headSha).toBe(shown.review?.headSha);
+  const written = await review(
+    ask,
+    {
+      kind: "suggestions.apply",
+      headSha: suggestion?.headSha,
+      commentIds: [2456],
+      message: "Apply suggestion",
+    },
+    pr245,
+  );
+  expect(written).toMatchObject({ ok: false, uncertain: false });
+  expect(written.message).toMatch(/^The branch moved since you looked/);
+  expect(sent.filter((payload) => payload.type === "forge.hosted.review")).toEqual([]);
+});

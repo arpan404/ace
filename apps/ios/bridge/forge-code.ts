@@ -289,6 +289,7 @@ export async function readFile(
   const locked = lockedOut(lifecycle);
   const conversation: Conversation = {
     capabilities: detail,
+    head: detail.status.headSha,
     state,
     url: detail.status.url,
     number: detail.status.ref.number,
