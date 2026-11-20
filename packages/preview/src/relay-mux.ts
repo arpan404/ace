@@ -135,8 +135,9 @@ export function createMux(options: MuxOptions) {
     closed = true;
     unsubscribe?.();
     options.channel.close();
-    // The same removal as a RESET, so queued bytes and their accounting go with each stream.
-    for (const stream of [...streams.values()]) remove(stream, "reset");
+    // The same removal as a RESET, so queued bytes and their accounting go with each stream
+    // (deleting from a Map while iterating it is safe: deleted entries are not visited).
+    for (const stream of streams.values()) remove(stream, "reset");
     options.onClosed?.();
   };
   const sendFrame = async (frame: Uint8Array) => {

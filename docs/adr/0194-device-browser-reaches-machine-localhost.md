@@ -164,6 +164,12 @@ never a host.
     waits to go, still sends RESET. A stream removed as reset errors its reader, and bytes the
     reader had not read are discarded, so a peer's END followed by its RESET never reads as a
     clean answer. A reader that has already read the end has nothing left to cancel.
+  - Once a stream has finished, nothing undoes it, as with TCP after both FINs. A RESET that
+    one side sends in the moment the other has already finished (both ENDs exchanged, every
+    byte written, its socket closed) arrives for a stream that is gone and is ignored: there is
+    nothing left to abort, since the exchange completed. Likewise, a reader that has read every
+    byte and the end has a complete answer, and a RESET that comes after cannot take it back.
+    A RESET discards only what has not yet been delivered.
 - **Reconnects.** After a drop the client reconnects on a backoff (250 ms up to 10 s), and opens
   honour it: an open while the machine is unreachable waits for the next scheduled attempt,
   shared with every other open; an open given up meanwhile leaves at once and the attempt still
