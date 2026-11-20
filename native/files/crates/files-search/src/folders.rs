@@ -7,19 +7,15 @@
 //! segment costs a lookup and a folder handle, and on a volume that cannot name an open handle it
 //! costs a listing of the folder as well. One walk per folder is enough.
 //!
-//! A handle is never trusted on its own word. Between two files of a folder the folder can be
-//! renamed away and another one, or a link out of the root, put in its place, and the handle would
-//! still read the folder it was opened on. So after every open through a handle, before anything
-//! is read, one lookup through the root's handle proves that the folder's name still leads to the
-//! same identity ([`Folder::still_named`], called by [`crate::open::open`]); when it does not,
-//! the folder is opened again through [`files_safe::Root::open_dir_unstored`], which walks it step
-//! by step and follows no link out of the root. Its names come from the walker's own listing, so
-//! they are already the spellings the disk stores and none is looked up again. The files themselves keep the checks a read needs: the leaf
-//! is opened with no link following, and its identity is compared with the entry that was walked.
+//! A handle is never trusted on its own word. Between two files of a folder, the folder or any
+//! folder above it can be moved out of the checkout, or replaced by a link to somewhere else, and
+//! the handle would still read the folder it was opened on. So every file opened through a handle
+//! is accepted only after its checkout path, walked again from the root, leads to that same file
+//! ([`crate::open::open`]); a refusal drops the handle and the folder is opened again once.
 
 use std::collections::VecDeque;
 
-use files_safe::{Identity, Root};
+use files_safe::Root;
 
 /// Folder handles one walker thread keeps. The walk hands over a folder's files together, so a
 /// second slot already covers a walk that interleaves two folders; the rest is slack, and each
@@ -32,19 +28,16 @@ pub(crate) struct Folders {
     open: VecDeque<Folder>,
 }
 
-/// One authorized folder handle.
+/// One folder handle, opened by walking its checkout path from the root.
 pub(crate) struct Folder {
     path: String,
     pub(crate) dir: cap_std::fs::Dir,
-    /// What names this folder, kept so the handle can be proven with one lookup.
-    identity: Option<Identity>,
 }
 
 impl Folder {
-    /// Whether the folder's checkout path still names the folder this handle holds, asked with one
-    /// lookup. A file opened through the handle is read only after this answers `true`.
-    pub(crate) fn still_named(&self, root: &Root) -> bool {
-        root.still_names(&self.path, self.identity)
+    /// The folder's checkout path, an empty string for the root.
+    pub(crate) fn path(&self) -> &str {
+        &self.path
     }
 }
 
@@ -52,8 +45,8 @@ impl Folders {
     /// The handle for `folder`, an empty string for the root: the one already held, or one opened
     /// now by walking the folder from the root.
     ///
-    /// A held handle is handed back unproven; whoever opens a file through it proves it with
-    /// [`Folder::still_named`] before reading, and calls [`Folders::forget`] when that fails.
+    /// A held handle is handed back as it is; whoever opens a file through it proves the file's
+    /// checkout path before reading, and calls [`Folders::forget`] when that fails.
     /// `None` when the folder cannot be opened as the folder it was seen as: it is gone, is not a
     /// folder any more, or a link on the way left the root. The caller skips that file, as it skips
     /// one whose open fails.
@@ -66,20 +59,23 @@ impl Folders {
             }
         } else {
             let dir = root.open_dir_unstored(folder).ok()?;
-            let identity = root.folder_identity(&dir);
             while self.open.len() >= KEPT {
                 self.open.pop_back();
             }
             self.open.push_front(Folder {
                 path: folder.to_owned(),
                 dir,
-                identity,
             });
         }
         self.open.front()
     }
 
-    /// Drops the handle for `folder`, whose checkout path no longer names it.
+    /// Whether a handle for `folder` is held from an earlier file.
+    pub(crate) fn holds(&self, folder: &str) -> bool {
+        self.open.iter().any(|held| held.path == folder)
+    }
+
+    /// Drops the handle for `folder`, which refused a file its checkout path names.
     pub(crate) fn forget(&mut self, folder: &str) {
         self.open.retain(|held| held.path != folder);
     }
@@ -148,11 +144,6 @@ mod tests {
         std::os::unix::fs::symlink(outside.path().join("d"), dir.path().join("d"))
             .expect("a link out");
 
-        let held = folders.get(&root, "d").expect("the handle is still held");
-        assert!(
-            !held.still_named(&root),
-            "the held handle must not prove itself for a folder that left the root"
-        );
         folders.forget("d");
         assert!(
             folders.get(&root, "d").is_none(),

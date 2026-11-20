@@ -92,9 +92,9 @@ pub(crate) fn search_file(
     }
 }
 
-/// Opens the walked file through its folder's handle. A handle whose folder no longer sits at its
-/// checkout path is dropped and the folder opened again from the root, once, as a folder renamed
-/// and replaced between two of its files must be.
+/// Opens the walked file through its folder's handle. A handle held from an earlier file whose
+/// checkout path leads elsewhere may be stale, as when the folder was replaced between two of its
+/// files: it is dropped, the folder opened again from the root, and the file tried once more.
 fn open_entry(
     root: &files_safe::Root,
     folders: &mut Folders,
@@ -102,14 +102,16 @@ fn open_entry(
     entry: &DirEntry,
 ) -> Option<(cap_std::fs::File, cap_std::fs::Metadata)> {
     let name = entry.file_name();
-    match open::open(root, folders.get(root, folder)?, name, entry) {
+    let held = folders.holds(folder);
+    match open::open(root, folders.get(root, folder)?, name) {
         Opened::File(file, metadata) => return Some((file, metadata)),
-        Opened::Skip => return None,
-        Opened::Moved => folders.forget(folder),
+        Opened::Failed => return None,
+        Opened::Refused if !held => return None,
+        Opened::Refused => folders.forget(folder),
     }
-    match open::open(root, folders.get(root, folder)?, name, entry) {
+    match open::open(root, folders.get(root, folder)?, name) {
         Opened::File(file, metadata) => Some((file, metadata)),
-        Opened::Moved | Opened::Skip => None,
+        Opened::Failed | Opened::Refused => None,
     }
 }
 
