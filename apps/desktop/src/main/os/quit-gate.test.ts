@@ -7,7 +7,13 @@ import { QuitGate } from "./quit-gate.ts";
  * The app as far as quitting goes: a supervisor that started its own daemon, and a gate whose
  * quit records whether that daemon was still alive when the app exited.
  */
-async function app(options: { boundMs?: number; shutDown?: () => Promise<void> } = {}) {
+async function app(
+  options: {
+    boundMs?: number;
+    shutDown?: () => Promise<void>;
+    confirm?: () => Promise<boolean>;
+  } = {},
+) {
   const m = machine();
   const supervisor = new DaemonSupervisor(m.ports, { stopGraceMs: 10_000 });
   void supervisor.start();
@@ -16,16 +22,19 @@ async function app(options: { boundMs?: number; shutDown?: () => Promise<void> }
   await m.advance(1_000);
   const daemon = m.children[0];
   const exits: { daemonAlive: boolean }[] = [];
+  const cancelled: string[] = [];
   const gate = new QuitGate({
     shutDown: options.shutDown ?? (() => supervisor.stop()),
     quit: () => exits.push({ daemonAlive: daemon?.alive ?? false }),
     timers: m.ports.timers,
     log: m.ports.log,
     ...(options.boundMs ? { boundMs: options.boundMs } : {}),
+    ...(options.confirm ? { confirm: options.confirm } : {}),
+    cancelled: () => cancelled.push("cancelled"),
   });
   /** Electron's `before-quit`: whether it let the quit go ahead. */
   const quit = () => gate.request();
-  return { m, gate, daemon, exits, quit, supervisor };
+  return { m, gate, daemon, exits, quit, supervisor, cancelled };
 }
 
 describe("quitting the app", () => {
@@ -43,6 +52,27 @@ describe("quitting the app", () => {
     expect(exits).toEqual([{ daemonAlive: false }]);
     // The real quit that follows goes ahead.
     expect(quit()).toBe(true);
+  });
+
+  it("a quit the window can't keep its unsaved text for is called off, and the next asks again", async () => {
+    let keeps = false;
+    let asked = 0;
+    const { m, daemon, exits, quit, cancelled } = await app({
+      confirm: async () => (asked++, keeps),
+    });
+
+    expect(quit()).toBe(false);
+    await m.advance(0);
+    expect(exits).toEqual([]);
+    expect(cancelled).toEqual(["cancelled"]);
+    expect(daemon?.alive).toBe(true);
+
+    // The person saved the files; the quit they ask for next goes ahead.
+    keeps = true;
+    expect(quit()).toBe(false);
+    await m.advance(3_000);
+    expect(asked).toBe(2);
+    expect(exits).toEqual([{ daemonAlive: false }]);
   });
 
   it("a second quit while the daemon stops still waits for it", async () => {

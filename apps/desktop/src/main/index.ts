@@ -71,6 +71,7 @@ import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { desktopLogs, desktopUserData } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
+import { draftFlush } from "./os/draft-flush.ts";
 import { QuitGate } from "./os/quit-gate.ts";
 import { daemonAtQuit, shutDownBeforeQuit } from "./os/shutdown.ts";
 import { createMainWindow } from "./window/main-window.ts";
@@ -305,13 +306,31 @@ function main(target: DaemonTarget, crashDumps: string): void {
    * (SIGTERM, then SIGKILL after its grace).
    */
   const quitLog = logger("quit");
+  // Hot exit: the window writes its unsaved editor text to the device before anything stops.
+  const drafts = draftFlush({
+    ask: () => {
+      const page = contents();
+      if (!page || page.isDestroyed()) return false;
+      emit(page, "drafts.flush", undefined);
+      return true;
+    },
+    timers,
+  });
   const quitGate = new QuitGate({
+    // Drafts the window couldn't keep stop the quit: the window asks Save, Don't save or Cancel.
+    confirm: () => drafts.run(),
+    cancelled: () => {
+      relaunch = undefined;
+      stopDaemonOnQuit = false;
+    },
     shutDown: async () => {
       globalShortcut.unregisterAll();
       // Before the daemon stops or the app goes: no client should keep showing this app's update,
       // and the browser backend tells the daemon it is going. Both at once, then the daemon.
       await shutDownBeforeQuit({
         beforeDaemon: [
+          // An update's restart skips the question; a quit asked it already.
+          { name: "drafts kept", run: async () => void (await drafts.run()) },
           { name: "update report withdrawn", run: () => updateReport.withdraw() },
           { name: "browser backend stopped", run: () => background.stop() },
         ],
@@ -737,6 +756,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
       reload,
+      draftsFlushed: (kept) => drafts.flushed(kept),
       showLogs,
       reportDiagnostic: rendererReports({ log: logger("renderer"), now: Date.now }),
       desktopChecks: () =>

@@ -68,6 +68,7 @@ export * from "./composer-block-edits.ts";
 export * from "./composer-markers.ts";
 export * from "./browser-annotation-prompt.ts";
 export * from "./browser-annotation-parse.ts";
+export * from "./code-annotation.ts";
 export * from "./content-hash.ts";
 export * from "./counts.ts";
 export * from "./devices.ts";

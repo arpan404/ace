@@ -4,13 +4,15 @@ import {
   Component,
   createElement,
   Suspense,
+  useEffect,
+  useState,
   type ErrorInfo,
   type ReactNode,
 } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import type { WorkspaceDefinition, WorkspaceTab } from "@/lib/workspace/index.ts";
+import type { TabKind, WorkspaceDefinition, WorkspaceTab } from "@/lib/workspace/index.ts";
 
 export const tabDomId = (key: string, part: "tab" | "panel") =>
   `ws-${part}-${key.replace(/[^\w-]/g, "_")}`;
@@ -48,11 +50,7 @@ export function TabContent(props: {
             <TabBoundary
               label={props.definition.title(tab)}
               // Called on every render, so Try again picks up a fresh loader after a failure.
-              render={() => (
-                <Suspense fallback={kind.Skeleton ? <kind.Skeleton /> : <TabLoading />}>
-                  {createElement(kind.view(), { scope: props.scope, tab })}
-                </Suspense>
-              )}
+              render={() => <KindView kind={kind} scope={props.scope} tab={tab} />}
             />
           ) : (
             <EmptyState
@@ -70,6 +68,39 @@ export function TabContent(props: {
       </div>
     );
   });
+}
+
+/**
+ * A tab's view. Its code loaded, it draws at once; still loading, the kind's skeleton shows as a
+ * plain element, not a Suspense fallback, and the view replaces it the moment the chunk lands.
+ * React holds back revealing what a fallback stood in for until 300 ms after the fallback
+ * showed, which a reload of an open tool (the editor's editors) would otherwise wait out.
+ */
+function KindView(props: { kind: TabKind; scope: string; tab: WorkspaceTab }) {
+  const { kind } = props;
+  const [, landed] = useState(0);
+  const [failure, setFailure] = useState<{ error: unknown }>();
+  const View = kind.loaded();
+  useEffect(() => {
+    if (kind.loaded()) return;
+    let live = true;
+    kind.load().then(
+      () => live && landed((count) => count + 1),
+      (error: unknown) => live && setFailure({ error }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [kind]);
+  // The boundary around says so, with Try again (which mounts this afresh).
+  if (failure) throw failure.error;
+  const skeleton = kind.Skeleton ? <kind.Skeleton /> : <TabLoading />;
+  if (!View) return skeleton;
+  return (
+    <Suspense fallback={skeleton}>
+      {createElement(View, { scope: props.scope, tab: props.tab })}
+    </Suspense>
+  );
 }
 
 export function TabLoading() {

@@ -3,8 +3,11 @@
 //! Commands that build a transaction from the current selections and apply it.
 
 mod comment;
+mod expand;
+mod line_edit;
 mod lines;
 mod select;
+mod smart;
 mod typing;
 
 use crate::buffer::Buffer;
