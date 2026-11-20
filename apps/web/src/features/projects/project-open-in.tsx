@@ -8,11 +8,14 @@ import { useEditorLaunch } from "@/lib/use-editor-launch.ts";
 export function ProjectOpenIn(props: { projectId: string }) {
   const project = useProjectDirectory().projects.find((each) => each.id === props.projectId);
   const { editors, unavailable } = useEditors();
-  const open = useEditorLaunch(async (editorId) => {
-    const editor = editors?.find((each) => each.id === editorId);
-    if (!project || !editor) throw new Error("That project or editor is unavailable. Try again.");
-    return { editorId, editorName: editor.name, path: project.path, command: editor.command };
-  });
+  const open = useEditorLaunch(
+    async (editorId) => {
+      const editor = editors?.find((each) => each.id === editorId);
+      if (!project || !editor) throw new Error("That project or editor is unavailable. Try again.");
+      return { editorId, editorName: editor.name, path: project.path, command: editor.command };
+    },
+    { workspaceId: props.projectId },
+  );
   if (!editors || !editors.length) return <MenuItem disabled>{unavailable}</MenuItem>;
   return editors.map((editor) => (
     <MenuItem

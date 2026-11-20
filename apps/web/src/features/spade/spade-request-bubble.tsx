@@ -109,6 +109,7 @@ export function SpadeRequestBubble(props: {
     <RaisedCard
       ref={raised}
       asks="request"
+      data-request={item.callId}
       role="group"
       aria-label={named}
       // Focusable while open, so Enter and Escape answer it from the keyboard.

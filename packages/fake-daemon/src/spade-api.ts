@@ -11,6 +11,7 @@ import { FakeSpadeSecurity } from "./spade-security.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
+import { FakeSpadeReach } from "./spade-reach.ts";
 import { FakeSpadeWakes } from "./spade-wakes.ts";
 import { FakeSpadeWork } from "./spade-work.ts";
 import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
@@ -143,6 +144,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly search = new FakeSpadeSearch();
   /** Each bot's wakes, folded from its events, and the digests (ADR 0160, 0165). */
   readonly wakes: FakeSpadeWakes;
+  /** How Spade reaches the person (ADR 0195). */
+  readonly reach = new FakeSpadeReach();
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -511,6 +514,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
       );
     if (root === "agents" && id && sub === "wakes")
       return this.wakes.route(request.method, id, subId, parts[4]);
+    if (root === "reach" && !id) return this.reach.route(request.method, body);
+    if (root === "agents" && id && sub === "reach")
+      return this.reach.agentRoute(request.method, id, body);
     if (root === "digests" && request.method === "GET")
       return this.wakes.list(new URLSearchParams(query));
     if (root === "agents" && id && (sub === "oversight" || sub === "activity")) {

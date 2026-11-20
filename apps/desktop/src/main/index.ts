@@ -54,6 +54,7 @@ import { linuxInstall, relaunchCommand } from "./os/linux-sandbox.ts";
 import { relaunchAfterExit } from "./os/relaunch-after-exit.ts";
 import { findElevation, LinuxSandboxSetup, readSandboxFacts } from "./os/linux-sandbox-setup.ts";
 import { linuxTrayHost, runProgram } from "./os/tray-host.ts";
+import { TrayPopover } from "./os/tray-popover.ts";
 import { hyprlandShortcutHint } from "./os/hyprland-shortcut.ts";
 import { installAppImageEntry, nodeAppImageEntryFiles } from "./os/appimage-entry.ts";
 import { claimAceLinks } from "./os/link-handler.ts";
@@ -240,6 +241,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
           : "browser",
   });
 
+  /** The menu-bar popover (macOS), once the page is served. */
+  let popover: TrayPopover | undefined;
   const background = new Background({
     userData: app.getPath("userData"),
     trayIcon: paths.trayIcon,
@@ -251,6 +254,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     open: (link) => open(link),
     quitAll: () => app.quit(),
     quitCompletely: () => quitCompletely(),
+    popover:
+      process.platform === "darwin"
+        ? (icon) => {
+            if (!popover) return false;
+            popover.toggle(icon);
+            return true;
+          }
+        : undefined,
     log: (message) => log("warn", message),
     mark: operation.run,
     trayHost:
@@ -739,6 +750,24 @@ function main(target: DaemonTarget, crashDumps: string): void {
         bindings = next;
         installMenu();
       },
+      tray: {
+        open: (link, sender) => {
+          if (!popover?.owns(sender)) return;
+          popover.hide();
+          open(link);
+        },
+        fit: (height, sender) => {
+          if (popover?.owns(sender)) popover.fit(height);
+        },
+        hide: (sender) => {
+          if (popover?.owns(sender)) popover.hide();
+        },
+        quit: (completely, sender) => {
+          if (!popover?.owns(sender)) return;
+          if (completely) quitCompletely();
+          else app.quit();
+        },
+      },
     });
     const installMenu = () =>
       Menu.setApplicationMenu(
@@ -767,9 +796,23 @@ function main(target: DaemonTarget, crashDumps: string): void {
         ),
       );
     installMenu();
+    if (process.platform === "darwin") {
+      const panel = new TrayPopover({
+        rendererUrl,
+        preload: paths.preload,
+        info: JSON.stringify(info),
+        now: Date.now,
+      });
+      popover = panel;
+      // With the tray icon up (Keep running in background), the popover loads once the daemon
+      // runs, so its first click opens it with its data.
+      void daemonRunning.then(() => {
+        if (settings.get().background) panel.prepare();
+      });
+    }
     registerHandlers({
       rendererUrl,
-      isAppWindow: (sender) => sender === window?.webContents,
+      isAppWindow: (sender) => sender === window?.webContents || (popover?.owns(sender) ?? false),
       handlers,
       mark: operation.run,
     });

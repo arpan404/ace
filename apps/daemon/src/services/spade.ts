@@ -10,6 +10,8 @@ import { SpadeGrants } from "../spade/grant.ts";
 import { brainHttp } from "../spade/brain-http.ts";
 import { SpadeBrains } from "../spade/brain-sessions.ts";
 import { nodeSpadeLinkRuntime, spadeAceCall } from "../spade/link-runtime.ts";
+import { spadeLive } from "../spade/forward.ts";
+import { followSpadeNotices } from "../spade/notices.ts";
 import { SpadeLink, type SpadeLinkRuntime } from "../spade/link.ts";
 import { cliVersion } from "../doctor/install.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
@@ -61,6 +63,23 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   services.spade = link;
   context.resources.own(() => link.close(), "spade");
   const host = spadeHostThread(context, link, dataDir);
+  // Spade's notices that reach the person now become ace's alerts (ADR 0195).
+  const notices = followSpadeNotices({
+    ready: () => link.ready(),
+    onReady: (listener) => link.onReady(listener),
+    hostThread: () => host.current()?.threadId,
+    notify: async (notification) => {
+      await services.notifications?.notify(notification);
+    },
+    live: spadeLive,
+    after: (ms, run) => {
+      const timer = setTimeout(run, ms);
+      timer.unref();
+      return () => clearTimeout(timer);
+    },
+    report: (error) => log.log("warn", "A Spade notice didn't reach ace's alerts", logError(error)),
+  });
+  context.resources.own(() => notices.close(), "spade notices");
   services.spadeComputers = startSpadeComputers(
     context,
     () => host.current(),

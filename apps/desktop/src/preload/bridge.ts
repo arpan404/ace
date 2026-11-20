@@ -83,6 +83,13 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       quit: () => call("app.quit"),
       reload: () => call("app.reload"),
     },
+    /** The menu-bar popover's own requests; refused from any other page. */
+    tray: {
+      open: (link: RequestOf<"tray.open">) => call("tray.open", link),
+      fit: (height: number) => call("tray.fit", height),
+      hide: () => call("tray.hide"),
+      quit: (completely: boolean) => call("tray.quit", { completely }),
+    },
     daemon: {
       connection: () => call("daemon.connection"),
       /** The connection this page will most likely get, without waiting for the daemon. */
@@ -108,6 +115,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       /** An installed editor's icon as the OS draws it (a PNG data URL), or null. */
       editorIcon: (editor: RequestOf<"shell.editorIcon">["editor"]) =>
         call("shell.editorIcon", { editor }),
+      /** An installed app's icon by its bundle or `.exe` path (a PNG data URL), or null. */
+      appIcon: (path: string) => call("shell.appIcon", { path }),
       appIdentity: (bundleId: string) => call("shell.appIdentity", { bundleId }),
       openExternal: (url: string) => call("shell.openExternal", url),
     },

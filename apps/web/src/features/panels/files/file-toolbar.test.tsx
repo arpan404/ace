@@ -17,10 +17,14 @@ function actions(): ReturnType<typeof useFileActions> {
     uploadFiles: () => Promise.resolve(),
     replace: () => undefined,
     dismissUpload: () => undefined,
-    editors: [],
-    editorUnavailable: undefined,
-    editor: undefined,
-    openInEditor: () => Promise.resolve(),
+    apps: {
+      apps: [],
+      editors: [],
+      editor: undefined,
+      unavailable: undefined,
+      open: () => Promise.resolve(),
+      openInEditor: () => Promise.resolve(),
+    },
     copyPath: () => undefined,
     pathCopied: false,
   };

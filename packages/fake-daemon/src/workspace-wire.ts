@@ -40,6 +40,7 @@ export type FakeWorkspaceControls = Pick<
   | "setGitStatus"
   | "setGitDiff"
   | "setEditors"
+  | "setTerminals"
   | "opened"
   | "setOwnerOnlyHostPaths"
   | "setForgeRead"
@@ -286,6 +287,10 @@ export class FakeWorkspaceWire {
   setEditors(editors: readonly InstalledEditor[]): void {
     this.editors = InstalledEditor.array().max(32).parse(editors);
   }
+  private installedTerminals: readonly InstalledEditor[] = [];
+  setTerminals(terminals: readonly InstalledEditor[]): void {
+    this.installedTerminals = InstalledEditor.array().max(32).parse(terminals);
+  }
   /** What `host.open` opened on this fake machine, in order: no process starts. */
   readonly opened: { app: string; folder: string; path?: string; line?: number }[] = [];
   /** Host paths under these folders answer `owner_only`, as for a phone without `admin`. */
@@ -390,10 +395,16 @@ export class FakeWorkspaceWire {
       }
     }
     if (op.op === "host.open") {
-      const editor = op.app.kind === "editor" ? op.app.editorId : undefined;
+      const editor =
+        op.app.kind === "editor"
+          ? op.app.editorId
+          : op.app.kind === "terminal"
+            ? op.app.terminalId
+            : undefined;
       const folder = op.threadId ?? op.workspaceId ?? (op.hostPath ? "host" : undefined);
       const path = op.hostPath ?? op.path;
-      const known = editor === undefined || this.editors.some((entry) => entry.id === editor);
+      const listed = op.app.kind === "terminal" ? this.installedTerminals : this.editors;
+      const known = editor === undefined || listed.some((entry) => entry.id === editor);
       const ownerOnly =
         op.hostPath !== undefined && this.ownerOnly.some((prefix) => path?.startsWith(prefix));
       const code = ownerOnly ? "owner_only" : "editor_not_found";
@@ -578,7 +589,12 @@ export class FakeWorkspaceWire {
       });
     const result =
       op.op === "editors.list"
-        ? { kind: "editors", editors: this.editors, fileManager: "Finder" }
+        ? {
+            kind: "editors",
+            editors: this.editors,
+            terminals: this.installedTerminals,
+            fileManager: "Finder",
+          }
         : op.op === "scripts.list"
           ? {
               kind: "scripts",

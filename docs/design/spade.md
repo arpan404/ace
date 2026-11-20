@@ -26,7 +26,10 @@ Spade is one of ace's places. It adds no navigation of its own.
   Disconnect. A bot's Apps (in Details) offer Use <App> for apps connected already and the apps
   that fit its task, each a click from connected.
 - **Settings › Spade.** General (run, model for new bots, fast, review, transcription, voice,
-  spending), Models, Web search, Apps.
+  notifications, spending), Models, Web search, Apps. Notifications (ADR 0195): Notify me, Do
+  not disturb, Quiet hours, Interruptions an hour and a day, Morning brief (its time, the bots and
+  clubs it covers, a rewrite with the fast model) and Unusual spending, each a switch that applies
+  at once.
 
 ## 2. List
 
@@ -124,7 +127,8 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps, security
   (first "How it decides": Auto-review or Full access, with one sentence under Full access saying
   what still asks; turning it on asks first in a dialog, words only, the first time for that bot),
-  spending, then Duplicate and Delete. The machine row carries Move to…, a menu of the other
+  spending, notifications (Notify me, on unless turned off for this bot), then Duplicate and
+  Delete. The machine row carries Move to…, a menu of the other
   machines with Spade (an offline one named and not choosable); Spade read through a machine that
   isn't its host offers Move Spade to this machine (ADR 0187). A move, a failed move or what needs
   the person after one is one sentence above the task with its text buttons (Cancel; Try again

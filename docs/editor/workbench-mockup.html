@@ -1,0 +1,3278 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1600" />
+    <title>ace editor workbench, mockup</title>
+    <!-- Mockup for docs/editor/workbench.md. Static HTML in ace's dark tokens (packages/themes/src/sources/ace.ts) and ace's own icons (@ace/icons). Not product code. -->
+    <style>
+      :root {
+        /* ace dark (packages/themes/src/sources/ace.ts) */
+        --background: #0c0c0c;
+        --sidebar: #090909;
+        --sidebar-panel: #0a0a0a;
+        --surface-1: #101010;
+        --surface-2: #121212;
+        --hover: #131313;
+        --active: #191919;
+        --border: #1e1e1e;
+        --border-strong: #2b2b2b;
+        --faint: #5e5e5e;
+        --subtle: #898989;
+        --muted: #a3a3a3;
+        --foreground: #dedede;
+        --working: #7e9fd6;
+        --needs: #edb250;
+        --finished: #6cbf8c;
+        --failed: #f47670;
+        --font-sans:
+          -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+        --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #000;
+        color: var(--foreground);
+        font: 13px/20px var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      .caption {
+        width: 1600px;
+        margin: 24px auto 8px;
+        color: var(--subtle);
+        font-size: 12px;
+      }
+      svg {
+        flex: none;
+      }
+      .grow {
+        flex: 1;
+      }
+      .mono,
+      code {
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+      code {
+        background: var(--surface-1);
+        border-radius: 4px;
+        padding: 1px 4px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .add {
+        color: var(--finished);
+      }
+      .del {
+        color: var(--failed);
+      }
+
+      .window {
+        width: 1600px;
+        height: 980px;
+        margin: 0 auto 32px;
+        background: var(--sidebar);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border-radius: 12px;
+        border: 1px solid #222;
+      }
+      .bar {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        flex: none;
+        position: relative;
+      }
+      .bar-col {
+        display: flex;
+        align-items: center;
+        height: 44px;
+        padding-right: 8px;
+        flex: none;
+      }
+      .lights {
+        display: flex;
+        gap: 8px;
+        padding: 0 12px 0 16px;
+      }
+      .lights i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #3a3a3a;
+        display: block;
+      }
+      .nav {
+        display: flex;
+        gap: 14px;
+        color: var(--subtle);
+        padding: 0 8px;
+      }
+      .title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        margin-left: 10px;
+      }
+      .title svg {
+        color: var(--muted);
+      }
+      .slash {
+        color: var(--faint);
+      }
+      .marker {
+        width: 1px;
+        height: 20px;
+        background: var(--border);
+        flex: none;
+      }
+      .ib {
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        color: var(--muted);
+        flex: none;
+      }
+      .ib.sm {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        color: var(--subtle);
+      }
+      .ib.on {
+        color: var(--foreground);
+      }
+      .pstrip {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 8px;
+        height: 44px;
+      }
+      .ptab {
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 10px;
+        border-radius: 6px;
+        color: var(--subtle);
+        font-size: 13px;
+      }
+      .ptab svg {
+        color: var(--faint);
+      }
+      .ptab.on {
+        background: var(--active);
+        color: var(--foreground);
+      }
+      .ptab.on svg {
+        color: var(--muted);
+      }
+
+      .canvas {
+        flex: 1;
+        display: flex;
+        min-height: 0;
+        background: var(--background);
+        border-top: 1px solid var(--border);
+      }
+      .canvas.framed {
+        background: var(--sidebar);
+        border-top: 0;
+      }
+      .column {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        background: var(--background);
+        border-right: 1px solid var(--border);
+        position: relative;
+      }
+      .canvas.framed .column {
+        border-top: 1px solid var(--border);
+      }
+      .transcript {
+        flex: 1;
+        padding: 24px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        font-size: 14px;
+        line-height: 22px;
+        overflow: hidden;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 80%;
+        background: var(--surface-1);
+        border-radius: 12px;
+        padding: 8px 12px;
+      }
+      .worked,
+      .working {
+        color: var(--subtle);
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .working {
+        color: var(--muted);
+      }
+      .answer {
+        margin: 0;
+        color: var(--foreground);
+      }
+      .tool {
+        color: var(--muted);
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .tool svg {
+        color: var(--faint);
+      }
+      .mention {
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        background: var(--surface-1);
+        border-radius: 4px;
+        padding: 1px 5px;
+        color: var(--foreground);
+      }
+      .mention.pressed {
+        background: var(--active);
+        box-shadow: 0 0 0 1px var(--border-strong);
+      }
+      .composer {
+        margin: 0 auto 16px;
+        border-radius: 18px;
+        background: #141414;
+        border: 1px solid var(--border-strong);
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+        padding: 10px 12px 8px;
+      }
+      .composer .field {
+        color: var(--subtle);
+        font-size: 14px;
+        padding: 2px 4px 14px;
+      }
+      .composer .foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .model {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .send {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: var(--foreground);
+        color: var(--background);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Workbench */
+      .workbench {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        background: var(--background);
+      }
+      .canvas.framed .workbench {
+        border-top: 1px solid var(--border);
+      }
+      .explorer {
+        width: 236px;
+        flex: none;
+        background: var(--sidebar-panel);
+        border-right: 1px solid var(--border);
+        padding: 6px 0;
+        overflow: hidden;
+      }
+      .xhead {
+        display: flex;
+        gap: 2px;
+        padding: 0 8px 6px;
+      }
+      .wc {
+        height: 26px;
+        padding: 0 10px;
+        display: inline-flex;
+        align-items: center;
+        border-radius: 6px;
+        color: var(--subtle);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .wc.on {
+        background: var(--active);
+        color: var(--foreground);
+      }
+      .xlabel {
+        white-space: nowrap;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 10px 0 8px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .xlabel svg {
+        color: var(--faint);
+      }
+      .xmeta {
+        color: var(--subtle);
+        font-weight: 400;
+        margin-right: 8px;
+      }
+      .textbtn {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+      .textbtn:hover {
+        background: var(--hover);
+      }
+      .glabel {
+        color: var(--subtle);
+        font-size: 11.5px;
+        padding: 6px 12px 2px 24px;
+      }
+      .orow {
+        height: 24px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 10px 0 24px;
+        margin: 0 6px;
+        border-radius: 6px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .orow.cur {
+        background: var(--active);
+        color: var(--foreground);
+      }
+      .orow.preview .tname {
+        font-style: italic;
+      }
+      .ofolder {
+        color: var(--subtle);
+        font-size: 11.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+      }
+      .oslot {
+        width: 14px;
+        display: inline-flex;
+        justify-content: center;
+        color: var(--subtle);
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--foreground);
+        display: inline-block;
+      }
+      .trow {
+        height: 24px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin: 0 6px;
+        border-radius: 6px;
+        padding-right: 8px;
+        font-size: 13px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .trow svg {
+        color: var(--faint);
+      }
+      .trow.sel {
+        background: var(--active);
+        color: var(--foreground);
+      }
+      .c12 {
+        width: 12px;
+        flex: none;
+      }
+      .tname {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tdiff {
+        margin-left: auto;
+        font-size: 11.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .area {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .groups {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+      }
+      .group {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .group + .group {
+        border-left: 1px solid var(--border);
+      }
+      .strip {
+        height: 36px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 6px;
+        border-bottom: 1px solid var(--border);
+        overflow: hidden;
+      }
+      .tab {
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 4px 0 10px;
+        border-radius: 6px;
+        color: var(--subtle);
+        font-size: 13px;
+        white-space: nowrap;
+        flex: none;
+      }
+      .tab .name {
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tab.on {
+        background: var(--active);
+        color: var(--foreground);
+      }
+      .tab.on.unfocused {
+        color: var(--muted);
+      }
+      .tab.preview .name {
+        font-style: italic;
+      }
+      .tab .hint {
+        color: var(--subtle);
+        font-size: 11.5px;
+      }
+      .slot {
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        color: var(--subtle);
+      }
+      .slot.unsaved::after {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .tab.on .slot.unsaved {
+        color: var(--foreground);
+      }
+      .crumbs {
+        height: 26px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 14px;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        color: var(--subtle);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .crumbs .leaf {
+        color: var(--muted);
+      }
+      .crumbs .sep {
+        color: var(--faint);
+      }
+      .notice {
+        white-space: nowrap;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 36px;
+        padding: 0 10px 0 14px;
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+        color: var(--foreground);
+      }
+      .btn {
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 10px;
+        border-radius: 6px;
+        border: 1px solid var(--border-strong);
+        color: var(--foreground);
+        font-size: 12.5px;
+        font-weight: 500;
+      }
+      .code {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        padding-top: 4px;
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        line-height: 20px;
+      }
+      .ln {
+        display: flex;
+        height: 20px;
+        white-space: pre;
+      }
+      .ln.current {
+        background: #141414;
+      }
+      .no {
+        width: 44px;
+        flex: none;
+        text-align: right;
+        padding-right: 10px;
+        color: var(--faint);
+        font-variant-numeric: tabular-nums;
+      }
+      .ln.current .no {
+        color: var(--muted);
+      }
+      .bar {
+        width: 3px;
+        flex: none;
+        margin-right: 10px;
+        border-radius: 1px;
+      }
+      .bar.mine {
+        background: var(--muted);
+      }
+      .bar.agent {
+        background: var(--working);
+      }
+      .src {
+        position: relative;
+        color: #c9c9c9;
+        overflow: hidden;
+      }
+      .caret {
+        position: absolute;
+        top: 2px;
+        width: 2px;
+        height: 16px;
+        background: var(--foreground);
+      }
+      .who {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-left: 16px;
+        font-family: var(--font-sans);
+        font-size: 11.5px;
+        color: var(--subtle);
+        vertical-align: top;
+      }
+      .t-kw {
+        color: #c9c9c9;
+        font-weight: 500;
+      }
+      .t-fn {
+        color: #e4e4e4;
+      }
+      .t-str {
+        color: #cdbb98;
+      }
+      .t-num {
+        color: #d8ae8e;
+      }
+      .t-type {
+        color: #a9c0ca;
+      }
+      .t-com {
+        color: #929292;
+      }
+      .t-punc {
+        color: #898989;
+      }
+      .status {
+        height: 24px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 12px;
+        border-top: 1px solid var(--border);
+        color: var(--subtle);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .status .textbtn {
+        font-size: 12px;
+        margin-left: -8px;
+      }
+
+      /* State 2: rail and Projects panel */
+      .rail {
+        width: 52px;
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 0 12px;
+        background: var(--sidebar);
+      }
+      .place {
+        width: 40px;
+        height: 40px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        color: var(--subtle);
+      }
+      .place.on {
+        background: var(--active);
+        color: var(--foreground);
+      }
+      .avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--active);
+        color: var(--muted);
+        font-size: 11px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 8px;
+      }
+      .spanel {
+        width: 288px;
+        flex: none;
+        background: var(--sidebar-panel);
+        border-radius: 12px 0 0 0;
+        border-top: 1px solid var(--border);
+        border-left: 1px solid var(--border);
+        padding: 0 8px;
+      }
+      .phead {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        padding: 0 4px 0 8px;
+      }
+      .ptitle {
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .pfilter {
+        color: var(--muted);
+        font-size: 11.5px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 8px 8px;
+      }
+      .ptabs {
+        display: flex;
+        gap: 2px;
+        padding: 0 0 10px;
+      }
+      .ptabs span {
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 10px;
+        border-radius: 8px;
+        color: var(--subtle);
+        font-size: 11.5px;
+        font-weight: 500;
+      }
+      .ptabs span.on {
+        background: var(--active);
+        color: var(--foreground);
+      }
+      .ptabs i {
+        font-style: normal;
+        color: var(--subtle);
+        font-weight: 400;
+        margin-left: 4px;
+      }
+      .trow3 {
+        height: 80px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        margin-bottom: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .trow3.sel {
+        background: var(--active);
+      }
+      .trow3 .l1 {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 16px;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .trow3 .l2 {
+        height: 20px;
+        font-size: 14px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .trow3.sel .l2 {
+        color: var(--foreground);
+      }
+      .trow3 .l3 {
+        height: 16px;
+        color: var(--subtle);
+        font-size: 11.5px;
+      }
+      .st {
+        display: inline-flex;
+      }
+      .st.working {
+        color: var(--working);
+      }
+      .st.needs {
+        color: var(--needs);
+      }
+      .time {
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .workbench.compact .crumbs {
+        padding-left: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="caption">
+      State 1 · the workbench docked wide beside the chat: explorer, two groups split right, a
+      pinned tab, an unsaved tab, a preview tab, Claude Code's live edits marked, the slim status
+      line.
+    </p>
+
+    <section class="window" id="state-a" aria-label="Workbench beside the chat">
+      <header class="bar">
+        <div class="bar-col" style="width: 400px">
+          <span class="lights"><i></i><i></i><i></i></span
+          ><span class="nav"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M19.5 12 4.5 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M8.92 7.58L4.99 11.51C4.7 11.8 4.7 12.2 4.99 12.49L8.92 16.42"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M4.5 12 19.5 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M15.08 16.42L19.01 12.49C19.3 12.2 19.3 11.8 19.01 11.51L15.08 7.58"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M8.25 4L15.75 4C19.2 4 21.5 6.3 21.5 9.75L21.5 14.25C21.5 17.7 19.2 20 15.75 20L8.25 20C4.8 20 2.5 17.7 2.5 14.25L2.5 9.75C2.5 6.3 4.8 4 8.25 4Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M9.5 4.6v14.8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="title"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L17.48 7C19.89 7 21.5 8.61 21.5 11.02L21.5 14.9C21.5 17.66 19.66 19.5 16.9 19.5L7.1 19.5C4.34 19.5 2.5 17.66 2.5 14.9L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M3 10.75h18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            ><span class="muted">ace-audit</span><span class="slash">/</span>Drag tabs between
+            editor groups</span
+          ><span class="grow"></span
+          ><span class="ib"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle cx="5.5" cy="12" r="1.5" fill="currentColor"></circle>
+              <circle cx="12" cy="12" r="1.5" fill="currentColor"></circle>
+              <circle cx="18.5" cy="12" r="1.5" fill="currentColor"></circle></svg
+          ></span>
+        </div>
+        <span class="marker"></span>
+        <div class="pstrip">
+          <span class="ptab"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle
+                cx="5"
+                cy="6"
+                r="0.55"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <circle
+                cx="5"
+                cy="12"
+                r="0.55"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <circle
+                cx="5"
+                cy="18"
+                r="0.55"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <path
+                d="M9.5 6h11M9.5 12h11M9.5 18h11"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            >Summary</span
+          ><span class="ptab"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M9.18 2.5L14.82 2.5C17.93 2.5 20 4.57 20 7.68L20 16.32C20 19.43 17.93 21.5 14.82 21.5L9.18 21.5C6.07 21.5 4 19.43 4 16.32L4 7.68C4 4.57 6.07 2.5 9.18 2.5Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M12 6.75v5.5M9.25 9.5h5.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M9.25 16.25h5.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            >Changes</span
+          ><span class="ptab on"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M4 17.5L4 6.52C4 4.11 5.61 2.5 8.02 2.5L12.5 2.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M11.48 6L14.08 6C14.63 6 15.26 6.26 15.65 6.65L19.35 10.35C19.74 10.74 20 11.37 20 11.92L20 17.48C20 19.89 18.39 21.5 15.98 21.5L12.02 21.5C9.61 21.5 8 19.89 8 17.48L8 10.02C8 7.61 9.39 6 11.48 6Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M15 6.4V9a2 2 0 0 0 2 2h2.6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            >Editor</span
+          ><span class="ptab"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle
+                cx="12"
+                cy="12"
+                r="9.25"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <path
+                d="M12 2.9c-2.4 2.5-3.75 5.6-3.75 9.1s1.35 6.6 3.75 9.1c2.4-2.5 3.75-5.6 3.75-9.1S14.4 5.4 12 2.9Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M3.2 12h17.6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            >Browser</span
+          ><span class="ib"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M12 5v14M5 12h14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="grow"></span
+          ><span class="ib"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M6.5 9.25L11.35 14.1C11.74 14.49 12.26 14.49 12.65 14.1L17.5 9.25"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="ib"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M13.75 10.25 20 4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M20 8.5L20 4.69C20 4.28 19.72 4 19.31 4L15.5 4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M10.25 13.75 4 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M4 15.5L4 19.31C4 19.72 4.28 20 4.69 20L8.5 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="ib on"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M8.25 4L15.75 4C19.2 4 21.5 6.3 21.5 9.75L21.5 14.25C21.5 17.7 19.2 20 15.75 20L8.25 20C4.8 20 2.5 17.7 2.5 14.25L2.5 9.75C2.5 6.3 4.8 4 8.25 4Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M9.5 4.6v14.8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+          ></span>
+        </div>
+      </header>
+      <div class="canvas">
+        <main class="column" style="width: 400px">
+          <div class="transcript">
+            <div class="bubble">
+              Let editor tabs move between groups by drag, and keep the preview tab rules.
+            </div>
+            <div class="worked">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M9.25 6.5L14.1 11.35C14.49 11.74 14.49 12.26 14.1 12.65L9.25 17.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              >Worked for 1m 12s
+            </div>
+            <p class="answer">
+              The drop rules now live in <code>editor-groups.ts</code>. Next I'm wiring the tab
+              strip and the split targets.
+            </p>
+            <div class="working">Working for 38s</div>
+            <div class="tool">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M4.11 19.32L4.49 16.88C4.56 16.47 4.8 16 5.09 15.71L13.81 6.99C14.88 5.92 16.24 5.84 17.19 6.79L17.21 6.81C18.16 7.76 18.08 9.12 17.01 10.19L8.29 18.91C8 19.2 7.53 19.44 7.12 19.51L4.68 19.89C4.27 19.96 4.04 19.73 4.11 19.32Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M13.25 7.5l3.25 3.25"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              >Edited <span class="mono">editor-groups.ts</span> <span class="add">+14</span>
+              <span class="del">−3</span>
+            </div>
+            <div class="tool">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M4.11 19.32L4.49 16.88C4.56 16.47 4.8 16 5.09 15.71L13.81 6.99C14.88 5.92 16.24 5.84 17.19 6.79L17.21 6.81C18.16 7.76 18.08 9.12 17.01 10.19L8.29 18.91C8 19.2 7.53 19.44 7.12 19.51L4.68 19.89C4.27 19.96 4.04 19.73 4.11 19.32Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M13.25 7.5l3.25 3.25"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              >Edited <span class="mono">workspace-tabs.ts</span> <span class="add">+6</span>
+              <span class="del">−0</span>
+            </div>
+          </div>
+
+          <div class="composer" style="width: 368px">
+            <div class="field">Ask anything</div>
+            <div class="foot">
+              <span class="ib"
+                ><svg
+                  aria-hidden="true"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <path
+                    d="M12 5v14M5 12h14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path></svg></span
+              ><span class="grow"></span
+              ><span class="model"
+                ><svg aria-hidden="true" width="13" height="13" viewBox="-0.5 -0.5 25 25">
+                  <path
+                    d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"
+                    fill="#D97757"
+                  /></svg
+                >Opus 5.5 · Medium</span
+              ><span class="send"
+                ><svg
+                  aria-hidden="true"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="8.75"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-dasharray="2.722233929727672 4.15"
+                    transform="rotate(-98.91271514404048 12 12)"
+                  ></circle></svg
+              ></span>
+            </div>
+          </div>
+        </main>
+        <div class="workbench">
+          <aside class="explorer" aria-label="Files">
+            <div class="xhead"><span class="wc on">Files</span><span class="wc">Search</span></div>
+            <div class="xlabel">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M6.5 9.25L11.35 14.1C11.74 14.49 12.26 14.49 12.65 14.1L17.5 9.25"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              >Open editors<span class="grow"></span><span class="textbtn">Save all</span>
+            </div>
+            <div class="glabel">Group 1</div>
+            <div class="orow">
+              <span class="tname">tab-strip.tsx</span><span class="ofolder">shell/workspace</span
+              ><span class="oslot"
+                ><svg
+                  aria-hidden="true"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <path
+                    d="M9.84 3L14.16 3C15.26 3 15.88 3.73 15.7 4.81L15.11 8.32C15.05 8.73 15.16 9.23 15.4 9.57L17.44 12.49C18.08 13.4 17.76 14 16.66 14L7.34 14C6.24 14 5.92 13.4 6.56 12.49L8.6 9.57C8.84 9.23 8.95 8.73 8.89 8.32L8.3 4.81C8.12 3.73 8.74 3 9.84 3Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path>
+                  <path
+                    d="M12 14v7"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path></svg
+              ></span>
+            </div>
+            <div class="orow cur">
+              <span class="tname">workspace-tabs.ts</span><span class="ofolder">ui-core/src</span
+              ><span class="oslot"><span class="dot"></span></span>
+            </div>
+            <div class="orow">
+              <span class="tname">store.ts</span><span class="ofolder">lib/workspace</span
+              ><span class="oslot"
+                ><svg aria-hidden="true" width="11" height="11" viewBox="-0.5 -0.5 25 25">
+                  <path
+                    d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"
+                    fill="#D97757"
+                  /></svg
+              ></span>
+            </div>
+            <div class="orow preview">
+              <span class="tname">places.ts</span><span class="ofolder">lib/workspace</span>
+            </div>
+            <div class="glabel">Group 2</div>
+            <div class="orow">
+              <span class="tname">editor-groups.ts</span
+              ><span class="ofolder">features/editor</span>
+            </div>
+            <div class="orow">
+              <span class="tname">workbench.md</span><span class="ofolder">docs/editor</span>
+            </div>
+            <div class="xlabel" style="margin-top: 8px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M6.5 9.25L11.35 14.1C11.74 14.49 12.26 14.49 12.65 14.1L17.5 9.25"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              >ace-audit
+            </div>
+            <div class="trow" style="padding-left: 8px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M6.5 9.25L11.35 14.1C11.74 14.49 12.26 14.49 12.65 14.1L17.5 9.25"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M2.5 18.5L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L14.01 7C15.5 7 17 7.5 17.74 8.24L17.76 8.26C18.5 9 19 9.75 19 10.12L19 10.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M8.8 10.75L20.02 10.75C21.06 10.75 21.53 11.4 21.19 12.38L19.87 16.24C19.2 18.19 17.37 19.5 15.3 19.5L4.8 19.5C3.42 19.5 2.88 18.66 3.46 17.41L5.54 12.84C6.12 11.59 7.42 10.75 8.8 10.75Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">apps/web/src</span>
+            </div>
+            <div class="trow" style="padding-left: 20px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M6.5 9.25L11.35 14.1C11.74 14.49 12.26 14.49 12.65 14.1L17.5 9.25"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M2.5 18.5L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L14.01 7C15.5 7 17 7.5 17.74 8.24L17.76 8.26C18.5 9 19 9.75 19 10.12L19 10.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M8.8 10.75L20.02 10.75C21.06 10.75 21.53 11.4 21.19 12.38L19.87 16.24C19.2 18.19 17.37 19.5 15.3 19.5L4.8 19.5C3.42 19.5 2.88 18.66 3.46 17.41L5.54 12.84C6.12 11.59 7.42 10.75 8.8 10.75Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">features</span>
+            </div>
+            <div class="trow" style="padding-left: 32px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M6.5 9.25L11.35 14.1C11.74 14.49 12.26 14.49 12.65 14.1L17.5 9.25"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M2.5 18.5L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L14.01 7C15.5 7 17 7.5 17.74 8.24L17.76 8.26C18.5 9 19 9.75 19 10.12L19 10.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M8.8 10.75L20.02 10.75C21.06 10.75 21.53 11.4 21.19 12.38L19.87 16.24C19.2 18.19 17.37 19.5 15.3 19.5L4.8 19.5C3.42 19.5 2.88 18.66 3.46 17.41L5.54 12.84C6.12 11.59 7.42 10.75 8.8 10.75Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">editor</span>
+            </div>
+            <div class="trow" style="padding-left: 44px">
+              <span class="c12"></span
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M8.98 2.5L12.08 2.5C12.63 2.5 13.26 2.76 13.65 3.15L18.35 7.85C18.74 8.24 19 8.87 19 9.42L19 16.9C19 19.66 17.16 21.5 14.4 21.5L9.6 21.5C6.84 21.5 5 19.66 5 16.9L5 7.1C5 4.34 6.59 2.5 8.98 2.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M13 2.9V6.5a2 2 0 0 0 2 2h3.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M10 11.75L8.23 14.11C7.94 14.49 7.94 15.01 8.23 15.39L10 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M14 11.75L15.77 14.11C16.06 14.49 16.06 15.01 15.77 15.39L14 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">editor-groups.ts</span
+              ><span class="tdiff"><span class="add">+14</span> <span class="del">−3</span></span>
+            </div>
+            <div class="trow" style="padding-left: 44px">
+              <span class="c12"></span
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M8.98 2.5L12.08 2.5C12.63 2.5 13.26 2.76 13.65 3.15L18.35 7.85C18.74 8.24 19 8.87 19 9.42L19 16.9C19 19.66 17.16 21.5 14.4 21.5L9.6 21.5C6.84 21.5 5 19.66 5 16.9L5 7.1C5 4.34 6.59 2.5 8.98 2.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M13 2.9V6.5a2 2 0 0 0 2 2h3.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M9.5 12L7.97 14.1C7.69 14.49 7.69 15.01 7.97 15.4L9.5 17.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M14.5 12L16.03 14.1C16.31 14.49 16.31 15.01 16.03 15.4L14.5 17.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M12.9 11.75 11.1 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">editor.tsx</span>
+            </div>
+            <div class="trow" style="padding-left: 44px">
+              <span class="c12"></span
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M8.98 2.5L12.08 2.5C12.63 2.5 13.26 2.76 13.65 3.15L18.35 7.85C18.74 8.24 19 8.87 19 9.42L19 16.9C19 19.66 17.16 21.5 14.4 21.5L9.6 21.5C6.84 21.5 5 19.66 5 16.9L5 7.1C5 4.34 6.59 2.5 8.98 2.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M13 2.9V6.5a2 2 0 0 0 2 2h3.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M10 11.75L8.23 14.11C7.94 14.49 7.94 15.01 8.23 15.39L10 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M14 11.75L15.77 14.11C16.06 14.49 16.06 15.01 15.77 15.39L14 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">use-editor.ts</span>
+            </div>
+            <div class="trow" style="padding-left: 32px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M9.25 6.5L14.1 11.35C14.49 11.74 14.49 12.26 14.1 12.65L9.25 17.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L17.48 7C19.89 7 21.5 8.61 21.5 11.02L21.5 14.9C21.5 17.66 19.66 19.5 16.9 19.5L7.1 19.5C4.34 19.5 2.5 17.66 2.5 14.9L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M3 10.75h18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">panels</span>
+            </div>
+            <div class="trow" style="padding-left: 20px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M6.5 9.25L11.35 14.1C11.74 14.49 12.26 14.49 12.65 14.1L17.5 9.25"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M2.5 18.5L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L14.01 7C15.5 7 17 7.5 17.74 8.24L17.76 8.26C18.5 9 19 9.75 19 10.12L19 10.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M8.8 10.75L20.02 10.75C21.06 10.75 21.53 11.4 21.19 12.38L19.87 16.24C19.2 18.19 17.37 19.5 15.3 19.5L4.8 19.5C3.42 19.5 2.88 18.66 3.46 17.41L5.54 12.84C6.12 11.59 7.42 10.75 8.8 10.75Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">lib/workspace</span>
+            </div>
+            <div class="trow" style="padding-left: 32px">
+              <span class="c12"></span
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M8.98 2.5L12.08 2.5C12.63 2.5 13.26 2.76 13.65 3.15L18.35 7.85C18.74 8.24 19 8.87 19 9.42L19 16.9C19 19.66 17.16 21.5 14.4 21.5L9.6 21.5C6.84 21.5 5 19.66 5 16.9L5 7.1C5 4.34 6.59 2.5 8.98 2.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M13 2.9V6.5a2 2 0 0 0 2 2h3.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M10 11.75L8.23 14.11C7.94 14.49 7.94 15.01 8.23 15.39L10 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M14 11.75L15.77 14.11C16.06 14.49 16.06 15.01 15.77 15.39L14 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">places.ts</span>
+            </div>
+            <div class="trow" style="padding-left: 32px">
+              <span class="c12"></span
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M8.98 2.5L12.08 2.5C12.63 2.5 13.26 2.76 13.65 3.15L18.35 7.85C18.74 8.24 19 8.87 19 9.42L19 16.9C19 19.66 17.16 21.5 14.4 21.5L9.6 21.5C6.84 21.5 5 19.66 5 16.9L5 7.1C5 4.34 6.59 2.5 8.98 2.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M13 2.9V6.5a2 2 0 0 0 2 2h3.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M10 11.75L8.23 14.11C7.94 14.49 7.94 15.01 8.23 15.39L10 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M14 11.75L15.77 14.11C16.06 14.49 16.06 15.01 15.77 15.39L14 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">store.ts</span
+              ><span class="tdiff"><span class="add">+2</span> <span class="del">−1</span></span>
+            </div>
+            <div class="trow" style="padding-left: 8px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M9.25 6.5L14.1 11.35C14.49 11.74 14.49 12.26 14.1 12.65L9.25 17.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L17.48 7C19.89 7 21.5 8.61 21.5 11.02L21.5 14.9C21.5 17.66 19.66 19.5 16.9 19.5L7.1 19.5C4.34 19.5 2.5 17.66 2.5 14.9L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M3 10.75h18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">docs</span>
+            </div>
+            <div class="trow" style="padding-left: 8px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M9.25 6.5L14.1 11.35C14.49 11.74 14.49 12.26 14.1 12.65L9.25 17.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L17.48 7C19.89 7 21.5 8.61 21.5 11.02L21.5 14.9C21.5 17.66 19.66 19.5 16.9 19.5L7.1 19.5C4.34 19.5 2.5 17.66 2.5 14.9L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M3 10.75h18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">native</span>
+            </div>
+            <div class="trow" style="padding-left: 8px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M6.5 9.25L11.35 14.1C11.74 14.49 12.26 14.49 12.65 14.1L17.5 9.25"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M2.5 18.5L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L14.01 7C15.5 7 17 7.5 17.74 8.24L17.76 8.26C18.5 9 19 9.75 19 10.12L19 10.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M8.8 10.75L20.02 10.75C21.06 10.75 21.53 11.4 21.19 12.38L19.87 16.24C19.2 18.19 17.37 19.5 15.3 19.5L4.8 19.5C3.42 19.5 2.88 18.66 3.46 17.41L5.54 12.84C6.12 11.59 7.42 10.75 8.8 10.75Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">packages/ui-core/src</span>
+            </div>
+            <div class="trow" style="padding-left: 20px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M9.25 6.5L14.1 11.35C14.49 11.74 14.49 12.26 14.1 12.65L9.25 17.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L17.48 7C19.89 7 21.5 8.61 21.5 11.02L21.5 14.9C21.5 17.66 19.66 19.5 16.9 19.5L7.1 19.5C4.34 19.5 2.5 17.66 2.5 14.9L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M3 10.75h18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">brand-art</span>
+            </div>
+            <div class="trow" style="padding-left: 20px">
+              <span class="c12"></span
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M8.98 2.5L12.08 2.5C12.63 2.5 13.26 2.76 13.65 3.15L18.35 7.85C18.74 8.24 19 8.87 19 9.42L19 16.9C19 19.66 17.16 21.5 14.4 21.5L9.6 21.5C6.84 21.5 5 19.66 5 16.9L5 7.1C5 4.34 6.59 2.5 8.98 2.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M13 2.9V6.5a2 2 0 0 0 2 2h3.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M10 11.75L8.23 14.11C7.94 14.49 7.94 15.01 8.23 15.39L10 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M14 11.75L15.77 14.11C16.06 14.49 16.06 15.01 15.77 15.39L14 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">workspace-tabs.test.ts</span>
+            </div>
+            <div class="trow sel" style="padding-left: 20px">
+              <span class="c12"></span
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M8.98 2.5L12.08 2.5C12.63 2.5 13.26 2.76 13.65 3.15L18.35 7.85C18.74 8.24 19 8.87 19 9.42L19 16.9C19 19.66 17.16 21.5 14.4 21.5L9.6 21.5C6.84 21.5 5 19.66 5 16.9L5 7.1C5 4.34 6.59 2.5 8.98 2.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M13 2.9V6.5a2 2 0 0 0 2 2h3.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M10 11.75L8.23 14.11C7.94 14.49 7.94 15.01 8.23 15.39L10 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M14 11.75L15.77 14.11C16.06 14.49 16.06 15.01 15.77 15.39L14 17.75"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">workspace-tabs.ts</span
+              ><span class="tdiff"><span class="add">+6</span> <span class="del">−0</span></span>
+            </div>
+            <div class="trow" style="padding-left: 8px">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M9.25 6.5L14.1 11.35C14.49 11.74 14.49 12.26 14.1 12.65L9.25 17.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L17.48 7C19.89 7 21.5 8.61 21.5 11.02L21.5 14.9C21.5 17.66 19.66 19.5 16.9 19.5L7.1 19.5C4.34 19.5 2.5 17.66 2.5 14.9L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M3 10.75h18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              ><span class="tname">scripts</span>
+            </div>
+          </aside>
+          <div class="area">
+            <div class="groups">
+              <section class="group focused" aria-label="Group 1">
+                <div class="strip">
+                  <div class="tab" role="tab" aria-selected="false">
+                    <span class="name">tab-strip.tsx</span
+                    ><span class="slot"
+                      ><svg
+                        aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                      >
+                        <path
+                          d="M9.84 3L14.16 3C15.26 3 15.88 3.73 15.7 4.81L15.11 8.32C15.05 8.73 15.16 9.23 15.4 9.57L17.44 12.49C18.08 13.4 17.76 14 16.66 14L7.34 14C6.24 14 5.92 13.4 6.56 12.49L8.6 9.57C8.84 9.23 8.95 8.73 8.89 8.32L8.3 4.81C8.12 3.73 8.74 3 9.84 3Z"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.75"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        ></path>
+                        <path
+                          d="M12 14v7"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.75"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        ></path></svg
+                    ></span>
+                  </div>
+                  <div class="tab on" role="tab" aria-selected="true">
+                    <span class="name">workspace-tabs.ts</span
+                    ><span class="slot unsaved" aria-label="Unsaved"></span>
+                  </div>
+                  <div class="tab" role="tab" aria-selected="false">
+                    <span class="name">store.ts</span
+                    ><span class="slot" aria-label="Changed by Claude Code"
+                      ><svg aria-hidden="true" width="11" height="11" viewBox="-0.5 -0.5 25 25">
+                        <path
+                          d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"
+                          fill="#D97757"
+                        /></svg
+                    ></span>
+                  </div>
+                  <div class="tab preview" role="tab" aria-selected="false">
+                    <span class="name">places.ts</span><span class="slot"></span>
+                  </div>
+                  <span class="grow"></span
+                  ><span class="ib sm"
+                    ><svg
+                      aria-hidden="true"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <circle cx="5.5" cy="12" r="1.5" fill="currentColor"></circle>
+                      <circle cx="12" cy="12" r="1.5" fill="currentColor"></circle>
+                      <circle cx="18.5" cy="12" r="1.5" fill="currentColor"></circle></svg
+                  ></span>
+                </div>
+                <div class="crumbs">
+                  <span class="">packages</span><span class="sep">›</span
+                  ><span class="">ui-core</span><span class="sep">›</span><span class="">src</span
+                  ><span class="sep">›</span><span class="leaf">workspace-tabs.ts</span>
+                </div>
+                <div class="notice">
+                  <svg aria-hidden="true" width="12" height="12" viewBox="-0.5 -0.5 25 25">
+                    <path
+                      d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"
+                      fill="#D97757"
+                    /></svg
+                  ><span>Claude Code also changed this file.</span><span class="grow"></span
+                  ><span class="btn">Merge</span><span class="textbtn">Compare</span>
+                </div>
+                <div class="code"><!-- filled from the code payload --></div>
+              </section>
+              <section class="group" aria-label="Group 2">
+                <div class="strip">
+                  <div class="tab on unfocused" role="tab" aria-selected="true">
+                    <span class="name">editor-groups.ts</span
+                    ><span class="slot x"
+                      ><svg
+                        aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                      >
+                        <path
+                          d="M6.5 6.5l11 11M17.5 6.5l-11 11"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.75"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        ></path></svg
+                    ></span>
+                  </div>
+                  <div class="tab" role="tab" aria-selected="false">
+                    <span class="name">workbench.md</span><span class="slot"></span>
+                  </div>
+                  <span class="grow"></span
+                  ><span class="ib sm"
+                    ><svg
+                      aria-hidden="true"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <circle cx="5.5" cy="12" r="1.5" fill="currentColor"></circle>
+                      <circle cx="12" cy="12" r="1.5" fill="currentColor"></circle>
+                      <circle cx="18.5" cy="12" r="1.5" fill="currentColor"></circle></svg
+                  ></span>
+                </div>
+                <div class="crumbs">
+                  <span class="">apps/web</span><span class="sep">›</span><span class="">src</span
+                  ><span class="sep">›</span><span class="">features</span><span class="sep">›</span
+                  ><span class="">editor</span><span class="sep">›</span
+                  ><span class="leaf">editor-groups.ts</span>
+                </div>
+                <div class="code"><!-- filled from the code payload --></div>
+              </section>
+            </div>
+            <footer class="status">
+              <span>Claude Code changed 2 open files</span><span class="textbtn">Next change</span
+              ><span class="grow"></span><span>Ln 25, Col 35</span><span>Spaces: 2</span
+              ><span>UTF-8</span><span>LF</span><span>TypeScript</span>
+            </footer>
+          </div>
+        </div>
+      </div>
+    </section>
+    <p class="caption">
+      State 2 · a mention in the chat opens the file as a preview tab in the same editor, compact
+      beside the chat: one group, explorer stepped aside, the line revealed.
+    </p>
+
+    <section class="window" id="state-b" aria-label="A file opened from a mention in the chat">
+      <header class="bar">
+        <div class="bar-col" style="width: 1040px">
+          <span class="lights"><i></i><i></i><i></i></span
+          ><span class="nav"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M19.5 12 4.5 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M8.92 7.58L4.99 11.51C4.7 11.8 4.7 12.2 4.99 12.49L8.92 16.42"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M4.5 12 19.5 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M15.08 16.42L19.01 12.49C19.3 12.2 19.3 11.8 19.01 11.51L15.08 7.58"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M8.25 4L15.75 4C19.2 4 21.5 6.3 21.5 9.75L21.5 14.25C21.5 17.7 19.2 20 15.75 20L8.25 20C4.8 20 2.5 17.7 2.5 14.25L2.5 9.75C2.5 6.3 4.8 4 8.25 4Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M9.5 4.6v14.8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="title" style="margin-left: 190px"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L17.48 7C19.89 7 21.5 8.61 21.5 11.02L21.5 14.9C21.5 17.66 19.66 19.5 16.9 19.5L7.1 19.5C4.34 19.5 2.5 17.66 2.5 14.9L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M3 10.75h18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            ><span class="muted">ace-audit</span><span class="slash">/</span>Make the editor follow
+            agent edits</span
+          ><span class="grow"></span
+          ><span class="ib"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle cx="5.5" cy="12" r="1.5" fill="currentColor"></circle>
+              <circle cx="12" cy="12" r="1.5" fill="currentColor"></circle>
+              <circle cx="18.5" cy="12" r="1.5" fill="currentColor"></circle></svg
+          ></span>
+        </div>
+        <span class="marker"></span>
+        <div class="pstrip">
+          <span class="ptab"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle
+                cx="5"
+                cy="6"
+                r="0.55"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <circle
+                cx="5"
+                cy="12"
+                r="0.55"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <circle
+                cx="5"
+                cy="18"
+                r="0.55"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <path
+                d="M9.5 6h11M9.5 12h11M9.5 18h11"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            >Summary</span
+          ><span class="ptab"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M9.18 2.5L14.82 2.5C17.93 2.5 20 4.57 20 7.68L20 16.32C20 19.43 17.93 21.5 14.82 21.5L9.18 21.5C6.07 21.5 4 19.43 4 16.32L4 7.68C4 4.57 6.07 2.5 9.18 2.5Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M12 6.75v5.5M9.25 9.5h5.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M9.25 16.25h5.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            >Changes</span
+          ><span class="ptab on"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M4 17.5L4 6.52C4 4.11 5.61 2.5 8.02 2.5L12.5 2.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M11.48 6L14.08 6C14.63 6 15.26 6.26 15.65 6.65L19.35 10.35C19.74 10.74 20 11.37 20 11.92L20 17.48C20 19.89 18.39 21.5 15.98 21.5L12.02 21.5C9.61 21.5 8 19.89 8 17.48L8 10.02C8 7.61 9.39 6 11.48 6Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M15 6.4V9a2 2 0 0 0 2 2h2.6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            >Editor</span
+          ><span class="ptab"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle
+                cx="12"
+                cy="12"
+                r="9.25"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <path
+                d="M12 2.9c-2.4 2.5-3.75 5.6-3.75 9.1s1.35 6.6 3.75 9.1c2.4-2.5 3.75-5.6 3.75-9.1S14.4 5.4 12 2.9Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M3.2 12h17.6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+            >Browser</span
+          ><span class="ib"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M12 5v14M5 12h14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="grow"></span
+          ><span class="ib"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M6.5 9.25L11.35 14.1C11.74 14.49 12.26 14.49 12.65 14.1L17.5 9.25"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="ib"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M13.75 10.25 20 4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M20 8.5L20 4.69C20 4.28 19.72 4 19.31 4L15.5 4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M10.25 13.75 4 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M4 15.5L4 19.31C4 19.72 4.28 20 4.69 20L8.5 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="ib on"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M8.25 4L15.75 4C19.2 4 21.5 6.3 21.5 9.75L21.5 14.25C21.5 17.7 19.2 20 15.75 20L8.25 20C4.8 20 2.5 17.7 2.5 14.25L2.5 9.75C2.5 6.3 4.8 4 8.25 4Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M9.5 4.6v14.8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg
+          ></span>
+        </div>
+      </header>
+      <div class="canvas framed">
+        <nav class="rail">
+          <span class="place on"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <defs>
+                <mask id="_R_0_-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                  <rect width="24" height="24" fill="white"></rect>
+                  <path
+                    d="M3 10.75h18"
+                    fill="none"
+                    stroke="black"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path>
+                </mask>
+              </defs>
+              <g mask="url(#_R_0_-cut)">
+                <path
+                  d="M5.86 4.5L6.95 4.5C8.33 4.5 9.7 5 10.37 5.74L10.38 5.76C11.05 6.5 12.19 7 13.22 7L17.48 7C19.89 7 21.5 8.61 21.5 11.02L21.5 14.9C21.5 17.66 19.66 19.5 16.9 19.5L7.1 19.5C4.34 19.5 2.5 17.66 2.5 14.9L2.5 8.52C2.5 6.11 3.84 4.5 5.86 4.5Z"
+                  fill="currentColor"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+              </g></svg></span
+          ><span class="place"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <defs>
+                <mask id="_R_0_-h0" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                  <rect width="24" height="24" fill="white"></rect>
+                  <circle cx="9.5" cy="14" r="8.5" fill="black"></circle>
+                </mask>
+              </defs>
+              <g mask="url(#_R_0_-h0)">
+                <path
+                  d="M15.25 3A5.75 5.75 0 0 1 20.58 10.9L21.12 13.67Q21.34 14.85 20.17 14.62L17.4 14.08A5.75 5.75 0 1 1 15.25 3Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+              </g>
+              <path
+                d="M9.5 7.5A6.5 6.5 0 1 1 7.07 20.03L3.79 20.66Q2.61 20.89 2.84 19.71L3.47 16.43A6.5 6.5 0 0 1 9.5 7.5Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="place"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle
+                cx="6"
+                cy="5.5"
+                r="2.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <circle
+                cx="6"
+                cy="18.5"
+                r="2.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <circle
+                cx="18"
+                cy="18.5"
+                r="2.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle>
+              <path
+                d="M6 8v8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M18 16L18 10.02C18 7.61 16.71 6 14.77 6L11.5 6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M13.76 3.74L11.99 5.51C11.7 5.8 11.7 6.2 11.99 6.49L13.76 8.26"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="place"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M19.61 14.47A8 8 0 1 1 18.13 6.86"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M14.14 6.51L17.44 6.8C17.85 6.83 18.15 6.58 18.19 6.17L18.48 2.87"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="place"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M13.53 3.81L19.47 6.94C20.39 7.43 20.39 8.07 19.47 8.56L13.53 11.69C12.61 12.18 11.39 12.18 10.47 11.69L4.53 8.56C3.61 8.07 3.61 7.43 4.53 6.94L10.47 3.81C11.39 3.32 12.61 3.32 13.53 3.81Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M3 12L10.47 15.94C11.39 16.43 12.61 16.43 13.53 15.94L21 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <path
+                d="M3 16.25L10.47 20.19C11.39 20.68 12.61 20.68 13.53 20.19L21 16.25"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path></svg></span
+          ><span class="grow"></span
+          ><span class="place"
+            ><svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M20.31 13.68L20.32 13.69C20.9 14.12 21.1 14.87 20.81 15.57L20.76 15.7C20.47 16.4 19.79 16.8 19.08 16.69L19.07 16.69C18.35 16.58 17.6 16.78 17.19 17.18L17.18 17.19C16.78 17.6 16.58 18.35 16.69 19.07L16.69 19.08C16.8 19.79 16.4 20.47 15.7 20.76L15.57 20.81C14.87 21.1 14.12 20.9 13.69 20.32L13.68 20.31C13.25 19.73 12.58 19.34 12 19.34L12 19.34C11.42 19.34 10.75 19.73 10.32 20.31L10.31 20.32C9.88 20.9 9.13 21.1 8.43 20.81L8.3 20.76C7.6 20.47 7.2 19.79 7.31 19.08L7.31 19.07C7.42 18.35 7.22 17.6 6.82 17.19L6.81 17.18C6.4 16.78 5.65 16.58 4.93 16.69L4.92 16.69C4.21 16.8 3.53 16.4 3.24 15.7L3.19 15.57C2.9 14.87 3.1 14.12 3.68 13.69L3.69 13.68C4.27 13.25 4.66 12.58 4.66 12L4.66 12C4.66 11.42 4.27 10.75 3.69 10.32L3.68 10.31C3.1 9.88 2.9 9.13 3.19 8.43L3.24 8.3C3.53 7.6 4.21 7.2 4.92 7.31L4.93 7.31C5.65 7.42 6.4 7.22 6.81 6.82L6.82 6.81C7.22 6.4 7.42 5.65 7.31 4.93L7.31 4.92C7.2 4.21 7.6 3.53 8.3 3.24L8.43 3.19C9.13 2.9 9.88 3.1 10.31 3.68L10.32 3.69C10.75 4.27 11.42 4.66 12 4.66L12 4.66C12.58 4.66 13.25 4.27 13.68 3.69L13.69 3.68C14.12 3.1 14.87 2.9 15.57 3.19L15.7 3.24C16.4 3.53 16.8 4.21 16.69 4.92L16.69 4.93C16.58 5.65 16.78 6.4 17.18 6.81L17.19 6.82C17.6 7.22 18.35 7.42 19.07 7.31L19.08 7.31C19.79 7.2 20.47 7.6 20.76 8.3L20.81 8.43C21.1 9.13 20.9 9.88 20.32 10.31L20.31 10.32C19.73 10.75 19.34 11.42 19.34 12L19.34 12C19.34 12.58 19.73 13.25 20.31 13.68Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+              <circle
+                cx="12"
+                cy="12"
+                r="3.25"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></circle></svg></span
+          ><span class="avatar">AB</span>
+        </nav>
+        <aside class="spanel">
+          <div class="phead">
+            <span class="ptitle">Projects</span><span class="grow"></span
+            ><span class="ib"
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <circle
+                  cx="10.75"
+                  cy="10.75"
+                  r="7"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></circle>
+                <path
+                  d="M16.25 16.25 20.5 20.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg></span
+            ><span class="ib"
+              ><svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M4.11 19.32L4.49 16.88C4.56 16.47 4.8 16 5.09 15.71L13.81 6.99C14.88 5.92 16.24 5.84 17.19 6.79L17.21 6.81C18.16 7.76 18.08 9.12 17.01 10.19L8.29 18.91C8 19.2 7.53 19.44 7.12 19.51L4.68 19.89C4.27 19.96 4.04 19.73 4.11 19.32Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M13.25 7.5l3.25 3.25"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+            ></span>
+          </div>
+          <div class="pfilter">
+            Everywhere
+            <svg
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M6.5 9.25L11.35 14.1C11.74 14.49 12.26 14.49 12.65 14.1L17.5 9.25"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+            </svg>
+          </div>
+          <div class="ptabs">
+            <span class="on">Inbox <i>3</i></span
+            ><span>Snoozed</span><span>Settled</span>
+          </div>
+          <div class="trow3 sel">
+            <div class="l1">
+              <span>ace-audit</span><span class="grow"></span
+              ><span class="st working"
+                ><svg
+                  aria-hidden="true"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="8.75"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-dasharray="2.722233929727672 4.15"
+                    transform="rotate(-98.91271514404048 12 12)"
+                  ></circle></svg></span
+              ><span class="time">2m 14s</span>
+            </div>
+            <div class="l2">Make the editor follow agent edits</div>
+            <div class="l3 mono">ace/editor-follow</div>
+          </div>
+          <div class="trow3">
+            <div class="l1">
+              <span>ace</span><span class="grow"></span
+              ><span class="st needs"
+                ><svg
+                  aria-hidden="true"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <defs>
+                    <mask
+                      id="_R_0_-cut"
+                      maskUnits="userSpaceOnUse"
+                      x="0"
+                      y="0"
+                      width="24"
+                      height="24"
+                    >
+                      <rect width="24" height="24" fill="white"></rect>
+                      <path
+                        d="M9.7 7v4.5M12.3 6v5.5M14.9 7.75v3.75"
+                        fill="none"
+                        stroke="black"
+                        stroke-width="1.75"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      ></path>
+                    </mask>
+                  </defs>
+                  <g mask="url(#_R_0_-cut)">
+                    <path
+                      d="M7.1 13V5.55a1.3 1.3 0 0 1 2.6 0V4.3a1.3 1.3 0 0 1 2.6 0v.75a1.3 1.3 0 0 1 2.6 0v2a1.3 1.3 0 0 1 2.6 0v7.45c0 3.9-2.3 6.5-5.25 6.5-2.15 0-3.65-.9-4.85-2.6l-3.25-4.6a1.35 1.35 0 0 1 2.05-1.7Z"
+                      fill="currentColor"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    ></path>
+                  </g></svg
+              ></span>
+            </div>
+            <div class="l2">Fix the relay reconnect loop</div>
+            <div class="l3 mono">ace/relay-reconnect</div>
+          </div>
+          <div class="trow3">
+            <div class="l1">
+              <span>ace-audit</span><span class="grow"></span><span class="time">12m</span>
+            </div>
+            <div class="l2">Drag tabs between editor groups</div>
+            <div class="l3 mono">ace/editor-groups</div>
+          </div>
+          <div class="trow3">
+            <div class="l1">
+              <span>ace</span><span class="grow"></span><span class="time">1h</span>
+            </div>
+            <div class="l2">Usage page for Antigravity</div>
+            <div class="l3 mono">ace/usage-antigravity</div>
+          </div>
+        </aside>
+        <main class="column" style="width: 700px">
+          <div class="transcript" style="padding: 24px 40px">
+            <div class="bubble">Why does a hidden tab lose its undo history?</div>
+            <div class="worked">
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M9.25 6.5L14.1 11.35C14.49 11.74 14.49 12.26 14.1 12.65L9.25 17.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path></svg
+              >Worked for 46s
+            </div>
+            <p class="answer">
+              The view makes its own document at
+              <span class="mention pressed">use-editor.ts:42</span>, so hiding the view frees the
+              buffer. It should come from the workbench's buffer registry, which keeps hidden tabs'
+              buffers until memory runs short.
+            </p>
+            <p class="answer">
+              Two groups showing one file would then share one buffer, as
+              <span class="mention">editor-groups.ts</span> expects.
+            </p>
+          </div>
+
+          <div class="composer" style="width: 620px">
+            <div class="field">Ask anything</div>
+            <div class="foot">
+              <span class="ib"
+                ><svg
+                  aria-hidden="true"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <path
+                    d="M12 5v14M5 12h14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path></svg></span
+              ><span class="grow"></span
+              ><span class="model"
+                ><svg aria-hidden="true" width="13" height="13" viewBox="-0.5 -0.5 25 25">
+                  <path
+                    d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"
+                    fill="#D97757"
+                  /></svg
+                >Opus 5.5 · Medium</span
+              ><span class="send"
+                ><svg
+                  aria-hidden="true"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="8.75"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-dasharray="2.722233929727672 4.15"
+                    transform="rotate(-98.91271514404048 12 12)"
+                  ></circle></svg
+              ></span>
+            </div>
+          </div>
+        </main>
+        <div class="workbench compact">
+          <div class="area">
+            <section class="group focused">
+              <div class="strip">
+                <span class="ib sm" title="Show files"
+                  ><svg
+                    aria-hidden="true"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <path
+                      d="M8.25 4L15.75 4C19.2 4 21.5 6.3 21.5 9.75L21.5 14.25C21.5 17.7 19.2 20 15.75 20L8.25 20C4.8 20 2.5 17.7 2.5 14.25L2.5 9.75C2.5 6.3 4.8 4 8.25 4Z"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    ></path>
+                    <path
+                      d="M9.5 4.6v14.8"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    ></path></svg
+                ></span>
+                <div class="tab on preview" role="tab" aria-selected="true">
+                  <span class="name">use-editor.ts</span
+                  ><span class="slot x"
+                    ><svg
+                      aria-hidden="true"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <path
+                        d="M6.5 6.5l11 11M17.5 6.5l-11 11"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.75"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      ></path></svg
+                  ></span>
+                </div>
+                <div class="tab" role="tab" aria-selected="false">
+                  <span class="name">workspace-tabs.ts</span
+                  ><span class="slot unsaved" aria-label="Unsaved"></span>
+                </div>
+                <div class="tab" role="tab" aria-selected="false">
+                  <span class="name">editor-groups.ts</span><span class="slot"></span>
+                </div>
+                <span class="grow"></span
+                ><span class="ib sm"
+                  ><svg
+                    aria-hidden="true"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <circle cx="5.5" cy="12" r="1.5" fill="currentColor"></circle>
+                    <circle cx="12" cy="12" r="1.5" fill="currentColor"></circle>
+                    <circle cx="18.5" cy="12" r="1.5" fill="currentColor"></circle></svg
+                ></span>
+              </div>
+              <div class="crumbs">
+                <span class="">apps/web</span><span class="sep">›</span><span class="">src</span
+                ><span class="sep">›</span><span class="">features</span><span class="sep">›</span
+                ><span class="">editor</span><span class="sep">›</span
+                ><span class="leaf">use-editor.ts</span>
+              </div>
+              <div class="code"><!-- filled from the code payload --></div>
+            </section>
+            <footer class="status">
+              <span class="grow"></span><span>Ln 42, Col 7</span><span>TypeScript</span>
+            </footer>
+          </div>
+        </div>
+      </div>
+    </section>
+    <script>
+      const blocks = [
+        '<div class="ln"><span class="no">1<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">import<\/span> <span class="t-punc">*<\/span> <span class="t-kw">as<\/span> z <span class="t-kw">from<\/span> <span class="t-str">"zod/mini"<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">2<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">3<\/span><span class="bar "><\/span><span class="src"><span class="t-com">/** Close one resource. Its nearest neighbour takes over. */<\/span><\/span><\/div><div class="ln"><span class="no">4<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">function<\/span> <span class="t-fn">closeTab<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">:<\/span> <span class="t-type">ScopeWorkspace<\/span><span class="t-punc">,<\/span> key<span class="t-punc">:<\/span> string<span class="t-punc">)<\/span><span class="t-punc">:<\/span> <span class="t-type">ScopeWorkspace<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">5<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> found <span class="t-punc">=<\/span> <span class="t-fn">findTab<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">,<\/span> key<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">6<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">if<\/span> <span class="t-punc">(<\/span><span class="t-punc">!<\/span>found<span class="t-punc">)<\/span> <span class="t-kw">return<\/span> workspace<span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">7<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> tabs <span class="t-punc">=<\/span> workspace<span class="t-punc">.<\/span>tabs<span class="t-punc">.<\/span><span class="t-fn">filter<\/span><span class="t-punc">(<\/span><span class="t-punc">(<\/span>_<span class="t-punc">,<\/span> at<span class="t-punc">)<\/span> <span class="t-punc">=<\/span><span class="t-punc">&gt;<\/span> at <span class="t-punc">!<\/span><span class="t-punc">=<\/span><span class="t-punc">=<\/span> found<span class="t-punc">.<\/span>index<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">8<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> active <span class="t-punc">=<\/span><\/span><\/div><div class="ln"><span class="no">9<\/span><span class="bar "><\/span><span class="src">    workspace<span class="t-punc">.<\/span>active <span class="t-punc">=<\/span><span class="t-punc">=<\/span><span class="t-punc">=<\/span> key <span class="t-punc">?<\/span> <span class="t-fn">neighbour<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">.<\/span>tabs<span class="t-punc">,<\/span> found<span class="t-punc">.<\/span>index<span class="t-punc">)<\/span> <span class="t-punc">:<\/span> workspace<span class="t-punc">.<\/span>active<span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">10<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">return<\/span> <span class="t-fn">patch<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">,<\/span> <span class="t-punc">{<\/span> tabs<span class="t-punc">,<\/span> active<span class="t-punc">,<\/span> open<span class="t-punc">:<\/span> tabs<span class="t-punc">.<\/span>length <span class="t-punc">&gt;<\/span> <span class="t-num">0<\/span> <span class="t-punc">}<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">11<\/span><span class="bar "><\/span><span class="src"><span class="t-punc">}<\/span><\/span><\/div><div class="ln"><span class="no">12<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">13<\/span><span class="bar "><\/span><span class="src"><span class="t-com">/** Close every unpinned tab but this one. */<\/span><\/span><\/div><div class="ln"><span class="no">14<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">function<\/span> <span class="t-fn">closeOtherTabs<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">:<\/span> <span class="t-type">ScopeWorkspace<\/span><span class="t-punc">,<\/span> key<span class="t-punc">:<\/span> string<span class="t-punc">)<\/span><span class="t-punc">:<\/span> <span class="t-type">ScopeWorkspace<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">15<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">if<\/span> <span class="t-punc">(<\/span><span class="t-punc">!<\/span><span class="t-fn">findTab<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">,<\/span> key<span class="t-punc">)<\/span><span class="t-punc">)<\/span> <span class="t-kw">return<\/span> workspace<span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">16<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> tabs <span class="t-punc">=<\/span> workspace<span class="t-punc">.<\/span>tabs<span class="t-punc">.<\/span><span class="t-fn">filter<\/span><span class="t-punc">(<\/span><span class="t-punc">(<\/span>tab<span class="t-punc">)<\/span> <span class="t-punc">=<\/span><span class="t-punc">&gt;<\/span> tab<span class="t-punc">.<\/span>pinned <span class="t-punc">|<\/span><span class="t-punc">|<\/span> tab<span class="t-punc">.<\/span>key <span class="t-punc">=<\/span><span class="t-punc">=<\/span><span class="t-punc">=<\/span> key<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">17<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">return<\/span> <span class="t-fn">patch<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">,<\/span> <span class="t-punc">{<\/span> tabs<span class="t-punc">,<\/span> active<span class="t-punc">:<\/span> key <span class="t-punc">}<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">18<\/span><span class="bar "><\/span><span class="src"><span class="t-punc">}<\/span><\/span><\/div><div class="ln"><span class="no">19<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">20<\/span><span class="bar agent"><\/span><span class="src"><span class="t-com">/** Close the tabs after this one, keeping pinned ones. */<\/span><\/span><\/div><div class="ln"><span class="no">21<\/span><span class="bar agent"><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">function<\/span> <span class="t-fn">closeTabsToTheRight<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">:<\/span> <span class="t-type">ScopeWorkspace<\/span><span class="t-punc">,<\/span> key<span class="t-punc">:<\/span> string<span class="t-punc">)<\/span><span class="t-punc">:<\/span> <span class="t-type">ScopeWorkspace<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">22<\/span><span class="bar agent"><\/span><span class="src">  <span class="t-kw">const<\/span> found <span class="t-punc">=<\/span> <span class="t-fn">findTab<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">,<\/span> key<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">23<\/span><span class="bar agent"><\/span><span class="src">  <span class="t-kw">if<\/span> <span class="t-punc">(<\/span><span class="t-punc">!<\/span>found<span class="t-punc">)<\/span> <span class="t-kw">return<\/span> workspace<span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">24<\/span><span class="bar mine"><\/span><span class="src">  <span class="t-kw">const<\/span> tabs <span class="t-punc">=<\/span> workspace<span class="t-punc">.<\/span>tabs<span class="t-punc">.<\/span><span class="t-fn">filter<\/span><span class="t-punc">(<\/span><span class="t-punc">(<\/span>tab<span class="t-punc">,<\/span> at<span class="t-punc">)<\/span> <span class="t-punc">=<\/span><span class="t-punc">&gt;<\/span> tab<span class="t-punc">.<\/span>pinned <span class="t-punc">|<\/span><span class="t-punc">|<\/span> at <span class="t-punc">&lt;<\/span><span class="t-punc">=<\/span> found<span class="t-punc">.<\/span>index<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln current"><span class="no">25<\/span><span class="bar mine"><\/span><span class="src"><span class="caret" style="left:calc(34ch)"><\/span>  <span class="t-kw">return<\/span> <span class="t-fn">patch<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">,<\/span> <span class="t-punc">{<\/span> tabs <span class="t-punc">}<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">26<\/span><span class="bar mine"><\/span><span class="src"><span class="t-punc">}<\/span><\/span><\/div><div class="ln"><span class="no">27<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">28<\/span><span class="bar "><\/span><span class="src"><span class="t-com">/** Close every tab with no unsaved changes. */<\/span><\/span><\/div><div class="ln"><span class="no">29<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">function<\/span> <span class="t-fn">closeSavedTabs<\/span><span class="t-punc">(<\/span><\/span><\/div><div class="ln"><span class="no">30<\/span><span class="bar "><\/span><span class="src">  workspace<span class="t-punc">:<\/span> <span class="t-type">ScopeWorkspace<\/span><span class="t-punc">,<\/span><\/span><\/div><div class="ln"><span class="no">31<\/span><span class="bar "><\/span><span class="src">  dirty<span class="t-punc">:<\/span> <span class="t-type">ReadonlySet<\/span><span class="t-punc">&lt;<\/span>string<span class="t-punc">&gt;<\/span><span class="t-punc">,<\/span><\/span><\/div><div class="ln"><span class="no">32<\/span><span class="bar "><\/span><span class="src"><span class="t-punc">)<\/span><span class="t-punc">:<\/span> <span class="t-type">ScopeWorkspace<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">33<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> tabs <span class="t-punc">=<\/span> workspace<span class="t-punc">.<\/span>tabs<span class="t-punc">.<\/span><span class="t-fn">filter<\/span><span class="t-punc">(<\/span><span class="t-punc">(<\/span>tab<span class="t-punc">)<\/span> <span class="t-punc">=<\/span><span class="t-punc">&gt;<\/span> tab<span class="t-punc">.<\/span>pinned <span class="t-punc">|<\/span><span class="t-punc">|<\/span> dirty<span class="t-punc">.<\/span><span class="t-fn">has<\/span><span class="t-punc">(<\/span>tab<span class="t-punc">.<\/span>key<span class="t-punc">)<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">34<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">return<\/span> <span class="t-fn">patch<\/span><span class="t-punc">(<\/span>workspace<span class="t-punc">,<\/span> <span class="t-punc">{<\/span> tabs <span class="t-punc">}<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">35<\/span><span class="bar "><\/span><span class="src"><span class="t-punc">}<\/span><\/span><\/div><div class="ln"><span class="no">36<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">37<\/span><span class="bar "><\/span><span class="src"><span class="t-com">/** Reorder; pinned and unpinned tabs stay in their own groups. */<\/span><\/span><\/div>',
+        '<div class="ln"><span class="no">1<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">import<\/span> <span class="t-punc">{<\/span> closeTab<span class="t-punc">,<\/span> openTab<span class="t-punc">,<\/span> <span class="t-kw">type<\/span> <span class="t-type">ScopeWorkspace<\/span> <span class="t-punc">}<\/span> <span class="t-kw">from<\/span> <span class="t-str">"@ace/ui-core"<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">2<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">3<\/span><span class="bar "><\/span><span class="src"><span class="t-com">/** Where a dragged tab lands: a strip position, or a side of a group. */<\/span><\/span><\/div><div class="ln"><span class="no">4<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">type<\/span> <span class="t-type">DropTarget<\/span> <span class="t-punc">=<\/span><\/span><\/div><div class="ln"><span class="no">5<\/span><span class="bar "><\/span><span class="src">  <span class="t-punc">|<\/span> <span class="t-punc">{<\/span> kind<span class="t-punc">:<\/span> <span class="t-str">"strip"<\/span><span class="t-punc">;<\/span> group<span class="t-punc">:<\/span> string<span class="t-punc">;<\/span> index<span class="t-punc">:<\/span> number <span class="t-punc">}<\/span><\/span><\/div><div class="ln"><span class="no">6<\/span><span class="bar "><\/span><span class="src">  <span class="t-punc">|<\/span> <span class="t-punc">{<\/span> kind<span class="t-punc">:<\/span> <span class="t-str">"split"<\/span><span class="t-punc">;<\/span> group<span class="t-punc">:<\/span> string<span class="t-punc">;<\/span> side<span class="t-punc">:<\/span> <span class="t-str">"left"<\/span> <span class="t-punc">|<\/span> <span class="t-str">"right"<\/span> <span class="t-punc">|<\/span> <span class="t-str">"up"<\/span> <span class="t-punc">|<\/span> <span class="t-str">"down"<\/span> <span class="t-punc">}<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">7<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">8<\/span><span class="bar "><\/span><span class="src"><span class="t-com">/** The side of a group a point falls in; the middle third joins it. */<\/span><\/span><\/div><div class="ln"><span class="no">9<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">function<\/span> <span class="t-fn">dropSide<\/span><span class="t-punc">(<\/span>x<span class="t-punc">:<\/span> number<span class="t-punc">,<\/span> y<span class="t-punc">:<\/span> number<span class="t-punc">,<\/span> box<span class="t-punc">:<\/span> <span class="t-type">Box<\/span><span class="t-punc">)<\/span><span class="t-punc">:<\/span> <span class="t-type">DropTarget<\/span><span class="t-punc">[<\/span><span class="t-str">"kind"<\/span><span class="t-punc">]<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">10<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> fx <span class="t-punc">=<\/span> <span class="t-punc">(<\/span>x <span class="t-punc">-<\/span> box<span class="t-punc">.<\/span>left<span class="t-punc">)<\/span> <span class="t-punc">/<\/span> box<span class="t-punc">.<\/span>width<span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">11<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> fy <span class="t-punc">=<\/span> <span class="t-punc">(<\/span>y <span class="t-punc">-<\/span> box<span class="t-punc">.<\/span>top<span class="t-punc">)<\/span> <span class="t-punc">/<\/span> box<span class="t-punc">.<\/span>height<span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">12<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">if<\/span> <span class="t-punc">(<\/span>fx <span class="t-punc">&gt;<\/span> <span class="t-num">1<\/span> <span class="t-punc">/<\/span> <span class="t-num">3<\/span> <span class="t-punc">&amp;<\/span><span class="t-punc">&amp;<\/span> fx <span class="t-punc">&lt;<\/span> <span class="t-num">2<\/span> <span class="t-punc">/<\/span> <span class="t-num">3<\/span> <span class="t-punc">&amp;<\/span><span class="t-punc">&amp;<\/span> fy <span class="t-punc">&gt;<\/span> <span class="t-num">1<\/span> <span class="t-punc">/<\/span> <span class="t-num">3<\/span> <span class="t-punc">&amp;<\/span><span class="t-punc">&amp;<\/span> fy <span class="t-punc">&lt;<\/span> <span class="t-num">2<\/span> <span class="t-punc">/<\/span> <span class="t-num">3<\/span><span class="t-punc">)<\/span> <span class="t-kw">return<\/span> <span class="t-str">"strip"<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">13<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">return<\/span> <span class="t-str">"split"<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">14<\/span><span class="bar "><\/span><span class="src"><span class="t-punc">}<\/span><\/span><\/div><div class="ln"><span class="no">15<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">16<\/span><span class="bar "><\/span><span class="src"><span class="t-com">/** Move a tab into another group; the source closes once it is empty. */<\/span><\/span><\/div><div class="ln"><span class="no">17<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">function<\/span> <span class="t-fn">moveToGroup<\/span><span class="t-punc">(<\/span>layout<span class="t-punc">:<\/span> <span class="t-type">Layout<\/span><span class="t-punc">,<\/span> key<span class="t-punc">:<\/span> string<span class="t-punc">,<\/span> target<span class="t-punc">:<\/span> <span class="t-type">DropTarget<\/span><span class="t-punc">)<\/span><span class="t-punc">:<\/span> <span class="t-type">Layout<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">18<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> <span class="t-kw">from<\/span> <span class="t-punc">=<\/span> <span class="t-fn">groupOf<\/span><span class="t-punc">(<\/span>layout<span class="t-punc">,<\/span> key<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">19<\/span><span class="bar agent"><\/span><span class="src">  <span class="t-kw">if<\/span> <span class="t-punc">(<\/span><span class="t-punc">!<\/span><span class="t-kw">from<\/span><span class="t-punc">)<\/span> <span class="t-kw">return<\/span> layout<span class="t-punc">;<\/span><span class="who"><svg aria-hidden="true" width="11" height="11" viewBox="-0.5 -0.5 25 25"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z" fill="#D97757"/><\/svg>Claude Code · just now<\/span><\/span><\/div><div class="ln"><span class="no">20<\/span><span class="bar agent"><\/span><span class="src">  <span class="t-kw">const<\/span> tab <span class="t-punc">=<\/span> <span class="t-fn">tabIn<\/span><span class="t-punc">(<\/span><span class="t-kw">from<\/span><span class="t-punc">,<\/span> key<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">21<\/span><span class="bar agent"><\/span><span class="src">  <span class="t-kw">const<\/span> left <span class="t-punc">=<\/span> <span class="t-fn">closeTab<\/span><span class="t-punc">(<\/span><span class="t-kw">from<\/span><span class="t-punc">.<\/span>tabs<span class="t-punc">,<\/span> key<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">22<\/span><span class="bar agent"><\/span><span class="src">  <span class="t-kw">const<\/span> into <span class="t-punc">=<\/span> target<span class="t-punc">.<\/span>kind <span class="t-punc">=<\/span><span class="t-punc">=<\/span><span class="t-punc">=<\/span> <span class="t-str">"split"<\/span> <span class="t-punc">?<\/span> <span class="t-fn">split<\/span><span class="t-punc">(<\/span>layout<span class="t-punc">,<\/span> target<span class="t-punc">)<\/span> <span class="t-punc">:<\/span> <span class="t-fn">groupById<\/span><span class="t-punc">(<\/span>layout<span class="t-punc">,<\/span> target<span class="t-punc">.<\/span>group<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">23<\/span><span class="bar agent"><\/span><span class="src">  <span class="t-kw">const<\/span> placed <span class="t-punc">=<\/span> <span class="t-fn">openTab<\/span><span class="t-punc">(<\/span>into<span class="t-punc">.<\/span>tabs<span class="t-punc">,<\/span> tab<span class="t-punc">,<\/span> <span class="t-punc">{<\/span> at<span class="t-punc">:<\/span> <span class="t-fn">indexOf<\/span><span class="t-punc">(<\/span>target<span class="t-punc">)<\/span> <span class="t-punc">}<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">24<\/span><span class="bar agent"><\/span><span class="src">  <span class="t-kw">return<\/span> <span class="t-fn">prune<\/span><span class="t-punc">(<\/span><span class="t-fn">replaceGroups<\/span><span class="t-punc">(<\/span>layout<span class="t-punc">,<\/span> <span class="t-punc">[<\/span>left<span class="t-punc">,<\/span> placed<span class="t-punc">]<\/span><span class="t-punc">)<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">25<\/span><span class="bar agent"><\/span><span class="src"><span class="t-punc">}<\/span><\/span><\/div><div class="ln"><span class="no">26<\/span><span class="bar agent"><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">27<\/span><span class="bar "><\/span><span class="src"><span class="t-com">/** A group left with no tabs closes, unless it is the last one. */<\/span><\/span><\/div><div class="ln"><span class="no">28<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">function<\/span> <span class="t-fn">prune<\/span><span class="t-punc">(<\/span>layout<span class="t-punc">:<\/span> <span class="t-type">Layout<\/span><span class="t-punc">)<\/span><span class="t-punc">:<\/span> <span class="t-type">Layout<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">29<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> groups <span class="t-punc">=<\/span> layout<span class="t-punc">.<\/span>groups<span class="t-punc">.<\/span><span class="t-fn">filter<\/span><span class="t-punc">(<\/span><span class="t-punc">(<\/span>group<span class="t-punc">)<\/span> <span class="t-punc">=<\/span><span class="t-punc">&gt;<\/span> group<span class="t-punc">.<\/span>tabs<span class="t-punc">.<\/span>tabs<span class="t-punc">.<\/span>length <span class="t-punc">&gt;<\/span> <span class="t-num">0<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">30<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">return<\/span> groups<span class="t-punc">.<\/span>length <span class="t-punc">?<\/span> <span class="t-punc">{<\/span> <span class="t-punc">.<\/span><span class="t-punc">.<\/span><span class="t-punc">.<\/span>layout<span class="t-punc">,<\/span> groups <span class="t-punc">}<\/span> <span class="t-punc">:<\/span> layout<span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">31<\/span><span class="bar "><\/span><span class="src"><span class="t-punc">}<\/span><\/span><\/div><div class="ln"><span class="no">32<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">33<\/span><span class="bar "><\/span><span class="src"><span class="t-com">/** Equal sizes after a double-click on a split\'s edge. */<\/span><\/span><\/div><div class="ln"><span class="no">34<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">function<\/span> <span class="t-fn">evenSizes<\/span><span class="t-punc">(<\/span>count<span class="t-punc">:<\/span> number<span class="t-punc">)<\/span><span class="t-punc">:<\/span> number<span class="t-punc">[<\/span><span class="t-punc">]<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">35<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">return<\/span> <span class="t-type">Array<\/span><span class="t-punc">.<\/span><span class="t-kw">from<\/span><span class="t-punc">(<\/span><span class="t-punc">{<\/span> length<span class="t-punc">:<\/span> count <span class="t-punc">}<\/span><span class="t-punc">,<\/span> <span class="t-punc">(<\/span><span class="t-punc">)<\/span> <span class="t-punc">=<\/span><span class="t-punc">&gt;<\/span> <span class="t-num">1<\/span> <span class="t-punc">/<\/span> count<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">36<\/span><span class="bar "><\/span><span class="src"><span class="t-punc">}<\/span><\/span><\/div><div class="ln"><span class="no">37<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">38<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">function<\/span> <span class="t-fn">indexOf<\/span><span class="t-punc">(<\/span>target<span class="t-punc">:<\/span> <span class="t-type">DropTarget<\/span><span class="t-punc">)<\/span><span class="t-punc">:<\/span> number <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">39<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">return<\/span> target<span class="t-punc">.<\/span>kind <span class="t-punc">=<\/span><span class="t-punc">=<\/span><span class="t-punc">=<\/span> <span class="t-str">"strip"<\/span> <span class="t-punc">?<\/span> target<span class="t-punc">.<\/span>index <span class="t-punc">:<\/span> <span class="t-num">0<\/span><span class="t-punc">;<\/span><\/span><\/div>',
+        '<div class="ln"><span class="no">21<\/span><span class="bar "><\/span><span class="src"><span class="t-com"> * The document behind one editor view. Today the view makes its own,<\/span><\/span><\/div><div class="ln"><span class="no">22<\/span><span class="bar "><\/span><span class="src"><span class="t-com"> * so closing the view frees the buffer and its undo history.<\/span><\/span><\/div><div class="ln"><span class="no">23<\/span><span class="bar "><\/span><span class="src"><span class="t-com"> */<\/span><\/span><\/div><div class="ln"><span class="no">24<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">function<\/span> <span class="t-fn">useEditor<\/span><span class="t-punc">(<\/span>source<span class="t-punc">:<\/span> <span class="t-type">EditorSource<\/span><span class="t-punc">)<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">25<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> <span class="t-punc">[<\/span>document<span class="t-punc">,<\/span> setDocument<span class="t-punc">]<\/span> <span class="t-punc">=<\/span> useState<span class="t-punc">&lt;<\/span><span class="t-type">EditorDocument<\/span><span class="t-punc">&gt;<\/span><span class="t-punc">(<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">26<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> view <span class="t-punc">=<\/span> useRef<span class="t-punc">&lt;<\/span><span class="t-type">ViewState<\/span><span class="t-punc">&gt;<\/span><span class="t-punc">(<\/span><span class="t-kw">undefined<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">27<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> path <span class="t-punc">=<\/span> source<span class="t-punc">.<\/span>path<span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">28<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">29<\/span><span class="bar "><\/span><span class="src">  <span class="t-fn">useEffect<\/span><span class="t-punc">(<\/span><span class="t-punc">(<\/span><span class="t-punc">)<\/span> <span class="t-punc">=<\/span><span class="t-punc">&gt;<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">30<\/span><span class="bar "><\/span><span class="src">    <span class="t-kw">let<\/span> live <span class="t-punc">=<\/span> <span class="t-kw">true<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">31<\/span><span class="bar "><\/span><span class="src">    <span class="t-kw">void<\/span> <span class="t-fn">ensureEditorReady<\/span><span class="t-punc">(<\/span><span class="t-punc">)<\/span><span class="t-punc">.<\/span><span class="t-fn">then<\/span><span class="t-punc">(<\/span><span class="t-fn">async<\/span> <span class="t-punc">(<\/span><span class="t-punc">)<\/span> <span class="t-punc">=<\/span><span class="t-punc">&gt;<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">32<\/span><span class="bar "><\/span><span class="src">      <span class="t-kw">const<\/span> text <span class="t-punc">=<\/span> await <span class="t-fn">readCheckoutFile<\/span><span class="t-punc">(<\/span>path<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">33<\/span><span class="bar "><\/span><span class="src">      <span class="t-kw">if<\/span> <span class="t-punc">(<\/span><span class="t-punc">!<\/span>live<span class="t-punc">)<\/span> <span class="t-kw">return<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">34<\/span><span class="bar "><\/span><span class="src"><span class="t-com">      // The view owns the rope here; unmounting the view drops it.<\/span><\/span><\/div><div class="ln"><span class="no">35<\/span><span class="bar "><\/span><span class="src"><span class="t-com">      // A hidden tab therefore re-reads the file and starts a new<\/span><\/span><\/div><div class="ln"><span class="no">36<\/span><span class="bar "><\/span><span class="src"><span class="t-com">      // history every time it is shown again.<\/span><\/span><\/div><div class="ln"><span class="no">37<\/span><span class="bar "><\/span><span class="src"><span class="t-com">      //<\/span><\/span><\/div><div class="ln"><span class="no">38<\/span><span class="bar "><\/span><span class="src"><span class="t-com">      // The workbench moves ownership to a buffer registry instead:<\/span><\/span><\/div><div class="ln"><span class="no">39<\/span><span class="bar "><\/span><span class="src"><span class="t-com">      // registry.retain(path) on show, registry.release(path) on hide,<\/span><\/span><\/div><div class="ln"><span class="no">40<\/span><span class="bar "><\/span><span class="src"><span class="t-com">      // so a buffer outlives its view and two groups share one.<\/span><\/span><\/div><div class="ln"><span class="no">41<\/span><span class="bar "><\/span><span class="src"><span class="t-com">      // Clean buffers can still be evicted; dirty ones never are.<\/span><\/span><\/div><div class="ln current"><span class="no">42<\/span><span class="bar "><\/span><span class="src"><span class="caret" style="left:calc(6ch)"><\/span>      <span class="t-fn">setDocument<\/span><span class="t-punc">(<\/span><span class="t-kw">new<\/span> <span class="t-type">EditorDocument<\/span><span class="t-punc">(<\/span>text<span class="t-punc">)<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">43<\/span><span class="bar "><\/span><span class="src">    <span class="t-punc">}<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">44<\/span><span class="bar "><\/span><span class="src">    <span class="t-kw">return<\/span> <span class="t-punc">(<\/span><span class="t-punc">)<\/span> <span class="t-punc">=<\/span><span class="t-punc">&gt;<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">45<\/span><span class="bar "><\/span><span class="src">      live <span class="t-punc">=<\/span> <span class="t-kw">false<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">46<\/span><span class="bar "><\/span><span class="src">      document<span class="t-punc">?<\/span><span class="t-punc">.<\/span><span class="t-fn">free<\/span><span class="t-punc">(<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">47<\/span><span class="bar "><\/span><span class="src">    <span class="t-punc">}<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">48<\/span><span class="bar "><\/span><span class="src">  <span class="t-punc">}<\/span><span class="t-punc">,<\/span> <span class="t-punc">[<\/span>path<span class="t-punc">]<\/span><span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">49<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">50<\/span><span class="bar "><\/span><span class="src"><span class="t-com">  // Only visible rows render; the rope stays in the Wasm core.<\/span><\/span><\/div><div class="ln"><span class="no">51<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">const<\/span> rows <span class="t-punc">=<\/span> <span class="t-fn">useVisibleRows<\/span><span class="t-punc">(<\/span>document<span class="t-punc">,<\/span> view<span class="t-punc">)<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">52<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">return<\/span> <span class="t-punc">{<\/span> document<span class="t-punc">,<\/span> rows<span class="t-punc">,<\/span> view <span class="t-punc">}<\/span><span class="t-punc">;<\/span><\/span><\/div><div class="ln"><span class="no">53<\/span><span class="bar "><\/span><span class="src"><span class="t-punc">}<\/span><\/span><\/div><div class="ln"><span class="no">54<\/span><span class="bar "><\/span><span class="src"> <\/span><\/div><div class="ln"><span class="no">55<\/span><span class="bar "><\/span><span class="src"><span class="t-com">/** Hidden, unmodified buffers go first when memory runs short. */<\/span><\/span><\/div><div class="ln"><span class="no">56<\/span><span class="bar "><\/span><span class="src"><span class="t-kw">export<\/span> <span class="t-kw">function<\/span> <span class="t-fn">evictionOrder<\/span><span class="t-punc">(<\/span>buffers<span class="t-punc">:<\/span> <span class="t-kw">readonly<\/span> <span class="t-type">Buffer<\/span><span class="t-punc">[<\/span><span class="t-punc">]<\/span><span class="t-punc">)<\/span><span class="t-punc">:<\/span> <span class="t-type">Buffer<\/span><span class="t-punc">[<\/span><span class="t-punc">]<\/span> <span class="t-punc">{<\/span><\/span><\/div><div class="ln"><span class="no">57<\/span><span class="bar "><\/span><span class="src">  <span class="t-kw">return<\/span> buffers<\/span><\/div>',
+      ];
+      document.querySelectorAll(".code").forEach((node, index) => {
+        node.innerHTML = blocks[index] ?? "";
+      });
+    </script>
+  </body>
+</html>

@@ -105,7 +105,9 @@ const images: Record<string, string> = {
 /** The image type a viewer can draw for this file, if it is one. */
 export function imageType(path: string): string | undefined {
   const name = pathParts(path).name.toLowerCase();
-  return images[name.slice(name.lastIndexOf(".") + 1)];
+  const ext = name.slice(name.lastIndexOf(".") + 1);
+  // Own entries only: a file named "constructor" is no image.
+  return Object.hasOwn(images, ext) ? images[ext] : undefined;
 }
 
 /**
