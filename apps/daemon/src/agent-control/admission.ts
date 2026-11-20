@@ -106,10 +106,15 @@ export class DelegationAdmission {
    * The call comes from work a Stop ended (`turn-fence.ts`): the stopped turn, a run that began
    * before the turn that followed it, or a delegation it had on its way. The first call made
    * from a newer turn lifts the fence; what it recorded stays refused.
+   *
+   * Spade's host thread runs no turn (ADR 0121): its calls are Spade's own, never a provider
+   * turn's, so no turn of it was stopped and none could ever run to lift the fence. A Stop of it
+   * still stops what it delegated; the cascade refuses calls while that cancellation runs.
    */
   private stoppedTurn(caller: McpAttribution, requestId: string): boolean {
     const fence = this.journal.turnFence(caller.threadId);
     if (fence === undefined) return false;
+    if (this.deps.store.getThread(caller.threadId)?.host === "spade") return false;
     const origin = this.deps.engine.turnOrigin(caller.threadId, caller.agentId);
     const stopped = this.journal.stoppedCall(caller.threadId, requestId);
     const answer = turnFence(fence, { root: origin.rootTurn, origin: origin.origin, stopped });
