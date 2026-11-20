@@ -4,6 +4,7 @@
 mod agents;
 mod body;
 mod brains;
+mod cards;
 mod computer;
 mod connectors;
 mod digests;
@@ -146,6 +147,10 @@ pub fn router(state: AppState) -> Router {
             post(answer_outside),
         )
         .route("/conversations/{id}/questions", get(questions::list))
+        .route(
+            "/conversations/{id}/cards/{card}/actions",
+            post(cards::choose),
+        )
         .route(
             "/conversations/{id}/questions/{call_id}",
             post(questions::reply),

@@ -432,6 +432,18 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.status(agent, "waiting", null);
   }
 
+  /** A card the bot shows (ADR 0200 §5.1), as `card_show` stores it: its own row, by version. */
+  showCard(agent: FakeSpadeAgent, card: string, version: number, data: Json): void {
+    this.store(agent.conversation, {
+      type: "card_shown",
+      reply: `r${++this.sequence}`,
+      call_id: `show-${card}-${version}`,
+      card,
+      version,
+      data,
+    });
+  }
+
   /** The answer the next card reply gets instead of 202: a status and Spade's error words. */
   refuseQuestion: { status: number; error: string } | undefined;
 
@@ -1194,6 +1206,42 @@ export class FakeSpadeApi implements FakeSpadeServer {
       };
       if (this.heldSettles) this.heldSettles.push(settle);
       else settle();
+      return reply({}, 202);
+    }
+    // A choice pressed on a card: once per version, and only on the latest one, as Spade does.
+    if (sub === "cards" && subId && tail === "actions" && request.method === "POST") {
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const shown = list.findLast(
+        (stored) => stored.event.type === "card_shown" && stored.event.card === subId,
+      );
+      if (!shown) return problem(404, "no such card");
+      if (shown.event.version !== body.version)
+        return problem(409, "The card changed. Choose on the new one.");
+      const chosen = list.some(
+        (stored) =>
+          stored.event.type === "card_action" &&
+          stored.event.card === subId &&
+          stored.event.version === body.version,
+      );
+      if (chosen) return problem(409, "That card's choice was already made.");
+      const records = (value: unknown): Json[] =>
+        Array.isArray(value)
+          ? value.filter((item): item is Json => typeof item === "object" && item !== null)
+          : [];
+      const data = shown.event.data;
+      const blocks =
+        typeof data === "object" && data !== null ? records((data as Json).blocks) : [];
+      const label = blocks
+        .flatMap((block) => records(block.actions))
+        .find((action) => action.kind === "choose" && action.id === body.action)?.label;
+      if (typeof label !== "string") return problem(409, "The card has no such choice.");
+      this.store(id, {
+        type: "card_action",
+        card: subId,
+        version: body.version,
+        action: body.action,
+        label,
+      });
       return reply({}, 202);
     }
     if (sub === "approvals" && subId && request.method === "POST") {
