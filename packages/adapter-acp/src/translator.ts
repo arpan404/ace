@@ -82,18 +82,7 @@ class AcpTranslator implements Translator {
       if (id !== undefined) s.sent.set(id, { method, params });
       if (["session/new", "session/load", "session/resume"].includes(method)) {
         s.cwd = string(params["cwd"]);
-        if (typeof params["sessionId"] === "string") {
-          s.root.nativeId = params["sessionId"];
-          s.agents.set(s.root.nativeId, s.root);
-          facts.push({
-            type: "agent.seen",
-            agent: s.root.key,
-            origin: "root",
-            fidelity: "full",
-            native: { provider: s.quirks.provider, nativeId: s.root.nativeId },
-            cwd: s.cwd,
-          });
-        }
+        if (typeof params["sessionId"] === "string") s.bindRoot(params["sessionId"], facts);
       }
       if (method === "session/prompt") {
         const agent = s.agent(string(params["sessionId"]), facts);
@@ -162,18 +151,8 @@ class AcpTranslator implements Translator {
         if (
           ["session/new", "session/load", "session/resume"].includes(sent.method) &&
           typeof result["sessionId"] === "string"
-        ) {
-          s.root.nativeId = result["sessionId"];
-          s.agents.set(s.root.nativeId, s.root);
-          facts.push({
-            type: "agent.seen",
-            agent: s.root.key,
-            origin: "root",
-            fidelity: "full",
-            native: { provider: s.quirks.provider, nativeId: s.root.nativeId },
-            cwd: s.cwd,
-          });
-        }
+        )
+          s.bindRoot(result["sessionId"], facts);
         if (
           ["session/load", "session/resume"].includes(sent.method) &&
           s.root.active &&

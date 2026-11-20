@@ -75,7 +75,13 @@ export type DiscoverModels = (
   instance: ModelInstance,
   signal: AbortSignal,
   diagnostic?: (metadata: DiscoveryDiagnostics) => void,
-) => Promise<readonly CatalogModel[] & { sources?: readonly ModelSourceStatus[] }>;
+) => Promise<
+  readonly CatalogModel[] & {
+    sources?: readonly ModelSourceStatus[];
+    /** Session modes the probe's opened session reported (ACP agents). */
+    permissionModes?: readonly NativePermissionMode[];
+  }
+>;
 export type CacheEntry = {
   permissionModes?: readonly NativePermissionMode[] | undefined;
   provider: ModelInstance["provider"];

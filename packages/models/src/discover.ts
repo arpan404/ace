@@ -1,4 +1,5 @@
-import { discoveredModels } from "./discovered-models.ts";
+import { discoveredModels, withPermissionModes } from "./discovered-models.ts";
+import { acpPermissionModes } from "@ace/provider-kit/permission-modes";
 import { CursorHostSlots } from "@ace/adapter-cursor/slots";
 import { discoverClaudeModels } from "@ace/adapter-claude/models";
 import {
@@ -191,7 +192,10 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         () => peer.request("session/new", { cwd: instance.cwd, mcpServers: [] }, { signal }),
         signal,
       );
-      return normalizeAcp(session, instance);
+      return withPermissionModes(
+        normalizeAcp(session, instance),
+        acpPermissionModes(session, { provider: instance.provider }),
+      );
     }
     try {
       const rows = await readModels();

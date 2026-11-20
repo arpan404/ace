@@ -10,7 +10,7 @@ import {
   openModelStorage,
 } from "./index.ts";
 import { Clock, codexPayload, deferred, fakeCli, instance, workspace } from "./testing/support.ts";
-import type { ModelInstance } from "./types.ts";
+import type { DiscoverModels, ModelInstance } from "./types.ts";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -170,6 +170,57 @@ for (const provider of ["antigravity"] as const) {
     expect(rows[0]?.provider).toBe(provider);
   });
 }
+
+test("Antigravity offers full access from its probe, before any thread opens and after a restart", async () => {
+  const { work, config } = await launch("antigravity", {
+    sessionId: "probe",
+    configOptions: [
+      {
+        id: "model",
+        category: "model",
+        type: "select",
+        currentValue: "gemini",
+        options: [{ value: "gemini", name: "Gemini" }],
+      },
+      {
+        id: "mode",
+        category: "mode",
+        type: "select",
+        currentValue: "default",
+        options: [
+          { value: "default", name: "Default", description: "Default permission prompt flow" },
+          { value: "yolo", name: "YOLO", description: "Auto-approve all tools" },
+        ],
+      },
+    ],
+  });
+  const clock = new Clock();
+  const open = (discover: DiscoverModels) =>
+    new ModelCatalog({
+      instances: [config],
+      storage: openModelStorage(join(work.path, "models.sqlite")),
+      discover,
+      now: () => clock.now,
+      deadline: clock.deadline,
+      random: () => 0.5,
+    });
+  let catalog = open(createModelDiscovery());
+  try {
+    await catalog.refresh();
+    expect(catalog.list().instances[0]?.accessModes).toEqual([
+      { mode: "full-access", native: "yolo" },
+    ]);
+    await catalog.close();
+    catalog = open(async () => {
+      throw new Error("A catalog read must not launch an agent");
+    });
+    expect(catalog.list().instances[0]?.accessModes).toEqual([
+      { mode: "full-access", native: "yolo" },
+    ]);
+  } finally {
+    await catalog.close();
+  }
+});
 
 test("an agent needing its sign-in method selected lists models with the method the person used", async () => {
   const { config } = await launch("antigravity", {

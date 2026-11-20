@@ -280,3 +280,18 @@ it("does not expire a silent live tool but marks silent model work unresponsive"
   thinking.tick(1000000);
   expect(thinking.state.status.state).toBe("unresponsive");
 });
+it("treats updates that arrive before the session/new answer as the root, so the turn settles", () => {
+  const h = harness();
+  h.frame("send", { id: 1, method: "session/new", params: { cwd: "/workspace" } });
+  h.update({ sessionUpdate: "available_commands_update", availableCommands: [] }, "early-session");
+  h.frame("recv", { id: 1, result: { sessionId: "early-session" } });
+  h.frame("send", {
+    id: 2,
+    method: "session/prompt",
+    params: { sessionId: "early-session", prompt: [{ type: "text", text: "Hi" }] },
+  });
+  chunk(h, "Hello", "early-session");
+  end(h);
+  expect(Object.keys(h.state.agents)).toHaveLength(1);
+  expect(h.state.status.state).toBe("done");
+});

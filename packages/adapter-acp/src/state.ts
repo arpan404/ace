@@ -163,10 +163,29 @@ export class TranslationState {
       cwd: this.cwd,
     });
   }
+  /** Records the root's native session id once the agent names it. */
+  bindRoot(id: string, facts: Fact[]): void {
+    this.root.nativeId = id;
+    this.agents.set(id, this.root);
+    facts.push({
+      type: "agent.seen",
+      agent: this.root.key,
+      origin: "root",
+      fidelity: "full",
+      native: { provider: this.quirks.provider, nativeId: id },
+      cwd: this.cwd,
+    });
+  }
   agent(id: string, facts: Fact[]): AgentState {
     if (!id || id === this.root.nativeId) return this.root;
     const known = this.agents.get(id);
     if (known) return known;
+    // Some agents (Antigravity) send session/update for a new session before answering
+    // session/new. Until the root has an id, the session being opened is the root, not a child.
+    if (!this.root.nativeId && this.openingSession()) {
+      this.bindRoot(id, facts);
+      return this.root;
+    }
     const agent: AgentState = {
       key: nativeAgentKey(this.threadId, id),
       nativeId: id,
@@ -188,6 +207,10 @@ export class TranslationState {
       cwd: this.cwd,
     });
     return agent;
+  }
+  private openingSession(): boolean {
+    for (const request of this.sent.values()) if (request.method === "session/new") return true;
+    return false;
   }
   start(
     agent: AgentState,

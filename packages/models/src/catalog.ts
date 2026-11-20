@@ -1069,7 +1069,8 @@ export class ModelCatalog implements ModelCatalogApi {
             ),
             ...combined,
             models: cleanCatalog(combined.models),
-            permissionModes: state.permissionModes ?? state.entry?.permissionModes,
+            permissionModes:
+              models.permissionModes ?? state.permissionModes ?? state.entry?.permissionModes,
           });
           entry.models = entry.models.map((model) => this.#metadata.intern(model));
           let revocationsStored = false;
