@@ -584,12 +584,39 @@ export class DevicesService {
         return this.state(session);
       case "screenshot":
         return await this.screenshot(session.device.id, actor);
-      case "clipboard.get":
-        return this.ui(session, actor, () =>
-          performDeviceAction(this.options.platform, session, actor, operation, () =>
-            this.authorize(session, actor),
-          ),
+      case "clipboard.get": {
+        // A read, so it never waits in cowork; but the clipboard is the person's, and a device
+        // they took (exclusive, ADR 0143) refuses agents as it did before. A read still in
+        // flight when control changes is dropped too: the person may have taken the device,
+        // copied something of theirs and handed it back before the device answered.
+        const epoch = session.lease.controlEpoch();
+        const authorize = () => {
+          this.authorize(session, actor);
+          if (actor.kind !== "agent") return;
+          if (session.lease.current()?.kind === "human")
+            throw new DeviceError(
+              "lease_required",
+              "A person is controlling this device",
+              "Wait until the person hands it back, then call sim_start again.",
+            );
+          if (session.lease.controlEpoch() !== epoch)
+            throw new DeviceError(
+              "lease_required",
+              "Control of this device changed during the read",
+              "Call sim_start again, then read the clipboard again.",
+            );
+        };
+        authorize();
+        const result = await performDeviceAction(
+          this.options.platform,
+          session,
+          actor,
+          operation,
+          authorize,
         );
+        authorize();
+        return result;
+      }
       case "ui.tree":
         return this.ui(session, actor, () =>
           session.capture?.ui
