@@ -32,7 +32,8 @@ const ABOVE_NORMAL = constants.priority.PRIORITY_ABOVE_NORMAL;
  * - Windows: ABOVE_NORMAL needs no privilege, and the CLIs the daemon starts do not inherit
  *   it (Windows only passes IDLE and BELOW_NORMAL on to child processes).
  * - Linux: a negative nice needs CAP_SYS_NICE or an RLIMIT_NICE above 20, so most systems
- *   refuse it (EACCES). Where it is allowed, the CLIs the daemon starts inherit it.
+ *   refuse it (EACCES); it is asked for only where `/proc/self` says it is allowed. The CLIs
+ *   the daemon starts run at nice 5 either way (`@ace/provider-kit` `child-priority`).
  * - macOS: a process cannot raise itself without privilege. The desktop launches its daemon
  *   through `taskpolicy -a` instead.
  */

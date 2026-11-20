@@ -18,7 +18,7 @@ async function fingerprint(path: string): Promise<string> {
 /**
  * The real machine's load, and the files a home's daemon writes as it starts and stalls
  * (`logs/ace.jsonl`, `startup-attempts.json`, `logs/stall-<pid>.json`), for the supervisor to
- * tell a starved or still-starting daemon from a hung one (ADR 0195).
+ * tell a starved or still-starting daemon from a hung one (ADR 0196).
  */
 export function loadPorts(
   home: string,

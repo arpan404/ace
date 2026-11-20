@@ -31,8 +31,8 @@ export const TASKPOLICY = "/usr/sbin/taskpolicy";
  * nice fails with EACCES and `posix_spawnattr_set_qos_class_np` only accepts lower classes.
  * Launched through `taskpolicy -a`, the daemon gets the scheduling policy macOS gives
  * applications: its main thread, which runs the event loop, starts at the user-interactive
- * QoS (priority 46 instead of 31). The CLIs the daemon starts keep the default. The wrapper
- * is used only once a dry run (`taskpolicy -a /usr/bin/true`) succeeded, so a system
+ * QoS (priority 46 instead of 31). The CLIs the daemon starts run at nice 5 (ADR 0196). The
+ * wrapper is used only once a dry run (`taskpolicy -a /usr/bin/true`) succeeded, so a system
  * without it still starts the daemon, unwrapped.
  *
  * Windows and Linux need nothing here: the daemon raises itself at start (its

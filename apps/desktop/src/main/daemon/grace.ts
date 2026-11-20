@@ -62,7 +62,7 @@ export type HealthVerdict =
   | { kind: "wait"; graceMs: number; why: string };
 
 /**
- * The daemon missed its health checks: stop it, or give it longer (ADR 0195). A daemon on a
+ * The daemon missed its health checks: stop it, or give it longer (ADR 0196). A daemon on a
  * machine that starves it is slow, not hung, and stopping it interrupts every agent it runs and
  * the restart competes for the same CPU. It is stopped when it is silent with CPU to spare
  * (busy forever, or blocked on a calm machine), or once it has been silent past the ceiling.

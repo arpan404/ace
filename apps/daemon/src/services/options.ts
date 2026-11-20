@@ -65,7 +65,7 @@ export type DaemonOptions = {
   startup?: Partial<import("./startup.ts").StartupRuntime>;
   /**
    * How loaded the machine is as the daemon starts; on a heavily loaded one each service's
-   * startup deadline is longer (ADR 0195). Defaults to the real machine's.
+   * startup deadline is longer (ADR 0196). Defaults to the real machine's.
    */
   pressure?: () => Promise<import("@ace/diagnostics/pressure").SystemPressure>;
   /**

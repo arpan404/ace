@@ -1,5 +1,5 @@
 /**
- * Opening a store at startup that another connection holds busy (ADR 0195). After a daemon is
+ * Opening a store at startup that another connection holds busy (ADR 0196). After a daemon is
  * killed, what it started can hold the database for a while: a child still writing, a process
  * the OS has not yet reaped. Its lock goes when they do, so the open is tried again with backoff
  * instead of failing the start; only a lock held past the whole schedule fails it.

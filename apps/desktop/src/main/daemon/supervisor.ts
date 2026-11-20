@@ -436,7 +436,7 @@ export class DaemonSupervisor {
 
   /**
    * Report the child as running once it answers; stop it if it never does. Past the ready budget,
-   * a start still making progress, or one on an overloaded machine, is given longer (ADR 0195).
+   * a start still making progress, or one on an overloaded machine, is given longer (ADR 0196).
    */
   private awaitChild(generation: number, child: Child): void {
     void this.untilReady(generation, child).catch((error: unknown) =>
@@ -714,7 +714,7 @@ export class DaemonSupervisor {
   /**
    * The daemon missed its checks on a supervisor that can read the machine's load: stop it only
    * when it is silent with CPU to spare, else keep checking for a grace that doubles each time
-   * (ADR 0195). It stays running meanwhile: its clients and agents carry on.
+   * (ADR 0196). It stays running meanwhile: its clients and agents carry on.
    */
   private async assessUnresponsive(
     generation: number,
