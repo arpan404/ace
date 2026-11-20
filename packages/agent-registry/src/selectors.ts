@@ -1,42 +1,47 @@
 import { z } from "zod";
 import type { CompatibilityProfile } from "./profiles.ts";
+/** A selectable value is sent back exactly, so one that isn't a usable id is skipped. */
 const label = z.string().min(1).max(256);
-const Value = z.object({ value: label, name: label }).passthrough();
+const MAX_VALUES = 512;
+const MAX_CONFIG_OPTIONS = 64;
+const MAX_MODES = 128;
 const Select = z
   .object({
     id: label,
-    category: z.string().max(128).optional(),
+    category: z.string().max(128).optional().catch(undefined),
     type: z.literal("select"),
-    currentValue: z.string().max(256).optional(),
-    options: z
-      .array(
-        z.union([
-          Value,
-          z.object({ group: z.string().max(256), options: z.array(Value).max(512) }).passthrough(),
-        ]),
-      )
-      .max(512),
+    options: z.array(z.unknown()),
   })
   .passthrough();
-const Setup = z
-  .object({
-    configOptions: z.array(z.unknown()).max(64).optional(),
-    models: z
-      .object({
-        currentModelId: label.optional(),
-        availableModels: z.array(z.object({ modelId: label, name: label }).passthrough()).max(512),
-      })
-      .passthrough()
-      .optional(),
-    modes: z
-      .object({
-        currentModeId: label.optional(),
-        availableModes: z.array(z.object({ id: label, name: label }).passthrough()).max(128),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough();
+const record = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+/**
+ * The usable ids of a list (each entry's `key`), skipping entries without one. Undefined when
+ * the list is longer than `max`: that selector is dropped, the rest of the setup still reads.
+ */
+function ids(entries: unknown[], key: string, max: number): string[] | undefined {
+  if (entries.length > max) return undefined;
+  return entries.flatMap((entry) => {
+    const id = label.safeParse(record(entry)[key]);
+    return id.success ? [id.data] : [];
+  });
+}
+/** A select option's values, flattening groups; undefined past the value budget. */
+function selectValues(options: unknown[]): string[] | undefined {
+  const values: string[] = [];
+  for (const option of options) {
+    const entry = record(option);
+    const group = Array.isArray(entry["options"]) ? entry["options"] : undefined;
+    const found = group ? ids(group, "value", MAX_VALUES) : ids([option], "value", 1);
+    if (!found) return undefined;
+    values.push(...found);
+    if (values.length > MAX_VALUES) return undefined;
+  }
+  return values;
+}
 export type SelectorState = Readonly<{
   model?: {
     configId?: string;
@@ -61,28 +66,20 @@ export function sessionSelectors(
   profile?: CompatibilityProfile,
   legacyModel = false,
 ): SelectorState {
-  const session = Setup.parse(raw);
+  // Decoded leniently (agents send what they send): a malformed entry is skipped and an
+  // oversized list drops only its own selector. The raw setup is kept as it came.
+  const session = record(raw);
   if (profile?.denySelectors) return { raw };
   let model: SelectorState["model"];
   let mode: SelectorState["mode"];
   let effort: SelectorState["effort"];
-  for (const entry of session.configOptions ?? []) {
+  const configOptions = list(session["configOptions"]);
+  for (const entry of configOptions.length > MAX_CONFIG_OPTIONS ? [] : configOptions) {
     const result = Select.safeParse(entry);
     if (!result.success) continue;
     const config = result.data;
-    const values: string[] = [];
-    for (const option of config.options) {
-      const entries =
-        "value" in option && typeof option.value === "string"
-          ? [option.value]
-          : "options" in option && Array.isArray(option.options)
-            ? option.options.map((value) => value.value)
-            : [];
-      for (const value of entries) {
-        if (values.length >= 512) throw new Error("Selector option budget exceeded");
-        values.push(value);
-      }
-    }
+    const values = selectValues(config.options);
+    if (!values) continue;
     if (!model && (config.category === "model" || (!config.category && config.id === "model")))
       model = { method: "session/set_config_option", configId: config.id, values };
     if (!mode && ["mode", "permission", "permissions"].includes(config.category ?? config.id))
@@ -91,16 +88,17 @@ export function sessionSelectors(
     if (!effort && (config.category === "thought_level" || config.id === "reasoning_effort"))
       effort = { method: "session/set_config_option", configId: config.id, values };
   }
-  if (!model && session.models && (profile?.legacyModel || legacyModel))
-    model = {
-      method: "session/set_model",
-      values: session.models.availableModels.map((value) => value.modelId),
-    };
-  if (!mode && session.modes)
-    mode = {
-      method: "session/set_mode",
-      values: session.modes.availableModes.map((value) => value.id),
-    };
+  const models = record(session["models"]);
+  const modelIds = Array.isArray(models["availableModels"])
+    ? ids(models["availableModels"], "modelId", MAX_VALUES)
+    : undefined;
+  const modes = record(session["modes"]);
+  const modeIds = Array.isArray(modes["availableModes"])
+    ? ids(modes["availableModes"], "id", MAX_MODES)
+    : undefined;
+  if (!model && modelIds && (profile?.legacyModel || legacyModel))
+    model = { method: "session/set_model", values: modelIds };
+  if (!mode && modeIds) mode = { method: "session/set_mode", values: modeIds };
   return {
     ...(model ? { model } : {}),
     ...(mode ? { mode } : {}),

@@ -125,15 +125,19 @@ export interface NewThreadAccess {
   summary: AccessSummary | undefined;
   /** Send waits: the provider has nothing as strict as the mode asked for. */
   problem: string | undefined;
-  /** The `access` the create carries; undefined lets the daemon apply its default. */
+  /**
+   * The `access` the create carries: the person's own pick, as picked. The daemon runs it as the
+   * nearest offer and says so when that is looser; undefined lets it apply the defaults.
+   */
   permission: AccessMode | undefined;
 }
 
 /**
  * Access for a thread that hasn't started (ADR 0075). The draft's own choice wins over the
  * project's default, which wins over this daemon's. A mode the provider can't express runs as
- * the nearest stricter mode it supports, else the nearest looser one. Before the provider's modes are
- * read only a mode picked here is sent; otherwise the daemon applies the defaults itself.
+ * the nearest stricter mode it supports, else the nearest looser one. Only a mode picked here is
+ * sent, as picked: the daemon resolves it and the defaults itself, and tells the person when one
+ * runs looser than asked.
  */
 export function newThreadAccess(input: {
   chosen: AccessMode | undefined;
@@ -155,6 +159,5 @@ export function newThreadAccess(input: {
     input.provider && wanted && input.offers.length && !admitted
       ? `${input.provider} has nothing as strict as ${accessLabel(wanted)}. Choose its access before sending.`
       : undefined;
-  const permission = admitted ?? (input.offers.length ? undefined : input.chosen);
-  return { wanted, admitted, summary, problem, permission };
+  return { wanted, admitted, summary, problem, permission: input.chosen };
 }

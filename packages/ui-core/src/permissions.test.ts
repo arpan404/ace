@@ -71,7 +71,8 @@ test("a new thread runs at the draft's choice, else the project's default, else 
     "ask",
   );
   const project = newThreadAccess({ ...base, chosen: undefined, projectDefault: "read-only" });
-  expect([project.admitted, project.permission]).toEqual(["read-only", "read-only"]);
+  // The daemon applies the project's default itself; only the person's own pick is sent.
+  expect([project.admitted, project.permission]).toEqual(["read-only", undefined]);
   const chosen = newThreadAccess({ ...base, chosen: "full-access", projectDefault: "read-only" });
   expect([chosen.admitted, chosen.summary?.label]).toEqual(["full-access", "Full access"]);
 });
@@ -92,11 +93,12 @@ test("a new thread runs its mode's nearest offer: it steps down, else up, and th
     offers: offers("cursor"),
     provider: "Cursor",
   });
-  expect([none.permission, none.problem]).toEqual(["auto-review", undefined]);
+  // It runs as Auto review, but the create carries Ask: the daemon says it runs looser.
+  expect([none.admitted, none.permission, none.problem]).toEqual(["auto-review", "ask", undefined]);
   expect(none.summary?.stricter).toBe("Ask isn't available for Cursor");
 });
 
-test("before the provider's modes are read only a mode picked here goes with the create", () => {
+test("only a mode picked here goes with the create, whether or not the modes are read", () => {
   const unread = { offers: [], provider: undefined, projectDefault: "ask" } as const;
   expect(
     newThreadAccess({ ...unread, chosen: undefined, daemonDefault: "full-access" }).permission,

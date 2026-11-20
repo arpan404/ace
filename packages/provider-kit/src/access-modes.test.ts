@@ -114,3 +114,23 @@ test.each([
 ] as const)("a stored %s mode %s maps to %s", (provider, stored, expected) => {
   expect(storedAccess(provider, stored)).toBe(expected);
 });
+
+test("an odd mode entry never hides the agent's other modes, or its access offers", () => {
+  const raw = {
+    modes: {
+      availableModes: [
+        { id: "plan", name: "" },
+        { id: "", name: "Nameless" },
+        { id: "default", name: "D".repeat(400) },
+        { id: "yolo", name: "YOLO" },
+      ],
+    },
+  };
+  const parsed = acpPermissionModes(raw, { profile: "gemini-043" });
+  expect(parsed.map((mode) => mode.id)).toEqual(["plan", "default", "yolo"]);
+  expect(parsed.every((mode) => mode.label.length > 0 && mode.label.length <= 256)).toBe(true);
+  const offers = accessModeOffers({ provider: "acp", profile: "gemini-043" }, (native) =>
+    parsed.some((mode) => mode.id === native),
+  );
+  expect(offers.map((offer) => offer.mode)).toEqual(["read-only", "ask", "full-access"]);
+});
