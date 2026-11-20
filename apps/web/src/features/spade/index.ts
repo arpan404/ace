@@ -13,5 +13,6 @@ export { SpadeSettingsScreen, type SpadeSettingsPage } from "./spade-settings-sc
 export { BotStreamsContext, type BotStreams } from "./computer/bot-streams.ts";
 /** This machine's bots, as Spade lists them (a plugin's review picks which get it). */
 export { readAgents } from "./spade-api.ts";
+export { usePushToTalk } from "./spade-push-to-talk.ts";
 /** The catalogue of apps and the person's connectors, for the Marketplace's Apps. */
 export { useSpadeConnectors } from "./spade-connector-api.ts";

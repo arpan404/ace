@@ -20,17 +20,22 @@ import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.t
 import { DeleteMakerDialog, type DeletingMaker } from "./spade-delete-maker.tsx";
 import { useMakerWorkers } from "./use-spade-work.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
+import { VoiceRows } from "./spade-voice-settings.tsx";
+import { useSpadeModels } from "./use-spade-models.ts";
+import { voiceKey } from "./use-spoken-replies.ts";
 
 /**
  * Details: what the bot is and how it behaves. A move to another machine, or what needs the
  * person since one, first (ADR 0187). Its task, the model and machine it runs with
- * (and, folded, the models for its other work), its routines, the apps and plugins it may use, its boundaries, its spending, then Duplicate,
- * Export and Delete. Everything edits where it shows.
+ * (and, folded, the models for its other work), how it sounds (Speak replies and its voice, on
+ * this device), its routines, the apps and plugins it may use, its boundaries, its spending,
+ * then Duplicate, Export and Delete. Everything edits where it shows.
  */
 export function ProfileDetails(props: { bot: RosterBot }) {
   const { bot } = props;
   const edit = useEditBot(bot);
   const [modelProblem, setModelProblem] = useState<string>();
+  const speechModel = useSpadeModels(true).data?.speechModel;
   return (
     <>
       <ProfileMoveLine bot={bot} />
@@ -53,6 +58,9 @@ export function ProfileDetails(props: { bot: RosterBot }) {
         </SettingRow>
         <ProfileMachine bot={bot} />
         <BotRoles bot={bot} />
+      </ProfileSection>
+      <ProfileSection label="Voice">
+        <VoiceRows bot={voiceKey(bot.machine.key, bot.id)} speechModel={speechModel} />
       </ProfileSection>
       <ProfileRoutines bot={bot} />
       <ProfileApps bot={bot} />

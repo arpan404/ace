@@ -48,6 +48,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
   newBotModel: string | null = null;
   /** `endpoint/model` for voice messages (ADR 0134). */
   transcriptionModel: string | null = null;
+  /** `endpoint/model` that reads replies aloud. */
+  speechModel: string | null = null;
+  /** The words each `POST /v1/speech` asked to hear, in order. */
+  spoken: string[] = [];
   /** Stored images by hash with their media type; any other hash answers 404. */
   images = new Map<string, string>();
   /** What `POST /v1/transcriptions` answers. */
@@ -244,6 +248,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
   store(conversation: string, event: Json): void {
     const stored = this.keep(conversation, event);
     this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+  }
+
+  /** Words of an open reply as they stream: sent live, never stored. */
+  delta(conversation: string, replyId: string, text: string): void {
+    this.spade.emit(`/v1/conversations/${conversation}/live`, "delta", { reply: replyId, text });
   }
 
   /** Stores an event without sending it live, as a stream that fell behind would miss it. */
@@ -627,6 +636,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         fast_model: this.fastModel,
         new_bot_model: this.newBotModel,
         transcription_model: this.transcriptionModel,
+        speech_model: this.speechModel,
         keychain: this.keychain,
       });
     if (root === "subscriptions" && request.method === "GET")
@@ -647,6 +657,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
         if (model !== null && !(rest.join("/") && this.endpoints.some((e) => e.id === endpoint)))
           return problem(400, "The transcription model must be on one of your endpoints.");
         this.transcriptionModel = model;
+      }
+      if ("speech_model" in body) {
+        const model = typeof body.speech_model === "string" ? body.speech_model : null;
+        const [endpoint, ...rest] = model?.split("/") ?? [];
+        if (model !== null && !(rest.join("/") && this.endpoints.some((e) => e.id === endpoint)))
+          return problem(400, "The speech model must be on one of your endpoints.");
+        this.speechModel = model;
       }
       return { status: 204 };
     }
@@ -686,6 +703,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return this.transcriptionModel
         ? reply({ text: this.transcript })
         : problem(409, "No transcription model is set.");
+    // As Spade: the audio the speech model reads, here a few bytes named by the words.
+    if (root === "speech" && request.method === "POST") {
+      if (!this.speechModel) return problem(409, "No speech model is set.");
+      const text = typeof body.text === "string" ? body.text : "";
+      this.spoken.push(text);
+      return { status: 200, body: `audio of ${text}`, contentType: "audio/mpeg" };
+    }
     // A stored document or recording: its bytes, as text here.
     if ((root === "documents" || root === "audio") && id && request.method === "GET")
       return {

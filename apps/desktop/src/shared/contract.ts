@@ -301,6 +301,11 @@ export const DesktopSettings = z.object({
   /** Electron accelerator for the quick composer; off by default. */
   globalShortcut: z.string().max(64).nullable().default(null),
   /**
+   * Push to talk to the main Spade from anywhere (ADR 0134, amended). Absent: the platform's
+   * default (⌥Space on macOS, none elsewhere, where the chord belongs to the system); null: off.
+   */
+  spadeTalkShortcut: z.string().max(64).nullable().optional(),
+  /**
    * Keyboard shortcuts rebound on this app, per device. Null until the app first stores them,
    * which is when it adopts what the machine's old shared setting held. A damaged value reads
    * as no rebindings, not as never stored, so the old setting is never adopted twice.
@@ -343,6 +348,7 @@ export const DesktopSettingsPatch = z.object({
     .optional(),
   attention: z.boolean().optional(),
   globalShortcut: z.string().max(64).nullable().optional(),
+  spadeTalkShortcut: z.string().max(64).nullable().optional(),
   keybindings: Keybindings.nullable().optional(),
   /**
    * Keyboard shortcuts to store only if the app has none yet: adopting the machine's old shared
@@ -384,12 +390,34 @@ export const ScreenPermission = z.enum([
   "restricted",
   "unknown",
 ]);
+export type ScreenPermission = z.infer<typeof ScreenPermission>;
 export const Permissions = z.object({
   screenRecording: ScreenPermission,
   accessibility: z.boolean(),
 });
 export type Permissions = z.infer<typeof Permissions>;
-export const PermissionPane = z.enum(["screen-recording", "accessibility", "notifications"]);
+export const PermissionPane = z.enum([
+  "screen-recording",
+  "accessibility",
+  "notifications",
+  "microphone",
+]);
+/** The app's microphone permission (macOS asks once per app; elsewhere the page's own prompt). */
+export const MicrophonePermission = ScreenPermission;
+
+/** A press of the push-to-talk shortcut, or Cancel in its indicator. */
+export const SpadeTalkPhase = z.enum(["start", "send", "cancel"]);
+export type SpadeTalkPhase = z.infer<typeof SpadeTalkPhase>;
+/** How the push-to-talk turn goes, as the page tells it, for the indicator. */
+export const SpadeTalkState = z.enum([
+  "off",
+  "listening",
+  "hearing",
+  "transcribing",
+  "thinking",
+  "speaking",
+]);
+export type SpadeTalkState = z.infer<typeof SpadeTalkState>;
 export type PermissionPane = z.infer<typeof PermissionPane>;
 
 /** Where the renderer wants a thread's embedded browser view drawn, in CSS pixels. */

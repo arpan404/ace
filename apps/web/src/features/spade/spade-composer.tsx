@@ -1,6 +1,6 @@
 import { spadeQuoted } from "@ace/ui-core/spade-chat";
 import { XIcon } from "@ace/icons";
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useId, useRef, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -12,7 +12,9 @@ import {
   useStopKey,
 } from "@/features/thread/index.ts";
 import { prepareSpadeFiles, type SpadeMessage } from "./spade-attachments.ts";
-import { MicButton, useSpadeVoice, VoiceButton, VoiceStrip } from "./spade-mic.tsx";
+import { MicButton, TalkLine, useSpadeVoice, VoiceButton, VoiceStrip } from "./spade-mic.tsx";
+import { onPushToTalk, reportPushToTalk, type PushPhase } from "./spade-push-to-talk.ts";
+import { useTalkMode } from "./spade-talk-mode.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
 
 /** A bot's composer has no project or commands of its own: the person's words and files. */
@@ -20,9 +22,10 @@ const spadeThread = { id: "", workspaceId: "", title: "", draft: true } as const
 
 /**
  * The thread composer as ace's capsule, sending to Spade, its controls round at the Spade size:
- * +, the field, the mic for dictation, and one filled button at its end: voice while the field is
- * empty (off until voice ships), Send once there are words, Stop while the bot works and the
- * draft is empty. A message always sends: while a reply runs it steers it. Files attach as they
+ * +, the field, the mic for dictation, and one filled button at its end: a hands-free spoken
+ * conversation while the field is empty, Send once there are words, Stop while the bot works and
+ * the draft is empty. While the conversation lasts, one quiet line above says where it is. The
+ * main Spade's composer also answers the desktop's push-to-talk shortcut. A message always sends: while a reply runs it steers it. Files attach as they
  * do in a thread: images go as images, anything else as a document Spade reads (ADR 0134). The
  * mic records a voice message whose words land here to be checked. Until Spade runs, sending
  * says why. While the bot has no model it can use, sending is held: one line above the field says
@@ -55,6 +58,10 @@ export function SpadeComposer(props: {
    */
   quote?: { text: string; onRemove(): void } | undefined;
   send(message: SpadeMessage): Promise<void>;
+  /** A message the person spoke is going: its reply is read aloud. */
+  onSpoken?: (() => void) | undefined;
+  /** This is the main Spade, which push to talk speaks to. */
+  main?: boolean | undefined;
 }) {
   const toast = useToast();
   const reason = useId();
@@ -67,6 +74,53 @@ export function SpadeComposer(props: {
     transcriptionModel: models.data?.transcriptionModel,
     onWords: (words) => composer.current?.insertText(words),
   });
+  // A spoken conversation: what the person says goes as it is, without a stop in the field.
+  const talk = useTalkMode({
+    recognize: voice.recognize,
+    transcriptionModel: models.data?.transcriptionModel,
+    answering: props.answering,
+    // Push to talk: the desktop's indicator follows the turn.
+    changed: (state, push) => {
+      if (push) reportPushToTalk(state.kind);
+    },
+    send: async (words, recording) => {
+      if (blocked) {
+        toast.error({ title: `Couldn't send to ${props.name}`, description: blocked });
+        return false;
+      }
+      try {
+        props.onSpoken?.();
+        await props.send({ text: words, images: [], documents: [], voice: recording });
+        return true;
+      } catch (error) {
+        toast.error({
+          title: `Couldn't send to ${props.name}`,
+          description: error instanceof Error ? error.message : undefined,
+        });
+        return false;
+      }
+    },
+  });
+  // Push to talk, on the main Spade: the first press listens, the next sends.
+  const pressed = useEffectEvent((phase: PushPhase) => {
+    if (phase === "cancel") return talk.end();
+    if (phase === "send") return talk.sendNow();
+    // Over Spade's answer, a press stops it and listens again.
+    if (talk.state.kind === "thinking" || talk.state.kind === "speaking") {
+      talk.end();
+      talk.push();
+      return;
+    }
+    // The desktop says send for a second press; a start while listening is the same press.
+    if (talk.state.kind !== "off") return;
+    if (voice.needsSetup) {
+      reportPushToTalk("off");
+      return voice.openSetup();
+    }
+    talk.push();
+  });
+  const main = props.main === true;
+  useEffect(() => (main ? onPushToTalk((phase) => pressed(phase)) : undefined), [main]);
   const quoted = props.quote?.text;
   // Esc twice stops, as in a thread: the first press only says so above the field.
   const onStop = props.onStop;
@@ -90,6 +144,8 @@ export function SpadeComposer(props: {
       const { images, documents } = await prepareSpadeFiles(files);
       // A recording goes with the words it became; with no words left, it stays behind.
       const recording = text ? voice.voice : undefined;
+      // Words the person spoke are answered aloud.
+      if (recording) props.onSpoken?.();
       await props.send({ text, images, documents, voice: recording });
       if (quoted && words) props.quote?.onRemove();
       draft.files.release();
@@ -152,7 +208,7 @@ export function SpadeComposer(props: {
           shortPlaceholder={`Message ${props.name}`}
           sendBlocked={blocked ? { reason: blocked, describedBy: reason } : undefined}
           trailing={<MicButton voice={voice} />}
-          idleAction={<VoiceButton name={props.name} />}
+          idleAction={<VoiceButton name={props.name} talk={talk} voice={voice} />}
           attached={
             <>
               {props.chips && props.chips.length > 0 && (
@@ -187,6 +243,7 @@ export function SpadeComposer(props: {
               )}
               {props.attached}
               <VoiceStrip voice={voice} />
+              <TalkLine name={props.name} talk={talk} push={talk.pushing} />
             </>
           }
           onSubmit={submit}
