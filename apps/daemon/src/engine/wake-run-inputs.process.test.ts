@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { CommandId } from "@ace/protocol";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -91,4 +92,50 @@ test("a thread that ran ace's own notice reads done afterwards, with nothing lef
   });
   expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
   expect(h.engine.queue(id).pendingCount).toBe(0);
+});
+
+test("a provider's own child waking the root while a message is on its way never takes that message", async () => {
+  const frames = scriptFrames();
+  const message = "message-on-its-way";
+  let ctx: (typeof h.contexts)[number] | undefined;
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    // The message is claimed; before it reaches the provider, a native child's result wakes the
+    // root in a run of its own, and then the handover fails.
+    beforeSend: async (threadId, commandId) => {
+      if (commandId !== message || !ctx) return;
+      ctx.onFrame(
+        frames.frame(
+          { type: "turn.started", agent: "root", trigger: "subagent_result", nativeTurnId: "w" },
+          { type: "turn.ended", agent: "root", outcome: "completed", nativeTurnId: "w" },
+        ),
+      );
+      await vi.waitFor(() =>
+        expect(
+          Object.values(h.store.snapshotThread(threadId).runs).some(
+            (run) => run.trigger === "subagent_result" && run.state === "completed",
+          ),
+        ).toBe(true),
+      );
+      throw new Error("The checkpoint could not be written");
+    },
+  });
+  cleanups.push(h.close);
+  const id = await h.create();
+  ctx = h.contexts[0];
+  await vi.waitFor(() => expect(h.store.getThread(id)?.status.state).toBe("done"));
+  const sent = h.command(
+    {
+      type: "thread.send",
+      threadId: id,
+      input: [{ type: "text", text: "Also check the tests" }],
+      delivery: "queue",
+    },
+    "person",
+    message,
+  );
+  expect(sent.ok).toBe(true);
+  await vi.waitFor(() => expect(h.engine.queue(id).reason).toBe("not_sent"));
+  // Still the person's to send: held in the queue, never marked delivered.
+  expect(h.engine.queue(id).messages.map((entry) => entry.id)).toEqual([message]);
+  expect(h.engine.inputFate(id, CommandId.parse(message))).toEqual({ state: "waiting" });
 });
