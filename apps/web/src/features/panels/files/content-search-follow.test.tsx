@@ -46,8 +46,8 @@ test("results refresh once the daemon says a matched file's folder changed after
   await waitFor(() => expect(folders.watches.at(-1)).toContain("src"));
 
   await userEvent.click(await hit(panel, "src/cache.ts line 2: const hit = quokka.get(key);"));
-  await userEvent.click(await within(panel).findByRole("button", { name: "Edit file" }));
-  const editor = await within(panel).findByRole("region", { name: "Editing src/cache.ts" });
+  // Always editable: no mode to enter first.
+  const editor = await within(panel).findByRole("region", { name: "Source of src/cache.ts" });
   const box = await within(editor).findByRole("textbox");
   await userEvent.click(box);
   await userEvent.keyboard("{Control>}{End}{/Control}quokka.clear();{Control>}s{/Control}");

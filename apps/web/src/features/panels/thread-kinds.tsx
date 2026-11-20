@@ -1,4 +1,3 @@
-import { fileTabData } from "./files/files-state.ts";
 import {
   BrowserIcon,
   DeviceMobileIcon,
@@ -29,21 +28,16 @@ import { browserTabData, daemonTabId } from "./browser/browser-data.ts";
 import { closeBrowserTab } from "./browser/browser-closers.ts";
 import { BrowserTabBadge, BrowserTabMark } from "./browser/tab-mark.tsx";
 import { BrowserTabMenuItems } from "./browser/tab-menu.tsx";
-import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
+import { prepareDeckClose } from "./deck/deck-close.ts";
+import { deckKind as deckKindId } from "./deck/deck-layout.ts";
+import { upgradeWorkspace } from "./deck/deck-migration.ts";
+import { DeckOverlay } from "./deck/deck-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
-import { fileTabId } from "./files/tab-id.ts";
 import { logsKind } from "./logs/logs-kind.tsx";
 import { shellKind, terminalKind } from "./terminal/terminal-kinds.tsx";
 import { visualizationKind } from "@/features/visualization/index.ts";
 
 export { logsKind, shellKind, terminalKind };
-
-/** A string field of a tab's data, read defensively: tab data comes from storage. */
-function field(data: unknown, name: "path"): string | undefined {
-  if (typeof data !== "object" || data === null || !(name in data)) return undefined;
-  const value: unknown = Reflect.get(data, name);
-  return typeof value === "string" ? value : undefined;
-}
 
 /*
  * The thread workspace's tab kinds: the tools and resources that open beside a conversation.
@@ -67,40 +61,22 @@ export const changesKind = defineTabKind({
 });
 
 /**
- * Files of the thread's checkout: the pinned Files tab (the tree, no file yet) and one tab per
- * file, each with the tree beside it. ⌘P opens the quick-open palette rather than toggling a tab.
+ * The thread's Deck (docs/editor/workbench.md, ADR 0193): one tab holding the explorer and the
+ * editor groups; every checkout file opens there. Its data is the workbench layout. ⌘P opens
+ * quick open rather than toggling the tab. Closing it with unsaved files asks first.
  */
-export const filesKind = defineTabKind({
-  kind: "files",
-  label: "Files",
-  multiple: true,
-  closeWarning: (_scope, tabs) =>
-    tabs.some(({ tab }) => {
-      const data = fileTabData(tab);
-      return data.draft && data.draft.text !== data.draft.original;
-    })
-      ? {
-          title: "Discard file edits?",
-          description: "These tabs have unsaved file changes.",
-          confirm: "Discard",
-        }
-      : undefined,
+export const deckKind = defineTabKind({
+  kind: deckKindId,
+  label: "Deck",
   icon: FilesIcon,
+  singleton: true,
   launcher: 30,
-  // A pinned tab is never replaced, so it no longer reads as a preview.
-  preview: (tab) => {
-    const data = fileTabData(tab);
-    return data.preview && !tab.pinned ? { kept: { ...data, preview: false } } : undefined;
-  },
-  title: (tab) => {
-    const path = field(tab.data, "path");
-    return path ? (path.split("/").at(-1) ?? path) : "Files";
-  },
+  title: () => "Deck",
   Skeleton: FilesSkeleton,
-  load: () => import("./files/file-tab.tsx"),
-  fromFile: (path) => ({ kind: "files", id: fileTabId(path), data: { path } }),
+  load: () => import("./deck/deck-panel.tsx"),
+  prepareClose: (scope) => prepareDeckClose(scope),
   onShortcut: (scope) => quickOpen.set(() => scope),
-  Overlay: QuickOpenOverlay,
+  Overlay: DeckOverlay,
 });
 
 /**
@@ -254,7 +230,7 @@ export const threadKinds: readonly TabKind[] = [
   workKind,
   changesKind,
   terminalKind,
-  filesKind,
+  deckKind,
   filePreviewKind,
   textEditKind,
   browserKind,
@@ -271,3 +247,6 @@ export const threadKinds: readonly TabKind[] = [
 ];
 
 export default threadKinds;
+
+/** Stored tabs from before the Deck: per-file panel tabs move into it (spec 55). */
+export const upgrade = upgradeWorkspace;

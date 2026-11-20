@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { useLayoutServices, useOptionalLayoutServices } from "@/lib/layout.tsx";
 import { workspaceActions, type WorkspaceActions } from "./actions.ts";
+import { openInDeck, type DeckTarget, type OpenInDeckOptions } from "./deck-tab.ts";
 import { emptyWorkspace, type ScopeWorkspace } from "./model.ts";
 import type { PanelPlace } from "./places.ts";
 import { WorkspaceStore } from "./store.ts";
@@ -55,6 +56,8 @@ export function useOptionalWorkspace(scope: string):
       actions: WorkspaceActions;
       read: () => ScopeWorkspace;
       subscribe: (listener: () => void) => () => void;
+      /** The scope's Deck, for opening checkout files (`openInDeck`). */
+      deck: DeckTarget;
     }
   | undefined {
   const services = useOptionalLayoutServices();
@@ -62,12 +65,30 @@ export function useOptionalWorkspace(scope: string):
   return useMemo(() => {
     if (!services) return undefined;
     const store = services.workspaceStore(() => new WorkspaceStore({ storage: services.storage }));
+    const actions = workspaceActions(store, scope, here);
+    const read = () => store.get(scope);
     return {
-      actions: workspaceActions(store, scope, here),
-      read: () => store.get(scope),
+      actions,
+      read,
       subscribe: (listener: () => void) => store.subscribe(scope, listener),
+      deck: { scope, read, actions, preferred: () => store.preferred },
     };
   }, [services, scope, here]);
+}
+
+/** Open checkout files in a scope's Deck from a component on its screen (`openInDeck`). */
+export function useOpenInDeck(scope: string): (path: string, options?: OpenInDeckOptions) => void {
+  const store = useWorkspaceStore();
+  const actions = useWorkspaceActions(scope);
+  return useCallback(
+    (path, options) =>
+      openInDeck(
+        { scope, read: () => store.get(scope), actions, preferred: () => store.preferred },
+        path,
+        options,
+      ),
+    [store, actions, scope],
+  );
 }
 
 function useGlobal<T>(read: (store: WorkspaceStore) => T): T {

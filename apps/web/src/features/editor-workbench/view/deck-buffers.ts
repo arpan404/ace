@@ -25,6 +25,13 @@ export interface DeckBuffers {
   subscribe(listener: () => void): () => void;
   /** Who to name for a disk change, and their mark; undefined when nobody can be named. */
   changer(author: Author): Changer | undefined;
+  /**
+   * Who changed a path on disk since the person last looked (spec 21, 45): its tab and Open
+   * editors row carry their mark. Undefined when nobody is waiting to be seen.
+   */
+  agentMark(path: string): Changer | undefined;
+  /** Replace the marks (the panel tracks changes and what the person has seen). */
+  setAgentMarks(marks: ReadonlyMap<string, Author>): void;
   /** Hold the paths the layout has open; let go of the rest. */
   sync(layout: EditorLayout): void;
   dispose(): void;
@@ -49,9 +56,17 @@ export function deckBuffers(
 ): DeckBuffers {
   const held = new Map<string, Held>();
   const listeners = new Set<() => void>();
+  let marks = new Map<string, Changer>();
   const notify = () => {
     for (const listener of listeners) listener();
   };
+  const changer = (author: Author): Changer | undefined =>
+    author.kind === "unknown"
+      ? undefined
+      : {
+          name: author.kind === "agent" ? author.agent : author.title,
+          provider: providerOf?.(author.agent),
+        };
   return {
     snapshot: (path) => held.get(path)?.snapshot,
     buffer: (path) => held.get(path)?.lease.buffer,
@@ -59,13 +74,24 @@ export function deckBuffers(
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    changer: (author) =>
-      author.kind === "unknown"
-        ? undefined
-        : {
-            name: author.kind === "agent" ? author.agent : author.title,
-            provider: providerOf?.(author.agent),
-          },
+    changer,
+    agentMark: (path) => marks.get(path),
+    setAgentMarks: (next) => {
+      const named = new Map<string, Changer>();
+      for (const [path, author] of next) {
+        const who = changer(author);
+        if (who) named.set(path, who);
+      }
+      const same =
+        named.size === marks.size &&
+        [...named].every(([path, who]) => {
+          const was = marks.get(path);
+          return was?.name === who.name && was.provider === who.provider;
+        });
+      if (same) return;
+      marks = named;
+      notify();
+    },
     sync: (layout) => {
       const groups = groupsOf(layout);
       const open = new Set(groups.flatMap((group) => group.tabs.map((tab) => tab.path)));
@@ -122,6 +148,11 @@ export function useDeckBuffers(
   useEffect(() => () => buffers.dispose(), [buffers]);
   useEffect(() => buffers.sync(layout), [buffers, layout]);
   return buffers;
+}
+
+/** The agent's mark on a path's tab, read through `useSyncExternalStore`. */
+export function useAgentMark(buffers: DeckBuffers, path: string): Changer | undefined {
+  return useSyncExternalStore(buffers.subscribe, () => buffers.agentMark(path));
 }
 
 export function useSnapshot(

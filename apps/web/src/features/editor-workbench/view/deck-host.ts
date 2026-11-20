@@ -15,6 +15,20 @@ export interface StatusReport {
   actions: EditorStatusActions;
 }
 
+/** A place an open asked the editor to show (spec 12–13). */
+export interface EditorReveal {
+  /** 1-based; unset, the caret stays where it was and only focus moves. */
+  line?: number | undefined;
+  /** 0-based UTF-16 column. */
+  column?: number | undefined;
+  /** Select this many code units from the column (a search match). */
+  length?: number | undefined;
+  /** Move the keyboard into the editor. */
+  focus: boolean;
+  /** A new token reveals again, even at the same place. */
+  token: number;
+}
+
 /** What the Deck hands the editor it renders for a group's active tab. */
 export interface DeckEditorProps {
   path: string;
@@ -27,6 +41,9 @@ export interface DeckEditorProps {
    * latest and shows the focused group's). Called with `undefined` on unmount.
    */
   onStatus(status: EditorStatus | undefined, actions?: EditorStatusActions): void;
+  /** Where to look once shown; `onRevealed` hears its token when the editor has done so. */
+  reveal?: EditorReveal | undefined;
+  onRevealed?: ((token: number) => void) | undefined;
 }
 
 /** Everything a group needs from outside the layout. */

@@ -1,7 +1,7 @@
 import { CaretDownIcon, CaretRightIcon } from "@ace/icons";
 import { useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useSnapshot, type DeckBuffers } from "./deck-buffers.ts";
+import { useAgentMark, useSnapshot, type DeckBuffers } from "./deck-buffers.ts";
 import {
   bindGroupActions,
   groupContext,
@@ -90,6 +90,7 @@ function OpenEditorRow(props: {
 }) {
   const { tab, actions } = props;
   const unsaved = useSnapshot(props.buffers, tab.path)?.dirty ?? false;
+  const mark = useAgentMark(props.buffers, tab.path);
   const [hovered, setHovered] = useState(false);
   const name = fileName(tab.path);
   return (
@@ -118,9 +119,10 @@ function OpenEditorRow(props: {
         </span>
       </button>
       <TabSlot
-        shows={slotShows(unsaved, tab.pinned, hovered, hovered)}
+        shows={slotShows(unsaved, tab.pinned, hovered, hovered, mark !== undefined)}
         unsaved={unsaved}
         name={name}
+        provider={mark?.provider}
         onClose={() => actions.close([tab.path])}
       />
     </li>

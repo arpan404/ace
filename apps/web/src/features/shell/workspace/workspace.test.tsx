@@ -373,7 +373,7 @@ test("New tab offers an address, tools and suggested sites, and opens a Files ta
   const tools = await within(panel).findByRole("list", { name: "Tools" });
   expect(await within(panel).findByRole("list", { name: "Suggested" })).toBeTruthy();
   expect(within(panel).getByRole("combobox", { name: "Address" })).toBeTruthy();
-  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
+  await userEvent.click(within(tools).getByRole("button", { name: /^Deck/ }));
   expect(selected(panel).textContent).toBe("Files");
   expect(tabNames(panel)).toEqual(["Summary", "Files"]);
 });
@@ -433,7 +433,7 @@ test("Files keeps its filter across repeated panel hide and reopen", async () =>
   const panel = await sidePanel();
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   const tools = await within(panel).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
+  await userEvent.click(within(tools).getByRole("button", { name: /^Deck/ }));
   const filter = await within(panel).findByRole("searchbox", {
     name: "Find files in the checkout",
   });

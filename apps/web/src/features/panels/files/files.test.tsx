@@ -275,8 +275,8 @@ test("the Files tab keeps the checkout tree while a source tab remembers hiding 
   const side = await panel();
   await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
   const firstTools = await within(side).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(firstTools).getByRole("button", { name: /^Files/ }));
-  await within(side).findByRole("tab", { name: "Files", selected: true });
+  await userEvent.click(within(firstTools).getByRole("button", { name: /^Deck/ }));
+  await within(side).findByRole("tab", { name: "Deck", selected: true });
   // The default panel no longer pins Files: pin it, as the tree tab was.
   await userEvent.keyboard("{Meta>}k{/Meta}");
   await userEvent.type(
@@ -298,14 +298,14 @@ test("the Files tab keeps the checkout tree while a source tab remembers hiding 
   const found = await within(side).findByRole("tree", { name: "Matching files" });
   await userEvent.click(await within(found).findByRole("treeitem", { name: "outbox.ts" }));
   await within(side).findByRole("tab", { name: "outbox.ts", selected: true });
-  expect(within(side).getByRole("tab", { name: "Files" })).toBeTruthy();
+  expect(within(side).getByRole("tab", { name: "Deck" })).toBeTruthy();
   // Files opens more than once: the launcher's Files turns the new tab into another Files tab
   // with its own tree, and the first one stays.
   await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
   const tools = await within(side).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
-  expect(await within(side).findByRole("tab", { name: "Files", selected: true })).toBeTruthy();
-  expect(within(side).getAllByRole("tab", { name: "Files" })).toHaveLength(2);
+  await userEvent.click(within(tools).getByRole("button", { name: /^Deck/ }));
+  expect(await within(side).findByRole("tab", { name: "Deck", selected: true })).toBeTruthy();
+  expect(within(side).getAllByRole("tab", { name: "Deck" })).toHaveLength(2);
   expect(within(side).queryByRole("list", { name: "Tools" })).toBeNull();
   expect(await within(side).findByRole("tree", { name: "Checkout files" })).toBeTruthy();
 
@@ -393,7 +393,7 @@ test("a checkout of hundreds of files lists one folder at a time, and search fin
   const side = await panel();
   await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
   const tools = await within(side).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
+  await userEvent.click(within(tools).getByRole("button", { name: /^Deck/ }));
   const tree = await within(side).findByRole("tree", { name: "Checkout files" });
   // The root lists the checkout's top folders only: nothing below is asked for until it opens.
   const pkg = await within(tree).findByRole("treeitem", { name: "pkg" });

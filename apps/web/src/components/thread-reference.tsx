@@ -10,7 +10,7 @@ import {
   localLinkPath as localPath,
   normalizedPath,
 } from "@ace/ui-core/file-references";
-import { fileTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useOpenInDeck } from "@/lib/workspace/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 const InlineImage = deferredComponent(() =>
   import("./attachment-tiles.tsx").then((module) => module.CapturedInlineImage),
@@ -46,7 +46,7 @@ function ScopedReference(props: {
 }) {
   const client = useClient();
   const root = useThreadField(props.threadId, threadCheckoutRoot);
-  const workspace = useWorkspaceActions(props.threadId);
+  const openInDeck = useOpenInDeck(props.threadId);
   const path = localPath(props.reference);
   const base = props.cwd ?? root;
   const resolvePath = (value: string, cwd = base) =>
@@ -148,7 +148,8 @@ function ScopedReference(props: {
     return (
       <button
         type="button"
-        onClick={() => workspace.open(fileTab(relative))}
+        // A glance: the file shows as the Deck's preview and the chat keeps focus.
+        onClick={() => openInDeck(relative)}
         className="text-link underline decoration-ring/40 underline-offset-[3px] hover:decoration-current"
       >
         {props.children ?? props.alt ?? displayName(relative)}

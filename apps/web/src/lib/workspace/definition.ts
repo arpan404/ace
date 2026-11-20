@@ -1,5 +1,5 @@
 import type { KeymapId } from "@/lib/keymap.ts";
-import type { OpenRequest, WorkspaceTab } from "./model.ts";
+import type { OpenRequest, ScopeWorkspace, WorkspaceTab } from "./model.ts";
 import type { TabKind } from "./registry.ts";
 
 /*
@@ -26,8 +26,14 @@ export interface WorkspaceDefinitionOptions {
   mobileTools?: readonly { label: string; kind: string }[];
   /** Tools' shortcuts (kind → keymap id): bound from first paint, shown on launcher cards. */
   shortcuts?: Readonly<Record<string, KeymapId>>;
-  /** The tab kinds, as a lazy module's default export. */
-  kinds(): Promise<{ default: readonly TabKind[] }>;
+  /**
+   * The tab kinds, as a lazy module's default export. Its `upgrade`, if any, rewrites a scope's
+   * stored tabs from an older shape (once per scope, after the kinds load): a pure transform.
+   */
+  kinds(): Promise<{
+    default: readonly TabKind[];
+    upgrade?: (workspace: ScopeWorkspace) => ScopeWorkspace;
+  }>;
 }
 
 export interface WorkspaceDefinition extends Omit<WorkspaceDefinitionOptions, "kinds"> {
@@ -43,16 +49,20 @@ export interface WorkspaceDefinition extends Omit<WorkspaceDefinitionOptions, "k
   request(request: OpenRequest): OpenRequest;
   /** A tab's title: the kind's rule, the view's last report, or the kind's label. */
   title(tab: WorkspaceTab): string;
+  /** A scope's stored tabs in today's shape; the same object when nothing changes. */
+  upgrade(workspace: ScopeWorkspace): ScopeWorkspace;
 }
 
 export function defineWorkspace(options: WorkspaceDefinitionOptions): WorkspaceDefinition {
   let loading: Promise<readonly TabKind[]> | undefined;
   let byKind = new Map<string, TabKind>();
   let ready = false;
+  let upgrade: (workspace: ScopeWorkspace) => ScopeWorkspace = (workspace) => workspace;
   const load = () =>
     (loading ??= options.kinds().then(
       (module) => {
         byKind = new Map(module.default.map((kind) => [kind.kind, kind]));
+        if (module.upgrade) upgrade = module.upgrade;
         ready = true;
         return module.default;
       },
@@ -82,6 +92,7 @@ export function defineWorkspace(options: WorkspaceDefinitionOptions): WorkspaceD
         id: kind?.singleton ? undefined : request.id,
       };
     },
+    upgrade: (workspace) => upgrade(workspace),
     title: (tab) => {
       const kind = byKind.get(tab.kind);
       return kind?.title?.(tab) ?? tab.title ?? kind?.label ?? "Tool";
