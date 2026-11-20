@@ -4,6 +4,7 @@ import {
   AddressedShare,
   AddressedState,
   ContentPart,
+  DeviceContextItem,
   ThreadId,
   type AddressedTo,
   type AskedLine,
@@ -29,6 +30,8 @@ export interface AddressedRow {
   pack: string | undefined;
   /** A follow-up went to the bots alone: its words are shown on ace's line. */
   followUp: boolean;
+  /** Devices the message named, for its chips. */
+  devices: DeviceContextItem[];
 }
 export interface AskRow {
   key: string;
@@ -55,6 +58,7 @@ const MessageRow = z.object({
   shares: z.string().transform((text) => z.array(z.string()).parse(JSON.parse(text))),
   pack: z.string().nullable(),
   follow_up: z.number(),
+  devices: z.string().transform((text) => z.array(DeviceContextItem).parse(JSON.parse(text))),
 });
 const StoredAsk = z.object({
   key: z.string(),
@@ -119,7 +123,7 @@ export class ThreadAskStore {
       db.exec(`CREATE TABLE IF NOT EXISTS thread_addressed (
         command_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, about TEXT NOT NULL,
         input TEXT NOT NULL, share TEXT NOT NULL, shares TEXT NOT NULL, pack TEXT,
-        follow_up INTEGER NOT NULL, created_at INTEGER NOT NULL
+        follow_up INTEGER NOT NULL, devices TEXT NOT NULL, created_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS thread_asks (
         key TEXT PRIMARY KEY, command_id TEXT NOT NULL, idx INTEGER NOT NULL,
@@ -139,7 +143,7 @@ export class ThreadAskStore {
   /** Records the message and its asks before anything is sent; a repeat keeps the first. */
   begin(message: AddressedRow, asks: readonly AskRow[], at: number): void {
     this.store.atomic((db) => {
-      db.prepare("INSERT OR IGNORE INTO thread_addressed VALUES (?,?,?,?,?,?,?,?,?)").run(
+      db.prepare("INSERT OR IGNORE INTO thread_addressed VALUES (?,?,?,?,?,?,?,?,?,?)").run(
         message.commandId,
         message.threadId,
         message.about,
@@ -148,6 +152,7 @@ export class ThreadAskStore {
         JSON.stringify(message.shares),
         message.pack ?? null,
         message.followUp ? 1 : 0,
+        JSON.stringify(message.devices),
         at,
       );
       const insert = db.prepare(
@@ -185,6 +190,7 @@ export class ThreadAskStore {
       shares: message.shares,
       pack: message.pack ?? undefined,
       followUp: message.follow_up === 1,
+      devices: message.devices,
     };
   }
   /** Every addressee of one message, in the order the person wrote them. */
@@ -277,6 +283,7 @@ export function askedLineOf(message: AddressedRow, asks: readonly AskRow[]): Ask
   return {
     about: message.about,
     to: addressedOf(asks),
+    devices: message.devices,
     share: message.share,
     shares: message.shares,
     ...(message.followUp ? { words: message.input } : {}),

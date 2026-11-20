@@ -16,7 +16,7 @@ import { AgentLaunchOptions, ThreadPrepareCommand } from "./agent-control.ts";
 import { RunTrigger } from "./thread.ts";
 import { QueueCommands, FollowUpBehavior } from "./queue.ts";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
-import { MessageContext } from "./context.ts";
+import { DeviceContextItem, MessageContext } from "./context.ts";
 import {
   AgentId,
   RunId,
@@ -134,7 +134,9 @@ export const CommandPayload = z.discriminatedUnion("type", [
     threadId: ThreadId,
     about: z.string().min(1).max(256),
     input: z.array(ContentPart).min(1).max(64),
-    to: z.array(Addressee).min(1).max(8),
+    to: z.array(Addressee).max(8),
+    /** Devices the message names, recorded for its chips; the agent gets them as context. */
+    devices: z.array(DeviceContextItem).max(8).default([]),
     share: AddressedShare,
     /** The files the message names, whose paths go in the context pack. */
     files: z.array(z.string().min(1).max(4096)).max(16).default([]),

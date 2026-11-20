@@ -442,7 +442,13 @@ function pausedTurnsOf(
         list.push(open);
       }
     }
-    if (open && item.type === "message" && item.role === "assistant" && !item.synthetic)
+    if (
+      open &&
+      item.type === "message" &&
+      item.role === "assistant" &&
+      !item.synthetic &&
+      !item.speaker
+    )
       open.last = index;
   }
   const turns = new Set<string>();
@@ -756,7 +762,9 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!replaced)
       switch (item.type) {
         case "message":
-          if (person) push({ kind: "user", key: id, itemId: id }, item.createdAt);
+          // A Spade bot's reply (ADR 0194) is its own row, never the agent's words or answer.
+          if (item.speaker) push({ kind: "item", key: id, itemId: id }, false);
+          else if (person) push({ kind: "user", key: id, itemId: id }, item.createdAt);
           else if (item.synthetic || item.role === "user") {
             // Written for the person, never by them: an event, or the turn's moment.
             const moment = momentOf(item);

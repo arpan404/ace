@@ -125,7 +125,7 @@ export class ThreadAsks {
     const message = this.ports.store.message(commandId);
     if (!message) return;
     const asks = this.ports.store.asks(commandId);
-    if (!asks.length) return;
+    if (!asks.length && !message.devices.length) return;
     this.ports.post(
       message.threadId,
       askedItemKey(commandId),

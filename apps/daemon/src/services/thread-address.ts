@@ -121,6 +121,7 @@ export function createThreadAddressSession({
           if (!thread || thread.deletedAt !== undefined || !canReadThread(p.threadId))
             return refuse(command, "thread_not_found");
           if (!engine.rootAgent(p.threadId)) return refuse(command, "thread_not_started");
+          if (!p.to.length && !p.devices.length) return refuse(command, "invalid_command");
           // A follow-up answers a bot's reply: it goes to bots and clubs only.
           if (p.followUp && p.to.some((to) => to.kind === "agent"))
             return refuse(command, "invalid_command");
@@ -153,6 +154,7 @@ export function createThreadAddressSession({
                 shares,
                 pack,
                 followUp: p.followUp === true,
+                devices: p.devices,
               },
               rows,
               at,

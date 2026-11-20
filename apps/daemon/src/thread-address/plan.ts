@@ -52,10 +52,14 @@ export function namesOf(line: Pick<AskedLine, "to">): string {
  */
 export function askedLineDraft(line: AskedLine) {
   const shares = line.shares.length ? ` · Shares: ${line.shares.join(", ")}` : "";
+  const devices = line.devices.length
+    ? `For ${line.devices.map((device) => device.name).join(" and ")}`
+    : "";
+  const asked = line.to.length ? `Asked ${namesOf(line)}${shares}` : "";
   return {
     type: "notice" as const,
     level: "info" as const,
-    text: `Asked ${namesOf(line)}${shares}`,
+    text: [asked, devices].filter(Boolean).join(" · "),
     asked: line,
     complete: true,
   };

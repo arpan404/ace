@@ -132,6 +132,7 @@ function harness(spade = new FakeSpade(), home = mkdtempSync(join(tmpdir(), "ace
             ? 'From the ace thread "Fix login".\nperson: the login page fails'
             : undefined,
         followUp: false,
+        devices: [],
       },
       rows,
       clock,

@@ -12,7 +12,7 @@ import {
   HandoffModel,
   InheritedItem,
 } from "./thread-transitions.ts";
-import { Attachment } from "./context.ts";
+import { Attachment, DeviceContextItem } from "./context.ts";
 import { AddressedShare, AddressedTo, MessageVia, Speaker } from "./addressing.ts";
 import { z } from "zod";
 import { AgentId, CommandId, InteractionId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
@@ -61,7 +61,9 @@ export type ContentPart = z.infer<typeof ContentPart>;
  */
 export const AskedLine = z.object({
   about: z.string().min(1).max(256),
-  to: z.array(AddressedTo).min(1).max(8),
+  to: z.array(AddressedTo).max(8),
+  /** Devices the message named for the work, as the person's chips show them. */
+  devices: z.array(DeviceContextItem).max(8).default([]),
   share: AddressedShare,
   /** What went with the message, in the person's words ("the title and project", "2 files"). */
   shares: z.array(z.string().min(1).max(120)).max(8).default([]),
