@@ -114,3 +114,39 @@ test("a file changed while it was closed: its code is found where it moved, or o
   await waitFor(() => expect(markers(moved)).toEqual(["1@6"]));
   await waitFor(() => expect(markers(gone)).toEqual(["2@1 outdated"]));
 });
+
+test("a comment still being written follows its code through an agent's rewrite", async () => {
+  const { editor, rerender, sent } = await openThread([{ path, text: source }]);
+  select(editor(), [3, 2], [3, 58]);
+  await userEvent.keyboard("{Meta>}{Shift>}a{/Shift}{/Meta}");
+  const popover = await screen.findByRole("dialog", { name: "New annotation" });
+  await userEvent.type(within(popover).getByRole("textbox", { name: "Comment" }), "Round it");
+
+  const header = ["// Totals for the cart.", "// Prices are in cents."];
+  rerender([{ path, text: [...header, source].join("\n") }]);
+  const still = await screen.findByRole("dialog", { name: "New annotation" });
+  expect(within(still).getByRole("textbox", { name: "Comment" })).toHaveProperty(
+    "value",
+    "Round it",
+  );
+  await userEvent.click(within(still).getByRole("textbox", { name: "Comment" }));
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(markers()).toEqual(["1@6"]));
+  const text = await send(sent);
+  expect(text).toContain(`[1] ${path}:6`);
+  expect(text).toContain("Round it");
+});
+
+test("a comment still being written on code a rewrite changed is saved outdated, not on other lines", async () => {
+  const { editor, rerender } = await openThread([{ path, text: source }]);
+  select(editor(), [3, 2], [3, 58]);
+  await userEvent.keyboard("{Meta>}{Shift>}a{/Shift}{/Meta}");
+  const popover = await screen.findByRole("dialog", { name: "New annotation" });
+  await userEvent.type(within(popover).getByRole("textbox", { name: "Comment" }), "Round it");
+
+  rerender([{ path, text: source.replace("item.price, 0)", "item.cost, 0)") }]);
+  const still = await screen.findByRole("dialog", { name: "New annotation" });
+  await userEvent.click(within(still).getByRole("textbox", { name: "Comment" }));
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(markers()).toEqual(["1@4 outdated"]));
+});

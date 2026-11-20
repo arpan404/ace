@@ -7,7 +7,15 @@ import {
   type CodeAnnotationInput,
   type CodeAnnotationMove,
 } from "@/features/annotations/index.ts";
-import { excerptOf, mapSpan, reanchor, touches, verify, type Span } from "./annotate-anchor.ts";
+import {
+  excerptOf,
+  mapSpan,
+  reanchor,
+  touches,
+  verify,
+  type Anchored,
+  type Span,
+} from "./annotate-anchor.ts";
 import { AnnotationLayer, selectedSpan, type LayerActions, type Open } from "./annotate-layer.tsx";
 import { isMacPlatform } from "./keys.ts";
 import type { EditorLayer, EditorLayerView } from "./layer.ts";
@@ -39,6 +47,14 @@ function firstToMap(view: EditorLayerView): boolean {
   mappedThrough.set(revision.document, revision.version);
   return true;
 }
+/** An open comment's code through an edit: a new comment moves with it, a menu closes. */
+function mapOpen(open: Open | undefined, map: (span: Span) => Anchored): Open | undefined {
+  if (open?.kind === "menu") return undefined;
+  if (open?.kind !== "new" || open.outdated) return open;
+  const { start, end, outdated } = map(open.span);
+  return { ...open, span: { start, end }, ...(outdated ? { outdated } : {}) };
+}
+
 /** The gutter's strip left of the line numbers where the numbered markers sit. */
 const annotationMargin = 20;
 
@@ -80,6 +96,7 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
   /** Annotations this editor has checked against the text it opened with, or made itself. */
   const checked = useRef(new Set<string>());
   const view = useRef<EditorLayerView | undefined>(undefined);
+  const opened = useRef(0);
 
   useCodeEditorPort(threadId, path, side, (id) => setOpen({ kind: "edit", id }));
 
@@ -113,7 +130,16 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
     annotate: (span, intent) => {
       // A question needs its words: Ask opens the comment with the question chosen.
       if (!intent || intent === "ask") {
-        setOpen({ kind: "new", span, comment: "", ...(intent ? { intent } : {}) });
+        const marked = view.current ? excerptOf(view.current.line, span) : { excerpt: "" };
+        opened.current += 1;
+        setOpen({
+          kind: "new",
+          span,
+          comment: "",
+          seq: opened.current,
+          marked,
+          ...(intent ? { intent } : {}),
+        });
         return;
       }
       // Fix and Explain are annotations at once, with their words filled in and open to change.
@@ -144,7 +170,10 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
           path,
           start: target.span.start,
           end: target.span.end,
-          ...excerptOf(source.line, target.span),
+          // Its code went while the comment was open: it is saved outdated where it was.
+          ...(target.outdated
+            ? { ...target.marked, outdated: true }
+            : excerptOf(source.line, target.span)),
           comment,
           ...(intent ? { intent } : {}),
           ...(side === "old" ? { side } : {}),
@@ -183,6 +212,8 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
       </ViewKeeper>
     ),
     onEdit: (replacements, current) => {
+      // The comment open in this view follows the edit, whichever view maps the stored ranges.
+      setOpen((now) => mapOpen(now, (span) => mapSpan(span, replacements)));
       if (!firstToMap(current)) return;
       const moves: CodeAnnotationMove[] = [];
       for (const each of mine()) {
@@ -197,9 +228,18 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
     },
     onReplace: (before, after) => {
       const list = mine();
-      if (!list.length) return;
+      const editing = latest.current.open;
+      if (!list.length && editing?.kind !== "new" && editing?.kind !== "menu") return;
       const old = before.split("\n");
       const now = after.split("\n");
+      setOpen((open) =>
+        mapOpen(open, (span) =>
+          open?.kind === "new"
+            ? reanchor(span, { text: open.marked.excerpt, cut: open.marked.cut }, old, now, after)
+            : { ...span, outdated: false },
+        ),
+      );
+      if (!list.length) return;
       port.moveCode(
         list.map((each) => {
           const found = reanchor(each, { text: each.excerpt, cut: each.cut }, old, now, after);
