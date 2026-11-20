@@ -63,7 +63,10 @@ fn a_write_that_reads_first_waits_for_another_connections_write_and_then_succeed
 
     // `put_model` reads that its endpoint exists, then writes the model.
     let started = Instant::now();
-    assert!(store.put_model("e_1", &model("m_1"))?, "the endpoint is there");
+    assert!(
+        store.put_model("e_1", &model("m_1"))?,
+        "the endpoint is there"
+    );
     let waited = started.elapsed();
     holder.join().map_err(|_| "the holder panicked")??;
 

@@ -1009,16 +1009,22 @@ impl Engine {
         self.forget_activity(id);
         let stored = stored?;
         if let spade_store::Delivered::Stored(events) = &stored {
-            for event in events {
-                let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
-            }
-            // The tree follows, and the worker is checked for a report (ADR 0161).
-            let written: Vec<Event> = events.iter().map(|e| e.event.clone()).collect();
-            self.workers_stored(id, &written);
-            // Events that reach the person go out as notices, with their level (ADR 0165).
-            self.notice_stored(id, events);
+            self.publish_stored(id, events);
         }
         Ok(stored)
+    }
+
+    /// Sends events just stored in conversation `id` to its subscribers, the tree and the
+    /// person's notices, in order; for a store write that appended them itself.
+    fn publish_stored(&self, id: &str, events: &[StoredEvent]) {
+        for event in events {
+            let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
+        }
+        // The tree follows, and the worker is checked for a report (ADR 0161).
+        let written: Vec<Event> = events.iter().map(|e| e.event.clone()).collect();
+        self.workers_stored(id, &written);
+        // Events that reach the person go out as notices, with their level (ADR 0165).
+        self.notice_stored(id, events);
     }
 
     /// Records `cost` micros spent on `model` in conversation `id` for `role` (ADR 0162); with
