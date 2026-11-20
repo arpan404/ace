@@ -13,12 +13,14 @@
 //! The folder is the bench's only when it carries the ownership marker the bench created
 //! exclusively: a regular file, never a link, holding exactly the bench's text. A non-empty folder
 //! without it is refused, a run holds an exclusive lock on it, and regenerating removes only the
-//! entries the generator writes, so anything else in the folder survives.
+//! files the last generation listed in its manifest, so a file a person added survives.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+use crate::search_manifest;
 
 /// Created exclusively before any file is written; the only thing that lets a run empty the folder.
 const OWNER: &str = ".ace-search-bench-owned";
@@ -28,17 +30,6 @@ const MARKER: &str = ".ace-search-bench-tree";
 const LOCK: &str = ".ace-search-bench-lock";
 /// What the ownership marker holds. A marker with anything else in it is not ours.
 const OWNER_TEXT: &str = "ace-files search bench folder\n";
-/// Every top-level entry the generator writes; regenerating removes these and nothing else.
-const GENERATED: [&str; 8] = [
-    ".gitignore",
-    ".git",
-    "node_modules",
-    "assets",
-    "dist",
-    "web",
-    "src",
-    MARKER,
-];
 /// Bumped whenever the generator changes, so an old tree is not reused.
 const VERSION: u32 = 1;
 /// Files per leaf folder.
@@ -97,7 +88,7 @@ pub fn ensure(
         });
     }
     if owned {
-        remove_generated(dir)?;
+        search_manifest::remove_recorded(dir)?;
     } else {
         use std::io::Write as _;
         fs::OpenOptions::new()
@@ -142,21 +133,6 @@ fn owned(dir: &Path) -> Result<bool, Box<dyn std::error::Error>> {
     .into())
 }
 
-/// Removes what [`generate`] wrote, and only that. A link in one of those places is removed as a
-/// link, never followed.
-fn remove_generated(dir: &Path) -> io::Result<()> {
-    for name in GENERATED {
-        let path = dir.join(name);
-        match fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.file_type().is_dir() => fs::remove_dir_all(&path)?,
-            Ok(_) => fs::remove_file(&path)?,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(())
-}
-
 fn marker_text(files: usize) -> String {
     format!("version={VERSION}\nfiles={files}\n")
 }
@@ -184,6 +160,9 @@ fn lock(dir: &Path) -> Result<fs::File, Box<dyn std::error::Error>> {
 
 /// Writes every file on [`WRITERS`] threads and returns the bytes written.
 fn generate(dir: &Path, files: usize) -> io::Result<u64> {
+    let mut paths: Vec<String> = CONTROL.iter().map(|path| (*path).to_owned()).collect();
+    paths.extend((0..files).map(file_path));
+    search_manifest::record(dir, &paths)?;
     fs::write(
         dir.join(".gitignore"),
         "node_modules/\ndist/\n*.log\n.ace-search-bench-*\n",
@@ -215,6 +194,28 @@ fn generate(dir: &Path, files: usize) -> io::Result<u64> {
     results.into_iter().sum()
 }
 
+/// The files besides the numbered ones that make the tree a checkout, and its completion marker.
+const CONTROL: [&str; 4] = [".gitignore", ".git/HEAD", ".git/info/exclude", MARKER];
+
+/// Where file number `number` lives, relative to the tree.
+fn file_path(number: usize) -> String {
+    let (kind, index) = kind(number);
+    let folder = index / PER_FOLDER;
+    match kind {
+        Kind::Node => format!("node_modules/pkg_{folder}/lib/f_{index}.js"),
+        Kind::Binary => format!("assets/b{folder:03}/blob_{index}.bin"),
+        Kind::Dist => format!("dist/d{folder:03}/out_{index}.js"),
+        Kind::Minified => format!("web/min/m{folder:03}/bundle_{index}.min.js"),
+        Kind::Source => format!(
+            "src/c{:02}/m{}/g{:03}/file_{index}.{}",
+            folder % 64,
+            (folder / 64) % 8,
+            folder / 512,
+            ["rs", "ts", "py", "go", "md"][index % 5]
+        ),
+    }
+}
+
 /// What kind of file number `number` is, and its position among files of that kind.
 fn kind(number: usize) -> (Kind, usize) {
     let block = number / 1000;
@@ -240,39 +241,27 @@ enum Kind {
 
 fn write_file(dir: &Path, number: usize) -> io::Result<u64> {
     let (kind, index) = kind(number);
-    let folder = index / PER_FOLDER;
     let mut rng = Rng::new(number as u64);
-    let (path, bytes) = match kind {
-        Kind::Node => (format!("node_modules/pkg_{folder}/lib/f_{index}.js"), {
+    let bytes = match kind {
+        Kind::Node => {
             let size = 200 + rng_below(&mut rng, 3000);
             text(&mut rng, size, false)
-        }),
-        Kind::Binary => (
-            format!("assets/b{:03}/blob_{index}.bin", folder),
-            binary(&mut rng),
-        ),
-        Kind::Dist => (format!("dist/d{folder:03}/out_{index}.js"), {
+        }
+        Kind::Binary => binary(&mut rng),
+        Kind::Dist => {
             let size = 1000 + rng_below(&mut rng, 8000);
             text(&mut rng, size, false)
-        }),
-        Kind::Minified => (format!("web/min/m{folder:03}/bundle_{index}.min.js"), {
+        }
+        Kind::Minified => {
             let size = 50_000 + rng_below(&mut rng, 150_000);
             minified(&mut rng, size)
-        }),
+        }
         Kind::Source => {
-            let extension = ["rs", "ts", "py", "go", "md"][index % 5];
-            let path = format!(
-                "src/c{:02}/m{}/g{:03}/file_{index}.{extension}",
-                folder % 64,
-                (folder / 64) % 8,
-                folder / 512
-            );
             let size = source_size(&mut rng);
-            let rare = index % 19_997 == 11;
-            (path, text(&mut rng, size, rare))
+            text(&mut rng, size, index % 19_997 == 11)
         }
     };
-    let path = dir.join(path);
+    let path = dir.join(file_path(number));
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }

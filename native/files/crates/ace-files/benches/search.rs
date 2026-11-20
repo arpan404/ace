@@ -13,6 +13,8 @@
 //! of each tool, alternating, and runs them one at a time. The table also goes to
 //! `target/bench/search.md`.
 
+#[path = "support/search_manifest.rs"]
+mod search_manifest;
 #[path = "support/search_runs.rs"]
 mod search_runs;
 #[path = "support/search_tree.rs"]
