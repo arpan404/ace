@@ -55,9 +55,10 @@ import XCTest
         confirm.tap()
         let deleted = [["kind": "delete"]]
         let afterDelete = try await accountRequests(settling: deleted)
-        XCTAssertEqual(afterDelete, deleted, "Delete sends one request")
         let said = app.alerts["Account deleted"].waitForExistence(timeout: 10)
         screenshot("profile-deleted")
+        if afterDelete != deleted { keep(app.debugDescription, as: "profile-after-confirm") }
+        XCTAssertEqual(afterDelete, deleted, "Delete sends one request")
         XCTAssertTrue(said, "Profile says the account is gone")
         app.alerts.buttons["OK"].tap()
         let signIn = app.buttons["account.signIn"]
@@ -207,11 +208,16 @@ import XCTest
 
     /// No address could be read: keeps Safari's element tree with the result, to see why.
     private func unread(_ safari: XCUIApplication) -> String? {
-        let tree = XCTAttachment(string: safari.debugDescription)
-        tree.name = "safari-tree"
-        tree.lifetime = .keepAlways
-        add(tree)
+        keep(safari.debugDescription, as: "safari-tree")
         return nil
+    }
+
+    /// Keeps `text` (an element tree) with the result, to see why a step failed.
+    private func keep(_ text: String, as name: String) {
+        let attachment = XCTAttachment(string: text)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func launch(_ extra: [String] = []) -> XCUIApplication {
