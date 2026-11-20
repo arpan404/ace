@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { antigravityQuirks } from "@ace/adapter-acp";
+import { antigravityQuirks, genericQuirks } from "@ace/adapter-acp";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { ModelCatalog } from "@ace/models";
 import type { NativePermissionMode } from "@ace/protocol";
@@ -121,6 +121,80 @@ test("a session that refuses its access mode never shows that mode as applied", 
     if (!created.ok || !created.threadId) throw new Error(created.error);
     await h.engine.flush();
     expect(h.store.getThread(created.threadId)?.permission?.effective).toBeNull();
+  } finally {
+    await h.close();
+  }
+});
+
+test("Full access chosen while an ACP turn runs reaches the agent in that turn", async () => {
+  const frames = scriptFrames();
+  const base = genericQuirks.capabilities();
+  const permissionModes = [mode("plan"), mode("yolo")];
+  const h = await harness([{ on: "send", frames: [frames.frame(start)] }], frames, {
+    provider: "acp",
+    capabilities: {
+      ...base,
+      permissionModes,
+      accessModes: [
+        { mode: "read-only", native: "plan" },
+        { mode: "full-access", native: "yolo" },
+      ],
+      permissions: {
+        modes: ["plan", "yolo"],
+        permissionModes,
+        nativeAutoReview: false,
+        toolGate: true,
+      },
+    },
+  });
+  const original = h.registry.get("acp").adapter;
+  const selected: string[] = [];
+  h.registry.register(
+    {
+      ...original,
+      acceptsIdentity: () => true,
+      async openSession(context) {
+        const session = await original.openSession(context);
+        return Object.assign(session, {
+          async setMode(native: string) {
+            selected.push(native);
+          },
+        });
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  try {
+    const created = h.command({
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "acp",
+      acpAgentId: "test-agent",
+      installationId: "test-install",
+      instanceId: "test-instance",
+      access: "read-only",
+      input: [{ type: "text", text: "work" }],
+    });
+    if (!created.ok || !created.threadId) throw new Error(created.error);
+    await h.engine.flush();
+    expect(h.contexts.at(-1)?.permissionMode).toBe("plan");
+    expect(h.store.getThread(created.threadId)?.status?.state).toBe("working");
+    expect(
+      h.command({
+        type: "thread.permission.set",
+        threadId: created.threadId,
+        access: "full-access",
+      }).ok,
+    ).toBe(true);
+    await expect.poll(() => selected).toEqual(["yolo"]);
+    await h.engine.flush();
+    expect(h.store.getThread(created.threadId)?.permission).toMatchObject({
+      override: "full-access",
+      effective: "full-access",
+      pending: false,
+    });
+    expect(h.store.getThread(created.threadId)?.status?.state).toBe("working");
+    expect(h.contexts).toHaveLength(1);
   } finally {
     await h.close();
   }

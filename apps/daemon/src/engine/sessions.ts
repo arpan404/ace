@@ -127,6 +127,47 @@ export class Sessions {
     const at = this.dependencies.clock.now();
     actor.apply([refusedOptionsNotice({ agent, at, dropped })]);
   }
+  /**
+   * A new access choice reaches a live session that changes its mode in place, after the
+   * command's transaction commits. One that can't stays pending for the next session open.
+   */
+  accessChanged(actor: ThreadActor | undefined, report: (error: unknown) => void): void {
+    if (!actor?.session) return;
+    queueMicrotask(() => {
+      if (actor.session && !this.dependencies.closing())
+        void this.changeLiveAccess(actor).catch(report);
+    });
+  }
+  /**
+   * Puts the thread's access into its live ACP session now, a running turn included: ACP takes
+   * a mode change at any time. Only an ace mode with a native mode applies this way; anything else
+   * stays pending and lands when the next session opens.
+   */
+  async changeLiveAccess(actor: ThreadActor): Promise<void> {
+    const session = actor.session;
+    const provider = this.dependencies.repo.requireState(actor.id).config.provider;
+    if (!session?.setMode || (provider !== "acp" && provider !== "antigravity")) return;
+    const permissions = this.dependencies.repo.permissions;
+    const { capabilities } = this.dependencies.registry.get(
+      provider,
+      this.dependencies.repo.backend(actor.id),
+    );
+    const generation = actor.generation;
+    const { selection, native } = await permissions.resolve(
+      actor.id,
+      this.dependencies.permissionSettings,
+      this.accessCapabilities(actor.id, provider, capabilities),
+    );
+    if (!native || customNative(selection) || selection === permissions.effective(actor.id)) return;
+    if (actor.session !== session || actor.generation !== generation) return;
+    await session.setMode(native);
+    if (actor.session !== session || actor.generation !== generation) return;
+    const agent = this.dependencies.repo.requireState(actor.id).rootKey ?? "root";
+    actor.enqueue(() => {
+      if (actor.session === session && actor.generation === generation)
+        this.settleAccess(actor, selection, agent);
+    });
+  }
   /** Records what the open session runs, and says so when that isn't the thread's choice. */
   private settleAccess(actor: ThreadActor, access: string | null, agent: string): void {
     const permissions = this.dependencies.repo.permissions;
