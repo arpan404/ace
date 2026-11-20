@@ -1,4 +1,4 @@
-import type { EditorDocument, LineChange, MergeChunk, MergeResult } from "@ace/editor";
+import type { Applied, EditorDocument, LineChange, MergeChunk, MergeResult } from "@ace/editor";
 import type { MigratedDraft } from "@ace/ui-core/editor-workbench";
 import type { Author } from "./attribution.ts";
 
@@ -127,11 +127,26 @@ export type SaveOutcome =
   | { kind: "unavailable" }
   | { kind: "failed"; message: string };
 
+/** A mounted view's edit path: runs `run` on the document the way the view's own edits run. */
+export type DocumentEdit = (run: (doc: EditorDocument) => Applied | undefined) => boolean;
+
+/**
+ * What a `CodeEditor` takes to show a shared document: the document, and `attach`, through which
+ * the mounted view lends its edit path so text the registry lands (a reload, a merge) updates its
+ * layout, colours and carets like the person's own edits. Stable for one document.
+ */
+export interface BufferView {
+  doc: EditorDocument;
+  attach(edit: DocumentEdit): () => void;
+}
+
 /** One shared buffer. Views and tabs hold it through a lease. */
 export interface TextBuffer {
   readonly key: BufferKey;
   /** The Wasm document every view of this file shares; undefined unless status is ready. */
   document(): EditorDocument | undefined;
+  /** The document for a view to show; undefined unless status is ready. Same object per document. */
+  view(): BufferView | undefined;
   snapshot(): BufferSnapshot;
   subscribe(listener: (event: BufferEvent) => void): () => void;
   /** A view applied an edit to the document. Cheap: no text is read until typing pauses. */

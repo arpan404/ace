@@ -1,5 +1,5 @@
 import type { Change, EditorDocument, LineChange, MergeChunk } from "@ace/editor";
-import type { Answer } from "./types.ts";
+import type { Answer, DocumentEdit } from "./types.ts";
 
 /*
  * Pure helpers for landing text the registry produced (a reload, a merge) in a document, and
@@ -26,10 +26,15 @@ export function conflictCount(chunks: readonly MergeChunk[]): number {
 }
 
 /**
- * Applies whole-line changes (from `lineChanges` on the document's own text) as one transaction
- * and one undo step. Carets outside the changed blocks keep their place on their text.
+ * Lands whole-line changes (from `lineChanges` on the document's own text) as one transaction and
+ * one undo step, through a mounted view's edit path when there is one. Carets outside the changed
+ * blocks keep their place on their text.
  */
-export function applyLineChanges(doc: EditorDocument, changes: readonly LineChange[]): void {
+export function landLineChanges(
+  doc: EditorDocument,
+  changes: readonly LineChange[],
+  through: DocumentEdit | undefined,
+): void {
   if (changes.length === 0) return;
   const lines = doc.lenLines();
   const last = lines - 1;
@@ -40,7 +45,8 @@ export function applyLineChanges(doc: EditorDocument, changes: readonly LineChan
     text: change.text,
   }));
   doc.commit();
-  doc.apply(transaction);
+  // A read-only view refuses edits; the document still takes them.
+  if (!through?.((target) => target.apply(transaction))) doc.apply(transaction);
   doc.commit();
 }
 
