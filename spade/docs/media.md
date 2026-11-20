@@ -162,7 +162,23 @@ A voice message is a message with `voice`: its audio is stored by hash in `<data
 transcript is the message's text. The model reads `[Spoken; transcribed]` before the words.
 `GET /v1/audio/{sha256}` answers the audio.
 
-Reading replies aloud is the app's own (`speechSynthesis`); the server takes no part.
+### Speech
+
+Replies are read aloud by the app: with the system's own voices (`speechSynthesis`), where the
+server takes no part, or with the person's speech model through `POST /v1/speech`
+`{ "text": "…", "voice": "alloy", "instructions": "…" }` (ADR 0134, amended). The server sends
+`{ model, input, voice, response_format: "mp3", instructions? }` as JSON to
+`POST {base}/audio/speech` of the endpoint in the `speech_model` setting, with its key, and
+streams the endpoint's audio back as it arrives (`Content-Type` from the endpoint, `audio/mpeg`
+when it sends none; at most 16 MB). `voice` defaults to `alloy` and must be a short plain name;
+`text` is 1 to 4,096 characters. `409` when no speech model is set, `400` for empty or long
+words or an odd voice, `502` with one line when the endpoint refuses before any audio. Each call
+is recorded at the model's `per_call` price. The setting is `PUT /v1/settings
+{ "speech_model": "openai/tts-1" }` (`null` clears it; a subscription model is refused) and is
+listed as `speech_model` in `GET /v1/models`. Models gain the `speech` capability.
+
+The app splits a reply into sentences as it streams and asks for the first one alone, then
+small groups, one group ahead of the one playing, so speech starts with the first sentence.
 
 ## API
 
@@ -202,9 +218,10 @@ carries what a tool showed the person.
 | `GET /v1/documents/{sha256}/text?offset=&limit=` | `{ text, total_chars, next_offset }` of the extracted text               |
 | `GET /v1/audio/{sha256}`                         | The recording, with its media type                                       |
 | `POST /v1/transcriptions`                        | `{ text }` (above)                                                       |
+| `POST /v1/speech`                                | The words' audio, streamed (above)                                       |
 
-Model facts gain four capabilities, settable on any saved model like the others: `pdf-input`,
-`image-generation`, `image-output`, `transcription`. A price may give `per_call` (US dollars per
+Model facts gain five capabilities, settable on any saved model like the others: `pdf-input`,
+`image-generation`, `image-output`, `transcription`, `speech`. A price may give `per_call` (US dollars per
 image or transcription call) beside its token prices.
 
 ## Tests
@@ -216,6 +233,7 @@ marked; the child process answers like in-process extraction and a hung child is
 `spade-server` (fake endpoints): an attachment is stored once however often it is sent, saved in
 the workspace, shown as a view and read by window; a turn with a document is untrusted;
 `image_generate` exists only with a capable model, stores by hash and records a `shared` event;
-`share_file` shows a workspace chart; a transcript reaches the bot and the audio is stored.
+`share_file` shows a workspace chart; a transcript reaches the bot and the audio is stored;
+`POST /v1/speech` passes a fake endpoint's audio on before the endpoint has finished.
 Web: attaching a document sends it, chips and bot images render, the mic is hidden without a way
 to transcribe, and Read aloud speaks the reply.

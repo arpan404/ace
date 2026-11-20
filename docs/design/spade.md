@@ -21,7 +21,8 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Profile** (ace's side panel). One place per bot: Details, Library, Computer. The person keeps
   talking while they change the bot, and watches its computer beside the chat. Below 680px the
   profile takes the window; on iPhone it is a sheet.
-- **Settings › Spade.** General (run, model for new bots, fast, review, transcription, voice,
+- **Settings › Spade.** General (run, model for new bots, fast, review, transcription, speech,
+  Speak replies and voice,
   spending), Models, Web search, Apps.
 
 ## 2. List
@@ -100,15 +101,19 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Composer.** The capsule: + on the left, the field, then the trailing slot. Empty, a mic for
   dictation and a filled round voice button (the accent, 40px); typed, the filled button is Send;
   while the bot works, Stop. Waiting on the person is not working, so a card shows Send. Spade
-  off is said once, above the composer. Voice mode comes later: until it ships, the voice button
-  is drawn but off.
+  off is said once, above the composer. The voice button starts a hands-free conversation
+  (ADR 0134, amended): while it lasts, one quiet line above the composer says where it is in
+  words (Listening, Hearing you, Turning it into words, "Flights is thinking", "Flights is
+  speaking · Esc to stop") with End; nothing is tinted. With no way to turn speech into words
+  yet, the mic or the voice button first shows a strip with one button per endpoint that can.
 
 ## 4. Profile
 
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
   22/28 at 600 ("Full access" under it, quiet, while the bot is in it), then Details · Library ·
   Computer as a segmented control in the body.
-- **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps, security
+- **Details:** task, model (one picker, grouped by endpoint), machine, voice (Speak replies and
+  the bot's voice, kept on this device), routines, apps, security
   (first "How it decides": Auto-review or Full access, with one sentence under Full access saying
   what still asks; turning it on asks first in a dialog, words only, the first time for that bot),
   spending, then Duplicate and Delete. The machine row carries Move to…, a menu of the other
