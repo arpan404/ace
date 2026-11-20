@@ -34,10 +34,14 @@ export class AcpConfiguration {
     this.capabilities = this.negotiated.capabilities;
     return this.negotiated;
   }
+  /** The profile negotiation kept: the launch's, unless the agent is another version now. */
+  get #profile() {
+    return this.negotiated ? this.negotiated.profile : this.#launch.profile;
+  }
   setup(raw: unknown, mcp: AcpSessionSupport["mcp"]): void {
     this.selectors = sessionSelectors(
       this.#redact(raw),
-      this.#launch.profile,
+      this.#profile,
       this.#quirks.provider !== "acp",
     );
     this.publish(mcp);
@@ -49,7 +53,7 @@ export class AcpConfiguration {
     try {
       this.selectors = sessionSelectors(
         replacement,
-        this.#launch.profile,
+        this.#profile,
         this.#quirks.provider !== "acp",
       );
     } catch {
@@ -80,13 +84,13 @@ export class AcpConfiguration {
     if (!this.negotiated) return;
     const permissionModes = acpPermissionModes(this.selectors.raw, {
       provider: this.#quirks.provider,
-      profile: this.#launch.profile?.id,
+      profile: this.#profile?.id,
     });
     this.capabilities = {
       ...this.negotiated.capabilities,
       permissionModes,
       accessModes: accessModeOffers(
-        { provider: this.#quirks.provider, profile: this.#launch.profile?.id },
+        { provider: this.#quirks.provider, profile: this.#profile?.id },
         (native) => permissionModes.some((mode) => mode.id === native),
       ),
       permissions: {
@@ -101,11 +105,7 @@ export class AcpConfiguration {
       { ...this.negotiated, raw: this.#redact(this.negotiated.raw) },
       this.selectors,
       mcp,
-      this.#launch.profile
-        ? "source_profile"
-        : this.#quirks.provider === "acp"
-          ? "generic"
-          : "legacy",
+      this.#profile ? "source_profile" : this.#quirks.provider === "acp" ? "generic" : "legacy",
     );
     this.#ctx.onCapabilities?.(this.capabilities, this.support);
   }

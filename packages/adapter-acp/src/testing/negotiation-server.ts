@@ -16,6 +16,8 @@ const config = z
     requireSignIn: z.boolean().default(false),
     // Like Antigravity's ACP server: takes text appended to its system prompt.
     systemPrompt: z.boolean().default(false),
+    // An agent that updated itself since it was approved: it reports another version.
+    updated: z.boolean().default(false),
   })
   .parse(JSON.parse(process.env.ACE_SYNTHETIC_ACP ?? "{}"));
 const Envelope = z
@@ -77,6 +79,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   } else if (message.method === "initialize")
     result({
       protocolVersion: 1,
+      // An agent that updated itself since it was approved.
+      ...(config.updated ? { agentInfo: { name: "synthetic", version: "9.9.9" } } : {}),
       ...(config.airSubagents
         ? {
             _meta: { jetbrains: { air: { version: 1, capabilities: ["nativeSubagentSessions"] } } },

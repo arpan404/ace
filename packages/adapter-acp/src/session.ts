@@ -314,6 +314,12 @@ class AcpSession implements ProviderSession {
       ),
     );
     const negotiated = this.configuration.initialize(result);
+    if (negotiated.versionChanged)
+      this.frame("note", "diagnostic", {
+        event: "acp-version-changed",
+        ...negotiated.versionChanged,
+        runsAs: "generic",
+      });
     const injected = this.ctx.mcp
       ? negotiated.httpMcp
         ? [...this.ctx.mcp.httpServers]

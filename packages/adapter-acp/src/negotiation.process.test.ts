@@ -37,12 +37,29 @@ async function open(
       command: process.execPath,
       args: [server],
       env: { ACE_SYNTHETIC_ACP: JSON.stringify(config) },
-      ...(profile ? { profile } : {}),
+      ...(profile ? { profile, version: profile.version } : {}),
       ...(signInMethod ? { signInMethod } : {}),
     },
   );
   return { session, frames, exited: exited.promise, seen: seen.promise };
 }
+test("an agent that updated itself since approval still opens, as generic ACP, and says so", async () => {
+  const h = await open({ legacy: true, updated: true }, { model: "model-a" }, "gemini", "0.43.0");
+  try {
+    expect(h.session.acpSupport?.coverage).toBe("generic");
+    expect(
+      h.frames.some(
+        (frame) =>
+          frame.dir === "note" &&
+          z.object({ event: z.literal("acp-version-changed") }).safeParse(frame.data).success,
+      ),
+    ).toBe(true);
+    // Gemini's legacy model setter is the profile's; generic ACP doesn't use it.
+    expect(h.session.refusedOptions).toEqual(["model"]);
+  } finally {
+    await h.session.close("user");
+  }
+});
 test("load is negotiated before sending any resume request and legacy model selection follows the profile", async () => {
   const resume = { nativeSessionId: "synthetic-session" };
   await expect(

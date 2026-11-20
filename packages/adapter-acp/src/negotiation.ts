@@ -35,6 +35,10 @@ export type Negotiated = {
   httpMcp: boolean;
   sseMcp: boolean;
   subagentSessions: boolean;
+  /** The profile the session runs under: none when the agent isn't the version it covers. */
+  profile: CompatibilityProfile | undefined;
+  /** The agent reported another version than the approved one; it runs as generic ACP. */
+  versionChanged?: { approved: string; reported: string };
   raw: unknown;
 };
 export function negotiate(
@@ -46,19 +50,23 @@ export function negotiate(
   const response = Initialize.parse(raw);
   if (quirks.provider === "antigravity" && response.agentInfo?.name !== "antigravity-acp")
     throw new Error("Unexpected Antigravity ACP identity");
-  if (
-    quirks.provider === "acp" &&
-    version &&
-    response.agentInfo?.version &&
-    response.agentInfo.version !== version
-  )
-    throw new Error("ACP version changed; review a new installation plan");
+  // An agent that updated itself is no longer what its profile was checked against: it runs
+  // as generic ACP (standard negotiation only) rather than failing every thread on it. The
+  // approved executable itself is still checked before launch (ADR 0044).
+  const reported = response.agentInfo?.version;
+  const versionChanged =
+    quirks.provider === "acp" && version && reported && reported !== version
+      ? { approved: version, reported }
+      : undefined;
+  if (versionChanged) profile = undefined;
   const advertised = response.agentCapabilities;
-  const existing = quirks.capabilities(version ?? response.agentInfo?.version);
+  const existing = quirks.capabilities(versionChanged ? reported : (version ?? reported));
   const generic = quirks.provider === "acp";
   const subagentSessions = bridgeSubagents(raw, profile);
   return {
     raw,
+    profile,
+    ...(versionChanged ? { versionChanged } : {}),
     subagentSessions,
     systemPromptAppend: advertisesSystemPromptAppend(raw),
     httpMcp: !profile?.denyHttpMcp && advertised.mcpCapabilities?.http === true,
