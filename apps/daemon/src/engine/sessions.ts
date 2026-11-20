@@ -19,6 +19,7 @@ import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
 import { nativeFor } from "./permissions.ts";
 import { customNative } from "./permission-ceiling.ts";
+import { unhonouredAccessNotice } from "./access-notice.ts";
 import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
@@ -78,6 +79,35 @@ export class Sessions {
   private closing = new Set<ThreadId>();
 
   private turnPermissions = new Map<ThreadId, number>();
+  /**
+   * The modes a thread's next session is resolved against: the catalog's for its instance, else
+   * what its own last session on that instance reported, else the adapter's. An instance whose
+   * catalog knows no modes yet is unknown, never one that offers nothing.
+   */
+  private accessCapabilities(
+    id: ThreadId,
+    provider: import("@ace/protocol").ProviderKind,
+    base: import("@ace/protocol").Capabilities,
+  ): import("@ace/protocol").Capabilities {
+    const repo = this.dependencies.repo;
+    const recorded = repo.session(id).instanceId;
+    const instance = repo.transitions.get(id).selection?.instanceId ?? recorded;
+    const known = this.dependencies.models.knownPermissionCapabilities(provider, instance, base);
+    if (known) return known;
+    const thread = repo.store.getThread(id);
+    return thread?.provider === provider && instance === recorded && thread.effectiveCapabilities
+      ? thread.effectiveCapabilities
+      : base;
+  }
+  /** Records what the open session runs, and says so when that isn't the thread's choice. */
+  private settleAccess(actor: ThreadActor, access: string | null, agent: string): void {
+    const permissions = this.dependencies.repo.permissions;
+    const at = this.dependencies.clock.now();
+    permissions.applied(actor.id, access, at);
+    const requested = permissions.unhonoured(actor.id, access, at);
+    if (requested)
+      actor.apply([unhonouredAccessNotice({ agent, at, requested, selection: access })]);
+  }
   isClosing(id: ThreadId): boolean {
     return this.closing.has(id);
   }
@@ -107,10 +137,9 @@ export class Sessions {
       stateBefore.config.provider,
       this.dependencies.repo.backend(actor.id),
     );
-    const nativeCapabilities = this.dependencies.models.permissionCapabilities(
+    const nativeCapabilities = this.accessCapabilities(
+      actor.id,
       stateBefore.config.provider,
-      this.dependencies.repo.transitions.get(actor.id).selection?.instanceId ??
-        this.dependencies.repo.session(actor.id).instanceId,
       entry.capabilities,
     );
     const permissions = this.dependencies.repo.permissions;
@@ -137,11 +166,9 @@ export class Sessions {
       await this.close(actor, "idle");
     if (actor.session) {
       await this.assertWorkspaceAvailable(this.dependencies.repo.session(actor.id).cwd, actor.id);
-      permissions.applied(actor.id, access, this.dependencies.clock.now());
+      this.settleAccess(actor, access, stateBefore.rootKey ?? "root");
       return;
     }
-    if (stateBefore.config.provider !== "codex")
-      permissions.applied(actor.id, access, this.dependencies.clock.now());
     this.dependencies.repo.beginSessionOpen(actor.id);
     const lifetime = new AbortController();
     actor.lifetime = lifetime;
@@ -455,8 +482,9 @@ export class Sessions {
         throw new SessionFenced();
       }
       actor.session = session;
-      if (state.config.provider === "codex" && this.turnPermissions.get(actor.id) !== generation)
-        this.dependencies.repo.permissions.applied(actor.id, access, this.dependencies.clock.now());
+      // Applied once the provider took it: a session that refused its mode never shows it.
+      if (state.config.provider !== "codex" || this.turnPermissions.get(actor.id) !== generation)
+        this.settleAccess(actor, access, rootKey);
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.store.atomic(() => {
         // Account/backend selection is durable even before the native ID is confirmed.
