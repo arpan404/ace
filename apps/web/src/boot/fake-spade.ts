@@ -68,6 +68,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     },
   ];
   here.liveModels.set("openrouter", [
+    // A model that turns speech into words, for the mic's one-click setup (ADR 0134, amended).
+    { id: "openai/whisper-1", name: "Whisper" },
     {
       id: "anthropic/claude-sonnet-5.5",
       name: "Claude Sonnet 5.5",

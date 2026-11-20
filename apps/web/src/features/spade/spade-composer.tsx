@@ -176,7 +176,6 @@ export function SpadeComposer(props: {
             {`Esc again to stop ${props.name}`}
           </p>
         )}
-        {!armed && <TalkLine name={props.name} talk={talk} push={talk.pushing} />}
         {!armed && !props.blocked && props.needsModel && (
           <p className="mb-2 flex flex-wrap items-center justify-center gap-x-1 px-1 text-ui text-muted-foreground">
             <span id={reason}>{held}</span>
@@ -244,6 +243,7 @@ export function SpadeComposer(props: {
               )}
               {props.attached}
               <VoiceStrip voice={voice} />
+              <TalkLine name={props.name} talk={talk} push={talk.pushing} />
             </>
           }
           onSubmit={submit}

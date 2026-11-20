@@ -274,8 +274,8 @@ export function VoiceButton(props: { name: string; talk: TalkMode; voice: SpadeV
 const filled = `${round} bg-tint text-tint-foreground hover:bg-tint hover:text-tint-foreground`;
 
 /**
- * The one quiet line above the composer while a spoken conversation lasts: where it is, in
- * words, and End. Nothing tinted: the words say it.
+ * The one quiet line above the field while a spoken conversation lasts, in the composer's strip
+ * like Recording: where it is, in words, and End. Nothing tinted: the words say it.
  */
 export function TalkLine(props: { name: string; talk: TalkMode; push: boolean }) {
   const line = talkLine(props.talk.state, props.name);
@@ -287,15 +287,17 @@ export function TalkLine(props: { name: string; talk: TalkMode; push: boolean })
         ? " · it sends when you stop talking"
         : "";
   return (
-    <p
-      role="status"
-      aria-live="polite"
-      className="mb-2 flex flex-wrap items-center justify-center gap-x-1 px-1 text-ui text-muted-foreground"
-    >
-      <span>{`${line}${stop}`}</span>
-      <Button size="xs" variant="ghost" onClick={props.talk.end}>
-        End
-      </Button>
-    </p>
+    <StripSurface slot="talk" variant={props.talk.state.kind}>
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs"
+      >
+        <span className="min-w-0 flex-1 truncate text-foreground">{`${line}${stop}`}</span>
+        <Button size="xs" variant="ghost" onClick={props.talk.end}>
+          End
+        </Button>
+      </div>
+    </StripSurface>
   );
 }
