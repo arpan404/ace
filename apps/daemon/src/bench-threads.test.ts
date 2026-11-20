@@ -33,17 +33,20 @@ test("a sampled Bun daemon's threads split into the runtime's, its JS workers an
   });
 });
 
-test("Linux's 15-character thread names classify as the full names do", () => {
+test("a Bun daemon's threads on Linux classify as the macOS names do", () => {
+  // As /proc/<pid>/task/*/comm lists them for Bun 1.4 on Linux.
   expect(
     classifyThreads([
-      "bun",
+      "bun.exe",
       "Bun Pool 12",
-      "Heap Helper Thr",
-      "JIT Worklist He",
-      "JSC Heap Collec",
+      "HeapHelper",
+      "JITWorker",
+      "ollector Thread",
+      "JSCWarmUp",
+      "mi-scavenger",
       "Worker",
     ]),
-  ).toEqual({ total: 6, runtime: 4, workers: 1, own: 1 });
+  ).toEqual({ total: 8, runtime: 6, workers: 1, own: 1 });
 });
 
 const limits: ThreadLimits = {

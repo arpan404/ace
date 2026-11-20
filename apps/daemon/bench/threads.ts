@@ -20,12 +20,18 @@ export interface ThreadCensus {
   own: number;
 }
 
-/** Bun's runtime threads, by name. Linux keeps 15 characters of a name, so only prefixes. */
+/**
+ * Bun's runtime threads, by name. JavaScriptCore names some differently on Linux
+ * (`HeapHelper`, `JITWorker`) and keeps the last 15 characters of a longer name there, so
+ * "JSC Heap Collector Thread" reads "ollector Thread".
+ */
 const runtimeNames = [
   /^Bun Pool/,
-  /^Heap Helper/,
+  /^Heap ?Helper/,
   /^JIT Worklist/,
+  /^JITWorker/,
   /^JSC /,
+  /ollector Thread$/,
   /^JSCWarmUp/,
   /^mi-scavenger/,
 ];
