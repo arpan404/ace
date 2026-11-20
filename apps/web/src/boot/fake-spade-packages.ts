@@ -58,6 +58,19 @@ export function seedFakePackages(here: FakeSpadeApi, now: number): void {
           on: false,
         },
       ],
+      // What the person's other bots may ask it (ADR 0200 §7); Trip planner does.
+      contracts: [
+        {
+          name: "cheapest_fare",
+          summary: "The cheapest fare seen for a route this week.",
+          effects: ["network"],
+        },
+        {
+          name: "watched_trips",
+          summary: "The trips it watches, with the most you'd pay for each.",
+          effects: [],
+        },
+      ],
     },
   });
   // A development bot (ADR 0200 §9): linked to a package folder `ace bot dev` keeps it updated from.
