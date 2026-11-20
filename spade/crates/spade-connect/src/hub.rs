@@ -639,12 +639,17 @@ impl Connectors {
         if let Some(facts) = stored.filter(|f| f.registered_redirect.is_none()) {
             return Ok((reused(keys, &target.id, facts).await?, own));
         }
-        // The document lists only the shared loopback address, any port.
+        // The document lists only the shared callback on `localhost`, any port: some servers
+        // refuse an IP address in a document's redirects but allow `localhost` (ADR 0136
+        // amendment 1). Spade listens on 127.0.0.1, which the browser reaches as `localhost`.
         if let Some(document) = document
             && oauth::cimd::usable(server)
-            && callback.starts_with("http://127.0.0.1:")
+            && let Some(port_and_path) = callback.strip_prefix("http://127.0.0.1:")
         {
-            return Ok((oauth::cimd::client(document), callback.to_owned()));
+            return Ok((
+                oauth::cimd::client(document),
+                format!("http://localhost:{port_and_path}"),
+            ));
         }
         if let Some(facts) = stored.filter(|f| f.registered_redirect.as_deref() == Some(&own)) {
             return Ok((reused(keys, &target.id, facts).await?, own));
