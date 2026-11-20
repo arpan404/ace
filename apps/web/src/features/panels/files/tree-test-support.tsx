@@ -115,6 +115,18 @@ function TreeHost(props: {
   );
 }
 
+/** A thread's tree once its first rows are listed, found by the section it renders in. */
+async function treeOf(thread: string) {
+  const section = await waitFor(() => {
+    const found = document.querySelector<HTMLElement>(`section[data-thread="${thread}"]`);
+    if (!found) throw new Error(`No tree for ${thread}`);
+    return found;
+  });
+  const found = await within(section).findByRole("tree", { name: "Checkout files" });
+  await within(found).findByRole("treeitem", { name: "README.md" });
+  return found;
+}
+
 /**
  * Render the cold-start thread's Files tree alone and wait for its first rows. With `beside`,
  * a second thread's tree (its own checkout) renders next to it, as two Files tabs show.
@@ -178,16 +190,6 @@ export async function renderTree(
   );
   let mounts = 0;
   const view = render(host(mounts));
-  const treeOf = async (thread: string) => {
-    const section = await waitFor(() => {
-      const found = document.querySelector<HTMLElement>(`section[data-thread="${thread}"]`);
-      if (!found) throw new Error(`No tree for ${thread}`);
-      return found;
-    });
-    const found = await within(section).findByRole("tree", { name: "Checkout files" });
-    await within(found).findByRole("treeitem", { name: "README.md" });
-    return found;
-  };
   const tree = await treeOf(threadId);
   const beside = options.beside ? await treeOf(options.beside) : undefined;
   return {
