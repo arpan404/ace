@@ -71,6 +71,8 @@ interface SessionDependencies {
     threadId: ThreadId,
     signal: AbortSignal,
   ): Promise<Partial<Pick<SessionContext, "env" | "mcp" | "onSessionMetadata" | "acpLaunch">>>;
+  /** Readies the thread's model catalog row, before its model is chosen. */
+  catalog?(threadId: ThreadId): Promise<void>;
   /** The daemon's data dir, given to the agent's shell as `ACE_HOME`. */
   agentHome?: string;
 }
@@ -213,6 +215,8 @@ export class Sessions {
       };
       openingModel = previousSelection.model;
       openingInstance = previousSelection.instanceId ?? metadata.instanceId;
+      await this.dependencies.catalog?.(actor.id);
+      await this.dependencies.repo.store.writable();
       const resolvedSelection = await this.dependencies.models.prepare(
         previousSelection,
         this.dependencies.models.identity(actor.id),
