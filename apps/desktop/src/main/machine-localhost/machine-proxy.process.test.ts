@@ -241,9 +241,12 @@ describe("the machine's localhost proxy", () => {
     raw.pause();
     const closed = new Promise((resolve) => raw.once("close", resolve));
     await new Promise((resolve) => setTimeout(resolve, 500));
-    // Past the deadline the proxy's side is gone: what the caller sends now is reset.
-    raw.write("still here");
-    raw.write("still here");
+    // Past the deadline the proxy's side is gone: what the caller sends now is reset. The reset
+    // for one write arrives after it, so keep writing, a little apart, until the close lands.
+    const writing = setInterval(() => {
+      if (!raw.destroyed) raw.write("still here");
+    }, 20);
+    cleanups.push(() => clearInterval(writing));
     await closed;
   });
 
