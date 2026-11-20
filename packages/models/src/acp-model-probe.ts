@@ -1,4 +1,5 @@
-import { selectorRequest, sessionSelectors } from "@ace/agent-registry";
+import { matchProfile, selectorRequest, sessionSelectors } from "@ace/agent-registry";
+import type { ModelInstance } from "./types.ts";
 import { z } from "zod";
 
 /** The bounded number of models a probe asks about; agents list a handful. */
@@ -14,8 +15,13 @@ function record(value: unknown): Record<string, unknown> {
 /**
  * An ACP session reports option sets (thinking level and the like) only for its current model.
  * Selects each other listed model on the probe session and records the options it then reports,
- * as that model's own `configOptions`. Selecting a model is configuration only: no prompt is
- * sent and no quota is spent. A model the agent refuses keeps no options; the probe never fails.
+ * as that model's own `configOptions`, then selects the model that was current again. Selecting
+ * a model is configuration only: no prompt is sent and no quota is spent. A model the agent
+ * refuses keeps no options; only a refused return to the current model fails the probe.
+ *
+ * Some agents keep a selection beyond the session (Cursor saves its model for every later run,
+ * `docs/research/providers/cursor.md`), so only an agent whose caller knows a selection is
+ * undone by selecting again may be probed this way (`perModelProbe`).
  */
 export async function withPerModelOptions(session: unknown, request: Request): Promise<unknown> {
   const payload = record(session);
@@ -36,9 +42,12 @@ export async function withPerModelOptions(session: unknown, request: Request): P
   const options = config["options"];
   if (!Array.isArray(options) || options.some((option) => "options" in record(option)))
     return session;
+  if (typeof current !== "string" || !model.values.includes(current)) return session;
   const learned = new Map<string, unknown[]>();
+  let switched = false;
   for (const value of model.values.slice(0, probeLimit)) {
     if (value === current) continue;
+    switched = true;
     try {
       const reply = record(await request(...requestOf(selectors, value, sessionId)));
       const reported = reply["configOptions"];
@@ -47,6 +56,8 @@ export async function withPerModelOptions(session: unknown, request: Request): P
       // An agent that refuses the switch leaves that model without options of its own.
     }
   }
+  // The agent's own choice is left as the probe found it, whatever it kept of the switches.
+  if (switched) await request(...requestOf(selectors, current, sessionId));
   if (!learned.size) return session;
   const probed = options.map((option) => {
     const entry = record(option);
@@ -59,6 +70,15 @@ export async function withPerModelOptions(session: unknown, request: Request): P
   return { ...payload, configOptions: next };
 }
 
+/**
+ * Which agents the probe may switch models on: Antigravity, whose levels differ per model and
+ * which reports them only for the current one. It runs as its own provider. Generic ACP agents
+ * (Cursor among them) may keep a switch, so they list the current model's levels only.
+ */
+export function perModelProbe(provider: string): boolean {
+  return provider === "antigravity";
+}
+
 function requestOf(
   selectors: ReturnType<typeof sessionSelectors>,
   value: string,
@@ -66,4 +86,24 @@ function requestOf(
 ): [string, Record<string, string>] {
   const { method, params } = selectorRequest(selectors, "model", value, sessionId);
   return [method, params];
+}
+
+/**
+ * Whether a probe may go on to `session/new` after the agent's `initialize` reply. A row that
+ * loads unasked (a reviewed profile, `modelProbe: "automatic"`) may only while the version the
+ * agent reports still has that profile: an agent that updated itself past it is not the one
+ * ace reviewed. An unprofiled row, and a reply without a version, go on.
+ */
+export function negotiatedProbeAllowed(
+  instance: Pick<
+    ModelInstance,
+    "provider" | "modelProbe" | "acpAgentId" | "installationVersion" | "profileRevision"
+  >,
+  initialized: unknown,
+): boolean {
+  if (instance.provider !== "acp" || instance.modelProbe !== "automatic") return true;
+  const version = record(record(initialized)["agentInfo"])["version"];
+  if (typeof version !== "string" || version === instance.installationVersion) return true;
+  const agent = instance.acpAgentId?.startsWith("official:") ? instance.acpAgentId.slice(9) : "";
+  return agent !== "" && matchProfile(agent, version)?.revision === instance.profileRevision;
 }

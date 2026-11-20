@@ -92,7 +92,7 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
   createInterface({input: process.stdin}).on('line', line => {
     const request = JSON.parse(line);
     // Each request the process got, with session/new's folder, for tests that bound what ran.
-    if (process.env.FAKE_METHOD_LOG) appendFileSync(process.env.FAKE_METHOD_LOG, JSON.stringify([request.method, request.params?.cwd]) + String.fromCharCode(10));
+    if (process.env.FAKE_METHOD_LOG) appendFileSync(process.env.FAKE_METHOD_LOG, JSON.stringify(request.params?.value === undefined ? [request.method, request.params?.cwd] : [request.method, request.params?.cwd, request.params.value]) + String.fromCharCode(10));
     if (mode === 'hang') return;
     if (mode === 'pi') {
       if (!['get_available_models','get_state'].includes(request.type)) process.exit(9);
@@ -127,7 +127,7 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
       return;
     }
     let result;
-    if (request.method === 'initialize') result = mode === 'codex' ? {} : {protocolVersion:1};
+    if (request.method === 'initialize') result = mode === 'codex' ? {} : process.env.FAKE_AGENT_VERSION ? {protocolVersion:1,agentInfo:{name:'fake',version:process.env.FAKE_AGENT_VERSION}} : {protocolVersion:1};
     if (request.method === 'model/list') {
       if (!request.params.includeHidden || request.params.limit !== 100) process.exit(8);
       result = Array.isArray(payload) ? payload[request.params.cursor ? 1 : 0] : payload;

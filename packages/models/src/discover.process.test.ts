@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
@@ -241,14 +242,29 @@ const probeThinking = (values: string[], current: string) => ({
   currentValue: current,
   options: values.map((value) => ({ value, name: value })),
 });
-test("Antigravity lists each model's own thinking levels, asking the probe session without a prompt", async () => {
-  const { config } = await launch("antigravity", {
+test("Antigravity lists each model's own thinking levels, then selects its own model again, without a prompt", async () => {
+  const { config, work } = await launch("antigravity", {
     sessionId: "probe",
     configOptions: [probeModel("flash"), probeThinking(["low", "high"], "high")],
     // "lite" is refused by the agent: it keeps no levels and the listing still succeeds.
-    perModel: { pro: [probeModel("pro"), probeThinking(["low", "medium", "high"], "medium")] },
+    perModel: {
+      pro: [probeModel("pro"), probeThinking(["low", "medium", "high"], "medium")],
+      flash: [probeModel("flash"), probeThinking(["low", "high"], "high")],
+    },
   });
-  const rows = await createModelDiscovery()(config, new AbortController().signal);
+  const log = join(work.path, "methods.log");
+  const rows = await createModelDiscovery()(
+    { ...config, env: { ...config.env, FAKE_METHOD_LOG: log } },
+    new AbortController().signal,
+  );
+  const selections = (await readFile(log, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line): unknown[] => JSON.parse(line))
+    .filter(([method]) => method === "session/set_config_option")
+    .map((call) => call[2]);
+  // The model the agent had when the probe opened is its selection when the probe ends.
+  expect(selections).toEqual(["pro", "lite", "flash"]);
   expect(
     rows.map((row) => [row.id, row.efforts.map((effort) => effort.id), row.defaultEffort]),
   ).toEqual([
@@ -256,6 +272,30 @@ test("Antigravity lists each model's own thinking levels, asking the probe sessi
     ["pro", ["low", "medium", "high"], "medium"],
     ["lite", [], undefined],
   ]);
+});
+
+test("a generic ACP agent's probe never switches its model, so a saved selection stays the agent's", async () => {
+  const { config, work } = await launch("acp", {
+    sessionId: "probe",
+    configOptions: [probeModel("flash")],
+    perModel: { pro: [probeModel("pro")], lite: [probeModel("lite")] },
+  });
+  const log = join(work.path, "methods.log");
+  const rows = await createModelDiscovery({
+    acpProbe: async () => ({
+      command: process.execPath,
+      args: config.args,
+      env: { ...config.env, FAKE_METHOD_LOG: log },
+      cwd: work.path,
+      modes: "reported",
+    }),
+  })(config, new AbortController().signal);
+  expect(rows.map((row) => row.id)).toEqual(["flash", "pro", "lite"]);
+  const methods = (await readFile(log, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line): unknown[] => JSON.parse(line)[0]);
+  expect(methods).not.toContain("session/set_config_option");
 });
 
 test("an agent needing its sign-in method selected lists models with the method the person used", async () => {
