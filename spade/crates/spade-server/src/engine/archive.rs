@@ -87,7 +87,7 @@ impl Engine {
             if routine.agent_id != agent {
                 continue;
             }
-            if let Err(error) = crate::routines::turn_on(self, routine) {
+            if let Err(error) = crate::routines::turn_on_at(self, routine, None) {
                 tracing::warn!(%error, %agent, routine = %id, "a routine stays paused after unarchive");
             }
         }

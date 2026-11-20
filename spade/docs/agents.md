@@ -116,7 +116,9 @@ person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves
    bot, worker, conversation and club it carries in the same transaction (two moves never share
    one; an ended move lets go). Refused too (`409`): a worker (it
    moves with its maker), the main bot where it isn't hosted, and one that (or a worker of which)
-   is working, waiting on the person, sleeping or running a service. The bot and its workers are
+   is working, waiting on the person, sleeping or running a service. A paused bot moves, and
+   arrives paused with what its pause holds ([autonomy.md](autonomy.md), "Pause, resume and the
+   running view"). The bot and its workers are
    frozen for that move: messages answer `409` ("Research is moving to Studio …"), routines don't
    fire, its `status` reads "Moving to Studio". Before its commit a move has a stored deadline
    (`Limits::move_pre_commit`, two hours): past it the move fails and the bot thaws. Once packed,

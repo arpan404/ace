@@ -196,14 +196,22 @@ fn next_slot(engine: &Engine, r: &StoredRoutine) -> Result<Option<i64>, RoutineE
     Ok(schedule.next_after(engine.now_ms(), &zone(&r.time_zone)?))
 }
 
-/// Turns `r` (a routine or a heartbeat) back on from its next slot after now: nothing it missed
-/// while off catches up. Nothing changes for one that is on.
-pub(crate) fn turn_on(engine: &Engine, mut r: StoredRoutine) -> Result<(), RoutineError> {
+/// Turns `r` (a routine or a heartbeat) back on with `due_ms` as its next slot, or its next slot
+/// after now when there is none (nothing it missed while off catches up): a slot already past
+/// runs once, caught up. Nothing changes for one that is on.
+pub(crate) fn turn_on_at(
+    engine: &Engine,
+    mut r: StoredRoutine,
+    due_ms: Option<i64>,
+) -> Result<(), RoutineError> {
     if !r.paused {
         return Ok(());
     }
     r.paused = false;
-    r.next_due_ms = next_slot(engine, &r)?;
+    r.next_due_ms = match due_ms {
+        Some(due) => Some(due),
+        None => next_slot(engine, &r)?,
+    };
     r.updated_ms = engine.now_ms();
     engine.store().update_routine(&r)?;
     engine.routines_shared().wake.notify_one();

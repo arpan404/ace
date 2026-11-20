@@ -679,8 +679,16 @@ setting; a crash in between leaves the bot paused, and resuming again fires noth
 the timer find the wakes that came
 due by time, lets the routines catch up once (`caught_up`), starts the services Pause stopped
 again at once (each under its own id, held to the verdict that started it, unless it runs already
-or another service took its name), and answers what waited. A paused bot can't move to another
-machine until it is resumed.
+or another service took its name), and answers what waited. While a move holds the bot frozen,
+Pause and Resume change nothing (`changed: false`).
+
+A paused bot moves to another machine as it is (ADR 0187, amendment): the manifest's
+`extras.paused` carries its pause (held wakes, those still being written included, the services
+Pause stopped, and each routine that was on with its due slot as `routines`). The target writes it
+into its `paused_bots` in the cutover's transaction and arms the bot's open wakes, so it arrives
+paused and its waits are watched and held there; the source forgets its copy. Resume on the
+target fires each held wake once, starts the services, answers what waited, and turns each held
+routine back on at its slot, so a slot that came due catches up once.
 A withdrawn package version pauses its bot with this same pause ([packages.md](packages.md)), and
 any Resume ends it: there is one pause.
 

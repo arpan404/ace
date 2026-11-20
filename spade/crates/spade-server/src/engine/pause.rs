@@ -19,8 +19,12 @@ use spade_store::StoreError;
 
 use super::Engine;
 
-/// The setting the paused bots are kept in: `{agent: {"at_ms", "held", "services"}}`.
-const PAUSED_BOTS: &str = "paused_bots";
+mod moving;
+
+pub(super) use moving::merged as merged_pauses;
+
+/// The setting the paused bots are kept in: `{agent: {"at_ms", "held", "services", "routines"}}`.
+pub(super) const PAUSED_BOTS: &str = "paused_bots";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct Stored {
@@ -31,6 +35,9 @@ pub(super) struct Stored {
     /// The services Pause stopped, by id: started again on Resume.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) services: Vec<String>,
+    /// Routine slots it held as it moved here (`moving`): turned back on at them on Resume.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    routines: Vec<moving::HeldSlot>,
 }
 
 #[derive(Debug, Clone)]
@@ -152,7 +159,8 @@ impl Engine {
         let Some(found) = self.store.agent(agent)? else {
             return Ok(None);
         };
-        if self.paused_since(agent).is_some() {
+        // A bot a move holds frozen is neither paused nor resumed: the move carries it as it is.
+        if self.paused_since(agent).is_some() || self.frozen(&found.conversation) {
             return Ok(Some(false));
         }
         let at_ms = self.now_ms();
@@ -167,6 +175,7 @@ impl Engine {
                     at_ms,
                     held,
                     services,
+                    routines: Vec::new(),
                 },
             );
         })?;
@@ -195,13 +204,13 @@ impl Engine {
         let Some(found) = self.store.agent(agent)? else {
             return Ok(None);
         };
-        if self.paused_since(agent).is_none() {
+        if self.paused_since(agent).is_none() || self.frozen(&found.conversation) {
             return Ok(Some(false));
         }
-        let (mut held, services) = self
+        let (mut held, services, slots) = self
             .stored_pauses()?
             .remove(agent)
-            .map(|stored| (stored.held, stored.services))
+            .map(|stored| (stored.held, stored.services, stored.routines))
             .unwrap_or_default();
         // Met while it was paused but never stored: fired all the same.
         let unsaved = lock(&self.pause_hold.unsaved).remove(agent);
@@ -220,6 +229,8 @@ impl Engine {
         }
         // The services Pause stopped start again now, not at the next turn.
         self.start_paused_services(&id, agent, &services);
+        // Routines it held as it moved here come back on at their slots.
+        self.turn_on_held_slots(agent, &slots);
         if let Err(error) = self.change_pauses(|stored| {
             stored.remove(agent);
         }) {

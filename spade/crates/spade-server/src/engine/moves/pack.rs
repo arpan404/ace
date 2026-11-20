@@ -302,6 +302,10 @@ impl Engine {
         if !extras.is_object() {
             extras = json!({});
         }
+        // A paused bot's pause goes with it, so it arrives paused (ADR 0200 §6.1).
+        if let Some(paused) = self.pauses_to_move(&agents).map_err(|e| e.to_string())? {
+            extras["paused"] = paused;
+        }
         if let Some(plugins) = self.plugins() {
             extras["plugins"] = agents
                 .iter()

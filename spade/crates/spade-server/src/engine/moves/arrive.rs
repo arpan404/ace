@@ -636,7 +636,16 @@ impl Engine {
             }
             Value::Object(access).to_string()
         };
-        let merges: [spade_store::Merge<'_>; 1] = [(APP_ACCESS, &deny)];
+        // A bot that was paused arrives paused, its held wakes and slots with it, in the same
+        // transaction: it is never anyone's unpaused.
+        let paused = &manifest["extras"]["paused"];
+        let pause = |held: Option<&str>| {
+            super::super::pause::merged_pauses(held, paused, &selection.agents)
+        };
+        let mut merges: Vec<spade_store::Merge<'_>> = vec![(APP_ACCESS, &deny)];
+        if paused.is_object() {
+            merges.push((super::super::pause::PAUSED_BOTS, &pause));
+        }
         self.at_point("placed");
         let cutover = Cutover {
             move_id: &entry.id,
@@ -664,6 +673,7 @@ impl Engine {
             Err(error) => return Err(placing(error.to_string())),
         }
         self.at_point("committed");
+        self.forget_pauses();
         for conversation in &selection.conversations {
             self.forget_activity(conversation);
         }

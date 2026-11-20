@@ -179,18 +179,15 @@ fn strings(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// What `state` a bot is in, in the person's words, when that keeps it from moving.
+/// What `state` a bot is in, in the person's words, when that keeps it from moving. A paused bot
+/// moves: its pause goes with it, held wakes and all, and it arrives paused (`pause::moving`).
 fn busy_words(name: &str, state: State) -> Option<String> {
     let doing = match state {
-        State::Idle => return None,
+        State::Idle | State::Paused => return None,
         State::Working => "working",
         State::Updating => "being updated",
         State::Waiting => "waiting on you",
         State::Sleeping => "sleeping",
-        // Its pause is this machine's: moved, its held wakes would fire on arrival.
-        State::Paused => {
-            return Some(format!("{name} is paused; resume it before it moves."));
-        }
     };
     Some(format!(
         "{name} is {doing}; it can move once that ends, or once you stop it."
