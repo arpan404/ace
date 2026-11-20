@@ -36,7 +36,10 @@ struct BrowserScreen: View {
     private var shownTab: BrowserViewInfo.Tab? { state?.tabs.first { $0.id == state?.activeTabId } }
     private var annotate: BrowserViewInfo.Annotate? { state?.annotate }
     private var annotating: Bool { annotate.map { $0.mode != "off" } ?? false }
+    /// A page the person opened on this phone, shown instead of ace's Chrome (ADR 0194).
+    private var deviceTab: DeviceTabsPatch.Tab? { model.deviceTabs.shownTab }
     private var title: String {
+        if let deviceTab { return deviceTab.title.isEmpty ? "On this phone" : deviceTab.title }
         guard let state, state.blank != true, !state.closed else { return "Browser" }
         return shownTab?.title ?? "Browser"
     }
@@ -45,12 +48,22 @@ struct BrowserScreen: View {
         ZStack(alignment: .bottom) {
             // The page keeps its size while a keyboard shows; the find and address fields ride it.
             VStack(spacing: AceTheme.Spacing.none) {
-                page
-                if !finding {
-                    strips
-                    BrowserBar(model: model, editing: $editingAddress, sheet: $sheet, finding: $finding, clearing: $clearing,
-                               split: sizeClass == .regular ? $splitTab : nil,
-                               screenshot: { model.browserScreenshot(fullPage: $0) })
+                if let deviceTab {
+                    DevicePageView(model: model, tab: deviceTab)
+                        .id(deviceTab.id)
+                    if let problem = deviceTab.problem {
+                        BrowserStrip(sentence: problem) { EmptyView() }
+                            .accessibilityIdentifier("device.problem")
+                    }
+                    DeviceTabBar(model: model, tab: deviceTab, editing: $editingAddress, sheet: $sheet)
+                } else {
+                    page
+                    if !finding {
+                        strips
+                        BrowserBar(model: model, editing: $editingAddress, sheet: $sheet, finding: $finding, clearing: $clearing,
+                                   split: sizeClass == .regular ? $splitTab : nil,
+                                   screenshot: { model.browserScreenshot(fullPage: $0) })
+                    }
                 }
             }
             .ignoresSafeArea(.keyboard)
@@ -70,14 +83,17 @@ struct BrowserScreen: View {
         .animation(.default, value: state?.recording)
         .animation(.default, value: browser.view?.watch)
         .background(AceDesign.Surface.background)
-        .modifier(PageTitle(title: title, subtitle: shownTab?.host ?? ""))
+        .modifier(PageTitle(title: title, subtitle: deviceTab.map { _ in "On this phone" } ?? shownTab?.host ?? ""))
         .navigationBarTitleDisplayMode(.inline)
         .screenBar {
-            if model.canOperate, browser.page?.focus != nil || annotate?.mode == "on", !editingAddress {
-                Button("Keyboard", ace: .keyboard) { keyboardRequest += 1 }
-                    .accessibilityIdentifier("browser.keyboard")
+            // A device tab is the phone's own page: its own keyboard, and agents don't see it.
+            if deviceTab == nil {
+                if model.canOperate, browser.page?.focus != nil || annotate?.mode == "on", !editingAddress {
+                    Button("Keyboard", ace: .keyboard) { keyboardRequest += 1 }
+                        .accessibilityIdentifier("browser.keyboard")
+                }
+                pageActions
             }
-            pageActions
         }
         .confirmationDialog("Clear browsing data?", isPresented: $clearing, titleVisibility: .visible) {
             Button("Clear browsing data", role: .destructive) { model.browserClearData() }
@@ -106,7 +122,11 @@ struct BrowserScreen: View {
         .alert("Browser", isPresented: Binding(get: { browser.problem != nil }, set: { if !$0 { browser.problem = nil } })) {
             Button("Dismiss") { browser.problem = nil }
         } message: { Text(browser.problem?.message ?? "") }
-        .onChange(of: scenePhase, initial: true) { _, phase in browser.setVisible(phase == .active) }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            browser.setVisible(phase == .active)
+            // Back in front, a device tab takes this machine's ports again.
+            if phase == .active { model.frontDeviceTab() }
+        }
         .onChange(of: state?.tabs.map(\.id)) { _, ids in if let splitTab, !(ids ?? []).contains(splitTab) { self.splitTab = nil } }
         .onDisappear { model.closeBrowser() }
     }

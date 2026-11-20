@@ -74,6 +74,7 @@ import { ThreadLinger } from "./thread-linger.ts";
 import { DeviceTabControl, DeviceTabs } from "./device-tabs.ts";
 import { nativeLoopbackHost } from "./device-host.ts";
 import { openPhoneTunnel } from "./machine-tunnel-open.ts";
+import { benchLoopback, startLoopbackBench } from "./tunnel-bench.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -747,5 +748,12 @@ Object.assign(globalThis, {
   aceSocket: socketEvent,
   aceAccess,
   aceLoopback: (event: string, connection: string, value: number | Uint8Array) =>
-    deviceTabs?.loopback.event(event, connection, value),
+    (benchLoopback() ?? deviceTabs?.loopback)?.event(event, connection, value),
+  /** Debug builds' `--loopback-bench` only (`LoopbackBench.swift`): answers through `aceBenchDone`. */
+  aceLoopbackBench: (port: number) => {
+    void startLoopbackBench(port).then(
+      (answer) => Reflect.get(globalThis, "aceBenchDone")?.(answer),
+      () => Reflect.get(globalThis, "aceBenchDone")?.(""),
+    );
+  },
 });

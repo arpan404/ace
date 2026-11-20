@@ -58,7 +58,7 @@ function devServerSocket(port: number, later: (run: () => void) => void) {
     end() {},
     write(bytes, callback) {
       request += new TextDecoder().decode(bytes);
-      const head = /^GET \/bytes\/(\d+) /.exec(request);
+      const head = /^GET \/bytes\/(\d+)[ ?]/.exec(request);
       if (head && request.includes("\r\n\r\n") && !response) {
         const size = Number(head[1]);
         const header = new TextEncoder().encode(

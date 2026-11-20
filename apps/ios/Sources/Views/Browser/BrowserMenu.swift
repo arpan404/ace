@@ -123,6 +123,11 @@ struct BrowserMenu: View {
                             .accessibilityIdentifier("browser.menu.split")
                         }
                     }
+                    if let address = state?.addressUrl, !address.isEmpty, address != "about:blank" {
+                        // The same page in the phone's own browser, as the person's (ADR 0194).
+                        Button("Open on this phone", ace: .deviceMobile) { model.openDeviceTab(address) }
+                            .accessibilityIdentifier("browser.menu.openOnPhone")
+                    }
                     Button("New tab", ace: .plusSquare) { model.browserNewTab() }
                     Button("Close tab", ace: .xSquare, role: .destructive) { model.browserCloseTab(tabId) }
                 }
