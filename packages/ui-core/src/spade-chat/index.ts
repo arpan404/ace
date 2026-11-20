@@ -18,6 +18,7 @@ export * from "./packages.ts";
 export * from "./package-updates.ts";
 export * from "./notes.ts";
 export * from "./endpoints.ts";
+export * from "./model-options.ts";
 export * from "./markup.ts";
 export * from "./hosting.ts";
 export * from "./moves.ts";

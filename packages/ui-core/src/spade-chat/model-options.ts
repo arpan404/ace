@@ -1,16 +1,11 @@
-import {
-  spadeModelFacts,
-  splitCliModel,
-  splitSpadeModel,
-  type SpadeEndpoint,
-  type SpadeModelInfo,
-  type SpadeSubscriptionSource,
-} from "@ace/ui-core/spade-chat";
+import { spadeModelFacts, type SpadeEndpoint, type SpadeModelInfo } from "./endpoints.ts";
+import { splitSpadeModel } from "./agents.ts";
+import { splitCliModel, type SpadeSubscriptionSource } from "./subscriptions.ts";
 
 /*
  * What the one model picker offers, as plain data: every model of every endpoint and
- * subscription, grouped by where it comes from, narrowed by what the person typed. Pure, so the
- * picker only draws it.
+ * subscription, grouped by where it comes from, narrowed by what the person typed. Pure, so each
+ * client's picker only draws it.
  */
 
 export interface SpadeModelOption {
@@ -116,5 +111,5 @@ export function spadeModelLabel(
  * The words of a new bot's empty model choice: the first usable model (the picker names it
  * beside), or that none is set up yet.
  */
-export const firstUsableWords = (model: string | undefined) =>
+export const spadeFirstUsableWords = (model: string | undefined) =>
   model ? "First usable model" : "No model set up yet";
