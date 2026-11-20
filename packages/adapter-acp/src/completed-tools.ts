@@ -23,6 +23,7 @@ export function retireTool(state: TranslationState, tool: ToolState): void {
     state.retiredBytes -= cost;
     const owned = state.ownedTools.get(oldest.owner.key);
     if (owned?.get(oldest.nativeId) === oldest) owned.delete(oldest.nativeId);
+    if (owned?.size === 0) state.ownedTools.delete(oldest.owner.key);
     if (state.tools.get(oldest.nativeId) === oldest) state.tools.delete(oldest.nativeId);
     if (oldest.owner.planTool === oldest) delete oldest.owner.planTool;
     if (oldest.child && state.childTools.get(oldest.child.nativeId) === oldest)

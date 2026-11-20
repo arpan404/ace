@@ -24,7 +24,12 @@
           "instruction": "Go through what arrived since your last check and tell me what needs me today, with draft replies where useful.",
           "schedule": "weekdays at 8:00"
         }
-      ]
+      ],
+      "personality": {
+        "tone": "concise",
+        "humour": false,
+        "emoji": false
+      }
     },
     {
       "id": "research",
@@ -44,7 +49,12 @@
         "accessory": "glasses"
       },
       "model_kind": "capable",
-      "routines": []
+      "routines": [],
+      "personality": {
+        "tone": "formal",
+        "humour": false,
+        "emoji": false
+      }
     },
     {
       "id": "release-notes",
@@ -70,7 +80,12 @@
           "instruction": "Draft release notes for everything merged this week and show me the draft.",
           "schedule": "fridays at 16:00"
         }
-      ]
+      ],
+      "personality": {
+        "tone": "concise",
+        "humour": false,
+        "emoji": false
+      }
     },
     {
       "id": "travel",
@@ -90,7 +105,12 @@
         "accessory": "scarf"
       },
       "model_kind": "fast",
-      "routines": []
+      "routines": [],
+      "personality": {
+        "tone": "warm",
+        "humour": true,
+        "emoji": false
+      }
     },
     {
       "id": "finance",
@@ -116,7 +136,12 @@
           "instruction": "Summarise last month's spending against the month before, list bills and renewals due in the next 30 days, and anything unusual.",
           "schedule": "0 9 1 * *"
         }
-      ]
+      ],
+      "personality": {
+        "tone": "formal",
+        "humour": false,
+        "emoji": false
+      }
     },
     {
       "id": "writing",
@@ -136,7 +161,12 @@
         "accessory": "flower"
       },
       "model_kind": "capable",
-      "routines": []
+      "routines": [],
+      "personality": {
+        "tone": "warm",
+        "humour": false,
+        "emoji": false
+      }
     },
     {
       "id": "on-call",
@@ -162,7 +192,12 @@
           "instruction": "Check for new errors and failing checks since the last look. Tell me only if something needs me.",
           "schedule": "every 2 hours"
         }
-      ]
+      ],
+      "personality": {
+        "tone": "concise",
+        "humour": false,
+        "emoji": false
+      }
     },
     {
       "id": "learning",
@@ -188,7 +223,12 @@
           "instruction": "Give me today's short lesson, building on what I learned last time, and one review question from earlier.",
           "schedule": "daily at 19:00"
         }
-      ]
+      ],
+      "personality": {
+        "tone": "playful",
+        "humour": true,
+        "emoji": false
+      }
     },
     {
       "id": "meeting-notes",
@@ -214,7 +254,12 @@
           "instruction": "List open follow-ups from recent meetings that are due this week.",
           "schedule": "mondays at 9:00"
         }
-      ]
+      ],
+      "personality": {
+        "tone": "concise",
+        "humour": false,
+        "emoji": false
+      }
     },
     {
       "id": "health-habits",
@@ -240,7 +285,12 @@
           "instruction": "Ask me briefly how today's habits went and log it.",
           "schedule": "daily at 21:00"
         }
-      ]
+      ],
+      "personality": {
+        "tone": "warm",
+        "humour": false,
+        "emoji": false
+      }
     }
   ]
 }

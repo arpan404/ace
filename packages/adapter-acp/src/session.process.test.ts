@@ -469,10 +469,22 @@ it("uses repaired native parentage for cascade cancellation", async () => {
     await h.session.close("user");
   }
 });
-it("rejects unknown prompt completion and queued input instead of sending a second prompt", async () => {
+it("an unknown stop reason ends the turn and the next queued input goes out", async () => {
   const h = await setup();
   try {
     const first = h.session.send(input("unknown"), "queue");
+    const next = h.session.send(input("next"), "queue");
+    await first;
+    await next;
+    expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(2);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+it("a reply naming no stop reason fails the session and refuses queued input", async () => {
+  const h = await setup();
+  try {
+    const first = h.session.send(input("/unconfirmed"), "queue");
     const next = h.session.send(input("next"), "queue");
     await expect(first).rejects.toThrow("completion");
     await expect(first).rejects.not.toBeInstanceOf(InputRejected);
@@ -573,17 +585,12 @@ it("rejects queued input at cancellation grace when a child never confirms termi
   }
 });
 
-it("holds queued input for child traffic that precedes native registration", async () => {
+it("a stray session's traffic ends with the root's prompt and holds no input back", async () => {
   const h = await setup();
   try {
     await h.session.send(input("late"), "queue");
-    const next = h.session.send(input("next"), "queue").catch((error: unknown) => error);
-    expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(1);
-    await h.session.interrupt({
-      agent: nativeAgentKey("session-test", "native-late"),
-      cascade: false,
-    });
-    expect(await next).toBeUndefined();
+    await h.session.send(input("next"), "queue");
+    expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(2);
   } finally {
     await h.session.close("user");
   }

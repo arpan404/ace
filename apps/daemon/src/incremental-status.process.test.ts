@@ -113,9 +113,17 @@ test("an acquired live window keeps pending approvals while thousands of settled
     expect(Object.keys(view.interactions)).toHaveLength(201);
     const before = view.entitiesBefore?.interactions;
     if (before == null) throw new Error("Missing older-entity cursor");
-    const page = store.readEntityPage(thread.id, "interactions", before, 200);
-    if (page.collection !== "interactions") throw new Error("Wrong collection");
-    expect(page.entries.some((entry) => entry.id === "q-799")).toBe(true);
+    // A snapshot's cursor reads as the first page and readers keep entities by id (versioned
+    // cursors, 74a74ea57): paging from it to the end lists the settled entries that paged out.
+    const listed = new Set<string>();
+    for (let cursor: number | null = before; cursor !== null;) {
+      const page = store.readEntityPage(thread.id, "interactions", cursor, 200);
+      if (page.collection !== "interactions") throw new Error("Wrong collection");
+      for (const entry of page.entries) listed.add(entry.id);
+      cursor = page.entitiesBefore;
+    }
+    expect(listed.has("q-799")).toBe(true);
+    expect(listed.size).toBe(1000);
     // A later change in the same publication can reactivate an entry displaced by an earlier change.
     const interaction = (id: string, state: "pending" | "resolved") =>
       Interaction.parse({

@@ -20,7 +20,15 @@ export interface AgentState {
   cancelAt?: number;
   planTool?: ToolState;
   pendingSpawnKey?: string;
+  /** Stands in for an Antigravity subagent that has no native session of its own. */
+  placeholder?: boolean;
+  /** A subagent association named this session; without one it is a stray that ends with the root's prompt. */
+  associated?: boolean;
+  /** The root's turn was opened by work after its prompt answered; it ends when that work settles. */
+  implicitTurn?: boolean;
 }
+const sentLimit = 1024;
+const uncertainShellLimit = 256;
 export interface ToolState {
   nativeId: string;
   inputRaw?: InlineRawPayload;
@@ -65,6 +73,10 @@ export class TranslationState {
   readonly childTools = new Map<string, ToolState>();
   readonly requests = new Map<string | number, RequestState>();
   readonly sent = new Map<string | number, { method: string; params: Data }>();
+  /** session/load requests in flight: their replayed updates are history. */
+  readonly loads = new Set<string | number>();
+  /** Children with a cancellation deadline; ticks visit only these. */
+  readonly cancelling = new Set<AgentState>();
   readonly root: AgentState;
   readonly quirks: AcpQuirks;
   threadId: string;
@@ -100,6 +112,8 @@ export class TranslationState {
   resetProcess(): void {
     this.promptOpen = false;
     this.sent.clear();
+    this.loads.clear();
+    this.cancelling.clear();
     this.requests.clear();
     this.liveTools.clear();
     this.retiredTools.clear();
@@ -118,6 +132,7 @@ export class TranslationState {
       delete agent.stream;
       delete agent.cancelAt;
       delete agent.planTool;
+      delete agent.implicitTurn;
     }
     this.agents.clear();
   }
@@ -133,7 +148,37 @@ export class TranslationState {
   }
   retainUncertainShell(tool: ToolState): void {
     tool.uncertainShell = true;
-    this.uncertainShells.set(JSON.stringify([tool.owner.nativeId, tool.nativeId]), tool);
+    const key = JSON.stringify([tool.owner.nativeId, tool.nativeId]);
+    this.uncertainShells.delete(key);
+    this.uncertainShells.set(key, tool);
+    // Kept across process restarts so a later report can still settle one; bounded all the same.
+    if (this.uncertainShells.size > uncertainShellLimit) {
+      const oldest = this.uncertainShells.entries().next().value;
+      if (oldest) {
+        this.uncertainShells.delete(oldest[0]);
+        delete oldest[1].uncertainShell;
+      }
+    }
+  }
+  /** Records an outgoing request awaiting its reply; the oldest unanswered ones are dropped past a bound. */
+  request(id: string | number, method: string, params: Data): void {
+    this.sent.set(id, { method, params });
+    if (method === "session/load") this.loads.add(id);
+    if (this.sent.size <= sentLimit) return;
+    const oldest = this.sent.keys().next().value;
+    if (oldest !== undefined) this.reply(oldest);
+  }
+  reply(id: string | number): void {
+    this.sent.delete(id);
+    this.loads.delete(id);
+  }
+  armCancel(agent: AgentState, at: number): void {
+    agent.cancelAt = at;
+    this.cancelling.add(agent);
+  }
+  disarmCancel(agent: AgentState): void {
+    delete agent.cancelAt;
+    this.cancelling.delete(agent);
   }
   settleShell(tool: ToolState): void {
     delete tool.uncertainShell;
@@ -163,10 +208,30 @@ export class TranslationState {
       cwd: this.cwd,
     });
   }
+  /** Records the root's native session id once the agent names it. */
+  bindRoot(id: string, facts: Fact[]): void {
+    this.root.nativeId = id;
+    this.agents.set(id, this.root);
+    facts.push({
+      type: "agent.seen",
+      agent: this.root.key,
+      origin: "root",
+      fidelity: "full",
+      native: { provider: this.quirks.provider, nativeId: id },
+      cwd: this.cwd,
+    });
+  }
   agent(id: string, facts: Fact[]): AgentState {
     if (!id || id === this.root.nativeId) return this.root;
     const known = this.agents.get(id);
     if (known) return known;
+    // Some agents (Antigravity) send session/update for a new session before answering
+    // session/new. While one is being opened, an unknown session is that root, not a child,
+    // including a fresh session after the agent's process restarted.
+    if (this.openingSession()) {
+      this.bindRoot(id, facts);
+      return this.root;
+    }
     const agent: AgentState = {
       key: nativeAgentKey(this.threadId, id),
       nativeId: id,
@@ -188,6 +253,10 @@ export class TranslationState {
       cwd: this.cwd,
     });
     return agent;
+  }
+  private openingSession(): boolean {
+    for (const request of this.sent.values()) if (request.method === "session/new") return true;
+    return false;
   }
   start(
     agent: AgentState,

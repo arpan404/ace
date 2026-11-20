@@ -79,6 +79,9 @@ const languages: Record<string, string> = {
   cs: "cs",
 };
 
+/** Every language the highlighter colours, each once, for a picker that overrides a file's. */
+export const fileLanguages: readonly string[] = [...new Set(Object.values(languages))];
+
 /** The highlighter's language for a file, from its extension; undefined shows it plain. */
 export function fileLanguage(path: string): string | undefined {
   const name = pathParts(path).name.toLowerCase();

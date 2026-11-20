@@ -10,18 +10,16 @@ import {
 } from "@ace/ui-core/file-references";
 import {
   filePreviewTab,
-  fileTabId,
-  findTab,
-  tabKey,
-  type OpenTab,
-  type ScopeWorkspace,
+  findInEditor,
+  openInEditorPanel,
+  type EditorPanelTarget,
 } from "@/lib/workspace/index.ts";
 
 /*
  * A file an answer mentions (`loader.ts`, `src/app/x.tsx:42`), linked once the thread's checkout
  * confirms it. Resolution asks ace-files' path index once per path per thread, and only for
- * settled text. A unique match opens in the side panel's Files view at its line; several matches
- * open the Files tree filtered to the name. An absolute or home path (`~/Downloads/a.pdf`) the
+ * settled text. A unique match opens in the thread's editor at its line, as a glance; several
+ * matches open the editor's explorer filtered to the name. An absolute or home path (`~/Downloads/a.pdf`) the
  * checkout doesn't hold (outside the project, or ignored inside it) opens beside the thread as a file the answer names, which
  * the daemon serves because the answer names it. Anything else stays plain text or code.
  */
@@ -149,46 +147,36 @@ async function checkoutFile(
   return found;
 }
 
-function objectData(data: unknown): Record<string, unknown> {
-  return typeof data === "object" && data !== null ? { ...data } : {};
-}
-
 /**
- * The Files tab a resolved mention opens: the file at its line, or, for a name several files
- * share, the tree filtered to it. The tab's other state (`workspace`'s copy) is kept.
+ * Follow a resolved mention: the file in the thread's editor at its line, as a glance (the chat
+ * keeps focus) unless `focus` (a keyboard open) moves the keyboard into the editor; for a name
+ * several files share, the editor's explorer filtered to it; a file outside the checkout beside
+ * the thread.
  */
-export function fileMentionTab(
-  workspace: ScopeWorkspace,
+export function openFileMention(
+  editor: EditorPanelTarget,
   reference: FileReference,
   resolution: Exclude<MentionResolution, { kind: "none" }>,
-): OpenTab {
+  options: { focus?: boolean | undefined } = {},
+): void {
   if (resolution.kind === "outside")
-    return filePreviewTab({
-      name: resolution.path.split(/[\\/]/).at(-1) || resolution.path,
-      source: {
-        kind: "link",
-        threadId: resolution.threadId,
-        itemId: resolution.itemId,
-        reference: resolution.path,
-      },
+    return editor.actions.open(
+      filePreviewTab({
+        name: resolution.path.split(/[\\/]/).at(-1) || resolution.path,
+        source: {
+          kind: "link",
+          threadId: resolution.threadId,
+          itemId: resolution.itemId,
+          reference: resolution.path,
+        },
+      }),
+    );
+  if (resolution.kind === "file")
+    return openInEditorPanel(editor, resolution.path, {
+      line: reference.line,
+      focus: options.focus,
     });
-  if (resolution.kind === "file") {
-    const id = fileTabId(resolution.path);
-    const existing = findTab(workspace, tabKey("files", id));
-    return {
-      kind: "files",
-      id,
-      data: {
-        ...objectData(existing?.tab.data),
-        path: resolution.path,
-        preview: false,
-        ...(reference.line === undefined ? {} : { line: reference.line }),
-      },
-    };
-  }
-  const tree = findTab(workspace, tabKey("files"));
-  const name = reference.path.split(/[\\/]/).at(-1) ?? reference.path;
-  return { kind: "files", data: { ...objectData(tree?.tab.data), query: name } };
+  findInEditor(editor, reference.path.split(/[\\/]/).at(-1) ?? reference.path);
 }
 
 /** What a resolved mention's link says it does. */

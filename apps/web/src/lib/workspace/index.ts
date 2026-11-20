@@ -39,13 +39,27 @@ export {
   usePreferredSize,
   useScopeWorkspace,
   useOptionalWorkspace,
+  useOpenInEditorPanel,
   useWorkspaceActions,
   useWorkspaceStore,
 } from "./react.tsx";
 export { defaultBottomSize, defaultSize, WorkspaceStore, type ClosedTab } from "./store.ts";
 export { allTabs, bottomOf, isShowing, locateTab, placeOf, type PanelPlace } from "./places.ts";
 
-export { fileTab, fileTabId } from "./file-tab.ts";
+export {
+  editorKind,
+  editorLayoutOf,
+  editorRoom,
+  findInEditor,
+  groupIds,
+  openInEditorPanel,
+  openInLayout,
+  type EditorOpen,
+  type EditorPanelTarget,
+  type OpenInEditorPanelOptions,
+} from "./editor-tab.ts";
+export { requestReveal, settleReveal, useReveal, type Reveal } from "./editor-reveal.ts";
+export { settleExplorerAsk, useExplorerAsk } from "./editor-explorer-ask.ts";
 export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
 export {
   filePreviewTab,

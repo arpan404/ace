@@ -27,6 +27,8 @@ export function useOversightSettings(ready: boolean) {
     queryKey: [...oversightKey, machine],
     queryFn: ({ signal }) => readOversight(client, signal),
     enabled: ready,
+    // Spend is live: read again while the page shows (react-query skips hidden windows).
+    refetchInterval: 30_000,
   });
   const change = async (next: SpadeOversightChange) => {
     const saved = await setOversight(client, next);
@@ -85,7 +87,7 @@ function ReviewDefaultRow(props: {
   );
 }
 
-/** What every bot spent together this month and today: information only (ADR 0166). */
+/** What every bot spent together this month and today, read live: information only (ADR 0166). */
 export function SpendingSection(props: { settings: OversightSettings }) {
   const { oversight } = props.settings;
   const label = "Spending, every bot together";

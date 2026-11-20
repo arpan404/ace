@@ -68,7 +68,7 @@ impl Document {
         let range = primary.range();
         let start = self.buffer.offset(range.start);
         let end = self.buffer.offset(range.end);
-        let text = self.buffer.text();
+        let text = self.search_text().clone();
         let Some(needle) = text.get(start..end) else {
             return false;
         };
@@ -111,6 +111,90 @@ impl Document {
         ));
         self.set_selections(selections);
         self.word_chain = whole_word;
+        true
+    }
+}
+
+impl Document {
+    /// Selects every occurrence of the primary selection's text, or of the word under a caret.
+    ///
+    /// A word taken from under a caret matches whole words only, as VS Code does. The occurrence
+    /// the primary selection was on stays primary. Returns false when there is nothing to match.
+    pub fn select_all_occurrences(&mut self) -> bool {
+        let Some(primary) = self.selections.get(self.primary_selection()).copied() else {
+            return false;
+        };
+        let (start, end, whole_word) = if primary.is_empty() {
+            let offset = self.buffer.offset(primary.head);
+            let Some((start, end)) = self.buffer.word_at(offset) else {
+                return false;
+            };
+            (start, end, true)
+        } else {
+            let range = primary.range();
+            (
+                self.buffer.offset(range.start),
+                self.buffer.offset(range.end),
+                self.word_chain,
+            )
+        };
+        let spans: Vec<(usize, usize)> = {
+            let text = self.search_text();
+            let Some(needle) = text.get(start..end) else {
+                return false;
+            };
+            occurrences(&text, needle)
+                .into_iter()
+                .filter(|(from, to)| !whole_word || find::is_whole_word(&text, *from, *to))
+                .collect()
+        };
+        if spans.is_empty() {
+            return false;
+        }
+        let mut selections: Vec<Selection> = spans
+            .iter()
+            .filter(|span| **span != (start, end))
+            .map(|(from, to)| {
+                Selection::new(self.buffer.position(*from), self.buffer.position(*to))
+            })
+            .collect();
+        selections.push(Selection::new(
+            self.buffer.position(start),
+            self.buffer.position(end),
+        ));
+        self.set_selections(selections);
+        self.word_chain = whole_word;
+        true
+    }
+
+    /// Cmd+K Cmd+D: moves the newest selection on to the next occurrence of its text, leaving the
+    /// one it was on unselected. With a caret it behaves as [`Document::select_next_occurrence`].
+    pub fn skip_occurrence(&mut self) -> bool {
+        let Some(old) = self.selections.get(self.primary_selection()).copied() else {
+            return false;
+        };
+        if old.is_empty() {
+            return self.select_next_occurrence();
+        }
+        let chain = self.word_chain;
+        if !self.select_next_occurrence() {
+            return false;
+        }
+        let Some(new) = self.selections.get(self.primary_selection()).copied() else {
+            return false;
+        };
+        if new == old {
+            return false;
+        }
+        let mut selections: Vec<Selection> = self
+            .selections
+            .iter()
+            .copied()
+            .filter(|selection| *selection != old && *selection != new)
+            .collect();
+        selections.push(new);
+        self.set_selections(selections);
+        self.word_chain = chain;
         true
     }
 }

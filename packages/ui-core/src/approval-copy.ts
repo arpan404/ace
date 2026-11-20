@@ -256,7 +256,7 @@ export function approvalCopy(
   request: ApprovalRequest,
   context: {
     mode?: Parameters<typeof offeredOptions>[1];
-    /** The command of the step that asked, when it is a shell step. */
+    /** The command of the step that asked, when it is a shell step and the request names none. */
     command?: string | undefined;
   } = {},
 ): ApprovalCopy {
@@ -264,9 +264,12 @@ export function approvalCopy(
   const defaultToNo = request.defaultToNo === true;
   const options = copy ? request.options : offeredOptions(request.options, context.mode).options;
   const target = request.target?.command;
+  // The request's own command is what approving runs; the step's may be an earlier, stale one.
   const command = copy
     ? undefined
-    : (context.command ?? (target ? displayCommand({ command: target }).command : undefined));
+    : target
+      ? displayCommand({ command: target }).command
+      : context.command;
   const title = copy?.title ?? shellTitle(request.title);
   return {
     tool: copy ? request.target?.tool : undefined,

@@ -98,3 +98,38 @@ it("the recorded v2 question retains both keyed answers and the multi-select cho
     }),
   ]);
 });
+
+it("a recorded v2 edit keeps the patch OpenCode wrote, so the turn shows its added lines", async () => {
+  const fixture = await readFixture(
+    fileURLToPath(
+      new URL(
+        "../../../fixtures/opencode/2.0.22/muse-spark-1.3-contributor/approval-edit.jsonl",
+        import.meta.url,
+      ),
+    ),
+  );
+  const result = replayFixture({
+    createTranslator: createOpenCodeAdapter().createTranslator,
+    fixture,
+    coreConfig: { provider: "opencode", liveness: "transport", silenceMs: 25_000 },
+  });
+  const edits = Object.values(result.final.view.items).flatMap((item) =>
+    item.type === "tool_call" && item.call.detail.kind === "file.edit"
+      ? item.call.detail.changes
+      : [],
+  );
+  expect(edits).toHaveLength(1);
+  const patch = edits[0]?.diff ?? "";
+  const added = patch.split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++"));
+  const removed = patch
+    .split("\n")
+    .filter((line) => line.startsWith("-") && !line.startsWith("---"));
+  expect(edits[0]).toMatchObject({ path: "src/math.ts", kind: "update" });
+  expect(added).toEqual([
+    "+",
+    "+export function subtract(a: number, b: number): number {",
+    "+  return a - b;",
+    "+}",
+  ]);
+  expect(removed).toEqual([]);
+});

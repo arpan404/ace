@@ -66,6 +66,31 @@ test.runIf(posix)(
   },
 );
 
+test.runIf(posix)(
+  "a run nested in a test keeps its run's system tools and still reaches no agent CLI",
+  async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "ace-tool-path-")));
+    const system = join(root, "usr/bin");
+    const git = await tool(system, "git");
+    const openssl = await tool(system, "openssl");
+    await tool(system, "claude");
+    const bun = await tool(join(root, "runtime"), "bun");
+    const outer = await prepareTestToolPath(join(root, "outer"), { PATH: system }, bun, [system]);
+    // A test that runs the suite (the isolation rehearsal) passes its PATH, the outer run's
+    // tool directory and nothing else, to the run it starts.
+    const PATH = await prepareTestToolPath(join(root, "inner"), { PATH: outer }, bun, [system]);
+
+    const resolve = async (name: string) => {
+      const found = await findExecutable(name, { PATH });
+      return found && (await realpath(found));
+    };
+    expect(await resolve("git")).toBe(git);
+    expect(await resolve("openssl")).toBe(openssl);
+    expect(await resolve("bun")).toBe(bun);
+    expect(await resolve("claude")).toBeUndefined();
+  },
+);
+
 test("every process a test starts finds no agent CLI and no version-manager shim on its PATH", async () => {
   // The setup file gave this worker the environment every test daemon and fixture inherits.
   const env = process.env;

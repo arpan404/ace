@@ -52,6 +52,7 @@ fn wrote(reply: &str) -> Event {
         name: "workspace_write".into(),
         risk: Some(Risk::Write),
         background: false,
+        effect: None,
     })
 }
 
@@ -303,6 +304,7 @@ fn a_routine_firing_keeps_the_tasks_pause() {
             untrusted: false,
         })),
         from_group: None,
+        from_thread: None,
     }));
     events.push(started("r9"));
     events.push(step("r9", vec![]));

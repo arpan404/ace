@@ -1,4 +1,4 @@
-import type { EditorDocument, Position, Range } from "@ace/editor";
+import type { Applied, EditorDocument, Position, Range } from "@ace/editor";
 import { useMemo } from "react";
 import { useFindInFile, type FindInFile } from "./use-find-in-file.ts";
 import { useFindResults } from "./use-find.ts";
@@ -25,10 +25,11 @@ export function useEditorFind(options: {
   find: { query: string; hit?: { line: number; column: number } | undefined } | undefined;
   select(range: Range): void;
   reveal(position: Position): void;
+  edit(run: (doc: EditorDocument) => Applied | undefined): boolean;
   focusEditor(): void;
 }): EditorFind {
-  const { doc, version, find, select, reveal, focusEditor } = options;
-  const finder = useFindInFile({ doc, version, select, reveal, focusEditor });
+  const { doc, version, find, select, reveal, edit, focusEditor } = options;
+  const finder = useFindInFile({ doc, version, select, reveal, edit, focusEditor });
   const external = useFindResults(doc, version, {
     active: !finder.open && !!find?.query,
     query: finder.open ? "" : (find?.query ?? ""),

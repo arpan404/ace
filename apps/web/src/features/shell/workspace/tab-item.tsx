@@ -5,6 +5,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
+  openContextMenuFromKeyboard,
 } from "@/components/ui/context-menu.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Tip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
@@ -71,6 +72,7 @@ export function TabItem(props: {
   const { tab, definition, actions } = props;
   const kind = definition.kind(tab.kind);
   const title = definition.title(tab);
+  const preview = kind?.preview?.(tab);
   const Badge = kind?.Badge;
   // Every tab closes, pinned ones too: the launcher opens any tool again.
   const closable = true;
@@ -137,8 +139,11 @@ export function TabItem(props: {
                 data-part="tab"
                 data-state={props.active ? "selected" : undefined}
                 aria-label={iconOnly ? title : undefined}
+                aria-description={preview ? "Preview" : undefined}
                 tabIndex={props.focusable ? 0 : -1}
                 onClick={() => actions.activate(tab.key)}
+                // Double-clicking a preview keeps it, so the next pick opens beside it.
+                onDoubleClick={() => preview && actions.update(tab.key, { data: preview.kept })}
                 onAuxClick={(event) => {
                   // Middle-click closes, as in a browser.
                   if (event.button === 1 && closable) void actions.close(tab.key);
@@ -148,7 +153,7 @@ export function TabItem(props: {
                   // context-menu key), anchored under the tab.
                   if (event.key === "F10" && event.shiftKey) {
                     event.preventDefault();
-                    openMenuFromKeyboard(event.currentTarget);
+                    openContextMenuFromKeyboard(event.currentTarget);
                     return;
                   }
                   props.onKeyDown(event);
@@ -184,7 +189,10 @@ export function TabItem(props: {
               />
             )}
             {/* Folded, the title and badge keep their width to measure but take no room. */}
-            <span data-tab-title className={cn("min-w-0 truncate", iconOnly && "w-0")}>
+            <span
+              data-tab-title
+              className={cn("min-w-0 truncate", iconOnly && "w-0", preview && "italic")}
+            >
               {title}
             </span>
             {Badge && (
@@ -276,18 +284,5 @@ export function TabItem(props: {
         </MenuItem>
       </ContextMenuContent>
     </ContextMenu>
-  );
-}
-
-/** Open a tab's context menu from the keyboard, anchored under its bottom-left corner. */
-function openMenuFromKeyboard(tab: HTMLElement): void {
-  const rect = tab.getBoundingClientRect();
-  tab.dispatchEvent(
-    new MouseEvent("contextmenu", {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.left,
-      clientY: rect.bottom,
-    }),
   );
 }

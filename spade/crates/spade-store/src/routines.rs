@@ -452,12 +452,13 @@ mod tests {
         {
             // As a database from before the column: the column goes and the version steps back,
             // past the skill store, the helpers table, seen cursors and pins that came after it.
-            let connection = rusqlite::Connection::open(&path)?;
+            let connection = crate::Store::connect(&path)?;
             connection.execute("DROP TABLE helpers", [])?;
             connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
             connection
                 .execute_batch(
-                "ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
+                "ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin;
+                 ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
                  DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
@@ -467,7 +468,7 @@ mod tests {
             connection.pragma_update(
                 None,
                 "user_version",
-                crate::schema::current_version() as i64 - 10,
+                crate::schema::current_version() as i64 - 11,
             )?;
         }
         let store = Store::open(&path)?;

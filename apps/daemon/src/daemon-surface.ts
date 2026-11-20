@@ -70,6 +70,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "history",
     "usage",
     "agentRegistry",
+    "acpCatalog",
     "pi",
     "engine",
     "transitions",
@@ -241,6 +242,9 @@ export function daemonHandle({
     },
     get spade() {
       return services.spade;
+    },
+    get threadAsks() {
+      return services.threadAsks;
     },
     get spadeRemote() {
       return services.spadeRemote;

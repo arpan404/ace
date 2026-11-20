@@ -4,9 +4,11 @@
 
 mod adopt;
 mod agents;
+mod apps;
 mod autonomy;
 mod bots;
 mod brain;
+mod brief;
 mod calls;
 mod classify;
 mod compact;
@@ -27,17 +29,22 @@ mod jobs;
 mod judge;
 mod knowledge;
 mod knowledge_api;
+mod learned;
 mod ledger;
+mod local;
 pub(crate) use ledger::Admission;
+mod made;
 mod maintenance;
 mod media;
 mod memory;
 mod moves;
+pub mod onboarding;
 mod outbox;
 mod oversight;
 mod park;
 mod plugin_hooks;
 mod questions;
+mod reach;
 mod recipes;
 mod retry;
 mod review;
@@ -46,7 +53,10 @@ mod routines;
 mod routing;
 mod search;
 mod security;
+mod self_edit;
 mod services;
+mod speech;
+mod thread_asks;
 mod trim;
 mod try_again;
 mod turn;
@@ -71,12 +81,18 @@ pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use knowledge::{KnowledgeCall, KnowledgeError, entry_json};
 pub use knowledge_api::KnowledgeInput;
+pub use learned::{Forgotten, Learned};
+pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use reach::ReachError;
+pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
+pub use thread_asks::FROM_ACE;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
 
+pub use made::Undone;
 pub use moves::{AcceptFor, HostRecord, HostRefused, MoveError};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
@@ -207,6 +223,8 @@ pub struct Engine {
     computers: std::sync::OnceLock<Arc<crate::computer::Computers>>,
     /// The person's plugins (ADR 0151, `plugin_hooks`), once the server has set them.
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
+    /// The person's apps (ADR 0131, `apps`), once the server has set them.
+    apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
     /// The scope each call about to run was allowed with, by call key, for the tool to check
     /// again where it runs (a terminal command's folder and variables, ADR 0142).
     allowed_scopes: Mutex<HashMap<String, String>>,
@@ -235,10 +253,14 @@ pub struct Engine {
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
     /// Bots' sandbox, network policies and grants (ADR 0167), once the server has set them.
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
+    /// The local model servers Spade looks for; Ollama's and LM Studio's defaults when unset.
+    local_servers: Mutex<Option<Vec<crate::local_models::LocalServer>>>,
     /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
     digests: digests::Shared,
+    /// What reaches the person and what waits for them (ADR 0195, `reach`).
+    reach: reach::Shared,
     /// Bots moving to or from another machine (ADR 0187, `moves`).
     moves: moves::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
@@ -287,7 +309,11 @@ impl Engine {
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
             .with_tool(Arc::new(BotMessage(handle.clone())))
-            .with_tool(Arc::new(HelperTool(handle.clone())));
+            .with_tool(Arc::new(HelperTool(handle.clone())))
+            // A bot's own task, name and face.
+            .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ProfileUpdate(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ClubAdd(handle.clone())));
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -341,6 +367,7 @@ impl Engine {
             brains: brain::Brains::default(),
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
+            apps: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             launches: Mutex::default(),
@@ -350,8 +377,10 @@ impl Engine {
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
+            local_servers: Mutex::new(None),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
+            reach: reach::Shared::default(),
             moves: moves::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
@@ -980,16 +1009,22 @@ impl Engine {
         self.forget_activity(id);
         let stored = stored?;
         if let spade_store::Delivered::Stored(events) = &stored {
-            for event in events {
-                let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
-            }
-            // The tree follows, and the worker is checked for a report (ADR 0161).
-            let written: Vec<Event> = events.iter().map(|e| e.event.clone()).collect();
-            self.workers_stored(id, &written);
-            // Events that reach the person go out as notices, with their level (ADR 0165).
-            self.notice_stored(id, events);
+            self.publish_stored(id, events);
         }
         Ok(stored)
+    }
+
+    /// Sends events just stored in conversation `id` to its subscribers, the tree and the
+    /// person's notices, in order; for a store write that appended them itself.
+    fn publish_stored(&self, id: &str, events: &[StoredEvent]) {
+        for event in events {
+            let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
+        }
+        // The tree follows, and the worker is checked for a report (ADR 0161).
+        let written: Vec<Event> = events.iter().map(|e| e.event.clone()).collect();
+        self.workers_stored(id, &written);
+        // Events that reach the person go out as notices, with their level (ADR 0165).
+        self.notice_stored(id, events);
     }
 
     /// Records `cost` micros spent on `model` in conversation `id` for `role` (ADR 0162); with

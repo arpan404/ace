@@ -52,6 +52,9 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     private var origin: URL?
     private let secrets: any SecretStore
     private let now: () -> Double
+    private let aceClient: String?
+    private let allowLoopback: Bool
+    private let pollInterval: Duration
     private let http = URLSession(configuration: .ephemeral, delegate: AccountRedirects(), delegateQueue: nil)
     private var token: String?
     @ObservationIgnored private var work: Task<Void, Never>?
@@ -59,17 +62,21 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     private var key: String { origin?.absoluteString ?? "" }
 
     init(settings: Bundle = .main, secrets: any SecretStore = KeychainSecrets(service: "app.ace.ios.account"),
-         now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }) {
+         now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
+         origin overrideOrigin: URL? = nil,
+         aceClient: String? = AceCloudRequest.defaultClient,
+         allowLoopback: Bool = false,
+         pollInterval: Duration = .seconds(2)) {
         self.secrets = secrets
         self.now = now
-        let value = settings.object(forInfoDictionaryKey: "AceAccountURL") as? String ?? ""
-        let url = URL(string: value)
-        let loopback = ["localhost", "127.0.0.1", "[::1]"].contains(url?.host ?? "")
-        if let url, url.host != nil, url.user == nil, url.password == nil,
-           url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/",
-           url.scheme == "https" || (url.scheme == "http" && loopback) {
-            origin = url
-        } else { origin = nil }
+        self.aceClient = aceClient
+        self.allowLoopback = allowLoopback
+        self.pollInterval = pollInterval
+        if let overrideOrigin {
+            origin = AceAccountAPI.origin(from: overrideOrigin.absoluteString)
+        } else {
+            origin = AceAccountAPI.origin(from: settings.object(forInfoDictionaryKey: "AceAccountURL") as? String)
+        }
     }
 
     func restore() async {
@@ -118,7 +125,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
                       validToken(flow.id), validToken(flow.secret) else { throw AccountFailure.invalid }
                 login = flow
                 while !Task.isCancelled {
-                    try await Task.sleep(for: .seconds(2))
+                    try await Task.sleep(for: pollInterval)
                     guard flow.expiresAt > now() else { throw AccountFailure.expired }
                     let result: AccountPoll
                     do { result = try await call("login/\(flow.id)", token: flow.secret) }
@@ -195,8 +202,12 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     /// Reads the picture once per session. Only PNG, JPEG, WebP or GIF up to 1 MiB, as the web.
     private func loadPicture() async {
         guard let origin, let token, account?.picture == true else { picture = nil; return }
-        var request = URLRequest(url: origin.appending(path: "v1/account/picture"))
-        request.timeoutInterval = 15
+        var request = AceCloudRequest.make(
+            url: origin.appending(path: "v1/account/picture"),
+            timeoutInterval: 15,
+            client: aceClient,
+            allowLoopback: allowLoopback
+        )
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         guard let (bytes, response) = try? await http.bytes(for: request),
               let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode),
@@ -227,8 +238,13 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     }
     private func call<T: Decodable>(_ path: String, method: String = "GET", token: String? = nil, body: [String: String]? = nil) async throws -> T {
         guard let origin else { throw AccountFailure.request }
-        var request = URLRequest(url: origin.appending(path: path.isEmpty ? "v1/account" : "v1/account/\(path)"))
-        request.httpMethod = method; request.timeoutInterval = 15
+        var request = AceCloudRequest.make(
+            url: origin.appending(path: path.isEmpty ? "v1/account" : "v1/account/\(path)"),
+            timeoutInterval: 15,
+            client: aceClient,
+            allowLoopback: allowLoopback
+        )
+        request.httpMethod = method
         if let body {
             request.httpBody = try JSONEncoder().encode(body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

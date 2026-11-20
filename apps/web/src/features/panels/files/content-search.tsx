@@ -1,31 +1,36 @@
-import { CaretRightIcon, XIcon } from "@ace/icons";
+import { XIcon } from "@ace/icons";
 import type { FileSearchFile, FileSearchLine } from "@ace/protocol";
-import { useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type Ref,
+  type RefObject,
+} from "react";
 import { VirtualList } from "@/components/virtual-rows.tsx";
-import { Icon } from "@/components/icon.tsx";
-import { fileIcon } from "@/components/file-icon.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { ContentQuery } from "./content-search-source.ts";
+import { FileRow, LineRow, plural } from "./content-search-rows.tsx";
 import {
-  matchCount,
+  hitKey,
+  lineHit,
   type ContentSearchState,
   type ContentSearchStore,
+  type SearchHit,
 } from "./content-search-store.ts";
 
 /** Past this many rows, only those near the viewport mount. */
 const virtualAbove = 200;
-/** Characters a preview keeps before its first match, so a match far into a line shows. */
-const lead = 24;
 
 type Row =
   | { kind: "file"; key: string; file: FileSearchFile; open: boolean }
   | { kind: "line"; key: string; path: string; line: FileSearchLine };
 
 const count = (value: number) => value.toLocaleString();
-const plural = (value: number, one: string, many: string) =>
-  `${count(value)} ${value === 1 ? one : many}`;
 
 /** "12 results in 3 files", or what the search is doing instead. */
 function statusLine(state: ContentSearchState): string | undefined {
@@ -35,28 +40,6 @@ function statusLine(state: ContentSearchState): string | undefined {
   if (state.status === "failed") return state.error?.message ?? "The search failed.";
   const matches = plural(state.matches, "result", "results");
   return `${matches} in ${plural(state.files.length, "file", "files")}`;
-}
-
-/** A preview line with its matches marked, cut in front when the first match is far in. */
-function Preview(props: { line: FileSearchLine }) {
-  const { preview, ranges } = props.line;
-  const first = ranges[0]?.[0] ?? 0;
-  const from = first > lead ? first - lead : 0;
-  const parts: ReactNode[] = from ? ["…"] : [];
-  let at = from;
-  for (const [index, [start, end]] of ranges.entries()) {
-    if (end <= at) continue;
-    const begin = Math.max(start, at);
-    if (begin > at) parts.push(preview.slice(at, begin));
-    parts.push(
-      <mark key={index} className="rounded-xs bg-foreground/18 text-foreground">
-        {preview.slice(begin, end)}
-      </mark>,
-    );
-    at = end;
-  }
-  if (at < preview.length) parts.push(preview.slice(at));
-  return <span className="min-w-0 truncate whitespace-pre">{parts}</span>;
 }
 
 /** ↑ and ↓ walk the result rows that are mounted. */
@@ -107,7 +90,9 @@ function FilterField(props: { label: string; value: string; onChange(value: stri
 /**
  * Search across the checkout's file contents, as an editor's Search view: one field with case,
  * whole-word and regex toggles, optional include and exclude globs, then the matches grouped
- * by file. Enter or a click on a match opens the file at its line and column.
+ * by file. Enter or a click on a match opens the file with the match selected; the list, its
+ * folds and its scroll stay as they were. F4 and ⇧F4 open the next and previous hit from
+ * anywhere in the panel.
  */
 export function ContentSearch({
   ref,
@@ -117,32 +102,41 @@ export function ContentSearch({
   ref?: Ref<HTMLInputElement> | undefined;
   store: ContentSearchStore;
   state: ContentSearchState;
-  onOpen(path: string, line: number, column: number, keep: boolean): void;
+  /** Open a hit: at `line` (1-based) and `column`, the match `length` long. */
+  onOpen(path: string, line: number, column: number, keep: boolean, length?: number): void;
   /** Esc in an empty field: back to the file tree. */
   onClose(): void;
 }) {
   const { store, state } = props;
   const query = state.query;
   const [filters, setFilters] = useState(() => Boolean(query.include || query.exclude));
-  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const update = (patch: Partial<ContentQuery>) => store.update(patch);
   const rows: Row[] = [];
+  let widest = 0;
   for (const file of state.files) {
-    const open = !closed.has(file.path);
+    const open = !state.closed.has(file.path);
     rows.push({ kind: "file", key: `f:${file.path}`, file, open });
+    for (const line of file.lines) widest = Math.max(widest, line.line);
     if (open)
       for (const line of file.lines)
         rows.push({ kind: "line", key: `l:${file.path}:${line.line}`, path: file.path, line });
   }
-  const toggleFile = (path: string) =>
-    setClosed((previous) => {
-      const next = new Set(previous);
-      if (!next.delete(path)) next.add(path);
-      return next;
-    });
+  const digits = Math.max(2, String(widest).length);
+  const open = (hit: SearchHit, keep: boolean) => {
+    store.pick(hit);
+    props.onOpen(hit.path, hit.line, hit.column, keep, hit.length);
+  };
+  const root = useRef<HTMLDivElement>(null);
+  useStepKeys(store, props.onOpen, root);
+  // The list mounts again after a pick (the tab it sits in turns into the file): it comes back
+  // scrolled where it was.
+  const list = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (list.current) list.current.scrollTop = store.scrolled;
+  }, [store]);
   const status = statusLine(state);
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={root} className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-col gap-1.5 px-2 pb-1.5">
         <label className="relative flex h-8 min-w-0 items-center rounded-md bg-foreground/5 shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--motion-fast) focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
           <input
@@ -241,9 +235,11 @@ export function ContentSearch({
         )}
       </div>
       <div
+        ref={list}
         role="presentation"
         className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
         onKeyDown={onListKeys}
+        onScroll={(event) => store.keepScroll(event.currentTarget.scrollTop)}
       >
         <VirtualList
           items={rows}
@@ -253,37 +249,19 @@ export function ContentSearch({
           estimate={28}
           render={(row) =>
             row.kind === "file" ? (
-              <FileRow row={row} onToggle={() => toggleFile(row.file.path)} />
+              <FileRow
+                file={row.file}
+                open={row.open}
+                onToggle={() => store.toggle(row.file.path)}
+              />
             ) : (
-              <button
-                type="button"
-                data-search-row
-                aria-label={`${row.path} line ${row.line.line}: ${row.line.preview.trim()}`}
-                onClick={(event) =>
-                  props.onOpen(
-                    row.path,
-                    row.line.line,
-                    row.line.column + (row.line.ranges[0]?.[0] ?? 0),
-                    event.detail > 1,
-                  )
-                }
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") return;
-                  event.preventDefault();
-                  props.onOpen(
-                    row.path,
-                    row.line.line,
-                    row.line.column + (row.line.ranges[0]?.[0] ?? 0),
-                    true,
-                  );
-                }}
-                className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm pr-2 pl-7 text-left font-mono text-xs text-muted-foreground outline-none select-none hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)]"
-              >
-                <span className="w-8 shrink-0 text-right text-subtle-foreground tabular-nums">
-                  {row.line.line}
-                </span>
-                <Preview line={row.line} />
-              </button>
+              <LineRow
+                path={row.path}
+                line={row.line}
+                digits={digits}
+                current={state.cursor === hitKey(row.path, row.line.line)}
+                onOpen={(keep) => open(lineHit(row.path, row.line), keep)}
+              />
             )
           }
         />
@@ -292,39 +270,37 @@ export function ContentSearch({
   );
 }
 
-function FileRow(props: { row: Extract<Row, { kind: "file" }>; onToggle(): void }) {
-  const { file, open } = props.row;
-  const matches = matchCount(file);
-  const slash = file.path.lastIndexOf("/");
-  const name = file.path.slice(slash + 1);
-  const folder = slash > 0 ? file.path.slice(0, slash) : "";
-  return (
-    <button
-      type="button"
-      data-search-row
-      aria-expanded={open}
-      aria-label={`${file.path}, ${plural(matches, "result", "results")}`}
-      onClick={props.onToggle}
-      className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ui outline-none select-none hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)]"
-    >
-      <span className="grid size-4 shrink-0 place-items-center">
-        <CaretRightIcon
-          aria-hidden
-          size={10}
-          className={cn(
-            "text-subtle-foreground transition-transform duration-(--motion-fast)",
-            open && "rotate-90",
-          )}
-        />
-      </span>
-      <Icon icon={fileIcon(file.path)} size={14} className="shrink-0 text-subtle-foreground" />
-      <span className="min-w-0 truncate">
-        <span className="text-foreground">{name}</span>
-        {folder && <span className="ml-1.5 text-xs text-subtle-foreground">{folder}</span>}
-      </span>
-      <span className="ml-auto shrink-0 text-xs text-subtle-foreground tabular-nums">
-        {count(matches)}
-      </span>
-    </button>
-  );
+type OpenHit = Parameters<typeof ContentSearch>[0]["onOpen"];
+
+/**
+ * F4 and ⇧F4 open the next and previous hit as a glance, while focus is in the panel the search
+ * sits in (or nowhere, as after the list mounted again). Several mounted views of one search
+ * step once: the first to see the key takes it. The editor binds these in its keymap scope.
+ */
+function useStepKeys(
+  store: ContentSearchStore,
+  onOpen: OpenHit,
+  root: RefObject<HTMLElement | null>,
+) {
+  const latest = useRef(onOpen);
+  useEffect(() => {
+    latest.current = onOpen;
+  });
+  useEffect(() => {
+    const doc = root.current?.ownerDocument;
+    if (!doc) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "F4" || event.defaultPrevented) return;
+      if (event.altKey || event.metaKey || event.ctrlKey) return;
+      const panel = root.current?.closest("[data-panel]");
+      const active = doc.activeElement;
+      if (!panel || (active && active !== doc.body && !panel.contains(active))) return;
+      const hit = store.step(event.shiftKey ? -1 : 1);
+      if (!hit) return;
+      event.preventDefault();
+      latest.current(hit.path, hit.line, hit.column, false, hit.length);
+    };
+    doc.addEventListener("keydown", onKey);
+    return () => doc.removeEventListener("keydown", onKey);
+  }, [store, root]);
 }

@@ -10,6 +10,7 @@ import { useNow } from "@/lib/time.ts";
 import { part } from "@/lib/suit-part.ts";
 import type { FilesAt } from "./computer/profile-computer.tsx";
 import { LibraryPage } from "./spade-library-page.tsx";
+import { LibraryLearnedFrom } from "./spade-provenance.tsx";
 import { LibraryPages } from "./spade-library-pages.tsx";
 import { LibraryEpisode, LibraryPast } from "./spade-library-past.tsx";
 import { LibraryResults, LibrarySearchField } from "./spade-library-search.tsx";
@@ -62,6 +63,7 @@ export function ProfileLibrary(props: { bot: RosterBot; onOpenFile(files: FilesA
               heading="About you"
               label="About you"
               placeholder="Add something every bot should know about you"
+              bot={bot.id}
             />
           )}
           <SpadeNotes
@@ -69,8 +71,10 @@ export function ProfileLibrary(props: { bot: RosterBot; onOpenFile(files: FilesA
             heading="Notes"
             label={`${bot.name}'s memory`}
             placeholder={`Add something for ${bot.name} to remember`}
+            bot={bot.id}
           />
           <LibraryPages bot={bot} onOpen={openPage} />
+          <LibraryLearnedFrom bot={bot} />
           <LibraryPast bot={bot} onOpen={openEpisode} />
           <Files bot={bot} onOpen={props.onOpenFile} />
           <Skills bot={bot} />

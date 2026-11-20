@@ -75,6 +75,21 @@ const eagerLazyImports: Plugin = {
   },
 };
 
+/**
+ * Test-only: the editor's Wasm (`@ace/editor` and its glue) resolves to a stand-in, since this
+ * bundle runs in Node where the loader can't fetch it. What the merge worker defines with Zod
+ * at load still runs for real.
+ */
+const editorWasmStandIn: Plugin = {
+  name: "editor-wasm-stand-in",
+  enforce: "pre",
+  resolveId: (id) => (id === "@ace/editor" || id.startsWith("@ace/editor/pkg/") ? `\0${id}` : null),
+  load: (id) =>
+    id.startsWith("\0@ace/editor")
+      ? "export const init = async () => {}; export const merge3 = () => ({ clean: true, text: '', chunks: [] }); export const lineChanges = () => [];"
+      : null,
+};
+
 async function bundle(plugins: Plugin[], source = entrySource): Promise<string> {
   const result = await build({
     configFile: false,
@@ -411,6 +426,7 @@ beforeAll(async () => {
       zodPureSchemas(),
       workerZod(),
       eagerLazyImports,
+      editorWasmStandIn,
     ],
     `
       export { ClientMessage, ServerMessage, ScreenUITreeResult } from "@ace/protocol";
@@ -427,6 +443,7 @@ beforeAll(async () => {
       import "@/lib/diffs/diff.worker.ts";
       import "@/components/markdown/highlight.worker.ts";
       import "@/features/panels/files/find.worker.ts";
+      import "@/features/editor-workbench/buffers/merge.worker.ts";
       import "@/notification-worker.ts";
     `,
   );

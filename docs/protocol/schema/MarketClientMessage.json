@@ -6,6 +6,11 @@
     "operation": {
       "$ref": "https://ace.local/protocol/v1/MarketOperation.json"
     },
+    "personGrant": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
     "requestId": {
       "maxLength": 80,
       "minLength": 1,

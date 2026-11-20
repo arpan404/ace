@@ -23,7 +23,8 @@ test("the client says it reads packed frames, and reads each message of one in o
   void h.client.start();
   const peer = await h.connection(0);
   const hello = await peer.next("hello");
-  expect(hello.framing).toEqual(["lines"]);
+  // Packed lines, and streamed deltas in short form (ADR 0088, commit 25fd628a4).
+  expect(hello.framing).toEqual(["lines", "short-deltas"]);
   // `starting` must be read before `welcome`, or the connection never becomes ready.
   peer.sendPacked([
     { type: "starting" },

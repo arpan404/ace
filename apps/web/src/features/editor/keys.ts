@@ -1,8 +1,8 @@
 import type { Position, Selection } from "@ace/editor";
 import { useRef, type KeyboardEvent } from "react";
-import { commentToken } from "./comment.ts";
 import {
   caret,
+  sameSelections,
   documentEnd,
   moveAll,
   nextWord as nextWordColumn,
@@ -12,7 +12,10 @@ import {
   stepForward,
 } from "./cursor.ts";
 import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
-import { columnAtVisual } from "./geometry.ts";
+import { lineCommand } from "./line-keys.ts";
+import { isTabFocusToggle, tabFocus } from "./tab-focus.ts";
+import { columnAtVisual, tabSize } from "./geometry.ts";
+import { boxFrom, boxHead, cursorsAtLineEnds, moveBox, type Box } from "./multi-cursor.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
 import type { RowLayout } from "./wrap-index.ts";
 import { atHardBreak, rowOffset, rowOfColumn, rowText } from "./wrap.ts";
@@ -34,18 +37,29 @@ export interface EditorKeyOptions {
   state: EditorDocumentState;
   readOnly: boolean;
   path: string;
+  /** A language picked in the status line (null: plain text), for the comment keys. */
+  language?: string | null | undefined;
   /** Visible rows, for Page Up and Page Down. */
   rows: number;
   /** The document's visual rows, so Up and Down move a row and not a line. */
   layout: RowLayout | undefined;
-  onFind?: (() => void) | undefined;
+  /** Cmd+F opens find; Cmd+Alt+F (Cmd+H off macOS too) opens it with the replace row. */
+  onFind?: ((mode: "find" | "replace") => void) | undefined;
+  /** Cmd+G and Shift+Cmd+G: the next or previous match. */
+  onFindAgain?: ((delta: 1 | -1) => void) | undefined;
   onSave?: (() => void) | undefined;
+  /** Cmd+Alt+[ folds the region at each caret, Cmd+Alt+] opens it. */
+  onFold?: ((kind: "fold" | "unfold") => void) | undefined;
+  /** Ctrl+G: ask for a line to go to. */
+  onGoToLine?: (() => void) | undefined;
   /** Returns true when Escape closed something (find); false collapses the carets. */
   onEscape?: (() => boolean) | undefined;
   /** Alt+Z: the person asked for wrap to toggle, as VS Code's own shortcut does. */
   onToggleWrap?: (() => void) | undefined;
   /** Each caret's side of a hard break, as the last move left it (VS Code's Before). */
   affinity: Affinity;
+  /** The second key of a Cmd+K chord this file does not own (folding); true when handled. */
+  onChord?: ((event: KeyboardEvent<HTMLTextAreaElement>) => boolean) | undefined;
   /** Records every caret's side of a hard break after a move. */
   onBefore(affinity: Affinity): void;
   /** Brings a position into view, drawn on the side of a hard break the move asked for. */
@@ -56,6 +70,14 @@ export function useEditorKeys(options: EditorKeyOptions) {
   const { state, path, layout } = options;
   const mac = isMacPlatform();
   const goal = useRef<number | undefined>(undefined);
+  /** Expand selection's steps, newest last, so shrink can walk back through them. */
+  const expansions = useRef<{ before: readonly Selection[]; after: readonly Selection[] }[]>([]);
+  /** Cmd+K was pressed: the next key completes a chord. */
+  const chord = useRef(false);
+  /** Escape was the last key: a Tab now leaves the editor once, as it does in VS Code's mode. */
+  const escaped = useRef(false);
+  /** The keyboard box selection, while the selections are still the ones it made. */
+  const box = useRef<{ box: Box; selections: readonly Selection[] } | undefined>(undefined);
 
   const line = (index: number): string => state.doc?.line(index) ?? "";
   const lastLine = (): number => Math.max(0, (state.doc?.lenLines() ?? 1) - 1);
@@ -120,6 +142,13 @@ export function useEditorKeys(options: EditorKeyOptions) {
     if (!doc) return;
     const primary = doc.primarySelection();
     options.reveal(doc.selections()[primary]?.head ?? head(), isBefore(affinity, primary));
+  };
+
+  /** After a selection command: no caret is on a hard break's side, and the newest is shown. */
+  const revealPrimary = () => {
+    options.onBefore(noAffinity);
+    const doc = state.doc;
+    if (doc) options.reveal(doc.selections()[doc.primarySelection()]?.head ?? head(), false);
   };
 
   const vertical = (delta: number, extend: boolean) => {
@@ -187,6 +216,18 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const mod = mac ? event.metaKey : event.ctrlKey;
     const word = mac ? event.altKey : event.ctrlKey;
     const key = event.key;
+    const afterEscape = escaped.current;
+    if (!/^(Shift|Control|Alt|Meta)$/.test(key)) escaped.current = false;
+
+    if (isTabFocusToggle(event, mac)) {
+      event.preventDefault();
+      tabFocus.toggle();
+      return;
+    }
+    // Tab moves focus on (or once, right after Escape): the browser takes it to the next control.
+    if (key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (tabFocus.on || afterEscape) return;
+    }
 
     // Alt+Z: macOS reports the Option key's character, every other platform the letter.
     const togglesWrap = mac ? event.code === "KeyZ" : key.toLowerCase() === "z";
@@ -215,10 +256,37 @@ export function useEditorKeys(options: EditorKeyOptions) {
       options.reveal(last, false);
       return;
     }
-    if (mod && key.toLowerCase() === "f") {
+    // Cmd+F, and Cmd+Alt+F for replace: by key position, as macOS types ƒ with Alt held.
+    if (mod && (event.code === "KeyF" || key.toLowerCase() === "f")) {
       if (options.readOnly) return;
       event.preventDefault();
-      options.onFind?.();
+      options.onFind?.(event.altKey ? "replace" : "find");
+      return;
+    }
+    // Cmd+H (Ctrl+H) opens replace too, where the system lets the key reach the page.
+    if (mod && !event.altKey && !event.shiftKey && key.toLowerCase() === "h") {
+      if (options.readOnly) return;
+      event.preventDefault();
+      options.onFind?.("replace");
+      return;
+    }
+    // Ctrl+G is go to line on every platform; Cmd+G (F3 anywhere) is the next match on macOS.
+    if (
+      event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      key.toLowerCase() === "g"
+    ) {
+      if (!options.onGoToLine) return;
+      event.preventDefault();
+      options.onGoToLine();
+      return;
+    }
+    if ((mac && event.metaKey && !event.altKey && key.toLowerCase() === "g") || key === "F3") {
+      if (!options.onFindAgain) return;
+      event.preventDefault();
+      options.onFindAgain(event.shiftKey ? -1 : 1);
       return;
     }
     if (mod && key.toLowerCase() === "s") {
@@ -227,55 +295,127 @@ export function useEditorKeys(options: EditorKeyOptions) {
       options.onSave();
       return;
     }
-    if (!options.readOnly && mod && key === "/") {
-      const token = commentToken(path);
-      if (!token) return;
+    const command = options.readOnly ? undefined : lineCommand(event, mac, path, options.language);
+    if (command) {
       event.preventDefault();
-      state.edit((target) => target.toggleLineComment(token));
+      goal.current = undefined;
+      if (command.kind === "edit") state.edit(command.run);
+      else {
+        commitMove(command.run(doc));
+        return;
+      }
+      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
+      return;
+    }
+    // Cmd+K starts a chord: the next key decides (Cmd+K Cmd+D skips an occurrence).
+    // A modifier on its own (the Cmd held for a chord's second key) neither ends nor makes one.
+    if (/^(Shift|Control|Alt|Meta)$/.test(key)) return;
+    if (chord.current) {
+      chord.current = false;
+      if (mod && !event.altKey && key.toLowerCase() === "d") {
+        event.preventDefault();
+        if (state.selectBy((target) => target.skipOccurrence())) revealPrimary();
+        return;
+      }
+      if (options.onChord?.(event)) {
+        event.preventDefault();
+        return;
+      }
+    }
+    // Ctrl+Shift+Cmd+Right/Left on macOS, Shift+Alt+Right/Left elsewhere: expand and shrink.
+    const smartSelect = mac
+      ? event.ctrlKey && event.metaKey && event.shiftKey && !event.altKey
+      : event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey;
+    if (smartSelect && (key === "ArrowRight" || key === "ArrowLeft")) {
+      event.preventDefault();
+      goal.current = undefined;
+      const steps = expansions.current;
+      const top = steps.at(-1);
+      // A shrink only walks back while the cursors are still the ones the last expansion made.
+      if (top && !sameSelections(top.after, doc.selections())) steps.length = 0;
+      if (key === "ArrowRight") {
+        const before = doc.selections();
+        if (state.selectBy((target) => target.expandSelection())) {
+          steps.push({ before, after: doc.selections() });
+          revealPrimary();
+        }
+      } else {
+        const last = steps.pop();
+        if (last) commitMove(last.before);
+      }
+      return;
+    }
+    if (mod && event.altKey && (event.code === "BracketLeft" || event.code === "BracketRight")) {
+      if (!options.onFold) return;
+      event.preventDefault();
+      options.onFold(event.code === "BracketLeft" ? "fold" : "unfold");
+      return;
+    }
+    if (mod && !event.altKey && !event.shiftKey && event.code === "KeyK") {
+      event.preventDefault();
+      chord.current = true;
+      return;
+    }
+    if (mod && event.shiftKey && !event.altKey && event.code === "KeyL") {
+      event.preventDefault();
+      goal.current = undefined;
+      if (state.selectBy((target) => target.selectAllOccurrences())) revealPrimary();
+      return;
+    }
+    if (mod && !event.shiftKey && !event.altKey && event.code === "KeyU") {
+      event.preventDefault();
+      goal.current = undefined;
+      const back = state.undoCursor();
+      if (back) commitMove(back);
+      return;
+    }
+    if (!mod && event.altKey && event.shiftKey && event.code === "KeyI") {
+      event.preventDefault();
+      goal.current = undefined;
+      commitMove(cursorsAtLineEnds(doc));
+      return;
+    }
+    // Shift+Alt+Cmd+arrows (Shift+Alt+Ctrl elsewhere): grow a box selection from the keyboard.
+    if (mod && event.altKey && event.shiftKey && key.startsWith("Arrow")) {
+      event.preventDefault();
+      goal.current = undefined;
+      const current = doc.selections();
+      const start =
+        box.current && sameSelections(box.current.selections, current)
+          ? box.current.box
+          : boxFrom(doc);
+      const next = moveBox(start, key, doc.lenLines());
+      options.onBefore(noAffinity);
+      state.selectBy((target) =>
+        target.selectColumn(
+          { line: next.anchor.line, column: next.anchor.visual },
+          { line: next.head.line, column: next.head.visual },
+          tabSize,
+        ),
+      );
+      box.current = { box: next, selections: doc.selections() };
+      options.reveal(boxHead(doc, next), false);
       return;
     }
     // Shift+mod+D is ace's Changes shortcut: leave it for the page.
     if (!options.readOnly && mod && !event.shiftKey && key.toLowerCase() === "d") {
       event.preventDefault();
-      if (doc.selectNextOccurrence()) {
-        options.onBefore(noAffinity);
-        state.select(doc.selections());
-      }
-      return;
-    }
-    if (!options.readOnly && key === "Tab") {
-      event.preventDefault();
-      state.edit((target) => (event.shiftKey ? target.outdentLines() : target.indentLines()));
-      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
-      return;
-    }
-    if (!options.readOnly && event.altKey && event.shiftKey && key === "ArrowDown") {
-      event.preventDefault();
-      goal.current = undefined;
-      state.edit((target) => target.duplicateLines());
-      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
-      return;
-    }
-    if (
-      !options.readOnly &&
-      event.altKey &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      (key === "ArrowUp" || key === "ArrowDown")
-    ) {
-      event.preventDefault();
-      goal.current = undefined;
-      state.edit((target) => (key === "ArrowUp" ? target.moveLinesUp() : target.moveLinesDown()));
-      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
+      if (state.selectBy((target) => target.selectNextOccurrence())) revealPrimary();
       return;
     }
     if (key === "Escape") {
       event.preventDefault();
+      escaped.current = true;
       if (options.onEscape?.()) return;
       const position = head();
       goal.current = undefined;
       options.onBefore(noAffinity);
-      state.select([caret(position.line, position.column)]);
+      // More than one cursor: back to the primary one as it is; one selection: back to a caret.
+      const selections = doc.selections();
+      const primary = selections[doc.primarySelection()];
+      state.select(
+        selections.length > 1 && primary ? [primary] : [caret(position.line, position.column)],
+      );
       options.reveal(position, false);
       return;
     }

@@ -6,6 +6,10 @@ import { keyboardEnv, recordChord } from "@/lib/keybindings.ts";
 import { desktopAccelerator, desktopShortcutLabel } from "@/lib/desktop-shortcut.ts";
 
 export function DesktopShortcut(props: {
+  /** What the shortcut does, for its button ("Quick-thread global shortcut"). */
+  label?: string;
+  /** Its Turn off button's name. */
+  offLabel?: string;
   value: string | null;
   onChange(value: string | null): void;
 }) {
@@ -16,7 +20,7 @@ export function DesktopShortcut(props: {
       <Button
         size="sm"
         variant="secondary"
-        aria-label="Quick-thread global shortcut"
+        aria-label={props.label ?? "Quick-thread global shortcut"}
         onClick={() => {
           setRecording(true);
           setProblem(false);
@@ -41,7 +45,7 @@ export function DesktopShortcut(props: {
       {props.value && (
         <IconButton
           icon={XIcon}
-          label="Turn off global shortcut"
+          label={props.offLabel ?? "Turn off global shortcut"}
           size="sm"
           onClick={() => props.onChange(null)}
         />

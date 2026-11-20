@@ -190,6 +190,7 @@ async fn a_chain_of_bot_messages_past_the_runaway_guard_is_refused() -> Result {
                 }),
                 from_routine: None,
                 from_group: None,
+                from_thread: None,
             }),
             1,
         )?;

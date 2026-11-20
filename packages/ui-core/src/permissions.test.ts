@@ -32,7 +32,7 @@ test("the access menu shows ace's four modes, without the ones a provider can't 
 
 test("a default a provider lacks runs as its nearest stricter mode and the chip says why", () => {
   expect(supportedAccess("auto-review", offers("opencode"))).toBe("ask");
-  expect(supportedAccess("ask", offers("cursor"))).toBeUndefined();
+  expect(supportedAccess("ask", offers("cursor"))).toBe("auto-review");
   const summary = threadAccessSummary(
     { override: null, effective: "ask", pending: false },
     offers("opencode"),
@@ -71,12 +71,13 @@ test("a new thread runs at the draft's choice, else the project's default, else 
     "ask",
   );
   const project = newThreadAccess({ ...base, chosen: undefined, projectDefault: "read-only" });
-  expect([project.admitted, project.permission]).toEqual(["read-only", "read-only"]);
+  // The daemon applies the project's default itself; only the person's own pick is sent.
+  expect([project.admitted, project.permission]).toEqual(["read-only", undefined]);
   const chosen = newThreadAccess({ ...base, chosen: "full-access", projectDefault: "read-only" });
   expect([chosen.admitted, chosen.summary?.label]).toEqual(["full-access", "Full access"]);
 });
 
-test("a new thread never runs looser than asked: it steps down, or Send waits with the reason", () => {
+test("a new thread runs its mode's nearest offer: it steps down, else up, and the chip says why", () => {
   const stepped = newThreadAccess({
     chosen: "auto-review",
     projectDefault: undefined,
@@ -92,13 +93,12 @@ test("a new thread never runs looser than asked: it steps down, or Send waits wi
     offers: offers("cursor"),
     provider: "Cursor",
   });
-  expect(none.permission).toBeUndefined();
-  expect(none.problem).toBe(
-    "Cursor has nothing as strict as Ask. Choose its access before sending.",
-  );
+  // It runs as Auto review, but the create carries Ask: the daemon says it runs looser.
+  expect([none.admitted, none.permission, none.problem]).toEqual(["auto-review", "ask", undefined]);
+  expect(none.summary?.stricter).toBe("Ask isn't available for Cursor");
 });
 
-test("before the provider's modes are read only a mode picked here goes with the create", () => {
+test("only a mode picked here goes with the create, whether or not the modes are read", () => {
   const unread = { offers: [], provider: undefined, projectDefault: "ask" } as const;
   expect(
     newThreadAccess({ ...unread, chosen: undefined, daemonDefault: "full-access" }).permission,

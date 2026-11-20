@@ -83,6 +83,11 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       quit: () => call("app.quit"),
       reload: () => call("app.reload"),
     },
+    drafts: {
+      /** The app is quitting: write pending drafts, then call `flushed` saying whether they are kept. */
+      onFlush: (listener: () => void) => subscribe("drafts.flush", () => listener()),
+      flushed: (kept: boolean) => call("drafts.flushed", { kept }),
+    },
     /** The menu-bar popover's own requests; refused from any other page. */
     tray: {
       open: (link: RequestOf<"tray.open">) => call("tray.open", link),
@@ -184,12 +189,14 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       get: () => call("settings.get"),
       update: (patch: RequestOf<"settings.update">) => call("settings.update", patch),
       shortcutHint: () => call("settings.shortcutHint"),
+      talkShortcutHint: () => call("settings.talkShortcutHint"),
       onChange: (listener: (value: EventOf<"settings.changed">) => void) =>
         subscribe("settings.changed", listener),
     },
     permissions: {
       status: () => call("permissions.status"),
       open: (pane: RequestOf<"permissions.open">) => call("permissions.open", pane),
+      microphone: () => call("permissions.microphone"),
     },
     browser: {
       onShortcut: (listener: (value: EventOf<"browser.shortcut">) => void) =>
@@ -237,6 +244,10 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
         subscribe("spade.live", listener),
       onEndpointChanged: (listener: () => void) =>
         subscribe("spade.endpoint.changed", () => listener()),
+      /** Push to talk to the main Spade: the shortcut's presses. */
+      onTalk: (listener: (phase: EventOf<"spade.talk">) => void) =>
+        subscribe("spade.talk", listener),
+      talkState: (state: RequestOf<"spade.talkState">) => call("spade.talkState", state),
     },
     diagnostics: {
       /**

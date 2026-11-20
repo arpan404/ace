@@ -2,7 +2,25 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { afterEach, expect, test, vi } from "vitest";
+import { windowSessionStorage } from "@/boot/window-session.ts";
 import { harness } from "@/test/harness.tsx";
+
+const origin = "https://backend.example.com";
+const sessionKey = `ace.account.session:${origin}`;
+
+/**
+ * A session this window already holds. It lives in the window's memory, never in
+ * sessionStorage, which the browser keeps on disk (ADR 0190).
+ */
+function holdSession(session: object) {
+  windowSessionStorage().setItem(sessionKey, JSON.stringify(session));
+}
+
+/** Signed out: the window holds no session, and none was ever written to disk. */
+function expectNoSession() {
+  expect(windowSessionStorage().getItem(sessionKey)).toBeNull();
+  expect(sessionStorage.getItem(sessionKey)).toBeNull();
+}
 
 /** Sign out asks first; this answers it. */
 async function confirmSignOut() {
@@ -14,6 +32,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   sessionStorage.clear();
+  windowSessionStorage().removeItem?.(sessionKey);
 });
 
 test("local settings remain usable without an ace account deployment", async () => {
@@ -31,14 +50,13 @@ test("local settings remain usable without an ace account deployment", async () 
 });
 
 test("a saved account finishes restoring before sign-out becomes available", async () => {
-  const origin = "https://backend.example.com";
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
   const session = {
     token: "t".repeat(43),
     expiresAt: 1_900_000_000_000,
     account: { id: "user_saved", email: "saved@example.com", name: "Saved Person" },
   };
-  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  holdSession(session);
   let finish: ((value: Response) => void) | undefined;
   const response = new Promise<Response>((resolve) => {
     finish = resolve;
@@ -53,7 +71,6 @@ test("a saved account finishes restoring before sign-out becomes available", asy
 });
 
 test("browser sign-in survives a transient backend failure and sign-out removes its session", async () => {
-  const origin = "https://backend.example.com";
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
   let verified = false,
     revoked = false,
@@ -104,25 +121,25 @@ test("browser sign-in survives a transient backend failure and sign-out removes 
   await userEvent.click(await screen.findByRole("button", { name: "Sign in" }));
   const signOut = await screen.findByRole("button", { name: "Sign out" }, { timeout: 8000 });
   expect(screen.getByText("Ace Person")).toBeDefined();
-  // The browser comes back to this web app's landing page, not the backend's dead end.
-  expect(started).toEqual({ returnTo: `${location.origin}/account/signed-in` });
+  // The browser comes back to this web app's landing page, not the backend's dead end, and the
+  // session is this window's own, the person's (ADR 0190).
+  expect(started).toEqual({ holder: "person", returnTo: `${location.origin}/account/signed-in` });
   await userEvent.click(signOut);
   await confirmSignOut();
   await waitFor(() => expect(screen.getByRole("button", { name: "Sign in" })).toBeDefined());
   expect((await network(`${origin}/v1/account/session`, { method: "GET" })).status).toBe(401);
-  expect(sessionStorage.getItem(`ace.account.session:${origin}`)).toBeNull();
+  expectNoSession();
   expect(screen.getByRole("textbox", { name: "Your name" })).toBeDefined();
 });
 
 test("signing out a session the backend already ended still signs this window out", async () => {
-  const origin = "https://backend.example.com";
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
   const session = {
     token: "t".repeat(43),
     expiresAt: 1_900_000_000_000,
     account: { id: "user_gone", email: "gone@example.com", name: "Gone Person" },
   };
-  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  holdSession(session);
   vi.stubGlobal("fetch", async (_input: string, init?: RequestInit) =>
     init?.method === "DELETE"
       ? Response.json({ error: "unauthenticated" }, { status: 401 })
@@ -135,18 +152,17 @@ test("signing out a session the backend already ended still signs this window ou
   await confirmSignOut();
   expect(await screen.findByRole("button", { name: "Sign in" })).toBeDefined();
   expect(screen.queryByRole("alert")).toBeNull();
-  expect(sessionStorage.getItem(`ace.account.session:${origin}`)).toBeNull();
+  expectNoSession();
 });
 
 test("Sign out asks first, says the person's work stays, and Cancel keeps them signed in", async () => {
-  const origin = "https://backend.example.com";
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
   const session = {
     token: "t".repeat(43),
     expiresAt: 1_900_000_000_000,
     account: { id: "user_kept", email: "kept@example.com", name: "Kept Person" },
   };
-  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  holdSession(session);
   const deletes: string[] = [];
   vi.stubGlobal("fetch", async (input: string, init?: RequestInit) => {
     if (init?.method === "DELETE") deletes.push(input);
@@ -162,7 +178,7 @@ test("Sign out asks first, says the person's work stays, and Cancel keeps them s
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(deletes).toEqual([]);
   expect(screen.getByText("Kept Person")).toBeDefined();
-  expect(sessionStorage.getItem(`ace.account.session:${origin}`)).not.toBeNull();
+  expect(windowSessionStorage().getItem(sessionKey)).not.toBeNull();
 });
 
 test("returning from a cancelled desktop sign-in says so on Profile until the next attempt", async () => {
@@ -175,7 +191,6 @@ test("returning from a cancelled desktop sign-in says so on Profile until the ne
 });
 
 test("a sign-in keeps going while the person leaves Settings and finishes in the browser", async () => {
-  const origin = "https://backend.example.com";
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
   let finished = false,
     cancelled = false;
@@ -217,14 +232,13 @@ test("a sign-in keeps going while the person leaves Settings and finishes in the
 });
 
 test("the account menu shows who is signed in and opens their Profile", async () => {
-  const origin = "https://backend.example.com";
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
   const session = {
     token: "t".repeat(43),
     expiresAt: 1_900_000_000_000,
     account: { id: "user_menu", email: "menu@example.com", name: "Menu Person" },
   };
-  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  holdSession(session);
   vi.stubGlobal("fetch", async (input: string) =>
     new URL(input).pathname === "/v1/machines"
       ? Response.json({ machines: [] })
@@ -245,7 +259,6 @@ test("the account menu shows who is signed in and opens their Profile", async ()
 });
 
 test("a sign-in that fails in the browser says it didn't finish, not that it expired", async () => {
-  const origin = "https://backend.example.com";
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
   vi.stubGlobal("ace", { shell: { openExternal: async () => {} } });
   vi.stubGlobal("fetch", async (input: string, init?: RequestInit) => {
@@ -270,14 +283,13 @@ test("a sign-in that fails in the browser says it didn't finish, not that it exp
 });
 
 test("an account's picture shows on the rail, in the account menu and on Profile", async () => {
-  const origin = "https://backend.example.com";
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
   const session = {
     token: "t".repeat(43),
     expiresAt: 1_900_000_000_000,
     account: { id: "user_pic", email: "pic@example.com", name: "Pic Person", picture: true },
   };
-  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  holdSession(session);
   const png = Uint8Array.from(
     atob(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==",
@@ -309,14 +321,13 @@ test("an account's picture shows on the rail, in the account menu and on Profile
 });
 
 test("an account without a picture keeps its initials and never asks for one", async () => {
-  const origin = "https://backend.example.com";
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
   const session = {
     token: "t".repeat(43),
     expiresAt: 1_900_000_000_000,
     account: { id: "user_plain", email: "plain@example.com", name: "Plain Person" },
   };
-  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  holdSession(session);
   const asked: string[] = [];
   vi.stubGlobal("fetch", async (input: string) => {
     asked.push(new URL(input).pathname);

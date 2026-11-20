@@ -1,0 +1,173 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { createBufferRegistry, defaultCapBytes } from "./registry.ts";
+import { fakeDisk, inlineMerge, manualTime, memoryDrafts, ready, settle } from "./test-support.ts";
+import type { TextBuffer } from "./types.ts";
+
+/*
+ * The person's edits survive slow saves, slow device storage and a racing disk: the unsaved dot
+ * always says whether the text differs from what was last saved, and a draft on the device
+ * always matches what a reload should bring back.
+ */
+
+beforeAll(ready);
+
+const file = { root: "m1/t1", path: "store.ts" };
+
+function session(
+  disk: ReturnType<typeof fakeDisk>,
+  drafts: ReturnType<typeof memoryDrafts>,
+  capBytes = defaultCapBytes,
+) {
+  const time = manualTime();
+  const registry = createBufferRegistry({
+    files: disk.port,
+    drafts: drafts.store,
+    merge: inlineMerge().port,
+    now: time.now,
+    schedule: time.schedule,
+    ready,
+    capBytes,
+  });
+  return { time, registry };
+}
+
+async function opened(registry: ReturnType<typeof createBufferRegistry>, path = file.path) {
+  const lease = registry.open({ root: file.root, path });
+  lease.setVisible(true);
+  await settle();
+  return lease;
+}
+
+function replaceLine(buffer: TextBuffer, line: number, text: string) {
+  const doc = buffer.document();
+  if (!doc) throw new Error("no document");
+  const range = { start: { line, column: 0 }, end: { line, column: doc.line(line).length } };
+  doc.apply([{ range, text }]);
+  buffer.edited();
+}
+
+describe("a slow save", () => {
+  it("that the person undoes under leaves the buffer unsaved against the saved text", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const drafts = memoryDrafts();
+    const { time, registry } = session(disk, drafts);
+    const { buffer } = await opened(registry);
+    replaceLine(buffer, 0, "TWO");
+    const release = disk.holdWrites();
+    const saving = buffer.save();
+
+    // Undo back to the old disk text while the write is out; the draft's pause passes.
+    buffer.document()?.undo();
+    buffer.edited();
+    await time.advance(400);
+    release();
+    expect(await saving).toEqual({ kind: "saved", version: "v2" });
+    await settle();
+
+    expect(disk.text("store.ts")).toBe("TWO\n");
+    expect(buffer.document()?.text()).toBe("one\n");
+    expect(buffer.snapshot()).toMatchObject({ dirty: true, version: "v2" });
+    expect(drafts.peek(file)).toBe("one\n");
+  });
+});
+
+describe("a draft", () => {
+  it("is not counted as kept until the device has committed it", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const drafts = memoryDrafts();
+    const { time, registry } = session(disk, drafts);
+    const { buffer } = await opened(registry);
+
+    replaceLine(buffer, 0, "ONE");
+    expect(registry.unkept()).toEqual([buffer]);
+    const release = drafts.hold();
+    await time.advance(400);
+    expect(registry.unkept()).toEqual([buffer]);
+
+    release();
+    await settle();
+    expect(registry.unkept()).toEqual([]);
+  });
+
+  it("starts its write before a flush returns, behind a write still in flight", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const drafts = memoryDrafts();
+    const { time, registry } = session(disk, drafts);
+    const { buffer } = await opened(registry);
+    replaceLine(buffer, 0, "ONE");
+    const release = drafts.hold();
+    await time.advance(400);
+    release();
+
+    // The page hides: nothing after the handler can be relied on to run.
+    replaceLine(buffer, 0, "LAST");
+    void registry.flushDrafts();
+    expect(drafts.peek(file)).toBe("LAST\n");
+  });
+
+  it("is deleted after a save even when the buffer goes while an older write is out", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const drafts = memoryDrafts();
+    const { time, registry } = session(disk, drafts);
+    const lease = await opened(registry);
+    const { buffer } = lease;
+    replaceLine(buffer, 0, "ONE");
+    const release = drafts.hold();
+    await time.advance(400);
+    // The tab closes; its unsaved buffer stays until the save lands, then goes.
+    lease.release();
+    expect(await buffer.save()).toMatchObject({ kind: "saved" });
+    await settle();
+    release();
+    await settle();
+
+    expect(drafts.peek(file)).toBeUndefined();
+    const reopened = await opened(session(disk, drafts).registry);
+    expect(reopened.buffer.snapshot()).toMatchObject({ dirty: false, clash: undefined });
+  });
+});
+
+describe("memory", () => {
+  it("of a freed buffer holds none of its text", async () => {
+    const disk = fakeDisk({ "a.ts": "aaaaaaaaa\n", "b.ts": "bbbbbbbbb\n" });
+    const { registry } = session(disk, memoryDrafts(), 10);
+    const a = await opened(registry, "a.ts");
+    a.setVisible(false);
+    await opened(registry, "b.ts");
+
+    expect(a.buffer.snapshot().status).toEqual({ kind: "evicted" });
+    expect(a.buffer.baseText()).toBeUndefined();
+  });
+});
+
+describe("two quick disk writes", () => {
+  it("leave a clean buffer showing the later one", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const { registry } = session(disk, memoryDrafts());
+    const { buffer } = await opened(registry);
+
+    disk.write("store.ts", "two\n");
+    registry.diskChanged(file, { kind: "text", text: "two\n", version: "v2" });
+    disk.write("store.ts", "three\n");
+    registry.diskChanged(file, { kind: "text", text: "three\n", version: "v3" });
+    await settle();
+
+    expect(buffer.document()?.text()).toBe("three\n");
+    expect(buffer.snapshot()).toMatchObject({ dirty: false, clash: undefined, version: "v3" });
+  });
+
+  it("read out of order still end on the disk's latest text", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const { registry } = session(disk, memoryDrafts());
+    const { buffer } = await opened(registry);
+
+    disk.write("store.ts", "two\n");
+    registry.diskChanged(file);
+    disk.write("store.ts", "three\n");
+    registry.diskChanged(file);
+    await settle();
+
+    expect(buffer.document()?.text()).toBe("three\n");
+    expect(buffer.snapshot()).toMatchObject({ dirty: false, version: "v3" });
+  });
+});

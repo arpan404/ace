@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { z } from "zod";
-import { CredentialRegistry, ToolRegistry, agentControlToolkit } from "./index.ts";
+import { CredentialRegistry, ToolRegistry, agentControlToolkit, hostSet } from "./index.ts";
 import { scope } from "./test-support.ts";
 
 const lease = () =>
@@ -181,4 +181,44 @@ it("the full schema still decodes every call: a bare item stays a bare item", as
     { ref: "abc", seconds: 60, mode: "fast", speed: "fast", items: { id: "one", size: 1 } },
     { ref: "abc", seconds: 60, mode: "fast", speed: "fast", items: [{ id: "one", size: 1 }] },
   ]);
+});
+
+it("a field only the host sets is advertised by name and description, and still validated", async () => {
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  const runs: unknown[] = [];
+  registry.register({
+    name: "ace_held",
+    description: "Example",
+    capability: null,
+    timeoutMs: 1000,
+    input: z.strictObject({
+      tabId: z.string().optional(),
+      expect: z
+        .strictObject({ tabId: z.string(), url: z.string() })
+        .meta(hostSet)
+        .optional()
+        .describe("Set by your host; leave it out."),
+    }),
+    output: z.strictObject({ ok: z.boolean() }),
+    async run(input) {
+      runs.push(input);
+      return { ok: true };
+    },
+  });
+  const [tool] = registry.list(lease().principal);
+  // The host finds the field by name; the model reads only that it is the host's.
+  expect(tool?.inputSchema.properties).toEqual({
+    tabId: { type: "string" },
+    expect: { type: "object", description: "Set by your host; leave it out." },
+  });
+  const call = (args: unknown) =>
+    registry.call("ace_held", args, lease().principal, new AbortController().signal);
+  const refused = await call({ expect: { tabId: "t1" } });
+  expect(refused.isError).toBe(true);
+  expect(JSON.stringify(refused.content)).toContain("expect.url");
+  expect(runs).toEqual([]);
+  expect((await call({ expect: { tabId: "t1", url: "https://example.com" } })).isError).toBe(
+    undefined,
+  );
+  expect(runs).toEqual([{ expect: { tabId: "t1", url: "https://example.com" } }]);
 });

@@ -162,7 +162,7 @@ describe("launch revalidation", () => {
     for (let launch = 0; launch < 2; launch++)
       await expect(inventory.resolve(custom, {})).resolves.toMatchObject({ command: agent });
     await writeFile(agent, "agent-v2");
-    await expect(inventory.resolve(custom, {})).rejects.toThrow("new approval required");
+    await expect(inventory.resolve(custom, {})).rejects.toThrow("Approve the update");
   });
 
   it("a replaced native CLI behind a bridge refuses the launch", async () => {
@@ -188,7 +188,7 @@ describe("launch revalidation", () => {
     });
     await rm(claude);
     await file(root, "claude", "claude-v2");
-    await expect(inventory.resolve(identity, {})).rejects.toThrow("Native bridge CLI changed");
+    await expect(inventory.resolve(identity, {})).rejects.toThrow("Approve the update");
   });
 });
 
@@ -240,7 +240,7 @@ describe("digests across restarts", () => {
     for (const entry of remembered) entry.digest = "0".repeat(64);
     const altered = memory(remembered);
     const { inventory } = await run(approved, altered);
-    await expect(inventory.resolve(custom, {})).rejects.toThrow("new approval required");
+    await expect(inventory.resolve(custom, {})).rejects.toThrow("Approve the update");
   });
 
   it("an agent rewritten between runs needs approval again", async () => {
@@ -256,7 +256,7 @@ describe("digests across restarts", () => {
     await first.digests.saved();
     await writeFile(agent, "agent-v2");
     const second = await run(approved, kept);
-    await expect(second.inventory.resolve(custom, {})).rejects.toThrow("new approval required");
+    await expect(second.inventory.resolve(custom, {})).rejects.toThrow("Approve the update");
   });
 
   it("an unreadable memory is forgotten and the agent is hashed afresh", async () => {

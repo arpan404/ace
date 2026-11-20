@@ -530,7 +530,7 @@ fn a_page_holds_its_rows_or_its_bytes_whichever_comes_first() {
 /// store's gate.
 fn raw_count(dir: &std::path::Path, table: &str, column: &str, value: &str) -> i64 {
     let connection =
-        rusqlite::Connection::open(dir.join("spade.sqlite")).unwrap_or_else(|e| panic!("{e}"));
+        crate::Store::connect(dir.join("spade.sqlite")).unwrap_or_else(|e| panic!("{e}"));
     connection
         .query_row(
             &format!("SELECT COUNT(*) FROM {table} WHERE {column} = ?1"),
@@ -953,8 +953,8 @@ fn an_event_number_out_of_range_is_refused_and_none_wraps_past_the_last() {
     assert!(refused.is_err_and(|why| why.contains("out of range")));
     // A conversation at the last number takes no more, and says so: nothing wraps.
     let (dir, to) = target();
-    let raw = rusqlite::Connection::open(dir.path().join("spade.sqlite"))
-        .unwrap_or_else(|e| panic!("{e}"));
+    let raw =
+        crate::Store::connect(dir.path().join("spade.sqlite")).unwrap_or_else(|e| panic!("{e}"));
     raw.execute(
         "INSERT INTO events (conversation_id, seq, at_ms, body) VALUES ('c_a_9', ?1, 1, '{}')",
         [crate::MOST_SEQ],

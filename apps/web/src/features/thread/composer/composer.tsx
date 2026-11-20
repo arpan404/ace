@@ -23,6 +23,7 @@ import type { AddHandle } from "./add-button.tsx";
 import { AttachmentChips, maxAttachmentsPerMessage, useAttachments } from "./attachments.tsx";
 import { ComposerCompact } from "./composer-compact.ts";
 import { ComposerFooter } from "./composer-footer.tsx";
+import { SharesLine } from "../mentions/index.ts";
 import { composerKeyDown } from "./composer-keys.ts";
 import { ComposerNotices } from "./composer-notices.tsx";
 import { ComposerOverlays } from "./composer-overlays.tsx";
@@ -487,6 +488,9 @@ function ComposerBody({
                 className="message-input block min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
               />
             </div>
+            {!props.thread.draft && props.thread.id && (
+              <SharesLine threadId={props.thread.id} tokens={tokens} />
+            )}
             <ComposerFooter
               addMenu={addMenu}
               onFiles={footer.onFiles}
