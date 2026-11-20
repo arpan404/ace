@@ -37,7 +37,9 @@ struct ThreadSummaryPage: View {
     }
 
     @ViewBuilder private func content(_ summary: ThreadSummarySheet) -> some View {
-        SummaryNowHeader(now: summary.now, open: summary.now.open.map { target in { open(target) } })
+        // The asking agent's row below offers its way on, so Now doesn't repeat it.
+        let asksListed = !(summary.agents?.asks.isEmpty ?? true)
+        SummaryNowHeader(now: summary.now, open: asksListed ? nil : summary.now.open.map { target in { open(target) } })
         if !summary.catchUp.isEmpty { catchUp(summary.catchUp) }
         if let agents = summary.agents {
             SummaryAgentsSection(agents: agents, open: open, openTree: openAgents)

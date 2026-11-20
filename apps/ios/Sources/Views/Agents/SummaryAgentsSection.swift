@@ -41,7 +41,7 @@ struct SummaryAgentsSection: View {
         } label: {
             QuietSectionRow {
                 RowStatusIcon(kind: "done", tone: "muted")
-                    .frame(width: AceDesign.Size.lead)
+                    .frame(minWidth: AceDesign.Size.lead)
                     .accessibilityHidden(true)
                 Text(words).aceFont(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(AceDesign.Ink.muted)
@@ -78,7 +78,7 @@ private struct SummaryAgentRow: View {
             Button(action: open) {
                 HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
                     RowStatusIcon(kind: agent.icon.kind, tone: agent.icon.tone, count: agent.icon.count)
-                        .frame(width: AceDesign.Size.lead)
+                        .frame(minWidth: AceDesign.Size.lead)
                         .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + AceDesign.Size.icon / 3 }
                     VStack(alignment: .leading, spacing: AceDesign.Size.rowLineGap) {
                         Text(agent.name).aceFont(AceDesign.TextRole.rowTitle)

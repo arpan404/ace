@@ -143,7 +143,7 @@ import XCTest
         XCTAssertTrue(finished.waitForNonExistence(timeout: 10))
         // A row opens its agent's page.
         let lead = row("Export lead")
-        XCTAssertTrue(reveal(lead, in: app))
+        for _ in 0..<20 where !(lead.exists && lead.isHittable) { app.swipeDown(velocity: .slow) }
         lead.tap()
         XCTAssertTrue(app.descendants(matching: .any)["subagent.state"].waitForExistence(timeout: 15))
     }
