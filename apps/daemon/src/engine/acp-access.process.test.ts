@@ -506,3 +506,33 @@ test("a session that couldn't take its access mode records the mode it runs inst
     await h.close();
   }
 });
+
+test("Read-only picked for a new Antigravity thread runs with Full access and says so", async () => {
+  const h = await antigravity();
+  try {
+    const created = h.command({
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "antigravity",
+      access: "read-only",
+      input: [{ type: "text", text: "first" }],
+    });
+    if (!created.ok || !created.threadId) throw new Error(created.error);
+    await h.engine.flush();
+    expect(h.contexts.at(-1)?.permissionMode).toBe("yolo");
+    // What runs replaces the pick, so it never reads as pending.
+    expect(h.store.getThread(created.threadId)?.permission).toMatchObject({
+      override: "full-access",
+      effective: "full-access",
+      pending: false,
+    });
+    const notices = Object.values(h.store.snapshotThread(created.threadId).items).filter(
+      (item) => item.type === "notice" && item.code === "access_mode_unavailable",
+    );
+    expect(notices.map((notice) => notice.type === "notice" && notice.text)).toEqual([
+      "This agent doesn't offer Read-only, so it runs with Full access.",
+    ]);
+  } finally {
+    await h.close();
+  }
+});
