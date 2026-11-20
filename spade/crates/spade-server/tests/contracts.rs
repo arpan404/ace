@@ -14,7 +14,7 @@ use spade_core::tools::Risk;
 use spade_testkit::Script;
 use support::contracts::{World, call_of, calls, of_type, returns, world};
 use support::packaged::{secure, text};
-use support::{FakeTool, Result};
+use support::{FakeTool, Result, Spade};
 
 /// The planner asks; its call to the person's own bot runs without asking them.
 async fn ask_planner(world: &World, _job: &str) -> Result {

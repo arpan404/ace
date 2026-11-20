@@ -70,7 +70,9 @@ two (`{"input": {…}, "output": {…}}`, at most 40 KiB).
   that isn't in the package, isn't a JSON object, or holds any other field.
 - The file is written into the contract before `bot.json` is read
   (`spade_core::package::contract_files`, `inlineContractFiles` in `@ace/marketplace`, held
-  together by `rules.json`), so every reader, check, comparison and view sees one form.
+  together by `rules.json`), so every reader, check, comparison and view sees one form. A call
+  to such a contract runs as any other: the callee's strict output check, the caller's reader's
+  check, its effects' hold and its taint all read the schemas written in.
 - **The signature covers it.** The market's signed version manifest lists every file of the
   package with its size and sha256, and signs the list. The daemon sends each schema file beside
   `bot.json` in the envelope (`files`), and Spade takes one only when it is a `contracts/` file

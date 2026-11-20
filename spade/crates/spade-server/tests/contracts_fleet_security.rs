@@ -10,7 +10,9 @@ use std::sync::atomic::Ordering;
 
 use serde_json::{Value, json};
 use spade_testkit::{FakeProvider, Script};
-use support::contracts::{call_of, input, install, of_type, own_endpoint, returns};
+use support::contracts::{
+    call_of, from_schema_file, input, install, of_type, own_endpoint, returns, watcher,
+};
 use support::fleet::{Fleet, deliver, machine};
 use support::packaged::text;
 use support::{Result, Spade};
@@ -48,6 +50,9 @@ async fn pair(
     let fleet = Arc::new(Fleet::default());
     let laptop = machine(&fleet, "host-laptop", "Laptop", Vec::new()).await?;
     let studio = machine(&fleet, "host-studio", "Studio", Vec::new()).await?;
+    if installed.get("envelope").is_some() {
+        support::market::trust(&studio.engine);
+    }
     let mut fakes = vec![quiet_titles(&laptop).await?, quiet_titles(&studio).await?];
     fakes.push(own_endpoint(&laptop, "Planner Net", planner).await?);
     let (status, made) = laptop
@@ -211,12 +216,13 @@ async fn a_call_from_another_machine_is_from_a_bot_of_that_machine_never_one_of_
     Ok(())
 }
 
-#[tokio::test]
-async fn a_caller_with_an_older_contract_reads_an_output_field_a_newer_one_added() -> Result {
-    // The studio's watcher is a newer version: its output may name the airline.
-    let mut newer = install();
-    newer["recipe"]["contracts"][0]["output"]["properties"]["airline"] =
+/// The studio's watcher is a newer version whose output may name the airline, installed as
+/// `installing` makes it of that recipe; the laptop's planner holds the older contract.
+async fn older_caller_reads_a_newer_field(installing: impl FnOnce(&Value) -> Value) -> Result {
+    let mut newer = watcher();
+    newer["contracts"][0]["output"]["properties"]["airline"] =
         json!({ "type": "string", "maxLength": 40 });
+    let newer = installing(&newer);
     let pair = pair(
         vec![
             calls_studio(),
@@ -250,4 +256,19 @@ async fn a_caller_with_an_older_contract_reads_an_output_field_a_newer_one_added
     assert!(content.contains("\"fare\": 182"), "{content}");
     assert!(content.contains("Buddha Air"), "{content}");
     Ok(())
+}
+
+#[tokio::test]
+async fn a_caller_with_an_older_contract_reads_an_output_field_a_newer_one_added() -> Result {
+    older_caller_reads_a_newer_field(|recipe| {
+        let mut body = install();
+        body["recipe"] = recipe.clone();
+        body
+    })
+    .await
+}
+
+#[tokio::test]
+async fn a_caller_reads_a_newer_output_field_of_a_contract_whose_schemas_are_in_a_file() -> Result {
+    older_caller_reads_a_newer_field(from_schema_file).await
 }

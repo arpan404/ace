@@ -95,6 +95,33 @@ pub fn of_type<'a>(events: &'a [Value], kind: &str) -> Vec<&'a Value> {
     events.iter().filter(|e| e["type"] == kind).collect()
 }
 
+/// The install body for `recipe` as the market signed it, its first contract's schemas moved
+/// out of `bot.json` into `contracts/cheapest-fare.json`, both switches on. Install it on a Spade
+/// that trusts the market's keys (`super::market::trust`).
+pub fn from_schema_file(recipe: &Value) -> Value {
+    let path = "contracts/cheapest-fare.json";
+    let schemas = serde_json::to_string_pretty(&json!({
+        "input": recipe["contracts"][0]["input"],
+        "output": recipe["contracts"][0]["output"],
+    }))
+    .unwrap_or_default();
+    let mut filed = recipe.clone();
+    filed["contracts"][0] = json!({
+        "name": recipe["contracts"][0]["name"],
+        "summary": recipe["contracts"][0]["summary"],
+        "file": path,
+        "effects": recipe["contracts"][0]["effects"],
+    });
+    let envelope =
+        super::market::envelope_with("flight-watcher", "1.0.0", &filed, &[(path, &schemas)]);
+    json!({
+        "envelope": envelope,
+        "from_recipe": { "source": "market", "name": "flight-watcher", "version": "1.0.0", "transaction": "install-1" },
+        "grants": { "connectors": [], "plugins": [], "skills": [] },
+        "switches": { "network:hosts:api.example-fares.com": true, "publish": true },
+    })
+}
+
 /// The install body for the watcher as a local package, both its switches on.
 pub fn install() -> Value {
     json!({
@@ -121,7 +148,21 @@ pub async fn world(
     watcher_scripts: impl FnOnce(&str) -> Vec<Script>,
     tools: Vec<Arc<dyn Tool>>,
 ) -> Result<World> {
+    world_installing(install(), planner_scripts, watcher_scripts, tools).await
+}
+
+/// [`world`] with the watcher installed from `installed`; the market's keys are trusted when it
+/// is a market envelope.
+pub async fn world_installing(
+    installed: Value,
+    planner_scripts: Vec<Script>,
+    watcher_scripts: impl FnOnce(&str) -> Vec<Script>,
+    tools: Vec<Arc<dyn Tool>>,
+) -> Result<World> {
     let spade = Spade::start_with(Vec::new(), tools, Options::default()).await?;
+    if installed.get("envelope").is_some() {
+        super::market::trust(&spade.engine);
+    }
     secure(&spade).await?;
     let titles = own_endpoint(
         &spade,
@@ -147,7 +188,7 @@ pub async fn world(
         watcher_scripts(&call_of(&planner, "p1")),
     )
     .await?;
-    let (status, made) = spade.post("/v1/agents", install()).await?;
+    let (status, made) = spade.post("/v1/agents", installed).await?;
     assert_eq!(status, 201, "{made}");
     let watcher_id = text(&made["agent"]["id"]);
     let (status, body) = spade
