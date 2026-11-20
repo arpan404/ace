@@ -255,3 +255,87 @@ test("a pending line comment joins the review and a submitted approval sends it 
   expect(after.review?.drafts).toEqual([]);
   expect(after.rows.some((row) => row.kind === "review" && row.words === "approved")).toBe(true);
 });
+
+const ace = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
+const pr245 = { project: "ace", number: 245, repository: ace };
+const threadComment = (reply: TimelineReply, threadId: string) =>
+  reply.rows.find(
+    (row): row is Extract<TimelineRow, { kind: "thread" }> =>
+      row.kind === "thread" && row.thread.id === threadId,
+  )?.thread.comments[0];
+
+test("a suggestion on the current diff offers Commit at the shown head with GitHub's message; an outdated one only the agent", async () => {
+  const { ask } = await connected();
+  const reply = await timeline(ask, pr245);
+  const head = reply.review?.headSha;
+  expect(head).toMatch(/^[0-9a-f]{40}$/);
+  const current = threadComment(reply, "RT_2456")?.suggestion;
+  expect(current).toMatchObject({
+    commit: true,
+    headSha: head,
+    message: "Apply suggestion from @mira",
+    batchMessage: "Apply suggestions from code review",
+  });
+  expect(current?.agent).toMatch(
+    /^Apply mira's suggested change on docs\/settings\.md:3 in PR #245 /,
+  );
+  expect(current?.agent).toContain("Settings are grouped into three sections");
+  // Pushed over since: GitHub can't commit it, so the agent applies it where it fits now.
+  const outdated = threadComment(reply, "RT_2458")?.suggestion;
+  expect(outdated).toMatchObject({ commit: false });
+  expect(outdated?.agent).toContain('"Save settings"');
+  // A comment without a suggestion offers neither.
+  expect(threadComment(reply, "RT_2454")?.suggestion).toBeNull();
+});
+
+test("committing a batch sends one commit at the shown head, and the next read shows the new head", async () => {
+  const { ask, sent } = await connected();
+  const before = await timeline(ask, pr245);
+  const headSha = threadComment(before, "RT_2456")?.suggestion?.headSha;
+  const written = await review(
+    ask,
+    {
+      kind: "suggestions.apply",
+      headSha,
+      commentIds: [2456, 2457],
+      message: "Apply suggestions from code review",
+    },
+    pr245,
+  );
+  expect(written).toMatchObject({ ok: true, uncertain: false });
+  expect(sent.filter((payload) => payload.type === "forge.hosted.review")).toEqual([
+    expect.objectContaining({
+      pr: { repository: ace, number: 245 },
+      action: {
+        kind: "suggestions.apply",
+        headSha,
+        commentIds: [2456, 2457],
+        message: "Apply suggestions from code review",
+      },
+    }),
+  ]);
+  const after = await timeline(ask, pr245);
+  expect(after.review?.headSha).not.toBe(headSha);
+  // Committed: its lines changed, so it can't be committed again.
+  expect(threadComment(after, "RT_2456")?.suggestion?.commit).toBe(false);
+});
+
+test("a suggestion committed after the branch moved is refused in plain words and never sent", async () => {
+  const { ask, sent, daemon } = await connected();
+  const shown = await timeline(ask, pr245);
+  const headSha = threadComment(shown, "RT_2457")?.suggestion?.headSha;
+  expect(daemon.workspace.pushPullRequest(245)).toBe(true);
+  const written = await review(
+    ask,
+    { kind: "suggestions.apply", headSha, commentIds: [2457], message: "Apply suggestion" },
+    pr245,
+  );
+  expect(written).toEqual({
+    type: "forge.write",
+    ok: false,
+    uncertain: false,
+    message:
+      "The branch moved since you looked, so nothing was committed. Refresh to see the new commits, then commit the suggestion again.",
+  });
+  expect(sent.filter((payload) => payload.type === "forge.hosted.review")).toEqual([]);
+});
