@@ -15,7 +15,16 @@ const research: Addressee = { kind: "bot", id: "bot-r", name: "Research" };
 const launch: Addressee = { kind: "club", id: "club-l", name: "Launch", faces: [] };
 const connection: SpadeConnection = { host: "127.0.0.1", port: 1, token: "t" };
 const homes: string[] = [];
-afterEach(() => {
+const open: { asks: ThreadAsks; store: Store }[] = [];
+afterEach(async () => {
+  for (const each of open.splice(0)) {
+    await each.asks.close();
+    try {
+      await each.store.close();
+    } catch {
+      // Closed by the test already.
+    }
+  }
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
 
@@ -95,6 +104,7 @@ function harness(spade = new FakeSpade(), home = mkdtempSync(join(tmpdir(), "ace
       }),
     log: () => undefined,
   });
+  open.push({ asks, store });
   const send = (to: Addressee[], share: "thread" | "message" = "thread", id = "cmd-1") => {
     const rows: AskRow[] = to.map((each, index) => ({
       key: askKey(id, index),
