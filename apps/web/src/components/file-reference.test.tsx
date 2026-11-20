@@ -47,7 +47,7 @@ test("a path in running text links too, while unknown and shared names stay plai
   // A name two files share opens the Files tree filtered to it instead of guessing one.
   await userEvent.click(await within(feed).findByRole("link", { name: "resume.ts" }));
   const side = await screen.findByRole("region", { name: "Thread panel" });
-  expect(await within(side).findByRole("tab", { name: "Files", selected: true })).toBeTruthy();
+  expect(await within(side).findByRole("tab", { name: "Deck", selected: true })).toBeTruthy();
   const find = await within(side).findByRole<HTMLInputElement>("searchbox", {
     name: "Find files in the checkout",
   });

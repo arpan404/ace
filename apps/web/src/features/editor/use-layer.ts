@@ -51,6 +51,7 @@ export function useEditorLayer(options: {
     primary: state.primary,
     readOnly: options.readOnly,
     version: state.version,
+    revision: () => (state.doc ? { document: state.doc, version: state.doc.version() } : undefined),
     host: options.host.current,
     pointOf: (position) => caretOf(lineAt, layout, position, gutter, cell, false),
     select: options.select,

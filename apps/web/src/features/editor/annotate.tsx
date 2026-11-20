@@ -24,6 +24,21 @@ export interface EditorAnnotationsOptions {
 }
 
 const randomId = () => crypto.randomUUID();
+
+/**
+ * The last edit each document's annotations were mapped through. Views of one shared document
+ * (a file open in two Deck groups) all carry the layer; the edit moves the ranges once.
+ */
+const mappedThrough = new WeakMap<object, number>();
+
+/** Whether this edit to the view's document still has to move the ranges (and note it has). */
+function firstToMap(view: EditorLayerView): boolean {
+  const revision = view.revision();
+  if (!revision) return true;
+  if (mappedThrough.get(revision.document) === revision.version) return false;
+  mappedThrough.set(revision.document, revision.version);
+  return true;
+}
 /** The gutter's strip left of the line numbers where the numbered markers sit. */
 const annotationMargin = 20;
 
@@ -168,6 +183,7 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
       </ViewKeeper>
     ),
     onEdit: (replacements, current) => {
+      if (!firstToMap(current)) return;
       const moves: CodeAnnotationMove[] = [];
       for (const each of mine()) {
         const mapped = mapSpan(each, replacements);

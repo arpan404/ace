@@ -8,7 +8,7 @@ import { folderFixture } from "./folders-test-support.ts";
 configure({ asyncUtilTimeout: 10000 });
 
 /*
- * The Files toolbar's "Open in" menu: the daemon machine's editors, terminals and file manager,
+ * A Deck tab's "Open in" menu: the daemon machine's editors, terminals and file manager,
  * grouped, opening the file on that machine.
  */
 
@@ -31,12 +31,22 @@ async function openFile() {
   await userEvent.type(await screen.findByRole("combobox", { name: "Search files" }), "socket");
   await userEvent.keyboard("{Enter}");
   const side = await screen.findByRole("region", { name: "Thread panel" });
-  await within(side).findByRole("button", { name: "Open in Zed" });
+  const tab = await within(side).findByRole("tab", { name: "socket.ts", selected: true });
+  /** The tab's menu, then its Open in submenu. */
   const menu = async () => {
-    await userEvent.click(within(side).getByRole("button", { name: "Open in another app" }));
-    return screen.findByRole("menu");
+    await userEvent.keyboard("{Escape}");
+    await userEvent.pointer({ target: tab, keys: "[MouseRight]" });
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Open in" }));
+    await waitFor(() => expect(screen.getAllByRole("menu").length).toBeGreaterThan(1));
+    return screen.getAllByRole("menu").at(-1) ?? screen.getByRole("menu");
   };
-  return { app, side, menu };
+  /** The editor the menu marks as the default. */
+  const preferred = async () =>
+    within(await menu())
+      .getAllByRole("menuitem")
+      .find((item) => item.textContent?.endsWith("default"))
+      ?.textContent?.replace(/default$/, "");
+  return { app, side, menu, preferred };
 }
 
 test("the menu lists editors, then terminals, then the file manager, with the default marked", async () => {
@@ -53,14 +63,14 @@ test("the menu lists editors, then terminals, then the file manager, with the de
 });
 
 test("a terminal opens the file's place on the daemon's machine and doesn't become the default", async () => {
-  const { app, side, menu } = await openFile();
+  const { app, menu, preferred } = await openFile();
   await userEvent.click(within(await menu()).getByRole("menuitem", { name: "Ghostty" }));
   await waitFor(() =>
     expect(app.daemon.workspace.opened).toEqual([
       { app: "ghostty", folder: "thread-cold-start", path: file },
     ]),
   );
-  expect(within(side).getByRole("button", { name: "Open in Zed" })).toBeTruthy();
+  expect(await preferred()).toBe("Zed");
 });
 
 test("Reveal in Finder shows the file in the daemon machine's file manager", async () => {
@@ -74,14 +84,14 @@ test("Reveal in Finder shows the file in the daemon machine's file manager", asy
 });
 
 test("an editor this device can't open itself opens on the daemon's machine and becomes the default", async () => {
-  const { app, side, menu } = await openFile();
+  const { app, menu, preferred } = await openFile();
   await userEvent.click(within(await menu()).getByRole("menuitem", { name: "Xcode" }));
   await waitFor(() =>
     expect(app.daemon.workspace.opened).toEqual([
       { app: "xcode", folder: "thread-cold-start", path: file },
     ]),
   );
-  expect(await within(side).findByRole("button", { name: "Open in Xcode" })).toBeTruthy();
+  await waitFor(async () => expect(await preferred()).toBe("Xcode"));
 });
 
 test("in the desktop app a terminal shows its own app icon, read from its bundle", async () => {

@@ -1,6 +1,6 @@
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
-import { fileTab, useScriptConfigurations } from "@/features/panels/index.ts";
-import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useScriptConfigurations } from "@/features/panels/index.ts";
+import { useOpenInDeck } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
 
 /** Existing configurations open for editing; new scripts use the Files create flow. */
@@ -10,7 +10,7 @@ export function ScriptConfigurationItems(props: {
   onAddScript(): void;
 }) {
   const query = useScriptConfigurations(props.thread.id);
-  const workspace = useWorkspaceActions(props.thread.id);
+  const openInDeck = useOpenInDeck(props.thread.id);
   return (
     <>
       {query.isError ? (
@@ -24,7 +24,7 @@ export function ScriptConfigurationItems(props: {
           <MenuItem
             key={path}
             onClick={() => {
-              workspace.open(fileTab(path));
+              openInDeck(path, { keep: true, focus: true });
               props.onClose();
             }}
           >

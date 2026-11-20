@@ -1,5 +1,5 @@
 import { groupsOf } from "@ace/ui-core/editor-workbench";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { beforeAll, expect, test, vi } from "vitest";
 import {
   allowDragEvents,
@@ -11,6 +11,7 @@ import {
   transfer,
   two,
 } from "./deck-test-dom.ts";
+import { settle } from "../buffers/test-support.ts";
 import { mountDeck, tab } from "./deck-test-support.tsx";
 
 /*
@@ -52,6 +53,10 @@ test("the unsaved dot sits in the close slot and turns into × under the pointer
   const tabB = within(strip(1)).getByRole("tab", { name: /b\.ts/ });
   expect(within(tabB).getByRole("button", { name: "Close b.ts" }).dataset.shows).toBe("none");
 
+  // Shown once (a hidden tab reads its file when first shown), then hidden again.
+  fireEvent.click(tabB);
+  await act(settle);
+  fireEvent.click(within(strip(1)).getByRole("tab", { name: /a\.ts/ }));
   deck.edit("src/b.ts", "typed");
   const slot = within(tabB).getByRole("button", { name: "Close b.ts, unsaved" });
   expect(slot.dataset.shows).toBe("unsaved");

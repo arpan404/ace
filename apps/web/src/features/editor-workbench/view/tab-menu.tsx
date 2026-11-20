@@ -12,12 +12,14 @@ const unpinned = (tabs: readonly EditorTab[]) => tabs.some((each) => !each.pinne
 
 /**
  * A tab's context menu (spec 24): the close variants (pinned tabs stay for all but Close all),
- * pin, keep, splits and the path. Open in and Reveal in Files join with W4 and W5.
+ * pin, keep, splits and the path, then the host's own (Reveal in Files, Open in ›).
  */
 export function TabMenu(props: {
   group: GroupNode;
   tab: EditorTab;
   actions: GroupActions;
+  /** The host's items, after the Deck's own. */
+  extra?: ReactNode;
   children: ReactNode;
 }) {
   const { group, tab, actions } = props;
@@ -53,6 +55,7 @@ export function TabMenu(props: {
         <MenuItem onClick={() => void navigator.clipboard?.writeText(tab.path)}>
           Copy relative path
         </MenuItem>
+        {props.extra}
       </ContextMenuContent>
     </ContextMenu>
   );

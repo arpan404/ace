@@ -83,6 +83,11 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       quit: () => call("app.quit"),
       reload: () => call("app.reload"),
     },
+    drafts: {
+      /** The app is quitting: write pending drafts, then call `flushed`. */
+      onFlush: (listener: () => void) => subscribe("drafts.flush", () => listener()),
+      flushed: () => call("drafts.flushed"),
+    },
     daemon: {
       connection: () => call("daemon.connection"),
       /** The connection this page will most likely get, without waiting for the daemon. */

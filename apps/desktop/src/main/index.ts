@@ -68,6 +68,7 @@ import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { desktopLogs, desktopUserData } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
+import { draftFlush } from "./os/draft-flush.ts";
 import { QuitGate } from "./os/quit-gate.ts";
 import { daemonAtQuit, shutDownBeforeQuit } from "./os/shutdown.ts";
 import { createMainWindow } from "./window/main-window.ts";
@@ -292,6 +293,16 @@ function main(target: DaemonTarget, crashDumps: string): void {
    * (SIGTERM, then SIGKILL after its grace).
    */
   const quitLog = logger("quit");
+  // Hot exit: the window writes its unsaved editor text to the device before anything stops.
+  const drafts = draftFlush({
+    ask: () => {
+      const page = contents();
+      if (!page || page.isDestroyed()) return false;
+      emit(page, "drafts.flush", undefined);
+      return true;
+    },
+    timers,
+  });
   const quitGate = new QuitGate({
     shutDown: async () => {
       globalShortcut.unregisterAll();
@@ -299,6 +310,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       // and the browser backend tells the daemon it is going. Both at once, then the daemon.
       await shutDownBeforeQuit({
         beforeDaemon: [
+          { name: "drafts kept", run: () => drafts.run() },
           { name: "update report withdrawn", run: () => updateReport.withdraw() },
           { name: "browser backend stopped", run: () => background.stop() },
         ],
@@ -696,6 +708,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
       reload,
+      draftsFlushed: () => drafts.flushed(),
       showLogs,
       reportDiagnostic: rendererReports({ log: logger("renderer"), now: Date.now }),
       desktopChecks: () =>

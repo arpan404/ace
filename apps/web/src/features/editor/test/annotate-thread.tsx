@@ -10,7 +10,7 @@ import {
 } from "@/features/annotations/index.ts";
 import { useEditorAnnotations } from "../annotate.tsx";
 import { CodeEditor } from "../editor.tsx";
-import type { EditorHandle } from "../types.ts";
+import type { EditorHandle, SharedDocument } from "../types.ts";
 
 /*
  * A thread for annotation tests: its composer's draft (the real store and chip) and one editor
@@ -19,14 +19,19 @@ import type { EditorHandle } from "../types.ts";
 
 export const threadId = "thread-1";
 
-/** An editor's key: its path, and `#old` for a diff's old side. */
-const keyOf = (file: File) => (file.side === "old" ? `${file.path}#old` : file.path);
+/** An editor's key: its path, `#old` for a diff's old side, `#2` for a second view. */
+const keyOf = (file: File) =>
+  file.side === "old" ? `${file.path}#old` : file.view === 2 ? `${file.path}#2` : file.path;
 
 export interface File {
   path: string;
   text: string;
   readOnly?: boolean;
   side?: "old" | "new";
+  /** Two editors over one shared document, as two Deck groups showing one file. */
+  shared?: SharedDocument | undefined;
+  /** Which view of a shared document this is. */
+  view?: 1 | 2;
 }
 
 interface Props {
@@ -74,10 +79,11 @@ function Annotated(props: { file: File; editorRef: RefObject<EditorHandle | null
     <CodeEditor
       ref={editorRef ?? null}
       path={file.path}
-      label={`Editor ${file.path}`}
+      label={`Editor ${keyOf(file)}`}
       text={file.text}
       readOnly={file.readOnly ?? false}
       layer={layer}
+      document={file.shared}
       commitAfter={20}
       highlightDelay={60_000}
       statusLine={false}

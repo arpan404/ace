@@ -157,3 +157,27 @@ describe("drafts", () => {
     expect(await session(disk, drafts).registry.draftPaths("m1/t2")).toEqual([]);
   });
 });
+
+describe("Don't save", () => {
+  it("drops the edits and reads the disk even when the device can't store drafts", async () => {
+    const disk = fakeDisk({ "store.ts": "one\ntwo\n" });
+    const drafts = memoryDrafts();
+    const failing = {
+      ...drafts,
+      store: {
+        ...drafts.store,
+        put: () => Promise.reject(new Error("This browser can't keep drafts.")),
+        delete: () => Promise.reject(new Error("This browser can't keep drafts.")),
+      },
+    };
+    const { registry, time } = session(disk, failing);
+    const buffer = await opened(registry);
+    replaceLine(buffer, 0, "mine");
+    time.advance(1_000);
+    await settle();
+
+    await buffer.discard();
+    expect(buffer.snapshot().dirty).toBe(false);
+    expect(buffer.document()?.text()).toBe("one\ntwo\n");
+  });
+});

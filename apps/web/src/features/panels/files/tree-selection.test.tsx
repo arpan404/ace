@@ -1,7 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { expand, menuPick, openExplorer, row } from "./explorer-test-support.ts";
+import { expand, menuPick, renderTree, row } from "./tree-test-support.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -21,26 +21,35 @@ async function clickWith(key: "Control" | "Shift", target: HTMLElement) {
 
 /** Show apps/server/src and preview cursor.ts, which leaves it the one selected row. */
 async function serverFiles() {
-  const opened = await openExplorer();
+  const opened = await renderTree();
   await expand(opened.tree, ["apps/", "apps/server/", src]);
   await userEvent.click(await row(opened.tree, `${src}cursor.ts`));
-  await within(opened.panel).findByRole("tab", { name: "cursor.ts", selected: true });
-  // The preview's tab mounts its own tree.
-  const tree = within(opened.panel).getByRole("tree", { name: "Checkout files" });
+  // The Files tab mounts a fresh tree for the file it opens.
+  const tree = await opened.remount();
   await waitFor(() => expect(selected(tree)).toEqual([`${src}cursor.ts`]));
   return { ...opened, tree };
 }
 
+/** Copies to the clipboard, from now on (a user-event setup brings its own clipboard). */
+function clipboardWrites() {
+  const written: string[] = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: (text: string) => (written.push(text), Promise.resolve()) },
+  });
+  return written;
+}
+
 test("the tree says it holds several selected rows", async () => {
-  const { tree } = await openExplorer();
+  const { tree } = await renderTree();
   expect(tree.getAttribute("aria-multiselectable")).toBe("true");
 });
 
 test("Ctrl+click toggles rows into the selection without opening them", async () => {
-  const { panel, tree } = await serverFiles();
+  const { tree, outputs } = await serverFiles();
   await clickWith("Control", await row(tree, `${src}replay.ts`));
   expect(selected(tree)).toEqual([`${src}cursor.ts`, `${src}replay.ts`]);
-  expect(within(panel).queryByRole("tab", { name: "replay.ts" })).toBeNull();
+  expect(outputs.opened.map((each) => each.path)).not.toContain(`${src}replay.ts`);
   await clickWith("Control", await row(tree, `${src}cursor.ts`));
   expect(selected(tree)).toEqual([`${src}replay.ts`]);
   // A folder toggles into the selection too, without opening.
@@ -66,42 +75,46 @@ test("Shift+Down extends the selection from the keyboard and Ctrl+A selects ever
 });
 
 test("a plain click picks one row again", async () => {
-  const { panel, tree } = await serverFiles();
+  const { tree, outputs, remount } = await serverFiles();
   await clickWith("Control", await row(tree, `${src}replay.ts`));
   await userEvent.click(await row(tree, `${src}replay.spec.ts`));
-  await within(panel).findByRole("tab", { name: "replay.spec.ts", selected: true });
-  const next = within(panel).getByRole("tree", { name: "Checkout files" });
+  expect(outputs.opened.at(-1)).toEqual({ path: `${src}replay.spec.ts`, how: "preview" });
+  const next = await remount();
   await waitFor(() => expect(selected(next)).toEqual([`${src}replay.spec.ts`]));
 });
 
 test("the menu of a selected row copies every selected path and deletes them together", async () => {
-  const { tree } = await serverFiles();
+  const { tree, outputs } = await serverFiles();
   await clickWith("Control", await row(tree, `${src}replay.ts`));
-  // After the clicks: a user-event setup brings its own clipboard.
-  const written: string[] = [];
-  Object.defineProperty(navigator, "clipboard", {
-    configurable: true,
-    value: { writeText: (text: string) => (written.push(text), Promise.resolve()) },
-  });
+  const written = clipboardWrites();
   await menuPick(await row(tree, `${src}replay.ts`), "Copy relative paths");
   await waitFor(() => expect(written.at(-1)).toBe(`${src}cursor.ts\n${src}replay.ts`));
   await menuPick(await row(tree, `${src}replay.ts`), /^Delete/);
   const dialog = await screen.findByRole("dialog", { name: "Delete" });
   expect(dialog.textContent).toContain("Move 2 items to Recently deleted?");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-  await waitFor(() => expect(tree.querySelector(`[data-path="${src}replay.ts"]`)).toBeNull());
-  expect(tree.querySelector(`[data-path="${src}cursor.ts"]`)).toBeNull();
-  // One Undo brings both back.
-  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
-  expect(await row(tree, `${src}cursor.ts`)).toBeTruthy();
-  expect(await row(tree, `${src}replay.ts`)).toBeTruthy();
+  expect(outputs.operations).toEqual([
+    expect.objectContaining({ kind: "delete", paths: [`${src}cursor.ts`, `${src}replay.ts`] }),
+  ]);
 });
 
 test("Mention in chat on a selection mentions each selected file", async () => {
-  const { tree } = await serverFiles();
+  const { tree, outputs } = await serverFiles();
   await clickWith("Control", await row(tree, `${src}replay.ts`));
   await menuPick(await row(tree, `${src}cursor.ts`), "Mention in chat");
-  const message = screen.getByRole("combobox", { name: "Message" });
-  await waitFor(() => expect(message.textContent).toContain(`@${src}cursor.ts`));
-  expect(message.textContent).toContain(`@${src}replay.ts`);
+  expect(outputs.mentions).toEqual([[{ path: `${src}cursor.ts` }, { path: `${src}replay.ts` }]]);
+});
+
+test("deleting a selection moves every row away, and one Undo brings them back", async () => {
+  const { tree } = await renderTree();
+  await clickWith("Control", await row(tree, "README.md"));
+  await clickWith("Control", await row(tree, "package.json"));
+  await menuPick(await row(tree, "package.json"), /^Delete/);
+  const dialog = await screen.findByRole("dialog", { name: "Delete" });
+  expect(dialog.textContent).toContain("Move 2 items to Recently deleted?");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+  await waitFor(() => expect(tree.querySelector('[data-path="README.md"]')).toBeNull());
+  expect(tree.querySelector('[data-path="package.json"]')).toBeNull();
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  expect(await row(tree, "README.md")).toBeTruthy();
+  expect(await row(tree, "package.json")).toBeTruthy();
 });

@@ -20,7 +20,6 @@ export {
 } from "./terminal/tabs.ts";
 export { useAgentShells, useBackgroundShells } from "./terminal/use-terminals.ts";
 /** A checkout file's tab, for whatever opens a file from outside the Files tool. */
-export { fileTab } from "./files/tab-id.ts";
 export { PullRequestViewProvider } from "./pull-request-view.tsx";
 export { useScriptConfigurations } from "./files/script-configurations.ts";
 /**

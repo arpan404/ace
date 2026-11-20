@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   CodeEditor,
   type EditorHandle,
@@ -6,7 +6,6 @@ import {
   type EditorStatusActions,
 } from "@/features/editor";
 import type { DeckEditorProps } from "./deck-host.ts";
-import { fileName } from "./paths.ts";
 
 /**
  * A group's shown editor: `CodeEditor` on the buffer's shared document (spec 56), so every view
@@ -17,8 +16,10 @@ export function DeckEditor(props: DeckEditorProps) {
   const subscribe = useCallback((changed: () => void) => buffer.subscribe(changed), [buffer]);
   const view = useSyncExternalStore(subscribe, () => buffer.view());
   const handle = useRef<EditorHandle>(null);
-  // What the gutter compares against: the text as this view first showed it.
-  const opening = useMemo(() => view?.doc.text() ?? "", [view]);
+  // What the gutter compares against: the last saved or read text, so unsaved lines stay marked
+  // when this view remounts (a tab switch) and clear once saved.
+  const base = useSyncExternalStore(subscribe, () => buffer.baseText()) ?? "";
+  const dirty = useSyncExternalStore(subscribe, () => buffer.snapshot().dirty);
   // The setters reach whichever editor is mounted when a status-line menu is used.
   const actions = useMemo<EditorStatusActions>(
     () => ({
@@ -40,6 +41,25 @@ export function DeckEditor(props: DeckEditorProps) {
     [onStatus, actions],
   );
   const edited = useCallback(() => buffer.edited(), [buffer]);
+  const { reveal, onRevealed } = props;
+  // The view remounts for each reveal of a line, so even the line already shown comes into view
+  // again; it stays mounted once the reveal is taken.
+  const [mount, setMount] = useState(reveal?.line === undefined ? 0 : reveal.token);
+  if (reveal?.line !== undefined && reveal.token !== mount) setMount(reveal.token);
+  // Spec 12–13: the caret (or the match) at the place asked for, and the keyboard there when
+  // the open was deliberate. The editor scrolls the line into view itself.
+  useEffect(() => {
+    const editor = handle.current;
+    if (!reveal || !editor || !view) return;
+    if (reveal.line !== undefined) {
+      const at = { line: Math.max(0, reveal.line - 1), column: reveal.column ?? 0 };
+      editor.setSelections([
+        { anchor: at, head: { line: at.line, column: at.column + (reveal.length ?? 0) } },
+      ]);
+    }
+    if (reveal.focus) editor.focus();
+    onRevealed?.(reveal.token);
+  }, [reveal, onRevealed, view]);
   useEffect(() => {
     if (last.current) onStatus(last.current, actions);
     return () => onStatus(undefined);
@@ -47,12 +67,18 @@ export function DeckEditor(props: DeckEditorProps) {
   if (!view) return null;
   return (
     <CodeEditor
+      // A new reveal brings its line into view again, even one already shown.
+      key={mount}
       ref={handle}
       document={view}
-      text={opening}
+      text={base}
       path={props.path}
-      label={fileName(props.path)}
+      label={`Source of ${props.path}`}
       statusLine={false}
+      marks={dirty ? undefined : props.marks}
+      layer={props.layer}
+      line={reveal?.line}
+      column={reveal?.column}
       onEdit={edited}
       onStatus={report}
     />

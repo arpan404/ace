@@ -39,13 +39,26 @@ export {
   usePreferredSize,
   useScopeWorkspace,
   useOptionalWorkspace,
+  useOpenInDeck,
   useWorkspaceActions,
   useWorkspaceStore,
 } from "./react.tsx";
 export { defaultBottomSize, defaultSize, WorkspaceStore, type ClosedTab } from "./store.ts";
 export { allTabs, bottomOf, isShowing, locateTab, placeOf, type PanelPlace } from "./places.ts";
 
-export { fileTab, fileTabId } from "./file-tab.ts";
+export {
+  deckKind,
+  deckLayoutOf,
+  deckRoom,
+  findInDeck,
+  groupIds,
+  openInDeck,
+  openInLayout,
+  type DeckOpen,
+  type DeckTarget,
+  type OpenInDeckOptions,
+} from "./deck-tab.ts";
+export { requestReveal, settleReveal, useReveal, type Reveal } from "./deck-reveal.ts";
 export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
 export {
   filePreviewTab,

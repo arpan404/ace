@@ -10,12 +10,11 @@ import { useMemo } from "react";
 import { beforeAll, expect, it } from "vitest";
 import { fakeClient } from "@/test/fake-client.ts";
 import { workspaceActions } from "@/lib/workspace/actions.ts";
+import { groupsOf } from "@ace/ui-core/editor-workbench";
 import {
-  allTabs,
+  deckLayoutOf,
   defineTabKind,
   defineWorkspace,
-  fileTabId,
-  tabKey,
   WorkspaceStore,
 } from "@/lib/workspace/index.ts";
 import {
@@ -156,7 +155,7 @@ it("a cache emptied while a finished answer is still on screen is swept once tha
   expect(kept.records).toBe(0);
 });
 
-/** A Files kind, so a file mention has a tab to open in. */
+/** A Deck kind, so a file mention has a tab to open in. */
 const workspace = defineWorkspace({
   label: "Thread panel",
   launcher: "new-tab",
@@ -164,8 +163,9 @@ const workspace = defineWorkspace({
   kinds: async () => ({
     default: [
       defineTabKind({
-        kind: "files",
-        label: "Files",
+        kind: "deck",
+        label: "Deck",
+        singleton: true,
         icon: BrowserIcon,
         load: async () => ({ default: () => null }),
       }),
@@ -182,7 +182,13 @@ const workspace = defineWorkspace({
 function LinkedAnswer(props: { client: ClientApi; store: WorkspaceStore; text: string }) {
   const { client, store } = props;
   const scope = useMemo(
-    () => ({ actions: workspaceActions(store, "thread"), read: () => store.get("thread") }),
+    () => ({
+      deck: {
+        scope: "thread",
+        actions: workspaceActions(store, "thread"),
+        read: () => store.get("thread"),
+      },
+    }),
     [store],
   );
   const links = useFileLinks({
@@ -249,8 +255,8 @@ it("a file mention whose lookup was cut short when its row left is linked once i
   });
   fireEvent.click(link);
   await waitFor(() =>
-    expect(allTabs(store.get("thread")).map((tab) => tab.key)).toContain(
-      tabKey("files", fileTabId(path)),
-    ),
+    expect(groupsOf(deckLayoutOf(store.get("thread")))[0]?.tabs.map((tab) => tab.path)).toEqual([
+      path,
+    ]),
   );
 });

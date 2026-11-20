@@ -31,6 +31,54 @@ function append(buffer: TextBuffer, text: string) {
   buffer.edited();
 }
 
+/** The disk port, counting reads per path. */
+function counting(port: ReturnType<typeof fakeDisk>["port"]) {
+  const reads = new Map<string, number>();
+  return {
+    reads,
+    port: {
+      ...port,
+      read: (file: BufferKey, signal?: AbortSignal) => {
+        reads.set(file.path, (reads.get(file.path) ?? 0) + 1);
+        return port.read(file, signal);
+      },
+    },
+  };
+}
+
+describe("buffers a layout holds (spec 54)", () => {
+  it("reads a held file only once it is shown, unless it carries a draft", async () => {
+    const disk = fakeDisk({ "a.ts": "one\n", "b.ts": "two\n", "c.ts": "three\n" });
+    const files = counting(disk.port);
+    const drafts = memoryDrafts();
+    await drafts.store.put(key("c.ts"), { text: "mine\n", original: "three\n", version: "v3" });
+    const time = manualTime();
+    const registry = createBufferRegistry({
+      files: files.port,
+      drafts: drafts.store,
+      merge: inlineMerge().port,
+      now: time.now,
+      schedule: time.schedule,
+      ready,
+    });
+    const shown = registry.hold(key("a.ts"));
+    const hidden = registry.hold(key("b.ts"));
+    const unsaved = registry.hold(key("c.ts"));
+    shown.setVisible(true);
+    await settle();
+
+    expect(files.reads.get("a.ts")).toBe(1);
+    expect(files.reads.has("b.ts")).toBe(false);
+    // A hidden tab with unsaved text is read at once, so its tab can show the unsaved dot.
+    expect(unsaved.buffer.snapshot().dirty).toBe(true);
+
+    hidden.setVisible(true);
+    await settle();
+    expect(files.reads.get("b.ts")).toBe(1);
+    expect(hidden.buffer.document()?.text()).toBe("two\n");
+  });
+});
+
 describe("buffer registry", () => {
   it("gives two views of one path the same buffer, so an edit in one shows in the other", async () => {
     const { registry } = setup({ "a.ts": "one\n" });

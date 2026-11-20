@@ -1,6 +1,6 @@
 import { useState, type DragEvent, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useSnapshot, type DeckBuffers } from "./deck-buffers.ts";
+import { useAgentMark, useSnapshot, type DeckBuffers } from "./deck-buffers.ts";
 import { writeTabDrag } from "./drag.ts";
 import type { EditorTab } from "@ace/ui-core/editor-workbench";
 import { fileName } from "./paths.ts";
@@ -29,18 +29,26 @@ export function DeckTabView(props: {
 }) {
   const { tab } = props;
   const unsaved = useSnapshot(props.buffers, tab.path)?.dirty ?? false;
+  const mark = useAgentMark(props.buffers, tab.path);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const name = fileName(tab.path);
-  const shows = slotShows(unsaved, tab.pinned, hovered || focused || props.active, hovered);
+  const shows = slotShows(
+    unsaved,
+    tab.pinned,
+    hovered || focused || props.active,
+    hovered,
+    mark !== undefined,
+  );
   return (
     <div
       role="tab"
       aria-selected={props.active}
       tabIndex={props.focusable ? 0 : -1}
-      title={tab.path}
+      title={mark ? `${tab.path}, changed by ${mark.name}` : tab.path}
       data-path={tab.path}
       data-preview={tab.preview ? "" : undefined}
+      aria-description={tab.preview ? "Preview" : undefined}
       draggable
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -73,9 +81,17 @@ export function DeckTabView(props: {
           : "hover:bg-hover",
       )}
     >
-      <span className={cn("max-w-[180px] truncate", tab.preview && "italic")}>{name}</span>
+      <span data-tab-title className={cn("max-w-[180px] truncate", tab.preview && "italic")}>
+        {name}
+      </span>
       {props.hint && <span className="text-xs text-subtle-foreground">· {props.hint}</span>}
-      <TabSlot shows={shows} unsaved={unsaved} name={name} onClose={props.onClose} />
+      <TabSlot
+        shows={shows}
+        unsaved={unsaved}
+        name={name}
+        provider={mark?.provider}
+        onClose={props.onClose}
+      />
     </div>
   );
 }

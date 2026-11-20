@@ -75,7 +75,8 @@ test("files the editor can't take say what in one line", async () => {
   });
   expect(screen.getByText("store.db is a binary file.")).toBeTruthy();
   fireEvent.click(within(strip(1)).getByRole("tab", { name: /bundle\.js/ }));
-  expect(screen.getByText("bundle.js is too large to edit here.")).toBeTruthy();
+  // A hidden tab reads its file only once shown.
+  expect(await screen.findByText("bundle.js is too large to edit here.")).toBeTruthy();
 });
 
 test("a deleted file says so and offers Close", async () => {
@@ -121,4 +122,17 @@ test("the Deck holds a buffer while a tab has its file, and lets a clean one go 
   fireEvent.click(within(strip(1)).getByRole("button", { name: "Close b.ts" }));
   await waitFor(() => expect(deck.registry.get({ root, path: "b.ts" })).toBeUndefined());
   expect(deck.registry.get({ root, path: "a.ts" })).toBeDefined();
+});
+
+test("unsaved lines keep their gutter mark when the editor shows the file again", async () => {
+  const deck = await mountDeck(one([tab("a.ts"), tab("b.ts")]));
+  deck.edit("a.ts", "mine");
+  // Away to b.ts and back: a fresh view on a.ts's buffer, which still differs from the disk.
+  fireEvent.click(within(strip(1)).getByRole("tab", { name: /b\.ts/ }));
+  fireEvent.click(within(strip(1)).getByRole("tab", { name: /a\.ts/ }));
+  await waitFor(() =>
+    expect(
+      editorArea(1).querySelector('[data-line="2"] [data-mark]')?.getAttribute("data-mark"),
+    ).toBe("added"),
+  );
 });

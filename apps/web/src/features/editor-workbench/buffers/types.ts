@@ -148,6 +148,11 @@ export interface TextBuffer {
   /** The document for a view to show; undefined unless status is ready. Same object per document. */
   view(): BufferView | undefined;
   snapshot(): BufferSnapshot;
+  /**
+   * The text the buffer is based on: what was last read from disk or saved, so a view's gutter
+   * marks the person's unsaved lines against it however often it remounts. Undefined until read.
+   */
+  baseText(): string | undefined;
   subscribe(listener: (event: BufferEvent) => void): () => void;
   /** A view applied an edit to the document. Cheap: no text is read until typing pauses. */
   edited(): void;

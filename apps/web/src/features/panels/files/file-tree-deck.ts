@@ -1,21 +1,19 @@
 import { useMemo } from "react";
 import {
+  deckKind,
+  deckLayoutOf,
   findTab,
   useScopeWorkspace,
   useWorkspaceActions,
-  type ScopeWorkspace,
-  type WorkspaceActions,
+  useWorkspaceStore,
 } from "@/lib/workspace/index.ts";
-import { fileTabData, useRecentFiles } from "./files-state.ts";
-import { openFile } from "./open-file.ts";
-import { fileTabId } from "./tab-id.ts";
+import { openEditorsMru, renameInLayout, type DeckRename } from "../deck/deck-layout.ts";
+import { openInDeck } from "./open-file.ts";
 
 /*
  * The explorer, content search and quick open's seam to the Deck (docs/editor/workbench.md):
- * what they ask of the editor area and what they tell it, in one small surface. The cut-over
- * (W5) swaps the bodies marked "today" for the Deck's model (`openEditor`, `mruTabs`, a rename
- * applied to every group); the callers stay as they are. Until then the per-file panel tabs
- * answer.
+ * what they ask of the editor area and what they tell it, in one small surface, answered by the
+ * Deck's model (`openInDeck`, its MRU order, a rename applied to every group).
  */
 
 /** How a file opens: a glance (preview) or kept; at a line and 0-based column. */
@@ -28,23 +26,11 @@ export interface DeckOpenOptions {
   /** Move the keyboard into the editor once it shows (a pick in quick open), not back where
    * focus was before. */
   focus?: boolean | undefined;
+  /** ⌘↵ or ⌘-click: in the group to the right, splitting right when there is none. */
+  side?: boolean | undefined;
 }
 
-/** A checkout entry renamed (or moved) in this window: `from` and `to` are checkout paths. */
-export interface DeckRename {
-  from: string;
-  to: string;
-  /** A folder: every open path inside it follows. */
-  folder: boolean;
-}
-
-/** Where `path` is after `rename`, or undefined when the rename doesn't touch it. */
-export function renamedPath(path: string, rename: DeckRename): string | undefined {
-  if (path === rename.from) return rename.to;
-  if (rename.folder && path.startsWith(`${rename.from}/`))
-    return `${rename.to}${path.slice(rename.from.length)}`;
-  return undefined;
-}
+export { renamedPath, type DeckRename } from "../deck/deck-layout.ts";
 
 type Listener = (path: string) => void;
 const revealListeners = new Map<string, Set<Listener>>();
@@ -72,93 +58,6 @@ export function onRevealInExplorer(threadId: string, listener: Listener): () => 
   };
 }
 
-/**
- * Open editors, most recently used first. Today: the showing file tab, then the other file tabs
- * in the order their files were last shown.
- */
-export function openEditorsMru(
-  workspace: ScopeWorkspace,
-  recent: readonly string[],
-): readonly string[] {
-  const open: string[] = [];
-  for (const tab of workspace.tabs) {
-    if (tab.kind !== "files") continue;
-    const path = fileTabData(tab).path;
-    if (path && !open.includes(path)) open.push(path);
-  }
-  const active = workspace.active ? findTab(workspace, workspace.active)?.tab : undefined;
-  const shown = active?.kind === "files" ? fileTabData(active).path : undefined;
-  const rank = (path: string) => {
-    if (path === shown) return -1;
-    const at = recent.indexOf(path);
-    return at < 0 ? recent.length : at;
-  };
-  return open.toSorted((a, b) => rank(a) - rank(b));
-}
-
-/**
- * Today: every file tab showing a renamed path shows its new path, keeping its state, and every
- * tree keeps a renamed folder (and the folders inside it) open.
- */
-function followInPanelTabs(
-  workspace: ScopeWorkspace,
-  actions: WorkspaceActions,
-  rename: DeckRename,
-): void {
-  for (const tab of workspace.tabs) {
-    if (tab.kind !== "files") continue;
-    const data = fileTabData(tab);
-    const expanded = data.expanded?.map((key) => renamedPath(key, rename) ?? key);
-    const moved = expanded?.some((key, index) => key !== data.expanded?.[index]) ?? false;
-    const kept = { ...data, ...(expanded ? { expanded } : {}) };
-    const next = data.path === undefined ? undefined : renamedPath(data.path, rename);
-    if (next !== undefined)
-      actions.replace(tab.key, {
-        kind: "files",
-        id: fileTabId(next),
-        data: { ...kept, path: next },
-      });
-    else if (moved) actions.update(tab.key, { data: kept });
-  }
-}
-
-const focusFrames = 60;
-
-/**
- * Once `path`'s editor is on screen and no dialog holds the keyboard, focus the editor. A key or
- * a click meanwhile leaves focus where the person put it. Today the editor is the file tab's
- * "Source of …" region; the Deck focuses its own editor instead.
- */
-function focusEditorSoon(doc: Document, path: string): void {
-  let left = focusFrames;
-  let frame = 0;
-  let settled = 0;
-  const stop = () => {
-    cancelAnimationFrame(frame);
-    doc.removeEventListener("pointerdown", stop, true);
-    doc.removeEventListener("keydown", stop, true);
-  };
-  const look = () => {
-    left -= 1;
-    const dialog = doc.querySelector('[role="dialog"], [data-part="command-palette"]');
-    const field = dialog
-      ? null
-      : doc
-          .querySelector(`[role="region"][aria-label="${CSS.escape(`Source of ${path}`)}"]`)
-          ?.querySelector<HTMLElement>("textarea");
-    if (field && doc.activeElement !== field) {
-      field.focus({ preventScroll: true });
-      settled = 0;
-    } else if (field) settled += 1;
-    // A closing dialog hands focus back on its way out: hold the editor a few frames past it.
-    if (left <= 0 || settled >= 3) return stop();
-    frame = requestAnimationFrame(look);
-  };
-  doc.addEventListener("pointerdown", stop, true);
-  doc.addEventListener("keydown", stop, true);
-  frame = requestAnimationFrame(look);
-}
-
 export interface Deck {
   open(path: string, options: DeckOpenOptions): void;
   /** Open editors, most recently used first. */
@@ -169,20 +68,34 @@ export interface Deck {
 
 /** The thread's Deck as the explorer, search and quick open see it. */
 export function useDeck(threadId: string): Deck {
+  const store = useWorkspaceStore();
   const workspace = useScopeWorkspace(threadId);
   const actions = useWorkspaceActions(threadId);
-  const recent = useRecentFiles(threadId);
-  const openEditors = useMemo(() => openEditorsMru(workspace, recent), [workspace, recent]);
+  const layout = useMemo(() => deckLayoutOf(workspace), [workspace]);
+  const openEditors = useMemo(() => openEditorsMru(layout), [layout]);
+  const target = {
+    scope: threadId,
+    read: () => store.get(threadId),
+    actions,
+    preferred: () => store.preferred,
+  };
   return {
-    open: (path, options) => {
-      openFile(workspace, actions, path, {
+    open: (path, options) =>
+      openInDeck(target, path, {
         keep: !options.preview,
+        side: options.side,
         line: options.line,
         column: options.column,
-      });
-      if (options.focus) focusEditorSoon(document, path);
-    },
+        length: options.length,
+        focus: options.focus,
+      }),
     openEditors,
-    renamed: (rename) => followInPanelTabs(workspace, actions, rename),
+    renamed: (rename) => {
+      const current = store.get(threadId);
+      if (!findTab(current, deckKind)) return;
+      const before = deckLayoutOf(current);
+      const next = renameInLayout(before, rename);
+      if (next !== before) actions.update(deckKind, { data: next });
+    },
   };
 }

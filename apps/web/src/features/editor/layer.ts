@@ -27,6 +27,11 @@ export interface EditorLayerView {
   readOnly: boolean;
   /** Bumped on every applied edit. */
   version: number;
+  /**
+   * The document this view shows and its edit count now: two views of one shared document (a
+   * file in two Deck groups) report the same one, so a layer maps its ranges once per edit.
+   */
+  revision(): { document: object; version: number } | undefined;
   /** The element the rows are positioned in, for anchoring a popup to a point in the text. */
   host: HTMLDivElement | null;
   /** Where a position is drawn, in pixels from the host's top-left. */

@@ -44,7 +44,7 @@ export async function openSearch(
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   const tools = await within(panel).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
+  await userEvent.click(within(tools).getByRole("button", { name: /^Deck/ }));
   const tree = await within(panel).findByRole("tree", { name: "Checkout files" });
   await within(tree).findByRole("treeitem", { name: "README.md" });
   // ⌘⇧F from inside the Files tab focuses the Search field.
