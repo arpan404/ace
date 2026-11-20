@@ -172,3 +172,31 @@ test("the host can reset one open stream and leave the others", async () => {
   expect(second.state.destroyed).toBe(false);
   expect(sent.filter((frame) => frame.kind === kinds.reset).map((frame) => frame.id)).toEqual([1]);
 });
+
+test("a peer that ends and then resets still gets every byte it sent to a socket that was still writing", async () => {
+  const { peer, opened } = host();
+  const socket = await opened(1);
+  peer(kinds.data, 1, 1, byte(1));
+  peer(kinds.data, 1, 1, byte(2));
+  peer(kinds.data, 1, 1, byte(3));
+  peer(kinds.end, 1);
+  // The peer's socket closed after its answer; this side had not ended.
+  peer(kinds.reset, 1);
+  await settle();
+  expect(Array.from(Buffer.concat(socket.writes))).toEqual([1, 2, 3]);
+  expect(socket.state.ended).toBe(true);
+  expect(socket.state.endedAfter).toBe(2);
+  expect(socket.state.destroyed).toBe(true);
+});
+
+test("a peer that resets without ending drops what still waited for the socket", async () => {
+  const { peer, opened } = host();
+  const socket = await opened(1);
+  peer(kinds.data, 1, 1, byte(1));
+  peer(kinds.data, 1, 1, byte(2));
+  peer(kinds.reset, 1);
+  await settle();
+  expect(Array.from(Buffer.concat(socket.writes))).toEqual([1]);
+  expect(socket.state.ended).toBe(false);
+  expect(socket.state.destroyed).toBe(true);
+});

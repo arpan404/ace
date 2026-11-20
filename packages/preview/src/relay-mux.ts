@@ -195,6 +195,23 @@ export function createMux(options: MuxOptions) {
       flush(stream);
     });
   };
+  /**
+   * A RESET after the peer's END is its socket closing once it had sent everything (a server that
+   * closes after its answer, while this side has not ended): what it sent before the END stands.
+   * The bytes still queued go to the socket in one write, past its backpressure (at most one
+   * window, already counted), then its end, before the stream is removed. The client's tunnel
+   * stream keeps what it was given once it has ended, whatever destroy follows; a machine-side
+   * socket never meets this, since a client stream sends no RESET after its END.
+   */
+  const deliverRest = (stream: Stream) => {
+    const chunks = stream.writeQueue.splice(0);
+    if (chunks.length > 0)
+      stream.socket.write(chunks.length === 1 && chunks[0] ? chunks[0] : joined(chunks), () => {});
+    if (stream.endPending) {
+      stream.endPending = false;
+      stream.socket.end();
+    }
+  };
   const transmit = async (stream: Stream, chunk: Uint8Array) => {
     stream.payloadBytes = chunk.byteLength;
     pendingPayloadBytes += chunk.byteLength;
@@ -365,6 +382,7 @@ export function createMux(options: MuxOptions) {
       const stream = streams.get(frame.id);
       if (!stream) return; // Late frames for a locally reset stream cannot revive it.
       if (frame.kind === kinds.reset) {
+        if (stream.incomingEnded) deliverRest(stream);
         remove(stream);
         return;
       }
