@@ -28,8 +28,8 @@ Tailscale, the person's relay, ace's relay (ADR 0114).
 ### Loopback goes to the machine, everything else goes direct
 
 In ace's own apps, a page the person opens loads in the device's own engine: `WKWebView` on the
-phone, Chromium in the desktop app. Each such browser sends its connections through a proxy that
-ace runs on the device. The proxy decides per connection by hostname:
+phone, Chromium in the desktop app. ace splits that browser's connections by hostname, on the
+device:
 
 - `localhost`, `*.localhost`, `127.0.0.0/8` and `[::1]` go to the machine, through a tunnel on
   the path the client is already on.
@@ -44,7 +44,9 @@ parses or rewrites them.
 Each machine has its own cookie and storage partition on the device, so `localhost:3000` on one
 machine never sees sign-ins made against `localhost:3000` on another.
 
-The hostname rule is one pure function in `@ace/ui-core`, shared by every client.
+The desktop app splits them with a proxy on the device; the phone takes the loopback ports
+themselves, because iOS never sends loopback to a proxy (see "The device side"). Where a hostname
+rule is needed, it is one pure function in `@ace/ui-core`.
 
 ### Which pages run where
 
@@ -100,10 +102,26 @@ never a host.
   unresolved, so the proxy sees `localhost`, `foo.localhost`, `127.0.0.1` or `::1` and a port,
   then moves bytes. HTTP, websockets and HTTPS all arrive the same way. A PAC script can't do
   this: Chromium bypasses loopback for PAC results regardless.
-- **Phone.** The app runs a CONNECT proxy on its own loopback (`NWListener`). Each machine's
-  `WKWebsiteDataStore` (iOS 17 or later, keyed by the machine) has its `proxyConfigurations` set
-  to that proxy. The Swift side only moves bytes between the local socket and the tunnel. The
-  decisions stay in the shared JavaScript, behind the native host contract.
+- **Phone.** iOS sends `localhost` and the loopback addresses straight to the phone, whatever
+  proxy is set (spike 1), so the phone takes the ports themselves. While a device tab of a machine
+  is in front, the app listens on the phone's `127.0.0.1` and `::1` on each port the machine is
+  listening on at loopback, minus ace's own. Each connection it accepts opens a tunnel stream to the
+  machine on the same port. `localhost:3000`, `127.0.0.1:3000`, `[::1]:3000` and
+  `foo.localhost:3000` all land there, so no hostname rule is needed on iOS. Every other host goes
+  direct, with no proxy set at all.
+  - The machine's listening ports come from the daemon's existing port discovery (ADR 0008's
+    `pollPorts`), sent over the tunnel connection as changes only. The page's own port is
+    listened on even before discovery reports it.
+  - A listener can't tell which web view connected, so a port serves one machine at a time:
+    the machine of the device tab in front. Switching to another machine's device tab moves the
+    listeners to that machine. Each machine keeps its own `WKWebsiteDataStore` (iOS 17 or later,
+    keyed by the machine), so cookies stay apart.
+  - A port already taken on the phone isn't listened on. A page that needs it says which port is
+    busy.
+  - The listeners close when the last device tab closes. While they're open, other apps on the
+    phone could connect to them too, the way any app can reach another app's loopback port.
+  - Swift only owns the listeners and moves bytes. Which ports to take and which machine owns them
+    are decided in the shared JavaScript, behind the native host contract.
 - **Android**, later: `ProxyController` with `removeImplicitRules()`.
 
 ### Public pages don't reach the machine's localhost
@@ -122,10 +140,13 @@ redirects back to `localhost` still works.
 
 ### Spikes
 
-1. **Does WebKit send loopback through `proxyConfigurations`?** Apple doesn't document it. If it
-   doesn't, the phone listens on its own `127.0.0.1:<port>` for each port it has seen the page
-   use, and forwards that. The origin stays the same, but the listeners only live while the app
-   is open, and a port can belong to one machine at a time.
+1. **WebKit, answered 2026-11-19: no.** On an iPhone with iOS 27.2.1, a store's
+   `proxyConfigurations` carried `foo.localhost` and public hosts but not `localhost`,
+   `127.0.0.1` or `[::1]`, for pages, `fetch` and websockets alike. The iOS 26.1 simulator did
+   carry `localhost`, because it uses the Mac's network stack, so loopback behaviour must be
+   tested on a device. A listener in the app on the same port served `localhost`, both IP literals
+   and `foo.localhost`, and was still serving after the app had been in the background for a
+   minute.
 2. **Electron, answered 2026-11-19.** Electron 44.5.1 (Chromium 152) on macOS, partition session
    as above: `localhost`, `127.0.0.1`, `[::1]`, `foo.localhost`, cross-port `fetch`, websockets
    and HTTPS all went through the proxy. Public hosts went direct, and the default session and
