@@ -225,3 +225,31 @@ test("a working subagent says what it does; an asking one what it asks", () => {
     tone: "needs-you",
   });
 });
+
+test("a remote child that didn't confirm its stop is never listed done, and says why", () => {
+  const far = Agent.parse({
+    id: "far",
+    parentId: "root",
+    threadId: "t1",
+    childThreadId: "machine-far",
+    machine: { machine: "build-box", name: "Build box", contact: "unconfirmed" },
+    origin: "ace",
+    native: { provider: "codex" },
+    fidelity: "summary",
+    cwd: "",
+    status: idle,
+    createdAt: clock++,
+  });
+  const works = new Map([
+    ["t1", work([agent("t1", "root", idle), far], { status: { state: "done" } })],
+  ]);
+  const agents = summaryAgents("t1", agentForest("t1", works), works);
+  expect(names(agents?.done ?? [])).toEqual([]);
+  const entry = agents?.working[0];
+  if (!entry) throw new Error("no row");
+  const none = { request: undefined, tool: undefined, spawn: undefined };
+  expect(forestAgentWords(true, entry.node, none)).toMatchObject({
+    step: "stopped · didn't confirm",
+    done: false,
+  });
+});

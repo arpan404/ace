@@ -87,8 +87,10 @@ export function forestAgentWords(
   // working, so it reads neither finished nor done. A failure or a request is known for sure.
   const uncertain = !node.live && node.unconfirmed && status.state !== "failed" && !facts.request;
   const step = currentStep(node, facts);
-  // An unloaded delegate says only "not loaded": that is why it isn't sure.
-  const seen = !uncertain ? step : node.notLoaded ? "" : "syncing";
+  // A remote child in doubt says why in its own words; an unloaded delegate says only "not
+  // loaded". Either is why it isn't sure.
+  const contact = node.live ? undefined : remoteContactStep(node.agent);
+  const seen = !uncertain ? step : (contact ?? (node.notLoaded ? "" : "syncing"));
   return {
     step: withLoad(seen),
     tone,
