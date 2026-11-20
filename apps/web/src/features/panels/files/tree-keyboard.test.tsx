@@ -1,7 +1,7 @@
 import { configure, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { expand, openExplorer, row } from "./explorer-test-support.ts";
+import { expand, renderTree, row } from "./tree-test-support.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -12,7 +12,7 @@ const rootRows = (tree: HTMLElement) =>
   );
 
 test("Right opens a folder then enters it, Left goes back to the folder then closes it", async () => {
-  const { tree } = await openExplorer();
+  const { tree } = await renderTree();
   (await row(tree, "apps/")).focus();
   await userEvent.keyboard("{ArrowRight}");
   await waitFor(() =>
@@ -29,7 +29,7 @@ test("Right opens a folder then enters it, Left goes back to the folder then clo
 });
 
 test("Home and End go to the first and last rows", async () => {
-  const { tree } = await openExplorer();
+  const { tree } = await renderTree();
   (await row(tree, "README.md")).focus();
   await userEvent.keyboard("{Home}");
   expect(focused()).toBe(rootRows(tree)[0]);
@@ -38,18 +38,15 @@ test("Home and End go to the first and last rows", async () => {
 });
 
 test("typing a name jumps to the next row that starts with it", async () => {
-  const { tree } = await openExplorer();
+  const { tree } = await renderTree();
   (await row(tree, "apps/")).focus();
   await userEvent.keyboard("rea");
   expect(focused()).toBe("README.md");
-  // After a pause the letters start a new name.
-  await new Promise((resolve) => setTimeout(resolve, 1100));
-  await userEvent.keyboard("a");
-  expect(focused()).toBe("apps/");
+  // When a pause starts a new name is tree-navigation.test.ts's to check, without waiting.
 });
 
 test("rows say how deep they are and where they sit among their siblings", async () => {
-  const { tree } = await openExplorer();
+  const { tree } = await renderTree();
   await expand(tree, ["apps/"]);
   const roots = rootRows(tree);
   const apps = await row(tree, "apps/");
