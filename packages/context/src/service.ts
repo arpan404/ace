@@ -34,6 +34,11 @@ export interface ContextServiceOptions extends UploadOptions {
     owner: string,
     reference: ThreadRefContextItem,
   ): Promise<ResolvedThreadReference>;
+  /**
+   * The words of Spade bots' replies a `bot_replies` item names (ADR 0194), framed untrusted by
+   * the daemon; undefined when none of them is this thread's.
+   */
+  botReplies?(thread: string, keys: readonly string[]): string | undefined;
   /** Lookup captured native-image metadata only; a client reference never authorizes file IO. */
   imageReference?(thread: string, reference: string, itemId?: string): Attachment | undefined;
   workspace(thread: string): string | undefined | Promise<string | undefined>;
@@ -302,6 +307,18 @@ export class ContextService {
           mimeType: "text/plain",
           text: `${reference.summary}\nPointer: ${JSON.stringify(reference.pointer)}`,
         });
+      // Bots' replies the agent hasn't heard ride with the person's next message, untrusted.
+      for (const item of context.items ?? []) {
+        if (item.type !== "bot_replies") continue;
+        const text = this.options.botReplies?.(thread, item.keys);
+        if (text)
+          prepared.push({
+            path: `ace://thread/${thread}/bot-replies`,
+            name: "Spade bots' replies",
+            mimeType: "text/plain",
+            text,
+          });
+      }
       prepared.push(...(await prepareFiles(lease.blobs, capabilities)));
       // Binary mentions take the attached-file route: images and PDFs reach providers natively.
       const budget = {

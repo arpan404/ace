@@ -72,6 +72,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
         store.readBoundedItemPage(target.id, store.headSeq() + 1, 20, 32768),
       );
     },
+    botReplies: (thread, keys) => services.threadAsks?.repliesText(ThreadId.parse(thread), keys),
     threadWorkspaceRoot: async (thread) => {
       const entity = store.getThread(ThreadId.parse(thread));
       const path = entity ? store.getWorkspacePath(entity.workspaceId) : undefined;

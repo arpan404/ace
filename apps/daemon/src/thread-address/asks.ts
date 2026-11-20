@@ -1,11 +1,12 @@
 import type { ItemDraft } from "@ace/core";
 import type { Addressee, ThreadId } from "@ace/protocol";
 import type { SpadeAnswer, SpadeConnection } from "@ace/service/spade";
-import { addressedOf, type AddressedRow, type AskRow, type ThreadAskStore } from "./asks-store.ts";
+import { askedLineOf, type AddressedRow, type AskRow, type ThreadAskStore } from "./asks-store.ts";
 import {
-  addressedDraft,
-  addressedItemKey,
+  askedItemKey,
+  askedLineDraft,
   askProgress,
+  botRepliesText,
   holdTitle,
   personText,
   replyDraft,
@@ -48,8 +49,6 @@ export interface ThreadAsksPorts {
     task: string,
     hold: { title: string } | { status: "completed" | "failed" | "stopped" },
   ): void;
-  /** The thread's shared summary, when the person shares the thread. */
-  summary(threadId: ThreadId): string | undefined;
   title(threadId: ThreadId): string;
   now(): number;
   /** Resolves after `ms`, or when `signal` aborts. */
@@ -118,8 +117,8 @@ export class ThreadAsks {
     if (!asks.length) return;
     this.ports.post(
       message.threadId,
-      addressedItemKey(commandId),
-      addressedDraft(message.input, addressedOf(asks), message.share),
+      askedItemKey(commandId),
+      askedLineDraft(askedLineOf(message, asks)),
     );
   }
   /** The person stopped the ask (its background row, or Stop in the thread). */
@@ -140,6 +139,21 @@ export class ThreadAsks {
   async stopThread(threadId: ThreadId): Promise<void> {
     const open = this.ports.store.open().filter((ask) => ask.threadId === threadId);
     await Promise.all(open.map((ask) => this.stop(ask.key)));
+  }
+  /**
+   * The replies this thread's agent hasn't been given, as a context item for the person's next
+   * message to it; undefined when there are none. Each is given once.
+   */
+  takeReplies(threadId: ThreadId): { type: "bot_replies"; keys: string[] } | undefined {
+    const replies = this.ports.store.takeUngiven(threadId);
+    return replies.length
+      ? { type: "bot_replies", keys: replies.map((reply) => reply.itemKey) }
+      : undefined;
+  }
+  /** The named replies as the agent reads them: untrusted, framed. */
+  repliesText(threadId: ThreadId, keys: readonly string[]): string | undefined {
+    const replies = this.ports.store.replies(threadId, keys);
+    return replies.length ? botRepliesText(replies) : undefined;
   }
   async close(): Promise<void> {
     this.closing.abort();
@@ -183,7 +197,7 @@ export class ThreadAsks {
   ): Promise<"ok" | "done" | "unreachable"> {
     const message = this.ports.store.message(ask.commandId);
     if (!message) return "done";
-    const context = message.share === "thread" ? this.ports.summary(ask.threadId) : undefined;
+    const context = message.pack;
     const body = {
       key: ask.key,
       to: { kind: to.kind, id: to.id },
@@ -221,22 +235,44 @@ export class ThreadAsks {
     } catch {
       return "unreachable";
     }
-    const progress = askProgress(to, parsed, ask.posted, addressedItemKey(ask.commandId));
-    progress.replies.forEach((reply, index) =>
+    const message = this.ports.store.message(ask.commandId);
+    const progress = askProgress(to, parsed, ask.posted, {
+      about: message?.about ?? ask.commandId,
+      ask: ask.key,
+    });
+    progress.replies.forEach((reply, index) => {
+      const itemKey = replyItemKey(ask.key, ask.posted + index);
+      this.ports.post(ask.threadId, itemKey, replyDraft(reply.text, reply.speaker));
+      this.ports.store.saveReply(
+        {
+          itemKey,
+          threadId: ask.threadId,
+          bot: reply.speaker.name,
+          club: reply.speaker.club?.name,
+          text: reply.text,
+        },
+        this.ports.now(),
+      );
+    });
+    const posted = ask.posted + progress.replies.length;
+    // The reply being written streams into the slot the finished reply will take.
+    if (progress.writing)
       this.ports.post(
         ask.threadId,
-        replyItemKey(ask.key, ask.posted + index),
-        replyDraft(reply.text, reply.speaker),
-      ),
-    );
-    const posted = ask.posted + progress.replies.length;
+        replyItemKey(ask.key, posted),
+        replyDraft(progress.writing.text, progress.writing.speaker, false),
+      );
     if (progress.done) {
       this.ports.store.update(ask.key, { posted }, this.ports.now());
       this.finish({ ...ask, posted }, progress.state, progress.detail);
       return "done";
     }
-    if (posted !== ask.posted || progress.state !== ask.state) {
-      this.ports.store.update(ask.key, { posted, state: progress.state }, this.ports.now());
+    if (posted !== ask.posted || progress.state !== ask.state || progress.detail !== ask.detail) {
+      this.ports.store.update(
+        ask.key,
+        { posted, state: progress.state, detail: progress.detail },
+        this.ports.now(),
+      );
       this.show(ask.commandId);
     }
     return "ok";

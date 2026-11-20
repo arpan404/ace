@@ -57,8 +57,19 @@ export const BrowserAnnotationsContextItem = z.strictObject({
 });
 export type BrowserAnnotationsContextItem = z.infer<typeof BrowserAnnotationsContextItem>;
 /** What a message points the agent at besides files: other threads and browser tabs. */
+/**
+ * What Spade bots answered in this thread since its agent last heard (ADR 0194), by the replies'
+ * item keys. The daemon adds it to the person's next message and expands it as untrusted context;
+ * a client never sends it.
+ */
+export const BotRepliesContextItem = z.strictObject({
+  type: z.literal("bot_replies"),
+  keys: z.array(z.string().min(1).max(256)).min(1).max(32),
+});
+export type BotRepliesContextItem = z.infer<typeof BotRepliesContextItem>;
 export const MessageContextItem = z.discriminatedUnion("type", [
   ThreadRefContextItem,
+  BotRepliesContextItem,
   BrowserTabContextItem,
   BrowserAnnotationsContextItem,
 ]);

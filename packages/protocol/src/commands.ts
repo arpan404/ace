@@ -124,15 +124,21 @@ export const CommandPayload = z.discriminatedUnion("type", [
     runId: RunId.nullable().optional(),
   }),
   /**
-   * The person's message to Spade bots, clubs or other threads' agents, posted in this thread
-   * instead of reaching its agent (ADR 0194). `share` says whether a summary of this thread goes.
+   * The person's message to Spade bots, clubs or other threads' agents (ADR 0194), beside the
+   * `thread.send` that gave it to this thread's agent (`about`, that send's id). A follow-up
+   * (`followUp`) went to the bots alone: `about` is the message it follows up. `share` says
+   * whether the thread's context pack goes with it.
    */
   z.object({
     type: z.literal("thread.address"),
     threadId: ThreadId,
+    about: z.string().min(1).max(256),
     input: z.array(ContentPart).min(1).max(64),
     to: z.array(Addressee).min(1).max(8),
     share: AddressedShare,
+    /** The files the message names, whose paths go in the context pack. */
+    files: z.array(z.string().min(1).max(4096)).max(16).default([]),
+    followUp: z.literal(true).optional(),
   }),
   z.object({
     type: z.literal("thread.interrupt"),

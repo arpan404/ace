@@ -76,13 +76,6 @@ export const AddressedTo = z.object({
 });
 export type AddressedTo = z.infer<typeof AddressedTo>;
 
-/** On the person's message: who it went to instead of the thread's agent, and what went too. */
-export const Addressed = z.object({
-  to: z.array(AddressedTo).min(1).max(8),
-  share: AddressedShare,
-});
-export type Addressed = z.infer<typeof Addressed>;
-
 /** On a reply ace posted in the thread: the bot that said it, and its club when it answered in one. */
 export const Speaker = z.object({
   kind: z.literal("bot"),
@@ -90,8 +83,10 @@ export const Speaker = z.object({
   name: shownName,
   avatar: SpadeFaceJson.optional(),
   club: z.object({ id: spadeId, name: shownName }).optional(),
-  /** The person's message it answers. */
-  inReplyTo: z.string().min(1).max(256).optional(),
+  /** The person's message it answers, as `AskedLine.about` names it. */
+  about: z.string().min(1).max(256),
+  /** The ask it answers, for a follow-up's `thread.address`. */
+  ask: z.string().min(1).max(160).optional(),
 });
 export type Speaker = z.infer<typeof Speaker>;
 
