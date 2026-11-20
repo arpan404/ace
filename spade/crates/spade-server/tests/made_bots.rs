@@ -304,3 +304,73 @@ async fn a_bot_adds_a_bot_to_a_club_it_is_in_and_never_to_another() -> Result {
     assert!(refused.contains("a club you are in"), "{refused}");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_made_bots_suggested_apps_wait_as_connect_cards_in_its_own_chat() -> Result {
+    let app = spade_testkit::FakeConnector::start(vec![spade_testkit::connector::tool(
+        "echo",
+        Some(true),
+        None,
+    )])
+    .await;
+    let entry = spade_connect::Entry {
+        id: "fake".into(),
+        name: "Fake".into(),
+        url: app.url(),
+        sign_in: vec![spade_connect::SignIn::Oauth],
+        source: "https://example.com/docs".into(),
+        local: true,
+        ..Default::default()
+    };
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call(
+                "b1",
+                "call_tool",
+                json!({ "name": "bot_create", "arguments": {
+                    "kind": "standing", "name": "Boards", "task": "Keep my boards tidy.",
+                    "apps": ["fake", "no-such-app"] } }),
+            ),
+            Script::reply("Made Boards."),
+        ],
+        Vec::new(),
+        support::Options {
+            connectors: true,
+            catalogue: vec![entry],
+            ..support::Options::default()
+        },
+    )
+    .await?;
+    let chat = main_conversation(&spade).await?;
+    spade.say(&chat, "Make me a bot for my boards").await?;
+    spade.wait_for(&chat, "reply_finished").await?;
+    let boards = named(&spade, "Boards").await?;
+    let events = spade
+        .events(boards["conversation"].as_str().unwrap_or_default())
+        .await?;
+    // Stored with the bot, in the one write that made it: its task, then the card and its "for
+    // later", before anything else, so no reader ever finds the bot without them.
+    let kinds: Vec<&str> = events.iter().filter_map(|e| e["type"].as_str()).collect();
+    assert_eq!(
+        kinds[..3],
+        ["agent_configured", "question_asked", "question_deferred"],
+        "{events:?}"
+    );
+    // One card, for the app Spade knows, left for later: the bot's chat offers it, nothing waits.
+    let cards: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["type"] == "question_asked")
+        .collect();
+    assert_eq!(cards.len(), 1, "{events:?}");
+    let question = &cards[0]["questions"][0];
+    assert_eq!(question["kind"], "connect");
+    assert_eq!(question["app"], "fake");
+    assert_eq!(question["way"], "sign_in");
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "question_deferred" && e["call_id"] == cards[0]["call_id"])
+    );
+    assert_eq!(boards["state"], "idle", "{boards}");
+    Ok(())
+}
