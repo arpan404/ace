@@ -71,6 +71,7 @@ import {
   type DeckActionsHost,
   type SaveProblem,
 } from "./deck-actions.ts";
+import { useCompactExplorer } from "./compact-explorer.ts";
 import { DeckExplorer, type ExplorerOpen } from "./deck-explorer.tsx";
 import { DeckTabMenuItems } from "./deck-tab-menu.tsx";
 import { deckKeys, type DeckCommand } from "./deck-keys.ts";
@@ -196,7 +197,11 @@ export function DeckPanel(props: TabViewProps) {
   const root = useRef<HTMLDivElement>(null);
   const width = useElementSize(root).width;
   const compact = width > 0 && width < compactBelowPx;
-  const [overlay, setOverlay] = useState(() => openPaths(layout).length === 0);
+  const { shown: overlay, setShown: setOverlay } = useCompactExplorer(
+    threadId,
+    width,
+    openPaths(layout).length === 0,
+  );
   const explorerShown = compact ? overlay : layout.explorer.open;
   const setExplorer = (patch: Partial<ExplorerState>) =>
     change({ ...latest.current, explorer: { ...latest.current.explorer, ...patch } });
