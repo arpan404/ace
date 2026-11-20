@@ -292,6 +292,14 @@ describe.skipIf(!executablePath)("live video from ace's Chrome", () => {
       if (shown) void keeping.ack(shown.sequence);
       return keeping.video().length >= 2 * videoWindow.frames;
     });
+    // Conclusive only if, before then, capture had started for the stalled viewer and the stream
+    // made more than a window of frames, which the viewer that acks got: else there was nothing
+    // for the window to hold back, and a broken one would pass too.
+    const offered = keeping.videoBefore(lossesFrom).length;
+    if (stalled.videoBefore(lossesFrom).length === 0 || offered <= videoWindow.frames)
+      throw new Error(
+        `Inconclusive: before a chunk could be lost the stalled viewer got ${stalled.videoBefore(lossesFrom).length} frames and the stream made ${offered}, not more than its ${videoWindow.frames}-frame window`,
+      );
     expect(stalled.videoBefore(lossesFrom).length).toBeLessThanOrEqual(videoWindow.frames);
     await f.evaluate("window.animating=false");
     stalled.bridge.close();
