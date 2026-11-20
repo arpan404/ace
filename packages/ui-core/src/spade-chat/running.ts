@@ -12,7 +12,8 @@ import { spadeRestTime, type SpadeRestClock } from "./wakes.ts";
  */
 
 /** A bot's rolled-up state (ADR 0200 §6.2). */
-export type SpadeRunningState = "idle" | "working" | "waiting" | "sleeping" | "paused";
+/** `updating`: a package update or rollback is being applied to it; it counts as working. */
+export type SpadeRunningState = "idle" | "working" | "waiting" | "sleeping" | "paused" | "updating";
 
 /** How a row reads, in the order rows sort. */
 export type SpadeRunningReads = "needs_you" | "working" | "failed" | "sleeping" | "paused" | "idle";
@@ -58,7 +59,7 @@ export interface SpadeRunningBot {
 const count = z.number().int().nonnegative().catch(0).default(0);
 const micros = z.number().nonnegative().catch(0).default(0);
 const state = z
-  .enum(["idle", "working", "waiting", "sleeping", "paused"])
+  .enum(["idle", "working", "waiting", "sleeping", "paused", "updating"])
   .catch("idle")
   .default("idle");
 const reads = z

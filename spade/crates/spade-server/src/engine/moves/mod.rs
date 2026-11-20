@@ -184,6 +184,7 @@ fn busy_words(name: &str, state: State) -> Option<String> {
     let doing = match state {
         State::Idle => return None,
         State::Working => "working",
+        State::Updating => "being updated",
         State::Waiting => "waiting on you",
         State::Sleeping => "sleeping",
         // Its pause is this machine's: moved, its held wakes would fire on arrival.

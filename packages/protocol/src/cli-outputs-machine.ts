@@ -81,8 +81,11 @@ export const CliSpadeBot = z.object({
   task: z.string(),
   model: z.string(),
   conversation: z.string(),
-  /** `paused`: the person paused it (ADR 0200 §6.1). */
-  state: z.enum(["idle", "working", "waiting", "paused"]),
+  /**
+   * `paused`: the person paused it (ADR 0200 §6.1). `updating`: its package update or rollback
+   * is being applied (§6.2), which counts as working.
+   */
+  state: z.enum(["idle", "working", "waiting", "paused", "updating"]),
   waitingFor: z.enum(["approval", "question"]).optional(),
   status: z.string().optional(),
   problem: z.string().optional(),
@@ -101,7 +104,8 @@ export const CliRunningBot = z.object({
   id: z.string(),
   kind: z.enum(["main", "bot"]),
   name: z.string(),
-  state: z.enum(["idle", "working", "waiting", "sleeping", "paused"]),
+  /** `updating`: its package update or rollback is being applied; it reads `working`. */
+  state: z.enum(["idle", "working", "waiting", "sleeping", "paused", "updating"]),
   /** How it reads, in the order rows sort. */
   reads: z.enum(["needs_you", "working", "failed", "sleeping", "paused", "idle"]),
   /** Its state in words: "Checking fares", "Waiting on you: a question", "Paused". */

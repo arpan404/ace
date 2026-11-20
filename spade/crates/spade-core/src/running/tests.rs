@@ -1,7 +1,7 @@
 use super::*;
 use crate::event::{Event, FailureKind, Known};
 
-use State::{Idle, Paused, Sleeping, Waiting, Working};
+use State::{Idle, Paused, Sleeping, Updating, Waiting, Working};
 
 #[test]
 fn a_node_reads_the_strongest_of_its_own_state_and_anything_under_it() {
@@ -48,6 +48,28 @@ fn a_paused_bot_reads_paused_unless_it_still_waits_on_the_person_or_is_being_sto
     for (own, paused, expected) in cases {
         assert_eq!(held(own, paused), expected, "{own:?}, paused {paused}");
     }
+}
+
+#[test]
+fn a_bot_being_updated_reads_updating_and_counts_as_working_never_at_rest() {
+    let cases = [
+        (Idle, Updating),
+        (Sleeping, Updating),
+        // A paused bot rolled back reads updating while the rollback is applied.
+        (Paused, Updating),
+        (Working, Working),
+        (Waiting, Waiting),
+    ];
+    for (own, expected) in cases {
+        assert_eq!(updating(own, true), expected, "{own:?} being updated");
+        assert_eq!(updating(own, false), own, "{own:?} not being updated");
+    }
+    assert_eq!(reads(Updating, None), Reads::Working);
+    assert_eq!(reads(Updating, Some("it broke")), Reads::Working);
+    // A parent with an updating worker under it reads working's rank, never idle or paused.
+    assert_eq!(rolled(Idle, Updating), Updating);
+    assert_eq!(rolled(Paused, Updating), Updating);
+    assert_eq!(rolled(Updating, Waiting), Waiting);
 }
 
 fn facts(id: &str, name: &str, state: State) -> Facts {

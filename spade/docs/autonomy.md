@@ -689,6 +689,11 @@ paused, idle (`spade_core::running`). A paused bot reads `paused`, its held wake
 it still waits on the person or something of it is still being stopped. `working` on an agent is
 false while it is paused, so a client from before reads it at rest.
 
+A bot reads `updating` while a package update or rollback is being applied to it: from the moment
+the step is taken until it commits or fails, and at start while a step a crash cut short is taken
+again. It counts as working (its row reads `working`, says "Updating", and its agent shows
+`working: true`), over sleeping, paused and idle; working and waiting on the person show through.
+
 ## API
 
 - `GET /v1/running`: `{bots: [row]}`, every bot that is no worker, in the task manager's order

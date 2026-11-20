@@ -24,7 +24,7 @@ use spade_core::package::{Manifest, read};
 use crate::engine::{Engine, NoteScope, TASK_CHARS};
 use crate::routines;
 
-pub use apply::{recover, update};
+pub use apply::update;
 pub use busy::{Busy, Changing};
 
 /// This build, as a manifest's `requires` reads it.
@@ -226,6 +226,22 @@ pub fn link_new(
         PackageError::Invalid(format!("what you allowed couldn't be set up: {why}"))
     })?;
     Ok(link)
+}
+
+/// Takes again, from the start, every update or rollback a crash cut short (`apply::recover`),
+/// each of those bots reading `updating` until it is taken (ADR 0200 §6.2). Run as Spade opens.
+pub fn recover(engine: &Engine) {
+    let agents = engine.store().agents().unwrap_or_default();
+    let _updating: Vec<_> = agents
+        .iter()
+        .filter(|agent| {
+            engine
+                .bot_package(&agent.id)
+                .is_some_and(|link| link.pending.is_some())
+        })
+        .filter_map(|agent| engine.mark_updating(&agent.id))
+        .collect();
+    apply::recover(engine);
 }
 
 /// Removes every bot an install a crash cut short left: made, but its link never committed. Run

@@ -9464,6 +9464,154 @@ Example:
 }
 ```
 
+## CliBotCall
+
+[JSON Schema](schema/CliBotCall.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| tool | yes | string |  |
+| effect | no | string,null |  |
+| outcome | yes | union | {"anyOf":[{"type":"string","const":"ran"},{"type":"object","properties":{"refused":{"type":"string"}},"required":["refused"]},{"type":"object","properties":{"failed":{"type":"string"}},"required":["failed"]}]} |
+
+Example:
+
+```json
+{
+  "effect": "example",
+  "outcome": "ran",
+  "tool": "example"
+}
+```
+
+## CliBotCheck
+
+[JSON Schema](schema/CliBotCheck.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string |  |
+| hash | yes | string |  |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| warnings | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliProblem.json"}} |
+
+Example:
+
+```json
+{
+  "bytes": 5,
+  "files": 8,
+  "hash": "example",
+  "name": "example",
+  "warnings": []
+}
+```
+
+## CliBotDev
+
+[JSON Schema](schema/CliBotDev.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| step | yes | ["installed","updated","unchanged","waiting","refused"] |  |
+| bot | yes | string |  |
+| name | yes | string |  |
+| hash | yes | string |  |
+| why | no | array | {"items":{"type":"string"}} |
+
+Example:
+
+```json
+{
+  "bot": "example",
+  "hash": "example",
+  "name": "example",
+  "step": "refused",
+  "why": []
+}
+```
+
+## CliBotInit
+
+[JSON Schema](schema/CliBotInit.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string |  |
+| name | yes | string |  |
+| template | yes | [CliBotStarter.json](schema/CliBotStarter.json) |  |
+| files | yes | array | {"items":{"type":"string"}} |
+
+Example:
+
+```json
+{
+  "files": [],
+  "name": "example",
+  "path": "example",
+  "template": "club-member"
+}
+```
+
+## CliBotScenario
+
+[JSON Schema](schema/CliBotScenario.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| file | yes | string |  |
+| name | yes | string |  |
+| passed | yes | boolean |  |
+| failures | yes | array | {"items":{"type":"string"}} |
+| calls | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliBotCall.json"}} |
+
+Example:
+
+```json
+{
+  "calls": [],
+  "failures": [],
+  "file": "example",
+  "name": "example",
+  "passed": true
+}
+```
+
+## CliBotStarter
+
+[JSON Schema](schema/CliBotStarter.json), input validation.
+
+Type: ["blank","watcher","club-member"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"club-member"
+```
+
+## CliBotTest
+
+[JSON Schema](schema/CliBotTest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string,null |  |
+| passed | yes | boolean |  |
+| problems | yes | array | {"items":{"type":"string"}} |
+| scenarios | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliBotScenario.json"}} |
+
+Example:
+
+```json
+{
+  "name": "example",
+  "passed": false,
+  "problems": [],
+  "scenarios": []
+}
+```
+
 ## CliCleanupReceipt
 
 [JSON Schema](schema/CliCleanupReceipt.json), input validation.
@@ -10459,7 +10607,7 @@ Example:
 | id | yes | string |  |
 | kind | yes | ["main","bot"] |  |
 | name | yes | string |  |
-| state | yes | ["idle","working","waiting","sleeping","paused"] |  |
+| state | yes | ["idle","working","waiting","sleeping","paused","updating"] |  |
 | reads | yes | ["needs_you","working","failed","sleeping","paused","idle"] |  |
 | doing | yes | string |  |
 | uses | yes | string |  |
@@ -10489,7 +10637,7 @@ Example:
     "todayMicros": 1,
     "unusual": true
   },
-  "state": "sleeping",
+  "state": "paused",
   "uses": "example",
   "workers": []
 }
@@ -10537,7 +10685,7 @@ Example:
 | task | yes | string |  |
 | model | yes | string |  |
 | conversation | yes | string |  |
-| state | yes | ["idle","working","waiting","paused"] |  |
+| state | yes | ["idle","working","waiting","paused","updating"] |  |
 | waitingFor | no | ["approval","question"] |  |
 | status | no | string |  |
 | problem | no | string |  |

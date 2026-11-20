@@ -21,6 +21,9 @@ pub enum State {
     Sleeping,
     /// The person paused it (ADR 0200 §6.1): nothing of it fires until they resume it.
     Paused,
+    /// A package update or rollback is being applied to it (ADR 0200 §6.2): counts as working,
+    /// never done.
+    Updating,
 }
 
 impl State {
@@ -31,12 +34,14 @@ impl State {
             Self::Waiting => "waiting",
             Self::Sleeping => "sleeping",
             Self::Paused => "paused",
+            Self::Updating => "updating",
         }
     }
 
     /// From the folded transcript: waiting beats working, and background jobs count as working,
-    /// so an agent is never shown idle while any of its work runs. Never `Paused`: that is the
-    /// person's, not the transcript's (see [`held`]).
+    /// so an agent is never shown idle while any of its work runs. Never `Paused` or `Updating`:
+    /// those are the person's and its package's, not the transcript's (see [`held`] and
+    /// [`updating`]).
     pub fn of(transcript: &Transcript) -> Self {
         // A helper waiting on the person (ADR 0152) counts, even after the reply that started it.
         if transcript.waiting_on_you() {
@@ -60,7 +65,7 @@ impl State {
             Self::Idle => 0,
             Self::Paused => 1,
             Self::Sleeping => 2,
-            Self::Working => 3,
+            Self::Working | Self::Updating => 3,
             Self::Waiting => 4,
         }
     }
@@ -83,6 +88,17 @@ pub fn held(own: State, paused: bool) -> State {
     match own {
         State::Waiting | State::Working => own,
         _ if paused => State::Paused,
+        _ => own,
+    }
+}
+
+/// A bot's state while a package update or rollback may be being applied to it: `updating`,
+/// which counts as working, over sleeping, paused or idle (a paused bot rolled back reads it
+/// too); working and waiting on the person show through as they are.
+pub fn updating(own: State, updating: bool) -> State {
+    match own {
+        State::Waiting | State::Working => own,
+        _ if updating => State::Updating,
         _ => own,
     }
 }
@@ -304,7 +320,7 @@ pub struct Row {
 pub fn reads(state: State, failure: Option<&str>) -> Reads {
     match state {
         State::Waiting => Reads::NeedsYou,
-        State::Working => Reads::Working,
+        State::Working | State::Updating => Reads::Working,
         State::Sleeping => Reads::Sleeping,
         State::Paused => Reads::Paused,
         State::Idle if failure.is_some() => Reads::Failed,
