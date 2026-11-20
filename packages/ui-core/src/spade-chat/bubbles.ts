@@ -38,6 +38,8 @@ type SpadeBubbleOf =
       voice: SpadeVoiceRef | undefined;
       /** Not stored by Spade yet. */
       sending: boolean;
+      /** Written in an ace thread (ADR 0194): the line above links back to it. */
+      fromThread?: { id: string; title: string } | undefined;
     }
   /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
   | { kind: "routine"; key: string; name: string; label: string }
@@ -250,6 +252,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
               documents: entry.documents ?? [],
               voice: entry.voice,
               sending: entry.pending === true,
+              ...(entry.fromThread ? { fromThread: entry.fromThread } : {}),
               ...stamp(entry.at),
             },
       );

@@ -22,6 +22,7 @@ import {
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
+import { FromThreadLine } from "./from-thread-line.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useSeconds } from "@/lib/time.ts";
@@ -531,6 +532,7 @@ function Single(props: {
             space,
           )}
         >
+          {item.fromThread && <FromThreadLine thread={item.fromThread} />}
           {item.images.length > 0 && <Pictures images={item.images} side="person" />}
           {item.documents.length > 0 && <DocumentChips documents={item.documents} side="person" />}
           {item.text && (

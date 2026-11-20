@@ -23,6 +23,7 @@ pub mod hooks;
 pub mod knowledge;
 pub mod maintenance;
 pub mod memory;
+pub mod named_devices;
 pub mod outward;
 pub mod oversight;
 pub mod question;

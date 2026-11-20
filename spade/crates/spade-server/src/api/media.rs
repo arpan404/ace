@@ -10,7 +10,7 @@ use axum::routing::{get, post};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use spade_core::event::{DocumentRef, VoiceRef};
 
 use super::body::Body;
@@ -50,6 +50,9 @@ struct Message {
     files: Vec<FileUpload>,
     #[serde(default)]
     voice: Option<VoiceUpload>,
+    /// Devices the person named with `@` (ADR 0194); one that can't be read is left out.
+    #[serde(default)]
+    devices: Vec<Value>,
 }
 
 #[derive(Deserialize)]
@@ -128,11 +131,18 @@ async fn message(
         Ok(documents) => documents,
         Err(response) => return *response,
     };
+    let devices = body
+        .devices
+        .iter()
+        .take(spade_core::named_devices::MOST)
+        .filter_map(|value| serde_json::from_value(value.clone()).ok())
+        .collect();
     let outgoing = Outgoing {
         text,
         images,
         documents,
         voice,
+        devices,
     };
     match state.engine.send_message(&id, outgoing) {
         Ok(()) => StatusCode::ACCEPTED.into_response(),

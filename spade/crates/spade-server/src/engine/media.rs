@@ -18,6 +18,8 @@ pub struct Outgoing {
     pub documents: Vec<DocumentRef>,
     /// The recording, when the message was spoken; `text` is its transcript.
     pub voice: Option<VoiceRef>,
+    /// Devices the person named with `@` (ADR 0194).
+    pub devices: Vec<spade_core::named_devices::NamedDevice>,
 }
 
 impl Engine {
@@ -52,6 +54,7 @@ impl Engine {
         if self.lacks_model(id) {
             return Err(SendError::NoModel);
         }
+        let outgoing_devices = outgoing.devices.clone();
         let images = outgoing
             .images
             .iter()
@@ -69,6 +72,7 @@ impl Engine {
             from_thread: None,
         });
         let message = memory::with_recall(self, id, message);
+        let message = with_devices(message, &outgoing_devices);
         self.deliver(id, &message)?;
         Ok(())
     }
@@ -149,5 +153,39 @@ impl Engine {
         {
             tracing::error!(%error, "could not record what a media call cost");
         }
+    }
+}
+
+/// The message with the devices the person named put first in its per-turn context.
+fn with_devices(event: Event, devices: &[spade_core::named_devices::NamedDevice]) -> Event {
+    let Some(named) = spade_core::named_devices::context(devices) else {
+        return event;
+    };
+    match event {
+        Event::Known(Known::UserMessage {
+            text,
+            context,
+            images,
+            documents,
+            voice,
+            from_agent,
+            from_routine,
+            from_group,
+            from_thread,
+        }) => Event::Known(Known::UserMessage {
+            text,
+            context: Some(match context {
+                Some(recalled) => format!("{named}\n\n{recalled}"),
+                None => named,
+            }),
+            images,
+            documents,
+            voice,
+            from_agent,
+            from_routine,
+            from_group,
+            from_thread,
+        }),
+        other => other,
     }
 }

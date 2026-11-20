@@ -17,6 +17,7 @@ import { Subagents } from "./subagents.tsx";
 import { LiveHead } from "./live-head.tsx";
 import { MomentRow } from "./moment-row.tsx";
 import { WorkLog } from "./work-log.tsx";
+import { AskedLine, BotReply } from "../mentions/index.ts";
 
 const EventView = DeferredEvent.Component;
 
@@ -79,6 +80,11 @@ const BlockContent = memo(function BlockContent(props: {
 function Event(props: { threadId: string; itemId: string }) {
   const item = useItem(props.threadId, props.itemId);
   if (usageWarning(item)) return null;
+  // A Spade bot's reply, and ace's line about who else a message went to (ADR 0194).
+  if (item?.type === "message" && item.speaker)
+    return <BotReply threadId={props.threadId} itemId={props.itemId} />;
+  if (item?.type === "notice" && item.asked)
+    return <AskedLine threadId={props.threadId} itemId={props.itemId} />;
   return (
     <Suspense fallback={null}>
       <EventView threadId={props.threadId} itemId={props.itemId} />
