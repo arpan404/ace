@@ -90,6 +90,14 @@ export class ControllerLease {
     this.claim(actor);
     return true;
   }
+  /**
+   * Which control this is: it changes whenever anyone takes, hands back or loses the controls,
+   * so work started under one control can tell when it ends under another.
+   */
+  controlEpoch(): number {
+    this.status();
+    return this.epoch;
+  }
   current(): Actor | undefined {
     this.status();
     return this.actor ? { ...this.actor } : undefined;
