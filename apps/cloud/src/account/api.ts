@@ -2,7 +2,7 @@ import { ACE_CLIENT_HEADER } from "@ace/protocol/ace-client";
 import type { ServerGate } from "@ace/service/client-features";
 import type { AccountSetup } from "./config.ts";
 import { sealer } from "./crypto.ts";
-import { accountEraser, deleteAccountRoute, sessionEraser } from "./deletion.ts";
+import { accountDeletions, deleteAccountRoute, sweepDeletions } from "./deletion.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { machineCredentialStore } from "./credentials.ts";
 import { directoryRoutes } from "./directory.ts";
@@ -91,11 +91,13 @@ export function accountApi(
   // deployments select only configured origins, never a caller-supplied Host or Origin.
   const canonicalLogin = loginFor(config.publicUrl);
   const hostLogins = new Map(config.publicOrigins?.map((origin) => [origin, loginFor(origin)]));
+  const deletions = accountDeletions(deps.db);
   const deleteAccount = deleteAccountRoute({
     sessions: reader,
+    standing: sessions,
     provider,
-    erase: accountEraser(deps.db),
-    removeSession: sessionEraser(deps.db),
+    deletions,
+    now,
     ...(deps.forgotten ? { forgotten: deps.forgotten } : {}),
   });
   const directory = directoryRoutes({
@@ -150,8 +152,12 @@ export function accountApi(
   }
 
   return {
-    /** Drops expired sign-ins, sessions and machine credentials. */
+    /**
+     * Drops expired sign-ins, sessions and machine credentials, finishes account deletions
+     * nobody retried and forgets old finished ones.
+     */
     sweep: async () => {
+      await sweepDeletions({ deletions, provider }, now());
       await logins.sweep(now());
       await credentials.sweep(now());
       await enrollments.sweep(now());

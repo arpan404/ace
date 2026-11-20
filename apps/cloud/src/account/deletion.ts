@@ -2,72 +2,152 @@ import { z } from "zod";
 import { digest } from "./crypto.ts";
 import { bearer, fail, json } from "./respond.ts";
 import type { SessionReader } from "./session.ts";
+import type { SessionStore } from "./sessions.ts";
 import type { AccountProvider } from "./workos.ts";
 
 const Removed = z.object({ host_id: z.string() });
+const Pending = z.object({ account_id: z.string() });
+
+/** How long a finished deletion's tombstone outlives it: every grant and sign-in from before it has expired by then. */
+export const DELETION_TOMBSTONE_MS = 30 * 86_400_000;
 
 /**
- * Removes what D1 holds for an account in one batch, so a failure leaves all of it: the
- * sign-ins that issued its sessions, every session but `keep` (the one asking), its machine
- * credentials and enrollment tickets (even those on `keep`, so no machine outlives a failed
- * WorkOS delete), and its machines. Answers the host ids of the machines removed. Running it again is harmless.
+ * What D1 holds of account deletions (the `account_deletions` table). `begin` records the
+ * deletion and removes, in one batch, everything but the asking session; `finish` removes the
+ * rest once WorkOS has deleted the user. Both are safe to run again.
  */
-export function accountEraser(db: D1Database) {
-  return async (accountId: string, keep: string): Promise<string[]> => {
-    const sessions = "SELECT token FROM sessions WHERE json_extract(account, '$.id') = ?";
-    const [, , , , machines] = await db.batch([
-      db
-        .prepare(`DELETE FROM logins WHERE session IN (${sessions}) AND session != ?`)
-        .bind(accountId, keep),
-      db
-        .prepare("DELETE FROM sessions WHERE json_extract(account, '$.id') = ? AND token != ?")
-        .bind(accountId, keep),
-      db.prepare("DELETE FROM machine_credentials WHERE account_id = ?").bind(accountId),
-      db.prepare("DELETE FROM machine_enrollments WHERE account_id = ?").bind(accountId),
-      db.prepare("DELETE FROM machines WHERE account_id = ? RETURNING host_id").bind(accountId),
-    ]);
-    return (machines?.results ?? []).map((row) => Removed.parse(row).host_id);
+export function accountDeletions(db: D1Database) {
+  const sessionsOf = "SELECT token FROM sessions WHERE json_extract(account, '$.id') = ?";
+  /** Everything of the account but sessions and the sign-ins that issued them. */
+  const rest = (accountId: string) => [
+    db.prepare("DELETE FROM machine_credentials WHERE account_id = ?").bind(accountId),
+    db.prepare("DELETE FROM machine_enrollments WHERE account_id = ?").bind(accountId),
+    db.prepare("DELETE FROM machines WHERE account_id = ? RETURNING host_id").bind(accountId),
+  ];
+  return {
+    /** Records the deletion and removes all but `keep`'s session. Answers the machines removed. */
+    async begin(accountId: string, keep: string, now: number): Promise<string[]> {
+      const results = await db.batch([
+        db
+          .prepare(
+            "INSERT INTO account_deletions (account_id, session, started_at) VALUES (?, ?, ?) ON CONFLICT (account_id) DO UPDATE SET session = excluded.session WHERE finished_at IS NULL",
+          )
+          .bind(accountId, keep, now),
+        db
+          .prepare(`DELETE FROM logins WHERE session IN (${sessionsOf}) AND session != ?`)
+          .bind(accountId, keep),
+        db
+          .prepare("DELETE FROM sessions WHERE json_extract(account, '$.id') = ? AND token != ?")
+          .bind(accountId, keep),
+        ...rest(accountId),
+      ]);
+      return (results.at(-1)?.results ?? []).map((row) => Removed.parse(row).host_id);
+    },
+    /** The unfinished deletion `hash`'s session asked for, which that session may finish. */
+    async askedBy(hash: string): Promise<string | undefined> {
+      const raw = await db
+        .prepare(
+          "SELECT account_id FROM account_deletions WHERE session = ? AND finished_at IS NULL",
+        )
+        .bind(hash)
+        .first();
+      return raw ? Pending.parse(raw).account_id : undefined;
+    },
+    /** Removes what is left of the account, the asking session too, and marks it finished. */
+    async finish(accountId: string, now: number): Promise<void> {
+      await db.batch([
+        db.prepare(`DELETE FROM logins WHERE session IN (${sessionsOf})`).bind(accountId),
+        db.prepare("DELETE FROM sessions WHERE json_extract(account, '$.id') = ?").bind(accountId),
+        ...rest(accountId),
+        db
+          .prepare(
+            "UPDATE account_deletions SET finished_at = ?, session = '' WHERE account_id = ?",
+          )
+          .bind(now, accountId),
+      ]);
+    },
+    /** Deletions begun and not finished, oldest first. */
+    async unfinished(limit: number): Promise<string[]> {
+      const { results } = await db
+        .prepare(
+          "SELECT account_id FROM account_deletions WHERE finished_at IS NULL ORDER BY started_at LIMIT ?",
+        )
+        .bind(limit)
+        .all();
+      return results.map((row) => Pending.parse(row).account_id);
+    },
+    /** Forgets deletions finished before `before`. */
+    async forget(before: number): Promise<void> {
+      await db
+        .prepare("DELETE FROM account_deletions WHERE finished_at IS NOT NULL AND finished_at < ?")
+        .bind(before)
+        .run();
+    },
   };
 }
+export type AccountDeletions = ReturnType<typeof accountDeletions>;
 
-/** Removes one session, by its token's digest, and the sign-in that issued it. */
-export function sessionEraser(db: D1Database) {
-  return async (hash: string): Promise<void> => {
-    await db.batch([
-      db.prepare("DELETE FROM logins WHERE session = ?").bind(hash),
-      db.prepare("DELETE FROM sessions WHERE token = ?").bind(hash),
-    ]);
-  };
+/**
+ * Finishes a begun deletion: WorkOS deletes the user (a 404 counts as done), then ace removes
+ * the rest. False when WorkOS failed; the deletion stays begun, for a retry or the sweep.
+ */
+async function complete(
+  deps: { deletions: AccountDeletions; provider: Pick<AccountProvider, "deleteUser"> },
+  accountId: string,
+  now: number,
+): Promise<boolean> {
+  try {
+    await deps.provider.deleteUser(accountId);
+  } catch {
+    return false;
+  }
+  await deps.deletions.finish(accountId, now);
+  return true;
 }
 
 /**
- * DELETE /v1/account (App Store guideline 5.1.1(v)). ace's own rows go first, all but the
- * asking session, then the WorkOS user, then that session. A WorkOS failure keeps the session,
- * so the person can try again and the retry finishes the job. Machines removed from the list
- * are asked to register again, which they can no longer do without a session.
+ * DELETE /v1/account (App Store guideline 5.1.1(v)). Only the person's own session may ask
+ * (`person` standing, read at the decision): a session a daemon keeps, or one from before
+ * standing was kept, is refused. ace records the deletion and removes all but the asking
+ * session, then WorkOS deletes the user, then ace removes the rest. A WorkOS failure keeps the
+ * asking session; it, or the sweep, finishes the job, even once WorkOS has the user no more.
+ * Machines removed from the list are asked to register again, which the deletion now refuses.
  */
 export function deleteAccountRoute(deps: {
   sessions: SessionReader;
+  standing: Pick<SessionStore, "standingNow">;
   provider: Pick<AccountProvider, "deleteUser">;
-  erase: (accountId: string, keep: string) => Promise<string[]>;
-  /** Removes the asking session, by its token's digest, and the sign-in that issued it. */
-  removeSession: (hash: string) => Promise<void>;
+  deletions: AccountDeletions;
+  now: () => number;
   forgotten?: (hostId: string, accountId: string) => Promise<void>;
 }) {
+  const finished = (done: boolean) =>
+    done ? json(200, { deleted: true }) : fail(502, "delete_failed");
   return async (request: Request): Promise<Response> => {
     const token = bearer(request);
-    const session = token ? await deps.sessions.read(token) : undefined;
-    if (!token || !session) return fail(401, "unauthenticated");
-    const { id } = session.account;
+    if (!token) return fail(401, "unauthenticated");
     const hash = await digest(token);
-    const hosts = await deps.erase(id, hash);
+    // A deletion this session began: WorkOS may already have the user no more, so the
+    // session can't be read again, but holding its token proves who asked.
+    const begun = await deps.deletions.askedBy(hash);
+    if (begun) return finished(await complete(deps, begun, deps.now()));
+    const session = await deps.sessions.read(token);
+    if (!session) return fail(401, "unauthenticated");
+    const standing = await deps.standing.standingNow(hash, deps.now());
+    if (standing === undefined) return fail(401, "unauthenticated");
+    if (standing !== "person") return fail(403, "person_session_required");
+    const { id } = session.account;
+    const hosts = await deps.deletions.begin(id, hash, deps.now());
     await Promise.allSettled(hosts.map((hostId) => deps.forgotten?.(hostId, id)));
-    try {
-      await deps.provider.deleteUser(id);
-    } catch {
-      return fail(502, "delete_failed");
-    }
-    await deps.removeSession(hash);
-    return json(200, { deleted: true });
+    return finished(await complete(deps, id, deps.now()));
   };
+}
+
+/** The sweep's part: finishes deletions nobody retried, and forgets old finished ones. */
+export async function sweepDeletions(
+  deps: { deletions: AccountDeletions; provider: Pick<AccountProvider, "deleteUser"> },
+  now: number,
+): Promise<void> {
+  for (const accountId of await deps.deletions.unfinished(50)) await complete(deps, accountId, now);
+  await deps.deletions.forget(now - DELETION_TOMBSTONE_MS);
 }

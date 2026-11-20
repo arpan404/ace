@@ -319,8 +319,9 @@ export class RelayObject extends DurableObject<Env> {
     // (the key). The directory entry is written before the daemon hears it is registered, so a
     // registered machine is always one the account's devices can find. A failed write ends the
     // registration and the daemon retries.
+    let registered: boolean;
     try {
-      await machineStore(this.env.ACCOUNTS).register(
+      registered = await machineStore(this.env.ACCOUNTS).register(
         {
           hostId: attachment.hostId,
           accountId: attachment.account,
@@ -332,6 +333,8 @@ export class RelayObject extends DurableObject<Env> {
     } catch {
       return this.#close(ws, 1011, "Directory unavailable");
     }
+    // The account was deleted after this grant was issued; retrying won't help.
+    if (!registered) return this.#close(ws, 1008, "Account deleted");
     // The daemon closed while the entry was written.
     if (this.#read(ws)?.id !== attachment.id) return;
     this.#save(ws, host);

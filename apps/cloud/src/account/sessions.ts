@@ -1,3 +1,4 @@
+import { notDeleted } from "./tombstone.ts";
 import { z } from "zod";
 import { AceAccount } from "@ace/protocol/ace-account";
 import type { Sealer } from "./crypto.ts";
@@ -49,7 +50,7 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
       .bind(hash);
   return {
     /**
-     * A new sign-in's session. `standing` is `person` for an app's sign-in, which only that app
+     * A new sign-in's session; false, and nothing written, when the account was deleted. `standing` is `person` for an app's sign-in, which only that app
      * holds, and `exposed` for a daemon's (`ace login`), which a machine keeps (ADR 0190).
      */
     async put(
@@ -60,10 +61,10 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
       signedIn: number,
       standing: "person" | "exposed",
       pictureUrl?: string,
-    ) {
-      await db
+    ): Promise<boolean> {
+      const result = await db
         .prepare(
-          "INSERT INTO sessions (token, account, refresh, expires, signed_in, standing) VALUES (?, ?, ?, ?, ?, ?)",
+          `INSERT INTO sessions (token, account, refresh, expires, signed_in, standing) SELECT ?, ?, ?, ?, ?, ? WHERE ${notDeleted()}`,
         )
         .bind(
           hash,
@@ -72,8 +73,10 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
           expires,
           signedIn,
           standing,
+          account.id,
         )
         .run();
+      return result.meta.changes > 0;
     },
     /** A session its token still opens: not expired, not retired. */
     get: (hash: string, now: number) => read(hash, now, false),

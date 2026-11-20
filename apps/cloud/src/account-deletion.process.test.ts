@@ -1,11 +1,12 @@
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { z } from "zod";
+import { AceLogin } from "@ace/protocol/ace-account";
 import { connectClientViaRelay, connectHostToRelay } from "@ace/relay";
 import { hostId, keyPair } from "@ace/secure-channel";
 import { fakeWorkos } from "./testing/fake-workos.ts";
 import type { WorkosUser } from "./testing/fake-workos.ts";
-import { mint, startWorker } from "./testing/harness.ts";
-import { signInThroughWorker } from "./testing/sign-in.ts";
+import { allowedOrigin, mint, startWorker } from "./testing/harness.ts";
+import { continueSignIn, signInThroughWorker } from "./testing/sign-in.ts";
 
 // Deleting an account spans the Worker's routing, its D1 rows and a WorkOS request together.
 let workos: Awaited<ReturnType<typeof fakeWorkos>>;
@@ -32,7 +33,8 @@ const session = (token: string) =>
 const machines = (token: string) => fetch(`${worker.http}/v1/machines`, { headers: auth(token) });
 const deleteAccount = (token?: string) =>
   fetch(`${worker.http}/v1/account`, { method: "DELETE", headers: token ? auth(token) : {} });
-const signIn = (id: string) => signInThroughWorker(worker.http, workos, person(id));
+const signIn = (id: string, holder: "person" | "machine" = "person") =>
+  signInThroughWorker(worker.http, workos, person(id), holder);
 
 async function addMachine(host: string, accountId: string) {
   await worker.db
@@ -134,21 +136,109 @@ it("a WorkOS failure keeps the asking session, so trying again finishes the dele
   expect((await session(grant.token)).status).toBe(401);
 });
 
-it("an account WorkOS no longer has is still deleted from ace", async () => {
-  const first = await signIn("user_twice");
-  expect((await deleteAccount(first.token)).status).toBe(200);
-  // A session left from before WorkOS lost the user: WorkOS now answers 404 for it.
-  const again = await signIn("user_twice");
-  await addMachine("E".repeat(52), "user_twice");
-  expect((await deleteAccount(again.token)).status).toBe(200);
-  expect((await session(again.token)).status).toBe(401);
-  expect(await count("SELECT count(*) AS n FROM machines WHERE account_id = ?", "user_twice")).toBe(
-    0,
+/** WorkOS loses the user without ace hearing of it, as if its delete went through. */
+const deleteAtWorkos = (id: string) =>
+  fetch(`${workos.url}/user_management/users/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: "Bearer sk_test_backend" },
+  });
+const leftFor = (accountId: string) =>
+  count("SELECT count(*) AS n FROM sessions WHERE json_extract(account, '$.id') = ?", accountId);
+
+it("a retry from the asking phone finishes a deletion WorkOS already completed", async () => {
+  const phone = await signIn("user_half");
+  workos.failDeletes(true);
+  expect((await deleteAccount(phone.token)).status).toBe(502);
+  workos.failDeletes(false);
+  // WorkOS deleted the user, but ace never heard back: the session can no longer refresh.
+  expect((await deleteAtWorkos("user_half")).status).toBe(202);
+  const retried = await deleteAccount(phone.token);
+  expect(retried.status).toBe(200);
+  expect(await retried.json()).toEqual({ deleted: true });
+  expect(await leftFor("user_half")).toBe(0);
+  expect((await deleteAccount(phone.token)).status).toBe(401);
+});
+
+it("the sweep finishes a deletion the phone never retried", async () => {
+  const phone = await signIn("user_abandoned");
+  await addMachine("H".repeat(52), "user_abandoned");
+  workos.failDeletes(true);
+  expect((await deleteAccount(phone.token)).status).toBe(502);
+  workos.failDeletes(false);
+  await worker.sweep();
+  expect(workos.deletedUsers()).toContain("user_abandoned");
+  expect(await leftFor("user_abandoned")).toBe(0);
+  expect((await session(phone.token)).status).toBe(401);
+});
+
+it("only the person's own session deletes the account: a machine's or an older one's is refused", async () => {
+  const machine = await signIn("user_guarded", "machine");
+  const older = await signIn("user_guarded");
+  await worker.db
+    .prepare("UPDATE sessions SET standing = 'legacy' WHERE json_extract(account, '$.id') = ?")
+    .bind("user_guarded")
+    .run();
+  await addMachine("J".repeat(52), "user_guarded");
+  for (const token of [machine.token, older.token]) {
+    const refused = await deleteAccount(token);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ error: "person_session_required" });
+  }
+  expect(workos.deletedUsers()).not.toContain("user_guarded");
+  expect((await session(older.token)).status).toBe(200);
+  expect(
+    await count("SELECT count(*) AS n FROM machines WHERE account_id = ?", "user_guarded"),
+  ).toBe(1);
+});
+
+it("a sign-in still in flight when the account is deleted gets no session", async () => {
+  const phone = await signIn("user_racing");
+  // Another device's sign-in has reached WorkOS but not yet come back.
+  const started = await fetch(`${worker.http}/v1/account/login`, {
+    method: "POST",
+    headers: { Origin: allowedOrigin, "Content-Type": "application/json" },
+    body: JSON.stringify({ holder: "person" }),
+  });
+  const flow = AceLogin.parse(await started.json());
+  const { cookie, authorizeUrl } = await continueSignIn(worker.http, flow.loginUrl);
+  const state = workos.authorize(authorizeUrl, person("user_racing"), "code-racing");
+  expect((await deleteAccount(phone.token)).status).toBe(200);
+  const callback = await fetch(
+    `${worker.http}/v1/account/callback?state=${state}&code=code-racing`,
+    { headers: { cookie } },
   );
+  await callback.body?.cancel();
+  expect(callback.status).not.toBe(200);
+  expect(await leftFor("user_racing")).toBe(0);
+});
+
+it("a machine grant issued before the deletion can't put the machine back on the account", async () => {
+  const phone = await signIn("user_regrant");
+  const hostKeys = keyPair();
+  const grant = mint("machine", "user_regrant", hostId(hostKeys.publicKey));
+  expect((await deleteAccount(phone.token)).status).toBe(200);
+  const outcome = await connectHostToRelay({
+    relayUrl: worker.relayUrl,
+    hostKeys,
+    account: { grant: async () => grant, name: "Late box", platform: "linux" },
+    onClientChannel: () => {},
+  }).then(
+    async (host) => {
+      await host.close();
+      return "connected";
+    },
+    () => "refused",
+  );
+  expect(outcome).toBe("refused");
+  expect(
+    await count("SELECT count(*) AS n FROM machines WHERE account_id = ?", "user_regrant"),
+  ).toBe(0);
 });
 
 it("a machine still connected to the relay drops off when its account is deleted", async () => {
-  const grant = await signIn("user_connected");
+  const phone = await signIn("user_connected");
+  // The machine's own `ace login`, which asks for its machine grants.
+  const grant = await signIn("user_connected", "machine");
   const hostKeys = keyPair();
   const machineGrant = async () => {
     const response = await fetch(`${worker.http}/v1/grants`, {
@@ -174,12 +264,35 @@ it("a machine still connected to the relay drops off when its account is deleted
         grant: mint("device", "user_connected", "phone"),
       });
     await (await device()).close();
-    expect((await deleteAccount(grant.token)).status).toBe(200);
+    expect((await deleteAccount(phone.token)).status).toBe(200);
     // Told to register again, the machine has no session to do it with.
     await expect(device()).rejects.toThrow();
   } finally {
     await machine.close();
   }
+});
+
+it("the sweep forgets a finished deletion after 30 days, and keeps a recent one", async () => {
+  const day = 86_400_000;
+  await worker.db.batch(
+    [
+      ["user_long_gone", Date.now() - 31 * day],
+      ["user_just_gone", Date.now() - day],
+    ].map(([id, at]) =>
+      worker.db
+        .prepare(
+          "INSERT INTO account_deletions (account_id, session, started_at, finished_at) VALUES (?, '', ?, ?)",
+        )
+        .bind(id, at, at),
+    ),
+  );
+  await worker.sweep();
+  const kept = await worker.db
+    .prepare(
+      "SELECT account_id FROM account_deletions WHERE account_id IN ('user_long_gone', 'user_just_gone')",
+    )
+    .all<{ account_id: string }>();
+  expect(kept.results.map((row) => row.account_id)).toEqual(["user_just_gone"]);
 });
 
 it("deleting an account needs its session", async () => {
