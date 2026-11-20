@@ -1,6 +1,7 @@
 import { daemonMcpCapabilities } from "./services/mcp-capabilities.ts";
 import { createAcpAdapter, genericQuirks } from "@ace/adapter-acp";
 import { acpModelInstanceId } from "./acp-model-instance.ts";
+import { acpAccount, acpCatalogInstance, ensureAcpAccount } from "./acp-catalog.ts";
 import {
   acpAgentCli,
   geminiTrustEnv,
@@ -22,7 +23,6 @@ import { claudeToolSearchFacts } from "@ace/adapter-claude/tool-search";
 import type { EngineOptions, AdapterRegistry } from "./engine/index.ts";
 import type { Services } from "./services/types.ts";
 import type { DaemonOptions } from "./services/options.ts";
-import { createAcpInstance } from "@ace/accounts";
 import { homedir } from "node:os";
 import type { Store } from "./store.ts";
 export function acpEngineOptions(input: {
@@ -35,6 +35,8 @@ export function acpEngineOptions(input: {
   accounts?: Services["accounts"];
   accountRegistry?: Services["accountRegistry"];
   userHome?: string;
+  /** ace's data folder, which holds the catalog's probe folder (`acp-catalog.ts`). */
+  dataDir: string;
   capabilities?: McpCapability[];
   /** The checkout a worktree ace created was made from; undefined for any other folder. */
   worktreeSource?: (path: string) => string | undefined;
@@ -55,33 +57,39 @@ export function acpEngineOptions(input: {
     }),
     { installed: true, auth: "unknown", loginHint: "Use the agent's own CLI login" },
   );
-  const accountFor = (identity: AcpIdentity) =>
-    input.options.acpEnvironment?.(identity) ??
-    input.accounts?.acpEnvironment(identity) ?? {
-      env: process.env,
-      loginRevision: "default-local",
-    };
+  const accountFor = (identity: AcpIdentity) => acpAccount(input, identity);
+  const catalogInstance = (
+    identity: AcpIdentity,
+    loginRevision: string,
+    plan: Awaited<ReturnType<AgentRegistry["resolve"]>>,
+  ): InstanceInput =>
+    acpCatalogInstance(
+      identity,
+      loginRevision,
+      {
+        command: plan.command,
+        args: plan.args,
+        version: plan.version,
+        ...(plan.profile ? { profileRevision: plan.profile.revision } : {}),
+      },
+      input.dataDir,
+    );
   return {
     /**
-     * A generic agent's catalog row exists before its model is chosen: after a restart the row is
-     * otherwise unknown until a session opens, and a thread's chosen model reads as unavailable.
-     * Only the thread opening now is registered, so startup does no work per stored thread.
+     * A generic agent's catalog row exists before its model is chosen. Approved agents register
+     * theirs at start (`registerApprovedAcpAgents`); this covers an agent whose row could not
+     * be registered then. Checked without a read, so opening a session starts no probe.
      */
     async sessionCatalog(threadId) {
       const thread = input.store.getThread(threadId);
       if (thread?.provider !== "acp") return;
       const identity = AcpIdentity.parse(thread);
       const id = acpModelInstanceId(identity);
-      if (input.models.list({ instance: id }).instances.length) return;
+      if (input.models.hasInstance(id)) return;
       const account = accountFor(identity);
       const plan = await input.agents.resolve(identity, account.env);
-      const cwd = input.store.atomic((db) =>
-        String(
-          db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=?").get(threadId)?.cwd ?? "",
-        ),
-      );
-      if (input.models.list({ instance: id }).instances.length) return;
-      input.models.registerInstance(catalogInstance(identity, account.loginRevision, plan, cwd));
+      if (input.models.hasInstance(id)) return;
+      input.models.registerInstance(catalogInstance(identity, account.loginRevision, plan));
     },
     async sessionContext(threadId, signal) {
       const thread = input.store.getThread(threadId);
@@ -102,29 +110,7 @@ export function acpEngineOptions(input: {
       }
       if (thread?.provider !== "acp") return {};
       const identity = AcpIdentity.parse(thread);
-      if (
-        input.accounts &&
-        input.accountRegistry &&
-        !input.accountRegistry.get(identity.instanceId)
-      ) {
-        const installation = input.agents.inventory
-          .list()
-          .find(
-            (entry) =>
-              entry.installationId === identity.installationId &&
-              entry.acpAgentId === identity.acpAgentId &&
-              entry.instanceId === identity.instanceId,
-          );
-        if (!installation) throw new Error("Approved ACP installation unavailable");
-        await input.accountRegistry.register(
-          createAcpInstance({
-            identity,
-            label: identity.acpAgentId.slice(0, 128),
-            userHome: input.userHome ?? homedir(),
-            installation,
-          }),
-        );
-      }
+      await ensureAcpAccount(input, identity);
       const account = accountFor(identity);
       const resolved = await input.agents.resolve(identity, account.env);
       const root = thread.rootAgentId;
@@ -192,7 +178,7 @@ export function acpEngineOptions(input: {
         serverInstructions: acpShowsServerInstructions(cli),
         session: lease.session,
       };
-      const instance = catalogInstance(identity, account.loginRevision, plan, cwd);
+      const instance = catalogInstance(identity, account.loginRevision, plan);
       try {
         input.models.registerInstance(instance);
       } catch (error) {
@@ -251,27 +237,5 @@ function sessionMetadataWriter(
     if (signal.aborted) return;
     pending = { value: metadata };
     void drain().catch((error: unknown) => input.report(error));
-  };
-}
-/** The catalog row of a generic ACP agent's account, as its sessions report into it. */
-function catalogInstance(
-  identity: AcpIdentity,
-  loginRevision: string,
-  plan: Awaited<ReturnType<AgentRegistry["resolve"]>>,
-  cwd: string,
-): InstanceInput {
-  return {
-    id: acpModelInstanceId(identity),
-    provider: "acp",
-    ...identity,
-    loginRevision,
-    executable: plan.command,
-    cwd,
-    args: [...plan.args],
-    // Generic ACP never uses catalog-driven process discovery. Keep the launch
-    // environment only on its daemon-local plan, outside model metadata.
-    env: {},
-    profileRevision: plan.profile?.revision ?? "generic-v1",
-    installationVersion: plan.version,
   };
 }
