@@ -92,24 +92,48 @@ never a host.
 
 ### The device side
 
-- **Desktop app.** Each remote machine gets a session partition. Its proxy points at a CONNECT
-  proxy in the main process, and its bypass rules include `<-loopback>`, so Chromium stops sending
-  localhost around the proxy.
+- **Desktop app.** Each remote machine gets a session partition with
+  `setProxy({ proxyRules: "socks5://127.0.0.1:<port>", proxyBypassRules: "*,<-loopback>" })`,
+  pointing at a SOCKS5 proxy in the main process. `*` sends every host direct and `<-loopback>`
+  then takes loopback back from Chromium's built-in bypass. The order matters: the last matching
+  rule wins, so `<-loopback>,*` sends everything direct. Chromium hands SOCKS5 the hostname
+  unresolved, so the proxy sees `localhost`, `foo.localhost`, `127.0.0.1` or `::1` and a port,
+  then moves bytes. HTTP, websockets and HTTPS all arrive the same way. A PAC script can't do
+  this: Chromium bypasses loopback for PAC results regardless.
 - **Phone.** The app runs a CONNECT proxy on its own loopback (`NWListener`). Each machine's
   `WKWebsiteDataStore` (iOS 17 or later, keyed by the machine) has its `proxyConfigurations` set
   to that proxy. The Swift side only moves bytes between the local socket and the tunnel. The
   decisions stay in the shared JavaScript, behind the native host contract.
 - **Android**, later: `ProxyController` with `removeImplicitRules()`.
 
-### Spikes before building
+### Public pages don't reach the machine's localhost
+
+On the device, a public page could otherwise `fetch("http://localhost:…")` and reach the
+machine through the tunnel. Electron launches with Chromium's Local Network Access checks turned
+off, so the spike saw such a request go through with no preflight. A device tab therefore blocks
+loopback requests whose top-level page is not itself on a loopback host:
+
+- desktop app: the partition's `webRequest.onBeforeRequest` cancels a loopback request when its
+  frame's top-level URL isn't loopback;
+- phone: a `WKContentRuleList` blocks loopback URLs `unless-top-url` is loopback.
+
+Top-level navigations to loopback are allowed, so an OAuth flow that leaves for a provider and
+redirects back to `localhost` still works.
+
+### Spikes
 
 1. **Does WebKit send loopback through `proxyConfigurations`?** Apple doesn't document it. If it
    doesn't, the phone listens on its own `127.0.0.1:<port>` for each port it has seen the page
    use, and forwards that. The origin stays the same, but the listeners only live while the app
    is open, and a port can belong to one machine at a time.
-2. **Does Electron's pinned version honour `<-loopback>` on a partition session?**
+2. **Electron, answered 2026-11-19.** Electron 44.5.1 (Chromium 152) on macOS, partition session
+   as above: `localhost`, `127.0.0.1`, `[::1]`, `foo.localhost`, cross-port `fetch`, websockets
+   and HTTPS all went through the proxy. Public hosts went direct, and the default session and
+   other partitions were unaffected. `window.isSecureContext` stays true and the origin keeps its
+   value. Chromium retries a failed HTTPS connect once, so the tunnel sees a duplicate open.
 3. **A Vite dev page over ace's relay** on the slow-link harness (hundreds of module requests,
-   each a stream). Its time to first paint and full load set the bar for the tunnel.
+   each a stream). Its time to first paint and full load set the bar for the tunnel. This runs
+   with the first tunnel build, since it needs the tunnel.
 
 ## Consequences
 
