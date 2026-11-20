@@ -453,8 +453,12 @@ export function createMux(options: MuxOptions) {
   unsubscribe = options.channel.subscribe(receive, close);
   if (closed) unsubscribe();
   return {
-    /** Opens a stream for `socket`: its id, or undefined when it was destroyed unopened. */
-    open(socket: PreviewSocket, port: number): number | undefined {
+    /**
+     * Opens a stream for `socket`: its id, or undefined when it was destroyed unopened.
+     * `opening` hears the id before the OPEN goes, since a channel may deliver the peer's answer
+     * (a RESET, say) before `open` returns.
+     */
+    open(socket: PreviewSocket, port: number, opening?: (id: number) => void): number | undefined {
       if (
         options.allowPort ||
         closed ||
@@ -465,8 +469,10 @@ export function createMux(options: MuxOptions) {
         return undefined;
       }
       const id = nextId++;
+      const target = PreviewPort.parse(port);
       bind(id, socket);
-      void send(kinds.open, id, PreviewPort.parse(port)).catch(close);
+      opening?.(id);
+      void send(kinds.open, id, target).catch(close);
       return id;
     },
     /** Resets stream `id` at once, whatever state it is in; an unknown id changes nothing. */

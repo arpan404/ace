@@ -388,9 +388,12 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
         // Before the open: a mux with no room fails the stream synchronously, and that cleanup
         // must find the listener to remove.
         signal?.addEventListener("abort", give, { once: true });
-        id = mux.open(socket, target);
-        // READY and RESET come later, from the machine: the stream is pending until then.
-        if (id !== undefined) connection.pending.add(id);
+        // Pending from before its OPEN goes until READY or RESET: a link may deliver the
+        // machine's refusal and RESET before `open` returns.
+        mux.open(socket, target, (opened) => {
+          id = opened;
+          connection.pending.add(opened);
+        });
       });
     },
     ports: {

@@ -128,3 +128,49 @@ test("an open given up during the backoff rejects at once, and the others still 
   latest().close();
   await expect(other).rejects.toMatchObject({ code: "offline" });
 });
+
+/**
+ * A link that answers each OPEN inside `sendBinary`, before it returns: `refusal`'s message
+ * (when given) and then a RESET for that stream, as a reentrant native link may.
+ */
+function answeringAtOnce(refusal?: "tunnel_port_refused" | "tunnel_limit") {
+  let events: ChannelEvents | undefined;
+  const path: TunnelPath = {
+    key: "lan",
+    link: () => ({
+      open(opened) {
+        events = opened;
+        opened.ready();
+      },
+      async sendBinary(bytes) {
+        // The stream framing's header: version, kind (1 is OPEN, 6 is RESET), stream id.
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        if (view.getUint8(1) !== 1 || !events) return;
+        const stream = view.getUint32(4);
+        if (refusal) void events.message({ type: "tunnel.refused", code: refusal, stream });
+        const reset = new Uint8Array(12);
+        new DataView(reset.buffer).setUint8(0, 1);
+        new DataView(reset.buffer).setUint8(1, 6);
+        new DataView(reset.buffer).setUint32(4, stream);
+        void events.message(reset);
+      },
+      close() {},
+    }),
+  };
+  return openMachineTunnel({
+    path: { get: () => path, subscribe: () => () => {} },
+    schedule: () => () => {},
+  });
+}
+
+test("a refusal and RESET the link delivers while the OPEN is still being sent keep their reason", async () => {
+  const tunnel = answeringAtOnce("tunnel_port_refused");
+  await expect(tunnel.open(3000)).rejects.toMatchObject({ code: "tunnel_port_refused" });
+  // The next stream's refusal is its own, not one left over from the first.
+  await expect(tunnel.open(3001)).rejects.toMatchObject({ code: "tunnel_port_refused" });
+});
+
+test("a RESET the link delivers while the OPEN is still being sent reads as nothing listening, not a limit", async () => {
+  const tunnel = answeringAtOnce();
+  await expect(tunnel.open(3000)).rejects.toMatchObject({ code: "tunnel_reset" });
+});
