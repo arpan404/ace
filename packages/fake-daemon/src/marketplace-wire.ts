@@ -473,6 +473,8 @@ export class FakeMarketplaceWire {
         };
       case "spadeSkillFiles":
         return { op: "spadeSkillFiles", files: [] };
+      case "spadeBot":
+        return { op: "error", code: "not_found", message: `${operation.name} isn't listed` };
       case "discover":
         return this.publishing.discover(
           this.#summaries().filter((summary) => summary.source === "market"),

@@ -352,6 +352,11 @@ export const MarketOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("turnOnForBots"), name: MarketEntryName, hash: MarketHash }),
   /** Spade's view (ADR 0168 §13, `marketplace.spade`): installed market skills with hashes. */
   z.strictObject({ op: z.literal("spadeSkills") }),
+  /**
+   * The version of a bot package the market lists now, for a bot's suggestion (ADR 0200 §8):
+   * its signed version manifest and `bot.json`. Spade checks the signature itself.
+   */
+  z.strictObject({ op: z.literal("spadeBot"), name: MarketEntryName }),
   ...marketPublishOperations,
   /** One market skill's files, or one file's content by `path`, as `skills.request files`. */
   z.strictObject({
@@ -372,6 +377,7 @@ export const marketReadOperations: readonly MarketOperation["op"][] = [
   "installed",
   "spadeSkills",
   "spadeSkillFiles",
+  "spadeBot",
   "discover",
   "publisher",
   "picture",
@@ -451,6 +457,13 @@ export const MarketResult = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("installed"), installed: z.array(MarketInstalled).max(1024) }),
   z.strictObject({ op: z.literal("done"), installed: MarketInstalled.optional() }),
   z.strictObject({ op: z.literal("spadeSkills"), skills: z.array(MarketSpadeSkill).max(1024) }),
+  z.strictObject({
+    op: z.literal("spadeBot"),
+    /** The market's signed version manifest, as served; checked by Spade, not here. */
+    signed: z.unknown(),
+    /** `bot.json` exactly as the signed archive has it. */
+    botJson: z.string().max(1_000_000),
+  }),
   z.strictObject({
     op: z.literal("spadeSkillFiles"),
     files: z.array(MarketSpadeFile).max(512),

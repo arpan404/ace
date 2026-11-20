@@ -334,6 +334,28 @@ describe("agent packages", () => {
     expect((await installedBots()).map((item) => item.target)).toEqual(["bot_2"]);
   });
 
+  it("hand Spade a listed package's signed manifest for a bot's suggestion, installing nothing", async () => {
+    const first = publish("1.0.0");
+    await harness.ask({ op: "refresh" }, "sources");
+    const listed = await harness.ask({ op: "spadeBot", name: "flight-watcher" }, "spadeBot");
+    expect(listed.signed).toMatchObject({
+      body: { name: "flight-watcher", version: "1.0.0", hash: first.hash },
+    });
+    expect(JSON.parse(listed.botJson)).toMatchObject({ version: 3, name: "Flight watcher" });
+    expect(spade.made).toEqual([]);
+    expect(await installedBots()).toEqual([]);
+    // A name the market doesn't list, and a version it withdrew, are not handed over.
+    const missing = await harness.ask({ op: "spadeBot", name: "fare-sniper" }, "error");
+    expect(missing.code).toBe("not_found");
+    market.withdraw(
+      signedWithdrawn([{ hash: first.hash, reason: "It sent too many requests" }], { issued: 2 }),
+    );
+    await harness.ask({ op: "refresh" }, "sources");
+    const withdrawn = await harness.ask({ op: "spadeBot", name: "flight-watcher" }, "error");
+    expect(withdrawn).toMatchObject({ code: "refused" });
+    expect(withdrawn.message).toContain("It sent too many requests");
+  });
+
   it("show the version running while an update waits for the bot's turn, then the new one", async () => {
     const first = publish("1.0.0");
     await harness.ask({ op: "refresh" }, "sources");
