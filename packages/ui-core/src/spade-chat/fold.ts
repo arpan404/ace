@@ -365,7 +365,7 @@ export interface SpadeConversationState {
 
 /** What a `status` frame said, and the last `seq` folded when it came. */
 export interface SpadeReported {
-  state: "idle" | "working" | "waiting" | "sleeping";
+  state: "idle" | "working" | "waiting" | "sleeping" | "paused";
   status: string | undefined;
   seq: number;
 }

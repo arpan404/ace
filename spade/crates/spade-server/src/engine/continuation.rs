@@ -167,9 +167,10 @@ impl Engine {
     }
 
     /// Whether a step of the bot's task may start now: Spade is open, the bot is not being
-    /// deleted, and the person doesn't have its computer. Spend never stops it (ADR 0166).
+    /// deleted, and the person neither has its computer nor paused it. Spend never stops it
+    /// (ADR 0166).
     fn may_start_step(&self, id: &str) -> bool {
-        self.admission.load(Ordering::SeqCst) && !self.deleting(id) && !self.held(id)
+        self.admission.load(Ordering::SeqCst) && !self.deleting(id) && !self.closed(id)
     }
 
     /// Starts step `step` if it is still the one due and `token` is still the latest plan. Stored

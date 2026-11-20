@@ -14,6 +14,7 @@ import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
 import { FakeSpadeReach } from "./spade-reach.ts";
 import { FakeSpadeWakes } from "./spade-wakes.ts";
+import { FakeSpadeRunning } from "./spade-running.ts";
 import { FakeSpadeWork } from "./spade-work.ts";
 import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
 
@@ -161,6 +162,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly wakes: FakeSpadeWakes;
   /** How Spade reaches the person (ADR 0195). */
   readonly reach = new FakeSpadeReach();
+  /** The task manager and the person's Stop, Pause and Resume (ADR 0200 §6.3). */
+  readonly running: FakeSpadeRunning;
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -222,6 +225,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return folders;
       },
       exists: (agent) => this.agents.some((candidate) => candidate.id === agent),
+    });
+    this.running = new FakeSpadeRunning({
+      agents: () => this.agents,
+      status: (agent, state, status) => this.status(agent, state, status),
+      now,
     });
     this.wakes = new FakeSpadeWakes({
       conversationOf,
@@ -503,6 +511,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
+    if (root === "running" && !id) return this.running.route(request.method, undefined, undefined);
+    if (
+      root === "agents" &&
+      id &&
+      (sub === "pause" || sub === "resume" || sub === "stop") &&
+      !subId
+    )
+      return this.running.route(request.method, id, sub);
     if (root === "agents" && id && (sub === "computer" || sub === "terminal" || sub === "files"))
       return this.computer.route(
         request.method,
