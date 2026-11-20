@@ -39,7 +39,8 @@ const motionEvents = ["transitionend", "transitioncancel", "animationend"] as co
 /**
  * Keeps a device tab's native view over `element` while `active`, following resizes, window
  * changes, panel motion and overlays; hides it when the tab stops showing. Returns whether the
- * view is shown now.
+ * view is shown now. `active` must wait for the tab's open to succeed: a placement main answers
+ * `unavailable` (no view yet) is not remembered as placed.
  */
 export function useDevicePlacement(
   tabId: string,
@@ -53,6 +54,7 @@ export function useDevicePlacement(
     let alive = true;
     let last = "";
     let frame = 0;
+    let retries = 3;
     const apply = () => {
       frame = 0;
       if (!alive) return;
@@ -66,7 +68,14 @@ export function useDevicePlacement(
       if (key === last) return;
       last = key;
       void tabs.place({ tabId, ...placement }).then((receipt) => {
-        if (alive && last === key) setShown(receipt === "shown");
+        if (!alive || last !== key) return;
+        setShown(receipt === "shown");
+        // Main has no view for the tab (yet): this placement isn't the view's, so the next
+        // layout change, or one more try now, places it again.
+        if (receipt === "unavailable") {
+          last = "";
+          if (retries-- > 0) schedule();
+        }
       });
     };
     const schedule = () => {

@@ -43,21 +43,36 @@ export default function DeviceBrowserTab(props: TabViewProps) {
   const [openFailure, setOpenFailure] = useState<BrowserFailure>();
   const [area, setArea] = useState<HTMLDivElement | null>(null);
 
-  // Open (or take back, after this page reloaded) the tab's view, once per tab.
+  // Open (or take back, after this page reloaded) the tab's view, once per tab. The view is
+  // placed only once main has it.
   const opened = useRef(false);
+  const [ready, setReady] = useState(false);
   const machine = data?.machine;
   const startUrl = data?.url;
   useTunnelPath(machine);
   useEffect(() => {
     if (!tabs || !machine || !startUrl || opened.current) return;
     opened.current = true;
-    tabs.open({ tabId, machineId: machine, url: startUrl }).catch((error: unknown) =>
-      setOpenFailure({
-        title: "Couldn't open the page",
-        detail: error instanceof Error ? error.message : String(error),
-      }),
+    tabs.open({ tabId, machineId: machine, url: startUrl }).then(
+      () => setReady(true),
+      (error: unknown) =>
+        setOpenFailure({
+          title: "Couldn't open the page",
+          detail: error instanceof Error ? error.message : String(error),
+        }),
     );
   }, [tabs, tabId, machine, startUrl]);
+
+  // Cmd/Ctrl+L in the page moves typing to the address, as on the thread's own tabs.
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(
+    () =>
+      tabs?.onFocusAddress((id) => {
+        if (id === tabId)
+          root.current?.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
+      }),
+    [tabs, tabId],
+  );
 
   // The strip's title and the tab's saved address follow the page.
   const remember = useEffectEvent((url: string, title: string) => {
@@ -79,7 +94,7 @@ export default function DeviceBrowserTab(props: TabViewProps) {
   );
 
   const failure = openFailure ?? (state?.failure && deviceTabProblem(state.failure));
-  useDevicePlacement(tabId, area, active && !!tabs && !failure && !!data);
+  useDevicePlacement(tabId, area, active && ready && !!tabs && !failure && !!data);
   const go = (action: "back" | "forward" | "reload" | "stop") => void tabs?.go({ tabId, action });
   const navigate = (url: string) => {
     setOpenFailure(undefined);
@@ -89,7 +104,7 @@ export default function DeviceBrowserTab(props: TabViewProps) {
   const loading = state?.loading ?? false;
 
   return (
-    <div data-browser-tab="" className="relative flex h-full min-h-0 flex-col">
+    <div ref={root} data-browser-tab="" className="relative flex h-full min-h-0 flex-col">
       <PageToolbar
         nav={
           <PageNav

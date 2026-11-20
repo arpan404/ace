@@ -41,6 +41,7 @@ import {
 } from "./contract.ts";
 import { DiagnosticReport } from "./diagnostics.ts";
 import {
+  DeviceTabFocus,
   DeviceTabGo,
   DeviceTabId,
   DeviceTabOpen,
@@ -193,7 +194,10 @@ export const requests = {
   /** False: no such tab here. */
   "deviceTab.go": { request: DeviceTabGo, result: z.boolean() },
   "deviceTab.close": { request: DeviceTabId, result: None },
-  /** The path a remote machine's connection is on, for its tunnel here. Never logged. */
+  /**
+   * The path a remote machine's connection is on, for its tunnel here; null ends this window's
+   * lease on it. Never logged.
+   */
   "machineTunnel.path": { request: MachineTunnelPath, result: None },
   /** Whether a terminal runs `ace`; waits for the launch's own install to finish. */
   "cli.status": { request: None, result: TerminalCommand },
@@ -253,6 +257,8 @@ export const events = {
   "deviceTab.state": DeviceTabState,
   /** A link in a device tab asked for a new tab. */
   "deviceTab.openTab": DeviceTabOpenRequest,
+  /** `CmdOrCtrl+L` in a device tab's page: typing moves to its address. */
+  "deviceTab.focusAddress": DeviceTabFocus,
   "updates.status": UpdateStatus,
   /** The outcome of the menu's Check for Updates…, for the page to answer with a toast. */
   "updates.checked": UpdateStatus,

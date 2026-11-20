@@ -35,6 +35,18 @@ export interface DeviceTabState {
   failure?: DeviceTabFailure | undefined;
 }
 
+/** What the desktop's main process needs to open a machine's tunnel on one path. */
+export interface TunnelPathRequest {
+  key: string;
+  target:
+    | { kind: "direct"; url: string; fingerprint: string }
+    | { kind: "relay"; url: string; hostKey: string };
+  /** The daemon every welcome must name. */
+  expectedHostId: string;
+  deviceId: string;
+  token: string;
+}
+
 export interface DesktopDeviceTabs {
   open(request: { tabId: string; machineId: string; url: string }): Promise<void>;
   place(request: {
@@ -48,18 +60,15 @@ export interface DesktopDeviceTabs {
       | { tabId: string; action: "back" | "forward" | "reload" | "stop" },
   ): Promise<boolean>;
   close(tabId: string): Promise<void>;
-  /** The path a remote machine's connection is on, for its tunnel in the main process. */
-  tunnelPath(request: {
-    machineId: string;
-    path: {
-      key: string;
-      target: { kind: "direct"; url: string } | { kind: "relay"; url: string; hostId: string };
-      deviceId: string;
-      token: string;
-    } | null;
-  }): Promise<void>;
+  /**
+   * The path a remote machine's connection is on, for its tunnel in the main process, which
+   * holds it as this window's lease on the machine; null ends the lease.
+   */
+  tunnelPath(request: { machineId: string; path: TunnelPathRequest | null }): Promise<void>;
   onState(listener: (state: DeviceTabState) => void): () => void;
   onOpenTab(listener: (request: { from: string; url: string }) => void): () => void;
+  /** `CmdOrCtrl+L` was pressed in a device tab's page. */
+  onFocusAddress(listener: (tabId: string) => void): () => void;
 }
 
 const failures = new Set<string>([
@@ -132,7 +141,9 @@ export function desktopDeviceTabs(scope: object = globalThis): DesktopDeviceTabs
   const onState = method(tabs, "onState");
   const onOpenTab = method(tabs, "onOpenTab");
   const tunnelPath = method(tabs, "tunnelPath");
-  if (!open || !place || !go || !close || !onState || !onOpenTab || !tunnelPath) return undefined;
+  const onFocusAddress = method(tabs, "onFocusAddress");
+  if (!open || !place || !go || !close || !onState || !onOpenTab || !tunnelPath || !onFocusAddress)
+    return undefined;
   return {
     open: async (request) => {
       await open(request);
@@ -162,6 +173,14 @@ export function desktopDeviceTabs(scope: object = globalThis): DesktopDeviceTabs
           const from = text(Reflect.get(event, "from"));
           const url = text(Reflect.get(event, "url"));
           if (from && url && /^https?:\/\//i.test(url)) listener({ from, url });
+        }),
+      ),
+    onFocusAddress: (listener) =>
+      unsubscribe(
+        onFocusAddress((event: unknown) => {
+          if (typeof event !== "object" || event === null) return;
+          const tabId = text(Reflect.get(event, "tabId"));
+          if (tabId) listener(tabId);
         }),
       ),
   };

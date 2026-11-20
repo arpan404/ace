@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contextEntries, type ContextFacts } from "./context-entries.ts";
+import { contextEntries, withoutCommands, type ContextFacts } from "./context-entries.ts";
 
 const page: ContextFacts = {
   linkURL: "",
@@ -69,5 +69,27 @@ describe("the native page's context menu", () => {
 
   it("on selected text offers Copy", () => {
     expect(menu({ selectionText: "hello", canCopy: true })[0]).toBe("Copy");
+  });
+});
+
+/** A device tab's menu: no agent sees the tab, and its source opens nowhere ace shows. */
+const device = (facts: Partial<ContextFacts>) =>
+  withoutCommands(contextEntries({ ...page, ...facts }), ["annotate", "viewSource"]).map((entry) =>
+    entry === "separator" ? "—" : entry.label,
+  );
+
+describe("a device tab's context menu", () => {
+  it("has no agent tools and no stray separators where they were", () => {
+    expect(device({})).toEqual(["Back", "Forward", "Reload", "—", "Inspect"]);
+  });
+
+  it("still offers what a link needs", () => {
+    expect(device({ linkURL: "http://localhost:3000/next" })).toEqual([
+      "Open link in new tab",
+      "Open link in your browser",
+      "Copy link address",
+      "—",
+      "Inspect",
+    ]);
   });
 });

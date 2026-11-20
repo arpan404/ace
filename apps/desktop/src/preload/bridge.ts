@@ -230,6 +230,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
         subscribe("deviceTab.state", listener),
       onOpenTab: (listener: (value: EventOf<"deviceTab.openTab">) => void) =>
         subscribe("deviceTab.openTab", listener),
+      onFocusAddress: (listener: (value: EventOf<"deviceTab.focusAddress">) => void) =>
+        subscribe("deviceTab.focusAddress", listener),
     },
     spade: {
       endpoint: () => call("spade.endpoint"),

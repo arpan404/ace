@@ -460,11 +460,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     const rendererId = renderer.id;
     const forget = () => background.forgetBrowserHost(rendererId);
     renderer.on("did-start-navigation", (details) => {
-      if (details.isMainFrame && !details.isSameDocument) forget();
+      if (!details.isMainFrame || details.isSameDocument) return;
+      forget();
+      localhost.forgetHost(rendererId, false);
     });
     renderer.on("render-process-gone", forget);
+    renderer.on("render-process-gone", () => localhost.forgetHost(rendererId, false));
     // A device tab outlives a reload of its window's page, never the window.
-    renderer.on("destroyed", () => localhost.tabs.forgetHost(rendererId));
+    renderer.on("destroyed", () => localhost.forgetHost(rendererId, true));
     renderer.on("destroyed", forget);
     // Opening the app (reopening its window, showing or focusing it again) asks for an update
     // once the last check is a while ago.
