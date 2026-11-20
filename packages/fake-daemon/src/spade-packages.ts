@@ -40,6 +40,7 @@ export function packageRoute(
     return problem(400, "only an effect its package declares can be turned on");
   agent.package = {
     ...link,
+    // oxlint-disable-next-line oxc/no-map-spread -- A new effect list, as Spade answers; the stored one stays untouched.
     effects: effects.map((effect) => (effect["key"] === key ? { ...effect, on } : effect)),
   };
   return reply({ package: agent.package });
