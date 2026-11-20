@@ -36,7 +36,7 @@ import type { SandboxNotice } from "../shared/contract.ts";
 import { writeClipboardImage } from "./os/clipboard.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
 import { appIdentities, systemApplication, systemApplicationIcon } from "./os/app-identity.ts";
-import { editorIcons } from "./os/editor-icon.ts";
+import { appIcons, appOnDisk, editorIcons } from "./os/editor-icon.ts";
 import { openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
 import type { SpadeDirect } from "./spade/direct.ts";
@@ -120,13 +120,12 @@ export function createHandlers(options: {
     accountOf,
   });
   followDaemonAccount(runtime, daemonAccount.resume);
-  const editorIcon = editorIcons(
-    {
-      forProtocol: async (url) => (await app.getApplicationInfoForProtocol(url)).icon,
-      forFile: (path) => app.getFileIcon(path, { size: "normal" }),
-    },
-    process.platform,
-  );
+  const iconLookup = {
+    forProtocol: async (url: string) => (await app.getApplicationInfoForProtocol(url)).icon,
+    forFile: (path: string) => app.getFileIcon(path, { size: "normal" }),
+  };
+  const editorIcon = editorIcons(iconLookup, process.platform);
+  const appIcon = appIcons(iconLookup, process.platform, appOnDisk);
   const appIdentity = appIdentities({
     application: (bundleId) => systemApplication(bundleId, process.platform),
     icon: (path) => systemApplicationIcon(path, process.platform),
@@ -180,6 +179,7 @@ export function createHandlers(options: {
     "shell.reveal": (request) => reveal(request.path),
     "shell.appIdentity": (request) => appIdentity(request.bundleId),
     "shell.editorIcon": (request) => editorIcon(request.editor),
+    "shell.appIcon": (request) => appIcon(request.path),
     "shell.openExternal": async (url) => {
       await shell.openExternal(url);
       return true;

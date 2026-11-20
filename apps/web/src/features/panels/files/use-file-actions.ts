@@ -6,7 +6,7 @@ import { useRef, useState } from "react";
 import { DownloadError, saveDownload } from "@/lib/save-download.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
-import { useOpenInEditor } from "@/lib/open-in-editor.ts";
+import { useOpenInApps } from "@/lib/open-in-apps.ts";
 import { checkoutError, fromCode, type CheckoutError } from "./checkout-source.ts";
 import { checkoutChanged } from "./checkout-refresh.ts";
 import { useCheckoutSource } from "./use-checkout.ts";
@@ -22,7 +22,8 @@ export { formatBytes } from "@/components/format-bytes.ts";
 /**
  * What a file tab does with files beyond showing them: save one to this device, send files up
  * to the checkout (never over a file that appeared or changed meanwhile unless the person says
- * so), copy its path, and open it in the editor on the daemon's machine at a line.
+ * so), copy its path, and open it in an editor (at a line), a terminal or the file manager on
+ * the daemon's machine.
  */
 export function useFileActions(threadId: string, onUploaded: (path: string) => void) {
   const source = useCheckoutSource();
@@ -32,12 +33,7 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
     toast.error({ title: "Couldn't copy. Select the path and copy it yourself." }),
   );
   const queries = useQueryClient();
-  const {
-    editors,
-    editor,
-    unavailable: editorUnavailable,
-    open: openInEditor,
-  } = useOpenInEditor(threadId);
+  const apps = useOpenInApps(threadId);
   const [saving, setSaving] = useState<{ path: string; received: number } | undefined>();
   const [upload, setUpload] = useState<UploadState | undefined>();
   const cancel = useRef<AbortController | undefined>(undefined);
@@ -143,10 +139,8 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
       cancel.current?.abort();
       setUpload(undefined);
     },
-    editors,
-    editorUnavailable,
-    editor,
-    openInEditor,
+    /** The editors, terminals and file manager a file opens in (`OpenInAppItems`). */
+    apps,
     copyPath: pathCopy.copy,
     /** A path was just copied: Copy path shows a check for a moment. */
     pathCopied: pathCopy.copied,

@@ -121,6 +121,8 @@ export type OpenInEditor = z.infer<typeof OpenInEditor>;
 export const RevealPath = z.object({ path: AbsolutePath });
 /** An installed editor's icon as the OS draws it: a PNG data URL, or null when there is none. */
 export const EditorIconRequest = z.object({ editor: EditorId });
+/** Any installed app's icon by the bundle (macOS) or `.exe` (Windows) the daemon found for it. */
+export const AppIconRequest = z.object({ path: AbsolutePath });
 export const EditorIconImage = z
   .string()
   .startsWith("data:image/png;base64,")
