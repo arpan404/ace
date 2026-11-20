@@ -116,7 +116,7 @@ test("an acquired live window keeps pending approvals while thousands of settled
     // A snapshot's cursor reads as the first page and readers keep entities by id (versioned
     // cursors, 74a74ea57): paging from it to the end lists the settled entries that paged out.
     const listed = new Set<string>();
-    for (let cursor: number | null = before; cursor !== null; ) {
+    for (let cursor: number | null = before; cursor !== null;) {
       const page = store.readEntityPage(thread.id, "interactions", cursor, 200);
       if (page.collection !== "interactions") throw new Error("Wrong collection");
       for (const entry of page.entries) listed.add(entry.id);

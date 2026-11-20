@@ -92,18 +92,16 @@ test("signing in and out stays on this computer's HTTP route, which gets a ticke
     return Response.json({ ticket, expiresAt: 1_900_000_000_000 });
   });
   // The daemon names its relay host id, and the ticket is for that machine alone (ADR 0190).
-  const status = async (): Promise<RemoteAccessStatus> => ({
+  const named = async (): Promise<RemoteAccessStatus> => ({
     ...(await remote()),
     account: { signedIn: false, machineCode: { set: false }, relayHostId: hostId },
   });
-  const source = machineAccountSource(routes(reached, bodies), status, connection([]), {});
+  const source = machineAccountSource(routes(reached, bodies), named, connection([]), {});
 
   await source.signIn("https://acehq.dev", "session");
   await source.signOut();
 
-  expect(backend).toEqual([
-    { url: "https://acehq.dev/v1/machine-enrollments", body: { hostId } },
-  ]);
+  expect(backend).toEqual([{ url: "https://acehq.dev/v1/machine-enrollments", body: { hostId } }]);
   expect(reached).toEqual(["PUT /v1/ace-account", "DELETE /v1/ace-account"]);
   expect(bodies).toEqual([{ origin: "https://acehq.dev", ticket }]);
 });

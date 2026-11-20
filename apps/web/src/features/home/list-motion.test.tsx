@@ -50,7 +50,9 @@ test("an archived card leaves the list at once for assistive tech, then fades ou
 
   // It is no longer offered as a thread while it fades, and it can't be clicked meanwhile.
   await waitFor(() =>
-    expect(within(threads()).queryByRole("link", { name: /Invoice PDF locale fallback/ })).toBeNull(),
+    expect(
+      within(threads()).queryByRole("link", { name: /Invoice PDF locale fallback/ }),
+    ).toBeNull(),
   );
   expect(states).toContainEqual({ link: false, fading: true });
 

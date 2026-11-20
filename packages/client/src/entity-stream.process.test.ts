@@ -48,7 +48,9 @@ test("a settled megabyte plan remains readable through paging before and after r
       const [entry] = response.page.entries;
       expect(entry?.request.kind).toBe("plan_review");
       expect(entry?.request).not.toEqual({ kind: "plan_review", markdown });
-      expect(entry?.truncated?.chars).toBe(JSON.stringify({ kind: "plan_review", markdown }).length);
+      expect(entry?.truncated?.chars).toBe(
+        JSON.stringify({ kind: "plan_review", markdown }).length,
+      );
       expect(response.page.entitiesBefore).toBeNull();
       const whole = await client.readInteraction({
         threadId: h.thread.id,
