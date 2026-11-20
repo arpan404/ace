@@ -6,6 +6,7 @@ import {
   parseSpadeModels,
   parseSpadeSearchSettings,
   parseSpadeSubscriptions,
+  parseSpadeTaskHistory,
   parseSpadeTranscription,
   type SpadeAgent,
   type SpadeEndpoint,
@@ -13,6 +14,7 @@ import {
   type SpadeModelInfo,
   type SpadeModels,
   type SpadeSubscription,
+  type SpadeTaskVersion,
 } from "@ace/ui-core/spade-chat";
 import { segment, spadeBody, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
 
@@ -51,10 +53,14 @@ export interface SpadeAgentDraft {
  * A new bot. From a template (ADR 0132) the model may be left out (the template's kind picks
  * it), and its routines are made in `time_zone`, an IANA zone.
  */
-export type SpadeNewAgent = Omit<SpadeAgentDraft, "model"> & {
+export type SpadeNewAgent = Omit<SpadeAgentDraft, "model" | "name"> & {
+  /** Absent with `naming`: the bot names itself in its first reply. */
+  name?: string;
   model?: string;
   template?: string;
   time_zone?: string;
+  /** Made from one message: the bot chooses its name and face as it starts. */
+  naming?: boolean;
 };
 
 /**
@@ -90,10 +96,23 @@ export async function createAgent(
 export async function editAgent(
   target: SpadeTarget,
   id: string,
-  change: Partial<SpadeAgentDraft>,
+  change: Partial<SpadeAgentDraft> & {
+    /** The person's one line on a task change (Undo, a restore), kept in its history. */
+    task_why?: string;
+  },
 ): Promise<SpadeAgent> {
   const body = await spadeHttp(target, "PATCH", `/v1/agents/${segment(id)}`, { body: change });
   return sure(parseSpadeAgent(body), "agent");
+}
+
+/** Each version of the bot's task, newest first, with who changed it and why. */
+export async function readTaskHistory(
+  target: SpadeTarget,
+  id: string,
+  options: Signal = {},
+): Promise<SpadeTaskVersion[]> {
+  const body = await spadeHttp(target, "GET", `/v1/agents/${segment(id)}/task/history`, options);
+  return sure(parseSpadeTaskHistory(body), "task history");
 }
 
 /** Deletes the agent and its conversation. */

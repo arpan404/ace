@@ -45,6 +45,9 @@ const shownElsewhere = new Set([
   "memory_forget",
   "image_generate",
   "share_file",
+  // A bot changing its own task, name or face: its own quiet line (`task-changed`, `named`).
+  "task_update",
+  "profile_update",
 ]);
 
 /** A call that has finished one way or another; one still going is the working line's. */

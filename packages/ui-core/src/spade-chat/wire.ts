@@ -298,6 +298,29 @@ const known = z.discriminatedUnion("type", [
     text: z.string(),
     data: z.array(z.unknown()).optional(),
   }),
+  /**
+   * The bot's task or model changed (spade/docs/agents.md). `change` says who changed the task,
+   * from what and why; missing on a change of model alone and on events from before task history.
+   */
+  z.object({
+    type: z.literal("agent_configured"),
+    task: z.string().catch(""),
+    change: z
+      .object({
+        by: z.string().catch(""),
+        previous: z.string().catch(""),
+        why: z.string().catch("").default(""),
+      })
+      .nullish()
+      .catch(undefined),
+  }),
+  /** The bot's name or face changed; `by` is `bot` (it named itself) or `person`. */
+  z.object({
+    type: z.literal("profile_changed"),
+    name: z.string().catch(""),
+    by: z.string().catch(""),
+    face: z.boolean().catch(false).default(false),
+  }),
   ...spadeCapabilityEvents,
 ]);
 

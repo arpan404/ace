@@ -189,6 +189,7 @@ export function Conversation(props: {
           .map((other) => [other.id, other.avatar]),
       ),
       names: new Map(props.roster.map((other) => [other.id, other.name])),
+      task: bot.task,
     }),
     [bot, props.roster],
   );
@@ -221,6 +222,7 @@ export function Conversation(props: {
         ) : (
           <SpadeChat
             bot={chatBot}
+            profile={bot.kind === "main" ? undefined : bot}
             start={<ConversationStart avatar={bot.avatar} name={bot.name} task={bot.task} />}
             view={view}
             // While it uses its computer and Computer isn't showing, Watch opens it there.

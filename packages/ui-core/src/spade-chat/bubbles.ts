@@ -72,6 +72,10 @@ type SpadeBubbleOf =
   | { kind: "search-setup"; key: string }
   /** An event that is nobody's words: one quiet line (`spadeQuietLine`), never a bubble. */
   | { kind: "quiet"; key: string; quiet: SpadeQuiet }
+  /** "Updated its task: …", with the change behind See change and Undo. */
+  | { kind: "task-changed"; key: string; task: string; previous: string; why: string }
+  /** "Named itself Ivy", the name and face changed in place from the line. */
+  | { kind: "named"; key: string; name: string; face: boolean; first: boolean }
   /** The person handed the computer back: one quiet line, its names behind a disclosure. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /**
@@ -188,6 +192,11 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
             ? `Paused after ${entry.steps} steps on its own. Send a message to let it carry on.`
             : `Paused: its last ${entry.steps} steps changed nothing. Send a message to let it carry on.`,
       });
+      continue;
+    }
+    if (entry.kind === "task-changed" || entry.kind === "named") {
+      onlyGroups = false;
+      bubbles.push(entry);
       continue;
     }
     if (entry.kind === "quiet") {

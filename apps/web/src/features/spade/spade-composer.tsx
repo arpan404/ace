@@ -54,6 +54,8 @@ export function SpadeComposer(props: {
    * quoted before their words when it goes.
    */
   quote?: { text: string; onRemove(): void } | undefined;
+  /** What sits under the capsule: a new bot's templates and its More settings. */
+  below?: ReactNode;
   send(message: SpadeMessage): Promise<void>;
 }) {
   const toast = useToast();
@@ -191,6 +193,7 @@ export function SpadeComposer(props: {
           }
           onSubmit={submit}
         />
+        {props.below}
       </div>
     </ComposerDock>
   );

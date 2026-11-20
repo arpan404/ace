@@ -25,6 +25,7 @@ import {
 import { readNotes } from "./spade-notes-api.ts";
 import { notesKey } from "./spade-notes.tsx";
 import { useCardFocus } from "./use-card-focus.ts";
+import { TaskDiff } from "./spade-self-edit-lines.tsx";
 
 type Ask = Extract<SpadeBubble, { kind: "ask" }>;
 
@@ -56,6 +57,8 @@ export function SpadeRequestBubble(props: {
   botName: string;
   /** Another bot's name by its id, for a message it would send. */
   nameOf(id: string): string | undefined;
+  /** The bot's task as it stands, for a request to change it. */
+  task?: string | undefined;
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
 }) {
   const { item } = props;
@@ -68,6 +71,7 @@ export function SpadeRequestBubble(props: {
     title,
     noteText,
     botName: props.nameOf,
+    task: () => props.task,
   });
   const [answering, setAnswering] = useState<RequestAnswer>();
   // Open, it takes focus (unless the person is partway through a message), so Enter allows and
@@ -255,6 +259,13 @@ function Detail(props: { detail: SpadeRequestDetail }) {
         <div className="flex flex-col gap-0.5 text-ui">
           <Line label="To" value={detail.to} />
           <FoldedText text={detail.text} muted />
+        </div>
+      );
+    case "task":
+      return (
+        <div className="-ml-3 flex flex-col gap-1">
+          {detail.why && <p className="ml-3 text-ui text-foreground">{detail.why}</p>}
+          <TaskDiff before={detail.before} after={detail.after} />
         </div>
       );
     case "fields":

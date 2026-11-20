@@ -1,13 +1,5 @@
 import type { ClientApi } from "@ace/client";
 import {
-  faceForId,
-  shuffleFace,
-  storedBotFace,
-  suggestBotNames,
-  type BotFace as BotFaceModel,
-} from "@ace/ui-core/bot-face";
-import {
-  spadeAgentNameMax,
   spadeAgentTaskMax,
   spadeFirstUsableModel,
   type SpadeAgent,
@@ -21,17 +13,16 @@ import { Button } from "@/components/ui/button.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { cn } from "@/lib/cn.ts";
-import { createAgent, readModels, type SpadeNewAgent } from "./spade-api.ts";
+import { createAgent } from "./spade-api.ts";
 import type { SpadeMessage } from "./spade-attachments.ts";
-import { AvatarPopover, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeMachineScope, useSpadeClient } from "./spade-machine.tsx";
 import { ConversationSkeleton, PageScroller, useSpadeLine } from "./spade-screen-parts.tsx";
-import { RunsWith, TemplateRows } from "./spade-new-bot-parts.tsx";
+import { RunsWith, StartChips } from "./spade-new-bot-parts.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { importAgent, readTemplates } from "./spade-teams-api.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
-import { agentsKey, useSpadeRoster, useWornPairs, type SpadeHost } from "./use-spade-roster.ts";
+import { agentsKey, useSpadeRoster, type SpadeHost } from "./use-spade-roster.ts";
 
 /*
  * Two ways to start a bot besides a blank form (ADR 0132): from one of the templates Spade ships,
@@ -160,9 +151,6 @@ export function ImportBot(props: {
   );
 }
 
-/** The face at the head of a new bot's conversation, in px (`--spade-profile-face`). */
-const headFace = 96;
-
 /** `name`, or "Research 2", "Research 3"… when a bot already has it. */
 function freeName(name: string, taken: readonly string[]): string {
   const used = new Set(taken.map((each) => each.trim().toLowerCase()));
@@ -172,46 +160,13 @@ function freeName(name: string, taken: readonly string[]): string {
   return `${name} ${count}`;
 }
 
-/** The nearest colour an older Spade, which draws initials, knows for each face colour. */
-const legacyColours: Record<BotFaceModel["pair"], string> = {
-  ember: "orange",
-  butter: "amber",
-  mint: "green",
-  lagoon: "teal",
-  sky: "blue",
-  lilac: "violet",
-  rose: "pink",
-  berry: "pink",
-  sage: "green",
-  cocoa: "orange",
-  stone: "slate",
-};
-
 /**
- * The avatar a draft sends: its picture, or its face as stored. A Spade without character
- * faces gets the name's initials in the face's nearest colour.
- */
-function avatarOf(draft: AvatarDraft, name: string, characters: boolean): SpadeNewAgent["avatar"] {
-  if (draft.kind === "image") return draft;
-  if (draft.kind !== "face") return undefined;
-  if (characters) return storedBotFace(draft.face, draft.raw);
-  const initials = name
-    .trim()
-    .split(/\s+/u)
-    .slice(0, 2)
-    .map((word) => Array.from(word)[0] ?? "")
-    .join("")
-    .toUpperCase();
-  return { kind: "generated", initials, color: legacyColours[draft.face.pair] };
-}
-
-/**
- * `/spade/new` (docs/design/spade.md §5): New bot is a conversation, not a form. At its head the
- * bot as it will be: its face, which opens the face popover; its name, edited where it shows (a
- * name that suits the face until the person types one); and one quiet line, its model (the
- * model for new bots unless changed) and machine, each changed in place. Below, the
- * templates to start from. The first message is its task: Send makes the bot and its first
- * message in one call, and opens its conversation. Import is in the list's + only.
+ * `/spade/new` (docs/design/spade.md §5): a new bot starts from one message. The page asks "What
+ * should this bot do?" over the composer; what the person sends is the bot's task and its first
+ * message, in one call, and the bot's conversation opens on it. There the bot names itself and
+ * picks its face (both changed in place with a click), says the job back, asks only what it must,
+ * and starts. Under the composer, the templates as chips, one press each, and More settings: the
+ * model and machine, never required. Import is in the list's + only.
  */
 export function NewBotStart() {
   const line = useSpadeLine();
@@ -265,7 +220,7 @@ export function NewBotStart() {
 function NewBotConversation(props: {
   host: SpadeHost;
   hosts: readonly SpadeHost[];
-  /** Names the person's bots already have, which a suggested name avoids. */
+  /** Names the person's bots already have, which a template's name avoids. */
   names: readonly string[];
   blocked: string | undefined;
   onMachine(host: SpadeHost): void;
@@ -273,40 +228,27 @@ function NewBotConversation(props: {
   const client = useSpadeClient();
   const cache = useQueryClient();
   const navigate = useNavigate();
-  const worn = useWornPairs();
-  const [avatar, setAvatar] = useState<AvatarDraft>(() => ({
-    kind: "face",
-    face: shuffleFace(Math.random, undefined, worn),
-  }));
-  const face = draftFace(avatar);
-  const [fallback] = useState(() => face ?? faceForId("new"));
-  // Undefined: the name follows the face until the person types one.
-  const [typed, setTyped] = useState<string>();
-  const suggested =
-    suggestBotNames(face ?? fallback, "").find((each) => !props.names.includes(each)) ?? "New bot";
-  const name = typed ?? suggested;
   const [model, setModel] = useState("");
   const [template, setTemplate] = useState<SpadeTemplate>();
+  const [more, setMore] = useState(false);
   const models = useSpadeModels(props.blocked === undefined);
   const send = async (message: SpadeMessage) => {
     if (message.documents?.length)
       throw new Error("A first message takes words and pictures. Send other files once it's made.");
-    const zone = template ? browserTimeZone() : undefined;
-    const named = name.trim() || suggested;
-    // Read now, not from the cache: the machine's Spade may have been updated since.
-    const characters = (await readModels(client)).characterAvatars === true;
-    const avatarSent = avatarOf(avatar, named, characters);
+    const task = message.text.slice(0, spadeAgentTaskMax);
     const agent = await createAgent(
       client,
-      {
-        name: named,
-        // The first message is its task; a template brings its own.
-        task: template ? "" : message.text.slice(0, spadeAgentTaskMax),
-        ...(model ? { model } : {}),
-        ...(template ? { template: template.id } : {}),
-        ...(zone === undefined ? {} : { time_zone: zone }),
-        ...(avatarSent ? { avatar: avatarSent } : {}),
-      },
+      template
+        ? {
+            // A template brings its own name, face and task; the message is its first job.
+            name: freeName(template.name, props.names),
+            task: "",
+            template: template.id,
+            ...withZone(browserTimeZone()),
+            ...(model ? { model } : {}),
+          }
+        : // The first message is its task; it names itself as it starts.
+          { task, naming: true, ...(model ? { model } : {}) },
       message,
     );
     await cache.invalidateQueries({ queryKey: agentsKey });
@@ -317,71 +259,56 @@ function NewBotConversation(props: {
       replace: true,
     });
   };
-  const shown = name.trim() || suggested;
+  const name = template ? template.name : "New bot";
   return (
     <Screen page="spade" title="">
       <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
-        <h1 className="sr-only">New bot</h1>
         <PageScroller>
-          <div className="flex flex-col items-center gap-2 pt-2">
-            <AvatarPopover
-              value={avatar}
-              fallback={face ?? fallback}
-              takenPairs={worn}
-              size={headFace}
-              onChange={(next) => {
-                setAvatar(next);
-                // A template's face changed is the person's own bot now.
-                setTemplate(undefined);
-              }}
-            />
-            <input
-              aria-label="Name"
-              value={name}
-              maxLength={spadeAgentNameMax}
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(event) => setTyped(event.target.value)}
-              onBlur={() => typed !== undefined && !typed.trim() && setTyped(undefined)}
-              className="field-sizing-content h-8 max-w-full min-w-24 rounded-md bg-transparent px-2 text-center text-xl leading-7 font-semibold text-foreground transition-colors duration-(--motion-fast) outline-none placeholder:text-subtle-foreground hover:bg-hover focus-visible:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <RunsWith
-              hosts={props.hosts}
-              host={props.host}
-              name={shown}
-              model={model}
-              newBotModel={models.data?.newBotModel}
-              firstUsable={spadeFirstUsableModel(models.data?.endpoints ?? [])}
-              onModel={setModel}
-              onMachine={(next) => {
-                // Another machine has its own models and templates.
-                setModel("");
-                setTemplate(undefined);
-                props.onMachine(next);
-              }}
-            />
+          <div className="flex min-h-[40vh] flex-col items-center justify-end gap-3 pb-2 text-center">
+            {template && <BotFace face={template.face} size={64} />}
+            <h1 className="text-2xl font-semibold tracking-title text-foreground">
+              {template ? `What should ${template.name} do first?` : "What should this bot do?"}
+            </h1>
+            {more && (
+              <RunsWith
+                hosts={props.hosts}
+                host={props.host}
+                name={name}
+                model={model}
+                newBotModel={models.data?.newBotModel}
+                firstUsable={spadeFirstUsableModel(models.data?.endpoints ?? [])}
+                onModel={setModel}
+                onMachine={(next) => {
+                  // Another machine has its own models and templates.
+                  setModel("");
+                  setTemplate(undefined);
+                  props.onMachine(next);
+                }}
+              />
+            )}
           </div>
-          <TemplateRows
-            client={client}
-            machineKey={props.host.spade.key}
-            value={template?.id}
-            onChange={(picked) => {
-              setTemplate(picked);
-              if (!picked) return setTyped(undefined);
-              setTyped(freeName(picked.name, props.names));
-              setAvatar({ kind: "face", face: picked.face });
-            }}
-          />
         </PageScroller>
         <SpadeComposer
-          name={shown}
+          name={name}
           draftKey="spade:new-bot"
           answering={false}
           blocked={props.blocked}
-          placeholder={template ? `What should ${shown} do first?` : `What should ${shown} do?`}
+          placeholder={template ? "Its first job, in your words" : "Describe the job in your words"}
           send={send}
+          below={
+            <StartChips
+              client={client}
+              machineKey={props.host.spade.key}
+              value={template?.id}
+              onChange={setTemplate}
+              more={more}
+              onMore={() => setMore(!more)}
+            />
+          }
         />
       </div>
     </Screen>
   );
 }
+
+const withZone = (zone: string | undefined) => (zone === undefined ? {} : { time_zone: zone });

@@ -46,3 +46,4 @@ export * from "./request-error.ts";
 export * from "./follow.ts";
 export * from "./list-rows.ts";
 export * from "./live-rows.ts";
+export * from "./task-history.ts";

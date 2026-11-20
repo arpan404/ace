@@ -1,3 +1,4 @@
+import { FakeSpadeTasks } from "./spade-self-edit.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
@@ -153,11 +154,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly teams: FakeSpadeTeams;
   /** Each bot's goal and plan, and its tree of workers (ADR 0159, 0161). */
   readonly work = new FakeSpadeWork(() => this.agents);
+  /** Each bot's task versions and its own renames. */
+  readonly tasks: FakeSpadeTasks;
 
   constructor(spade: FakeSpade, now: () => number = () => 1_000) {
     this.spade = spade;
     this.now = now;
     this.notes = new FakeSpadeNotes(now);
+    this.tasks = new FakeSpadeTasks((conversation, event) => this.store(conversation, event), now);
     this.knowledge = new FakeSpadeKnowledge(now);
     this.routines = new FakeSpadeRoutines(now);
     this.security = new FakeSpadeSecurity(now);
@@ -552,6 +556,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ templates: this.teams.templates });
     if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
       return this.routines.agentRoute(request.method, id, sub, body);
+    if (root === "agents" && id && sub === "task" && subId === "history") {
+      if (!this.agents.some((candidate) => candidate.id === id))
+        return problem(404, "No such agent.");
+      return reply(this.tasks.history(id));
+    }
     if (root === "agents" && id && (sub === "task" || sub === "tree")) {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");
@@ -740,8 +749,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return problem(400, "access must be auto_review.");
     if (!id && method === "POST") {
       const avatar = body.avatar as Json | undefined;
+      // As Spade: a bot made from one message is "New bot" until it names itself.
+      const named = typeof body.name === "string" && body.name.trim() !== "";
       const agent = this.addAgent({
-        name: String(body.name ?? ""),
+        name: named || body.naming !== true ? String(body.name ?? "") : "New bot",
         task: String(body.task ?? ""),
         // As Spade: a new bot with no model named starts on the model for new bots.
         model: String(body.model ?? this.newBotModel ?? ""),
@@ -752,6 +763,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
             ? { avatar: storedBotFace(repairFace(avatar)) as Json }
             : {}),
       });
+      this.tasks.made(agent);
       // As Spade: a first message goes with the bot it makes (the new-bot conversation).
       const first = body.first_message as Json | undefined;
       if (first && typeof first === "object") this.takeMessage(agent.conversation, agent, first);
@@ -762,13 +774,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (method === "PATCH") {
       if (agent.kind === "main" && ("name" in body || "avatar" in body))
         return problem(400, "Spade's name and face can't change.");
-      for (const key of ["name", "task", "model"] as const)
+      for (const key of ["name", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
+      // As Spade: a task change is kept with who made it and why.
+      if (typeof body.task === "string")
+        this.tasks.change(
+          agent,
+          body.task,
+          "person",
+          typeof body.task_why === "string" ? body.task_why : "",
+        );
       if (body.avatar && typeof body.avatar === "object") {
         const avatar = body.avatar as Json;
         agent.avatar =
           avatar.kind === "character" ? (storedBotFace(repairFace(avatar)) as Json) : avatar;
       }
+      if (typeof body.name === "string" || body.avatar)
+        this.tasks.renamed(agent, "person", Boolean(body.avatar));
       return reply({ agent });
     }
     if (method === "DELETE") {

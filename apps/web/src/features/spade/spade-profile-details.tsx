@@ -15,6 +15,7 @@ import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
 import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
 import { ProfileRoutines } from "./spade-routines.tsx";
+import { TaskHistory } from "./spade-task-history.tsx";
 import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.ts";
 import { DeleteMakerDialog, type DeletingMaker } from "./spade-delete-maker.tsx";
 import { useMakerWorkers } from "./use-spade-work.ts";
@@ -35,6 +36,7 @@ export function ProfileDetails(props: { bot: RosterBot }) {
       <ProfileMoveLine bot={bot} />
       <ProfileSection label="Task">
         <TaskField bot={bot} />
+        <TaskHistory bot={bot} />
       </ProfileSection>
       <ProfileSection label="Runs with">
         <SettingRow
