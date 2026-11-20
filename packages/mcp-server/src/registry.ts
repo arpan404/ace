@@ -487,12 +487,27 @@ export class ToolRegistry {
       ...(options.actingFor ? { actingFor: options.actingFor } : {}),
     };
     const observe = this.observeCall?.(name, input, context);
+    // One deadline from the call's start covers all of it: the host's hook, the tool and the
+    // observation of its result. Past it the reply goes and the slot is freed; an observation
+    // still running (an attachment write on a stalled disk) carries on alone.
+    let reason: PublicToolCode = "cancelled";
+    const expired = Promise.withResolvers<void>();
+    const stopTimer = this.scheduler.after(entry?.timeoutMs ?? maxToolTimeoutMs, () => {
+      reason = "tool_timeout";
+      controller.abort();
+      expired.resolve();
+    });
     const finish = async (result: CallToolResult) => {
       // Evidence storage must not change a completed action's public outcome.
+      const observed = Promise.resolve()
+        .then(() => observe?.(result))
+        .catch(() => {
+          /* The host observer owns diagnostics. */
+        });
       try {
-        await observe?.(result);
-      } catch {
-        /* The host observer owns diagnostics. */
+        await Promise.race([observed, expired.promise]);
+      } finally {
+        stopTimer();
       }
       return result;
     };
@@ -518,12 +533,6 @@ export class ToolRegistry {
         else this.activeThreads.delete(threadId);
       }
     };
-    // One deadline from the call's start: the host's hook and the tool share the tool's budget.
-    let reason: PublicToolCode = "cancelled";
-    const stopTimer = this.scheduler.after(entry.timeoutMs, () => {
-      reason = "tool_timeout";
-      controller.abort();
-    });
     /** A call that ends before its tool runs gives its slot back. */
     const unstarted = (result: CallToolResult) => {
       stopTimer();

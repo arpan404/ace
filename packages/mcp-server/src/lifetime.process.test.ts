@@ -520,3 +520,42 @@ it("a host's hook and the tool share one deadline, counted from the call's start
     content: [{ text: expect.stringContaining('"code":"tool_timeout"') }],
   });
 });
+
+it("a stalled observation of a result never holds the reply or the slot past the call's deadline", async () => {
+  const deadlines: (() => void)[] = [];
+  let observations = 0;
+  const registry = new ToolRegistry({
+    scheduler: {
+      after(_, callback) {
+        deadlines.push(callback);
+        return () => {};
+      },
+    },
+    maxCalls: 1,
+    // The first result's evidence write hangs, as on a stalled disk; later ones finish at once.
+    observeCall: () => async () => {
+      if (observations++ === 0) await new Promise(() => {});
+    },
+  });
+  const credentials = new CredentialRegistry(() => "a".repeat(64));
+  const lease = credentials.issue(scope(), new AbortController().signal);
+  registry.register({
+    name: "ace_wait",
+    description: "Wait",
+    input,
+    output,
+    capability: null,
+    timeoutMs: 1_000,
+    async run() {
+      return { done: true };
+    },
+  });
+  const first = registry.call("ace_wait", {}, lease.principal, new AbortController().signal);
+  await expect.poll(() => observations).toBe(1);
+  deadlines[0]?.();
+  // The tool had answered: that answer goes, though its evidence never finished.
+  expect(await first).toMatchObject({ structuredContent: { done: true } });
+  expect(
+    await registry.call("ace_wait", {}, lease.principal, new AbortController().signal),
+  ).toMatchObject({ structuredContent: { done: true } });
+});
