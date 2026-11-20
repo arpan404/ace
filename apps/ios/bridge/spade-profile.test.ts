@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { until } from "./test-host.ts";
+import { NativeSpadeRequest } from "./spade-requests.ts";
 import { setUp } from "./spade-test-host.ts";
 import type { SpadeProfileRow } from "./spade-profile.ts";
 
@@ -48,9 +49,9 @@ test("a bot's profile shows its task, model, routines, what it keeps and what it
   expect(profile.details.model).toMatch(/Sonnet/);
   const routines = profile.details.routines;
   expect("items" in routines && routines.items[0]?.line).toMatch(/^Weekdays at 9:00/);
+  // A bot's Library has no About you: that is Spade's own.
+  expect("about" in profile.library).toBe(false);
   expect(profile.library).toMatchObject({
-    // A bot's Library has no About you: that is Spade's own.
-    about: null,
     // A note compaction only suggested isn't the bot's until the person keeps it.
     notes: { items: ["Keep it under a page."], more: 0 },
     pages: { items: [{ title: "House style" }], more: 0 },
@@ -121,7 +122,7 @@ test("About you that can't be read says so, apart from a bot that has none", asy
 
   if (!("profile" in spade) || !("profile" in writer)) throw new Error("no profile");
   expect(spade.profile.library.about).toEqual({ failed: true });
-  expect(writer.profile.library.about).toBeNull();
+  expect("about" in writer.profile.library).toBe(false);
 });
 
 test("the task the person rewrites shows on the very next profile, before the list reads again", async () => {
@@ -143,6 +144,7 @@ test("the task the person rewrites shows on the very next profile, before the li
 
   expect(await ask({ type: "spade.task", agentId: "writer", task: "  Draft and post  " })).toEqual({
     ok: true,
+    task: "Draft and post",
   });
 
   expect(api.sent("PATCH", "/v1/agents/writer")).toEqual([{ task: "Draft and post" }]);
@@ -173,6 +175,7 @@ test("a list read already out when the task is saved doesn't put the old task ba
 
   expect(await ask({ type: "spade.task", agentId: "writer", task: "Draft and post" })).toEqual({
     ok: true,
+    task: "Draft and post",
   });
   release?.();
   // The stale read lands, and the read after it confirms the write.
@@ -182,4 +185,35 @@ test("a list read already out when the task is saved doesn't put the old task ba
   const read = await ask({ type: "spade.profile", agentId: "writer" });
   if (!("profile" in read)) throw new Error(JSON.stringify(read));
   expect(read.profile.details.task).toBe("Draft and post");
+});
+
+test("saving the task leaves what the profile shows of the bot's computer as it was", async () => {
+  const { ask, patches } = await setUp((fake) => {
+    fake.addAgent({ id: "writer", name: "Writer", task: "Draft" });
+    fake.computer.use("writer", { kind: "browser", live: true, title: "Release notes", url: null });
+  });
+  await until(() => patches.state?.list.rows?.some((row) => row.id === "writer") === true);
+
+  await ask({ type: "spade.task", agentId: "writer", task: "Draft and post" });
+
+  const read = await ask({ type: "spade.profile", agentId: "writer" });
+  if (!("profile" in read)) throw new Error(JSON.stringify(read));
+  expect(read.profile.details.task).toBe("Draft and post");
+  expect(read.profile.computer.surfaces).toEqual([
+    { name: "Browser", line: "Release notes", live: true },
+  ]);
+});
+
+/** A task save of `count` emoji: each one code point, two UTF-16 units. */
+const emojiTask = (count: number) => ({
+  type: "spade.task",
+  agentId: "writer",
+  task: "😀".repeat(count),
+});
+
+test("a task as long as Spade allows in code points is accepted, emoji and all", () => {
+  const task = emojiTask;
+  // 4,000 emoji are 8,000 UTF-16 units but 4,000 code points, which Spade allows.
+  expect(NativeSpadeRequest.safeParse(task(4_000)).success).toBe(true);
+  expect(NativeSpadeRequest.safeParse(task(4_001)).success).toBe(false);
 });

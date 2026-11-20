@@ -26,8 +26,9 @@ import { botFace, type SpadeFaceRow } from "./spade-group-rows.ts";
  * apply to this bot is null. Pure but for `read`.
  *
  * Every list is a preview, a few items long with each line clipped, and says how many more stay
- * on the computer: the whole profile then fits one of the pump's 32 KiB frames however much the
- * bot keeps, so it never holds back a live reply or an approval behind it (ADR 0074).
+ * on the computer. The whole reply is then held to a UTF-8 byte budget, dropping the last item
+ * of the longest list until it fits: it travels in one of the pump's 32 KiB frames however much
+ * the bot keeps, so it never holds back a live reply or an approval behind it (ADR 0074).
  */
 
 /** Items each list shows before the rest stay on the computer. */
@@ -56,8 +57,8 @@ export interface SpadeProfileRow {
     routines: SpadeProfilePart<{ name: string; line: string; failed: boolean }>;
   };
   library: {
-    /** Spade's own Library starts with what every bot knows about the person; null for a bot. */
-    about: SpadeProfilePart<string> | null;
+    /** Spade's own Library starts with what every bot knows about the person; absent for a bot. */
+    about?: SpadeProfilePart<string>;
     notes: SpadeProfilePart<string>;
     pages: SpadeProfilePart<{ title: string; topic: string }>;
     files: SpadeProfilePart<{ name: string; folder: boolean; at: number | null }>;
@@ -107,6 +108,42 @@ async function part<T>(read: () => Promise<string>, parse: (body: string) => T |
   }
 }
 
+/** What the profile may weigh in UTF-8, leaving the rest of a 32 KiB frame for its envelope. */
+export const spadeProfileBudget = 30_000;
+
+/** A string's length in UTF-8 bytes, by its code points. */
+export function utf8Bytes(text: string): number {
+  let bytes = 0;
+  for (const char of text) {
+    const point = char.codePointAt(0) ?? 0;
+    bytes += point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+/** Drops the last item of the longest list, counting it in `more`, until the profile fits. */
+function fit(profile: SpadeProfileRow): SpadeProfileRow {
+  const parts: { items: unknown[]; more: number }[] = [
+    profile.details.routines,
+    profile.library.about,
+    profile.library.notes,
+    profile.library.pages,
+    profile.library.files,
+    profile.library.skills,
+    profile.computer.services,
+  ].flatMap((each) => (each && "items" in each ? [each] : []));
+  while (utf8Bytes(JSON.stringify(profile)) > spadeProfileBudget) {
+    const longest = parts.reduce<(typeof parts)[number] | undefined>(
+      (most, each) => (each.items.length > (most?.items.length ?? 0) ? each : most),
+      undefined,
+    );
+    if (!longest) break;
+    longest.items.pop();
+    longest.more++;
+  }
+  return profile;
+}
+
 export async function spadeProfile(
   agent: SpadeAgent,
   machine: string,
@@ -127,7 +164,7 @@ export async function spadeProfile(
   const kept = (list: typeof notes) => list?.filter((note) => !note.suggested) ?? null;
   const shown = spadeProfileShown;
   const used = spadeUsedSurfaces(agent.computer);
-  return {
+  return fit({
     id: agent.id,
     name: agent.name || "Untitled bot",
     face: botFace(agent),
@@ -141,7 +178,7 @@ export async function spadeProfile(
       }),
     },
     library: {
-      about: main ? preview(kept(about), shown.notes, (note) => clip(note.text)) : null,
+      ...(main ? { about: preview(kept(about), shown.notes, (note) => clip(note.text)) } : {}),
       notes: preview(kept(notes), shown.notes, (note) => clip(note.text)),
       pages: preview(pages, shown.pages, (page) => ({
         title: clip(page.title),
@@ -178,5 +215,5 @@ export async function spadeProfile(
         running: service.state === "running",
       })),
     },
-  };
+  });
 }

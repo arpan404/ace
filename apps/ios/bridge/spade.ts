@@ -424,14 +424,13 @@ export class NativeSpade {
   }
 
   /**
-   * A bot as a write just left it: Spade's answer whole, or the fields the write set. The list
-   * shows it now and the next read confirms it.
+   * A bot's task as a save just left it. Only the task: the write's answer leaves out what the
+   * list carries beside the bot (its computer, its work), which must not go blank. The list
+   * shows it now, and a read already out is dropped and made again (`readList`).
    */
-  saved(change: SpadeAgent | (Pick<SpadeAgent, "id"> & Partial<SpadeAgent>)): void {
-    if (!this.agents?.some((agent) => agent.id === change.id)) return;
-    this.agents = this.agents.map((agent) =>
-      agent.id === change.id ? { ...agent, ...change } : agent,
-    );
+  saved(id: string, task: string): void {
+    if (!this.agents?.some((agent) => agent.id === id)) return;
+    this.agents = this.agents.map((agent) => (agent.id === id ? { ...agent, task } : agent));
     this.writes++;
     this.put();
   }

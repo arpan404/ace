@@ -71,6 +71,12 @@ test("a bot with a huge library still lets a waiting approval through in the nex
   expect(profile.library.notes).toMatchObject({ more: 488 });
   expect(profile.library.files).toMatchObject({ more: 995 });
 
+  expect(await frameOfApproval(profile)).toBeLessThanOrEqual(1);
+});
+
+/** Sends the profile through the pump, then an approval: the frame the approval arrived in. */
+async function frameOfApproval(profile: unknown): Promise<number> {
+  native.frames.length = 0;
   const emitted: string[] = [];
   const pump = new PatchPump();
   native.ack = (accepted) => pump.ack(accepted);
@@ -91,7 +97,32 @@ test("a bot with a huge library still lets a waiting approval through in the nex
     aceHost.emit = emit;
   }
 
-  const at = emitted.findIndex((frame) => frame.includes('"spade.row"'));
-  expect(at).toBeGreaterThanOrEqual(0);
-  expect(at).toBeLessThanOrEqual(1);
+  return emitted.findIndex((frame) => frame.includes('"spade.row"'));
+}
+
+test("a profile of long emoji notes and a long emoji task still fits one frame in UTF-8", async () => {
+  const agent = parseSpadeAgentValue({
+    id: "spade",
+    name: "Spade",
+    kind: "main",
+    // As long as Spade allows: 4,000 code points, 16,000 bytes.
+    task: "😀".repeat(4_000),
+    conversation: "c-spade",
+  });
+  if (!agent) throw new Error("no agent");
+  const notes = JSON.stringify({
+    notes: many(24, (index) => ({ id: `n${index}`, text: "🎉".repeat(500) })),
+  });
+  const read = async (path: string) => (path.endsWith("notes") ? notes : "{}");
+
+  const profile = await spadeProfile(agent, "Studio", read, 0);
+
+  const reply = JSON.stringify({ type: "service.reply", id: "profile", ok: true, value: profile });
+  expect(Buffer.byteLength(reply, "utf8")).toBeLessThanOrEqual(32_768);
+  // What didn't fit is counted, not lost from sight.
+  const kept = [profile.library.about, profile.library.notes].flatMap((part) =>
+    part && "items" in part ? [part.items.length + part.more] : [],
+  );
+  expect(kept).toEqual([24, 24]);
+  expect(await frameOfApproval(profile)).toBeLessThanOrEqual(1);
 });

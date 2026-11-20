@@ -74,6 +74,7 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("spade.task"),
     agentId: z.string().min(1).max(256),
+    // Spade's limit is in code points, and so is Zod's `max` on a string (not UTF-16 units).
     task: z.string().max(spadeAgentTaskMax),
   }),
 ]);
@@ -81,7 +82,7 @@ export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
 
 type Refusal = { ok: false; title: string; message: string; at?: number };
 type Outcome = { ok: true } | Refusal;
-type Answer = Outcome | { ok: true; profile: SpadeProfileRow };
+type Answer = Outcome | { ok: true; profile: SpadeProfileRow } | { ok: true; task: string };
 
 const path = (id: string) => `/v1/conversations/${segment(id)}`;
 const refused = (title: string, error: unknown): Refusal => ({
@@ -163,9 +164,11 @@ export async function answerSpade(
         const body = await ask("PATCH", `/v1/agents/${segment(request.agentId)}`, { task });
         // The write says what Spade now holds: the profile opened next shows it at once, not the
         // list as last read while the refresh is still on its way.
-        spade.saved(parseSpadeAgent(body) ?? { id: request.agentId, task });
+        const stored = parseSpadeAgent(body)?.task ?? task;
+        spade.saved(request.agentId, stored);
         spade.refresh();
-        return { ok: true };
+        // The task as Spade stored it, for the profile to show whatever its next read brings.
+        return { ok: true, task: stored };
       } catch (error) {
         return refused("Couldn't save the task", error);
       }

@@ -204,3 +204,29 @@ test("a group waiting on the person stays in the list while the bots can't be re
     failed: true,
   });
 });
+
+test("a waiting member's own chat stays one tap away while the bots can't be read again", async () => {
+  const { patches, api, daemon, spade } = await setUp((fake) => team(fake));
+  await until(() => patches.state?.list.rows?.some((row) => row.group === "launch") === true);
+  spade.handle({ type: "spade.open", conversationId: "c-launch", group: "launch" });
+  await until(() => patches.head?.loaded === true);
+  // From here Spade answers its groups but not its bots.
+  let refused = 0;
+  daemon.spade.serve({
+    answer: (request) => {
+      if (request.path !== "/v1/agents") return api.answer(request);
+      refused++;
+      return { status: 500, body: "{}" };
+    },
+    open: (path) => api.open(path),
+  });
+  const group = api.teams.groups[0];
+  if (!group) throw new Error("no group");
+
+  api.teams.status(group, "waiting", null, { id: "research", name: "Research", machine: null });
+  spade.handle({ type: "spade.refresh" });
+
+  await until(() => refused > 0 && patches.state?.list.failed === false);
+  await until(() => patches.head?.waiting !== null && patches.head?.waiting !== undefined);
+  expect(patches.head?.waiting).toEqual({ name: "Research", conversation: "c-research" });
+});
