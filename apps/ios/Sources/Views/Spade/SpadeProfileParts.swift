@@ -4,6 +4,7 @@ import SwiftUI
 /// with, and its routines with when each runs.
 struct SpadeProfileDetails<Editor: View>: View {
     let profile: SpadeProfile
+    let retry: () -> Void
     @ViewBuilder let edit: (String) -> Editor
 
     var body: some View {
@@ -22,19 +23,15 @@ struct SpadeProfileDetails<Editor: View>: View {
             LabeledContent("Machine", value: details.machine)
         }
         Section("Routines") {
-            if let routines = details.routines {
-                if routines.isEmpty { SpadeProfileNone(text: "\(profile.name) has no routines yet.") }
-                ForEach(routines, id: \.self) { routine in
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                        Text(routine.name).aceFont(AceDesign.TextRole.rowTitle)
-                        Text(routine.line)
-                            .aceFont(AceDesign.TextRole.meta)
-                            .foregroundStyle(routine.failed ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
-                    }
-                    .accessibilityElement(children: .combine)
+            SpadeProfileRows(part: details.routines, none: "\(profile.name) has no routines yet.",
+                             failed: "Couldn't read the routines.", retry: retry) { routine in
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    Text(routine.name).aceFont(AceDesign.TextRole.rowTitle)
+                    Text(routine.line)
+                        .aceFont(AceDesign.TextRole.meta)
+                        .foregroundStyle(routine.failed ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
                 }
-            } else {
-                SpadeProfileNone(text: "Couldn't read the routines.", failed: true)
+                .accessibilityElement(children: .combine)
             }
         }
     }
@@ -45,19 +42,32 @@ struct SpadeProfileDetails<Editor: View>: View {
 struct SpadeProfileLibrary: View {
     let library: SpadeProfile.Library
     let name: String
+    let retry: () -> Void
 
     var body: some View {
         if let about = library.about {
-            textSection("About you", about, none: "Nothing about you yet.")
+            Section("About you") {
+                SpadeProfileRows(part: about, none: "Nothing about you yet.",
+                                 failed: "Couldn't read what Spade knows about you.", retry: retry) { note in
+                    Text(note).aceFont(AceDesign.TextRole.message)
+                }
+            }
         }
-        textSection("Notes", library.notes, none: "\(name) hasn't noted anything yet.")
+        Section("Notes") {
+            SpadeProfileRows(part: library.notes, none: "\(name) hasn't noted anything yet.",
+                             failed: "Couldn't read the notes.", retry: retry) { note in
+                Text(note).aceFont(AceDesign.TextRole.message)
+            }
+        }
         Section("Pages") {
-            rows(library.pages, none: "\(name) hasn't written any pages yet.") { page in
+            SpadeProfileRows(part: library.pages, none: "\(name) hasn't written any pages yet.",
+                             failed: "Couldn't read the pages.", retry: retry) { page in
                 Label(page.title, systemImage: "doc.text")
             }
         }
         Section("Files") {
-            rows(library.files, none: "\(name) hasn't kept any files yet.") { file in
+            SpadeProfileRows(part: library.files, none: "\(name) hasn't kept any files yet.",
+                             failed: "Couldn't read the files.", retry: retry) { file in
                 LabeledContent {
                     if let at = file.at {
                         Text(Date(timeIntervalSince1970: at / 1000), format: .relative(presentation: .named))
@@ -69,25 +79,13 @@ struct SpadeProfileLibrary: View {
             }
         }
         Section("Skills") {
-            rows(library.skills, none: "\(name) hasn't used a skill yet.") { skill in
+            SpadeProfileRows(part: library.skills, none: "\(name) hasn't used a skill yet.",
+                             failed: "Couldn't read the skills.", retry: retry) { skill in
                 LabeledContent { Text(skill.word).aceFont(AceDesign.TextRole.meta) } label: {
                     Label(skill.name, systemImage: "square.stack")
                 }
             }
         }
-    }
-
-    private func textSection(_ title: String, _ texts: [String]?, none: String) -> some View {
-        Section(title) {
-            rows(texts.map { $0.enumerated().map { Note(id: $0.offset, text: $0.element) } }, none: none) { note in
-                Text(note.text).aceFont(AceDesign.TextRole.message)
-            }
-        }
-    }
-
-    private struct Note: Hashable {
-        let id: Int
-        let text: String
     }
 }
 
@@ -95,6 +93,7 @@ struct SpadeProfileLibrary: View {
 /// in use now marked), and the services it keeps running.
 struct SpadeProfileComputer: View {
     let computer: SpadeProfile.Computer
+    let retry: () -> Void
 
     var body: some View {
         Section {
@@ -117,9 +116,11 @@ struct SpadeProfileComputer: View {
                 }
             }
         }
-        if let services = computer.services, !services.isEmpty {
+        // Services show once the bot has started one, or when they couldn't be read.
+        if computer.services.failed || !computer.services.items.isEmpty {
             Section("Services") {
-                ForEach(services, id: \.self) { service in
+                SpadeProfileRows(part: computer.services, none: "", failed: "Couldn't read the services.",
+                                 retry: retry) { service in
                     LabeledContent(service.name) {
                         Text(service.words)
                             .aceFont(AceDesign.TextRole.meta)
@@ -127,8 +128,6 @@ struct SpadeProfileComputer: View {
                     }
                 }
             }
-        } else if computer.services == nil {
-            Section("Services") { SpadeProfileNone(text: "Couldn't read the services.", failed: true) }
         }
     }
 }
@@ -144,14 +143,29 @@ struct SpadeProfileNone: View {
     }
 }
 
-/// A list part's rows: each item, one line when there are none, or that it couldn't be read.
-@ViewBuilder private func rows<Item: Hashable, Row: View>(
-    _ items: [Item]?, none: String, @ViewBuilder row: @escaping (Item) -> Row
-) -> some View {
-    if let items {
-        if items.isEmpty { SpadeProfileNone(text: none) }
-        ForEach(items, id: \.self) { row($0) }
-    } else {
-        SpadeProfileNone(text: "Couldn't read this.", failed: true)
+/// A list's rows: its items and how many more stay on the computer, one line when there are
+/// none, or that it couldn't be read, with Try again.
+struct SpadeProfileRows<Item: Decodable & Equatable & Sendable & Hashable, Row: View>: View {
+    let part: SpadeProfile.Part<Item>
+    let none: String
+    let failed: String
+    let retry: () -> Void
+    @ViewBuilder let row: (Item) -> Row
+
+    var body: some View {
+        if part.failed {
+            HStack {
+                SpadeProfileNone(text: failed, failed: true)
+                Spacer(minLength: AceDesign.Space.related)
+                Button("Try again", action: retry)
+                    .aceFont(AceDesign.TextRole.meta)
+                    .accessibilityIdentifier("spade.profile.retry")
+            }
+        } else {
+            if part.items.isEmpty { SpadeProfileNone(text: none) }
+            // By place: two notes may say the same thing.
+            ForEach(Array(part.items.enumerated()), id: \.offset) { row($0.element) }
+            if part.more > 0 { SpadeProfileNone(text: "\(part.more) more on the computer") }
+        }
     }
 }

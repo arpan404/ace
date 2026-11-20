@@ -1,5 +1,10 @@
 import type { ClientCore } from "@ace/client";
-import { SpadeRequestError, parseSpadeEvents, spadeAgentTaskMax } from "@ace/ui-core/spade-chat";
+import {
+  SpadeRequestError,
+  parseSpadeAgent,
+  parseSpadeEvents,
+  spadeAgentTaskMax,
+} from "@ace/ui-core/spade-chat";
 import { z } from "zod";
 import {
   SpadeDraftWire,
@@ -154,7 +159,11 @@ export async function answerSpade(
     }
     case "spade.task":
       try {
-        await ask("PATCH", `/v1/agents/${segment(request.agentId)}`, { task: request.task.trim() });
+        const task = request.task.trim();
+        const body = await ask("PATCH", `/v1/agents/${segment(request.agentId)}`, { task });
+        // The write says what Spade now holds: the profile opened next shows it at once, not the
+        // list as last read while the refresh is still on its way.
+        spade.saved(parseSpadeAgent(body) ?? { id: request.agentId, task });
         spade.refresh();
         return { ok: true };
       } catch (error) {

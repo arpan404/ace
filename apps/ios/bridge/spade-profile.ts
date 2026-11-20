@@ -21,12 +21,29 @@ import { botFace, type SpadeFaceRow } from "./spade-group-rows.ts";
 /*
  * A bot's profile on the iPhone (docs/design/spade.md §4), as a sheet: Details (its task, the
  * model and machine it runs with, its routines), Library (what it keeps: notes, pages, files,
- * skills) and Computer (what it has used and the services it keeps running). Each part is read
- * on its own; one that fails is null and says so, while the rest show. Pure but for `read`.
+ * skills) and Computer (what it has used and the services it keeps running). Each list is read
+ * on its own; one that fails says so (`{failed: true}`) while the rest show, and one that doesn't
+ * apply to this bot is null. Pure but for `read`.
+ *
+ * Every list is a preview, a few items long with each line clipped, and says how many more stay
+ * on the computer: the whole profile then fits one of the pump's 32 KiB frames however much the
+ * bot keeps, so it never holds back a live reply or an approval behind it (ADR 0074).
  */
 
-/** Files and pages shown before the rest stay on the computer. */
-const shown = 5;
+/** Items each list shows before the rest stay on the computer. */
+export const spadeProfileShown = {
+  notes: 12,
+  pages: 5,
+  files: 5,
+  skills: 8,
+  routines: 10,
+  services: 8,
+};
+/** The longest line a preview carries; the task is sent whole, since it is edited. */
+const lineMax = 280;
+
+/** A list as the sheet shows it: its first items and how many more there are, or that it failed. */
+export type SpadeProfilePart<T> = { items: T[]; more: number } | { failed: true };
 
 export interface SpadeProfileRow {
   id: string;
@@ -36,23 +53,34 @@ export interface SpadeProfileRow {
     task: string;
     model: string;
     machine: string;
-    /** Null when they couldn't be read. */
-    routines: { name: string; line: string; failed: boolean }[] | null;
+    routines: SpadeProfilePart<{ name: string; line: string; failed: boolean }>;
   };
   library: {
     /** Spade's own Library starts with what every bot knows about the person; null for a bot. */
-    about: string[] | null;
-    notes: string[] | null;
-    pages: { title: string; topic: string }[] | null;
-    files: { name: string; folder: boolean; at: number | null }[] | null;
-    skills: { name: string; word: string }[] | null;
+    about: SpadeProfilePart<string> | null;
+    notes: SpadeProfilePart<string>;
+    pages: SpadeProfilePart<{ title: string; topic: string }>;
+    files: SpadeProfilePart<{ name: string; folder: boolean; at: number | null }>;
+    skills: SpadeProfilePart<{ name: string; word: string }>;
   };
   computer: {
     /** What the computer is doing, or that it has never been used. */
     line: string;
     surfaces: { name: string; line: string | null; live: boolean }[];
-    services: { name: string; words: string; running: boolean }[] | null;
+    services: SpadeProfilePart<{ name: string; words: string; running: boolean }>;
   };
+}
+
+/** A line cut to the preview's length, on a character boundary. */
+const clip = (text: string) => {
+  const chars = Array.from(text);
+  return chars.length <= lineMax ? text : `${chars.slice(0, lineMax - 1).join("")}…`;
+};
+
+/** The first `max` of `items`, shaped, and how many were left out; `failed` when unread. */
+function preview<T, R>(items: readonly T[] | null, max: number, shape: (item: T) => R) {
+  if (!items) return { failed: true } as const;
+  return { items: items.slice(0, max).map(shape), more: Math.max(0, items.length - max) };
 }
 
 /** A model reference in the words a person knows it by: `Claude Sonnet 4.5`. */
@@ -86,15 +114,18 @@ export async function spadeProfile(
   now: number,
 ): Promise<SpadeProfileRow> {
   const base = `/v1/agents/${encodeURIComponent(agent.id)}`;
+  const main = agent.kind === "main";
   const [routines, about, notes, pages, folder, store, services] = await Promise.all([
     part(() => read(`${base}/routines`), parseSpadeRoutines),
-    agent.kind === "main" ? part(() => read("/v1/notes"), parseSpadeNotes) : null,
+    main ? part(() => read("/v1/notes"), parseSpadeNotes) : null,
     part(() => read(`${base}/notes`), parseSpadeNotes),
     part(() => read(`${base}/knowledge`), parseSpadeKnowledge),
     part(() => read(`${base}/workspace?path=`), parseSpadeFolder),
     part(() => read("/v1/skills"), parseSpadeSkillStore),
     part(() => read(`${base}/services`), parseSpadeServices),
   ]);
+  const kept = (list: typeof notes) => list?.filter((note) => !note.suggested) ?? null;
+  const shown = spadeProfileShown;
   const used = spadeUsedSurfaces(agent.computer);
   return {
     id: agent.id,
@@ -104,46 +135,48 @@ export async function spadeProfile(
       task: agent.task,
       model: spadeModelWords(agent.model),
       machine,
-      routines:
-        routines?.map((routine) => {
-          const said = spadeRoutineLine(routine, now);
-          return { name: routine.name, line: said.text, failed: said.failed };
-        }) ?? null,
+      routines: preview(routines, shown.routines, (routine) => {
+        const said = spadeRoutineLine(routine, now);
+        return { name: clip(routine.name), line: clip(said.text), failed: said.failed };
+      }),
     },
     library: {
-      about: about?.filter((note) => !note.suggested).map((note) => note.text) ?? null,
-      notes: notes?.filter((note) => !note.suggested).map((note) => note.text) ?? null,
-      pages:
-        pages?.slice(0, shown).map((page) => ({ title: page.title, topic: page.topic })) ?? null,
-      files:
-        folder?.entries
-          .filter((entry) => entry.name !== spadeOwnFolder)
-          .slice(0, shown)
-          .map((entry) => ({
-            name: entry.name,
-            folder: entry.kind === "folder",
-            at: entry.modifiedAt ?? null,
-          })) ?? null,
-      skills:
-        store &&
-        spadeSkillsOf(store, agent.id).map(({ skill, word }) => ({ name: skill.name, word })),
+      about: main ? preview(kept(about), shown.notes, (note) => clip(note.text)) : null,
+      notes: preview(kept(notes), shown.notes, (note) => clip(note.text)),
+      pages: preview(pages, shown.pages, (page) => ({
+        title: clip(page.title),
+        topic: clip(page.topic),
+      })),
+      files: preview(
+        folder?.entries.filter((entry) => entry.name !== spadeOwnFolder) ?? null,
+        shown.files,
+        (entry) => ({
+          name: clip(entry.name),
+          folder: entry.kind === "folder",
+          at: entry.modifiedAt ?? null,
+        }),
+      ),
+      skills: preview(store && spadeSkillsOf(store, agent.id), shown.skills, ({ skill, word }) => ({
+        name: clip(skill.name),
+        word,
+      })),
     },
     computer: {
       line: computerLine(agent, used.length),
       surfaces: used.map((kind) => {
         const surface = agent.computer?.surfaces.find((each) => each.kind === kind);
+        const line = surface && spadeSurfaceLine(surface);
         return {
           name: spadeSurfaceNames[kind],
-          line: (surface && spadeSurfaceLine(surface)) ?? null,
+          line: line ? clip(line) : null,
           live: surface?.live === true,
         };
       }),
-      services:
-        services?.map((service) => ({
-          name: service.name,
-          words: spadeServiceWords(service),
-          running: service.state === "running",
-        })) ?? null,
+      services: preview(services, shown.services, (service) => ({
+        name: clip(service.name),
+        words: spadeServiceWords(service),
+        running: service.state === "running",
+      })),
     },
   };
 }

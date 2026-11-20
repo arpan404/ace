@@ -1,8 +1,23 @@
 import Foundation
 
 /// A bot's profile as the bridge reads it (`bridge/spade-profile.ts`): Details, Library and
-/// Computer. A part Spade couldn't read is nil, and the sheet says so where it would be.
+/// Computer. Each list is a preview: its first items and how many more stay on the computer, or
+/// that Spade couldn't read it, which the sheet says with Try again. A list that doesn't apply to
+/// this bot (About you, for any bot but Spade) is nil.
 struct SpadeProfile: Decodable, Equatable, Sendable {
+    /// One list: `{items, more}`, or `{failed: true}`.
+    struct Part<Item: Decodable & Equatable & Sendable & Hashable>: Decodable, Equatable, Sendable {
+        let items: [Item]
+        let more: Int
+        let failed: Bool
+        private enum Keys: String, CodingKey { case items, more, failed }
+        init(from decoder: any Decoder) throws {
+            let box = try decoder.container(keyedBy: Keys.self)
+            failed = try box.decodeIfPresent(Bool.self, forKey: .failed) ?? false
+            items = try box.decodeIfPresent([Item].self, forKey: .items) ?? []
+            more = try box.decodeIfPresent(Int.self, forKey: .more) ?? 0
+        }
+    }
     struct Routine: Decodable, Equatable, Sendable, Hashable {
         let name: String
         let line: String
@@ -12,7 +27,7 @@ struct SpadeProfile: Decodable, Equatable, Sendable {
         let task: String
         let model: String
         let machine: String
-        let routines: [Routine]?
+        let routines: Part<Routine>
     }
     struct Page: Decodable, Equatable, Sendable, Hashable {
         let title: String
@@ -29,12 +44,12 @@ struct SpadeProfile: Decodable, Equatable, Sendable {
         let word: String
     }
     struct Library: Decodable, Equatable, Sendable {
-        /// What every bot knows about the person: Spade's own Library only.
-        let about: [String]?
-        let notes: [String]?
-        let pages: [Page]?
-        let files: [File]?
-        let skills: [Skill]?
+        /// What every bot knows about the person: Spade's own Library only, nil for a bot.
+        let about: Part<String>?
+        let notes: Part<String>
+        let pages: Part<Page>
+        let files: Part<File>
+        let skills: Part<Skill>
     }
     struct Surface: Decodable, Equatable, Sendable, Hashable {
         let name: String
@@ -49,7 +64,7 @@ struct SpadeProfile: Decodable, Equatable, Sendable {
     struct Computer: Decodable, Equatable, Sendable {
         let line: String
         let surfaces: [Surface]
-        let services: [Service]?
+        let services: Part<Service>
     }
 
     let id: String
@@ -69,4 +84,24 @@ struct SpadeProfileAnswer: Decodable, Sendable {
     var problem: String? {
         SpadeOutcome(ok: ok, title: title, message: message).problem
     }
+}
+
+/// The task's Save on its own page: the words it sent stay put while the write is out, a second
+/// Save can't go while one is, and a write that went keeps Save locked until the page closes.
+struct SpadeTaskSave: Equatable {
+    /// The words sent, while the write is out or after it went.
+    private(set) var sent: String?
+    /// Save is out or done: the field and Save wait.
+    var locked: Bool { sent != nil }
+
+    /// The words to send for `text`, or nil when nothing changed against `task` or a save is
+    /// already out.
+    mutating func begin(_ text: String, task: String) -> String? {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard sent == nil, words != task.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        sent = words
+        return words
+    }
+    /// Spade refused it: the field and Save come back, holding what was sent.
+    mutating func refused() { sent = nil }
 }

@@ -32,9 +32,9 @@ struct SpadeProfileSheet: View {
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
                     switch part {
-                    case .details: SpadeProfileDetails(profile: profile, edit: editor)
-                    case .library: SpadeProfileLibrary(library: profile.library, name: profile.name)
-                    case .computer: SpadeProfileComputer(computer: profile.computer)
+                    case .details: SpadeProfileDetails(profile: profile, retry: retry, edit: editor)
+                    case .library: SpadeProfileLibrary(library: profile.library, name: profile.name, retry: retry)
+                    case .computer: SpadeProfileComputer(computer: profile.computer, retry: retry)
                     }
                 } else if let problem {
                     ProblemRow(problem, id: "spade.profile.problem") { Task { await load() } }
@@ -78,6 +78,9 @@ struct SpadeProfileSheet: View {
         }
     }
 
+    /// A part that couldn't be read: the whole profile is read again.
+    private func retry() { Task { await load() } }
+
     private func editor(_ task: String) -> some View {
         SpadeTaskEditor(client: client, agent: agent, task: task) { await load() }
     }
@@ -94,6 +97,8 @@ struct SpadeProfileSheet: View {
 }
 
 /// The task on its own page: the bot's instructions in the person's words, saved with Save.
+/// While the write is out the field and Save wait and the page stays (`SpadeTaskSave`); once it
+/// went they stay locked until the page closes on the reloaded profile.
 struct SpadeTaskEditor: View {
     let client: ClientModel
     let agent: String
@@ -101,7 +106,7 @@ struct SpadeTaskEditor: View {
     let saved: () async -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
-    @State private var saving = false
+    @State private var save = SpadeTaskSave()
     @State private var problem: String?
     @FocusState private var focused: Bool
 
@@ -116,6 +121,7 @@ struct SpadeTaskEditor: View {
                     .aceFont(AceDesign.TextRole.message)
                     .frame(minHeight: AceDesign.Size.rowThread * 3)
                     .focused($focused)
+                    .disabled(save.locked)
                     .accessibilityIdentifier("spade.task.field")
             } footer: {
                 if let problem {
@@ -127,11 +133,15 @@ struct SpadeTaskEditor: View {
         }
         .navigationTitle("Task")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(save.locked)
+        .interactiveDismissDisabled(save.locked)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { save() }
-                    .disabled(!changed || saving)
-                    .accessibilityIdentifier("spade.task.save")
+                if save.locked { ProgressView() } else {
+                    Button("Save") { submit() }
+                        .disabled(!changed)
+                        .accessibilityIdentifier("spade.task.save")
+                }
             }
         }
         .onAppear {
@@ -140,13 +150,17 @@ struct SpadeTaskEditor: View {
         }
     }
 
-    private func save() {
-        saving = true
+    private func submit() {
+        guard let words = save.begin(text, task: task) else { return }
+        problem = nil
+        focused = false
         Task {
-            let outcome = await client.spadeTask(agent, task: text)
-            saving = false
-            problem = outcome.problem
-            guard outcome.ok else { return }
+            let outcome = await client.spadeTask(agent, task: words)
+            guard outcome.ok else {
+                save.refused()
+                problem = outcome.problem
+                return
+            }
             await saved()
             dismiss()
         }
