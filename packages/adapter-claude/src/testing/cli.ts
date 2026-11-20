@@ -3,7 +3,7 @@
 import { readPrivateMcpConfig } from "@ace/mcp-server";
 import { list, object } from "../native.ts";
 import { createInterface } from "node:readline";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 if (process.argv.includes("--version")) {
   console.log("2.1.286 (Claude Code)");
   process.exit(0);
@@ -31,6 +31,21 @@ const usageAnswer = (): unknown => {
   const file = process.env["ACE_FAKE_CLAUDE_USAGE_FILE"];
   return file ? (JSON.parse(readFileSync(file, "utf8")) as unknown) : {};
 };
+/**
+ * `hold-turn`: the turn stays running until the file ACE_TEST_TURN_RELEASE names exists, as a real
+ * turn does while its agent's tool call waits; then it ends as completed. An interrupt ends it first.
+ */
+let heldTurn: ReturnType<typeof setInterval> | undefined;
+function holdTurn(end: () => void) {
+  const file = process.env["ACE_TEST_TURN_RELEASE"];
+  if (!file) return;
+  heldTurn = setInterval(() => {
+    if (!existsSync(file)) return;
+    clearInterval(heldTurn);
+    heldTurn = undefined;
+    end();
+  }, 10);
+}
 const lines = createInterface({ input: process.stdin });
 let id = 0;
 let childText = false;
@@ -216,7 +231,9 @@ for await (const line of lines) {
           content: [{ type: "text", text: "Progress while you decide" }],
         },
       });
-    if (request["subtype"] === "interrupt")
+    if (request["subtype"] === "interrupt") {
+      clearInterval(heldTurn);
+      heldTurn = undefined;
       write({
         type: "result",
         subtype: "error_during_execution",
@@ -225,10 +242,16 @@ for await (const line of lines) {
         terminal_reason: "aborted_streaming",
         session_id: session,
       });
+    }
   } else if (data["type"] === "user") {
     const message = object(data["message"]);
     const parts = list(message["content"]);
     const text = parts.map((p) => object(p)["text"] ?? "image").join(" ");
+    // A message that arrives while a held turn runs joins it, and the turn keeps running.
+    if (heldTurn) {
+      write({ type: "system", subtype: "fake_input", input: data });
+      continue;
+    }
     // Claude Code holds even a `now` message until the running foreground tool returns.
     if (foreground) {
       heldBehindTool.push(data);
@@ -239,6 +262,18 @@ for await (const line of lines) {
     write({ type: "system", subtype: "fake_input", input: data });
     // Hold a turn open until a follow-up arrives; no timers or model involved.
     if (text === "steer-wait") continue;
+    if (text === "hold-turn") {
+      holdTurn(() =>
+        write({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          terminal_reason: "completed",
+          session_id: session,
+        }),
+      );
+      continue;
+    }
     // A foreground Bash call that returns by itself: messages held behind it join the turn at
     // that tool boundary, before the turn ends, as Claude Code's do.
     if (text === "foreground-brief") {

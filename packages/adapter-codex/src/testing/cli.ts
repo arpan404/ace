@@ -94,6 +94,20 @@ function end(threadId = "native", status = "completed"): void {
   active.delete(threadId);
   notify("turn/completed", { threadId, turn: { id, status } });
 }
+/**
+ * `hold-turn`: the turn stays running until the file ACE_TEST_TURN_RELEASE names exists, as a real
+ * turn does while its agent's tool call waits; then it completes, unless it was interrupted first.
+ */
+function holdTurn(turnId: string) {
+  const file = process.env["ACE_TEST_TURN_RELEASE"];
+  if (!file) return;
+  const poll = setInterval(() => {
+    if (active.get("native") !== turnId) return clearInterval(poll);
+    if (!existsSync(file)) return;
+    clearInterval(poll);
+    end();
+  }, 10);
+}
 for await (const line of createInterface({ input: process.stdin })) {
   const frame = obj(JSON.parse(line));
   const p = obj(frame["params"]);
@@ -658,7 +672,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     active.set("native", turnId);
     if (process.env["ACE_FAKE_RESUME"] !== "reply-before-start")
       notify("turn/started", { threadId: "native", turn: { id: turnId } });
-    if (process.env["ACE_TEST_DELEGATION_RESULT"] === "1") {
+    if (text === "hold-turn") holdTurn(turnId);
+    else if (process.env["ACE_TEST_DELEGATION_RESULT"] === "1") {
       message("Codex delegated result", "delegation-result");
       end();
     } else if (text === "replay-answered") {

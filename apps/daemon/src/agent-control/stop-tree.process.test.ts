@@ -6,7 +6,7 @@
  */
 import { expect, test } from "vitest";
 import type { Fact } from "@ace/core";
-import type { ThreadId } from "@ace/protocol";
+import { ThreadId } from "@ace/protocol";
 import { setup } from "./test-support.ts";
 
 type Harness = ReturnType<typeof setup>;
@@ -50,6 +50,31 @@ test("a stopped root's turn delegates nothing more, though its next message is a
   // Once the new turn runs, it delegates as any turn does.
   await h.engine.flush();
   await expect(delegateFrom(h, root, "after")).resolves.toBeDefined();
+});
+
+test("Spade's host thread, where no turn ever runs, delegates again after the person stops it", async () => {
+  const h = setup();
+  const planner = await h.parent();
+  const workspaceId = h.store.getThread(planner.threadId)?.workspaceId;
+  const cwd = workspaceId && h.store.getWorkspacePath(workspaceId);
+  if (!workspaceId || !cwd) throw new Error("No project");
+  // Spade's MCP calls act as this thread's root agent, from outside any provider turn (ADR 0121).
+  const spade = ThreadId.parse("spade-host");
+  h.engine.hosts.create({
+    id: spade,
+    workspaceId,
+    title: "Spade",
+    provider: "claude",
+    access: "full-access",
+    cwd,
+    host: "spade",
+  });
+  await h.engine.flush();
+  await expect(delegateFrom(h, spade, "before")).resolves.toBeDefined();
+  h.service.command("stop-spade", { type: "thread.interrupt", threadId: spade, cascade: true });
+  await h.engine.flush();
+  // No turn of the host thread can ever run to lift a fence, and none was stopped.
+  await expect(delegateFrom(h, spade, "after")).resolves.toBeDefined();
 });
 
 /** The root agent's call to ace's `delegate` for `requestId`, reported and still running. */

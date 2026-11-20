@@ -11,6 +11,7 @@ import {
 import { Profiles } from "../cli/profiles.ts";
 import { ThreadLifecycle } from "../thread-lifecycle.ts";
 import { gatedTransport, pairedMachines } from "./machine-test-support.ts";
+import { machineRequest, type MachineTransport } from "./transport.ts";
 
 type Pair = Awaited<ReturnType<typeof pairedMachines>>;
 const Delegated = z.object({ threadId: ThreadId });
@@ -304,3 +305,73 @@ it("a refused message's record goes once its device is revoked there, and no cop
   expect(saved()).toBe(0);
   expect(pair.target.h.inputs.get(child) ?? []).not.toContain("Do a second pass");
 }, 90_000);
+
+it("a late delegate to another machine after the root's Stop reaches nothing there and is refused, while one from the next turn goes", async () => {
+  // Every delegation the source sends to Studio, by request id.
+  const reached: string[] = [];
+  const transport: MachineTransport = (profile, body, options) => {
+    if (body.call.op === "delegate") reached.push(body.call.requestId);
+    return machineRequest(profile, body, options);
+  };
+  const pair = await pairedMachines({ access: "operate", sourceTransport: transport });
+  await pair.source.call({ op: "machines" });
+  const root = pair.source.caller.threadId;
+  const engine = pair.source.daemon.engine;
+  if (!engine) throw new Error("Engine unavailable");
+  pair.source.controls.delegations.command("stop", {
+    type: "thread.interrupt",
+    threadId: root,
+    cascade: true,
+  });
+  await engine.flush();
+  // The stopped turn's agent asks for one more child there, with a request id never seen.
+  await expect(pair.source.call(task("late"))).rejects.toMatchObject({
+    code: "delegation_cancelled",
+  });
+  expect(reached).toEqual([]);
+  expect(pair.target.daemon.store.listThreads()).toHaveLength(1);
+  // The person's next message runs a new turn, and its agent delegates there as before.
+  pair.source.controls.delegations.command("next", {
+    type: "thread.send",
+    threadId: root,
+    input: [{ type: "text", text: "Carry on" }],
+  });
+  await engine.flush();
+  const next = await pair.source.duringTurn(root, () => pair.source.call(task("next")));
+  expect(Delegated.parse(next.data).threadId).toBeDefined();
+  expect(reached).toEqual(["next-on-studio"]);
+});
+
+it("Spade's host thread, where no turn ever runs, still delegates to another machine after a Stop of it", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const { daemon, workspace } = pair.source;
+  const engine = daemon.engine;
+  const cwd = daemon.store.getWorkspacePath(workspace);
+  if (!engine || !daemon.agentControl || !cwd) throw new Error("Source unavailable");
+  const spade = ThreadId.parse("spade-host");
+  const agentId = engine.hosts.create({
+    id: spade,
+    workspaceId: workspace,
+    title: "Spade",
+    provider: "claude",
+    access: "full-access",
+    cwd,
+    host: "spade",
+  });
+  if (!agentId) throw new Error("No host agent");
+  const asSpade = (operation: AgentControlOperation) =>
+    daemon.agentControl?.port.execute(
+      { sessionId: "spade", threadId: spade, agentId },
+      operation,
+      new AbortController().signal,
+    );
+  await asSpade({ op: "machines" });
+  pair.source.controls.delegations.command("stop-spade", {
+    type: "thread.interrupt",
+    threadId: spade,
+    cascade: true,
+  });
+  await engine.flush();
+  const child = Delegated.parse((await asSpade(task("spade")))?.data).threadId;
+  expect(pair.target.daemon.store.getThread(child)).toBeDefined();
+});
