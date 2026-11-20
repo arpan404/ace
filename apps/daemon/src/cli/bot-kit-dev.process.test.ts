@@ -1,38 +1,37 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import type { ChildProcess } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { z } from "zod";
 import { invoke, openCli } from "../cli-test-support.ts";
+import {
+  canRunSpade,
+  startThrowawaySpade,
+  type SpadeApi,
+  type ThrowawaySpade,
+} from "./bot-kit-test-support.ts";
 
 /*
- * `ace bot dev` on a development Spade (ADR 0200 §9): a real `spade` on a throwaway data folder,
- * reached by its own address and token (`--spade`). The package installs once as a development
+ * `ace bot dev` on a development Spade (ADR 0200 §9): a real `spade` on a throwaway data folder
+ * (`bot-kit-test-support.ts`), reached by its own address and token (`--spade`). The package installs once as a development
  * bot linked to the local package of its name, routines paused; each save becomes an update; a save
- * that asks for more waits for the person's yes. Spade runs with no keychain, no ace and a model
- * endpoint nothing listens on: nothing here reaches the network or a model.
+ * that asks for more waits for the person's yes; a rename keeps the same bot.
  */
 
-const program = fileURLToPath(new URL("../../../../spade/target/debug/spade", import.meta.url));
-const run = existsSync(program) || process.env.CI === "true";
+const run = canRunSpade;
 
 let root: string;
 let data: string;
-let spade: ChildProcess | undefined;
-let api: (
-  method: string,
-  path: string,
-  body?: unknown,
-) => Promise<{ status: number; body: unknown }>;
+let spade: ThrowawaySpade | undefined;
+let api: SpadeApi;
 
 /** Spade's answers, by the fields these tests read. */
 const Agents = z.object({
   agents: z.array(
     z.looseObject({
       id: z.string(),
+      name: z.string().optional(),
       task: z.string().optional(),
       package: z.looseObject({ source: z.string() }).optional(),
     }),
@@ -50,49 +49,12 @@ const effects = async (bot: string) =>
 beforeAll(async () => {
   if (!run) return;
   root = await mkdtemp(join(tmpdir(), "ace-bot-dev-"));
-  data = join(root, "spade");
-  await mkdir(join(root, "home"), { recursive: true });
-  spade = spawn(program, [], {
-    // No session bus: Spade finds no keychain and never touches the person's.
-    env: {
-      PATH: process.env.PATH ?? "",
-      HOME: join(root, "home"),
-      SPADE_DATA_DIR: data,
-      SPADE_LISTEN: "127.0.0.1:0",
-      SPADE_SANDBOX: "off",
-      SPADE_CLOUD_URL: "off",
-      RUST_LOG: "warn",
-    },
-    stdio: "ignore",
-  });
-  const deadline = Date.now() + 20_000;
-  while (!existsSync(join(data, "server.json"))) {
-    if (Date.now() > deadline) throw new Error("Spade didn't start");
-    await new Promise((done) => setTimeout(done, 50));
-  }
-  const address = JSON.parse(await readFile(join(data, "server.json"), "utf8")).address;
-  const token = (await readFile(join(data, "token"), "utf8")).trim();
-  api = async (method, path, body) => {
-    const response = await fetch(`http://${address}${path}`, {
-      method,
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    const text = await response.text();
-    return { status: response.status, body: text ? JSON.parse(text) : undefined };
-  };
-  // A model for new bots, on an address nothing listens on.
-  await api("POST", "/v1/endpoints", {
-    name: "Unreached",
-    format: "openai-chat",
-    base_url: "http://127.0.0.1:9/v1/",
-  });
-  await api("POST", "/v1/endpoints/unreached/models", { id: "m", name: "M" });
-  await api("PUT", "/v1/settings", { new_bot_model: "unreached/m", fast_model: "unreached/m" });
+  spade = await startThrowawaySpade(root);
+  ({ data, api } = spade);
 }, 30_000);
 
 afterAll(async () => {
-  spade?.kill("SIGTERM");
+  spade?.stop();
   if (root) await rm(root, { recursive: true, force: true });
 });
 
@@ -227,6 +189,34 @@ it.skipIf(!run)(
       { key: "network", on: true },
       { key: "publish", on: true },
     ]);
+  },
+  30_000,
+);
+
+it.skipIf(!run)(
+  "renaming the bot in bot.json between runs updates the same development bot",
+  async () => {
+    const folder = join(root, "trips");
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "bot.json"), manifest({ name: "Trip planner" }));
+    const first = await ace("bot", "dev", folder, "--spade", data, "--once", "--yes", "--json");
+    expect(first.code, first.stdout).toBe(0);
+    const bot = String(JSON.parse(first.stdout).bot);
+
+    await writeFile(join(folder, "bot.json"), manifest({ name: "Travel planner" }));
+    const renamed = await ace("bot", "dev", folder, "--spade", data, "--once", "--yes", "--json");
+    expect(renamed.code, renamed.stdout).toBe(0);
+    expect(JSON.parse(renamed.stdout)).toMatchObject({
+      step: "updated",
+      bot,
+      name: "Travel planner",
+    });
+    const all = await agents();
+    expect(all.find((agent) => agent.id === bot)?.name).toBe("Travel planner");
+    expect(
+      all.filter((agent) => /planner/.test(agent.name ?? "")),
+      "one bot for the folder, under its new name",
+    ).toHaveLength(1);
   },
   30_000,
 );

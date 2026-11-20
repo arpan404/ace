@@ -1,6 +1,6 @@
-import type { CliBotDev } from "@ace/protocol/cli-outputs";
+import type { CliBotDev, CliBotInit } from "@ace/protocol/cli-outputs";
 import { option } from "../args.ts";
-import { CliFailure } from "../output.ts";
+import { CliFailure, usageFailure } from "../output.ts";
 import { withSession, type CommandContext, type Handlers } from "./context.ts";
 
 /* `ace bot init|check|test|dev|publish` (ADR 0200 §9): the developer kit's handlers. */
@@ -9,14 +9,37 @@ const folderOf = (context: CommandContext) => context.args.words[0] ?? ".";
 const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
 async function init(context: CommandContext): Promise<void> {
-  const { initPackage, initLines } = await import("../bot-kit/init.ts");
+  const { initPackage, initFromBot, initLines } = await import("../bot-kit/init.ts");
   const { emit } = await import("../io.ts");
-  const made = await initPackage(context.args.words[0] ?? "", {
-    template: option(context.args, "template"),
+  const show = (made: CliBotInit) =>
+    emit(context.args, made, { human: initLines, quiet: (value) => [value.path] });
+  const from = option(context.args, "from");
+  if (!from)
+    return show(
+      await initPackage(context.args.words[0] ?? "", {
+        template: option(context.args, "template"),
+        path: option(context.args, "path"),
+        cwd: process.cwd(),
+      }),
+    );
+  if (option(context.args, "template"))
+    throw usageFailure("--from and --template each say what it starts as; pass one.", {
+      argument: "--template",
+    });
+  const options = {
+    name: context.args.words[0],
     path: option(context.args, "path"),
     cwd: process.cwd(),
-  });
-  await emit(context.args, made, { human: initLines, quiet: (value) => [value.path] });
+  };
+  const direct = option(context.args, "spade");
+  if (direct) {
+    const { directExchange } = await import("../bot-kit/dev.ts");
+    return show(await initFromBot(await directExchange(direct), from, options));
+  }
+  const { spadeExchanger } = await import("../spade-call.ts");
+  await withSession(context, context.args, async ({ client, signal }) =>
+    show(await initFromBot(await spadeExchanger(client, signal), from, options)),
+  );
 }
 
 async function check(context: CommandContext): Promise<void> {

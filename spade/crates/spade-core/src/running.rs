@@ -260,6 +260,8 @@ pub struct Facts {
     pub network: Network,
     pub next_wake: Option<NextWake>,
     pub workers: Vec<Worker>,
+    /// A development bot: linked to a package folder on this machine (`ace bot dev`).
+    pub development: bool,
 }
 
 /// How a row reads, in the order rows sort.
@@ -296,6 +298,9 @@ pub struct Row {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_wake: Option<NextWake>,
     pub workers: Vec<Worker>,
+    /// A development bot (ADR 0200 §9): the row says "Development".
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub development: bool,
     /// What the person may do now: `stop`, `pause`, `resume`.
     pub actions: Vec<&'static str>,
 }
@@ -390,6 +395,7 @@ fn row(facts: Facts) -> Row {
         network: facts.network,
         next_wake: facts.next_wake,
         workers: facts.workers,
+        development: facts.development,
         actions,
     }
 }

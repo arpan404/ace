@@ -3,7 +3,7 @@ import { createMemoryHistory } from "@tanstack/react-router";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -13,7 +13,8 @@ beforeEach(() => localStorage.clear());
  * it came from, offers Update when the Marketplace has a newer one and Roll back to the version
  * it had before, each opening its review; a withdrawn version reads as paused, with the reason;
  * an update accepted while it works says it waits for the turn; and its Security section has
- * each declared effect as a switch with its reason (ADR 0200 §3.4).
+ * each declared effect as a switch with its reason (ADR 0200 §3.4). A development bot (ADR 0200
+ * §9) says so in one quiet word wherever it is named.
  */
 
 const linked = (link: Record<string, unknown>) => (spade: FakeSpadeApi) => {
@@ -141,4 +142,52 @@ test("a packaged bot's Security section has each declared effect as a switch wit
   expect(stored.effects.find((effect) => effect.key === "publish")?.on).toBe(true);
   // Only what the package declared is there to turn on.
   expect(security.queryByRole("switch", { name: /Can ask you to pay/ })).toBeNull();
+});
+
+test("a development bot says Development in its row, its profile and on Running, and is never updated through the Marketplace", async () => {
+  const history = createMemoryHistory({ initialEntries: ["/spade/fares?profile=details"] });
+  await spadeApp(
+    "/spade/fares?profile=details",
+    (spade) => {
+      withEndpoint(spade);
+      spade.addAgent({
+        id: "fares",
+        name: "Flight watcher",
+        package: {
+          source: "local",
+          name: "local/flight-watcher",
+          version: "local",
+          previous: { version: "local" },
+          hash: "h",
+          effects: [],
+        },
+      });
+      spade.addAgent({
+        id: "inbox",
+        name: "Inbox",
+        package: { source: "market", name: "inbox", version: "1.0.0", hash: "i", effects: [] },
+      });
+    },
+    { history },
+  );
+  const row = within(await botRow("Flight watcher"));
+  expect(row.getByText("Development")).toBeTruthy();
+  expect(within(await botRow("Inbox")).queryByText("Development")).toBeNull();
+
+  const head = (await screen.findByRole("button", { name: "Rename Flight watcher" })).parentElement;
+  expect(within(head ?? document.body).getByText("Development")).toBeTruthy();
+  expect(
+    await screen.findByText("Updated from its package folder on this machine with ace bot dev."),
+  ).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Roll back/ })).toBeNull();
+
+  history.push("/spade/running");
+  const running = await screen.findByRole("list", { name: "Running" });
+  const item = async (name: string) =>
+    within(
+      (await within(running).findByRole("link", { name: `Open ${name}` })).closest("li") ??
+        document.body,
+    );
+  expect((await item("Flight watcher")).getByText("Development")).toBeTruthy();
+  expect((await item("Inbox")).queryByText("Development")).toBeNull();
 });

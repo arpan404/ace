@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 /*
  * What `ace bot dev` asks Spade for (ADR 0200 §9), decided without I/O: which bot is the
  * development bot, the install body, and whether a save asks the person again. Pure.
@@ -6,19 +8,25 @@
 /** Where a development bot's link says it comes from: this machine, never listed. */
 export const devSource = "local";
 
+/** What a development bot's `from_recipe.version` says: made by `ace bot dev`. */
+export const devVersion = "dev";
+
 /**
- * The package a development bot is linked to: Spade's local identity for a version 3 package
- * installed without the market's signature (`envelope::local`), `local/` and the manifest's name
- * in lowercase ASCII letters and digits joined by hyphens.
+ * The folder a development bot belongs to, as its `from_recipe.name` keeps it: the folder's
+ * name and a digest of its full path. The bot is found by this, never by the manifest's name, so
+ * renaming the bot in `bot.json` updates the same bot; another folder is another bot.
  */
-export function localPackageName(name: string): string {
-  const slug = name
+export function devFolderKey(path: string): string {
+  const base = path.split(/[\\/]/).findLast(Boolean) ?? "";
+  const slug = base
     .replace(/[^A-Za-z0-9]/g, "-")
     .toLowerCase()
     .split("-")
     .filter(Boolean)
-    .join("-");
-  return `local/${slug || "bot"}`;
+    .join("-")
+    .slice(0, 60);
+  const digest = createHash("sha256").update(path).digest("hex").slice(0, 16);
+  return `${slug || "bot"}@${digest}`;
 }
 
 interface Linked {
@@ -26,17 +34,18 @@ interface Linked {
   readonly name: string;
 }
 
-/** The development bot already linked to package `name`, from `GET /v1/agents`. */
-export function devBotOf(agents: unknown, name: string): Linked | undefined {
+/** The development bot of the folder `key` ({@link devFolderKey}), from `GET /v1/agents`. */
+export function devBotOf(agents: unknown, key: string): Linked | undefined {
   if (typeof agents !== "object" || agents === null) return undefined;
   const list = (agents as { agents?: unknown }).agents;
   if (!Array.isArray(list)) return undefined;
   for (const agent of list) {
-    const link = (agent as { package?: Record<string, unknown> } | null)?.package;
-    if (link?.["source"] !== devSource || link["name"] !== name) continue;
-    const { id, name: bot } = agent as { id?: unknown; name?: unknown };
+    const from = (agent as { from_recipe?: Record<string, unknown> } | null)?.from_recipe;
+    if (from?.["source"] !== devSource || from["version"] !== devVersion || from["name"] !== key)
+      continue;
+    const { id, name } = agent as { id?: unknown; name?: unknown };
     if (typeof id !== "string") continue;
-    return { id, name: typeof bot === "string" ? bot : name };
+    return { id, name: typeof name === "string" ? name : "" };
   }
   return undefined;
 }
@@ -65,7 +74,7 @@ export function allOn(keys: readonly string[]): Record<string, boolean> {
  */
 export function installBody(input: {
   readonly recipe: Recipe;
-  /** The folder's name, as the bot records where it came from. */
+  /** The folder it belongs to ({@link devFolderKey}), kept with the bot as where it came from. */
   readonly folder: string;
   readonly switches: Readonly<Record<string, boolean>>;
   readonly transaction: string;
@@ -75,7 +84,7 @@ export function installBody(input: {
     from_recipe: {
       source: devSource,
       name: input.folder,
-      version: "dev",
+      version: devVersion,
       transaction: input.transaction,
     },
     grants: { connectors: [], plugins: [], skills: [] },

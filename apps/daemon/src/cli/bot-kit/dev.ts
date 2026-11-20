@@ -1,24 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { watch } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { CliBotDev } from "@ace/protocol/cli-outputs";
 import { CliFailure } from "../output.ts";
 import type { SpadeAnswer, SpadeExchange } from "../spade-call.ts";
 import { checkPackage } from "./check.ts";
-import {
-  allOn,
-  asksMore,
-  devBotOf,
-  effectLines,
-  installBody,
-  localPackageName,
-} from "./dev-plan.ts";
+import { allOn, asksMore, devBotOf, devFolderKey, effectLines, installBody } from "./dev-plan.ts";
 
 /*
  * `ace bot dev [PATH]` (ADR 0200 §9): the package installed on a Spade as a development bot,
  * linked to the local package of its name (`local/<name>`), through the same install path as the
- * market's, then updated on each save.
+ * market's, then updated on each save. The bot is the folder's: it is found again by the folder's
+ * key kept with it, so renaming it in `bot.json` updates the same bot.
  * Every save is checked first; one that asks for more asks the person again; one that comes
  * while the bot works waits for its next quiet moment. Nothing here decides: `dev-plan.ts` does.
  */
@@ -102,12 +96,13 @@ interface State {
 
 /** One pass: install the bot, or update it to the folder as it is now. */
 export async function devStep(root: string, io: DevIo, state: State): Promise<CliBotDev> {
-  const folder = resolve(root);
+  const folder = await realpath(resolve(root));
   const now = await current(folder);
   const listed = await io.exchange("GET", "/v1/agents");
   if (listed.status !== 200) throw new CliFailure("failed", said(listed));
   const name = String(now.recipe["name"]);
-  state.bot ??= devBotOf(json(listed), localPackageName(name));
+  const folderKey = devFolderKey(folder);
+  state.bot ??= devBotOf(json(listed), folderKey);
   const hash = now.checked.hash;
   if (!state.bot) {
     const ok = await io.confirm(
@@ -124,7 +119,7 @@ export async function devStep(root: string, io: DevIo, state: State): Promise<Cl
       "/v1/agents",
       installBody({
         recipe: now.recipe,
-        folder: now.checked.name,
+        folder: folderKey,
         switches: allOn(now.keys),
         transaction: `dev-${randomUUID()}`,
       }),
@@ -182,7 +177,9 @@ export async function devStep(root: string, io: DevIo, state: State): Promise<Cl
   }
   state.hash = hash;
   state.applied = now.recipe;
-  return { step: "updated", bot: bot.id, name: bot.name, hash };
+  // A rename in bot.json renamed the same bot.
+  state.bot = { id: bot.id, name };
+  return { step: "updated", bot: bot.id, name, hash };
 }
 
 /** A save's problems as a step, so watching carries on. */

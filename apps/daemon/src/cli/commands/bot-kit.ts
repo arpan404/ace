@@ -17,17 +17,30 @@ export const botKitCommands: readonly CommandSpec[] = [
     words: ["bot", "init"],
     summary: "Make a package folder: bot.json, a skill, a card, a scenario test and a README",
     description:
-      "Every file is valid as written: the folder passes ace bot check and ace bot test before you change a word. Templates: blank (it answers when you write to it), watcher (a schedule, a network effect and a card), club-member (answers when mentioned in a thread or club).",
+      "Every file is valid as written: the folder passes ace bot check and ace bot test before you change a word. Templates: blank (it answers when you write to it), watcher (a schedule, a network effect and a card), club-member (answers when mentioned in a thread or club). With --from, one of your own bots becomes the package: its task, face, personality, routines as triggers, the skills and apps it uses, and each effect its calls had, declared with a TODO where you say why. Its conversation, notes, knowledge, workspace files, keys and grants stay with the bot.",
     group: "spade-market",
     offline: true,
     mutates: true,
-    args: [{ name: "NAME", summary: 'The bot\'s name, like "Fare watcher"', required: true }],
+    args: [
+      {
+        name: "NAME",
+        summary:
+          "The bot's name, like \"Fare watcher\"; with --from, the bot's own name when omitted",
+      },
+    ],
     flags: [
       {
         name: "template",
         value: "T",
         summary: "What it starts as: blank, watcher or club-member",
         choices: ["blank", "watcher", "club-member"],
+      },
+      { name: "from", value: "BOT", summary: "One of your bots, by name or id, to start from" },
+      {
+        name: "spade",
+        value: "DIR",
+        summary:
+          "With --from: a development Spade's data folder, reached directly instead of through ace",
       },
       { name: "path", value: "PATH", summary: "Where to make it; ./<name> otherwise" },
     ],
@@ -37,16 +50,20 @@ export const botKitCommands: readonly CommandSpec[] = [
         command: 'ace bot init "Fare watcher" --template watcher',
         summary: "A bot that checks on a schedule and shows a card",
       },
+      {
+        command: 'ace bot init --from "Release notes"',
+        summary: "Your bot Release notes as a package folder to finish and publish",
+      },
     ],
     exits: [{ code: 4, when: "the folder already holds files" }],
-    seeAlso: ["bot check", "bot test"],
+    seeAlso: ["bot check", "bot test", "bot dev"],
   },
   {
     id: "bot.check",
     words: ["bot", "check"],
     summary: "The market's checks on a package, with every problem at its place; no account",
     description:
-      "The same reader Spade and the market use. Problems print as path: sentence and exit 1. Warnings (a thin why on an effect, no scenario tests) don't fail the check.",
+      "The same reader Spade and the market use. Problems print as path: sentence and exit 1. Warnings (a thin why on an effect, a TODO left to write, no scenario tests) don't fail the check.",
     group: "spade-market",
     offline: true,
     args: [pathArg],
@@ -73,7 +90,7 @@ export const botKitCommands: readonly CommandSpec[] = [
     words: ["bot", "dev"],
     summary: "Install the package here as a development bot, and update it on every save",
     description:
-      "It installs once, linked to the local package of its name (local/<name>), its routines paused. Each save is checked and applied as an update at the bot's next quiet moment. A save that asks for more (an effect, a trigger kind, an app) asks you again. Ctrl-C to stop watching; the bot stays.",
+      "It installs once, linked to the local package of its name (local/<name>), its routines paused, and shows Development in your list. Each save is checked and applied as an update at the bot's next quiet moment. A save that asks for more (an effect, a trigger kind, an app) asks you again. The bot belongs to the folder: renaming it in bot.json renames the same bot, and another folder makes another bot. Ctrl-C to stop watching; the bot stays.",
     group: "spade-market",
     mutates: true,
     args: [pathArg],

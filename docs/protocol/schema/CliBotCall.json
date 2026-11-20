@@ -1,0 +1,50 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliBotCall.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "effect": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "const": "ran",
+          "type": "string"
+        },
+        {
+          "properties": {
+            "refused": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "refused"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "failed": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "failed"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "tool": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "tool",
+    "outcome"
+  ],
+  "type": "object"
+}
