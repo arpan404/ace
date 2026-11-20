@@ -5,6 +5,8 @@ import {
   parseSpadeConnectors,
   spadeCloudLine,
   spadeConnectorLine,
+  spadeLastUsedWords,
+  spadeSignInFailureWords,
 } from "./connectors.ts";
 
 test("connectors read leniently: unknown sign-ins drop, an unknown state never reads as connected", () => {
@@ -180,5 +182,41 @@ test("a catalogue app says whether it can connect now, and an unknown answer nev
     ["odd", "work", "later", undefined],
     ["linear", "work", "sign_in", undefined],
     ["hf", "work", "key", undefined],
+  ]);
+});
+
+test("a failed sign-in says what fixes it, and a reason this client doesn't know reads as the general one", () => {
+  const read = parseSpadeConnectors(
+    JSON.stringify({
+      catalogue: [],
+      connectors: [
+        { id: "linear", name: "Linear", state: "needs_reconnect", failed: "needs_admin" },
+        { id: "notion", name: "Notion", state: "needs_reconnect", failed: "solar_flare" },
+        { id: "sentry", name: "Sentry", state: "connected", last_used_ms: 5 },
+      ],
+    }),
+  );
+  expect(read?.connectors.map((each) => each.failed)).toEqual(["needs_admin", "failed", undefined]);
+  expect(read?.connectors[2]?.lastUsedMs).toBe(5);
+  expect(spadeSignInFailureWords("Linear", "needs_admin")).toBe(
+    "Linear says your account needs admin approval. Ask your admin to allow Spade, then connect again.",
+  );
+  expect(spadeSignInFailureWords("Linear", "declined")).toBe(
+    "The sign-in to Linear was cancelled. Connect again when you're ready.",
+  );
+});
+
+test("when an app was last used reads in words", () => {
+  const now = 10 * 86_400_000;
+  expect(
+    [undefined, now - 30_000, now - 5 * 60_000, now - 3 * 3_600_000, now - 86_400_000].map((at) =>
+      spadeLastUsedWords(at, now),
+    ),
+  ).toEqual([
+    "Not used yet",
+    "Used just now",
+    "Used 5 minutes ago",
+    "Used 3 hours ago",
+    "Used 1 day ago",
   ]);
 });

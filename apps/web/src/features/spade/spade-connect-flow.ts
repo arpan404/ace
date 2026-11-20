@@ -41,6 +41,33 @@ export async function connectInBrowser(
   }
 }
 
+/**
+ * Starts a connection and says what started: connected at once, a sign-in now open in the
+ * person's browser, or a device code to show. Its row or card then follows the sign-in.
+ */
+export async function beginConnect(
+  start: () => Promise<SpadeConnectStart>,
+  browser: boolean,
+): Promise<
+  { kind: "started"; started: SpadeConnectStart } | Exclude<ConnectOutcome, { kind: "done" }>
+> {
+  const begun = start();
+  try {
+    if (browser)
+      await openExternalWhenReady(
+        begun.then((started) => {
+          if (started.kind !== "sign_in") throw new NothingToOpen();
+          return started.url;
+        }),
+      );
+    return { kind: "started", started: await begun };
+  } catch (error) {
+    if (error instanceof NothingToOpen) return { kind: "started", started: await begun };
+    const failed = outcome(error);
+    return failed.kind === "done" ? { kind: "failed", message: "Try again." } : failed;
+  }
+}
+
 /** A connection made in one request (a token): nothing opens. */
 export async function connectHere(
   start: () => Promise<SpadeConnectStart>,

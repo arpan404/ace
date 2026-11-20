@@ -81,7 +81,17 @@ export interface SpadeConnector {
   notice: SpadeCloudNotice | undefined;
   /** The bots allowed to use it, by id, in roster order (Spade's while it is on). */
   bots: string[];
+  /** When a bot last ran one of its tools, ms since the epoch (to the minute). */
+  lastUsedMs: number | undefined;
+  /** Why its last sign-in in the browser failed, lately. */
+  failed: SpadeSignInFailure | undefined;
 }
+
+/**
+ * Why a sign-in in the browser failed: the person declined or closed it, the account needs an
+ * admin's approval, it took too long, it came back from the wrong server, or something else.
+ */
+export type SpadeSignInFailure = "declined" | "needs_admin" | "expired" | "wrong_server" | "failed";
 
 /**
  * A device sign-in (RFC 8628, ADR 0137): the person types `code` on the app's page at `url`
@@ -181,6 +191,12 @@ const connectorShape = z.object({
   // A notice this client doesn't know is left out: the row then reads as it would without one.
   notice: z.enum(notices).nullish().catch(undefined),
   bots: z.array(z.unknown()).catch([]).default([]),
+  last_used_ms: z.number().int().nonnegative().nullish().catch(undefined),
+  // A reason this client doesn't know reads as the general one.
+  failed: z
+    .enum(["declined", "needs_admin", "expired", "wrong_server", "failed"])
+    .nullish()
+    .catch("failed"),
 });
 
 /** Only https: the page goes straight to the person's browser. */
@@ -218,6 +234,8 @@ export function parseSpadeConnectorValue(raw: unknown): SpadeConnector | undefin
     via: connector.via ?? undefined,
     notice: connector.notice ?? undefined,
     bots: connector.bots.filter((each): each is string => typeof each === "string"),
+    lastUsedMs: connector.last_used_ms ?? undefined,
+    failed: connector.failed ?? undefined,
   };
 }
 
@@ -317,4 +335,56 @@ export function spadeDeviceLine(app: string, device: SpadeDeviceSignIn): string 
     case "failed":
       return `${app} didn't finish the sign-in.`;
   }
+}
+
+/** What a failed sign-in to `app` means, with what fixes it, in one sentence. */
+export function spadeSignInFailureWords(app: string, failure: SpadeSignInFailure): string {
+  switch (failure) {
+    case "declined":
+      return `The sign-in to ${app} was cancelled. Connect again when you're ready.`;
+    case "needs_admin":
+      return `${app} says your account needs admin approval. Ask your admin to allow Spade, then connect again.`;
+    case "expired":
+      return "The sign-in took too long. Connect again.";
+    case "wrong_server":
+      return `That sign-in didn't come back from ${app}, so Spade ignored it. Connect again.`;
+    case "failed":
+      return `${app} didn't finish the sign-in. Try again in a minute.`;
+  }
+}
+
+/** Whether a connected app works, in a word for Settings › Apps: Working or Needs reconnect. */
+export function spadeConnectorHealth(connector: SpadeConnector): string {
+  switch (connector.state) {
+    case "connected":
+      return "Working";
+    case "needs_reconnect":
+      return "Needs reconnect";
+    case "signing_in":
+      return "Waiting for you to finish signing in";
+    case "connecting":
+      return "Connecting";
+    case "unreachable":
+      return connector.problem ? `Can't reach it: ${connector.problem}` : "Can't reach it";
+  }
+}
+
+/** When a bot last used an app, in words: "Used just now", "Used 3 hours ago", "Not used yet". */
+export function spadeLastUsedWords(lastUsedMs: number | undefined, nowMs: number): string {
+  if (lastUsedMs === undefined) return "Not used yet";
+  const minutes = Math.max(0, Math.floor((nowMs - lastUsedMs) / 60_000));
+  if (minutes < 2) return "Used just now";
+  if (minutes < 60) return `Used ${minutes} minutes ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Used ${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.floor(hours / 24);
+  return `Used ${days} ${days === 1 ? "day" : "days"} ago`;
+}
+
+/** `GET /v1/connectors/fit`: the catalogue apps that fit a need, best first, by id. */
+export function parseSpadeAppsFit(body: string): string[] | undefined {
+  const apps = spadeRecord(spadeJson(body))?.apps;
+  return Array.isArray(apps)
+    ? apps.filter((each): each is string => typeof each === "string")
+    : undefined;
 }

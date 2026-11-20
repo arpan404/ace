@@ -669,7 +669,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return { status: 204 };
     }
     if (root === "conversations" && id)
-      return this.conversationRoute(request, id, sub, subId, query);
+      return this.conversationRoute(request, id, sub, subId, query, parts[4]);
     if (root === "images") {
       const type = id ? this.images.get(id) : undefined;
       return type
@@ -966,6 +966,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     sub: string | undefined,
     subId: string | undefined,
     query: string,
+    tail?: string,
   ): FakeSpadeAnswer {
     const list = this.events.get(id);
     if (!list) return problem(404, "No such conversation.");
@@ -979,6 +980,33 @@ export class FakeSpadeApi implements FakeSpadeServer {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
       this.takeMessage(id, agent, body);
       return reply({ seq: list.length }, 202);
+    }
+    // The person connected the app a connect card asks for (ADR 0131, amendment 1): the bot that
+    // asked may use it now, and the card is answered.
+    if (sub === "questions" && subId && tail === "connected" && request.method === "POST") {
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const connector = this.connectors.connectors.find((each) => each.id === body.connector);
+      if (!connector || connector.state !== "connected")
+        return problem(400, "That app isn't connected.");
+      const bots = body.everyone === true ? this.agents : agent ? [agent] : [];
+      for (const bot of bots) {
+        const allowed = this.connectors.access.get(bot.id) ?? {
+          all: bot.kind === "main",
+          connectors: [],
+        };
+        if (!allowed.all && !allowed.connectors.includes(String(connector.id)))
+          this.connectors.access.set(bot.id, {
+            all: false,
+            connectors: [...allowed.connectors, String(connector.id)],
+          });
+      }
+      this.store(id, {
+        type: "question_answered",
+        call_id: subId,
+        answers: [{ connector: connector.id, account: connector.account ?? undefined }],
+      });
+      if (agent?.waiting_for === "question") this.status(agent, "idle", null);
+      return reply({}, 202);
     }
     if (sub === "questions" && subId && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
