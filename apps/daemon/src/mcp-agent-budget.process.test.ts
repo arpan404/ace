@@ -210,11 +210,12 @@ it("only the entry points and tools_find load upfront, whatever the client", asy
   // Raised for transfer (ADR 0101), moving work to another machine, which no delegate or thread tool
   // can do; the base it landed on already listed 32. Raised from 33 to 35 for market_read and
   // market_publish (ADR 0178 §12.5): nothing else reaches the market, and they load upfront
-  // nowhere.
+  // nowhere. Raised from 35 to 37 for data_send and data_receive (ADR 0182): nothing else carries
+  // a file or text between agents, and sending (open-world) and saving (a write here) stay apart.
   const own = full.tools.filter(
     (tool) => !/^(?:browser|screen|sim)_/.test(bareToolName(tool.name)),
   );
-  expect(own.length).toBeLessThanOrEqual(35);
+  expect(own.length).toBeLessThanOrEqual(37);
 });
 
 it("a core-mode session gains a family's tools by reading its guide or using its entry point", async () => {
