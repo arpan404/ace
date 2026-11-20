@@ -1,4 +1,4 @@
-import type { SpadeAppReady, SpadeCatalogueEntry } from "@ace/ui-core/spade-chat";
+import type { SpadeAppReady, SpadeAppSetup, SpadeCatalogueEntry } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
@@ -6,6 +6,7 @@ import { openExternal } from "@/boot/open-external.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 import { connectHere, connectInBrowser, type ConnectOutcome } from "./spade-connect-flow.ts";
 import { connect, connectorsKey, type SpadeConnectDraft } from "./spade-connector-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -45,6 +46,8 @@ export function ServerChoice(props: {
   catalogue?: string | undefined;
   notes?: string | undefined;
   keyUrl?: string | undefined;
+  /** Setup steps for the person's own client ID (ADR 0197). */
+  setup?: SpadeAppSetup | undefined;
   ready: SpadeAppReady;
   ways: Way[];
   /** Already added: its state in words, which the row says instead of offering a way in. */
@@ -95,8 +98,9 @@ export function ServerChoice(props: {
     await finish(await connectHere(() => connect(client, { ...props.draft, token: typed })));
   };
   const line = props.added ?? readyLine(props.name, props.ready) ?? props.notes;
-  // The app's own words come with the fields they explain.
-  const steps = open && props.notes && props.notes !== line ? props.notes : undefined;
+  const hasSetup = open === "client" && props.setup !== undefined;
+  // The app's own words come with the fields they explain, unless structured setup steps take their place.
+  const steps = open && !hasSetup && props.notes && props.notes !== line ? props.notes : undefined;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
@@ -172,50 +176,58 @@ export function ServerChoice(props: {
         </form>
       )}
       {open === "client" && (
-        <form
-          className="flex flex-wrap items-center gap-1.5 pl-10"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!clientId.trim()) return;
-            const extra = {
-              client_id: clientId.trim(),
-              ...(secret.trim() ? { client_secret: secret.trim() } : {}),
-            };
-            setSecret("");
-            void signIn(extra);
-          }}
-        >
-          <label htmlFor={ids.clientId} className="sr-only">{`Client ID for ${props.name}`}</label>
-          <Input
-            id={ids.clientId}
-            autoFocus
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Client ID"
-            value={clientId}
-            onChange={(event) => setClientId(event.target.value)}
-            disabled={busy}
-            className="w-48"
-          />
-          <label
-            htmlFor={ids.secret}
-            className="sr-only"
-          >{`Client secret for ${props.name}`}</label>
-          <Input
-            id={ids.secret}
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Client secret, if any"
-            value={secret}
-            onChange={(event) => setSecret(event.target.value)}
-            disabled={busy}
-            className="w-48"
-          />
-          <Button size="sm" type="submit" disabled={busy || !clientId.trim()}>
-            Sign in
-          </Button>
-        </form>
+        <>
+          {props.setup && (
+            <ClientSetup name={props.name} setup={props.setup} onProblem={setProblem} />
+          )}
+          <form
+            className="flex flex-wrap items-center gap-1.5 pl-10"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!clientId.trim()) return;
+              const extra = {
+                client_id: clientId.trim(),
+                ...(secret.trim() ? { client_secret: secret.trim() } : {}),
+              };
+              setSecret("");
+              void signIn(extra);
+            }}
+          >
+            <label
+              htmlFor={ids.clientId}
+              className="sr-only"
+            >{`Client ID for ${props.name}`}</label>
+            <Input
+              id={ids.clientId}
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Client ID"
+              value={clientId}
+              onChange={(event) => setClientId(event.target.value)}
+              disabled={busy}
+              className="w-48"
+            />
+            <label
+              htmlFor={ids.secret}
+              className="sr-only"
+            >{`Client secret for ${props.name}`}</label>
+            <Input
+              id={ids.secret}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Client secret, if any"
+              value={secret}
+              onChange={(event) => setSecret(event.target.value)}
+              disabled={busy}
+              className="w-48"
+            />
+            <Button size="sm" type="submit" disabled={busy || !clientId.trim()}>
+              Sign in
+            </Button>
+          </form>
+        </>
       )}
       {needsAce && (
         <div role="alert" className="flex items-center justify-between gap-3 pl-10">
@@ -239,6 +251,81 @@ export function ServerChoice(props: {
           {problem}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * The setup steps shown above the client ID and secret fields when an app ships them (ADR 0197):
+ * the maker's console link, the steps in order with the loopback callback and its copy button,
+ * and any scopes to tick as a copyable line.
+ */
+function ClientSetup(props: {
+  name: string;
+  setup: SpadeAppSetup;
+  onProblem(message: string): void;
+}) {
+  const { setup } = props;
+  const redirectCopy = useCopy(() => props.onProblem("Couldn't copy the redirect."));
+  const scopesCopy = useCopy(() => props.onProblem("Couldn't copy the scopes."));
+  const scopeText = setup.scopes.join(" ");
+  return (
+    <div className="flex flex-col gap-1.5 pl-10 text-xs text-muted-foreground">
+      <a
+        href={setup.where}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(event) => {
+          event.preventDefault();
+          void openExternal(setup.where).catch((error: unknown) =>
+            props.onProblem(error instanceof Error ? error.message : "Couldn't open it."),
+          );
+        }}
+        className="w-fit rounded-xs font-medium text-link hover:underline focus-ring"
+      >
+        {setup.whereLabel}
+      </a>
+      <ol className="flex list-decimal flex-col gap-1 pl-4">
+        {setup.steps.map((step) => (
+          <li key={step.text} className="leading-relaxed">
+            <span>{step.text}</span>
+            {step.redirect && (
+              <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                <code className="rounded-xs bg-code px-1.5 py-0.5 font-mono text-xs text-foreground select-all break-all">
+                  {setup.redirect}
+                </code>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  type="button"
+                  aria-label={`Copy redirect for ${props.name}`}
+                  onClick={() => redirectCopy.copy(setup.redirect)}
+                >
+                  {redirectCopy.copied ? "Copied" : "Copy"}
+                </Button>
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+      {scopeText && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span>Scopes:</span>
+          <code className="rounded-xs bg-code px-1.5 py-0.5 font-mono text-xs text-foreground select-all break-all">
+            {scopeText}
+          </code>
+          <Button
+            size="sm"
+            variant="ghost"
+            type="button"
+            aria-label={`Copy scopes for ${props.name}`}
+            onClick={() => scopesCopy.copy(scopeText)}
+          >
+            {scopesCopy.copied ? "Copied" : "Copy"}
+          </Button>
+        </div>
+      )}
+      {setup.notes && <p className="text-subtle-foreground">{setup.notes}</p>}
     </div>
   );
 }

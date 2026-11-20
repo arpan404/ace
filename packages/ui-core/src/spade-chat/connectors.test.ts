@@ -232,3 +232,55 @@ test("a sign-in opens only over https, or over http on this machine for a server
   expect(startKind("http://127.0.0.1.evil.example/authorize")).toBeUndefined();
   expect(startKind("javascript:alert(1)")).toBeUndefined();
 });
+
+test("a catalogue app reads its client-ID setup steps when valid, and drops a bad setup without dropping the app", () => {
+  const read = parseSpadeConnectors(
+    JSON.stringify({
+      catalogue: [
+        {
+          id: "asana",
+          url: "https://mcp.asana.com/v2/mcp",
+          sign_in: ["oauth_client"],
+          setup: {
+            where: "https://app.asana.com/0/my-apps",
+            where_label: "Asana developer console",
+            steps: [{ text: "Make an app." }, { text: "Add this redirect:", redirect: true }],
+            values: ["client_id", "client_secret"],
+            scopes: ["default"],
+            source: "https://developers.asana.com/docs/integrating-with-asanas-mcp-server",
+            notes: "Matches the redirect exactly.",
+            redirect: "http://127.0.0.1:4555/v1/connectors/callback/asana",
+          },
+        },
+        {
+          id: "bad",
+          url: "https://mcp.bad.example/mcp",
+          sign_in: ["oauth_client"],
+          setup: {
+            where: "javascript:alert(1)",
+            where_label: "Bad",
+            steps: [{ text: "Step" }],
+            source: "https://bad.example/docs",
+            redirect: "http://127.0.0.1:4555/v1/connectors/callback/bad",
+          },
+        },
+      ],
+      connectors: [],
+    }),
+  );
+  expect(read?.catalogue[0]?.setup).toEqual({
+    where: "https://app.asana.com/0/my-apps",
+    whereLabel: "Asana developer console",
+    steps: [
+      { text: "Make an app.", redirect: false },
+      { text: "Add this redirect:", redirect: true },
+    ],
+    values: ["client_id", "client_secret"],
+    scopes: ["default"],
+    source: "https://developers.asana.com/docs/integrating-with-asanas-mcp-server",
+    notes: "Matches the redirect exactly.",
+    redirect: "http://127.0.0.1:4555/v1/connectors/callback/asana",
+  });
+  expect(read?.catalogue[1]?.id).toBe("bad");
+  expect(read?.catalogue[1]?.setup).toBeUndefined();
+});

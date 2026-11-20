@@ -455,6 +455,92 @@ test("an app that can't connect on this build says Coming soon and offers no Sig
   expect(figmaRow.queryAllByRole("button")).toEqual([]);
 });
 
+const canvaWithSetup = {
+  id: "canva",
+  name: "Canva",
+  url: "https://api.canva.com/connect/v1/mcp",
+  sign_in: ["oauth_client"],
+  via: "cloud",
+  category: "design",
+  ready: "later",
+  notes: "Signs in through Spade Cloud with your ace account.",
+  setup: {
+    where: "https://www.canva.com/developers/apps",
+    where_label: "Canva Developer Portal",
+    steps: [
+      { text: "Create an app, then open Outside Canva and click Start integrating." },
+      { text: "Under Redirect URLs, add this one:", redirect: true },
+      { text: "Under Credentials, copy the client ID, then Generate secret and copy it." },
+    ],
+    values: ["client_id", "client_secret"],
+    scopes: ["profile:read", "design:meta:read"],
+    source: "https://www.canva.dev/docs/apps/mcp/access/",
+    notes: "Canva shows the secret once.",
+    redirect: "http://127.0.0.1:4555/v1/connectors/callback/canva",
+  },
+};
+
+test("choosing the client-ID path shows the setup steps, console link, redirect and scopes when an app has them, and neither when it does not", async () => {
+  const { spade } = await spadeApp("/settings/spade/apps", (api) => {
+    withMore(api);
+    api.connectors.catalogue.push(canvaWithSetup);
+  });
+  browserTab();
+  const dialog = await openCatalogue();
+
+  const canvaRow = rowOf(dialog, "Canva");
+  await userEvent.click(canvaRow.getByRole("button", { name: "Use your own app for Canva" }));
+
+  const consoleLink = canvaRow.getByRole("link", { name: "Canva Developer Portal" });
+  expect(consoleLink.getAttribute("href")).toBe("https://www.canva.com/developers/apps");
+  expect(
+    within(canvaRow.getByRole("list"))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual([
+    "Create an app, then open Outside Canva and click Start integrating.",
+    expect.stringContaining("http://127.0.0.1:4555/v1/connectors/callback/canva"),
+    "Under Credentials, copy the client ID, then Generate secret and copy it.",
+  ]);
+  expect(canvaRow.getByText("profile:read design:meta:read")).toBeTruthy();
+  expect(canvaRow.getByText("Canva shows the secret once.")).toBeTruthy();
+
+  // Typing, opening the console and copying the redirect or scopes leaves the typed fields intact.
+  const idInput = canvaRow.getByLabelText("Client ID for Canva") as HTMLInputElement;
+  await userEvent.type(idInput, "canva-client-1");
+  const opened = vi.spyOn(window, "open").mockReturnValue(null);
+  await userEvent.click(consoleLink);
+  expect(opened).toHaveBeenCalledWith(
+    "https://www.canva.com/developers/apps",
+    "_blank",
+    "noopener,noreferrer",
+  );
+  await userEvent.click(canvaRow.getByRole("button", { name: "Copy redirect for Canva" }));
+  expect(await navigator.clipboard.readText()).toBe(
+    "http://127.0.0.1:4555/v1/connectors/callback/canva",
+  );
+  await userEvent.click(canvaRow.getByRole("button", { name: "Copy scopes for Canva" }));
+  expect(await navigator.clipboard.readText()).toBe("profile:read design:meta:read");
+  expect(idInput.value).toBe("canva-client-1");
+
+  // An entry without setup steps shows only its two fields, no console link and no steps list.
+  const slackRow = rowOf(dialog, "Slack");
+  await userEvent.click(slackRow.getByRole("button", { name: "Use your own app for Slack" }));
+  expect(slackRow.getByLabelText("Client ID for Slack")).toBeTruthy();
+  expect(slackRow.getByLabelText("Client secret for Slack")).toBeTruthy();
+  expect(slackRow.queryByRole("link")).toBeNull();
+  expect(slackRow.queryByRole("list")).toBeNull();
+  expect(slackRow.queryByRole("button", { name: /Copy redirect/ })).toBeNull();
+
+  await userEvent.type(canvaRow.getByLabelText("Client secret for Canva"), "canva-secret-1");
+  await userEvent.click(canvaRow.getByRole("button", { name: "Sign in" }));
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/connectors")).toEqual([
+      { catalogue: "canva", client_id: "canva-client-1", client_secret: "canva-secret-1" },
+    ]),
+  );
+});
+
 test("an app that takes only a key says so, shows its steps and opens the page that makes one", async () => {
   const { spade } = await spadeApp("/settings/spade/apps", withMore);
   const dialog = await openCatalogue();

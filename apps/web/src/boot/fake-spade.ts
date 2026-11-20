@@ -664,6 +664,23 @@ function seedConnectors(spade: FakeSpadeApi) {
       sign_in: ["oauth_client"],
       notes:
         "Asana does not register clients by itself: create an MCP app in Asana and enter its client ID and secret.",
+      setup: {
+        where: "https://app.asana.com/0/my-apps",
+        where_label: "Asana developer console",
+        steps: [
+          { text: "Click Create new app, name it, choose MCP app, then Create app." },
+          { text: "Under OAuth, add this redirect URL exactly:", redirect: true },
+          {
+            text: "Under Manage distribution, choose Any workspace or pick yours, then Save changes.",
+          },
+          { text: "Copy the client ID and the client secret." },
+        ],
+        values: ["client_id", "client_secret"],
+        scopes: ["default"],
+        source: "https://developers.asana.com/docs/integrating-with-asanas-mcp-server",
+        notes: "Asana matches the redirect exactly, so add it again if Spade's port changes.",
+        redirect: "http://127.0.0.1:4555/v1/connectors/callback/asana",
+      },
     },
     {
       id: "github",
