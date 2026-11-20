@@ -83,6 +83,13 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       quit: () => call("app.quit"),
       reload: () => call("app.reload"),
     },
+    /** The menu-bar popover's own requests; refused from any other page. */
+    tray: {
+      open: (link: RequestOf<"tray.open">) => call("tray.open", link),
+      fit: (height: number) => call("tray.fit", height),
+      hide: () => call("tray.hide"),
+      quit: (completely: boolean) => call("tray.quit", { completely }),
+    },
     daemon: {
       connection: () => call("daemon.connection"),
       /** The connection this page will most likely get, without waiting for the daemon. */

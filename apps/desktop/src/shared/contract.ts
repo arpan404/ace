@@ -220,6 +220,8 @@ export const DeepLink = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("settings"), page: z.string().optional() }),
   z.object({ kind: z.literal("new-thread") }),
+  /** The Usage page (the menu-bar popover's "Open Usage"). */
+  z.object({ kind: z.literal("usage") }),
   z.object({ kind: z.literal("open-folder"), path: AbsolutePath }),
   /** `ace://account/signed-in?status=`: the browser back from ace sign-in, with how it ended. */
   z.object({ kind: z.literal("signed-in"), status: AceSignInReturnStatus }),
@@ -235,6 +237,8 @@ export function deepLinkRoute(link: DeepLink): string {
       return `/settings/${link.page ?? "general"}`;
     case "new-thread":
       return "/new";
+    case "usage":
+      return "/usage";
     case "open-folder":
       return `/new?folder=${encodeURIComponent(link.path)}`;
     // Profile, where the sign-in started; the app's own claim delivers the session.
