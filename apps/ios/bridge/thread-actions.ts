@@ -42,6 +42,18 @@ export const ThreadAction = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("stop"), requestId }),
   z.object({
+    type: z.literal("approve"),
+    interactionId: z.string().min(1),
+    optionId: z.string().min(1),
+    requestId,
+  }),
+  /** Read a summarized interaction's full payload (`interaction.read`), or retry a failed read. */
+  z.object({
+    type: z.literal("request.read"),
+    interactionId: z.string().min(1),
+    retry: z.boolean().optional(),
+  }),
+  z.object({
     type: z.literal("answer"),
     interactionId: z.string().min(1),
     answers: z.record(z.string(), z.array(z.string().max(8192)).max(64)),

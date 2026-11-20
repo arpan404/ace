@@ -40,12 +40,14 @@ export const RequestAnswer = z.discriminatedUnion("kind", [
 ]);
 export type RequestAnswer = z.infer<typeof RequestAnswer>;
 
-function planRow(request: Extract<Request, { kind: "plan_review" }>) {
+function planRow(request: Extract<Request, { kind: "plan_review" }>, loadedWhole = false) {
+  const limit = loadedWhole ? 256 * 1024 : planLimit;
+  const summaryLimit = loadedWhole ? 64 * 1024 : 2048;
   return {
     title: preview(request.title ?? "Review the plan"),
-    summary: preview(request.summary ?? "", 2048),
-    markdown: preview(request.markdown, planLimit),
-    truncated: request.markdown.length > planLimit,
+    summary: preview(request.summary ?? "", summaryLimit),
+    markdown: preview(request.markdown, limit),
+    truncated: request.markdown.length > limit,
     todos: (request.todos ?? []).slice(0, todoLimit).map((todo) => ({
       text: preview(todo.content, 512),
       status: todo.status,
@@ -102,9 +104,9 @@ function formRow(request: Extract<Request, { kind: "elicitation" }>) {
 }
 
 /** The card fields a plan review, form or browser request adds to its interaction row. */
-export function requestRow(request: Request) {
+export function requestRow(request: Request, loadedWhole = false) {
   return {
-    plan: request.kind === "plan_review" ? planRow(request) : null,
+    plan: request.kind === "plan_review" ? planRow(request, loadedWhole) : null,
     form: request.kind === "elicitation" ? formRow(request) : null,
     help:
       request.kind === "browser_help"
@@ -120,14 +122,15 @@ export function requestRow(request: Request) {
  * The canonical resolution for a request card, or undefined when the choice doesn't fit the
  * request: plan feedback must say what should change; a form is accepted only with values that
  * pass its schema, and a consent page only when it has a safe address. A summarized request
- * (ADR 0157) takes only a decline.
+ * (ADR 0157) takes only a decline until read whole (`readWhole`).
  */
 export function requestResolution(
   interaction: Interaction | undefined,
   answer: RequestAnswer,
+  readWhole = false,
 ): Resolution | undefined {
   if (interaction?.state !== "pending") return undefined;
-  return phoneAnswer(interaction, resolutionFor(interaction, answer));
+  return phoneAnswer(interaction, resolutionFor(interaction, answer), readWhole);
 }
 
 function resolutionFor(interaction: Interaction, answer: RequestAnswer): Resolution | undefined {

@@ -199,7 +199,9 @@ export function open(
   quotes?: QuoteShelf,
 ): ThreadSession {
   lease = owner.thread(threadId);
-  stop = followThread(lease.store, threadId, 1, pump);
+  stop = followThread(lease.store, threadId, 1, pump, undefined, "thread:", (interaction) =>
+    session?.whole(interaction),
+  );
   session = new ThreadSession(
     owner,
     lease.store,

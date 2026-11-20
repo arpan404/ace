@@ -12,13 +12,16 @@ import {
   ThreadId,
   type CatalogEntry,
   type CommandPayload,
+  type Interaction,
 } from "@ace/protocol";
 import {
   composerReply,
   isBusy,
+  isStoreCurrent,
   messageHasContent,
   modelLabel,
   sendBusyReason,
+  wholeRequestNotRead,
   type QueueAction,
   type ModelChoice,
 } from "@ace/ui-core";
@@ -29,8 +32,15 @@ import { z } from "zod";
 import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
 import { goalCommand, joinContext, messageContent, type Reference } from "./composer-references.ts";
+import { interactionRow } from "./interaction-rows.ts";
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
+import {
+  approvalResolution,
+  phoneAnswer,
+  WholeRequests,
+  type WholeRequestState,
+} from "./summarized-requests.ts";
 import { questionDraft, ThreadAction, type QuestionReply } from "./thread-actions.ts";
 import {
   AttachmentTray,
@@ -98,6 +108,7 @@ export class ThreadSession {
   readonly annotations: ThreadAnnotations;
   /** The passages of the agent's messages the next message replies to. */
   readonly #quotes: ThreadQuotes;
+  readonly #whole: WholeRequests;
   #lane: { agentId: string; tap: ChangeTap; info: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
   /**
@@ -249,7 +260,11 @@ export class ThreadSession {
       () => host.uuid(),
       preview,
     );
+    this.#whole = new WholeRequests(client, store, this.#threadId, signal, (id) =>
+      this.#interaction(id),
+    );
     this.#stop = store.observe((keys) => {
+      this.#whole.changed(keys);
       this.#blocks.tap(keys);
       workLine(keys);
       this.#pill.tap(keys);
@@ -343,6 +358,7 @@ export class ThreadSession {
   dispose(): void {
     this.#releaseList();
     this.#readMark.dispose();
+    this.#whole.dispose();
     this.#abort.abort();
     this.#stop();
     this.#steps.dispose();
@@ -379,24 +395,30 @@ export class ThreadSession {
       case "stop":
         this.#dispatch(stopPayload(this.#store, this.#threadId), action.requestId);
         break;
-      case "answer": {
-        const resolution = answerResolution(
-          this.#store.interaction(action.interactionId),
-          action.answers,
-          action.dismissed,
-        );
+      case "request.read":
+        this.#whole.read(action.interactionId, action.retry ?? false);
+        break;
+      case "approve":
         this.#resolve(
           action.interactionId,
-          resolution,
+          (interaction, readWhole) => approvalResolution(interaction, action.optionId, readWhole),
+          action.requestId,
+          "That option is no longer available. Check the request.",
+        );
+        break;
+      case "answer":
+        this.#resolve(
+          action.interactionId,
+          (interaction, readWhole) =>
+            answerResolution(interaction, action.answers, action.dismissed, readWhole),
           action.requestId,
           "That answer doesn't fit the question. Check your choices.",
         );
         break;
-      }
       case "resolve":
         this.#resolve(
           action.interactionId,
-          requestResolution(this.#store.interaction(action.interactionId), action.answer),
+          (interaction, readWhole) => requestResolution(interaction, action.answer, readWhole),
           action.requestId,
           "That doesn't fit the request. Check what you entered.",
         );
@@ -577,6 +599,20 @@ export class ThreadSession {
       return patch && { ...patch, threadId: this.#threadId, epoch: this.#epoch };
     });
   }
+  /** What of `interaction` this session has read whole, for every row that shows it. */
+  whole(interaction: Interaction): WholeRequestState | undefined {
+    return this.#whole.state(interaction);
+  }
+  #interaction(id: string): void {
+    this.#put(`interaction:${id}`, () => {
+      const value = this.#store.interaction(id);
+      return {
+        type: "thread.interaction",
+        id,
+        row: value ? interactionRow(value, this.#store, "", this.#whole.state(value)) : null,
+      };
+    });
+  }
   #admission(id: string, ok: boolean, refused: string): void {
     const message = ok ? "" : refused;
     this.#pump.put(`admission:${id}`, () => ({ type: "admission", id, ok, message }));
@@ -591,19 +627,41 @@ export class ThreadSession {
   }
   #resolve(
     interactionId: string,
-    resolution: Extract<CommandPayload, { type: "interaction.resolve" }>["resolution"] | undefined,
+    build: (
+      interaction: Interaction,
+      readWhole: boolean,
+    ) => Extract<CommandPayload, { type: "interaction.resolve" }>["resolution"] | undefined,
     id: string,
     refused: string,
   ): void {
-    this.#dispatch(
-      resolution && {
-        type: "interaction.resolve",
-        interactionId: InteractionId.parse(interactionId),
-        resolution,
+    if (this.#store.unconfirmed || this.#store.syncing) {
+      this.#admission(id, false, "Wait for this thread to finish syncing, then answer.");
+      return;
+    }
+    const built = this.#whole.resolution(interactionId, build);
+    if (!built) {
+      this.#admission(id, false, refused);
+      return;
+    }
+    if (built.summarized && !isStoreCurrent(this.#client.state === "ready", this.#store)) {
+      this.#admission(id, false, "Reconnect to confirm this request before answering.");
+      return;
+    }
+    const payload: CommandPayload = {
+      type: "interaction.resolve",
+      interactionId: InteractionId.parse(interactionId),
+      resolution: built.resolution,
+      ...(built.readWhole ? { readWhole: built.readWhole } : {}),
+    };
+    void dispatchCommand(this.#client, payload, id, this.#pump, {
+      refusal: (error) =>
+        error === "request_not_read" ? wholeRequestNotRead : (error ?? "Request refused"),
+      receipt: (result) => {
+        if (!result.ok && result.error === "request_not_read") {
+          this.#whole.read(interactionId, true);
+        }
       },
-      id,
-      refused,
-    );
+    });
   }
   /**
    * Words sent while the agent waits on its question answer it, when they can (the shared
@@ -611,13 +669,12 @@ export class ThreadSession {
    */
   #reply(text: string, reply: QuestionReply | undefined, id: string): boolean {
     if (!reply) return false;
-    const resolution = composerReply(
-      this.#store.interaction(reply.interactionId),
-      questionDraft(reply),
-      text,
-    );
-    if (!resolution) return false;
-    this.#resolve(reply.interactionId, resolution, id, "That answer doesn't fit the question.");
+    const draft = questionDraft(reply);
+    const build = (interaction: Interaction, readWhole: boolean) =>
+      phoneAnswer(interaction, composerReply(interaction, draft, text), readWhole);
+    // Words that can't answer it (or a yes to one not read whole) go as a message instead.
+    if (!this.#whole.resolution(reply.interactionId, build)) return false;
+    this.#resolve(reply.interactionId, build, id, "That answer doesn't fit the question.");
     return true;
   }
   /** `/goal <objective>` sets the provider's own goal; true when it did (or was refused). */

@@ -95,7 +95,16 @@ export class ThreadVisit {
     this.#session?.dispose();
     const ledger = this.#ledgers.open(threadId, warm);
     this.#pump.bind(ledger, ++this.#epoch);
-    this.#stop = followThread(lease.store, threadId, this.#epoch, this.#pump, ledger);
+    // Rows read the session's whole requests when the pump sends them, after it exists.
+    this.#stop = followThread(
+      lease.store,
+      threadId,
+      this.#epoch,
+      this.#pump,
+      ledger,
+      "thread:",
+      (interaction) => this.#session?.whole(interaction),
+    );
     this.#session = new ThreadSession(
       client,
       lease.store,

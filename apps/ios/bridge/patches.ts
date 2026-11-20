@@ -1,6 +1,8 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
+import type { Interaction } from "@ace/protocol";
 import { threadRow, itemRow } from "./presentation.ts";
 import { interactionRow } from "./interaction-rows.ts";
+import type { WholeRequestState } from "./summarized-requests.ts";
 import { itemDetail, stepContext } from "./thread-rows.ts";
 import { thoughtOf } from "./thread-messages.ts";
 
@@ -36,6 +38,8 @@ export function followThread(
   pump: PatchSink,
   ledger?: NativeLedger,
   prefix: "thread:" | "reading:" = "thread:",
+  /** What of each summarized request the session has read whole, so every row shows it. */
+  whole: (interaction: Interaction) => WholeRequestState | undefined = () => undefined,
 ) {
   const positions = new Map<string, { index: number; seq: number | null }>();
   /** Where native's positions start in `store.order` (`anchoredOffset`), so a row knows its place. */
@@ -77,7 +81,8 @@ export function followThread(
   const interaction = (id: string) =>
     put(`interaction:${id}`, () => {
       const value = store.interaction(id);
-      return { type: "thread.interaction", id, row: value ? interactionRow(value, store) : null };
+      const shown = value ? interactionRow(value, store, "", whole(value)) : null;
+      return { type: "thread.interaction", id, row: shown };
     });
   const change: ChangeTap = (keys) => {
     // Native's kept copy stays on screen until the store has the thread to diff it against.

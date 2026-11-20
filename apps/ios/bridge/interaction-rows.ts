@@ -19,10 +19,16 @@ import {
   questionStripLine,
   type StripLine,
 } from "@ace/ui-core/mobile";
+import { sentSummarized } from "@ace/projection/interaction-summary";
 import { approvalRow, preview } from "./presentation.ts";
 import { requestRow } from "./thread-requests.ts";
 import { grantName } from "./approval-names.ts";
-import { declinesOnly, summarizedNote } from "./summarized-requests.ts";
+import {
+  declinesOnly,
+  summarizedNote,
+  withWholeRequest,
+  type WholeRequestState,
+} from "./summarized-requests.ts";
 
 /*
  * An interaction card's row: the spike's approval fields, plus the web's three approval verbs
@@ -36,7 +42,7 @@ const questionLimit = 8;
 const mirrored = "ace.machine.request";
 const optionLimit = 32;
 
-function approval(interaction: Interaction, command: string) {
+function approval(interaction: Interaction, command: string, loadedWhole = false) {
   if (interaction.request.kind !== "approval")
     return { heading: "", reason: "", risk: "", riskText: "", decisions: [], others: [] };
   const plain = approvalCopy(interaction.request, command ? { command } : {});
@@ -47,7 +53,7 @@ function approval(interaction: Interaction, command: string) {
   const at = (option: (typeof interaction.request.options)[number]) => index.get(option) ?? -1;
   return {
     heading: preview(copy.heading),
-    reason: preview(copy.reason ?? "", 2048),
+    reason: preview(copy.reason ?? "", loadedWhole ? 256 * 1024 : 2048),
     risk: copy.risk?.level ?? "",
     riskText: preview(copy.risk?.text ?? "", 256),
     decisions: copy.decisions.map((decision) => ({
@@ -66,20 +72,24 @@ function approval(interaction: Interaction, command: string) {
   };
 }
 
-function questions(interaction: Interaction) {
+function questions(interaction: Interaction, loadedWhole = false) {
   if (interaction.request.kind !== "question") return [];
-  return interaction.request.questions.slice(0, questionLimit).map((question) => ({
+  const maxQuestions = loadedWhole ? 64 : questionLimit;
+  const maxOptions = loadedWhole ? 256 : optionLimit;
+  const textLimit = loadedWhole ? 64 * 1024 : 2048;
+  const detailLimit = loadedWhole ? 16 * 1024 : 512;
+  return interaction.request.questions.slice(0, maxQuestions).map((question) => ({
     id: question.id,
     header: preview(question.header ?? "", 128),
-    text: preview(question.text, 2048),
+    text: preview(question.text, textLimit),
     multiSelect: question.multiSelect,
     allowOther: question.allowOther,
     options: questionOptions(question)
-      .slice(0, optionLimit)
+      .slice(0, maxOptions)
       .map((option) => ({
         id: option.id,
         label: preview(option.label, 128),
-        detail: preview(option.description ?? "", 512),
+        detail: preview(option.description ?? "", detailLimit),
         recommended: option.recommended,
       })),
   }));
@@ -139,13 +149,25 @@ function stripOf(interaction: Interaction, reader: RequestReader, command: strin
   }
 }
 
-export function interactionRow(asked: Interaction, reader: RequestReader, fallback = "") {
-  // A summarized request offers only declines: the phone never shows it whole (ADR 0157).
-  const summarized = summarizedNote(asked);
-  const interaction = summarized ? declinesOnly(asked) : asked;
-  const base = approvalRow(interaction, reader, fallback);
+export function interactionRow(
+  asked: Interaction,
+  reader: RequestReader,
+  fallback = "",
+  whole?: WholeRequestState,
+) {
+  const isSummarized = sentSummarized(asked);
+  const loadedWhole = whole?.status === "loaded";
+  // A summarized request offers only declines until the phone reads its whole payload (ADR 0157).
+  const summarized = summarizedNote(asked, whole);
+  const full = loadedWhole ? withWholeRequest(asked, whole) : asked;
+  const interaction = summarized ? declinesOnly(full) : full;
+  const base = approvalRow(interaction, reader, fallback, loadedWhole);
   const request = interaction.request;
-  const row = requestRow(request);
+  const row = requestRow(request, loadedWhole);
+  const maxQuestions = loadedWhole ? 64 : questionLimit;
+  const maxOptions = loadedWhole ? 256 : optionLimit;
+  const wholeState = isSummarized ? (whole?.status ?? "unread") : undefined;
+  const wholeRetryable = whole?.status === "failed" ? whole.retryable : undefined;
   return {
     ...base,
     ...(request.kind === "question" ? { title: preview(questionTitle(request.questions)) } : {}),
@@ -158,15 +180,17 @@ export function interactionRow(asked: Interaction, reader: RequestReader, fallba
     ...(summarized && row.plan ? { plan: { ...row.plan, truncated: true } } : {}),
     ...(summarized && row.form ? { form: { ...row.form, unsupported: true, fields: [] } } : {}),
     ...(summarized ? { truncated: true } : {}),
+    ...(wholeState ? { wholeState } : {}),
+    ...(wholeRetryable !== undefined ? { wholeRetryable } : {}),
     summarized,
-    // Questions past what a phone card shows, or summarized, are answered on a larger screen.
+    // Questions past what a phone card shows, or summarized and not yet loaded, are unanswerable.
     unanswerable:
       request.kind === "question" &&
       (summarized !== "" ||
-        request.questions.length > questionLimit ||
-        request.questions.some((question) => question.options.length > optionLimit)),
-    ...approval(interaction, base.command),
-    questions: questions(interaction),
+        request.questions.length > maxQuestions ||
+        request.questions.some((question) => question.options.length > maxOptions)),
+    ...approval(interaction, base.command, loadedWhole),
+    questions: questions(interaction, loadedWhole),
     strip: summarized
       ? { ...stripOf(interaction, reader, base.command), detail: summarized }
       : stripOf(interaction, reader, base.command),
