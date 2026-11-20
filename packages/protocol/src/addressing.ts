@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ThreadId } from "./ids.ts";
+import { HostId, ThreadId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 
 /*
@@ -11,6 +11,12 @@ import { ProviderKind } from "./provider.ts";
 
 const spadeId = z.string().min(1).max(128);
 const shownName = z.string().min(1).max(120);
+
+/**
+ * The person's other machine a bot or club lives on; absent for this machine's Spade. The ask
+ * goes to that machine's Spade through the fleet (ADR 0132's machine call).
+ */
+const SpadeElsewhere = z.object({ id: HostId, name: z.string().min(1).max(256) });
 
 /**
  * A Spade face as Spade's API gives it (`{kind: "character", …}`, `{kind: "image", sha256}`,
@@ -29,6 +35,7 @@ export const Addressee = z.discriminatedUnion("kind", [
     id: spadeId,
     name: shownName,
     avatar: SpadeFaceJson.optional(),
+    machine: SpadeElsewhere.optional(),
   }),
   z.object({
     kind: z.literal("club"),
@@ -39,6 +46,7 @@ export const Addressee = z.discriminatedUnion("kind", [
       .array(z.object({ id: spadeId, avatar: SpadeFaceJson.optional() }))
       .max(3)
       .default([]),
+    machine: SpadeElsewhere.optional(),
   }),
   z.object({
     kind: z.literal("agent"),

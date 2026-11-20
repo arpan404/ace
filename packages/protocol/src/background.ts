@@ -42,6 +42,11 @@ export const BackgroundTask = z.object({
    * ADR 0109): it keeps the thread waiting even after the agent's turn finished (ADR 0116).
    */
   blocksPrompts: z.literal(true).optional(),
+  /**
+   * The work ace holds this task for waits on the person somewhere else (a Spade bot the person
+   * asked from the thread waits for their answer, ADR 0198): the thread needs them while it runs.
+   */
+  waitingForPerson: z.literal(true).optional(),
   /** File the provider writes the task's output to, if any. */
   outputPath: z.string().optional(),
   /** Tool call that started it. */

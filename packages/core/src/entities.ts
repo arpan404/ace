@@ -257,6 +257,20 @@ export function listenBackground(
   emit(events, { type: "background_task.started", task: structuredClone(task) });
 }
 
+/** Only ace's own running task waits on the person; the thread needs them while it does. */
+export function waitBackground(
+  state: ThreadState,
+  fact: Extract<Fact, { type: "background.waiting" }>,
+  events: EventPayload[],
+): void {
+  const task = get(state.tasks, fact.task);
+  if (task?.status !== "running" || task.owner !== "ace") return;
+  if ((task.waitingForPerson === true) === fact.waiting) return;
+  if (fact.waiting) task.waitingForPerson = true;
+  else delete task.waitingForPerson;
+  emit(events, { type: "background_task.started", task: structuredClone(task) });
+}
+
 export function endBackground(
   state: ThreadState,
   fact: Extract<Fact, { type: "background.ended" }>,

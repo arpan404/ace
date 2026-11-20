@@ -169,7 +169,7 @@ export function askProgress(
         state: answer.waiting.length ? "waiting" : "answering",
         ...(answer.waiting.length
           ? {
-              detail: `${answer.waiting.map((each) => each.name).join(" and ")} needs you in Spade`,
+              detail: `${answer.waiting.map((each) => each.name).join(" and ")} needs you in Spade${to.machine ? ` on ${to.machine.name}` : ""}`,
             }
           : status
             ? { detail: status }

@@ -13,6 +13,7 @@ import {
   startBackground,
   endBackground,
   listenBackground,
+  waitBackground,
 } from "./entities.ts";
 import { exitProcess } from "./cleanup.ts";
 import { validateFact } from "./validate.ts";
@@ -227,6 +228,9 @@ function fold(
       break;
     case "background.listening":
       listenBackground(state, fact, events);
+      break;
+    case "background.waiting":
+      waitBackground(state, fact, events);
       break;
     case "background.ended":
       endBackground(state, fact, ctx, events);
