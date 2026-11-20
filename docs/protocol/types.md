@@ -9540,17 +9540,19 @@ Example:
 | --- | --- | --- | --- |
 | path | yes | string |  |
 | name | yes | string |  |
-| template | yes | [CliBotStarter.json](schema/CliBotStarter.json) |  |
+| template | no | [CliBotStarter.json](schema/CliBotStarter.json) |  |
+| from | no | string |  |
 | files | yes | array | {"items":{"type":"string"}} |
+| left_out | no | array | {"items":{"type":"string"}} |
 
 Example:
 
 ```json
 {
   "files": [],
+  "left_out": [],
   "name": "example",
-  "path": "example",
-  "template": "club-member"
+  "path": "example"
 }
 ```
 
@@ -23304,6 +23306,7 @@ Example:
 | botsApproved | no | boolean |  |
 | linked | no | boolean |  |
 | previous | no | object | {"properties":{"version":{"type":"string","maxLength":64},"hash":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"}},"required":["version","hash"],"additionalProperties":false} |
+| held | no | object | {"properties":{"version":{"type":"string","maxLength":64}},"required":["version"],"additionalProperties":false} |
 
 Example:
 
@@ -23813,6 +23816,7 @@ Example:
 | op | yes | `"prepareUpdate"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -23831,6 +23835,7 @@ Example:
 | op | yes | `"prepareRollback"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -23849,6 +23854,7 @@ Example:
 | op | yes | `"remove"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -23867,6 +23873,7 @@ Example:
 | op | yes | `"turnOn"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -25851,6 +25858,9 @@ Example:
   "installed": {
     "acceptedAt": 9,
     "hash": "7e388707324ee9dc9181d2bc4ca91d9e2855e5de5ffb272d6465dbf2d7aa36f1",
+    "held": {
+      "version": "example"
+    },
     "name": "s",
     "previous": {
       "hash": "150a138a05844ad1ede909280e0dd59382e0bf8c3ad40d415becd4596c6041a6",

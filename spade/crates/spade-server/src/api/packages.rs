@@ -22,6 +22,7 @@ pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/agents/{id}/package", get(read).post(update))
         .route("/agents/{id}/package/plan", post(plan))
+        .route("/agents/{id}/package/template", get(template_update))
         .route("/agents/{id}/package/effects", put(switch))
         .route(
             "/agents/{id}/package/withdrawn",
@@ -80,6 +81,36 @@ async fn plan(
     .await
 }
 
+/// `GET /v1/agents/{id}/package/template`: the newer version of its template this Spade ships,
+/// for the update review: `{package, recipe, plan, effects}`, what accepting it would do. `404` when it
+/// has the newest, or wasn't made from a template.
+async fn template_update(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    off_thread(move || {
+        let offered = packages::link_of(&state.engine, &id).and_then(|link| {
+            let shipped = packages::template::offered(&link).ok_or(PackageError::NotLinked)?;
+            let plan = packages::plan_for(&state.engine, &id, &shipped.manifest)?;
+            Ok((shipped, plan))
+        });
+        match offered {
+            Ok((shipped, plan)) => Json(json!({
+                "package": shipped.package,
+                "recipe": shipped.recipe,
+                "plan": plan,
+                // Each switch as the update would leave it: what the person has on stays on,
+                // anything new starts off.
+                "effects": packages::effect_rows(&shipped.manifest, &plan.on),
+            }))
+            .into_response(),
+            Err(PackageError::NotLinked) => problem(
+                StatusCode::NOT_FOUND,
+                "this Spade offers no newer version of its template",
+            ),
+            Err(error) => refused(&error),
+        }
+    })
+    .await
+}
+
 #[derive(Deserialize)]
 struct UpdateBody {
     #[serde(default)]
@@ -124,6 +155,20 @@ fn proven(
                 ));
             }
             (package, recipe)
+        }
+        // A template this Spade ships is proven by its built-in bytes, and only the version it
+        // offers the bot is taken.
+        None if body
+            .package
+            .as_ref()
+            .is_some_and(|claimed| claimed.source == crate::teams::TEMPLATE_SOURCE) =>
+        {
+            let claimed = body.package.as_ref().ok_or_else(|| invalid("no package"))?;
+            let shipped = packages::template::claimed(&link, claimed)?;
+            if !body.recipe.is_null() && body.recipe != shipped.recipe {
+                return Err(invalid("recipe isn't the template this Spade ships"));
+            }
+            return Ok((shipped.manifest.clone(), shipped.package.clone()));
         }
         None if body.package.is_some() || !envelope::is_local(&link.package) => {
             return Err(invalid(

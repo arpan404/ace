@@ -65,6 +65,8 @@ export class Buffer implements TextBuffer {
   disposed = false;
 
   readonly #ctx: BufferContext;
+  /** Aborted on dispose, so a closed tab's reads leave the connection's queue. */
+  readonly #reading = new AbortController();
   #doc: EditorDocument | undefined;
   #view: DocumentViews | undefined;
   /** The registry is landing text: the views' edit callbacks are not the person typing. */
@@ -176,7 +178,7 @@ export class Buffer implements TextBuffer {
     const generation = ++this.#generation;
     this.#setStatus({ kind: "loading" });
     const [read, draft, ready] = await Promise.all([
-      this.#ctx.files.read(this.key).then(
+      this.#ctx.files.read(this.key, this.#reading.signal).then(
         (file) => ({ ok: true as const, file }),
         (error: unknown) => ({ ok: false as const, message: message(error) }),
       ),
@@ -236,7 +238,8 @@ export class Buffer implements TextBuffer {
       return;
     }
     const generation = this.#generation;
-    const disk = file ?? (await this.#ctx.files.read(this.key).catch(() => undefined));
+    const disk =
+      file ?? (await this.#ctx.files.read(this.key, this.#reading.signal).catch(() => undefined));
     if (!disk || generation !== this.#generation || this.disposed) return;
     await this.#meet(disk);
   }
@@ -356,6 +359,7 @@ export class Buffer implements TextBuffer {
 
   dispose(): void {
     this.disposed = true;
+    this.#reading.abort();
     this.#generation++;
     this.#cancelDraft?.();
     this.#free();
@@ -432,7 +436,9 @@ export class Buffer implements TextBuffer {
       try {
         const result = await this.#ctx.files.write(this.key, text, expected);
         if (result.kind === "clash") {
-          const disk = await this.#ctx.files.read(this.key).catch(() => undefined);
+          const disk = await this.#ctx.files
+            .read(this.key, this.#reading.signal)
+            .catch(() => undefined);
           if (disk) await this.#meet(disk);
           return { kind: "clash" };
         }

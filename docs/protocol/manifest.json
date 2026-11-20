@@ -1009,8 +1009,8 @@
       "sha256": "74268c800be97a6784509d3d27b407430000b1a9282df24f377eb7388def8a20"
     },
     "schema/CliBotInit.json": {
-      "bytes": 510,
-      "sha256": "d2e689f3d33715f63a8bdedebdf97bbb255f34424eb1eadf849e1ce7497c4f30"
+      "bytes": 636,
+      "sha256": "8e3dcc89ba2cc99bb3fe67e6c3cbe0437330a88e4bfde7a06fd11be512f41a24"
     },
     "schema/CliBotScenario.json": {
       "bytes": 622,
@@ -3093,8 +3093,8 @@
       "sha256": "915d44a9addc1415d5e181772df4b74788d9f1e49ca13105b798585aabeab3da"
     },
     "schema/MarketInstalled.json": {
-      "bytes": 1799,
-      "sha256": "c51b48718dfa4af2edeef949a9660044925f37e9d2d624fed67a8351da4f813e"
+      "bytes": 2043,
+      "sha256": "d75e2c181194a3a4ceeb1ef3b099736835874e89aeb8cce18839df6950263488"
     },
     "schema/MarketKeyId.json": {
       "bytes": 181,
@@ -3141,8 +3141,8 @@
       "sha256": "954128bea532e478cef2ba62eba9b50d518474d83cb3c6bb331716bbe2d342e4"
     },
     "schema/MarketOperation.json": {
-      "bytes": 12303,
-      "sha256": "df8e39407b9d76d72bed7f6178904e150dc1ebd2463ad860e219d22ae5a8d096"
+      "bytes": 12735,
+      "sha256": "8e71b6b37dfa9ed8664af7943bb2e488efc1fc71fd4bff2d141799744734466a"
     },
     "schema/MarketOwnEntry.json": {
       "bytes": 1249,
@@ -6677,10 +6677,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1358329,
-      "sha256": "7221ac4c295f0ab83348dce8e7afa96bdb091c05a412491a4a2787ec5c11c058"
+      "bytes": 1358804,
+      "sha256": "d9ed59fe4c30509ea52e5be8fac8141c94a9c5a42d47cd8302fd46e9c848b2f8"
     }
   },
-  "input": "c98347ad282b65b5750baba3c804a6623dec70299e2291c426a0b34beed0e91f",
+  "input": "57d5bacbb2f3a3396b546cf5ce5b52c2b17ef3a889821ee7b656f7030d6eec86",
   "version": 1
 }

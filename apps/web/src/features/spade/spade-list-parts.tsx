@@ -1,5 +1,5 @@
 import { botFaceStateOf, type BotFaceState } from "@ace/ui-core/bot-face";
-import type { SpadeAvatar } from "@ace/ui-core/spade-chat";
+import { spadeIsDevelopment, type SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
@@ -79,20 +79,37 @@ const lineTone: Partial<Record<SpadeRowState, string>> = {
   failed: "failed",
 };
 
-function RowText(props: { name: string; line: string; state: SpadeRowState }) {
+/** The quiet word after a development bot's name (ADR 0200 §9). */
+export function DevelopmentWord(props: { className?: string }) {
+  return (
+    <span className={cn("shrink-0 text-ui/5 font-normal text-subtle-foreground", props.className)}>
+      Development
+    </span>
+  );
+}
+
+function RowText(props: {
+  name: string;
+  line: string;
+  state: SpadeRowState;
+  development?: boolean;
+}) {
   const unseen = props.state === "unseen";
   const tone = lineTone[props.state];
   return (
     <>
-      <span
-        data-view-row-title=""
-        className={cn(
-          "min-w-0 truncate text-md/5",
-          unseen ? "font-semibold" : "font-medium",
-          props.state === "off" ? "text-muted-foreground" : "text-foreground",
-        )}
-      >
-        {props.name}
+      <span className="flex min-w-0 items-baseline gap-1.5">
+        <span
+          data-view-row-title=""
+          className={cn(
+            "min-w-0 truncate text-md/5",
+            unseen ? "font-semibold" : "font-medium",
+            props.state === "off" ? "text-muted-foreground" : "text-foreground",
+          )}
+        >
+          {props.name}
+        </span>
+        {props.development && <DevelopmentWord />}
       </span>
       <span
         data-tone={tone}
@@ -152,7 +169,12 @@ export function BotListRow(props: {
           dim={props.state === "off"}
         />
       </FaceCell>
-      <RowText name={bot.name} line={props.line} state={props.state} />
+      <RowText
+        name={bot.name}
+        line={props.line}
+        state={props.state}
+        development={spadeIsDevelopment(bot.package)}
+      />
     </Link>
   );
 }

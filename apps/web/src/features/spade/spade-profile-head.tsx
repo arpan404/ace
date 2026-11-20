@@ -1,5 +1,5 @@
 import { botFaceStateOf, faceForId } from "@ace/ui-core/bot-face";
-import { spadeAgentNameMax } from "@ace/ui-core/spade-chat";
+import { spadeAgentNameMax, spadeIsDevelopment } from "@ace/ui-core/spade-chat";
 import { useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -23,6 +23,11 @@ const faceSize = 96;
 export function ProfileHead(props: { bot: RosterBot }) {
   const { bot } = props;
   const main = bot.kind === "main";
+  // One quiet line under the name: a development bot, and Full access while it is in it.
+  const quiet = [
+    spadeIsDevelopment(bot.package) && "Development",
+    bot.fullAccess && "Full access",
+  ].filter((word): word is string => typeof word === "string");
   const state = bot.away || bot.unavailable ? "idle" : botFaceStateOf(bot);
   const face = (
     <DottedFace
@@ -49,7 +54,9 @@ export function ProfileHead(props: { bot: RosterBot }) {
       ) : (
         <NameField bot={bot} />
       )}
-      {bot.fullAccess && <p className="-mt-1.5 text-ui text-muted-foreground">Full access</p>}
+      {quiet.length > 0 && (
+        <p className="-mt-1.5 text-ui text-muted-foreground">{quiet.join(" · ")}</p>
+      )}
       {bot.archived && <ProfileArchived bot={bot} />}
     </div>
   );

@@ -49,7 +49,9 @@ Spade is one of ace's places. It adds no navigation of its own.
   on this machine (its chat then says "Turn on"). It is never pinned and never leaves the first
   place.
 - **Rows.** 64px, a 40px face, the name in 14/20 at 500 and one line in 13/20. No time, no glyph
-  at the end: the order already says what is recent.
+  at the end: the order already says what is recent. A development bot (ADR 0200 §9, linked to a
+  package folder by `ace bot dev`) has one quiet word after its name, "Development", in 13/20 at
+  400 in the subtle ink: no badge, no chip, no tint. Its Running row says the same.
 - **Order.** Spade first, then needs you, then working, failed, finished and not seen, then the rest.
 - **Row states.**
 
@@ -150,7 +152,8 @@ Spade is one of ace's places. It adds no navigation of its own.
 ## 4. Profile
 
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
-  22/28 at 600 ("Full access" under it, quiet, while the bot is in it), then Details · Library ·
+  22/28 at 600 (one quiet line under it: "Development" for a development bot, "Full access"
+  while the bot is in it, joined by · when both), then Details · Library ·
   Computer as a segmented control in the body.
 - **Details:** task (with its Earlier versions folded under it), model (one picker, grouped by
   endpoint), machine, voice (Speak replies and the bot's voice, kept on this device), routines,

@@ -1,4 +1,4 @@
-import type { ClientApi } from "@ace/client";
+import type { ClientApi, ReadPriority } from "@ace/client";
 import type { CheckoutSource, FileContent } from "./checkout-source.ts";
 
 /*
@@ -14,6 +14,8 @@ export const readAheadMs = 10_000;
 interface Ahead {
   read: Promise<FileContent>;
   timer: ReturnType<typeof setTimeout>;
+  /** Moves the rest of the read up to "visible": an open took it. */
+  promote: () => void;
 }
 
 const byClient = new WeakMap<ClientApi, Map<string, Ahead>>();
@@ -38,7 +40,9 @@ export function readAhead(
   const ahead = aheadOf(client);
   const key = keyOf(threadId, path);
   if (ahead.has(key)) return;
-  const read = source.read(threadId, path);
+  // A prefetch waits behind every read on screen until an open takes it.
+  let priority: ReadPriority = "background";
+  const read = source.read(threadId, path, undefined, () => priority);
   const forget = () => {
     const entry = ahead.get(key);
     if (entry?.read !== read) return;
@@ -47,7 +51,13 @@ export function readAhead(
   };
   // A failed read-ahead is no answer: the open reads again and reports its own error.
   read.catch(forget);
-  ahead.set(key, { read, timer: setTimeout(forget, readAheadMs) });
+  ahead.set(key, {
+    read,
+    timer: setTimeout(forget, readAheadMs),
+    promote: () => {
+      priority = "visible";
+    },
+  });
 }
 
 /** The read started ahead for `path`, once; undefined when none is waiting. */
@@ -61,6 +71,8 @@ export function takeReadAhead(
   const entry = ahead?.get(key);
   if (!entry) return undefined;
   clearTimeout(entry.timer);
+  // Someone opened it: what is left of the read now goes ahead of other prefetches.
+  entry.promote();
   ahead?.delete(key);
   return entry.read;
 }

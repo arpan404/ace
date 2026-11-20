@@ -94,7 +94,15 @@ export class OpenReviews {
     if (this.#pending.size >= maxPending)
       return error("busy", "Too many reviews are open; finish or cancel one");
     const ports = await this.#preparePorts(source.id);
-    const { entry, brings } = await prepareWithBrings(ports, store, source, type, name, version);
+    const { entry, brings } = await prepareWithBrings(
+      ports,
+      store,
+      source,
+      type,
+      name,
+      version,
+      bot,
+    );
     // Each manifest prepare verified names its publisher: list rows may now show its marks.
     for (const prepared of [entry, ...brings])
       if (prepared.source === "market" && prepared.signed && prepared.publisher)

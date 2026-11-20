@@ -233,6 +233,20 @@ async fn without_the_markets_signature_a_package_installs_as_local_and_claims_no
     assert_eq!(identity["name"], "local/flight-watcher", "{identity}");
     assert_eq!(identity["version"], "local", "{identity}");
     let bot = text(&made["agent"]["id"]);
+    // The task manager calls it a development bot; Spade's own row isn't one.
+    let (_, running) = spade.get("/v1/running").await?;
+    let rows = running["bots"].as_array().cloned().unwrap_or_default();
+    let row = |id: &str| rows.iter().find(|r| r["id"] == id).cloned();
+    assert_eq!(
+        row(&bot).map(|r| r["development"].clone()),
+        Some(json!(true)),
+        "{running}"
+    );
+    let main = rows.iter().find(|r| r["kind"] == "main");
+    assert!(
+        main.is_none_or(|r| r.get("development").is_none()),
+        "{running}"
+    );
     // It moves between local versions only, never onto a market identity.
     let (status, body) = spade
         .post(

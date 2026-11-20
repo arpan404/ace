@@ -8,6 +8,15 @@
       },
       "type": "array"
     },
+    "from": {
+      "type": "string"
+    },
+    "left_out": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "name": {
       "type": "string"
     },
@@ -21,7 +30,6 @@
   "required": [
     "path",
     "name",
-    "template",
     "files"
   ],
   "type": "object"

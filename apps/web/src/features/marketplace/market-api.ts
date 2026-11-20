@@ -163,7 +163,7 @@ async function readAll(client: ClientApi, review: MarketReview, signal: AbortSig
   return { review, items };
 }
 
-export const reviewKey = (key: EntryKey, update: boolean, rollback = false) =>
+export const reviewKey = (key: EntryKey, update: boolean, rollback = false, bot = "") =>
   [
     ...marketKey,
     "review",
@@ -171,6 +171,7 @@ export const reviewKey = (key: EntryKey, update: boolean, rollback = false) =>
     key.type,
     key.name,
     rollback ? "rollback" : update ? "update" : "install",
+    bot,
   ] as const;
 
 /**
@@ -179,15 +180,22 @@ export const reviewKey = (key: EntryKey, update: boolean, rollback = false) =>
  */
 export function useMarketReview(
   key: EntryKey,
-  options: { update: boolean; rollback?: boolean | undefined; enabled: boolean },
+  options: {
+    update: boolean;
+    rollback?: boolean | undefined;
+    /** The bot an update or rollback moves: one bot package can make several. */
+    bot?: string | undefined;
+    enabled: boolean;
+  },
 ) {
   const rollback = options.rollback === true;
   return useDaemonQuery<PreparedReview>({
-    queryKey: reviewKey(key, options.update, rollback),
+    queryKey: reviewKey(key, options.update, rollback, options.bot),
     enabled: options.enabled,
     staleTime: reviewStale,
     retry: false,
-    read: (client, signal) => prepareReview(client, key, options.update, signal, rollback),
+    read: (client, signal) =>
+      prepareReview(client, key, options.update, signal, rollback, options.bot),
   });
 }
 
@@ -199,13 +207,15 @@ async function prepareReview(
   update: boolean,
   signal: AbortSignal,
   rollback = false,
+  bot?: string,
 ) {
+  const which = { type: typeOf(key.type), name: key.name, ...(bot ? { bot } : {}) };
   const prepared = await market(
     client,
     rollback
-      ? { op: "prepareRollback", type: typeOf(key.type), name: key.name }
+      ? { op: "prepareRollback", ...which }
       : update
-        ? { op: "prepareUpdate", type: typeOf(key.type), name: key.name }
+        ? { op: "prepareUpdate", ...which }
         : { op: "prepare", ...keyOnly(key) },
     "review",
     signal,
@@ -268,13 +278,20 @@ export function useCancelReview() {
   };
 }
 
+/** An installed entry as an operation names it; a bot package's by its bot. */
+const installedKeyOf = (input: { type: string; name: string; target?: string | undefined }) => ({
+  type: typeOf(input.type),
+  name: input.name,
+  ...(input.type === "spade-bot" && input.target ? { bot: input.target } : {}),
+});
+
 /** Turns a withdrawn or turned-off entry back on, from its pinned bytes. */
 export function useTurnOn() {
   const client = useClient();
   const forget = useForget();
   return useMutation({
-    mutationFn: (input: { type: string; name: string }) =>
-      market(client, { op: "turnOn", type: typeOf(input.type), name: input.name }, "done"),
+    mutationFn: (input: { type: string; name: string; target?: string | undefined }) =>
+      market(client, { op: "turnOn", ...installedKeyOf(input) }, "done"),
     onSettled: forget,
   });
 }
@@ -297,8 +314,8 @@ export function useRemove() {
   const client = useClient();
   const forget = useForget();
   return useMutation({
-    mutationFn: (input: { type: string; name: string }) =>
-      market(client, { op: "remove", type: typeOf(input.type), name: input.name }, "done"),
+    mutationFn: (input: { type: string; name: string; target?: string | undefined }) =>
+      market(client, { op: "remove", ...installedKeyOf(input) }, "done"),
     onSettled: forget,
   });
 }

@@ -1,39 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { asksMore, devBotOf, localPackageName } from "./dev-plan.ts";
-
-describe("the local package a development bot is linked to", () => {
-  it.each([
-    ["Fare watcher", "local/fare-watcher"],
-    ["  Fare -- Watcher 2 ", "local/fare-watcher-2"],
-    // Spade keeps ASCII letters and digits only.
-    ["Café bot", "local/caf-bot"],
-    ["!!!", "local/bot"],
-  ])("for %s is %s", (name, package_) => {
-    expect(localPackageName(name)).toBe(package_);
-  });
-});
+import { asksMore, devBotOf, devFolderKey } from "./dev-plan.ts";
 
 describe("the development bot of a folder", () => {
+  const key = devFolderKey("/work/fare-watcher");
   const agents = {
     agents: [
-      { id: "a1", name: "Fare watcher", package: { source: "market", name: "local/fare-watcher" } },
+      {
+        id: "a1",
+        name: "Fare watcher",
+        from_recipe: { source: "market", name: key, version: "dev" },
+      },
       {
         id: "a2",
-        name: "Fare watcher",
-        package: { source: "local", name: "local/fare-watcher", version: "local", hash: "h2" },
+        name: "Flight watcher",
+        from_recipe: { source: "local", name: key, version: "dev" },
       },
-      { id: "a3", name: "Other", package: { source: "local", name: "local/other" } },
+      {
+        id: "a3",
+        name: "Fare watcher",
+        from_recipe: { source: "local", name: devFolderKey("/other/fare-watcher"), version: "dev" },
+      },
       { id: "a4", name: "Plain" },
     ],
   };
 
-  it("is the local one of its name, never the market's", () => {
-    expect(devBotOf(agents, "local/fare-watcher")).toEqual({ id: "a2", name: "Fare watcher" });
+  it("is the one made from that folder, whatever its name is now", () => {
+    expect(devBotOf(agents, key)).toEqual({ id: "a2", name: "Flight watcher" });
   });
 
-  it("is none when no local bot has its name, or the answer has no list", () => {
-    expect(devBotOf(agents, "local/flight-watcher")).toBeUndefined();
-    expect(devBotOf({ error: "x" }, "local/fare-watcher")).toBeUndefined();
+  it("is another bot for a folder of the same name somewhere else", () => {
+    expect(devBotOf(agents, devFolderKey("/other/fare-watcher"))?.id).toBe("a3");
+  });
+
+  it("is none for a folder no bot was made from, or an answer with no list", () => {
+    expect(devBotOf(agents, devFolderKey("/work/hotel-watcher"))).toBeUndefined();
+    expect(devBotOf({ error: "x" }, key)).toBeUndefined();
   });
 });
 

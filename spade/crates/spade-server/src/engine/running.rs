@@ -53,6 +53,9 @@ impl Engine {
             network: self.network_today(&agent.id),
             next_wake: running::sooner(self.next_wake(&activity), self.next_slot(&agent.id)?),
             workers: self.running_workers(id),
+            development: self
+                .bot_package(&agent.id)
+                .is_some_and(|link| crate::packages::envelope::is_local(&link.package)),
         })
     }
 
