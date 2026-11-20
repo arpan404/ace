@@ -37,7 +37,7 @@ pub(crate) fn search_file(
         Some((folder, _)) => folder,
         None => "",
     };
-    let Some((file, metadata)) = open_entry(shared.root, folders, folder, entry) else {
+    let Some((file, metadata)) = open_entry(shared.root, folders, folder, entry, relative) else {
         return;
     };
     if !metadata.is_file() {
@@ -101,15 +101,16 @@ fn open_entry(
     folders: &mut Folders,
     folder: &str,
     entry: &DirEntry,
+    relative: &str,
 ) -> Option<(cap_std::fs::File, cap_std::fs::Metadata)> {
     let name = entry.file_name();
     let held = folders.holds(folder);
-    match open::open(root, folders.get(root, folder)?, name) {
+    match open::open(root, folders.get(root, folder)?, name, relative) {
         Opened::File(file, metadata) => return Some((file, metadata)),
         Opened::Failed | Opened::Refused if !held => return None,
         Opened::Failed | Opened::Refused => folders.forget(folder),
     }
-    match open::open(root, folders.get(root, folder)?, name) {
+    match open::open(root, folders.get(root, folder)?, name, relative) {
         Opened::File(file, metadata) => Some((file, metadata)),
         Opened::Failed | Opened::Refused => None,
     }
@@ -235,8 +236,8 @@ mod tests {
             .find(|entry| entry.file_name() == "two.txt")
             .expect("the walk lists the replacement's file");
 
-        let (_, metadata) =
-            open_entry(&root, &mut folders, "d", &entry).expect("the replacement is searched");
+        let (_, metadata) = open_entry(&root, &mut folders, "d", &entry, "d/two.txt")
+            .expect("the replacement is searched");
         assert_eq!(metadata.len(), 6);
     }
 }

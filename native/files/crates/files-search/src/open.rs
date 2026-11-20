@@ -24,15 +24,14 @@ pub(crate) enum Opened {
 }
 
 /// Opens `name` inside `folder` for reading without following a final symlink, then proves that
-/// the checkout path leads to the file that was opened.
+/// the checkout path `relative` leads to the file that was opened.
 ///
 /// The handle may have been opened a while ago, and between then and now any folder above the
 /// file can be moved out of the checkout or replaced by a link to somewhere else; the handle and
-/// the file opened through it would still answer. So after the open, the file's folder is walked
-/// again from the root with [`Root::open_dir_unstored`], which follows a link only while it stays
-/// inside the root and refuses one that leaves it, and the name is looked up there without
-/// following it. The file is accepted only when that entry is the open file.
-pub(crate) fn open(root: &Root, folder: &Folder, name: &OsStr) -> Opened {
+/// the file opened through it would still answer. So after the open, [`Root::is_at`] resolves
+/// `relative` from the root again, following no link anywhere and never leaving the root, and the
+/// file is accepted only when that resolution reaches the open file.
+pub(crate) fn open(root: &Root, folder: &Folder, name: &OsStr, relative: &str) -> Opened {
     let mut options = OpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);
     let Ok(file) = folder.dir.open_with(name, &options) else {
@@ -43,71 +42,11 @@ pub(crate) fn open(root: &Root, folder: &Folder, name: &OsStr) -> Opened {
     };
     #[cfg(test)]
     race::run();
-    if at_checkout_path(root, folder.path(), name, &file, &metadata) {
+    if root.is_at(relative, &file, &metadata) {
         Opened::File(file, metadata)
     } else {
         Opened::Refused
     }
-}
-
-/// Whether `folder/name`, walked from the root right now, is the open file.
-#[cfg(unix)]
-fn at_checkout_path(
-    root: &Root,
-    folder: &str,
-    name: &OsStr,
-    _file: &File,
-    opened: &Metadata,
-) -> bool {
-    use cap_fs_ext::MetadataExt;
-
-    let Ok(dir) = root.open_dir_unstored(folder) else {
-        return false;
-    };
-    let Ok(named) = dir.symlink_metadata(name) else {
-        return false;
-    };
-    named.dev() == opened.dev() && named.ino() == opened.ino()
-}
-
-/// Windows identifies files by volume and file index rather than device and inode, so the entry
-/// at the checkout path is opened, never following a link, and the two handles compared.
-#[cfg(windows)]
-fn at_checkout_path(
-    root: &Root,
-    folder: &str,
-    name: &OsStr,
-    file: &File,
-    _opened: &Metadata,
-) -> bool {
-    let Ok(dir) = root.open_dir_unstored(folder) else {
-        return false;
-    };
-    let mut options = OpenOptions::new();
-    options.read(true).follow(FollowSymlinks::No);
-    let (Ok(named), Ok(clone)) = (dir.open_with(name, &options), file.try_clone()) else {
-        return false;
-    };
-    let (Ok(named), Ok(opened)) = (
-        same_file::Handle::from_file(named.into_std()),
-        same_file::Handle::from_file(clone.into_std()),
-    ) else {
-        return false;
-    };
-    named == opened
-}
-
-/// Platforms without a file identity cannot tell, so the walk alone decides.
-#[cfg(not(any(unix, windows)))]
-fn at_checkout_path(
-    root: &Root,
-    folder: &str,
-    name: &OsStr,
-    _file: &File,
-    _opened: &Metadata,
-) -> bool {
-    root.open_dir_unstored(folder)
-        .is_ok_and(|dir| dir.symlink_metadata(name).is_ok())
 }
 
 /// Test-only: a step that runs while a file is open but not yet accepted, so a test can change the
@@ -139,6 +78,10 @@ mod tests {
     use files_safe::Root;
     use ignore::{DirEntry, WalkBuilder};
 
+    fn relative(root: &Root, entry: &DirEntry) -> String {
+        root.relative(entry.path()).unwrap_or_default()
+    }
+
     fn walked(root: &std::path::Path, name: &str) -> Option<DirEntry> {
         WalkBuilder::new(root)
             .hidden(false)
@@ -156,7 +99,9 @@ mod tests {
         let mut folders = Folders::default();
         let folder = folders.get(&root, "").expect("the root folder");
 
-        let Opened::File(_, metadata) = open(&root, folder, entry.file_name()) else {
+        let Opened::File(_, metadata) =
+            open(&root, folder, entry.file_name(), &relative(&root, &entry))
+        else {
             panic!("the file opens");
         };
         assert_eq!(metadata.len(), 12);
@@ -181,7 +126,7 @@ mod tests {
         let folder = folders.get(&root, "").expect("the root folder");
 
         assert!(matches!(
-            open(&root, folder, entry.file_name()),
+            open(&root, folder, entry.file_name(), &relative(&root, &entry)),
             Opened::Failed
         ));
     }
@@ -203,7 +148,7 @@ mod tests {
         std::fs::rename(dir.path().join("d"), outside.path().join("d")).expect("the move");
 
         assert!(matches!(
-            open(&root, folder, entry.file_name()),
+            open(&root, folder, entry.file_name(), &relative(&root, &entry)),
             Opened::Refused
         ));
         // Opening the folder again finds nothing at its checkout path.
@@ -239,7 +184,10 @@ mod tests {
     #[allow(clippy::expect_used)]
     fn accepted(root: &Root, folders: &mut Folders, entry: &DirEntry) -> bool {
         let folder = folders.get(root, "a/d").expect("the held handle");
-        matches!(open(root, folder, entry.file_name()), Opened::File(..))
+        matches!(
+            open(root, folder, entry.file_name(), &relative(root, entry)),
+            Opened::File(..)
+        )
     }
 
     #[test]

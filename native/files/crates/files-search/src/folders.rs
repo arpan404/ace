@@ -34,13 +34,6 @@ pub(crate) struct Folder {
     pub(crate) dir: cap_std::fs::Dir,
 }
 
-impl Folder {
-    /// The folder's checkout path, an empty string for the root.
-    pub(crate) fn path(&self) -> &str {
-        &self.path
-    }
-}
-
 impl Folders {
     /// The handle for `folder`, an empty string for the root: the one already held, or one opened
     /// now by walking the folder from the root.

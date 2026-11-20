@@ -37,6 +37,12 @@ impl Identity {
         })
     }
 
+    /// The identity of a device and inode read some other way.
+    #[cfg(unix)]
+    pub(crate) fn from_parts(device: u64, inode: u64) -> Identity {
+        Identity { device, inode }
+    }
+
     /// Platforms without a file identity cannot tell one folder from another, so nothing may be
     /// kept and proved: every lookup walks to the folder again.
     #[cfg(not(any(unix, windows)))]
