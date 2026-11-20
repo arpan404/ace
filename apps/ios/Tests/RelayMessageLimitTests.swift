@@ -32,6 +32,25 @@ import Testing
         }
         #expect(received == [.text(text)])
     }
+
+    @Test func aMessageTooLargeToTakeEndsTheChannelNamingEMSGSIZEForTheNextHello() async throws {
+        // Past even the headroom: the socket refuses it, and says so in its close.
+        let server = try DeflatingServer(messages: [Data(repeating: 7, count: 70_000)])
+        let port = try await server.start()
+        defer { server.stop() }
+        let route = RelayRoute(relayURL: URL(string: "ws://127.0.0.1:\(port)")!,
+                               hostId: "A4IOPXUIEEM6GMLBBSWHEDA3CUUI64AG6CB4CALXPPRXWGPSVCRQ",
+                               grants: AccountGrants { () async throws(AccountGrantError) -> AceGrant in
+                                   AceGrant(token: "grant", expiresAt: Date().timeIntervalSince1970 * 1000 + 300_000)
+                               })
+        let closed = Answer()
+        let socket = RelaySocket(route: route) { kind, payload in
+            if kind == "close", case .text(let text) = payload { closed.give(text) }
+        }
+        socket.open()
+        defer { socket.close() }
+        #expect(await closed.value() == "1006 relay:emsgsize")
+    }
 }
 
 /// One connection's WebSocket server: it accepts the upgrade with permessage-deflate and sends
