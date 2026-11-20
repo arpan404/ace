@@ -63,6 +63,8 @@ pub fn commit(
             ));
         }
     }
+    // A bot it made carries no more than it allows now, here or on a machine it moves to.
+    engine.narrow_made_under();
     *link = next;
     Ok(())
 }

@@ -375,3 +375,123 @@ async fn an_update_held_while_the_bot_works_keeps_a_switch_the_person_turned_off
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_switch_turned_off_while_an_allowed_call_is_read_before_it_starts_keeps_it_from_running()
+-> Result {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Mutex, mpsc};
+    use std::time::Duration;
+    // The call is read three times: at the gate, when the person's answer comes, and right
+    // before it starts. The third reading waits while the person turns sending off.
+    let (reading, is_reading) = mpsc::channel::<()>();
+    let (go, may_go) = mpsc::channel::<()>();
+    let may_go = Mutex::new(may_go);
+    let once = AtomicBool::new(false);
+    let mail = FakeTool::new("mail_send", Risk::Write, "sent")
+        .declares(Effect::SendAsPerson)
+        .while_classifying(Arc::new(move |count| {
+            if count == 3 && !once.swap(true, Ordering::SeqCst) {
+                let _ = reading.send(());
+                let waiting = may_go.lock().unwrap_or_else(|p| p.into_inner());
+                let _ = waiting.recv_timeout(Duration::from_secs(5));
+            }
+        }));
+    let sent = mail.calls();
+    let spade = secured(
+        vec![
+            Script::reply("").call("m1", "mail_send", json!({ "to": "agent@example.com" })),
+            Script::reply("Not sent."),
+            Script::reply("").plain(r#"{"title":"Mail"}"#),
+        ],
+        vec![Arc::new(mail)],
+    )
+    .await?;
+    let agent = installed(&spade, hosts_on(), false).await?;
+    let bot = text(&agent["id"]);
+    let conversation = text(&agent["conversation"]);
+    spade.say(&conversation, "Mail my travel agent").await?;
+    spade.wait_for(&conversation, "approval_requested").await?;
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/m1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    tokio::task::spawn_blocking(move || is_reading.recv_timeout(Duration::from_secs(10))).await??;
+    let engine = spade.engine.clone();
+    tokio::task::spawn_blocking(move || {
+        spade_server::packages::set_switch(&engine, &bot, "send_as_person", false)
+    })
+    .await?
+    .map_err(|e| e.to_string())?;
+    go.send(())?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    let done = finished(&events, "m1").cloned().unwrap_or_default();
+    assert!(
+        done.to_string()
+            .contains("Flight watcher doesn't declare sending in your name."),
+        "{done}"
+    );
+    assert!(
+        sent.lock().map(|c| c.is_empty()).unwrap_or(false),
+        "never sent"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_made_bot_keeps_its_makers_narrowing_after_the_maker_is_gone() -> Result {
+    let board = FakeTool::new("read_board", Risk::Write, "read").declares(Effect::Network);
+    let read = board.calls();
+    let spade = secured(
+        vec![
+            standing("b1", "Fare poster"),
+            Script::reply("Made it."),
+            Script::reply("").plain(r#"{"title":"Fares"}"#),
+            Script::reply("").call("p1", "read_board", json!({})),
+            Script::reply("I can't reach it."),
+            Script::reply("").plain(r#"{"title":"Board"}"#),
+        ],
+        vec![Arc::new(board)],
+    )
+    .await?;
+    let agent = installed(&spade, hosts_on(), false).await?;
+    let maker = text(&agent["id"]);
+    may_make_bots(&spade, &maker).await?;
+    let conversation = text(&agent["conversation"]);
+    spade
+        .say(&conversation, "Make a bot that posts fares")
+        .await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    let poster = text(&made(&events).cloned().unwrap_or_default()["bot"]);
+    // Made while its maker reached the network; the person then turns that off.
+    let (status, body) = spade
+        .put(
+            &format!("/v1/agents/{maker}/package/effects"),
+            json!({ "key": "network:hosts:api.example-fares.com", "on": false }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    // Its maker gone, as on a machine it moved to: what it carries is all that holds it.
+    let (status, body) = spade.delete(&format!("/v1/agents/{maker}")).await?;
+    assert!(status < 300, "{body}");
+    let chat = text(
+        &bots(&spade)
+            .await?
+            .into_iter()
+            .find(|b| b["id"] == poster.as_str())
+            .unwrap_or_default()["conversation"],
+    );
+    spade.say(&chat, "Read the board").await?;
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    let done = finished(&events, "p1").cloned().unwrap_or_default();
+    assert!(
+        done.to_string()
+            .contains("Flight watcher doesn't declare reaching outside its own folder."),
+        "{done}"
+    );
+    assert!(read.lock().map(|c| c.is_empty()).unwrap_or(false));
+    Ok(())
+}

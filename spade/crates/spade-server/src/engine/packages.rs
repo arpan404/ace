@@ -111,6 +111,20 @@ impl Engine {
     /// The ceiling over a call made in `conversation` (a bot's, a worker's or a helper's): the
     /// packaged bot's name it is refused in, and the effects left on all the way up.
     pub(crate) fn ceiling(&self, conversation: &str) -> Option<(String, Effects)> {
+        narrowest(self.held_over(conversation))
+    }
+
+    /// The packaged bots whose switches the ceiling over `conversation` reads: a change to any of
+    /// them can change it.
+    pub(crate) fn ceiling_holders(&self, conversation: &str) -> Vec<String> {
+        self.held_over(conversation)
+            .into_iter()
+            .filter_map(|held| held.by)
+            .collect()
+    }
+
+    /// Every ceiling a call in `conversation` is held to, the outermost first.
+    fn held_over(&self, conversation: &str) -> Vec<Held> {
         let owner = self
             .helper_of(conversation)
             .map_or_else(|| conversation.to_owned(), |h| h.parent);
@@ -123,9 +137,7 @@ impl Engine {
                 self.held_by(&agent, MOST_MAKERS, &mut held);
             }
         }
-        let name = held.last().map(|(name, _)| name.clone());
-        let allows = link::narrowed(held.into_iter().map(|(_, allows)| Some(allows)))?;
-        Some((name.unwrap_or_default(), allows))
+        held
     }
 
     /// The ceiling over bot `agent`'s own runs: its commands, terminal and services.
@@ -134,17 +146,28 @@ impl Engine {
         self.ceiling(&agent.conversation)
     }
 
-    /// Every ceiling `agent` is held to, the outermost first: what it was made under, its maker's
-    /// as it is now, then its own package's.
-    fn held_by(&self, agent: &spade_store::Agent, makers: usize, out: &mut Vec<(String, Effects)>) {
-        let made_under = self
-            .store
-            .setting(&made_under_key(&agent.id))
-            .ok()
-            .flatten()
-            .and_then(|text| serde_json::from_str::<MadeUnder>(&text).ok());
-        if let Some(under) = made_under {
-            out.push((under.bot.clone(), under.effects()));
+    /// Every ceiling `agent` is held to, the outermost first: what its makers hold it to, then
+    /// its own package's.
+    fn held_by(&self, agent: &spade_store::Agent, makers: usize, out: &mut Vec<Held>) {
+        self.made_held(agent, makers, out);
+        if let Some(link) = self.bot_package(&agent.id) {
+            out.push(Held {
+                name: agent.name.clone(),
+                allows: link.allows(),
+                by: Some(agent.id.clone()),
+            });
+        }
+    }
+
+    /// What `agent`'s makers hold it to: the ceiling it was made under (as last narrowed), and
+    /// its maker's as it is now while the maker is here.
+    fn made_held(&self, agent: &spade_store::Agent, makers: usize, out: &mut Vec<Held>) {
+        if let Some(under) = self.made_under(&agent.id) {
+            out.push(Held {
+                name: under.bot.clone(),
+                allows: under.effects(),
+                by: None,
+            });
         }
         if makers > 0
             && let Some(maker) = self.maker_of(&agent.id)
@@ -152,8 +175,40 @@ impl Engine {
         {
             self.held_by(&maker, makers - 1, out);
         }
-        if let Some(link) = self.bot_package(&agent.id) {
-            out.push((agent.name.clone(), link.allows()));
+    }
+
+    fn made_under(&self, agent: &str) -> Option<MadeUnder> {
+        let text = self.store.setting(&made_under_key(agent)).ok()??;
+        serde_json::from_str(&text).ok()
+    }
+
+    /// Narrows the ceiling each bot a packaged bot made carries to what its makers hold it to
+    /// now, so it never widens again: not when its maker is gone, and not on another machine a
+    /// move takes it to (the setting moves with it). Run after a package's switches change and
+    /// before a bot moves.
+    pub(crate) fn narrow_made_under(&self) {
+        let Ok(agents) = self.store.agents() else {
+            return;
+        };
+        for agent in agents {
+            let Some(before) = self.made_under(&agent.id) else {
+                continue;
+            };
+            let mut held = Vec::new();
+            self.made_held(&agent, MOST_MAKERS, &mut held);
+            let Some((bot, allows)) = narrowest(held) else {
+                continue;
+            };
+            if allows == before.effects() {
+                continue;
+            }
+            let text = serde_json::to_string(&MadeUnder::new(&bot, allows)).unwrap_or_default();
+            if let Err(error) = self
+                .store
+                .set_setting(&made_under_key(&agent.id), Some(&text))
+            {
+                tracing::warn!(%error, bot = %agent.id, "a made bot's ceiling was not narrowed");
+            }
         }
     }
 
@@ -209,6 +264,21 @@ impl Engine {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         Some((usd * 1_000_000.0 / 24.0).round() as u64)
     }
+}
+
+/// One ceiling a call is held to: the packaged bot it names, what it allows, and the bot whose
+/// switches decide it, when one does (a made bot's stored ceiling has none).
+struct Held {
+    name: String,
+    allows: Effects,
+    by: Option<String>,
+}
+
+/// The narrowest of `held`, named for the innermost: `None` when nothing holds the call.
+fn narrowest(held: Vec<Held>) -> Option<(String, Effects)> {
+    let name = held.last().map(|held| held.name.clone());
+    let allows = link::narrowed(held.into_iter().map(|held| Some(held.allows)))?;
+    Some((name.unwrap_or_default(), allows))
 }
 
 /// A link as stored. Strings, lists and finite numbers read from JSON: this always serializes.
