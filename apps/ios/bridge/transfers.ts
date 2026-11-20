@@ -378,16 +378,21 @@ export class NativeTransfers {
         thread?.status,
       );
       // A copy the daemon hasn't confirmed may be working again: wait until it says.
-      const settled =
-        thread !== undefined &&
-        open.store.unconfirmed !== true &&
-        !continueBlocked(thread.status.state);
+      const known = thread !== undefined && open.store.unconfirmed !== true;
+      const moved = thread?.status.state === "moved" ? thread.status.to.name : undefined;
       return {
         type: "transfers.thread",
         thread: {
           threadId: open.threadId,
           epoch: open.epoch,
-          canContinue: settled,
+          canContinue: known && !continueBlocked(thread.status.state),
+          /** Why Continue on waits, beside it; null while it can be chosen. */
+          blocked:
+            moved !== undefined
+              ? `Its work already moved to ${moved}`
+              : known
+                ? null
+                : "Available once this machine answers",
           line: threadLine(state, this.#lineOptions(transfer?.transferId)),
         },
       };

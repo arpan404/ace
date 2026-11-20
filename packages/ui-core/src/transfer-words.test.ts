@@ -1,6 +1,6 @@
 import { HostId, ThreadId, WorkspaceId, type Transfer } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { doneWords, runningWords } from "./transfer-words.ts";
+import { doneWords, refusalWords, runningWords } from "./transfer-words.ts";
 import { continuedWords, threadTransferState } from "./transfers.ts";
 
 type Result = NonNullable<Transfer["result"]>;
@@ -63,4 +63,30 @@ test("the thread line names where moved work went, and opens the thread there", 
     words: "Moved to Studio",
     where: to,
   });
+});
+
+test("a move that stopped before handing over says the thread stayed here, words or none", () => {
+  expect(refusalWords({ code: "process_still_running" }, "Studio")).toBe(
+    "Something in the thread didn't stop, so it stayed here. Stop it, then try again.",
+  );
+  expect(refusalWords({ code: "remote_child_unconfirmed" }, "Studio")).toBe(
+    "A subagent on another machine never confirmed it stopped, so the thread stayed here.",
+  );
+  expect(refusalWords({ code: "target_too_old" }, "Studio")).toBe(
+    "Studio runs an older ace that can't take a working thread. Let it finish here, or update ace there.",
+  );
+  // An upgraded machine still indexing its transfers refuses a move for a moment.
+  expect(refusalWords({ code: "transfers_unavailable" }, "Studio")).toBe(
+    "Transfers aren't ready on this machine yet. Try again in a moment.",
+  );
+  // The daemon's own sentence wins: it names the process that kept running.
+  expect(
+    refusalWords(
+      {
+        code: "process_still_running",
+        detail: "npm run dev didn't stop, so the thread stayed here.",
+      },
+      "Studio",
+    ),
+  ).toBe("npm run dev didn't stop, so the thread stayed here.");
 });

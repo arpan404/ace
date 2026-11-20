@@ -74,6 +74,8 @@ struct TransferThreadState: Codable, Equatable, Sendable {
     let threadId: String
     let epoch: Int
     let canContinue: Bool
+    /// Why Continue on waits ("Its work already moved to Studio"); nil while it can be chosen.
+    var blocked: String? = nil
     let line: TransferLineRow?
 }
 

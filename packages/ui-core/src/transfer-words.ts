@@ -110,6 +110,16 @@ function codeWords(code: string | undefined, machine: string): string {
       return "This thread moved to another machine. Continue it there.";
     case "target_too_old":
       return `${machine} runs an older ace that can't take a working thread. Let it finish here, or update ace there.`;
+    // A working thread's move that stopped before handing over (ADR 0191): it stays here.
+    case "process_still_running":
+    case "tree_still_working":
+      return "Something in the thread didn't stop, so it stayed here. Stop it, then try again.";
+    case "process_unconfirmed":
+      return "An agent here didn't confirm it stopped, so the thread stayed here. Try again.";
+    case "remote_child_unconfirmed":
+      return "A subagent on another machine never confirmed it stopped, so the thread stayed here.";
+    case "remote_children_unread":
+      return "The subagents on other machines couldn't all be checked in time, so the thread stayed here.";
     case "workspace_change_in_progress":
       return "The thread's checkout is still being changed. Try again once that's done.";
     case "workspace_preparing":

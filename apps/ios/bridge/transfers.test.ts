@@ -90,6 +90,7 @@ test("Continue on is offered while the thread works, and not once its work moved
   await until(() => app.thread()?.canContinue === true, "settled");
   app.daemon.apply("thread-forecast", [facts.rootAgent("claude"), facts.turn("root")]);
   await until(() => app.thread()?.canContinue === true, "offered while working");
+  expect(app.thread()?.blocked).toBeNull();
   app.daemon.apply("thread-forecast", [
     facts.endTurn("root"),
     {
@@ -98,6 +99,10 @@ test("Continue on is offered while the thread works, and not once its work moved
     },
   ]);
   await until(() => app.thread()?.canContinue === false, "moved");
+  expect(app.thread()?.blocked).toBe("Its work already moved to Studio");
+  // Never done or idle: the thread says where its work went, with Open to follow it there.
+  expect(said(app.thread()?.line)).toEqual({ words: "Moved to Studio", actions: ["Open"] });
+  expect(app.strip()?.open).toEqual({ hostId: "studio", threadId: "there", workspaceId: null });
 });
 
 test("Cancel stops the transfer, and the line says so with Try again", async () => {
@@ -218,4 +223,49 @@ test("a transfer starting its thread there can no longer be cancelled", () => {
     words: "Starting the thread on Build server",
     actions: [],
   });
+});
+
+test("a working thread's move says where it stands, and a stop that failed says it stayed here", () => {
+  const app = linkedMac();
+  app.agentContinues();
+  const [preparing] = app.daemon.transfers.list();
+  if (!preparing) throw new Error("no transfer");
+  const line = (more: Partial<typeof preparing>) =>
+    said(transferLine({ ...preparing, ...more }, { retry: true }));
+  expect(
+    line({
+      phase: "sending",
+      sentBytes: 312_000_000,
+      totalBytes: 1_200_000_000,
+      live: { stage: "readying" },
+    }),
+  ).toEqual({ words: "Getting Build server ready · 312 MB of 1.2 GB", actions: ["Cancel"] });
+  expect(line({ phase: "sending", live: { stage: "stopping" } })?.words).toBe(
+    "Stopping the work here",
+  );
+  expect(line({ phase: "importing", live: { stage: "handing" } })?.words).toBe(
+    "Moving to Build server",
+  );
+  expect(
+    line({ phase: "failed", error: { code: "remote_child_unconfirmed", message: "" } }),
+  ).toEqual({
+    words: "A subagent on another machine never confirmed it stopped, so the thread stayed here.",
+    actions: ["Try again"],
+  });
+  expect(line({ phase: "failed", error: { code: "target_too_old", message: "" } })?.words).toBe(
+    "Build server runs an older ace that can't take a working thread. Let it finish here, or update ace there.",
+  );
+});
+
+test("a transfer ace's relay won't carry says how to send it", async () => {
+  const relay =
+    "Only ace's relay reaches that machine right now, and it carries a project's files only up to 8 MiB. Send it again while the machines reach each other directly (LAN or Tailscale), or link them through your own relay.";
+  const app = await mac();
+  app.daemon.transfers.failWith = { code: "not_supported", message: relay };
+  app.act({ kind: "open", subject: forecast });
+  await app.sheetAt("machines");
+  app.act({ kind: "choose", hostId: "build" });
+  app.act({ kind: "send", includeChanges: true, includeIgnored: true });
+  await app.finish();
+  await app.sheetAt("status", (step) => said(step.line)?.words === relay);
 });

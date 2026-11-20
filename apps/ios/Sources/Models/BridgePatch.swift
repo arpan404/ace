@@ -247,6 +247,9 @@ struct PendingRow: Codable, Sendable, Identifiable {
     let label: String?; let token: String?
     /// Why it wasn't sent, behind Details, and the files on it; nil from older bridges.
     var detail: String? = nil; var files: Int? = nil
+    /// Said beside "Not sent" when it is acted on elsewhere ("This thread moved to another
+    /// machine. Continue it there."); empty or nil otherwise.
+    var reason: String? = nil
     /// What runs on the send now ("editing", "retrying"): the other control waits for it.
     var busy: String? = nil
     /// A stale Git lock an earlier daemon left stopped it: Clear stale lock is offered.
