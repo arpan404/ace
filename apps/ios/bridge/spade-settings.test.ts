@@ -233,6 +233,7 @@ test("Web search keeps the person's SearXNG address and a Brave key, which never
     set: true,
     words: "In keychain",
     canSet: true,
+    canRemove: true,
   });
   expect(JSON.stringify(brave)).not.toContain("brave-secret-9");
   expect(api.search.braveKeySet).toBe(true);
@@ -284,6 +285,8 @@ test("Apps lists each connected app with its health and the bots that use it, an
       ok: true,
       account: "ace-dev",
       line: "Spade, Writer · Not used yet",
+      reconnect: null,
+      device: null,
     },
     {
       id: "linear",
@@ -292,6 +295,8 @@ test("Apps lists each connected app with its health and the bots that use it, an
       ok: false,
       account: null,
       line: "Spade · Not used yet",
+      reconnect: "sign_in",
+      device: null,
     },
   ]);
   // A skill shows once a bot uses or wrote it.

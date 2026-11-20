@@ -209,17 +209,26 @@ export function spadeModelsPage(models: SpadeModels): SpadeModelsPageRow {
 
 export interface SpadeSearchPageRow {
   searxng: string | null;
-  brave: { set: boolean; words: string; canSet: boolean };
+  /** Remove only for a key in the keychain: one from the environment stays (ADR 0119). */
+  brave: { set: boolean; words: string; canSet: boolean; canRemove: boolean };
   keychain: boolean;
 }
 
 export function spadeSearchPage(settings: SpadeSearchSettings): SpadeSearchPageRow {
+  const source = settings.braveKeySet ? settings.braveKeySource : undefined;
   return {
     searxng: settings.searxngUrl,
     brave: {
       set: settings.braveKeySet,
-      words: settings.braveKeySet ? "In keychain" : "Not set",
+      words: !settings.braveKeySet
+        ? "Not set"
+        : source === "environment"
+          ? "From environment"
+          : source === "keychain"
+            ? "In keychain"
+            : "Set",
       canSet: settings.keychain,
+      canRemove: source === "keychain" && settings.keychain,
     },
     keychain: settings.keychain,
   };
@@ -234,6 +243,13 @@ export interface SpadeAppRow {
   account: string | null;
   /** The bots that use it, and when one last did. */
   line: string;
+  /**
+   * Its sign-in ended: Reconnect with a token pasted here (`token`), or by signing in again
+   * (`sign_in`); null while it works.
+   */
+  reconnect: "token" | "sign_in" | null;
+  /** A device sign-in waiting on the person: the code, and the page to enter it on. */
+  device: { code: string; url: string } | null;
 }
 
 export interface SpadeAppsPageRow {
@@ -248,8 +264,14 @@ const named = (ids: readonly string[], names: ReadonlyMap<string, string>) =>
     return name ? [name] : [];
   });
 
-function appRow(connector: SpadeConnector, names: ReadonlyMap<string, string>, now: number) {
+function appRow(
+  connector: SpadeConnector,
+  names: ReadonlyMap<string, string>,
+  now: number,
+): SpadeAppRow {
   const users = named(connector.bots, names);
+  const signedOut = connector.state === "needs_reconnect" || connector.state === "signing_in";
+  const device = connector.device;
   return {
     id: connector.id,
     name: connector.name,
@@ -260,6 +282,8 @@ function appRow(connector: SpadeConnector, names: ReadonlyMap<string, string>, n
       users.length ? users.join(", ") : "No bot uses it",
       spadeLastUsedWords(connector.lastUsedMs, now),
     ].join(" · "),
+    reconnect: signedOut ? (connector.signIn === "token" ? "token" : "sign_in") : null,
+    device: device?.state === "waiting" ? { code: device.code, url: device.url } : null,
   };
 }
 

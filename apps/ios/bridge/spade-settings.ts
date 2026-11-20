@@ -26,6 +26,8 @@ import {
   type SpadeModelsPageRow,
   type SpadeSearchPageRow,
 } from "./spade-settings-rows.ts";
+import { appName, reconnectApp } from "./spade-reconnect.ts";
+import { keepKey, keepToken, removeKey, secretRefusal } from "./spade-secret-writes.ts";
 import { segment, type NativeSpade } from "./spade.ts";
 
 /*
@@ -57,6 +59,12 @@ export const spadeSettingsRequests = [
   }),
   z.object({ type: z.literal("spade.settings.brave"), key: key.nullable() }),
   z.object({ type: z.literal("spade.settings.disconnect"), connector: id }),
+  /** Sign an app in again: with a token pasted on the phone, or by signing in again. */
+  z.object({
+    type: z.literal("spade.settings.reconnect"),
+    connector: id,
+    token: key.optional(),
+  }),
 ] as const;
 export const NativeSpadeSettingsRequest = z.discriminatedUnion("type", spadeSettingsRequests);
 export type NativeSpadeSettingsRequest = z.infer<typeof NativeSpadeSettingsRequest>;
@@ -73,7 +81,12 @@ type Line = ReturnType<typeof spadePlaceLine>;
 type Refusal = { ok: false; title: string; message: string };
 export type SpadeSettingsAnswer =
   | Refusal
-  | ({ ok: true; line: Line } & (
+  | ({
+      ok: true;
+      line: Line;
+      /** A word beside the page: a write that went through when the page couldn't be read. */
+      notice?: string;
+    } & (
       | { general: SpadeGeneralPageRow }
       | { models: SpadeModelsPageRow }
       | { search: SpadeSearchPageRow }
@@ -86,6 +99,12 @@ export type Ask = (
   route: string,
   body?: unknown,
 ) => Promise<string>;
+
+/** A write went through, but the page it changed couldn't be read again. */
+const unread = "Saved. The page couldn't be read again; pull to refresh.";
+
+/** A refusal in Spade's own words, for a change that carries no secret. */
+const plain = (title: string) => (error: unknown) => refused(title, error);
 
 const refused = (title: string, error: unknown): Refusal => ({
   ok: false,
@@ -127,17 +146,26 @@ export async function answerSpadeSettings(
 ): Promise<SpadeSettingsAnswer> {
   const page = (name: "general" | "models" | "search" | "apps") =>
     readPage(spade, name, ask, deps.now());
+  /**
+   * A change, then the page as it now is. A failed change says why (`fail`); one that went
+   * through says so even when the page can't be read again, so nothing is sent twice.
+   */
   const write = async (
-    title: string,
+    fail: (error: unknown) => Refusal,
     change: () => Promise<unknown>,
     then: Parameters<typeof page>[0],
-  ) => {
+    said: () => string | undefined = () => undefined,
+  ): Promise<SpadeSettingsAnswer> => {
     try {
       await change();
     } catch (error) {
-      return refused(title, error);
+      return fail(error);
     }
-    return page(then);
+    const notice = said();
+    const shown = await page(then);
+    if (shown.ok) return notice ? { ...shown, notice } : shown;
+    const { status, enabled } = spade.setting;
+    return { ok: true, line: spadePlaceLine(status, enabled), notice: notice ?? unread };
   };
   switch (request.type) {
     case "spade.settings.read":
@@ -148,44 +176,71 @@ export async function answerSpadeSettings(
     }
     case "spade.settings.model":
       return write(
-        "Couldn't change the model",
+        plain("Couldn't change the model"),
         () => ask("PUT", "/v1/settings", { [`${request.role}_model`]: request.model }),
         "general",
       );
     case "spade.settings.key": {
       const route = `/v1/keys/${segment(request.endpoint)}`;
       return request.key === null
-        ? write("Couldn't remove the key", () => ask("DELETE", route), "models")
-        : write("Couldn't keep the key", () => ask("PUT", route, { key: request.key }), "models");
+        ? write(
+            (e) => secretRefusal(removeKey, e),
+            () => ask("DELETE", route),
+            "models",
+          )
+        : write(
+            (e) => secretRefusal(keepKey, e),
+            () => ask("PUT", route, { key: request.key }),
+            "models",
+          );
     }
     case "spade.settings.endpoint.add":
-      return write("Couldn't add it", () => addFromPreset(ask, request.preset), "models");
+      return write(plain("Couldn't add it"), () => addFromPreset(ask, request.preset), "models");
     case "spade.settings.endpoint.remove":
       return write(
-        "Couldn't remove it",
+        plain("Couldn't remove it"),
         () => ask("DELETE", `/v1/endpoints/${segment(request.endpoint)}`),
         "models",
       );
     case "spade.settings.searxng":
       return write(
-        "Couldn't save the address",
+        plain("Couldn't save the address"),
         () => ask("PUT", "/v1/search", { searxng_url: request.url || null }),
         "search",
       );
     case "spade.settings.brave":
       return request.key === null
-        ? write("Couldn't remove the key", () => ask("DELETE", "/v1/search/brave-key"), "search")
+        ? write(
+            (e) => secretRefusal(removeKey, e),
+            () => ask("DELETE", "/v1/search/brave-key"),
+            "search",
+          )
         : write(
-            "Couldn't keep the key",
+            (e) => secretRefusal(keepKey, e),
             () => ask("PUT", "/v1/search/brave-key", { key: request.key }),
             "search",
           );
     case "spade.settings.disconnect":
       return write(
-        "Couldn't disconnect it",
+        plain("Couldn't disconnect it"),
         () => ask("DELETE", `/v1/connectors/${segment(request.connector)}`),
         "apps",
       );
+    case "spade.settings.reconnect": {
+      const { connector, token } = request;
+      const app = await appName(ask, connector);
+      let notice: string | undefined;
+      return write(
+        token === undefined
+          ? plain(`Couldn't reconnect ${app}`)
+          : (e) => secretRefusal(keepToken(app), e),
+        async () => {
+          notice = await reconnectApp(ask, connector, token, { app, machine: spade.machineName });
+        },
+        "apps",
+        () => notice,
+      );
+    }
   }
 }
 
