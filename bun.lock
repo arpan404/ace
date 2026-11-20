@@ -1115,6 +1115,13 @@
         "zod": "^4.6.5",
       },
     },
+    "tools/connector-registrations": {
+      "name": "@ace/connector-registrations",
+      "dependencies": {
+        "@ace/cloud": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "tools/daemon-bench": {
       "name": "@ace/daemon-bench",
       "dependencies": {
@@ -1309,6 +1316,8 @@
     "@ace/cloud": ["@ace/cloud@workspace:apps/cloud"],
 
     "@ace/commands": ["@ace/commands@workspace:packages/commands"],
+
+    "@ace/connector-registrations": ["@ace/connector-registrations@workspace:tools/connector-registrations"],
 
     "@ace/context": ["@ace/context@workspace:packages/context"],
 

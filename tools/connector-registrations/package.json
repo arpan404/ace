@@ -1,0 +1,13 @@
+{
+  "name": "@ace/connector-registrations",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
+  },
+  "dependencies": {
+    "@ace/cloud": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}
