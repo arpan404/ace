@@ -64,6 +64,12 @@ type State = {
   };
 };
 const emptyPreferences: ProviderConfigurations = [];
+function sameModes(
+  left: readonly import("@ace/protocol").NativePermissionMode[] | undefined,
+  right: readonly import("@ace/protocol").NativePermissionMode[],
+): boolean {
+  return left !== undefined && JSON.stringify(left) === JSON.stringify(right);
+}
 function cacheRevision(instance: ModelInstance): string {
   return instance.provider === "opencode"
     ? createHash("sha256")
@@ -576,6 +582,38 @@ export class ModelCatalog implements ModelCatalogApi {
     if (!state || this.#closed) return;
     state.permissionModes = [...modes];
     this.#changed(state);
+    this.#persistPermissionModes(state, modes);
+  }
+  /**
+   * A session's reported modes survive a restart: written onto the cached entry, in line with
+   * other session writes. Without a cached entry the next discovery stores them instead.
+   */
+  #persistPermissionModes(
+    state: State,
+    modes: readonly import("@ace/protocol").NativePermissionMode[],
+  ): void {
+    if (!state.entry || sameModes(state.entry.permissionModes, modes)) return;
+    if (this.#sessionWrites.size >= 64) return;
+    const id = state.config.id;
+    const previous = this.#sessionTails.get(id) ?? Promise.resolve();
+    const write = previous
+      .catch(() => {})
+      .then(async () => {
+        const current = state.entry;
+        if (this.#states.get(id) !== state || !current) return;
+        if (sameModes(current.permissionModes, modes)) return;
+        const next = { ...current, permissionModes: [...modes] };
+        await this.#options.storage.replace(next);
+        if (state.entry === current) state.entry = next;
+      });
+    this.#sessionWrites.add(write);
+    this.#sessionTails.set(id, write);
+    const cleanup = () => {
+      this.#sessionWrites.delete(write);
+      if (this.#sessionTails.get(id) === write) this.#sessionTails.delete(id);
+    };
+    // A failed write leaves the in-memory modes; the next session or discovery writes them.
+    void write.then(cleanup, cleanup);
   }
   /** Metadata from an already authorized session. No process, session or inference is started. */
   async updateFromSession(input: InstanceInput, metadata: unknown): Promise<void> {

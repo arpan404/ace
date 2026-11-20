@@ -4,7 +4,27 @@ import { object, string } from "../data.ts";
 const write = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const levels: Record<string, string[]> = { fast: ["low", "high"], deep: ["low", "high", "max"] };
 let model = "fast";
+// With --mode the agent has a permission mode that a model change puts back to its default.
+let mode = "default";
+// With --hold-prompt a turn stays running until the mode changes.
+let heldPrompt: unknown;
+const modeOption = () =>
+  process.argv.includes("--mode")
+    ? [
+        {
+          id: "mode",
+          category: "mode",
+          type: "select",
+          currentValue: mode,
+          options: [
+            { value: "default", name: "Default" },
+            { value: "yolo", name: "YOLO" },
+          ],
+        },
+      ]
+    : [];
 const configOptions = () => [
+  ...modeOption(),
   {
     id: "model",
     category: "model",
@@ -36,7 +56,18 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       write({ id: message["id"], error: { code: -32602, message: "Thinking level unavailable" } });
       return;
     }
-    if (params["configId"] === "model") model = string(params["value"]);
+    if (params["configId"] === "model") {
+      model = string(params["value"]);
+      mode = "default";
+    }
+    if (params["configId"] === "mode") mode = string(params["value"]);
     result({ configOptions: configOptions() });
-  } else if (message["method"] === "session/prompt") result({ stopReason: "end_turn" });
+    if (params["configId"] === "mode" && heldPrompt !== undefined) {
+      write({ id: heldPrompt, result: { stopReason: "end_turn" } });
+      heldPrompt = undefined;
+    }
+  } else if (message["method"] === "session/prompt") {
+    if (process.argv.includes("--hold-prompt")) heldPrompt = message["id"];
+    else result({ stopReason: "end_turn" });
+  }
 });

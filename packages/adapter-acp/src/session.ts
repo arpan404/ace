@@ -116,6 +116,7 @@ class AcpSession implements ProviderSession {
   get acpSupport() {
     return this.configuration.support;
   }
+  refusedOptions: string[] = [];
   readonly launch: LaunchOptions;
   queuedBytes = 0;
   readonly ctx: SessionContext;
@@ -364,22 +365,42 @@ class AcpSession implements ProviderSession {
     this.routing.bindRoot(this.nativeSessionId);
     if (!this.nativeSessionId) throw new Error("ACP server did not return a session id");
     this.configuration.setup(session, mcpTransport);
-    if (this.ctx.permissionMode) await this.setMode(this.ctx.permissionMode);
-    if (this.ctx.model) await this.setModel(this.ctx.model);
+    const mode = this.ctx.permissionMode;
+    if (mode) await this.setMode(mode);
+    if (this.ctx.model) {
+      const before = this.configuration.selectors.raw;
+      await this.setModel(this.ctx.model);
+      // A model's reply can carry a fresh set of options with the mode back at its default.
+      if (
+        mode &&
+        this.configuration.selectors.raw !== before &&
+        this.configuration.current("mode") !== mode
+      )
+        await this.setMode(mode);
+    }
     // Effort follows the model: the model's own thinking levels arrive with its selection. An
-    // agent that refuses the level keeps its default; a start never fails over effort.
+    // agent that refuses the level keeps its default; a start never fails over effort, and the
+    // daemon is told so the thread stops showing a level that isn't running.
     const effort = this.ctx.options?.["effort"];
-    if (typeof effort === "string" && this.configuration.selectors.effort?.values.includes(effort))
-      await this.configuration.select("effort", effort, this.nativeSessionId).catch(() => {});
+    if (typeof effort === "string" && !(await this.selectEffort(effort)))
+      this.refusedOptions = ["effort"];
+  }
+  async selectEffort(effort: string): Promise<boolean> {
+    if (!this.configuration.selectors.effort?.values.includes(effort)) return false;
+    try {
+      await this.configuration.select("effort", effort, this.nativeSessionId);
+      return true;
+    } catch {
+      return false;
+    }
   }
   async select(kind: "model" | "mode" | "effort", value: string): Promise<void> {
+    // ACP lets a client change the session mode at any time, a running turn included, so a new
+    // access mode lands at once. Model and effort still change only between turns.
+    if (this.closed || this.selecting) throw new Error("ACP selectors require a settled session");
     if (
-      this.closed ||
-      this.active ||
-      this.selecting ||
-      this.routing.hasLiveChildren ||
-      this.pending.size ||
-      this.shells.blocked
+      kind !== "mode" &&
+      (this.active || this.routing.hasLiveChildren || this.pending.size || this.shells.blocked)
     )
       throw new Error("ACP selectors require a settled session");
     this.selecting = true;

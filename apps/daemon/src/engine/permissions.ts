@@ -361,6 +361,30 @@ export class Permissions {
       );
     });
   }
+  /**
+   * The thread's own choice when the session it just opened runs something else, because the
+   * instance doesn't offer that mode. The choice is replaced by what runs, so it never reads as
+   * pending forever; the caller tells the person. Undefined when the choice runs as asked, or
+   * when a Custom native from settings is what runs instead.
+   */
+  unhonoured(id: ThreadId, running: AccessSelection | null, at: number): AccessMode | undefined {
+    const requested = AccessMode.safeParse(this.read(id).override);
+    if (!requested.success || requested.data === running || customNative(running)) return undefined;
+    const kept = AccessMode.safeParse(running);
+    this.repo.store.atomic(() => {
+      this.repo.store.atomic((db) =>
+        db
+          .prepare("UPDATE engine_permissions SET override=? WHERE thread_id=?")
+          .run(kept.success ? kept.data : null, id),
+      );
+      this.repo.store.appendEvents(
+        id,
+        [{ type: "thread.updated", permission: this.state(id) }],
+        at,
+      );
+    });
+    return requested.data;
+  }
   /** A provider acknowledged a native selector (Codex reports each turn's). */
   appliedNative(
     id: ThreadId,

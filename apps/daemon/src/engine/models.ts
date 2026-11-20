@@ -39,12 +39,23 @@ export class EngineModels {
     instance: string | undefined,
     base: import("@ace/protocol").Capabilities,
   ): import("@ace/protocol").Capabilities {
+    return this.knownPermissionCapabilities(provider, instance, base) ?? base;
+  }
+  /**
+   * The instance's modes as its catalog knows them, or undefined while it knows none: an agent
+   * that has not reported its session modes yet is unknown, not one that offers nothing.
+   */
+  knownPermissionCapabilities(
+    provider: ProviderKind,
+    instance: string | undefined,
+    base: import("@ace/protocol").Capabilities,
+  ): import("@ace/protocol").Capabilities | undefined {
     const target = instance ?? `${provider}-cli-default`;
     const status = this.catalog
       ?.list({ provider })
       .instances.find((row) => row.instance === target || row.instanceId === target);
     const modes = status?.permissionModes;
-    if (!modes || !base.permissions) return base;
+    if (!modes?.length || !base.permissions) return undefined;
     return {
       ...base,
       permissionModes: modes,

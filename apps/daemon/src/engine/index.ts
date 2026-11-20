@@ -188,6 +188,7 @@ export class Engine {
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
+      ...(options.sessionCatalog ? { catalog: options.sessionCatalog } : {}),
       ...(options.agentHome ? { agentHome: options.agentHome } : {}),
       repo: this.repo,
       ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
@@ -360,8 +361,8 @@ export class Engine {
       models,
     );
     this.internalHandler = {
-      handle: (command, context) =>
-        this.closing
+      handle: (command, context) => {
+        const result = this.closing
           ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
           : !this.readyState
             ? { commandId: command.id, ok: false, error: "engine_starting" }
@@ -372,7 +373,11 @@ export class Engine {
                   (this.commandPolicy
                     ? this.commandPolicy(command, () => handler.handle(command, context))
                     : handler.handle(command, context)),
-              ),
+              );
+        if (result.ok && command.payload.type === "thread.permission.set")
+          this.sessions.accessChanged(this.actors.get(command.payload.threadId), this.report);
+        return result;
+      },
     };
     this.handler = {
       handle: (command, context) => {

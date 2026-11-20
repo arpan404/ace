@@ -262,6 +262,11 @@ export interface ProviderSession {
   configure?(selection: ExecutionSelection): Promise<void | "reopen">;
   readonly effectiveCapabilities?: Capabilities | undefined;
   readonly acpSupport?: AcpSessionSupport | undefined;
+  /**
+   * Execution options the session was opened with that the provider didn't take (an effort its
+   * model doesn't list, or one it refused). The thread stops showing them; it runs the default.
+   */
+  readonly refusedOptions?: readonly string[];
   setModel?(model: string): Promise<void>;
   setMode?(mode: string): Promise<void>;
   /** Set, pause or resume the provider's native goal. Providers without goals omit it. */
