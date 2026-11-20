@@ -98,6 +98,44 @@ export const PackageRequires = z.strictObject({
   spade: z.string().max(40).optional(),
 });
 
+/**
+ * A card or panel a package ships (ADR 0200 §5). A panel's `state` and each action's `value` are
+ * data schemas, a bounded JSON Schema subset `@ace/marketplace` reads strictly
+ * (`schemaProblems`); here they are kept as written.
+ */
+export type PackageSurface =
+  | { kind: "card"; id: string; file: string }
+  | {
+      kind: "panel";
+      id: string;
+      file: string;
+      title: string;
+      state?: unknown;
+      actions?: { name: string; label?: string | undefined; value?: unknown }[] | undefined;
+    };
+// Named rather than inferred: recipes ride in many wire messages, whose inferred type would
+// otherwise grow past what the compiler writes out.
+export const PackageSurface: z.ZodType<PackageSurface> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("card"), id: z.string().max(40), file: z.string().max(200) }),
+  z.object({
+    kind: z.literal("panel"),
+    id: z.string().max(40),
+    file: z.string().max(200),
+    title: trimmedText(1, 60),
+    state: z.unknown().optional(),
+    actions: z
+      .array(
+        z.object({
+          name: z.string().max(40),
+          label: trimmedText(1, 40).optional(),
+          value: z.unknown().optional(),
+        }),
+      )
+      .max(16)
+      .optional(),
+  }),
+]);
+
 /** The version 3 fields a read recipe carries; a version 2 recipe has none of them. */
 export const packageFields = {
   requires: PackageRequires.optional(),
@@ -110,6 +148,7 @@ export const packageFields = {
     .max(64)
     .default([]),
   style: z.strictObject({ accent: z.string().regex(/^#[0-9a-fA-F]{6}$/) }).optional(),
+  surfaces: z.array(PackageSurface).max(16).optional(),
 };
 
 /** A linked bot's package and version, from the signed manifest (ADR 0200 §3.9). */

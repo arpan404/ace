@@ -4,6 +4,7 @@ import { text } from "../listing.ts";
 import type { Recipe } from "@ace/protocol/marketplace";
 import { readRecipe } from "../recipe.ts";
 import { checkSkill, folderSecretProblems, type SkillInspection } from "./skill.ts";
+import { panelProblems } from "./panels.ts";
 
 /** A recipe's facts for its review, with each skill folder it holds checked as a skill. */
 export interface BotInspection {
@@ -85,6 +86,7 @@ export function checkBot(
           : `${file.path} isn't part of a recipe (bot.json and skills/<name>/ only)`,
       });
   }
+  if (packaged) problems.push(...panelProblems(raw["surfaces"], rest));
   const tests =
     read.recipe?.tests ??
     (Array.isArray(raw["tests"])

@@ -297,7 +297,7 @@ export type SpadePersonality = z.infer<typeof SpadePersonality>;
  * or an agent package at version 3 (ADR 0200 §3). `routines` holds its schedule triggers (version
  * 2's routines); `triggers` the other kinds. A version 2 recipe has none of version 3's fields.
  */
-export const Recipe = z.object({
+const recipeObject = z.object({
   format: z.literal("spade-bot"),
   version: z.union([z.literal(2), z.literal(3)]),
   name: trimmedText(1, 80),
@@ -321,7 +321,12 @@ export const Recipe = z.object({
   personality: SpadePersonality.optional(),
   ...packageFields,
 });
-export type Recipe = z.infer<typeof Recipe> & { extra?: Record<string, unknown> };
+// Named rather than inferred: a recipe rides in wire messages, whose inferred type would otherwise
+// grow past what the compiler writes out.
+export type Recipe = z.output<typeof recipeObject> & { extra?: Record<string, unknown> };
+/** A recipe as written, before its defaults. */
+export type RecipeInput = z.input<typeof recipeObject>;
+export const Recipe: z.ZodType<Recipe, RecipeInput> = recipeObject;
 
 /** Version 1 (ADR 0132), as an export between a person's own machines wrote it. */
 export const BotFileV1 = z.object({
