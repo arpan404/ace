@@ -6,11 +6,16 @@ import { AcpConfiguration } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
 import { openWithSignIn } from "@ace/provider-kit/acp-sign-in";
 import { clientMeta } from "./bridge-negotiation.ts";
-import { redactLease } from "./frame-redaction.ts";
+import { redactLease, redactedFrameJson } from "./frame-redaction.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { ShellSettlement } from "./shell-settlement.ts";
-import { answerRefusesTool, cancellationGraceMs, promptStop } from "./settlement.ts";
+import {
+  answerIsNeutral,
+  answerRefusesTool,
+  cancellationGraceMs,
+  promptStop,
+} from "./settlement.ts";
 import {
   InputRejected,
   SteerTargetLost,
@@ -271,14 +276,17 @@ class AcpSession implements ProviderSession {
     void this.close("shutdown").catch(() => {});
   };
   frame(dir: "send" | "recv" | "stderr" | "note", channel: string, data: unknown): void {
-    const redacted = redactLease(data, this.ctx.mcp?.secrets ?? []);
+    let redacted = data;
     let payload: ProviderPayload;
     try {
-      payload = new ProviderPayload(JSON.stringify(redacted));
+      const frame = redactedFrameJson(data, this.ctx.mcp?.secrets ?? []);
+      redacted = frame.value;
+      payload = new ProviderPayload(frame.json);
     } catch (error) {
       // Images the translator shows inline stay whole while they fit. Attachment bytes alone
       // never push a frame past its bound and end the session: they are elided instead.
       if (!(error instanceof RangeError)) throw error;
+      if (redacted === data) redacted = redactLease(data, this.ctx.mcp?.secrets ?? []);
       payload = new ProviderPayload(elidedJson(redacted));
     }
     this.ctx.onFrame({
@@ -612,16 +620,21 @@ class AcpSession implements ProviderSession {
   async resolve(key: string, resolution: InteractionResolution): Promise<void> {
     const pending = this.pending.get(key);
     if (!pending) throw new Error("ACP interaction is no longer pending");
-    const request = interactionRequest(
-      pending.request.method,
-      object(pending.request.params),
-      this.quirks,
-    );
+    // The request as published: lease secrets redacted, as the translator read it.
+    const native = object(pending.request.params);
+    const published = object(redactLease(native, this.ctx.mcp?.secrets ?? []));
+    const request = interactionRequest(pending.request.method, published, this.quirks);
     if (!request) throw new Error("Interaction request is no longer valid");
     const validated = validateResolution(request, resolution);
-    const answer = encodeResolution(pending.request.method, validated, request);
+    const answer = encodeResolution(
+      pending.request.method,
+      { published, native },
+      validated,
+      request,
+    );
     this.pending.delete(key);
-    this.answered(pending, answerRefusesTool(request, validated, false));
+    if (!answerIsNeutral(request, validated))
+      this.answered(pending, answerRefusesTool(request, validated, false));
     pending.answer(answer);
     // drain() settles each turn it takes, so its rejection has no reporter here.
     void this.drain().catch(() => {});

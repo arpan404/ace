@@ -36,3 +36,14 @@ export function answerRefusesTool(
     (o) => o.id === resolution.optionId && ["deny", "deny_always"].includes(o.kind),
   );
 }
+/**
+ * Whether an answer picked a neutral native choice (kind `other`, such as "Ask later"): it
+ * neither starts nor refuses the tool, so the agent's own later updates settle the call.
+ */
+export function answerIsNeutral(
+  request: InteractionRequest,
+  resolution: InteractionResolution | undefined,
+): boolean {
+  if (resolution?.kind !== "approval" || request.kind !== "approval") return false;
+  return request.options.some((o) => o.id === resolution.optionId && o.kind === "other");
+}

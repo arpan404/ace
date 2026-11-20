@@ -53,3 +53,26 @@ test("provider approval options remain available in every native mode", () => {
   ]);
   expect(offeredOptions(all, "plan").hidden).toBe(0);
 });
+
+test("a neutral choice the agent offered is never read back as approved or denied", () => {
+  const later = approval("resolved", {
+    request: {
+      kind: "approval",
+      title: "Run make",
+      options: [
+        { id: "once", label: "Allow once", kind: "allow_once" },
+        { id: "later", label: "Ask later", kind: "other" },
+      ],
+    },
+    resolution: { kind: "approval", optionId: "later" },
+  });
+  expect(approvalOutcome(later)).toEqual({
+    state: "closed",
+    tone: "muted",
+    text: "Answered by you",
+  });
+  expect(approvalOutcome({ ...later, autoReviewed: true })).toMatchObject({
+    state: "closed",
+    text: "Answered by ace",
+  });
+});
