@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
-import type { DeckHost, StatusNotice, StatusReport } from "./deck-host.ts";
+import type { DeckHost, StatusNotice } from "./deck-host.ts";
 import {
   evenSplit,
   focusedGroup,
@@ -14,6 +14,7 @@ import { GroupView } from "./group-view.tsx";
 import { fileName } from "./paths.ts";
 import { SplitGrid } from "./split-grid.tsx";
 import { StatusLine } from "./status-line.tsx";
+import { createStatusStore, useStatusReport, type StatusStore } from "./status-store.ts";
 
 /** Spec 5: under this width the Deck shows only the focused group. */
 export const compactBelowPx = 760;
@@ -39,18 +40,9 @@ export function Deck(props: DeckProps) {
   const groups = groupsOf(layout);
   const context = groupContext(props);
   const focused = focusedGroup(layout);
-  const [reports, setReports] = useState<ReadonlyMap<string, StatusReport>>(new Map());
-  const reportStatus = useCallback((group: string, report: StatusReport | undefined) => {
-    setReports((current) => {
-      const was = current.get(group);
-      if (was?.status === report?.status && was?.actions === report?.actions) return current;
-      const next = new Map(current);
-      if (report) next.set(group, report);
-      else next.delete(group);
-      return next;
-    });
-  }, []);
-  const host: DeckHost = { ...props, reportStatus };
+  // Status lives outside the Deck's state: a caret move redraws the status line alone.
+  const [status] = useState(createStatusStore);
+  const host: DeckHost = { ...props, reportStatus: status.report };
   const pendingFocus = useRef(false);
 
   useEffect(() => {
@@ -134,9 +126,18 @@ export function Deck(props: DeckProps) {
           />
         )}
       </div>
-      <StatusLine report={reports.get(focused.id)} notice={props.statusNotice} />
+      <FocusedStatusLine store={status} group={focused.id} notice={props.statusNotice} />
     </div>
   );
+}
+
+/** The status line on the focused group's report: the one part a status change redraws. */
+function FocusedStatusLine(props: {
+  store: StatusStore;
+  group: string;
+  notice: StatusNotice | undefined;
+}) {
+  return <StatusLine report={useStatusReport(props.store, props.group)} notice={props.notice} />;
 }
 
 /** ⌘1–⌘9 on macOS, Ctrl+1–9 elsewhere; ⌥ is allowed too, for the web's ⌥⌘ variant. */
