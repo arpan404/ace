@@ -219,6 +219,16 @@ export const ModelsRefreshRequest = z.object({
   requestId: label,
   filter: ModelFilter.default({}),
 });
+/**
+ * The person asks for one row's models (Load models): the only request that starts an ACP agent
+ * whose row is not loading already. The daemon admits it only from a socket that proved it is
+ * the person's, never from an agent's device; `models.refresh` only resets such a row.
+ */
+export const ModelsLoadRequest = z.object({
+  type: z.literal("models.load"),
+  requestId: label,
+  instance: label,
+});
 export const ModelsResolveRequest = z.object({
   type: z.literal("models.resolve"),
   requestId: label,
