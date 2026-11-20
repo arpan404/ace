@@ -66,6 +66,9 @@ pub(super) struct NewAgent {
     /// message are made together, or neither is.
     #[serde(default)]
     first_message: Option<FirstMessage>,
+    /// How the bot talks from its first turn; over a template's own.
+    #[serde(default)]
+    personality: Option<spade_core::personality::Personality>,
     /// A marketplace recipe to make the bot from (ADR 0168, docs/teams.md), with where it came
     /// from, what the person granted by pressing Install, and whether its routines start on.
     #[serde(default)]
@@ -74,8 +77,24 @@ pub(super) struct NewAgent {
     from_recipe: Option<crate::engine::FromRecipe>,
     #[serde(default)]
     grants: Option<crate::teams::RecipeGrants>,
+    /// Its routines start on now. A recipe's or package's are paused unless this says so; an
+    /// ace template's start unless this says no: the person chose to make that bot.
     #[serde(default)]
-    start_routines: bool,
+    start_routines: Option<bool>,
+    /// A version 3 package's market identity (ADR 0200 §3.9): the bot it makes stays linked.
+    /// Believed only as `envelope` proves it.
+    #[serde(default)]
+    package: Option<spade_core::package::link::PackageId>,
+    /// The market's signed manifest and `bot.json` as it signed it (ADR 0200 §3.2).
+    #[serde(default)]
+    envelope: Option<crate::packages::envelope::Envelope>,
+    /// The person's effect switches on the review, by key; one missing is off.
+    #[serde(default)]
+    switches: std::collections::BTreeMap<String, bool>,
+    /// Made from one message: the bot names itself in its first reply, and is "New bot" until
+    /// then when no name was given.
+    #[serde(default)]
+    naming: bool,
 }
 
 /// A first message: its text and images, as `POST /conversations/{id}/messages` takes them.
@@ -121,6 +140,25 @@ pub(super) struct Change {
     /// Only `auto_review`, Spade's one level (ADR 0163); any other word is refused.
     #[serde(default)]
     access: Option<String>,
+    /// How the bot talks; `null` leaves it to the bot.
+    #[serde(default, deserialize_with = "super::body::present")]
+    personality: Option<Option<spade_core::personality::Personality>>,
+    /// The person's one line on a task change (Undo, a restore), kept in its history.
+    #[serde(default)]
+    task_why: Option<String>,
+    /// Whether it may make bots for the person: `yes`, `ask` or `no` (ADR 0161, amendment 1).
+    #[serde(default)]
+    may_create_bots: Option<String>,
+    /// Its accent (ADR 0200 §5.3): `{"accent": "#rrggbb"}`, or `{"accent": null}` for its face's
+    /// colour.
+    #[serde(default)]
+    style: Option<StyleBody>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct StyleBody {
+    #[serde(default)]
+    accent: Option<String>,
 }
 
 /// Checks a body's `access`: Spade has one level, so only `auto_review` (or none) is accepted,
@@ -186,8 +224,10 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "updated_at": agent.updated_ms,
         "last_activity": agent.last_activity_ms,
         "pinned_at": agent.pinned_ms,
+        "personality": agent.personality,
         "state": view.state.name(),
-        "working": view.state != AgentState::Idle,
+        // A paused bot isn't working: a client from before `paused` reads it at rest.
+        "working": !matches!(view.state, AgentState::Idle | AgentState::Paused),
         "waiting_for": view.waiting_for,
         "questions_for_later": view.questions_for_later,
         "status": view.status,
@@ -240,7 +280,7 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
     if let Err(response) = access(body.access.as_deref()) {
         return *response;
     }
-    if body.recipe.is_some() {
+    if body.recipe.is_some() || body.envelope.is_some() {
         return super::recipes::create(state, body.into_recipe()).await;
     }
     let mut body = body;
@@ -292,8 +332,11 @@ impl NewAgent {
             recipe: self.recipe.unwrap_or_default(),
             from_recipe: self.from_recipe,
             grants: self.grants.unwrap_or_default(),
-            start_routines: self.start_routines,
+            start_routines: self.start_routines.unwrap_or(false),
             time_zone: self.time_zone,
+            package: self.package,
+            envelope: self.envelope,
+            switches: self.switches,
             also: self.template.is_some() || self.first_message.is_some(),
         }
     }
@@ -305,25 +348,47 @@ fn make(
     body: NewAgent,
     avatar: Option<AvatarInput>,
 ) -> Result<(AgentView, Option<Vec<String>>), Box<Response>> {
+    let personality = body.personality;
+    let (view, left_out) = make_bot(state, body, avatar)?;
+    let Some(personality) = personality else {
+        return Ok((view, left_out));
+    };
+    match state
+        .engine
+        .start_with_personality(&view.agent.id, personality)
+    {
+        Ok(view) => Ok((view, left_out)),
+        Err(error) => Err(Box::new(agent_problem(&error))),
+    }
+}
+
+/// [`make`] before the person's personality is applied.
+fn make_bot(
+    state: &AppState,
+    body: NewAgent,
+    avatar: Option<AvatarInput>,
+) -> Result<(AgentView, Option<Vec<String>>), Box<Response>> {
     if let Some(template) = &body.template {
+        // A template is ace's own package: it installs the way a package does, linked to it.
         let model = body
             .model
             .clone()
-            .or_else(|| crate::teams::template_model(&state.engine, template))
-            .unwrap_or_else(|| state.engine.new_bot_default());
-        let named = body.name.as_deref().is_some_and(|n| !n.trim().is_empty());
-        let input = AgentInput {
-            name: body.name.unwrap_or_default(),
-            task: body.task,
+            .or_else(|| crate::teams::template_model(&state.engine, template));
+        let choices = crate::teams::TemplateChoices {
+            name: body.name.clone(),
+            task: body.task.clone(),
             model,
             avatar,
+            time_zone: body.time_zone.clone(),
+            switches: (!body.switches.is_empty()).then(|| body.switches.clone()),
+            start_routines: body.start_routines.unwrap_or(true),
         };
         return match crate::teams::from_template(
             &state.engine,
+            state.connectors.as_deref(),
+            state.engine.plugins().map(|p| &**p),
             template,
-            input,
-            named,
-            body.time_zone,
+            choices,
         ) {
             Ok(made) => Ok((made.agent, Some(made.left_out))),
             Err(crate::teams::PortableError::NotFound) => {
@@ -341,6 +406,7 @@ fn make(
         task: body.task,
         model: body.model.unwrap_or_else(|| state.engine.new_bot_default()),
         avatar,
+        naming: body.naming,
     };
     state
         .engine
@@ -389,14 +455,58 @@ pub(super) async fn update(
     if let Err(response) = access(body.access.as_deref()) {
         return *response;
     }
+    if let Some(word) = body.may_create_bots.as_deref() {
+        let Some(may) = spade_core::made::May::parse(word) else {
+            return problem(StatusCode::BAD_REQUEST, "may_create_bots is yes, ask or no");
+        };
+        if let Err(error) = state.engine.set_may_create(&id, may) {
+            return agent_problem(&error);
+        }
+    }
+    if let Some(style) = &body.style
+        && let Err(error) = state.engine.set_accent(&id, style.accent.as_deref())
+    {
+        return agent_problem(&error);
+    }
     let change = AgentChange {
         name: body.name,
         task: body.task,
         model: body.model,
         avatar,
+        personality: body.personality,
+        why: body.task_why,
+        by: None,
     };
     match state.engine.update_agent(&id, change) {
         Ok(view) => Json(json!({ "agent": agent_json(&view) })).into_response(),
+        Err(error) => agent_problem(&error),
+    }
+}
+
+/// `GET /agents/{id}/task/history`: each version of the bot's task, newest first, with who
+/// changed it and why (`by` is `person`, `bot` or empty for one from before task history).
+pub(super) async fn task_history(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    off_thread(move || match state.engine.task_history(&id) {
+        Ok(versions) => {
+            let versions: Vec<Value> = versions
+                .into_iter()
+                .map(|v| json!({ "seq": v.seq, "at": v.at, "task": v.task, "by": v.by, "why": v.why }))
+                .collect();
+            Json(json!({ "versions": versions })).into_response()
+        }
+        Err(error) => agent_problem(&error),
+    })
+    .await
+}
+
+/// `POST /agents/{id}/undo-made`: Undo on a bot another bot made. `{"undone": "removed"}` when
+/// nothing it did reached outside it, else `{"undone": "archived"}` (stopped, routines paused).
+pub(super) async fn undo_made(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.engine.undo_made(&id).await {
+        Ok(undone) => Json(json!({ "undone": undone.name() })).into_response(),
         Err(error) => agent_problem(&error),
     }
 }

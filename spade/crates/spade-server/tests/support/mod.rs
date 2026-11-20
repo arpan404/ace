@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 pub mod fleet;
 pub mod gated;
+pub mod market;
+pub mod packaged;
 pub mod plugins;
 #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 pub mod sandbox;
@@ -55,6 +57,10 @@ pub struct FakeTool {
     pub answers: Arc<Mutex<Vec<String>>>,
     /// Scopes an Always allow to the call's `command`, as Spade's shell does.
     pub scoped: bool,
+    /// Run with how many times it has been classified, before each classification answers (on
+    /// the blocking pool): a test can hold one reading open while it changes something.
+    pub classifying: Option<Arc<dyn Fn(usize) + Send + Sync>>,
+    pub classified: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl FakeTool {
@@ -81,10 +87,18 @@ impl FakeTool {
             no_sandbox: false,
             answers: Arc::default(),
             scoped: false,
+            classifying: None,
+            classified: Arc::default(),
         }
     }
 
     /// Scopes an Always allow to the call's `command`, as Spade's shell does.
+    /// Calls `hook` with the count before each classification answers.
+    pub fn while_classifying(mut self, hook: Arc<dyn Fn(usize) + Send + Sync>) -> Self {
+        self.classifying = Some(hook);
+        self
+    }
+
     pub fn scoped(mut self) -> Self {
         self.scoped = true;
         self
@@ -176,6 +190,13 @@ impl Tool for FakeTool {
     /// what it runs, for the review, starting in the bot's folder (`Lexical`'s `/workspace`)
     /// unless it is [`FakeTool::unplaced`].
     fn classed(&self, _key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
+        let count = self
+            .classified
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        if let Some(hook) = &self.classifying {
+            hook(count);
+        }
         if self.def.spec.name == spade_core::autonomy::SHELL {
             let classed = spade_core::autonomy::classify_shell(
                 arguments,
@@ -747,6 +768,8 @@ impl Spade {
         if let Some(brains) = options.brains.clone() {
             engine.set_brains(brains);
         }
+        // A test's market signs the packages it installs; its key is what this Spade trusts.
+        market::trust(&engine);
         if let Some(before) = &options.before_work {
             before(&engine);
         }
@@ -837,7 +860,7 @@ impl Spade {
             let _ = stop.send(());
         }
         let _ = (&mut self.task).await;
-        rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
+        spade_store::Store::connect(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
     }
@@ -855,7 +878,7 @@ impl Spade {
             let _ = stop.send(());
         }
         let _ = (&mut self.task).await;
-        rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
+        spade_store::Store::connect(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, options).await
     }

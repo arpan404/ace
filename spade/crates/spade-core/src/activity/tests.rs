@@ -34,6 +34,7 @@ fn started(call_id: &str, name: &str) -> Event {
         name: name.into(),
         risk: None,
         background: false,
+        effect: None,
     })
 }
 
@@ -70,6 +71,7 @@ fn day() -> Vec<Event> {
                 untrusted: false,
             })),
             from_group: None,
+            from_thread: None,
         }),
         k(Known::UserMessage {
             text: "Here are the numbers".into(),
@@ -85,6 +87,7 @@ fn day() -> Vec<Event> {
             }),
             from_routine: None,
             from_group: None,
+            from_thread: None,
         }),
         Event::reply_started("r1", "fake/m"),
         step(
@@ -126,6 +129,7 @@ fn day() -> Vec<Event> {
             bound: None,
             acts_in: None,
             launch: None,
+            raised: None,
         }),
         k(Known::ApprovalRequested {
             reply: "r1".into(),

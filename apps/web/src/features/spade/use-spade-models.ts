@@ -1,6 +1,6 @@
 import { mergeSpadeModels, type SpadeEndpoint } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
-import { readLiveModels, readModels, readSubscriptions } from "./spade-api.ts";
+import { readLiveModels, readLocalServers, readModels, readSubscriptions } from "./spade-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 
 /** Every Spade models read; one machine's under `[...modelsKey, machine key]`. */
@@ -51,6 +51,19 @@ export function useSpadeSubscriptions(ready: boolean) {
     queryFn: ({ signal }) => readSubscriptions(client, { signal }),
     enabled: ready,
     staleTime: 60_000,
+    retry: false,
+  });
+}
+
+/** Model servers on this computer, looked at while `open` (a picker or the Add endpoint dialog). */
+export function useLocalServers(open: boolean) {
+  const machine = useSpadeMachine().key;
+  const client = useSpadeClient();
+  return useQuery({
+    queryKey: [...modelsKey, machine, "local"],
+    queryFn: ({ signal }) => readLocalServers(client, signal),
+    enabled: open,
+    staleTime: 10_000,
     retry: false,
   });
 }

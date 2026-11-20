@@ -68,6 +68,7 @@ export * from "./composer-block-edits.ts";
 export * from "./composer-markers.ts";
 export * from "./browser-annotation-prompt.ts";
 export * from "./browser-annotation-parse.ts";
+export * from "./code-annotation.ts";
 export * from "./content-hash.ts";
 export * from "./counts.ts";
 export * from "./devices.ts";
@@ -81,6 +82,7 @@ export {
 } from "./git-patch.ts";
 export { PatchFileReader } from "./git-patch-reader.ts";
 export * from "./line-marks.ts";
+export * from "./change-hunks.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./file-tree.ts";
@@ -208,6 +210,8 @@ export * from "./folder-tree.ts";
 export * from "./script-choices.ts";
 export * from "./checkout-errors.ts";
 export * from "./checkout-quick-open.ts";
+export * from "./content-search.ts";
+export * from "./content-search-preview.ts";
 export * from "./checkout-transfer-words.ts";
 export * from "./projects.ts";
 export * from "./project-edit.ts";
@@ -266,8 +270,13 @@ export * from "./fork-point.ts";
 export * from "./continuation.ts";
 export * from "./edit-point.ts";
 export * from "./resend.ts";
+export * from "./mention-picker.ts";
+export * from "./mention-marks.ts";
+export { sharesLine, sharesWords, sharedTurns, type ShareFacts } from "./mention-shares.ts";
 export * from "./tex-text.ts";
 export {
+  addresseesOf,
+  devicesOf,
   composerInput,
   editComposerTokens,
   inputWithText,

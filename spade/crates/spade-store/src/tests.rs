@@ -171,7 +171,7 @@ fn a_good_database_passes_the_check_and_a_damaged_or_missing_one_does_not()
 fn a_database_from_a_newer_spade_is_refused_by_the_check() -> Result<()> {
     let (_dir, path) = temp();
     drop(Store::open(&path)?);
-    rusqlite::Connection::open(&path)?.pragma_update(None, "user_version", 999)?;
+    crate::Store::connect(&path)?.pragma_update(None, "user_version", 999)?;
     let why = Store::check(&path).err().unwrap_or_default();
     assert!(why.contains("newer"), "{why}");
     Ok(())
@@ -182,7 +182,7 @@ fn a_database_from_a_newer_spade_is_refused_not_used() -> Result<()> {
     let (_dir, path) = temp();
     Store::open(&path)?.create_conversation("a", 1)?;
     {
-        let connection = rusqlite::Connection::open(&path)?;
+        let connection = crate::Store::connect(&path)?;
         connection.pragma_update(None, "user_version", 999)?;
     }
     let refused = Store::open(&path);
@@ -192,8 +192,7 @@ fn a_database_from_a_newer_spade_is_refused_not_used() -> Result<()> {
         refused.err()
     );
     let version: i64 =
-        rusqlite::Connection::open(&path)?
-            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        crate::Store::connect(&path)?.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     assert_eq!(version, 999, "left as it was");
     Ok(())
 }
@@ -300,7 +299,7 @@ fn a_task_change_is_stored_on_the_row_and_as_an_event_together() -> Result<()> {
     let (_dir, path) = temp();
     let store = Store::open(&path)?;
     store.create_agent(bot("a1", "c1", "e/m"), &[], 5)?;
-    let stored = store.configure_agent("a1", "Track parcels.", "e/n", 7)?;
+    let stored = store.configure_agent("a1", "Track parcels.", "e/n", None, 7)?;
     assert_eq!(stored.seq, 1);
     let agent = store.agent("a1")?.ok_or(StoreError::Poisoned)?;
     assert_eq!(
@@ -321,7 +320,7 @@ fn conversations_from_before_agents_become_bots_with_nothing_lost() -> Result<()
     let (_dir, path) = temp();
     {
         // Schema 1 as shipped, with two conversations.
-        let connection = rusqlite::Connection::open(&path)?;
+        let connection = crate::Store::connect(&path)?;
         connection.execute_batch(
             "CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT,
                  created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL);
@@ -464,7 +463,7 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
     drop(store);
     let picture = json!({ "kind": "image", "sha256": "ab".repeat(32) }).to_string();
     {
-        let connection = rusqlite::Connection::open(&path)?;
+        let connection = crate::Store::connect(&path)?;
         connection.execute(
             "UPDATE agents SET avatar = ?1 WHERE id = 'a_two'",
             [&picture],
@@ -474,7 +473,8 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
         connection.execute("DROP TABLE helpers", [])?;
         connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
         connection.execute_batch(
-            "ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
+            "ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin;
+                 ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
                  DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
@@ -484,7 +484,7 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 11,
+            crate::schema::current_version() as i64 - 12,
         )?;
     }
     let store = Store::open(&path)?;
@@ -592,13 +592,13 @@ fn spending_caps_an_earlier_build_stored_are_dropped_and_the_review_switch_kept(
         store.set_setting("oversight", Some(r#"{"review_default":true}"#))?;
     }
     {
-        let connection = rusqlite::Connection::open(&path)?;
+        let connection = crate::Store::connect(&path)?;
         connection
-            .execute_batch("DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
+            .execute_batch("ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin; ALTER TABLE knowledge DROP COLUMN origin; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 2,
+            crate::schema::current_version() as i64 - 3,
         )?;
     }
     let store = Store::open(&path)?;

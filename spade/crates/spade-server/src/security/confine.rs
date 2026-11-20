@@ -11,6 +11,16 @@ use spade_sandbox::{Facts, Policy};
 use super::{Security, toolchains};
 use crate::workspace::shell::{Confine, Confined, Confinement, Kind};
 
+impl Security {
+    /// Whether `bot` is held by a package's ceiling that leaves out `network`.
+    pub(crate) fn reaches_nothing(&self, bot: &str) -> bool {
+        self.bots
+            .get()
+            .and_then(|engine| engine.bot_ceiling(bot))
+            .is_some_and(|(_, allows)| !allows.has(spade_core::effect::Effect::Network))
+    }
+}
+
 impl Confine for Security {
     fn confine(&self, home: &Path, kind: &Kind) -> Result<Confinement, String> {
         let Some(bot) = self.bot_of(home) else {
@@ -21,7 +31,11 @@ impl Confine for Security {
             return Ok(Confinement::None);
         }
         let settings = self.bot(&bot);
-        let held = self.effective(&bot);
+        // The policy is read and its ticket issued as one step against a narrowing
+        // (`Security::narrowing`): a switch turned off either comes first, and this run gets the
+        // narrower policy, or after, and cuts this ticket.
+        let issuing = self.egress.lock().unwrap_or_else(|p| p.into_inner());
+        let [commands_policy, plugins_policy] = self.issued(&bot);
         let folders: Vec<(PathBuf, bool)> = self
             .effective_grants(&bot)
             .into_iter()
@@ -32,15 +46,17 @@ impl Confine for Security {
             .collect();
         let toolchain_dirs: Vec<PathBuf> = settings.toolchains.iter().map(PathBuf::from).collect();
         let (network, also_read, scratch) = match kind {
-            Kind::Command => (held.network, Vec::new(), Vec::new()),
-            Kind::Terminal { scratch } => (held.network, Vec::new(), vec![scratch.clone()]),
-            Kind::Plugin { root } => (held.plugin_network, vec![root.clone()], Vec::new()),
+            Kind::Command => (commands_policy, Vec::new(), Vec::new()),
+            Kind::Terminal { scratch } => (commands_policy, Vec::new(), vec![scratch.clone()]),
+            Kind::Plugin { root } => (plugins_policy, vec![root.clone()], Vec::new()),
         };
         let run = self.ids.next("run");
+        self.issuing(&bot);
         let ticket = match (&self.proxy, network.mode) {
             (Some(proxy), Mode::AllowList | Mode::Open) => Some(proxy.open(&bot, &run, network)),
             _ => None,
         };
+        drop(issuing);
         let policy = Policy::build(&Facts {
             home: self.home.clone(),
             spade_data: self.spade_data.clone(),
@@ -300,7 +316,7 @@ impl Confine for Security {
         if matches!(kind, Kind::Plugin { .. }) || !Security::contains(self) {
             return None;
         }
-        Some(self.before_unreviewed(&self.bot_of(home)?))
+        Some(self.before_unreviewed(&self.bot_of(home)?, None))
     }
 }
 

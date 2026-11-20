@@ -1,5 +1,5 @@
 import {
-  spadeRunWords,
+  spadeRoutineLine,
   spadeWhenInSentence,
   type SpadeHeartbeat,
   type SpadeRoutine,
@@ -159,18 +159,8 @@ function RoutineRow(props: {
  * that failed says so in its row, in the failed colour.
  */
 export function RoutineLine(props: { routine: SpadeRoutine; now: number }) {
-  const { routine, now } = props;
-  const last = routine.lastRun;
-  if (routine.paused) return "Paused";
-  if (last?.result === "failed")
-    return (
-      <span className="text-destructive">{`Last run ${spadeRunWords(last).toLowerCase()}`}</span>
-    );
-  const next =
-    routine.nextRun === undefined
-      ? undefined
-      : `next ${spadeWhenInSentence(routine.nextRun, now, routine.timeZone)}`;
-  return [routine.words, next].filter(Boolean).join(" · ");
+  const line = spadeRoutineLine(props.routine, props.now);
+  return line.failed ? <span className="text-destructive">{line.text}</span> : line.text;
 }
 
 function every(minutes: number) {

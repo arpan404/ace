@@ -3,8 +3,11 @@ import { fuzzyPositions } from "./checkout-files.ts";
 
 type Choice = Pick<WorkspaceScript, "name" | "source">;
 
-/** How well `name` answers `query`: a prefix, then a substring, then letters in order. */
-function matchRank(name: string, query: string): number | undefined {
+/**
+ * How well `name` answers `query` (lower-cased, trimmed): a prefix, then a substring, then
+ * letters in order; undefined when it doesn't.
+ */
+export function matchRank(name: string, query: string): number | undefined {
   const lower = name.toLowerCase();
   if (lower.startsWith(query)) return 0;
   if (lower.includes(query)) return 1;

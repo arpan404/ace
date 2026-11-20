@@ -10,8 +10,11 @@ use spade_testkit::{ClientDocument, FakeConnector};
 mod support;
 use support::*;
 
-/// The callback a document sign-in comes back to, from Spade listening on 127.0.0.1:4555.
-const SHARED_CALLBACK: &str = "http://127.0.0.1:4555/v1/connectors/callback";
+/// The callback a document sign-in comes back to, from Spade listening on 127.0.0.1:4555: the
+/// browser reaches it as `localhost`, the one loopback name the document lists.
+const SHARED_CALLBACK: &str = "http://localhost:4555/v1/connectors/callback";
+/// Where a registered client's sign-in comes back to: Spade's own address.
+const LISTENING: &str = "http://127.0.0.1:4555/v1/connectors/callback";
 
 /// `apps/marketing/public/oauth/spade.json`, which Cloudflare Pages serves at acehq.dev.
 fn hosted() -> Result<Value> {
@@ -107,7 +110,7 @@ async fn servers_that_do_not_fetch_documents_or_name_themselves_get_a_registered
         let asked = query(&url)?;
         assert!(asked["client_id"].starts_with("client-"), "{name}: {url}");
         assert!(
-            asked["redirect_uri"].starts_with(&format!("{SHARED_CALLBACK}/")),
+            asked["redirect_uri"].starts_with(&format!("{LISTENING}/")),
             "{name}: {url}"
         );
         assert_eq!(app.registrations(), 1, "{name}");
@@ -203,23 +206,24 @@ fn the_hosted_document_names_itself_and_allows_only_spades_loopback_callback() -
         .flatten()
         .filter_map(Value::as_str)
         .collect();
+    // `localhost`, never an IP address: some servers refuse an IP in a document's redirects.
     assert_eq!(
         redirects,
-        [format!("http://127.0.0.1{CALLBACK_PATH}")],
-        "loopback IP, no port, Spade's shared callback"
+        [format!("http://localhost{CALLBACK_PATH}")],
+        "loopback name, no port, Spade's shared callback"
     );
     assert!(redirect_matches(redirects[0], SHARED_CALLBACK));
     assert!(redirect_matches(
         redirects[0],
-        "http://127.0.0.1:61234/v1/connectors/callback"
+        "http://localhost:61234/v1/connectors/callback"
     ));
     assert!(!redirect_matches(
         redirects[0],
-        "http://127.0.0.1:4555/v1/connectors/callback/linear"
+        "http://localhost:4555/v1/connectors/callback/linear"
     ));
     assert!(!redirect_matches(
         redirects[0],
-        "http://localhost:4555/v1/connectors/callback"
+        "http://127.0.0.1:4555/v1/connectors/callback"
     ));
     Ok(())
 }

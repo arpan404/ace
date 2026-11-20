@@ -289,6 +289,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "context.request": ["context.result"],
   "models.list": ["models.result"],
   "models.refresh": ["models.result"],
+  "models.load": ["models.result"],
   "models.resolve": ["models.result"],
   "settings.get": ["settings.result"],
   "settings.set": ["settings.result"],

@@ -1,0 +1,15 @@
+{
+  "$id": "https://ace.local/protocol/v1/AddressedState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "sending",
+    "queued",
+    "answering",
+    "waiting",
+    "answered",
+    "stopped",
+    "failed",
+    "sent"
+  ],
+  "type": "string"
+}

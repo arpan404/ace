@@ -174,6 +174,9 @@ pub(super) async fn run(
     if let Some(planned) = planned {
         engine.carry_on_as(&id, planned);
     }
+    // An update the person accepted while it worked applies now, if nothing of it still works
+    // (ADR 0200 §6.1); a task carrying on keeps it waiting for that turn's end.
+    crate::packages::held::turn_ended(&engine, &id);
 }
 
 /// Closes `reply`, retrying until it is closed. The worker still owns the reply meanwhile, so no
@@ -711,7 +714,7 @@ mod tests {
         engine.record("c1", &Event::user_message("Hi"))?;
         engine.record("c1", &Event::reply_started("r1", "fake/m"))?;
         // Storage fails from the moment the worker is scheduled.
-        let hide = rusqlite::Connection::open(dir.path().join("spade.sqlite"))?;
+        let hide = spade_store::Store::connect(dir.path().join("spade.sqlite"))?;
         hide.execute_batch("ALTER TABLE events RENAME TO events_away;")?;
         let (_stop, stop_rx) = watch::channel(false);
         let pause_rx = engine.pause.subscribe();

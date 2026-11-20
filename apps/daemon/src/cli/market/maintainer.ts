@@ -7,6 +7,7 @@ import { option, validateArgs, type Args } from "../args.ts";
 import { print } from "../io.ts";
 import { CliFailure } from "../output.ts";
 import { maintainerWork } from "./maintainer-queue.ts";
+import { signerTestRunner } from "./sign-tests.ts";
 import { marketUrl, now, readKey, signerIo, signerToken, trustedWith } from "./maintainer-io.ts";
 
 /*
@@ -15,8 +16,8 @@ import { marketUrl, now, readKey, signerIo, signerToken, trustedWith } from "./m
  * the deprecation window):
  *
  *   keygen KEY_FILE [--id ID]          a signing key in a file; prints its public half
- *   sign --key KEY_FILE [--url URL]    re-scan, then sign, hold or block what waits; sign any
- *                                      pending withdrawals
+ *   sign --key KEY_FILE [--url URL]    re-scan and run bot packages' tests, then sign, hold or
+ *                                      block what waits; sign any pending withdrawals
  *   review                             what waits for a maintainer, as sentences
  *   review TYPE/NAME@VERSION --show|--approve|--block REASON
  *   review TYPE/NAME@VERSION --key KEY_FILE [--by-ace] [--not-reviewed]
@@ -58,7 +59,11 @@ export async function maintainerCommand(args: Args): Promise<void> {
     case "sign": {
       validateArgs(args, ["key", "url", "dev-market"], 2, 2);
       const key = await readKey(option(args, "key"));
-      const report = await signPending(signerIo(marketUrl(args)), key, now, trustedWith(key));
+      // A bot package's own tests run here, on Spade's program, before it is signed.
+      const testBot = await signerTestRunner(process.env, process.argv[1]);
+      const report = await signPending(signerIo(marketUrl(args)), key, now, trustedWith(key), {
+        testBot,
+      });
       await print(args, report);
       if (report.failed.length > 0)
         throw new CliFailure("failed", "Some signatures weren't taken by the market");

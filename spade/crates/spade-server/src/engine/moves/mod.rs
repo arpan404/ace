@@ -179,11 +179,13 @@ fn strings(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// What `state` a bot is in, in the person's words, when that keeps it from moving.
+/// What `state` a bot is in, in the person's words, when that keeps it from moving. A paused bot
+/// moves: its pause goes with it, held wakes and all, and it arrives paused (`pause::moving`).
 fn busy_words(name: &str, state: State) -> Option<String> {
     let doing = match state {
-        State::Idle => return None,
+        State::Idle | State::Paused => return None,
         State::Working => "working",
+        State::Updating => "being updated",
         State::Waiting => "waiting on you",
         State::Sleeping => "sleeping",
     };
@@ -452,6 +454,9 @@ impl Engine {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             self.freeze(id, &selection.conversations);
         }
+        // A made bot takes the ceiling its makers hold it to now, never one they have since
+        // narrowed (ADR 0200 §3.4).
+        self.narrow_made_under();
         let release = |error: MoveError| {
             self.thaw(id, &selection.conversations);
             let _ = self

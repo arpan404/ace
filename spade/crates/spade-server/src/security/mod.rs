@@ -10,6 +10,7 @@ pub mod grants;
 pub mod read_only;
 pub mod settings;
 pub mod toolchains;
+pub mod undo;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -113,6 +114,10 @@ pub struct Security {
     bots: EngineHandle,
     /// One change to a bot's settings at a time.
     changing: Mutex<()>,
+    /// Orders a run's egress ticket against a narrowing of what bots may reach: a ticket is
+    /// issued under it from the policy read under it, and a narrowing cuts the tickets it
+    /// outdated before it lets go, so no ticket outlives the policy it was issued from.
+    egress: Mutex<()>,
     checkpoints: Arc<checkpoints::Checkpoints>,
     /// Bots whose workspace is reserved for maintenance (a restore): no turn starts, no command
     /// runs and no file tool writes until it is released.
@@ -121,6 +126,8 @@ pub struct Security {
     attestor: attest::Attestor,
     /// What a test runs while a change to how a bot decides is being decided.
     autonomy_hook: Mutex<Option<AutonomyHook>>,
+    /// What a test runs between reading a run's policy and issuing its ticket.
+    issue_hook: Mutex<Option<AutonomyHook>>,
 }
 
 /// What a test runs, with the bot's id, while a change to how that bot decides is being decided.
@@ -191,12 +198,14 @@ impl Security {
             clock: setup.clock,
             bots: setup.bots,
             changing: Mutex::new(()),
+            egress: Mutex::new(()),
             checkpoints: Arc::new(checkpoints::Checkpoints::new(
                 setup.spade_data.join("checkpoints"),
             )),
             maintenance: Arc::default(),
             attestor: attest::Attestor::new(setup.person_key),
             autonomy_hook: Mutex::default(),
+            issue_hook: Mutex::default(),
         })
     }
 
@@ -340,6 +349,23 @@ impl Security {
     fn deciding(&self, bot: &str) {
         let hook = self
             .autonomy_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hook) = hook {
+            hook(bot);
+        }
+    }
+
+    /// Calls `hook` with the bot's id between reading a run's network policy and issuing its
+    /// egress ticket; for tests that must see an issue and a narrowing meet.
+    pub fn hold_ticket_issues(&self, hook: AutonomyHook) {
+        *self.issue_hook.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    }
+
+    fn issuing(&self, bot: &str) {
+        let hook = self
+            .issue_hook
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clone();
@@ -521,6 +547,20 @@ impl Security {
     /// Grants `scope` to `bot`, refused when it can never be granted or exceeds what the bot's
     /// parent has.
     pub fn add_grant(&self, bot: &str, scope: Scope, by: &str) -> Result<Grant, SecurityError> {
+        let made = self.admit_grant(bot, scope, by)?;
+        let kept = made.clone();
+        self.change(bot, move |current| {
+            if !current.grants.iter().any(|g| g.scope == kept.scope) {
+                current.grants.push(kept);
+            }
+            Ok(())
+        })?;
+        Ok(made)
+    }
+
+    /// The grant `scope` would be for `bot`, checked as [`Security::add_grant`] checks it, not
+    /// stored yet.
+    pub fn admit_grant(&self, bot: &str, scope: Scope, by: &str) -> Result<Grant, SecurityError> {
         // Refused by what the tool declares it does (ADR 0171), never by its name.
         let engine = self.bots.get();
         let conversation = engine
@@ -548,20 +588,63 @@ impl Security {
                 ));
             }
         }
-        let made = Grant {
+        Ok(Grant {
             id: self.ids.next("gr"),
             scope,
             by: by.to_owned(),
             created_at: self.clock.now_ms(),
-        };
-        let kept = made.clone();
-        self.change(bot, move |current| {
-            if !current.grants.iter().any(|g| g.scope == kept.scope) {
-                current.grants.push(kept);
-            }
-            Ok(())
-        })?;
-        Ok(made)
+        })
+    }
+
+    /// Changes `bot`'s settings and, in the same transaction, the other settings `apply` answers
+    /// with (a package's link beside the grants and hosts its switches made): all of it is
+    /// stored, or none. `apply` sees the machine's settings, which the bot's network follows
+    /// until it has its own.
+    pub fn change_with(
+        &self,
+        bot: &str,
+        apply: impl FnOnce(
+            &mut BotSecurity,
+            &MachineSecurity,
+        ) -> Result<Vec<(String, Option<String>)>, SecurityError>,
+    ) -> Result<BotSecurity, SecurityError> {
+        let _held = self.changing.lock().unwrap_or_else(|p| p.into_inner());
+        self.exists(bot)?;
+        let mut current = self.bot(bot);
+        let also = apply(&mut current, &self.machine())?;
+        let text = serde_json::to_string(&current)
+            .map_err(|error| SecurityError::Store(error.to_string()))?;
+        let key = settings::key(bot);
+        let mut changes: Vec<(&str, Option<&str>)> = vec![(key.as_str(), Some(text.as_str()))];
+        changes.extend(also.iter().map(|(k, v)| (k.as_str(), v.as_deref())));
+        self.store
+            .set_settings(&changes)
+            .map_err(|error| SecurityError::Store(error.to_string()))?;
+        Ok(current)
+    }
+
+    /// Runs `narrow` (a change that may narrow what bots reach, such as a package's network
+    /// switch turned off) with no egress ticket issued meanwhile, then ends every live run's
+    /// ticket (a terminal, a service, a command still running) whose policy is no longer what
+    /// that bot would be issued now. Such a run reaches nothing more; its next one gets the new
+    /// policy.
+    pub fn narrowing<T>(&self, narrow: impl FnOnce() -> T) -> T {
+        let _issuing = self.egress.lock().unwrap_or_else(|p| p.into_inner());
+        let done = narrow();
+        if let Some(proxy) = &self.proxy {
+            proxy.cut_where(&|bot, policy| !self.issued(bot).contains(policy));
+        }
+        done
+    }
+
+    /// The policies a run of `bot`'s is issued now: its commands' and its plugins'. Under a
+    /// package's ceiling without `network` both reach nothing (ADR 0200 §3.4).
+    pub(crate) fn issued(&self, bot: &str) -> [NetworkPolicy; 2] {
+        if self.reaches_nothing(bot) {
+            return [NetworkPolicy::off(), NetworkPolicy::off()];
+        }
+        let held = self.effective(bot);
+        [held.network, held.plugin_network]
     }
 
     /// Takes a grant back; whether it was there.
@@ -642,26 +725,45 @@ impl Security {
     }
 
     /// What must happen before work nobody reviews (a contained command or file write): the
-    /// workspace not reserved, and a checkpoint of it when one is due (at most once a minute).
-    /// Blocking work for the caller to run first; its error means the work must not run
-    /// unreviewed.
-    pub fn before_unreviewed(&self, bot: &str) -> Box<dyn FnOnce() -> Result<(), String> + Send> {
+    /// workspace not reserved, and a checkpoint of it when one is due (at most once a minute, and
+    /// before the first such work of each turn, `turn` being its reply). Blocking work for the
+    /// caller to run first; its error means the work must not run unreviewed.
+    pub fn before_unreviewed(
+        &self,
+        bot: &str,
+        turn: Option<&str>,
+    ) -> Box<dyn FnOnce() -> Result<(), String> + Send> {
         let workspace = self.workspaces.join(bot);
         let (checkpoints, maintenance) = (self.checkpoints.clone(), self.maintenance.clone());
         let (id, now, bot) = (self.ids.next("cp"), self.clock.now_ms(), bot.to_owned());
+        let turn = turn.map(str::to_owned);
         Box::new(move || {
             if reserved(&maintenance, &bot) {
                 return Err(RESERVED.to_owned());
             }
-            if !workspace.is_dir() || !checkpoints.due(&bot, now) {
+            if !checkpoints.due_in(&bot, now, turn.as_deref()) {
                 return Ok(());
+            }
+            // A bot's first file-changing work makes its folder: its empty folder is what
+            // undoing that work goes back to, so it is made now and checkpointed like any other.
+            if !workspace.is_dir() {
+                match std::fs::create_dir_all(&workspace) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => {
+                        return Err(format!("the bot's folder couldn't be made: {error}"));
+                    }
+                }
             }
             checkpoints
                 .take(&bot, &workspace, &id, now, "auto")
-                .map(|_| ())
                 .map_err(|error| {
                     format!("a checkpoint of the workspace couldn't be taken: {error}")
-                })
+                })?;
+            if let Some(turn) = &turn {
+                checkpoints.taken_in(&bot, turn);
+            }
+            Ok(())
         })
     }
 
@@ -687,6 +789,36 @@ impl Security {
                 reason,
             )
             .map_err(|why| SecurityError::Store(format!("the checkpoint failed: {why}")))
+    }
+
+    /// What undoing work that started at `started_at` would do: the checkpoint taken just before
+    /// it ([`undo::before`]) and what putting it back reverts. `None` when no checkpoint is that
+    /// old (the work came before any, or its checkpoint is past the bounds).
+    pub fn undo_preview(
+        &self,
+        bot: &str,
+        started_at: i64,
+    ) -> Result<Option<(checkpoints::Checkpoint, undo::Changes)>, SecurityError> {
+        let workspace = self.workspace(bot)?;
+        let all = self.checkpoints.list(bot);
+        let Some(checkpoint) = undo::before(&all, started_at).cloned() else {
+            return Ok(None);
+        };
+        let changes = undo::changes(&self.checkpoints.copy_of(bot, &checkpoint.id), &workspace)
+            .map_err(|why| {
+                SecurityError::Store(format!("the files couldn't be compared: {why}"))
+            })?;
+        Ok(Some((checkpoint, changes)))
+    }
+
+    /// What restoring checkpoint `id` would revert now.
+    pub fn changes_since(&self, bot: &str, id: &str) -> Result<undo::Changes, SecurityError> {
+        let workspace = self.workspace(bot)?;
+        if !self.checkpoints.list(bot).iter().any(|c| c.id == id) {
+            return Err(SecurityError::NotFound);
+        }
+        undo::changes(&self.checkpoints.copy_of(bot, id), &workspace)
+            .map_err(|why| SecurityError::Store(format!("the files couldn't be compared: {why}")))
     }
 
     /// Puts checkpoint `id` back in the bot's workspace, after a checkpoint of how it is now;

@@ -1,0 +1,151 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliRunningBot.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actions": {
+      "items": {
+        "enum": [
+          "stop",
+          "pause",
+          "resume",
+          "unarchive"
+        ],
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "doing": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "main",
+        "bot"
+      ],
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "network": {
+      "properties": {
+        "bytes": {
+          "type": "number"
+        },
+        "hosts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "refused": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "bytes",
+        "hosts",
+        "refused"
+      ],
+      "type": "object"
+    },
+    "nextWake": {
+      "properties": {
+        "at": {
+          "type": "number"
+        },
+        "what": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "what"
+      ],
+      "type": "object"
+    },
+    "reads": {
+      "enum": [
+        "needs_you",
+        "working",
+        "failed",
+        "sleeping",
+        "paused",
+        "idle"
+      ],
+      "type": "string"
+    },
+    "spend": {
+      "properties": {
+        "monthMicros": {
+          "type": "number"
+        },
+        "todayMicros": {
+          "type": "number"
+        },
+        "unusual": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "todayMicros",
+        "monthMicros",
+        "unusual"
+      ],
+      "type": "object"
+    },
+    "state": {
+      "enum": [
+        "idle",
+        "working",
+        "waiting",
+        "sleeping",
+        "paused",
+        "updating"
+      ],
+      "type": "string"
+    },
+    "uses": {
+      "type": "string"
+    },
+    "workers": {
+      "items": {
+        "properties": {
+          "doing": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "doing"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "name",
+    "state",
+    "reads",
+    "doing",
+    "uses",
+    "spend",
+    "network",
+    "workers",
+    "actions"
+  ],
+  "type": "object"
+}

@@ -320,11 +320,12 @@ impl Engine {
         begun["listed"] = json!(0);
         let stored = self
             .target_to(&entry.id, &[ACCEPTED], RECEIVING, &begun.to_string())
-            .and_then(|_| self.store.set_move_peer(&entry.id, &from, &from_name));
+            .and_then(|_| self.store.set_move_peer(&entry.id, &from, &from_name))
+            // Whether it is the main bot decides how it arrives: never answered without it.
+            .and_then(|()| self.store.set_move_identity(&entry.id, &name, main));
         if let Err(error) = stored {
             return refuse(500, &error.to_string());
         }
-        let _ = self.store.set_move_identity(&entry.id, &name, main);
         (200, json!({ "have": [], "state": RECEIVING, "host": host }))
     }
 
@@ -514,7 +515,24 @@ impl Engine {
             Err(problem) => tracing::error!(%problem, "a move to here stopped short"),
             Ok(Ok(())) => {}
         }
+        self.arm_arrival(&id);
         self.stored_answer(&id)
+    }
+
+    /// A move to here committed: the open wakes of what it brought are armed, so a paused bot's
+    /// waits are watched (and held) here, and fire once on its Resume. Arming twice arms once.
+    fn arm_arrival(self: &Arc<Self>, id: &str) {
+        let Ok(Some(entry)) = self.store.stored_move(id) else {
+            return;
+        };
+        if entry.state != COMMITTED {
+            return;
+        }
+        for conversation in super::strings(&detail(&entry)["conversations"]) {
+            for open in self.wakes(&conversation).unwrap_or_default() {
+                self.arm(&conversation, open);
+            }
+        }
     }
 
     /// The move as it stands here; one cut off mid-copy, or being given up, is carried on first,
@@ -601,6 +619,7 @@ impl Engine {
                     let _ = engine
                         .blocking(held, move |engine| engine.recover(&id))
                         .await;
+                    engine.arm_arrival(&entry.id);
                 } else if now - entry.updated_ms > STALE_MS {
                     engine.drop_staging(&entry, "the other machine stopped sending");
                 }

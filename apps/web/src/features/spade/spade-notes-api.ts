@@ -6,6 +6,9 @@ import { segment, spadeHttp, SpadeRequestError, type SpadeTarget } from "./spade
  * the shared "About you" ones under `/v1/notes`; either is changed or deleted by its id.
  */
 
+/** Every notes read; one scope's under `[...notesKey, machine key, scope]`. */
+export const notesKey = ["spade", "notes"] as const;
+
 /** Whose notes: one bot's own, or the shared ones every bot sees. */
 export type SpadeNotesScope = { kind: "agent"; agent: string } | { kind: "shared" };
 

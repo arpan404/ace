@@ -10,8 +10,14 @@ import type { StoredInstall } from "./store.ts";
  */
 
 export type JournalStep =
-  /** A marketplace row written: put back `previous`, or drop it. */
-  | { kind: "record"; type: string; name: string; previous?: StoredInstall | undefined }
+  /** A marketplace row written: put back `previous`, or drop it (a bot package's: `bot`'s). */
+  | {
+      kind: "record";
+      type: string;
+      name: string;
+      bot?: string | undefined;
+      previous?: StoredInstall | undefined;
+    }
   /** A Suit put into the library over `previousHash` (pinned), or new. */
   | { kind: "suit"; name: string; previousHash?: string | undefined }
   /** A plugin accepted over the version the manager had, with its availability then. */
@@ -72,7 +78,7 @@ async function undo(ports: InstallPorts, step: JournalStep): Promise<void> {
   switch (step.kind) {
     case "record":
       if (step.previous) store.saveInstall(step.previous);
-      else store.removeInstall(step.type, step.name);
+      else store.removeInstall(step.type, step.name, step.bot);
       return;
     case "suit": {
       const suits = ports.suits;

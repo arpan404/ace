@@ -31,6 +31,8 @@ fn full(tool: &str, effect: Option<Effect>) -> Call<'_> {
         mode: Mode::FullAccess,
         remote: false,
         classifier: true,
+        ceiling: None,
+        command: None,
     }
 }
 

@@ -2118,27 +2118,27 @@ Example:
   "access": "auto-review",
   "account": "example",
   "accountId": "example",
+  "acpAgentId": "example",
+  "base": {
+    "ref": "example",
+    "remote": "bLoW"
+  },
   "context": {
-    "draftId": "tQQE",
-    "items": []
+    "attachments": [],
+    "items": [],
+    "mentions": []
   },
   "handoffFrom": "example",
   "input": [
     {
-      "entryId": "example",
-      "kind": "builtin",
-      "name": "example",
-      "type": "mention",
-      "values": {}
+      "mimeType": "example",
+      "type": "image",
+      "url": "example"
     }
   ],
   "installationId": "example",
-  "instanceId": "example",
-  "mode": "local",
-  "options": {
-    "effort": "example",
-    "serviceTier": "priority"
-  },
+  "mode": "worktree",
+  "model": "example",
   "origin": {
     "client": {
       "grantId": "example",
@@ -2214,6 +2214,40 @@ Example:
 }
 ```
 
+### thread.address
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.address"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| about | yes | string | {"minLength":1,"maxLength":256} |
+| input | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
+| to | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/Addressee.json"}} |
+| devices | no | array | {"default":[],"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/DeviceContextItem.json"}} |
+| share | yes | [AddressedShare.json](schema/AddressedShare.json) |  |
+| files | no | array | {"default":[],"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":4096}} |
+| followUp | no | `true` |  |
+
+Example:
+
+```json
+{
+  "about": "example",
+  "files": [],
+  "input": [
+    {
+      "mimeType": "example",
+      "type": "image",
+      "url": "example"
+    }
+  ],
+  "share": "message",
+  "threadId": "example",
+  "to": [],
+  "type": "thread.address"
+}
+```
+
 ### thread.interrupt
 
 | Field | Required | Type | Constraints |
@@ -2229,7 +2263,7 @@ Example:
 
 ```json
 {
-  "cascade": false,
+  "agentId": "example",
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -2247,6 +2281,7 @@ Example:
 
 ```json
 {
+  "beforeSeq": 1,
   "threadId": "example",
   "type": "thread.archive"
 }
@@ -2301,7 +2336,7 @@ Example:
 ```json
 {
   "change": {
-    "objective": "V"
+    "status": "paused"
   },
   "threadId": "example",
   "type": "thread.goal.set"
@@ -2338,9 +2373,11 @@ Example:
 ```json
 {
   "interactionId": "example",
+  "readWhole": "example",
   "resolution": {
-    "kind": "browser_help",
-    "outcome": "skipped"
+    "kind": "approval",
+    "message": "example",
+    "optionId": "example"
   },
   "type": "interaction.resolve"
 }

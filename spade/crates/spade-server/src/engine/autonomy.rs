@@ -95,6 +95,7 @@ pub(super) fn record_rule(
         bound,
         acts_in: None,
         launch: Some(launch),
+        raised: None,
     });
     engine.record_unless_stopped(id, reply, &event)
 }
@@ -197,6 +198,7 @@ pub(super) async fn review(
         bound: under.bound.clone(),
         acts_in: under.acts_in.cloned().map(Box::new),
         launch: Some(under.launch),
+        raised: None,
     });
     match engine.record_unless_stopped(id, reply, &reviewed) {
         Ok(true) => of(verdict, reason),

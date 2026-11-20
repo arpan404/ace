@@ -33,13 +33,15 @@ import type { DoctorReport } from "../shared/onboarding.ts";
 import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
+import type { SpadeTalkState } from "../shared/contract.ts";
+import { withTalkDefault } from "./spade-talk.ts";
 import type { AppUpdates } from "./os/app-updates.ts";
 import type { SandboxNotice } from "../shared/contract.ts";
 import { writeClipboardImage } from "./os/clipboard.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
 import { appIdentities, systemApplication, systemApplicationIcon } from "./os/app-identity.ts";
 import { appIcons, appOnDisk, editorIcons } from "./os/editor-icon.ts";
-import { openPermissionPane, permissions } from "./os/permissions.ts";
+import { microphonePermission, openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
 import type { SpadeDirect } from "./spade/direct.ts";
 import { spadeHandlers } from "./spade/handlers.ts";
@@ -84,6 +86,8 @@ export function createHandlers(options: {
   authorizeDaemon(url: string): void;
   quit(): void;
   reload(): void;
+  /** The window wrote its drafts for the quit under way; `kept` false when it couldn't. */
+  draftsFlushed?(kept: boolean): void;
   updateKeymap?(bindings: Record<string, string>): void;
   /** Opens the daemon's and the app's log folders; false when there is nothing to show. */
   showLogs(): Promise<boolean>;
@@ -100,6 +104,10 @@ export function createHandlers(options: {
   updates: AppUpdates;
   /** What the quick-thread shortcut still needs from the person here (os/hyprland-shortcut.ts). */
   shortcutHint?(): Promise<string | undefined>;
+  /** The same for the push-to-talk shortcut. */
+  talkShortcutHint?(): Promise<string | undefined>;
+  /** How the push-to-talk turn goes, as the page says, for its indicator. */
+  spadeTalk?: { report(state: SpadeTalkState): void };
   /** Chromium's sandbox setup on a Linux AppImage or tar.gz (os/linux-sandbox-setup.ts). */
   sandbox: {
     current(): SandboxNotice;
@@ -166,6 +174,10 @@ export function createHandlers(options: {
     },
     "app.reload": () => {
       options.reload();
+      return undefined;
+    },
+    "drafts.flushed": (result) => {
+      options.draftsFlushed?.(result?.kept ?? true);
       return undefined;
     },
     "tray.open": (link, sender) => {
@@ -284,15 +296,21 @@ export function createHandlers(options: {
       options.openVisualization(request);
       return undefined;
     },
-    "settings.get": () => settings.get(),
+    "settings.get": () => withTalkDefault(settings.get(), process.platform),
     "settings.shortcutHint": async () => (await options.shortcutHint?.()) ?? null,
+    "settings.talkShortcutHint": async () => (await options.talkShortcutHint?.()) ?? null,
+    "spade.talkState": (state) => {
+      options.spadeTalk?.report(state);
+      return undefined;
+    },
     "settings.update": async (patch) => {
       // A downloads folder must be one this app can save in, now.
       if (patch.browserDownloads) await writableFolder(patch.browserDownloads);
-      return settings.update(patch);
+      return withTalkDefault(await settings.update(patch), process.platform);
     },
     "permissions.status": () => permissions(),
     "permissions.open": (pane) => openPermissionPane(pane),
+    "permissions.microphone": () => microphonePermission(),
     "browser.place": (placement, sender) => {
       const window = sender && BrowserWindow.fromWebContents(sender);
       // Bounds are the page's CSS pixels; the view is placed in window DIPs.

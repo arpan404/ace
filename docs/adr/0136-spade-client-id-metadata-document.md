@@ -46,7 +46,7 @@ their path must match exactly.
      "client_name": "Spade",
      "client_uri": "https://acehq.dev",
      "logo_uri": "https://acehq.dev/icon-192.png",
-     "redirect_uris": ["http://127.0.0.1/v1/connectors/callback"],
+     "redirect_uris": ["http://localhost/v1/connectors/callback"],
      "grant_types": ["authorization_code", "refresh_token"],
      "response_types": ["code"],
      "token_endpoint_auth_method": "none",
@@ -69,11 +69,12 @@ their path must match exactly.
    per-connector redirect tells its answers apart without `iss`.
 
 3. **The shared callback.** A sign-in as the document comes back to
-   `http://127.0.0.1:<Spade's port>/v1/connectors/callback`. Its `state` names the sign-in; the
+   `http://localhost:<Spade's port>/v1/connectors/callback` (amendment 1). Its `state` names the sign-in; the
    answer must carry `iss` equal to that sign-in's issuer, whatever the server advertises (the
    draft, section 7, makes `iss` mandatory). An answer for a sign-in with its own per-connector
    address that arrives at the shared one, or the reverse, is refused. Spade uses the document only
-   when it listens on 127.0.0.1, the one host the document lists. Sign-ins with registered or
+   when it listens on 127.0.0.1, which the browser reaches as `localhost`, the one host the
+   document lists. Sign-ins with registered or
    hand-made clients keep ADR 0131's per-connector addresses.
 
 4. **One constant.** The address is `spade_connect::CLIENT_METADATA_URL`; `SPADE_CLIENT_METADATA_URL`
@@ -107,4 +108,23 @@ their path must match exactly.
 - A server that doesn't fetch documents, or fetches them but doesn't name itself while offering
   registration, gets a registered client and its per-connector address.
 - The hosted file parses, its `client_id` is `CLIENT_METADATA_URL` and matches its path under
-  `public/`, it holds no secret, and it allows exactly Spade's shared loopback callback on any port.
+  `public/`, it holds no secret, and it allows exactly Spade's shared callback on `localhost`, any port, and no IP address.
+
+## Amendment 1: the document names `localhost`, not `127.0.0.1` (2026-11-20)
+
+Decided by: the owner (2026-11-20: "fix it", on two makers' answers). Typeform's authorization
+server refuses redirect URIs that use an IP address such as `127.0.0.1` but allows `localhost`,
+ignoring the port for loopback redirects (its engineer, 2026-11-20). Ramp declined to allowlist
+`http://127.0.0.1/v1/connectors/callback`. So:
+
+- The document's one redirect is `http://localhost/v1/connectors/callback`, with no IP address
+  beside it, since a server may check every listed redirect.
+- A sign-in as the document asks for `http://localhost:<Spade's port>/v1/connectors/callback`.
+  Spade still listens on 127.0.0.1 only; browsers resolve `localhost` to loopback and reach it.
+  `state`, PKCE S256 and the mandatory `iss` check are unchanged.
+- Sign-ins with registered, hand-made and Spade's shipped clients keep their per-connector
+  `127.0.0.1` addresses (ADR 0131, 0137), since those are registered with that host.
+
+This departs from RFC 8252 section 8.3's preference for the IP literal, because the makers whose
+servers decide the redirect prefer the name. Makers asked earlier to approve the `127.0.0.1`
+document (Pipedrive, Ramp) are asked again with the new redirect.

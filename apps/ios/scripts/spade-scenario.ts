@@ -3,7 +3,8 @@ import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 /*
  * Spade on the fixture's machine (ADR 0121, 0139): turned on in Settings › Beta and running,
  * with Spade itself, a bot waiting on an approval, one on a card of questions (with another left
- * for later), one working and one that finished. `POST
+ * for later), one working, one that finished (with a profile filled in: its task, a routine,
+ * notes, a page, a file, a skill and its computer), and a group Spade leads (ADR 0132). `POST
  * /review/spade` stages the rest: `off` turns Beta's switch off (the tab goes), `on` back on,
  * `stream` has the finished bot start a reply and stream its first words, `hold` has Spade take a
  * card's answer but send the update only on `release`. `on` also puts back
@@ -60,9 +61,75 @@ export function seedSpade(daemon: FakeDaemon, now: number): void {
     status: "Reading the Swift concurrency notes",
     last_activity: now - 2 * minute,
   });
-  const notes = spade.addAgent({ id: "notes", name: "Notes", last_activity: now - 30 * minute });
+  const notes = spade.addAgent({
+    id: "notes",
+    name: "Notes",
+    task: "Summarise what merged each day, in three lines or fewer.",
+    model: "anthropic/claude-sonnet-4-5",
+    last_activity: now - 30 * minute,
+  });
   spade.store(notes.conversation, { type: "user_message", text: "Summarise yesterday's PRs" });
   spade.reply(notes, "Three merged: the Work card fix, the market Worker and the Beta page.");
+  seedProfile(spade);
+  seedGroup(spade, now - 50 * minute);
+}
+
+/** What Notes keeps and has used, for its profile; and what Spade knows about the person. */
+function seedProfile(spade: FakeSpadeApi): void {
+  spade.routines.agentRoute("POST", "notes", "routines", {
+    name: "Morning summary",
+    instruction: "Summarise yesterday's merges",
+    trigger: { kind: "schedule", schedule: "weekdays at 9:00" },
+  });
+  spade.notes.add({ text: "Keep summaries to three lines.", agent: "notes" });
+  spade.notes.add({ text: "Works on the ace iPhone app." });
+  spade.knowledge.add({ agent: "notes", title: "How releases are named", body: "By date." });
+  spade.files.set("notes", { "summaries/monday.md": "# Monday", "style.md": "Short." });
+  spade.skillStore = {
+    ace: false,
+    skills: [{ id: "sk-digest", name: "Daily digest", origin: "spade", written_by: ["notes"] }],
+  };
+  spade.computer.use("notes", { kind: "terminal", live: false, title: "gh pr list", last: 1 });
+  spade.services.start("notes", { name: "Digest preview", command: "bun run preview" });
+}
+
+/** Launch team: Spade leads, asks Research, and posts the draft. */
+function seedGroup(spade: FakeSpadeApi, at: number): void {
+  const group = spade.teams.addGroup({
+    id: "launch",
+    name: "Launch team",
+    members: ["spade", "research", "notes"].map((id) => spade.teams.member(id)),
+    last_activity: at,
+  });
+  const spadeBot = { id: "spade", name: "Spade" };
+  const research = { id: "research", name: "Research" };
+  const said = (text: string, from?: { id: string; name: string }) =>
+    spade.store(group.conversation, { type: "group_message", run: "r1", text, from });
+  said("Plan the launch post for Friday");
+  said("I'll ask Research for this week's numbers.", spadeBot);
+  spade.store(group.conversation, {
+    type: "group_asked",
+    run: "r1",
+    ask: "a1",
+    by: spadeBot,
+    to: research,
+  });
+  said("Installs are up 18% on last week, mostly from the share sheet.", research);
+  spade.store(group.conversation, {
+    type: "group_answered",
+    run: "r1",
+    ask: "a1",
+    to: research,
+    outcome: "answered",
+  });
+  said("Here's a draft: **ace on iPhone** now shares straight from any app.", spadeBot);
+  said("Want me to post it Friday morning?", spadeBot);
+  group.last_message = {
+    from: "agent",
+    text: "Want me to post it Friday morning?",
+    at,
+    agent: { ...spadeBot, machine: null },
+  };
 }
 
 export function spadeScenario(daemon: FakeDaemon, scenario: SpadeScenario): void {

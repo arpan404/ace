@@ -30,6 +30,9 @@ export function resumeLoadFailure(
       "thread_not_found",
       "conversation_not_found",
     ].includes(String(code)) ||
+    // ACP's "resource not found", and the SDK's internal error for a session it doesn't have.
+    code === -32002 ||
+    (code === -32603 && /\bsession not found\b/i.test(detail)) ||
     /^No conversation found\b/i.test(detail)
   )
     return { code: "resume_unavailable", detail };

@@ -1,12 +1,4 @@
-import { fileURLToPath } from "node:url";
-import { createTestHarness } from "wrangler";
-import {
-  GRANT_LIFETIME_MS,
-  grantPublicKey,
-  signCloudGrant,
-  signGrant,
-  signMarketGrant,
-} from "@ace/account-grant";
+import { GRANT_LIFETIME_MS, signCloudGrant, signGrant, signMarketGrant } from "@ace/account-grant";
 import {
   contentHash,
   hashFiles,
@@ -16,44 +8,30 @@ import {
   type ArchiveFile,
   type MarketSigningKey,
 } from "@ace/marketplace";
-import { keySetOf, testKey, testPublisher } from "@ace/marketplace/testing";
+import { testPublisher } from "@ace/marketplace/testing";
 import type { MarketEntryType } from "@ace/protocol/marketplace";
+import { databases, type DatabaseBindings } from "../store/databases.ts";
 import {
-  catalogueBindings,
-  databases,
-  domainBindings,
-  type DatabaseBindings,
-} from "../store/databases.ts";
+  grantKey,
+  launchMarketWorker,
+  marketGrant,
+  marketAddress,
+  marketKey,
+  signerToken,
+} from "./worker.ts";
 
 /*
  * The market Worker under real workerd (Miniflare) with local D1 and R2, and helpers that act
  * as a publisher and as the signer through its HTTP API.
  */
 
-export const grantKey = { id: "acct", privateKey: new Uint8Array(32).fill(3) };
-export const marketKey = testKey("market", 9);
-export const signerToken = "signer-token-for-tests";
+export { grantKey, marketGrant, marketKey, signerToken } from "./worker.ts";
 
 export async function startMarket() {
-  const harness = createTestHarness({
-    workers: [
-      {
-        configPath: fileURLToPath(import.meta.resolve("../../wrangler.jsonc")),
-        secrets: {
-          ACE_GRANT_KEYS: JSON.stringify({ keys: [grantPublicKey(grantKey)] }),
-          MARKET_PUBLIC_KEYS: JSON.stringify(keySetOf(marketKey)),
-          MARKET_SIGNER_TOKEN: signerToken,
-        },
-      },
-    ],
-  });
-  const { url } = await harness.listen();
+  const { harness, url } = await launchMarketWorker();
   const worker = harness.getWorker();
-  // Every database, each from its own migration folder (ADR 0174 §16).
-  for (const binding of [...Object.values(catalogueBindings), ...Object.values(domainBindings)])
-    await worker.applyD1Migrations(binding);
   const fetch = (path: string, init?: Parameters<typeof worker.fetch>[1]) =>
-    worker.fetch(`https://market.acehq.dev${path}`, init);
+    worker.fetch(marketAddress(path), init);
   // The bindings the Worker gets (ADR 0125: the harness's own configuration).
   const env = (await worker.getEnv()) as DatabaseBindings & { OBJECTS: R2Bucket };
   return {
@@ -73,20 +51,6 @@ export type Market = Awaited<ReturnType<typeof startMarket>>;
 
 const lifetime = (iat = Date.now()) => ({ iat, exp: iat + GRANT_LIFETIME_MS });
 
-/** A market publishing grant for `account`, as the account backend mints it. */
-export const marketGrant = (account: string) =>
-  signMarketGrant(
-    {
-      kind: "machine",
-      account,
-      subject: "host-a",
-      iss: "cloud.acehq.dev",
-      emailVerified: true,
-      authAt: Date.now(),
-      ...lifetime(),
-    },
-    grantKey,
-  );
 /**
  * The person's market grant for one sensitive request, `METHOD /path` (ADR 0190): what an ace app
  * gets with its own session for a withdrawal, a transfer or a handle change.

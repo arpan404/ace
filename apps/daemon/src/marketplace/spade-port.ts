@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { PackagePlan } from "@ace/protocol/marketplace";
 import type { SpadeConnection } from "../spade/forward.ts";
 import { spadeRequest } from "../spade/forward.ts";
-import type { MadeBot, SpadePort } from "./install.ts";
+import type { MadeBot, PackageInput, SpadePort } from "./install.ts";
 
 /*
  * What the marketplace asks of Spade through the daemon's link (ADR 0168 §8, §13): a new bot made
@@ -13,12 +14,24 @@ const Made = z.object({
   agent: z.object({ id: z.string().min(1).max(80) }),
   left_out: z.array(z.string().max(500)).max(64).optional(),
 });
+const Version = z.object({ version: z.string().min(1).max(64), hash: z.string().min(1).max(128) });
+const Linked = Version.extend({
+  source: z.string().min(1).max(64),
+  name: z.string().min(1).max(128),
+  previous: Version.nullish().catch(undefined),
+  held: z
+    .object({ version: z.string().min(1).max(64) })
+    .nullish()
+    .catch(undefined),
+});
 const Agents = z.object({
   agents: z
     .array(
       z.object({
         id: z.string().min(1).max(80),
         from_recipe: z.object({ transaction: z.string().max(80).optional() }).nullish(),
+        // A link this build can't read is no link: the bot stays as Spade has it.
+        package: Linked.nullish().catch(undefined),
       }),
     )
     .max(10_000),
@@ -49,6 +62,16 @@ export async function spadeCall(
   path: string,
   body?: unknown,
 ): Promise<unknown> {
+  return (await spadeCallStatus(connection, method, path, body)).body;
+}
+
+/** [`spadeCall`], with the status Spade answered: a held update is a 202. */
+async function spadeCallStatus(
+  connection: SpadeConnection,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: unknown }> {
   const answer = await spadeRequest(
     connection,
     {
@@ -67,10 +90,36 @@ export async function spadeCall(
     const detail = problem.success ? (problem.data.error ?? problem.data.detail) : undefined;
     throw new Error(detail ? `Spade refused: ${detail}` : `Spade answered ${answer.status}`);
   }
-  return text ? JSON.parse(text) : undefined;
+  return { status: answer.status, body: text ? JSON.parse(text) : undefined };
 }
 
-export function spadePort(connection: () => SpadeConnection | undefined): SpadePort {
+const Planned = z.object({ plan: PackagePlan });
+
+/**
+ * A version 3 package's part of `POST /v1/agents`: `bot.json` as published, read by Spade's own
+ * reader in place of the version 2 shape, its market identity, and the person's switches.
+ */
+function linked(input: Parameters<SpadePort["createBot"]>[0]["linked"]) {
+  return input ? { ...identity(input), switches: input.switches } : {};
+}
+
+/** A package's manifest and, for a market one, what proves its identity to Spade. */
+function identity(input: PackageInput) {
+  return {
+    recipe: input.manifest,
+    ...(input.signed
+      ? {
+          package: input.signed.package,
+          envelope: { signed: input.signed.signedManifest, bot_json: input.signed.botJson },
+        }
+      : {}),
+  };
+}
+
+export function spadePort(
+  connection: () => SpadeConnection | undefined,
+  version: () => string | undefined = () => undefined,
+): SpadePort {
   const live = () => {
     const current = connection();
     if (!current) throw new Error("Spade isn't running. Start Spade to make this bot.");
@@ -78,6 +127,7 @@ export function spadePort(connection: () => SpadeConnection | undefined): SpadeP
   };
   return {
     ready: () => connection() !== undefined,
+    version: () => (connection() ? version() : undefined),
     async createBot(input): Promise<MadeBot> {
       const { recipe } = input;
       const made = Made.parse(
@@ -93,14 +143,38 @@ export function spadePort(connection: () => SpadeConnection | undefined): SpadeP
             routines: recipe.routines,
             ...(recipe.needs.tools ? { tools: recipe.needs.tools } : {}),
             notes: recipe.notes,
+            ...(recipe.personality ? { personality: recipe.personality } : {}),
           },
           // Spade answers a second request with the same transaction with the bot it made.
           from_recipe: { ...input.fromRecipe, transaction: input.transaction },
           grants: input.grants,
           start_routines: input.startRoutines,
+          ...linked(input.linked),
         }),
       );
       return { id: made.agent.id, leftOut: made.left_out ?? [] };
+    },
+    async planUpdate(bot, manifest) {
+      const path = `/v1/agents/${encodeURIComponent(bot)}/package/plan`;
+      return Planned.parse(await spadeCall(live(), "POST", path, { recipe: manifest })).plan;
+    },
+    async updateBot(bot, input) {
+      const answer = await spadeCallStatus(
+        live(),
+        "POST",
+        `/v1/agents/${encodeURIComponent(bot)}/package`,
+        { ...identity(input), transaction: input.transaction },
+      );
+      // 202: the bot works, and Spade applies the step when its turn ends.
+      return { held: answer.status === 202 };
+    },
+    async withdrawBot(bot, reason) {
+      const path = `/v1/agents/${encodeURIComponent(bot)}/package/withdrawn`;
+      await spadeCall(live(), "POST", path, { reason });
+    },
+    async resumeBot(bot) {
+      const path = `/v1/agents/${encodeURIComponent(bot)}/package/withdrawn`;
+      await spadeCall(live(), "DELETE", path);
     },
     async pluginsOf(bot) {
       const path = `/v1/agents/${encodeURIComponent(bot)}/plugins`;
@@ -118,6 +192,23 @@ export function spadePort(connection: () => SpadeConnection | undefined): SpadeP
     async findBot(transaction) {
       const listed = Agents.parse(await spadeCall(live(), "GET", "/v1/agents"));
       return listed.agents.find((agent) => agent.from_recipe?.transaction === transaction)?.id;
+    },
+    async bots() {
+      const listed = Agents.parse(await spadeCall(live(), "GET", "/v1/agents"));
+      const links = listed.agents.flatMap((agent) => {
+        const link = agent.package;
+        if (!link) return [];
+        const { previous, held, ...current } = link;
+        return [
+          {
+            id: agent.id,
+            package: current,
+            ...(previous ? { previous } : {}),
+            ...(held ? { held } : {}),
+          },
+        ];
+      });
+      return { ids: new Set(listed.agents.map((agent) => agent.id)), linked: links };
     },
     async deleteBot(id) {
       // Workers it made in the moments it existed stop with it.

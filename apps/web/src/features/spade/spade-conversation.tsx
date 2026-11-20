@@ -23,6 +23,7 @@ import {
 } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
+import { SpadeFirstRun } from "./spade-first-run.tsx";
 import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
 import { ConversationPill } from "./spade-pill.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
@@ -48,6 +49,8 @@ import { useRevealRequest } from "./use-reveal-request.ts";
 import { SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
+import { stopSpeaking } from "./spade-speech.ts";
+import { BotVoiceContext, useBotSpeech, useSpokenReplies } from "./use-spoken-replies.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 import { useSkillProposals } from "./use-skill-proposals.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
@@ -171,7 +174,18 @@ export function Conversation(props: {
   const computer = useBotComputer(bot, conversation.side, open);
   // Stopping lasts until nothing is open: the reply, its background jobs and the task's next step.
   if (stopping && !open) setStopping(false);
+  // Its replies are read aloud while Speak replies is on, or after the person spoke.
+  const speech = useBotSpeech(bot.machine.key, bot.id);
+  const spoken = useSpokenReplies({
+    conversation: bot.conversation,
+    entries: view.entries,
+    caughtUp: view.caughtUp,
+    voice: speech.voice,
+    speakReplies: speech.speakReplies,
+  });
   const stop = () => {
+    // Stop also stops it talking, at once.
+    stopSpeaking();
     setStopping(true);
     conversation.stop().catch((error: unknown) => {
       setStopping(false);
@@ -187,12 +201,14 @@ export function Conversation(props: {
       id: bot.id,
       name: bot.name,
       avatar: bot.avatar,
+      style: bot.style,
       others: new Map(
         props.roster
           .filter((other) => other.machine.key === bot.machine.key)
           .map((other) => [other.id, other.avatar]),
       ),
       names: new Map(props.roster.map((other) => [other.id, other.name])),
+      task: bot.task,
     }),
     [bot, props.roster],
   );
@@ -225,6 +241,7 @@ export function Conversation(props: {
         ) : (
           <SpadeChat
             bot={chatBot}
+            profile={bot.kind === "main" ? undefined : bot}
             start={<ConversationStart avatar={bot.avatar} name={bot.name} task={bot.task} />}
             view={view}
             // While it uses its computer and Computer isn't showing, Watch opens it there.
@@ -254,6 +271,21 @@ export function Conversation(props: {
                     return error.message;
                   if (error instanceof SpadeRequestError && error.status === 409)
                     return "This question isn't open anymore.";
+                  toast.error({
+                    title: `Couldn't answer ${bot.name}`,
+                    description: message(error),
+                  });
+                  return "";
+                },
+              )
+            }
+            onCardChoice={(cardId, version, action) =>
+              conversation.chooseOnCard(cardId, version, action).then(
+                () => undefined,
+                (error: unknown) => {
+                  // Spade's own words: the card changed, or its choice was already made.
+                  if (error instanceof SpadeRequestError && error.status === 409)
+                    return error.message;
                   toast.error({
                     title: `Couldn't answer ${bot.name}`,
                     description: message(error),
@@ -305,6 +337,7 @@ export function Conversation(props: {
             }
           />
         )}
+        {bot.kind === "main" && view.loaded && line.ready && <SpadeFirstRun main={bot} />}
       </Scroller>
       <SpadeComposer
         name={bot.name}
@@ -324,6 +357,8 @@ export function Conversation(props: {
           setSent((count) => count + 1);
           return conversation.send(outgoing);
         }}
+        onSpoken={spoken.arm}
+        main={bot.kind === "main"}
       />
     </div>
   );
@@ -359,77 +394,79 @@ export function Conversation(props: {
   );
 
   return (
-    <ConversationScreen
-      actions={
-        // Covered by the profile, the chat comes back by the profile's own ‹ Chat.
-        !(panelShown && covering) && (
-          <>
-            {view.questionsForLater > 0 && (
-              <Button size="sm" variant="ghost" onClick={() => showCard(view.forLater[0])}>
-                {spadeForLaterWords(view.questionsForLater)}
-              </Button>
-            )}
-            {panelShown ? (
-              // The top bar's part above the profile holds its strip: Share and close.
-              <ProfileStripActions bot={bot} onClose={closePanel} />
-            ) : (
-              <IconButton
-                icon={SidebarSimpleIcon}
-                label={`Open ${bot.name}'s profile`}
-                tip="Profile"
-                className="-scale-x-100"
-                onClick={() => openProfile()}
-              />
-            )}
-          </>
-        )
-      }
-    >
-      <div className="relative flex h-full min-h-0">
-        <div
-          className={cn("min-w-0 flex-1", panelShown && covering && "invisible")}
-          aria-hidden={panelShown && covering ? true : undefined}
-        >
-          {chat}
-        </div>
-        {panel && (
+    <BotVoiceContext value={speech.voice}>
+      <ConversationScreen
+        actions={
+          // Covered by the profile, the chat comes back by the profile's own ‹ Chat.
+          !(panelShown && covering) && (
+            <>
+              {view.questionsForLater > 0 && (
+                <Button size="sm" variant="ghost" onClick={() => showCard(view.forLater[0])}>
+                  {spadeForLaterWords(view.questionsForLater)}
+                </Button>
+              )}
+              {panelShown ? (
+                // The top bar's part above the profile holds its strip: Share and close.
+                <ProfileStripActions bot={bot} onClose={closePanel} />
+              ) : (
+                <IconButton
+                  icon={SidebarSimpleIcon}
+                  label={`Open ${bot.name}'s profile`}
+                  tip="Profile"
+                  className="-scale-x-100"
+                  onClick={() => openProfile()}
+                />
+              )}
+            </>
+          )
+        }
+      >
+        <div className="relative flex h-full min-h-0">
           <div
-            // Beside the chat the chat keeps a readable column; in a narrow window the profile
-            // takes the window.
-            style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
-            className={cn(
-              "bg-panel",
-              panelReveal,
-              covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
-            )}
+            className={cn("min-w-0 flex-1", panelShown && covering && "invisible")}
+            aria-hidden={panelShown && covering ? true : undefined}
           >
-            {!covering && (
-              <ResizeHandle
-                label="Profile width"
-                edge="left"
-                size={width}
-                min={panelWidth.min}
-                max={panelWidth.max}
-                onResize={setWidth}
-                onResizeEnd={(next) =>
-                  writePanel(storage(), memoryKey, {
-                    ...readPanel(storage(), memoryKey),
-                    width: next,
-                  })
-                }
-                onReset={() => {
-                  setWidth(panelWidth.initial);
-                  writePanel(storage(), memoryKey, {
-                    ...readPanel(storage(), memoryKey),
-                    width: panelWidth.initial,
-                  });
-                }}
-              />
-            )}
-            {panel}
+            {chat}
           </div>
-        )}
-      </div>
-    </ConversationScreen>
+          {panel && (
+            <div
+              // Beside the chat the chat keeps a readable column; in a narrow window the profile
+              // takes the window.
+              style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
+              className={cn(
+                "bg-panel",
+                panelReveal,
+                covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
+              )}
+            >
+              {!covering && (
+                <ResizeHandle
+                  label="Profile width"
+                  edge="left"
+                  size={width}
+                  min={panelWidth.min}
+                  max={panelWidth.max}
+                  onResize={setWidth}
+                  onResizeEnd={(next) =>
+                    writePanel(storage(), memoryKey, {
+                      ...readPanel(storage(), memoryKey),
+                      width: next,
+                    })
+                  }
+                  onReset={() => {
+                    setWidth(panelWidth.initial);
+                    writePanel(storage(), memoryKey, {
+                      ...readPanel(storage(), memoryKey),
+                      width: panelWidth.initial,
+                    });
+                  }}
+                />
+              )}
+              {panel}
+            </div>
+          )}
+        </div>
+      </ConversationScreen>
+    </BotVoiceContext>
   );
 }

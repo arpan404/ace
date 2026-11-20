@@ -60,6 +60,12 @@ export interface FindQuery {
   wholeWord?: boolean;
 }
 
+/** How one indent step is written: a tab, or `size` spaces (`size` is also a tab's width). */
+export interface Indent {
+  tabs: boolean;
+  size: number;
+}
+
 /** How a line of the current text differs from the original. */
 export type LineMarkKind = "added" | "modified" | "removed";
 
@@ -77,4 +83,21 @@ export interface EditorError extends Error {
 /** Whether an unknown thrown value is an editor rejection with a `code`. */
 export function isEditorError(error: unknown): error is EditorError {
   return error instanceof Error && "code" in error && typeof error.code === "string";
+}
+
+/** One stretch of a three-way merge: agreed text, or a block both sides changed differently. */
+export type MergeChunk =
+  | { kind: "clean"; text: string }
+  | { kind: "conflict"; base: string; mine: string; theirs: string };
+
+/** A three-way merge: clean with its text, or with conflicts still to answer. */
+export type MergeResult =
+  | { clean: true; text: string; chunks: MergeChunk[] }
+  | { clean: false; chunks: MergeChunk[] };
+
+/** Lines `start..end` of the old text (0-based, end exclusive) become `text`, endings included. */
+export interface LineChange {
+  start: number;
+  end: number;
+  text: string;
 }

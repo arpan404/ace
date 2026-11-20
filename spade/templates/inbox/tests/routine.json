@@ -1,0 +1,14 @@
+{
+  "name": "Morning inbox runs and reports",
+  "given": {
+    "trigger": "Morning inbox"
+  },
+  "model": [
+    {
+      "say": "Nothing new needs you this morning."
+    }
+  ],
+  "expect": {
+    "reply_contains": ["Nothing"]
+  }
+}

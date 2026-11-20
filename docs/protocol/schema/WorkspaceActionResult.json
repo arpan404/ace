@@ -62,6 +62,13 @@
             "kind": {
               "const": "editors",
               "type": "string"
+            },
+            "terminals": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/InstalledEditor.json"
+              },
+              "maxItems": 32,
+              "type": "array"
             }
           },
           "required": [

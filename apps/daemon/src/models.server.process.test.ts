@@ -1,4 +1,4 @@
-import type { ServerMessage } from "@ace/protocol";
+import { DeviceId, type ServerMessage } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import {
   ModelCatalog,
@@ -8,7 +8,8 @@ import {
   type CatalogModel,
 } from "@ace/models";
 import { setup as remoteSetup } from "./remote-test-support.ts";
-import { fixture } from "./socket-test-support.ts";
+import { fixture, token } from "./socket-test-support.ts";
+import { reauthSentence } from "./marketplace/fresh-sign-in.ts";
 async function nextReply(client: { next(): Promise<ServerMessage> }): Promise<ServerMessage> {
   for (let i = 0; i < 8; i++) {
     const message = await client.next();
@@ -402,4 +403,56 @@ test("legacy Cursor catalog requests list and resolve the sole SDK instance", as
     type: "models.result",
     result: { ok: true, model: { nativeModelId: "composer-2.5", instance: "cursor-sdk-default" } },
   });
+});
+
+test("only the person's proven device loads an agent's models; an agent's device can't, nor can a refresh", async () => {
+  let discoveries = 0;
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(":memory:"),
+    instances: [
+      {
+        id: "acp-row",
+        provider: "acp",
+        acpAgentId: "local:fixture",
+        installationId: "fixture-install",
+        instanceId: "fixture-default",
+        loginRevision: "1",
+        executable: "fixture",
+        cwd: "/probe",
+        modelProbe: "on-request",
+      },
+    ],
+    discover: async () => {
+      discoveries++;
+      return [];
+    },
+    now: () => 1000,
+    deadline: () => () => {},
+  });
+  cleanups.push(() => catalog.close());
+  const f = await fixture({ models: catalog });
+  cleanups.push(f.close);
+  // The host token carries every scope, and an agent's shell can read it.
+  const agent = await f.open();
+  agent.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("ace-agent"), token });
+  await nextReply(agent);
+  agent.send({ type: "models.load", requestId: "agent", instance: "acp-row" });
+  expect(await nextReply(agent)).toMatchObject({
+    type: "models.result",
+    requestId: "agent",
+    result: { ok: false, reason: "Only the person can load an agent's models." },
+  });
+  // A refresh naming the row is open to any operate device: it resets the row, starting nothing.
+  agent.send({ type: "models.refresh", requestId: "refresh", filter: { instance: "acp-row" } });
+  expect(await nextReply(agent)).toMatchObject({ type: "models.result", requestId: "refresh" });
+  // The host token alone is no proof of the person (ADR 0190).
+  const host = await f.connect();
+  await nextReply(host);
+  host.send({ type: "models.load", requestId: "host", instance: "acp-row" });
+  expect(await nextReply(host)).toMatchObject({
+    type: "models.result",
+    requestId: "host",
+    result: { ok: false, reason: reauthSentence },
+  });
+  expect(discoveries).toBe(0);
 });

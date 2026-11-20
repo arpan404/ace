@@ -1,15 +1,17 @@
 import type { MarketInstallChoices, MarketInstalled } from "@ace/protocol/marketplace";
 import {
   contentHash,
+  grantedEffects,
   grantedNeeds,
   hashFiles,
   recipeNeeds,
   type ArchiveFile,
 } from "@ace/marketplace";
-import { type Recipe } from "@ace/protocol/marketplace";
+import { type PackageLinkId, type PackagePlan, type Recipe } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import type { BotInspection } from "@ace/marketplace/checks";
 import { Transaction } from "./journal.ts";
+import { bytesJson, bytesText } from "./package-diff.ts";
 import type { PluginFilesInput } from "./prepare.ts";
 import type { PreparedEntry, PreparedReview } from "./review.ts";
 import { approvedForBots, type MarketStore, type StoredInstall } from "./store.ts";
@@ -54,9 +56,22 @@ export interface MadeBot {
   leftOut: string[];
 }
 
+/**
+ * A version 3 package's link (ADR 0200 §3.9): `bot.json` as published and, for a market package,
+ * the market's signed manifest with `bot.json`'s exact text, which is all Spade believes its
+ * identity from. Without one (a git catalog's entry) Spade links it as a local package.
+ */
+export interface PackageInput {
+  /** `bot.json` as the signed bytes have it: Spade reads it with its own reader. */
+  manifest: unknown;
+  signed?: { package: PackageLinkId; signedManifest: unknown; botJson: string } | undefined;
+}
+
 /** What the daemon asks of Spade, through its link (`POST /v1/agents` with `recipe`). */
 export interface SpadePort {
   ready(): boolean;
+  /** The running Spade's version, once it has answered; a review checks `requires.spade` by it. */
+  version(): string | undefined;
   createBot(input: {
     recipe: Recipe;
     fromRecipe: { source: string; name: string; version: string };
@@ -64,13 +79,46 @@ export interface SpadePort {
     startRoutines: boolean;
     /** The install's transaction: Spade makes one bot per transaction, however often asked. */
     transaction: string;
+    /** For a version 3 package: the bot stays linked, with the effect switches the person set. */
+    linked?: PackageInput & { switches: Record<string, boolean> };
   }): Promise<MadeBot>;
+  /** What moving a linked bot to `manifest` would do: Spade's plan, for the review. */
+  planUpdate(bot: string, manifest: unknown): Promise<PackagePlan>;
+  /**
+   * Moves a linked bot to another version, one step keyed by `transaction`. While the bot works
+   * Spade holds the step for the end of its turn and says `held`.
+   */
+  updateBot(bot: string, input: PackageInput & { transaction: string }): Promise<{ held: boolean }>;
+  /** Its version was withdrawn: the bot is paused with the reason, nothing deleted. */
+  withdrawBot(bot: string, reason: string): Promise<void>;
+  /** The person resumes a bot its version's withdrawal paused. */
+  resumeBot(bot: string): Promise<void>;
   /** A bot's allowed plugins, by name. */
   pluginsOf(bot: string): Promise<string[]>;
   setPlugins(bot: string, plugins: string[]): Promise<void>;
   /** The bot made under `transaction`, if Spade has one. */
   findBot(transaction: string): Promise<string | undefined>;
+  /**
+   * Every bot Spade has, and of each linked one the version it runs and any update it holds:
+   * what a move brings (ADR 0187), and what one took away. Throws when Spade can't say.
+   */
+  bots(): Promise<SpadeBots>;
   deleteBot(id: string): Promise<void>;
+}
+
+/** A bot Spade says is linked to a package, and the version it has. */
+export interface LinkedBot {
+  id: string;
+  package: { source: string; name: string; version: string; hash: string };
+  previous?: { version: string; hash: string } | undefined;
+  /** An update Spade holds until the bot's turn ends. */
+  held?: { version: string } | undefined;
+}
+
+/** Spade's bots as the Marketplace reads them: every id, and the linked ones' links. */
+export interface SpadeBots {
+  ids: ReadonlySet<string>;
+  linked: LinkedBot[];
 }
 
 export interface InstallPorts {
@@ -138,11 +186,14 @@ function botsApproval(
 
 /** Writes the marketplace's row for an install, noting the row it replaces. */
 function saveRecord(ports: InstallPorts, tx: Transaction, installed: StoredInstall): StoredInstall {
+  // A bot package's row is its bot's: installing it again makes another bot, another row.
+  const bot = installed.type === "spade-bot" ? installed.target : undefined;
   tx.note({
     kind: "record",
     type: installed.type,
     name: installed.name,
-    previous: ports.store.install(installed.type, installed.name),
+    ...(bot ? { bot } : {}),
+    previous: ports.store.install(installed.type, installed.name, bot),
   });
   ports.store.saveInstall(installed);
   return installed;
@@ -228,7 +279,9 @@ async function landFolders(
 ): Promise<string[]> {
   const names: string[] = [];
   for (const folder of folders) {
-    if (ports.store.install("spade-skill", folder.name))
+    const present = ports.store.install("spade-skill", folder.name);
+    // An update of a linked bot replaces the skills its own earlier version brought.
+    if (present && present.bundledBy !== `spade-bot/${review.name}`)
       throw new Error(`A skill called ${folder.name} is already installed`);
     const hashed = hashFiles(folder.files);
     const hash = contentHash(hashed);
@@ -309,7 +362,60 @@ async function installIn(
   // The recipe's bytes are pinned before the bot exists, so a made bot always has them.
   await step(ports);
   await ports.store.pin(review.hash, "spade-bot", review.checked.files);
-  const granted = grantedNeeds(recipeNeeds(inspection.recipe), choices.needs);
+  const { recipe } = inspection;
+  const linked: PackageInput | undefined =
+    recipe.version === 3
+      ? {
+          manifest: bytesJson(review.checked.files),
+          signed:
+            review.signedManifest === undefined
+              ? undefined
+              : {
+                  package: {
+                    source: review.source,
+                    name: review.name,
+                    version: review.version,
+                    hash: review.hash,
+                  },
+                  signedManifest: review.signedManifest,
+                  botJson: bytesText(review.checked.files),
+                },
+        }
+      : undefined;
+  // A linked bot keeps its version's signed manifest, and the one before, for a later move.
+  const signedRecord = (before?: StoredInstall) =>
+    linked
+      ? {
+          ...(review.signedManifest === undefined ? {} : { signedManifest: review.signedManifest }),
+          ...(before?.signedManifest === undefined
+            ? {}
+            : { previousSignedManifest: before.signedManifest }),
+        }
+      : {};
+  // An update or rollback of a linked bot moves that bot; nothing new is made (ADR 0200 §6.1).
+  if (review.updating) {
+    if (!linked) throw new Error("Only a bot from a version 3 package updates");
+    const bot = review.updating.bot;
+    const before = ports.store.install(review.type, review.name, bot);
+    await step(ports);
+    const moved = await ports.spade.updateBot(bot, { ...linked, transaction: tx.id });
+    tx.learned();
+    await step(ports);
+    const next = record(review, ports.now(), {
+      target: bot,
+      linked: true,
+      ...signedRecord(before),
+      ...(before ? { previous: { version: before.version, hash: before.hash } } : {}),
+    });
+    // Held for the end of the bot's turn: the record stays the version Spade runs, and says
+    // which one waits (ADR 0200 §6.1). It becomes `next` once Spade runs it.
+    if (moved.held && before) {
+      const { waiting: _earlier, ...running } = before;
+      return saveRecord(ports, tx, { ...running, waiting: next });
+    }
+    return saveRecord(ports, tx, next);
+  }
+  const granted = grantedNeeds(recipeNeeds(recipe), choices.needs);
   await step(ports);
   const made = tx.note({ kind: "bot", transaction: tx.id });
   const bot = await ports.spade.createBot({
@@ -324,11 +430,21 @@ async function installIn(
       skills,
     },
     startRoutines: choices.startRoutines,
+    ...(linked
+      ? { linked: { ...linked, switches: grantedEffects(recipe, choices.effects ?? {}) } }
+      : {}),
   });
   if (made.kind === "bot") made.id = bot.id;
   tx.learned();
   await step(ports);
-  return saveRecord(ports, tx, record(review, ports.now(), { target: bot.id }));
+  return saveRecord(
+    ports,
+    tx,
+    record(review, ports.now(), {
+      target: bot.id,
+      ...(linked ? { linked: true, ...signedRecord() } : {}),
+    }),
+  );
 }
 
 /** Turns an installed entry off (withdrawn, or the person's choice) without deleting it. */
@@ -340,10 +456,18 @@ export async function turnOff(ports: InstallPorts, install: StoredInstall): Prom
     case "spade-plugin":
       await ports.plugins?.setEnabled(install.name, false);
       return;
-    case "spade-skill":
     case "spade-bot":
+      // A linked bot is paused with the reason, nothing deleted (ADR 0200 §6.1); one made from a
+      // version 2 recipe is the person's and is left alone.
+      if (install.linked && install.target)
+        await ports.spade.withdrawBot(
+          install.target,
+          install.reason ?? "Its version was withdrawn.",
+        );
+      return;
+    case "spade-skill":
     case "ace-plugin":
-      // A skill leaves Spade's list by its state; a bot made from a recipe is the person's.
+      // A skill leaves Spade's list by its state.
       return;
   }
 }
@@ -362,8 +486,11 @@ export async function turnOn(ports: InstallPorts, install: StoredInstall): Promi
     case "spade-plugin":
       await ports.plugins?.setEnabled(install.name, true);
       return;
-    case "spade-skill":
     case "spade-bot":
+      await ports.store.pinned(install.hash, install.type);
+      if (install.linked && install.target) await ports.spade.resumeBot(install.target);
+      return;
+    case "spade-skill":
     case "ace-plugin":
       await ports.store.pinned(install.hash, install.type);
       return;

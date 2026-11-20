@@ -1,6 +1,6 @@
 import type { Position, TextReplacement } from "@ace/editor";
 import type { RefObject } from "react";
-import { lineHeight } from "./geometry.ts";
+import { lineHeight as defaultLineHeight } from "./geometry.ts";
 import { rowOfColumn } from "./wrap.ts";
 import type { RowLayout } from "./wrap-index.ts";
 
@@ -44,10 +44,10 @@ function notAfter(a: Position, b: Position): boolean {
  * An edit above the view therefore never pulls different text under the top edge, and an edit
  * inside the anchored line moves the column with the text the reader is looking at.
  */
-export function mapAnchor(
-  anchor: ViewAnchor,
+export function mapAnchor<T extends Position>(
+  anchor: T,
   replacements: readonly TextReplacement[],
-): ViewAnchor {
+): T {
   let line = anchor.line;
   let column = anchor.column;
   for (const change of replacements) {
@@ -69,6 +69,8 @@ export function mapAnchor(
 export class ScrollAnchor {
   readonly #scroller: RefObject<HTMLDivElement | null>;
   readonly #onScroll: (scroll: { top: number; left: number }) => void;
+  /** The row height now: a font size setting can change it while the anchor lives. */
+  #lineHeight = defaultLineHeight;
   #pending: ViewAnchor | undefined;
 
   constructor(
@@ -79,11 +81,17 @@ export class ScrollAnchor {
     this.#onScroll = onScroll;
   }
 
+  /** The rows are now `lineHeight` pixels tall (a font size or spacing setting changed). */
+  setLineHeight(lineHeight: number): void {
+    this.#lineHeight = lineHeight;
+  }
+
   /** Remembers the text at the top edge, from the rows as they stand now. */
   remember(layout: RowLayout): void {
     // A change already holds the view: the text it picked is closer than anything seen later.
     if (this.#pending) return;
     const top = Math.max(0, this.#scroller.current?.scrollTop ?? 0);
+    const lineHeight = this.#lineHeight;
     const row = Math.floor(top / lineHeight);
     const line = layout.lineAt(row);
     const rows = layout.rowsOf(line);
@@ -114,7 +122,10 @@ export class ScrollAnchor {
     // a hard break, never to the row before it, or a slice of the idle re-wrap walks the view up.
     const at = rowOfColumn(rows, saved.column);
     // oxlint-disable-next-line react/immutability, react-compiler/immutability -- the scroller's own offset is the browser's to hold.
-    element.scrollTop = Math.max(0, (layout.startOf(saved.line) + at) * lineHeight + saved.pixels);
+    element.scrollTop = Math.max(
+      0,
+      (layout.startOf(saved.line) + at) * this.#lineHeight + saved.pixels,
+    );
     this.#onScroll({ top: element.scrollTop, left: element.scrollLeft });
   }
 }

@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliBotAction.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "enum": [
+        "stop",
+        "pause",
+        "resume",
+        "unarchive"
+      ],
+      "type": "string"
+    },
+    "bot": {
+      "type": "string"
+    },
+    "changed": {
+      "type": "boolean"
+    },
+    "name": {
+      "type": "string"
+    },
+    "now": {
+      "$ref": "https://ace.local/protocol/v1/CliRunningBot.json"
+    }
+  },
+  "required": [
+    "bot",
+    "name",
+    "action",
+    "changed"
+  ],
+  "type": "object"
+}

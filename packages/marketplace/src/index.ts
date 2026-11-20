@@ -43,6 +43,14 @@ export {
 } from "./trending.ts";
 export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe } from "./recipe.ts";
 export {
+  effectKey,
+  grantedEffects,
+  packageRuntime,
+  readPackage,
+  recipeEffects,
+  type PackageReading,
+} from "./package.ts";
+export {
   credentialFile,
   secretFieldNames,
   secretFileProblem,

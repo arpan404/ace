@@ -17,6 +17,8 @@ pub const NAME_CHARS: usize = 40;
 pub const TASK_CHARS: usize = 4_000;
 const MODEL_CHARS: usize = 400;
 pub const MAIN: &str = "main";
+/// What a bot made from one message is called until it names itself.
+pub const UNNAMED: &str = "New bot";
 pub const BOT: &str = "bot";
 const MAIN_NAME: &str = "Spade";
 /// Set while Spade's model is the placeholder it was created with before keys could be read.
@@ -128,7 +130,21 @@ impl Engine {
 
     /// Creates a bot and its one conversation.
     pub fn create_agent(&self, input: AgentInput) -> Result<AgentView, AgentError> {
-        let name = name(&input.name)?;
+        self.create_agent_with(input, |_| Vec::new())
+    }
+
+    /// [`Engine::create_agent`] with the settings `settings` names for the new bot's id stored
+    /// in the bot's own transaction: a packaged bot's ceiling is there from its first moment.
+    pub fn create_agent_with(
+        &self,
+        input: AgentInput,
+        settings: impl FnOnce(&str) -> Vec<(String, String)>,
+    ) -> Result<AgentView, AgentError> {
+        let name = if input.naming && input.name.trim().is_empty() {
+            UNNAMED.to_owned()
+        } else {
+            name(&input.name)?
+        };
         let task = task(&input.task)?;
         let model = self.check_model(&input.model)?;
         let id = self.ids.next("a");
@@ -136,16 +152,26 @@ impl Engine {
         let conversation = self.ids.next("c");
         // The task the first turn reads. With none there is nothing to read: the model is named
         // by each `reply_started`.
-        let configured: Vec<Event> = (!task.is_empty())
+        let mut configured: Vec<Event> = (!task.is_empty())
             .then(|| {
                 Event::Known(Known::AgentConfigured {
                     task: task.clone(),
                     model: model.clone(),
+                    personality: None,
+                    change: None,
                 })
             })
             .into_iter()
             .collect();
-        self.store.create_agent(
+        if input.naming {
+            configured.push(Event::Known(Known::NamingOpened {}));
+        }
+        let settings = settings(&id);
+        let settings: Vec<(&str, &str)> = settings
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect();
+        self.store.create_agent_with(
             NewAgent {
                 id: &id,
                 kind: BOT,
@@ -156,9 +182,26 @@ impl Engine {
                 conversation: &conversation,
             },
             &configured,
+            &settings,
             self.now_ms(),
         )?;
         self.view(&id)
+    }
+
+    /// Gives a bot just made its personality (a template's, a recipe's or the person's), from its
+    /// first turn on.
+    pub fn start_with_personality(
+        &self,
+        id: &str,
+        personality: spade_core::personality::Personality,
+    ) -> Result<AgentView, AgentError> {
+        self.update_agent(
+            id,
+            AgentChange {
+                personality: Some(Some(personality)),
+                ..AgentChange::default()
+            },
+        )
     }
 
     /// Changes an agent. Name and avatar apply at once; a task or model change is stored as an
@@ -195,19 +238,54 @@ impl Engine {
             .avatar
             .map(|a| self.avatar(id, Some(a)))
             .transpose()?;
+        let by = change.by.unwrap_or(spade_core::self_edit::BY_PERSON);
         if new_name.is_some() || new_avatar.is_some() {
+            let name = new_name.as_deref().unwrap_or(&agent.name);
             self.store.set_agent_profile(
                 id,
-                new_name.as_deref().unwrap_or(&agent.name),
+                name,
                 new_avatar.as_deref().unwrap_or(&agent.avatar),
                 self.now_ms(),
             )?;
+            // Kept in the conversation: it closes the bot's own naming, and the chat says when
+            // the bot renamed itself.
+            let event = Event::Known(Known::ProfileChanged {
+                name: name.to_owned(),
+                by: by.to_owned(),
+                face: new_avatar.is_some(),
+            });
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let stored = self
+                .store
+                .append(&agent.conversation, &event, self.now_ms())?;
+            let _ = self
+                .live(&agent.conversation)
+                .frames
+                .send(super::Frame::Stored(stored));
+        }
+        if let Some(personality) = change.personality
+            && personality != agent.personality
+        {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let stored = self
+                .store
+                .set_agent_personality(id, personality, self.now_ms());
+            self.forget_activity(&agent.conversation);
+            let stored = stored?;
+            let _ = self
+                .live(&agent.conversation)
+                .frames
+                .send(super::Frame::Stored(stored));
         }
         let task = new_task.unwrap_or_else(|| agent.task.clone());
         let model = new_model.unwrap_or_else(|| agent.model.clone());
         if task != agent.task || model != agent.model {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let stored = self.store.configure_agent(id, &task, &model, self.now_ms());
+            let why = change.why.as_deref().unwrap_or("");
+            let recorded = spade_core::self_edit::change(&agent.task, &task, by, why);
+            let stored = self
+                .store
+                .configure_agent(id, &task, &model, recorded, self.now_ms());
             self.forget_activity(&agent.conversation);
             let stored = stored?;
             let _ = self
@@ -345,6 +423,11 @@ impl Engine {
             shown.insert("access".into(), Access::AutoReview.name().into());
             // How it decides (ADR 0163, amendment 2), for its profile and its conversation's head.
             shown.insert("autonomy".into(), self.autonomy_of(&agent.id).name().into());
+            // Whether it may make bots, who made it, and whether Undo archived it (ADR 0161,
+            // amendment 1).
+            for (key, value) in self.made_fields(&agent) {
+                shown.insert(key.into(), value);
+            }
             // The marketplace recipe it was made from (ADR 0168), for its profile.
             if let Some(recipe) = self.bot_recipe(&agent.id) {
                 shown.insert(
@@ -354,6 +437,15 @@ impl Engine {
                 if let Some(tools) = recipe.tools {
                     shown.insert("tools".into(), tools.into());
                 }
+            }
+            // Its accent (ADR 0200 §5.3): the person's choice, else its package's.
+            shown.insert("style".into(), self.style_of(&agent));
+            // The package it is linked to (ADR 0200 §3.9), for its profile.
+            if let Some(link) = self.bot_package(&agent.id) {
+                shown.insert(
+                    "package".into(),
+                    crate::packages::shown(self, &agent.id, &link),
+                );
             }
             shown.insert(
                 "task_state".into(),

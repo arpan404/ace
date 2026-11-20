@@ -40,7 +40,7 @@ impl EngineHandle {
 }
 
 /// The calling conversation, from the call's key (`<conversation>.<call>`).
-fn caller(key: &str) -> &str {
+pub(super) fn caller(key: &str) -> &str {
     key.split_once('.')
         .map_or(key, |(conversation, _)| conversation)
 }

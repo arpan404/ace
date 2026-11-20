@@ -3,7 +3,6 @@
 //! connector choices and its own notes. Never a key, token, webhook secret or conversation.
 
 use std::collections::BTreeSet;
-use std::sync::Arc;
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -12,7 +11,6 @@ use spade_connect::{Access, Connectors};
 use spade_core::routine::Trigger;
 use spade_store::{HEARTBEAT, Notes, ROUTINE};
 
-use super::templates::templates;
 use crate::engine::{AgentError, AgentInput, AgentView, AvatarInput, Engine, NoteScope};
 use crate::routines::{self, By, HeartbeatInput, RoutineInput};
 
@@ -190,6 +188,7 @@ pub fn import(
         task: file.task.clone(),
         model,
         avatar: avatar.clone(),
+        naming: false,
     };
     let model = if wanted == default || engine.model_usable(&wanted) {
         wanted
@@ -250,7 +249,8 @@ pub fn import(
         left_out.push("Connectors aren't set up on this machine.".to_owned());
     }
     for note in file.notes.iter().take(MOST_FILE_NOTES) {
-        if let Err(why) = engine.add_note(&NoteScope::Agent(id.clone()), note) {
+        let what = format!("the bot file {}", file.name.trim());
+        if let Err(why) = engine.import_note(&NoteScope::Agent(id.clone()), note, &what) {
             left_out.push(format!("A note wasn't kept: {why}"));
         }
     }
@@ -335,67 +335,4 @@ fn copy_name(name: &str) -> String {
     let room = crate::engine::NAME_CHARS.saturating_sub(suffix.len());
     let base: String = name.chars().take(room).collect();
     format!("{base}{suffix}")
-}
-
-/// A bot from template `template`: its name, task and face unless the person gave their own,
-/// the fast model for a fast template, and its routines in `time_zone`.
-pub fn from_template(
-    engine: &Engine,
-    template: &str,
-    mut input: AgentInput,
-    named: bool,
-    time_zone: Option<String>,
-) -> Result<Imported, PortableError> {
-    let template = templates()
-        .iter()
-        .find(|t| t.id == template)
-        .ok_or(PortableError::NotFound)?;
-    if !named {
-        input.name = template.name.clone();
-    }
-    if input.task.trim().is_empty() {
-        input.task = template.task.clone();
-    }
-    if input.avatar.is_none() {
-        input.avatar = Some(AvatarInput::Character(template.face.clone()));
-    }
-    let agent = engine.create_agent(input)?;
-    let id = agent.agent.id.clone();
-    let mut left_out = Vec::new();
-    for r in &template.routines {
-        let made = routines::create(
-            engine,
-            &id,
-            RoutineInput {
-                name: Some(r.name.clone()),
-                instruction: Some(r.instruction.clone()),
-                trigger: Some(Trigger::Schedule {
-                    schedule: r.schedule.clone(),
-                }),
-                time_zone: time_zone.clone(),
-                paused: Some(false),
-                untrusted: false,
-            },
-            By::Person,
-        );
-        if let Err(why) = made {
-            left_out.push(format!("The routine {:?} wasn't added: {why}", r.name));
-        }
-    }
-    let agent = engine
-        .agent_view(&id)
-        .map_err(|e| PortableError::Failed(e.to_string()))?
-        .ok_or(PortableError::NotFound)?;
-    Ok(Imported { agent, left_out })
-}
-
-/// The model a template suggests: the person's fast model for a fast template, else the default.
-pub fn template_model(engine: &Arc<Engine>, template: &str) -> Option<String> {
-    let template = templates().iter().find(|t| t.id == template)?;
-    if template.model_kind == "fast"
-        && let Ok(Some(fast)) = engine.fast_model()
-    {
-        return Some(fast);
-    }
-    Some(engine.new_bot_default())
 }

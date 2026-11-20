@@ -4,11 +4,14 @@
 
 mod adopt;
 mod agents;
+mod apps;
+mod archive;
 mod autonomy;
 mod bots;
 mod brain;
 mod brief;
 mod calls;
+mod cards;
 mod classify;
 mod compact;
 mod computer;
@@ -28,15 +31,21 @@ mod jobs;
 mod judge;
 mod knowledge;
 mod knowledge_api;
+mod learned;
 mod ledger;
+mod local;
 pub(crate) use ledger::Admission;
+mod made;
 mod maintenance;
 mod media;
 mod memory;
 mod moves;
+pub mod onboarding;
 mod outbox;
 mod oversight;
+pub(crate) mod packages;
 mod park;
+mod pause;
 mod plugin_hooks;
 mod questions;
 mod reach;
@@ -46,14 +55,20 @@ mod review;
 pub mod roster;
 mod routines;
 mod routing;
+mod running;
 mod search;
 mod security;
+mod self_edit;
 mod services;
+mod speech;
+mod style;
+mod thread_asks;
 mod trim;
 mod try_again;
 mod turn;
 mod turn_log;
 mod types;
+mod updating;
 mod wake_sources;
 mod wakes;
 mod workers;
@@ -61,6 +76,7 @@ mod workers;
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
+pub use cards::CardError;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
@@ -73,13 +89,18 @@ pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use knowledge::{KnowledgeCall, KnowledgeError, entry_json};
 pub use knowledge_api::KnowledgeInput;
+pub use learned::{Forgotten, Learned};
+pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
 pub use reach::ReachError;
+pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
+pub use thread_asks::FROM_ACE;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
 
+pub use made::Undone;
 pub use moves::{AcceptFor, HostRecord, HostRefused, MoveError};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
@@ -170,6 +191,12 @@ pub struct Engine {
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
     record_lock: Mutex<()>,
+    /// Bots whose package link is being changed (an install, an update or rollback, a switch, a
+    /// withdrawal): one change to a bot's package at a time (`packages::Busy`).
+    pub(crate) package_busy: crate::packages::Changing,
+    /// The market keys a package's signed manifest must verify with (ADR 0200 §3.2): the ones
+    /// this build ships, unless a test trusts its own.
+    market_keys: std::sync::RwLock<Vec<crate::packages::envelope::MarketKey>>,
     /// Each conversation's activity, so listing conversations folds only those that changed.
     /// Every stored event goes through `append_events`, which drops the entry.
     activity: Mutex<HashMap<String, Activity>>,
@@ -210,6 +237,8 @@ pub struct Engine {
     computers: std::sync::OnceLock<Arc<crate::computer::Computers>>,
     /// The person's plugins (ADR 0151, `plugin_hooks`), once the server has set them.
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
+    /// The person's apps (ADR 0131, `apps`), once the server has set them.
+    apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
     /// The scope each call about to run was allowed with, by call key, for the tool to check
     /// again where it runs (a terminal command's folder and variables, ADR 0142).
     allowed_scopes: Mutex<HashMap<String, String>>,
@@ -238,6 +267,8 @@ pub struct Engine {
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
     /// Bots' sandbox, network policies and grants (ADR 0167), once the server has set them.
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
+    /// The local model servers Spade looks for; Ollama's and LM Studio's defaults when unset.
+    local_servers: Mutex<Option<Vec<crate::local_models::LocalServer>>>,
     /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
@@ -246,6 +277,10 @@ pub struct Engine {
     reach: reach::Shared,
     /// Bots moving to or from another machine (ADR 0187, `moves`).
     moves: moves::Shared,
+    /// Bots the person paused, and the wakes met meanwhile (ADR 0200 §6.1, `pause`).
+    pause_hold: pause::Shared,
+    /// Bots whose package update or rollback is being applied (ADR 0200 §6.2, `updating`).
+    updating: updating::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -255,9 +290,9 @@ pub struct Engine {
     /// which hold it there to order a Stop against it. Only with the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
     helper_start_hold: Mutex<Option<HelperStartHold>>,
-    /// Run, blocking, just before a wake or a service is admitted and stored; none outside
-    /// tests, which hold it there to order a Stop or a job's end against it. Only with the
-    /// `test-hooks` feature.
+    /// Run, blocking, just before a wake or a service is admitted and stored, and as a package
+    /// step starts; none outside tests, which hold it there to order a Stop or a job's end
+    /// against it, or to read a bot mid-update. Only with the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
     registration_hold: Mutex<Option<RegistrationHold>>,
 }
@@ -292,7 +327,15 @@ impl Engine {
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
             .with_tool(Arc::new(BotMessage(handle.clone())))
-            .with_tool(Arc::new(HelperTool(handle.clone())));
+            .with_tool(Arc::new(HelperTool(handle.clone())))
+            // A bot's own task, name and face.
+            .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ProfileUpdate(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ClubAdd(handle.clone())));
+        // `card_show` (ADR 0200 §5.1), unless Spade gave one that keeps images from workspaces.
+        if tools.get(spade_core::card::CARD_SHOW).is_none() {
+            tools = tools.with_tool(Arc::new(crate::tools::CardShow::new(handle.clone(), None)));
+        }
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -328,6 +371,8 @@ impl Engine {
             ),
             live: Mutex::default(),
             record_lock: Mutex::default(),
+            package_busy: crate::packages::Changing::default(),
+            market_keys: std::sync::RwLock::new(crate::packages::envelope::shipped()),
             activity: Mutex::default(),
             // Closed until `open_for_work`, so nothing runs before ace's tools are back.
             admission: AtomicBool::new(false),
@@ -346,6 +391,7 @@ impl Engine {
             brains: brain::Brains::default(),
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
+            apps: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             launches: Mutex::default(),
@@ -355,10 +401,13 @@ impl Engine {
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
+            local_servers: Mutex::new(None),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
             reach: reach::Shared::default(),
             moves: moves::Shared::default(),
+            pause_hold: pause::Shared::default(),
+            updating: updating::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
@@ -409,11 +458,17 @@ impl Engine {
         // bot has back, so a conversation that never runs again is remembered too.
         self.sweep_episodes();
         self.end_maintenance();
+        // A bot an install a crash cut short left goes before anything is scheduled for it, and a
+        // package update cut short is taken again from the start (ADR 0200 §3.4, §6.2).
+        crate::packages::recover_installs(self);
+        crate::packages::recover(self);
         // Bots' wakes are armed from their events and `keep` services start again (ADR 0160).
         self.restore_wakes();
         if let Err(error) = self.resume_groups() {
             tracing::error!(%error, "could not pick up the groups' open asks");
         }
+        // An update held while a bot worked applies to each bot that is still now.
+        crate::packages::held::recover(self);
         // Workers owed a report or a start since the last run get it (ADR 0161).
         self.start_workers();
         // Digests on each bot's schedule (ADR 0165).
@@ -477,7 +532,9 @@ impl Engine {
     /// What `id` is doing and its latest message, with everything under it rolled up (ADR
     /// 0161): it reads waiting or working while any worker of it does.
     pub(crate) fn activity(&self, id: &str) -> Result<Activity, StoreError> {
-        let own = self.own_activity(id)?;
+        let mut own = self.own_activity(id)?;
+        own.state = spade_core::running::held(own.state, self.paused(id));
+        own.state = spade_core::running::updating(own.state, self.is_updating(id));
         Ok(self.roll_up(id, own))
     }
 
@@ -508,6 +565,7 @@ impl Engine {
             waiting_for: memory::waiting_for(&transcript),
             questions_for_later: question::for_later(events.iter()),
             problem: spade_core::brain::problem(events.iter()).map(str::to_owned),
+            failure: spade_core::running::failure(events.iter()),
             task: spade_core::task::state_in(events.iter()),
             task_progress: spade_core::goal::view::progress_in(
                 events.iter(),
@@ -594,6 +652,8 @@ impl Engine {
                 .wake
                 .as_ref()
                 .map(|open| spade_core::wake::words(open, |ms| self.short_time(ms))),
+            State::Paused => Some(roster::PAUSED.to_owned()),
+            State::Updating => Some(roster::UPDATING.to_owned()),
             State::Working if self.held(id) => Some(computer::PAUSED_FOR_YOU.to_owned()),
             State::Working => Some(
                 self.live(id)
@@ -746,6 +806,19 @@ impl Engine {
                     }
                     false
                 }
+                // A card's choice lands once per version (ADR 0200 §5.1), and only on the
+                // version the person saw.
+                Event::Known(Known::CardAction {
+                    card,
+                    version,
+                    action,
+                    ..
+                }) => {
+                    if spade_core::card::choose(&events, card, *version, action).is_err() {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    false
+                }
                 // A wake fires once (ADR 0160): only while it is still open.
                 Event::Known(Known::WakeFired { wake, .. }) => {
                     if !spade_core::wake::is_open(&events, wake) {
@@ -781,8 +854,9 @@ impl Engine {
             // The waits this event settles (a job's end, a message) are stored with it, so
             // they are settled once, with what settles them (ADR 0160).
             let settled = spade_core::wake::settled_by(&events, event);
-            // While the person has the bot's computer, messages wait for the hand-back.
-            let admitted = self.admission.load(Ordering::SeqCst) && !self.held(id);
+            // While the person has the bot's computer, messages wait for the hand-back; while
+            // they paused it, for Resume (ADR 0200 §6.1).
+            let admitted = self.admission.load(Ordering::SeqCst) && !self.closed(id);
             let (start, stored) =
                 if quiet || !admitted || Transcript::fold(events.iter()).open_reply().is_some() {
                     // A typed message that can stand for a waiting card's answers is stored with
@@ -986,16 +1060,22 @@ impl Engine {
         self.forget_activity(id);
         let stored = stored?;
         if let spade_store::Delivered::Stored(events) = &stored {
-            for event in events {
-                let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
-            }
-            // The tree follows, and the worker is checked for a report (ADR 0161).
-            let written: Vec<Event> = events.iter().map(|e| e.event.clone()).collect();
-            self.workers_stored(id, &written);
-            // Events that reach the person go out as notices, with their level (ADR 0165).
-            self.notice_stored(id, events);
+            self.publish_stored(id, events);
         }
         Ok(stored)
+    }
+
+    /// Sends events just stored in conversation `id` to its subscribers, the tree and the
+    /// person's notices, in order; for a store write that appended them itself.
+    fn publish_stored(&self, id: &str, events: &[StoredEvent]) {
+        for event in events {
+            let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
+        }
+        // The tree follows, and the worker is checked for a report (ADR 0161).
+        let written: Vec<Event> = events.iter().map(|e| e.event.clone()).collect();
+        self.workers_stored(id, &written);
+        // Events that reach the person go out as notices, with their level (ADR 0165).
+        self.notice_stored(id, events);
     }
 
     /// Records `cost` micros spent on `model` in conversation `id` for `role` (ADR 0162); with
@@ -1030,7 +1110,7 @@ impl Engine {
     fn resume(self: &Arc<Self>, id: &str) -> Result<(), StoreError> {
         let open = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if self.deleting(id) || self.held(id) {
+            if self.deleting(id) || self.closed(id) {
                 return Ok(());
             }
             let events = self.load(id)?;
@@ -1068,7 +1148,8 @@ impl Engine {
             .unwrap_or_else(|p| p.into_inner()) = Some(hold);
     }
 
-    /// Has every wake and service run `hold` (blocking) just before it is admitted and stored.
+    /// Has every wake and service run `hold` (blocking) just before it is admitted and stored,
+    /// and every package update or rollback (`package_step`) once its bot reads updating.
     #[cfg(feature = "test-hooks")]
     pub fn hold_registrations(&self, hold: RegistrationHold) {
         *self

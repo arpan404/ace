@@ -112,6 +112,13 @@ fn main() -> std::process::ExitCode {
     {
         return check_migrations(args.get(1));
     }
+    // A package's scenario tests (ADR 0200 §9), on a throwaway Spade with the scripted model:
+    // never the data folder, the keychain, ace or the network.
+    if let Some(flag) = args.first()
+        && flag == "--bot-test"
+    {
+        return spade_server::bot_test::main(&args[1..]);
+    }
     // The server takes no arguments (it is configured by environment). Anything left over is a
     // help request or a mistake, and neither may start a server against the data folder.
     if let Some(flag) = args.first() {
@@ -134,6 +141,7 @@ usage: spade                              run the server (configured by SPADE_* 
        spade --version                    print the version
        spade --schema-version             print the database schema version
        spade --check-migrations <path>    check that a copy of spade.sqlite can be migrated
+       spade --bot-test <package folder>  run a package's scenario tests offline, as JSON
        spade --help                       print this help";
 
 /// `--help` and `-h` print the usage and exit 0; any other argument prints it on stderr and exits
@@ -377,6 +385,11 @@ async fn run() -> Result<(), Failure> {
         workspaces.clone(),
         bots.clone(),
     ));
+    // Cards (ADR 0200 §5.1), whose image blocks name files in the bot's workspace.
+    core.push(Arc::new(spade_server::tools::CardShow::new(
+        bots.clone(),
+        Some(workspaces.clone()),
+    )));
     // Spade's own skill store (ADR 0151): ace's library mirrored with its files while ace is
     // there, skills written in Spade otherwise. Spade Cloud has the store with no ace.
     let upstream = ace
@@ -426,7 +439,7 @@ async fn run() -> Result<(), Failure> {
         keys: keychain.clone(),
         clock: spade_connect::system_clock(),
         random: Arc::new(spade_connect::OsRandom),
-        catalogue: spade_connect::catalogue::shipped(),
+        catalogue: dev_catalogue(spade_connect::catalogue::shipped()),
         timeout: Duration::from_secs(60),
         relist: spade_connect::RELIST,
         addresses: spade_connect::Addresses::system(),
@@ -583,6 +596,40 @@ async fn run() -> Result<(), Failure> {
     served.map_err(other)?;
     tracing::info!("spade stopped");
     Ok(())
+}
+
+/// The shipped catalogue, with entries from `SPADE_DEV_CATALOGUE` (a JSON list of entries, by id)
+/// put in place of the shipped ones and marked local, so a development run signs in to a fake app
+/// on this machine. Debug builds only: a release never reads it.
+fn dev_catalogue(shipped: Vec<spade_connect::Entry>) -> Vec<spade_connect::Entry> {
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var("SPADE_DEV_CATALOGUE")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+    {
+        let read = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<Vec<spade_connect::Entry>>(&text).map_err(|e| e.to_string())
+            });
+        match read {
+            Ok(dev) => {
+                let mut entries: Vec<spade_connect::Entry> = shipped
+                    .into_iter()
+                    .filter(|entry| !dev.iter().any(|d| d.id == entry.id))
+                    .collect();
+                entries.extend(dev.into_iter().map(|entry| spade_connect::Entry {
+                    local: true,
+                    ..entry
+                }));
+                entries.sort_by_key(|entry| entry.name.to_lowercase());
+                tracing::warn!(%path, "development catalogue entries are in use");
+                return entries;
+            }
+            Err(error) => tracing::warn!(%error, %path, "SPADE_DEV_CATALOGUE was not read"),
+        }
+    }
+    shipped
 }
 
 /// Resolves on Ctrl-C, or on SIGTERM from the service manager or an updater.

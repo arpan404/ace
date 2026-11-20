@@ -1,0 +1,30 @@
+{
+  "name": "Answers its first message",
+  "given": {
+    "message": "Write the notes for this week's release."
+  },
+  "model": [
+    {
+      "calls": [
+        {
+          "tool": "todo",
+          "arguments": {
+            "items": [
+              {
+                "text": "Answer: Write the notes for this week's release.",
+                "done": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "say": "Here are this week's release notes: new, improved and fixed."
+    }
+  ],
+  "expect": {
+    "calls": ["todo"],
+    "reply_contains": ["release notes"]
+  }
+}

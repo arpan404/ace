@@ -82,6 +82,13 @@
       "maxItems": 2,
       "type": "array"
     },
+    "modelProbe": {
+      "enum": [
+        "automatic",
+        "on-request"
+      ],
+      "type": "string"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },

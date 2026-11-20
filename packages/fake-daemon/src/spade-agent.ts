@@ -17,7 +17,7 @@ export interface FakeSpadeAgent {
   last_activity: number;
   /** When it was pinned (ms), as Spade sends it; null or absent when it isn't. */
   pinned_at?: number | null;
-  state: "idle" | "working" | "waiting";
+  state: "idle" | "working" | "waiting" | "paused";
   waiting_for: "approval" | "question" | null;
   /** Its cards left for later, not yet answered or dismissed (ADR 0154). */
   questions_for_later?: number;
@@ -34,6 +34,15 @@ export interface FakeSpadeAgent {
   move?: Json | null;
   /** What needs the person since it arrived from another machine. */
   arrived?: Json | null;
+  /** The agent package it is linked to (ADR 0200 §3.9). */
+  package?: Json | null;
+  /** Its accent (ADR 0200 §5.3): `{accent, chosen}`, as Spade shows it; null for none. */
+  style?: { accent: string | null; chosen: boolean } | null;
+  /**
+   * A bot made from an ace template: the newer template version this Spade ships, as
+   * `GET …/package/template` answers it (`{package, recipe, plan, effects}`).
+   */
+  templateOffer?: Json | undefined;
   /** The conversation's seen cursor, as Spade sends it; null when never marked. */
   seen_seq?: number | null;
   /** Finished and not seen since; tests set it, and marking the conversation seen clears it. */
@@ -51,4 +60,8 @@ export interface FakeSpadeAgent {
   continuing?: boolean;
   /** The bot that made it (ADR 0161); null or absent for the person's own. */
   parent?: { id: string; name: string } | null;
+  /** Whether it may make bots, who made it, and whether Undo archived it (ADR 0161, amendment 1). */
+  may_create_bots?: "yes" | "ask" | "no";
+  made_by?: { id: string; name: string; apps: string[] } | null;
+  archived?: boolean;
 }

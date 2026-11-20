@@ -9,17 +9,22 @@ import type { EngineModels } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { StartupOutput, withStartupOutput } from "@ace/provider-kit/startup-output";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
-import { PermissionMode, NativeSessionId } from "@ace/protocol";
+import { AccessMode, PermissionMode, NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
 import { AcpIdentity } from "@ace/protocol";
-import type { SessionContext } from "@ace/engine-api";
+import type { ProviderSession, SessionContext } from "@ace/engine-api";
 import { agentSessionEnv } from "./agent-env.ts";
-import type { ThreadId } from "@ace/protocol";
+import type { Command, ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
-import { nativeFor } from "./permissions.ts";
-import { customNative } from "./permission-ceiling.ts";
-import { reportedOrTable } from "@ace/provider-kit/access-modes";
+import { nativeFor, type ResolvedAccess } from "./permissions.ts";
+import { customNative, type AccessSelection } from "./permission-ceiling.ts";
+import {
+  ceilingStoppedNotice,
+  refusedOptionsNotice,
+  unhonouredAccessNotice,
+} from "./selection-notices.ts";
+import { accessRank, reportedOrTable } from "@ace/provider-kit/access-modes";
 import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
 import { unavailableNativeHistory } from "./resume-open-error.ts";
@@ -70,14 +75,241 @@ interface SessionDependencies {
     threadId: ThreadId,
     signal: AbortSignal,
   ): Promise<Partial<Pick<SessionContext, "env" | "mcp" | "onSessionMetadata" | "acpLaunch">>>;
+  /** Readies the thread's model catalog row, before its model is chosen. */
+  catalog?(threadId: ThreadId): Promise<void>;
   /** The daemon's data dir, given to the agent's shell as `ACE_HOME`. */
   agentHome?: string;
+  /** Errors from work no command waits for (a live access change). */
+  report?(error: unknown): void;
+}
+/** The ace mode a session reports running, by its native mode; null when it maps to none. */
+function runningSelection(
+  provider: import("@ace/protocol").ProviderKind,
+  session: ProviderSession,
+  known: import("@ace/protocol").Capabilities,
+): AccessSelection | null {
+  const native = session.permissionMode;
+  const offers = reportedOrTable(provider, (session.effectiveCapabilities ?? known).accessModes);
+  return offers.find((offer) => offer.native === native)?.mode ?? null;
+}
+/** A Stop's pending close over work the provider can't stop (`Sessions.closeAfter`). */
+interface StopClose {
+  readonly session: ThreadActor["session"];
+  readonly generation: number;
+  /** The thread's newest command when the Stop came. */
+  readonly intent: number;
+  /** The thread's run sequence when the Stop came. */
+  readonly turn: number;
+  readonly tasks: readonly string[];
+  /** Its grace has run out: it closes as soon as nothing still being carried out says no. */
+  due: boolean;
 }
 export class Sessions {
   private dependencies: SessionDependencies;
   private closing = new Set<ThreadId>();
+  /** Each thread's pending close after a Stop, at most one (`closeAfter`). */
+  private stopCloses = new Map<ThreadId, StopClose>();
 
   private turnPermissions = new Map<ThreadId, number>();
+  /**
+   * The modes a thread's next session is resolved against: the catalog's for its instance, else
+   * what its own last session on that instance reported, else the adapter's. An instance whose
+   * catalog knows no modes yet is unknown, never one that offers nothing.
+   */
+  private accessCapabilities(
+    id: ThreadId,
+    provider: import("@ace/protocol").ProviderKind,
+    base: import("@ace/protocol").Capabilities,
+  ): import("@ace/protocol").Capabilities {
+    const repo = this.dependencies.repo;
+    const recorded = repo.session(id).instanceId;
+    const instance = repo.transitions.get(id).selection?.instanceId ?? recorded;
+    const known = this.dependencies.models.knownPermissionCapabilities(provider, instance, base);
+    if (known) return known;
+    const thread = repo.store.getThread(id);
+    return thread?.provider === provider && instance === recorded && thread.effectiveCapabilities
+      ? thread.effectiveCapabilities
+      : base;
+  }
+  /**
+   * Options the provider didn't take leave the thread's selection, so it shows what runs: the
+   * provider's default. A notice says which, since the person chose it.
+   */
+  private forgetRefusedOptions(
+    actor: ThreadActor,
+    refused: readonly string[] | undefined,
+    agent: string,
+  ): void {
+    if (!refused?.length) return;
+    const repo = this.dependencies.repo;
+    const metadata = repo.session(actor.id);
+    const selection = repo.transitions.get(actor.id).selection ?? {
+      provider: repo.requireState(actor.id).config.provider,
+      options: {},
+      ...metadata,
+    };
+    const model = refused.includes("model") ? selection.model : undefined;
+    const dropped = [
+      ...(model === undefined ? [] : [["model", model] as const]),
+      ...Object.entries(selection.options).filter(([key]) => refused.includes(key)),
+    ];
+    if (!dropped.length) return;
+    const options = Object.fromEntries(
+      Object.entries(selection.options).filter(([key]) => !refused.includes(key)),
+    );
+    const { model: _kept, ...rest } = selection;
+    this.dependencies.models.remember(actor.id, {
+      ...(model === undefined ? selection : rest),
+      options,
+    });
+    const at = this.dependencies.clock.now();
+    actor.apply([refusedOptionsNotice({ agent, at, dropped })]);
+  }
+  /** Threads whose live access is being reconciled; `dirty` asks for one more pass. */
+  private liveAccess = new Map<ThreadId, { dirty: boolean }>();
+  /**
+   * After an accepted access change (`thread.permission.set`, or `thread.mode.set` by native
+   * name): it reaches the thread's live session, and every live descendant's, whose ceiling
+   * may just have tightened.
+   */
+  commanded(
+    command: Command,
+    actor: (id: ThreadId) => ThreadActor | undefined,
+    report: (error: unknown) => void,
+  ): void {
+    const p = command.payload;
+    if (p.type !== "thread.permission.set" && p.type !== "thread.mode.set") return;
+    for (const id of [p.threadId, ...this.dependencies.repo.permissions.descendants(p.threadId)])
+      this.accessChanged(actor(id), report);
+  }
+  /**
+   * A new access choice reaches a live session that changes its mode in place, after the
+   * command's transaction commits. One that can't stays pending for the next session open.
+   * Changes are serialized per thread: one in flight takes the newest choice when it lands.
+   */
+  accessChanged(actor: ThreadActor | undefined, report: (error: unknown) => void): void {
+    if (!actor?.session) return;
+    const pending = this.liveAccess.get(actor.id);
+    if (pending) {
+      pending.dirty = true;
+      return;
+    }
+    const run = { dirty: true };
+    this.liveAccess.set(actor.id, run);
+    queueMicrotask(() => {
+      void (async () => {
+        try {
+          while (run.dirty && actor.session && !this.dependencies.closing()) {
+            run.dirty = false;
+            await this.changeLiveAccess(actor, run);
+          }
+        } finally {
+          if (this.liveAccess.get(actor.id) === run) this.liveAccess.delete(actor.id);
+        }
+      })().catch(report);
+    });
+  }
+  /**
+   * Puts the thread's access into its live ACP session now, a running turn included: ACP takes
+   * a mode change at any time. Only an ace mode with a native mode applies this way; anything else
+   * stays pending and lands when the next session opens. A session running broader than its
+   * ancestry now allows, which can't be brought within it, is stopped.
+   */
+  async changeLiveAccess(actor: ThreadActor, run: { dirty: boolean }): Promise<void> {
+    const session = actor.session;
+    if (!session) return;
+    const repo = this.dependencies.repo;
+    const provider = repo.requireState(actor.id).config.provider;
+    const permissions = repo.permissions;
+    const { capabilities } = this.dependencies.registry.get(provider, repo.backend(actor.id));
+    const generation = actor.generation;
+    const current = () => actor.session === session && actor.generation === generation;
+    const effective = permissions.effective(actor.id);
+    let resolved: ResolvedAccess;
+    try {
+      resolved = await permissions.resolve(
+        actor.id,
+        this.dependencies.permissionSettings,
+        // The live session's own offers are what it can switch to.
+        actor.effectiveCapabilities?.accessModes?.length
+          ? actor.effectiveCapabilities
+          : this.accessCapabilities(actor.id, provider, capabilities),
+      );
+    } catch (error) {
+      // Nothing it offers fits under its parent now: it stops rather than run broader.
+      if (current() && !permissions.within(actor.id, effective))
+        return this.stopOverCeiling(actor, session);
+      throw error;
+    }
+    if (!current()) return;
+    const { selection, native, wanted, revision } = resolved;
+    if (selection === effective) return;
+    const setMode = provider === "acp" || provider === "antigravity" ? session.setMode : undefined;
+    if (!setMode || !native || customNative(selection)) {
+      if (!permissions.within(actor.id, effective)) await this.stopOverCeiling(actor, session);
+      return;
+    }
+    try {
+      await setMode.call(session, native);
+    } catch (error) {
+      if (current() && !permissions.within(actor.id, effective))
+        return this.stopOverCeiling(actor, session);
+      throw error;
+    }
+    if (!current()) return;
+    const agent = repo.requireState(actor.id).rootKey ?? "root";
+    let again = false;
+    actor.enqueue(() => {
+      if (!current()) return;
+      // A parent tightened while the change was on its way: the session runs what it took,
+      // recorded as such, and the next pass brings it back within the new ceiling.
+      if (!permissions.within(actor.id, selection)) {
+        permissions.observed(actor.id, selection, this.dependencies.clock.now());
+        again = true;
+        return;
+      }
+      this.settleAccess(actor, selection, agent, wanted, revision);
+    });
+    await actor.flush();
+    if (again || permissions.revision(actor.id) !== revision) run.dirty = true;
+  }
+  /** A live session its ancestry no longer allows, with no stricter mode to take, ends. */
+  private async stopOverCeiling(actor: ThreadActor, session: ProviderSession): Promise<void> {
+    if (actor.session !== session) return;
+    const agent = this.dependencies.repo.requireState(actor.id).rootKey ?? "root";
+    actor.apply([ceilingStoppedNotice({ agent, at: this.dependencies.clock.now() })]);
+    await this.closeForStop(actor);
+  }
+  /**
+   * Records what the open session runs, and says so when that isn't the thread's choice, or
+   * when its default runs looser because the agent has nothing that strict (said once). A
+   * choice made since `revision` is never rewritten: it is still on its way.
+   */
+  private settleAccess(
+    actor: ThreadActor,
+    access: string | null,
+    agent: string,
+    wanted: AccessMode | undefined,
+    revision: number,
+  ): void {
+    const permissions = this.dependencies.repo.permissions;
+    const at = this.dependencies.clock.now();
+    const before = permissions.effective(actor.id);
+    permissions.applied(actor.id, access, at);
+    if (revision !== permissions.revision(actor.id)) return;
+    const requested = permissions.unhonoured(actor.id, access, at, revision);
+    const running = AccessMode.safeParse(access);
+    const looser =
+      wanted &&
+      running.success &&
+      before !== access &&
+      accessRank(running.data) > accessRank(wanted)
+        ? wanted
+        : undefined;
+    const said = requested ?? looser;
+    if (said)
+      actor.apply([unhonouredAccessNotice({ agent, at, requested: said, selection: access })]);
+  }
   isClosing(id: ThreadId): boolean {
     return this.closing.has(id);
   }
@@ -107,20 +339,30 @@ export class Sessions {
       stateBefore.config.provider,
       this.dependencies.repo.backend(actor.id),
     );
-    const nativeCapabilities = this.dependencies.models.permissionCapabilities(
+    const nativeCapabilities = this.accessCapabilities(
+      actor.id,
       stateBefore.config.provider,
-      this.dependencies.repo.transitions.get(actor.id).selection?.instanceId ??
-        this.dependencies.repo.session(actor.id).instanceId,
       entry.capabilities,
     );
     const permissions = this.dependencies.repo.permissions;
-    const { selection: access, native: mode } = ownLive
+    const {
+      selection: access,
+      native: mode,
+      wanted,
+      revision,
+    }: {
+      selection: AccessSelection | null;
+      native: PermissionMode | null;
+      wanted?: AccessMode;
+      revision: number;
+    } = ownLive
       ? {
           selection: permissions.effective(actor.id),
           native: nativeFor(
             permissions.effective(actor.id),
             reportedOrTable(stateBefore.config.provider, nativeCapabilities.accessModes),
           ),
+          revision: permissions.revision(actor.id),
         }
       : await permissions.resolve(
           actor.id,
@@ -137,11 +379,9 @@ export class Sessions {
       await this.close(actor, "idle");
     if (actor.session) {
       await this.assertWorkspaceAvailable(this.dependencies.repo.session(actor.id).cwd, actor.id);
-      permissions.applied(actor.id, access, this.dependencies.clock.now());
+      this.settleAccess(actor, access, stateBefore.rootKey ?? "root", wanted, revision);
       return;
     }
-    if (stateBefore.config.provider !== "codex")
-      permissions.applied(actor.id, access, this.dependencies.clock.now());
     this.dependencies.repo.beginSessionOpen(actor.id);
     const lifetime = new AbortController();
     actor.lifetime = lifetime;
@@ -186,6 +426,8 @@ export class Sessions {
       };
       openingModel = previousSelection.model;
       openingInstance = previousSelection.instanceId ?? metadata.instanceId;
+      await this.dependencies.catalog?.(actor.id);
+      await this.dependencies.repo.store.writable();
       const resolvedSelection = await this.dependencies.models.prepare(
         previousSelection,
         this.dependencies.models.identity(actor.id),
@@ -309,6 +551,27 @@ export class Sessions {
             ),
           );
         },
+        // The agent changed its own mode (Claude leaving plan mode): the thread shows what
+        // runs, and a mode its ancestry doesn't allow is brought back within it.
+        onPermissionMode: (native) =>
+          actor.enqueue(() => {
+            if (generation !== actor.generation || lifetime.signal.aborted || !actor.session)
+              return;
+            const offers = reportedOrTable(
+              state.config.provider,
+              actor.effectiveCapabilities?.accessModes,
+            );
+            const selection = offers.find((offer) => offer.native === native)?.mode ?? null;
+            if (selection === permissions.effective(actor.id) || this.liveAccess.has(actor.id))
+              return;
+            const at = this.dependencies.clock.now();
+            if (permissions.within(actor.id, selection))
+              permissions.adopted(actor.id, selection, at);
+            else {
+              permissions.observed(actor.id, selection, at);
+              this.accessChanged(actor, (error) => this.dependencies.report?.(error));
+            }
+          }),
         threadId: actor.id,
         agentEnv: agentSessionEnv({ threadId: actor.id, home: this.dependencies.agentHome }),
         rootKey,
@@ -455,8 +718,13 @@ export class Sessions {
         throw new SessionFenced();
       }
       actor.session = session;
-      if (state.config.provider === "codex" && this.turnPermissions.get(actor.id) !== generation)
-        this.dependencies.repo.permissions.applied(actor.id, access, this.dependencies.clock.now());
+      // Applied once the provider took it: a session that refused its mode never shows it, and
+      // records what it runs instead.
+      const ran = session.refusedOptions?.includes("permissionMode")
+        ? runningSelection(state.config.provider, session, nativeCapabilities)
+        : access;
+      if (state.config.provider !== "codex" || this.turnPermissions.get(actor.id) !== generation)
+        this.settleAccess(actor, ran, rootKey, wanted, revision);
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.store.atomic(() => {
         // Account/backend selection is durable even before the native ID is confirmed.
@@ -466,7 +734,7 @@ export class Sessions {
           session.backend ?? adapter.backend,
           session.instanceId,
         );
-        this.dependencies.repo.permissions.validateIdentity(actor.id, access);
+        this.dependencies.repo.permissions.validateIdentity(actor.id, ran);
         delete transition.fork;
         if (transition.selection && session.instanceId)
           transition.selection.instanceId = session.instanceId;
@@ -484,6 +752,20 @@ export class Sessions {
           this.dependencies.clock.now(),
         );
       });
+      this.forgetRefusedOptions(actor, session.refusedOptions, rootKey);
+      // Before it takes input: a choice made while it opened, or modes the session reported
+      // only now (a first session whose agent's modes weren't known yet), reach it.
+      if (
+        permissions.revision(actor.id) !== revision ||
+        (!nativeCapabilities.accessModes?.length &&
+          !!session.effectiveCapabilities?.accessModes?.length)
+      )
+        try {
+          await this.changeLiveAccess(actor, { dirty: false });
+        } catch (error) {
+          // What runs is recorded; the choice stays pending for the next open.
+          this.dependencies.report?.(error);
+        }
       this.dependencies.wake(actor.id);
       opening = false;
     } catch (error) {
@@ -666,6 +948,55 @@ export class Sessions {
       void session;
       void error;
     }
+  }
+  /**
+   * After a whole-thread Stop, the work the provider can't stop that keeps the thread's next
+   * prompt out (`tasks`) gets the interrupt's grace to end by itself. If it still runs then, in
+   * the same session, with no new turn and no command for the thread carried out or handed to
+   * the provider since, it ends with that session (`closeForStop`), so a Stop always settles and
+   * the thread takes the next message (ADR 0052). Anything carried out since is the person's or
+   * the provider's going on, and the Stop no longer decides. A command still being carried out
+   * when the grace ends (a send preparing its checkpoint) is waited for: refused because that
+   * work keeps prompts out, it changed nothing, and the close goes ahead (`commandSettled`).
+   */
+  closeAfter(actor: ThreadActor, tasks: readonly string[]): void {
+    if (!tasks.length) return;
+    const { repo, clock } = this.dependencies;
+    const check: StopClose = {
+      session: actor.session,
+      generation: actor.generation,
+      intent: repo.latestIntent(actor.id),
+      turn: repo.requireState(actor.id).runSeq ?? 0,
+      tasks,
+      due: false,
+    };
+    // A later Stop's check replaces an earlier one's.
+    this.stopCloses.set(actor.id, check);
+    clock.setTimer(() => {
+      if (this.stopCloses.get(actor.id) !== check) return;
+      check.due = true;
+      this.decideStopClose(actor);
+    }, INTERRUPT_GRACE_MS);
+  }
+  /** One of the thread's commands finished: a Stop's close waiting on it decides now. */
+  commandSettled(actor: ThreadActor): void {
+    if (this.stopCloses.get(actor.id)?.due) this.decideStopClose(actor);
+  }
+  private decideStopClose(actor: ThreadActor): void {
+    const check = this.stopCloses.get(actor.id);
+    if (!check?.due) return;
+    const { repo } = this.dependencies;
+    const since = repo.commandsSince(actor.id, check.intent);
+    // Still being carried out: how it ends decides, once it has.
+    if (since === "in_flight") return;
+    this.stopCloses.delete(actor.id);
+    if (since === "acted") return;
+    if (!check.session || actor.session !== check.session) return;
+    if (actor.generation !== check.generation) return;
+    const state = repo.requireState(actor.id);
+    if ((state.runSeq ?? 0) !== check.turn) return;
+    if (!check.tasks.some((key) => state.tasks[key]?.status === "running")) return;
+    void this.closeForStop(actor);
   }
   async close(actor: ThreadActor, reason: "idle" | "user" | "shutdown"): Promise<void> {
     const session = actor.session;

@@ -187,6 +187,77 @@ async fn do_not_disturb_holds_proactive_messages_but_not_a_stop() -> Result {
 }
 
 #[tokio::test]
+async fn approvals_wait_through_do_not_disturb_unless_the_bot_asks_to_be_told() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("q-quiet", "ask_user", json!({ "question": "Ship it?" })),
+            Script::reply("").call("q-told", "ask_user", json!({ "question": "Merge it?" })),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (quiet_bot, quiet_chat) = bot(&spade, "Quiet one").await?;
+    let (told_bot, told_chat) = bot(&spade, "Told one").await?;
+    let set = reach(&spade, json!({ "dnd": true, "approvals": "wait" })).await?;
+    assert_eq!(set["settings"]["approvals"], "wait");
+    let (status, own) = spade
+        .put(
+            &format!("/v1/agents/{told_bot}/reach"),
+            json!({ "approvals": "notify" }),
+        )
+        .await?;
+    assert_eq!(
+        (status, own["approvals"].clone(), own["notify"].clone()),
+        (200, json!("notify"), Value::Null)
+    );
+    let (_, inherits) = spade.get(&format!("/v1/agents/{quiet_bot}/reach")).await?;
+    assert_eq!(inherits["approvals"], Value::Null);
+
+    let mut body = listen(&spade).await?;
+    spade.say(&quiet_chat, "Ship?").await?;
+    let notices = until_notice(&mut body, |n| n["request"] == "q-quiet").await;
+    let held = notices
+        .iter()
+        .find(|n| n["request"] == "q-quiet")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        about(&held),
+        (json!("needs_you"), json!("held"), json!("dnd"))
+    );
+
+    spade.say(&told_chat, "Merge?").await?;
+    let notices = until_notice(&mut body, |n| n["request"] == "q-told").await;
+    let told = notices
+        .iter()
+        .find(|n| n["request"] == "q-told")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        about(&told),
+        (json!("needs_you"), json!("now"), Value::Null)
+    );
+
+    // The held question is still open, so the brief lists it under Waiting on you.
+    let (status, made) = spade.post("/v1/reach/brief", json!({})).await?;
+    assert_eq!(status, 201, "{made}");
+    let waiting = made["digest"]["digest"]["waiting"].to_string();
+    assert!(waiting.contains("q-quiet"), "{waiting}");
+    assert!(
+        spade
+            .get(&format!("/v1/conversations/{quiet_chat}"))
+            .await
+            .is_ok()
+    );
+
+    // Back to the default, the same ask notifies at once.
+    reach(&spade, json!({ "approvals": "notify" })).await?;
+    let (_, still) = spade.get(&format!("/v1/agents/{told_bot}/reach")).await?;
+    assert_eq!(still["approvals"], "notify", "a bot's own choice survives");
+    Ok(())
+}
+
+#[tokio::test]
 async fn the_budget_sends_the_rest_to_the_digest() -> Result {
     let spade = Spade::start(
         vec![
@@ -345,7 +416,7 @@ async fn an_unusual_spend_rate_alerts_once() -> Result {
     let (id, conversation) = bot(&spade, "Spender").await?;
     let mut body = listen(&spade).await?;
     {
-        let db = rusqlite::Connection::open(spade.database())?;
+        let db = spade_store::Store::connect(spade.database())?;
         for hour in 1..=24 {
             db.execute(
                 "INSERT INTO spend (conversation_id, model, role, cost_micros, at_ms)

@@ -1,0 +1,30 @@
+{
+  "name": "Answers its first message",
+  "given": {
+    "message": "What came in this morning?"
+  },
+  "model": [
+    {
+      "calls": [
+        {
+          "tool": "todo",
+          "arguments": {
+            "items": [
+              {
+                "text": "Answer: What came in this morning?",
+                "done": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "say": "Two things need you today."
+    }
+  ],
+  "expect": {
+    "calls": ["todo"],
+    "reply_contains": ["need you today"]
+  }
+}

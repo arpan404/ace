@@ -568,3 +568,85 @@ async fn a_large_bot_arriving_never_holds_up_the_other_bots_requests() -> Result
     assert_eq!(arrived.len(), 60_001, "every event, and its arrival");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_moved_bot_keeps_its_package_link_and_installed_version() -> Result {
+    let (_fleet, laptop, studio) = pair().await?;
+    let recipe = json!({
+        "format": "spade-bot", "version": 3, "requires": { "runtime": "1" },
+        "name": "Flight watcher", "blurb": "Watches fares.",
+        "task": "You watch flight fares for the person.", "model": "capable",
+        "triggers": [{ "kind": "message" }],
+        "effects": [{ "effect": "publish", "why": "Posts a weekly fare report." }],
+        "notes": [], "pricing": { "kind": "free" }
+    });
+    // The market's signature is what gives it this identity (ADR 0200 §3.2).
+    support::market::trust(&laptop.engine);
+    let envelope = support::market::envelope("flight-watcher", "1.0.0", &recipe);
+    let package = json!({ "source": "market", "name": "flight-watcher", "version": "1.0.0", "hash": envelope["signed"]["body"]["hash"] });
+    let (status, made) = laptop
+        .post(
+            "/v1/agents",
+            json!({
+                "recipe": recipe,
+                "envelope": envelope,
+                "from_recipe": { "source": "market", "name": "flight-watcher", "version": "1.0.0", "transaction": "install-1" },
+                "package": package,
+                "grants": { "connectors": [], "plugins": [], "skills": [] },
+                "switches": {},
+            }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{made}");
+    let bot = made["agent"]["id"].as_str().unwrap_or_default().to_owned();
+    idle(&laptop, &bot).await?;
+
+    let (status, started) = move_bot(&laptop, &studio, &bot, "mv_pkg", "host-studio").await?;
+    assert_eq!(status, 202, "{started}");
+    assert_eq!(
+        move_ends(&laptop, &bot).await?,
+        Value::Null,
+        "the move took"
+    );
+
+    // The studio has the link as it was: the same package, version and hash, so its daemon
+    // fetches those pinned bytes by hash, and the person's switch stays off there too.
+    let (status, body) = studio.get(&format!("/v1/agents/{bot}/package")).await?;
+    assert_eq!(status, 200, "{body}");
+    for field in ["source", "name", "version", "hash"] {
+        assert_eq!(body["package"][field], package[field], "{body}");
+    }
+    assert_eq!(body["package"]["effects"][0]["on"], false, "{body}");
+    let arrived = listed(&studio, &bot).await?.ok_or("not on the studio")?;
+    assert_eq!(arrived["package"]["version"], "1.0.0", "{arrived}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_moved_bot_keeps_the_accent_the_person_chose() -> Result {
+    let (_fleet, laptop, studio) = pair().await?;
+    let bot = furnished(&laptop).await?;
+    let (status, body) = laptop
+        .patch(
+            &format!("/v1/agents/{bot}"),
+            json!({ "style": { "accent": "#8b5cf6" } }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+
+    let (status, started) = move_bot(&laptop, &studio, &bot, "mv_style", "host-studio").await?;
+    assert_eq!(status, 202, "{started}");
+    assert_eq!(
+        move_ends(&laptop, &bot).await?,
+        Value::Null,
+        "the move took"
+    );
+
+    let arrived = listed(&studio, &bot).await?.ok_or("not on the studio")?;
+    assert_eq!(
+        arrived["style"],
+        json!({ "accent": "#8b5cf6", "chosen": true }),
+        "{arrived}"
+    );
+    Ok(())
+}

@@ -20,7 +20,7 @@ import {
   shell,
   type WebContents,
 } from "electron";
-import type { AppInfo, DeepLink, DesktopSettings } from "../shared/contract.ts";
+import type { AppInfo, DeepLink, DesktopSettings, SpadeTalkState } from "../shared/contract.ts";
 import { Background } from "./background.ts";
 import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
@@ -44,6 +44,8 @@ import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activa
 import { appearance, createHandlers } from "./handlers.ts";
 import { bundledToolchains } from "./system/toolchains.ts";
 import { emit, registerHandlers } from "./ipc.ts";
+import { talkPress, talkShortcutOf, withTalkDefault } from "./spade-talk.ts";
+import { talkIndicator } from "./spade-talk-indicator.ts";
 import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
 import { terminalCommand, terminalCommandCheck } from "./os/cli-command.ts";
@@ -69,6 +71,7 @@ import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { desktopLogs, desktopUserData } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
+import { draftFlush } from "./os/draft-flush.ts";
 import { QuitGate } from "./os/quit-gate.ts";
 import { daemonAtQuit, shutDownBeforeQuit } from "./os/shutdown.ts";
 import { createMainWindow } from "./window/main-window.ts";
@@ -303,13 +306,31 @@ function main(target: DaemonTarget, crashDumps: string): void {
    * (SIGTERM, then SIGKILL after its grace).
    */
   const quitLog = logger("quit");
+  // Hot exit: the window writes its unsaved editor text to the device before anything stops.
+  const drafts = draftFlush({
+    ask: () => {
+      const page = contents();
+      if (!page || page.isDestroyed()) return false;
+      emit(page, "drafts.flush", undefined);
+      return true;
+    },
+    timers,
+  });
   const quitGate = new QuitGate({
+    // Drafts the window couldn't keep stop the quit: the window asks Save, Don't save or Cancel.
+    confirm: () => drafts.run(),
+    cancelled: () => {
+      relaunch = undefined;
+      stopDaemonOnQuit = false;
+    },
     shutDown: async () => {
       globalShortcut.unregisterAll();
       // Before the daemon stops or the app goes: no client should keep showing this app's update,
       // and the browser backend tells the daemon it is going. Both at once, then the daemon.
       await shutDownBeforeQuit({
         beforeDaemon: [
+          // An update's restart skips the question; a quit asked it already.
+          { name: "drafts kept", run: async () => void (await drafts.run()) },
           { name: "update report withdrawn", run: () => updateReport.withdraw() },
           { name: "browser backend stopped", run: () => background.stop() },
         ],
@@ -419,6 +440,31 @@ function main(target: DaemonTarget, crashDumps: string): void {
   /** Set by the sandbox notice's Restart; used only once the quit goes ahead. */
   let relaunch: { execPath: string; args: string[] } | undefined;
 
+  /*
+   * Push to talk to the main Spade (ADR 0134, amended): a press goes to the page, which opens
+   * the main Spade and listens without the window coming forward; the indicator floats over
+   * whatever the person is in, and follows what the page says of the turn.
+   */
+  let talkState: SpadeTalkState = "off";
+  const indicator = talkIndicator({
+    cancel: () => emit(contents(), "spade.talk", "cancel"),
+  });
+  function pushToTalk(): void {
+    if (!window || window.isDestroyed()) {
+      // No window to listen in: one opens, and hears the press once it has loaded.
+      open();
+      window?.webContents.once("did-finish-load", () => emit(contents(), "spade.talk", "start"));
+      return;
+    }
+    emit(contents(), "spade.talk", talkPress(talkState));
+  }
+  const spadeTalk = {
+    report(state: SpadeTalkState) {
+      talkState = state;
+      indicator.set(state);
+    },
+  };
+
   /** Show the window (creating it if needed) and follow a deep link. */
   function open(link?: DeepLink): void {
     if (!app.isReady()) {
@@ -510,16 +556,19 @@ function main(target: DaemonTarget, crashDumps: string): void {
         }
       : {}),
     shortcuts: {
-      register: (accelerator) =>
-        globalShortcut.register(accelerator, () => open({ kind: "new-thread" })),
+      register: (accelerator, action) =>
+        globalShortcut.register(accelerator, () =>
+          action === "new-thread" ? open({ kind: "new-thread" }) : pushToTalk(),
+        ),
       unregister: (accelerator) => globalShortcut.unregister(accelerator),
     },
     warn: (message) => log("warn", message),
+    platform: process.platform,
   });
   function applySettings(next: DesktopSettings): void {
     background.settingsChanged(next);
     applyToOs(next);
-    emit(contents(), "settings.changed", next);
+    emit(contents(), "settings.changed", withTalkDefault(next, process.platform));
   }
 
   // Deep links: `ace://` on every platform, folders from "Open in ace", and the dock.
@@ -707,6 +756,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
       reload,
+      draftsFlushed: (kept) => drafts.flushed(kept),
       showLogs,
       reportDiagnostic: rendererReports({ log: logger("renderer"), now: Date.now }),
       desktopChecks: () =>
@@ -725,6 +775,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
           accelerator: settings.get().globalShortcut,
           run: runProgram(trayCheckMs),
         }),
+      talkShortcutHint: () =>
+        hyprlandShortcutHint({
+          env: process.env,
+          accelerator: talkShortcutOf(settings.get(), process.platform),
+          run: runProgram(trayCheckMs),
+        }),
+      spadeTalk,
       sandbox: {
         current: () => sandbox?.current() ?? { state: "hidden" },
         setup: () => sandbox?.setup() ?? Promise.resolve({ state: "hidden" }),

@@ -85,7 +85,11 @@ describe("the moved thread's first turn on the target", () => {
     expect(turnStart({ fate: { state: "delivered", runId: run }, held: false })).toEqual({
       kind: "running",
     });
-    expect(turnStart(facts("uncertain"))).toEqual({ kind: "running" });
+  });
+
+  // ADR 0191, #2332: only a run that took this exact message counts as started.
+  it("keeps reading a message the engine can't say reached its run, never counting it started", () => {
+    expect(turnStart(facts("uncertain"))).toEqual({ kind: "uncertain" });
   });
 
   it("waits while the message is out of the queue but no turn has started on it", () => {
@@ -104,10 +108,18 @@ describe("the moved thread's first turn on the target", () => {
     });
   });
 
-  it("leaves the thread to the person once they resent or removed the message", () => {
+  // ADR 0191, #2332: the person's own act ends the start as not started.
+  it("leaves the thread to the person once they resent, removed or stopped the message", () => {
     expect(
       turnStart({ fate: { state: "replaced", by: CommandId.parse("again") }, held: false }),
-    ).toEqual({ kind: "running" });
-    expect(turnStart(facts("removed"))).toEqual({ kind: "running" });
+    ).toEqual({ kind: "person", reason: "the person sent the message again" });
+    expect(turnStart(facts("removed"))).toEqual({
+      kind: "person",
+      reason: "the person took the message out",
+    });
+    expect(turnStart({ ...facts("waiting"), stopped: true })).toEqual({
+      kind: "person",
+      reason: "the person stopped it",
+    });
   });
 });

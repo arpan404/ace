@@ -184,6 +184,16 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::moves::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // How a bot talks (its personality), and where each note and knowledge entry came
+        // from (its origin). Columns only: nothing is rewritten, so opening stays instant.
+        sql: "
+    ALTER TABLE agents ADD COLUMN personality TEXT;
+    ALTER TABLE notes ADD COLUMN origin TEXT;
+    ALTER TABLE knowledge ADD COLUMN origin TEXT;
+",
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.
@@ -196,11 +206,25 @@ pub fn version(connection: &Connection) -> rusqlite::Result<usize> {
     Ok(usize::try_from(version).unwrap_or(0))
 }
 
-pub fn prepare(connection: &mut Connection) -> rusqlite::Result<()> {
+/// How long a connection waits for another's write lock before it gives up.
+pub const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The settings every connection to Spade's database shares, so none fails at once while
+/// another writes: WAL, a busy timeout, and transactions that take the write lock when they
+/// begin (`BEGIN IMMEDIATE`). A deferred transaction that reads first and then writes while
+/// another connection holds the write lock gets `SQLITE_BUSY` straight away, which the busy
+/// timeout does not cover; an immediate one waits at its `BEGIN` instead.
+pub fn share(connection: &mut Connection) -> rusqlite::Result<()> {
+    connection.busy_timeout(BUSY_TIMEOUT)?;
+    connection.set_transaction_behavior(rusqlite::TransactionBehavior::Immediate);
     connection.pragma_update(None, "journal_mode", "WAL")?;
+    Ok(())
+}
+
+pub fn prepare(connection: &mut Connection) -> rusqlite::Result<()> {
+    share(connection)?;
     connection.pragma_update(None, "synchronous", "NORMAL")?;
     connection.pragma_update(None, "foreign_keys", "ON")?;
-    connection.busy_timeout(std::time::Duration::from_secs(5))?;
     let version = version(connection)?;
     if version > MIGRATIONS.len() {
         // Written by a newer Spade: this build doesn't know that schema and must not use it.

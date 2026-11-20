@@ -1,0 +1,293 @@
+{
+  "about": "What a version 3 bot.json is accepted or refused for: one rule set, run through Spade's reader (spade_core::package::read, package/tests.rs) and the marketplace's (readRecipe, packages/marketplace/src/package.test.ts). Each case is the base manifest with `with` merged over it; `refused` says a problem is expected and a word it contains.",
+  "base": {
+    "format": "spade-bot",
+    "version": 3,
+    "requires": {
+      "runtime": "1"
+    },
+    "name": "Flight watcher",
+    "blurb": "Watches fares.",
+    "task": "You watch flight fares for the person.",
+    "model": "fast",
+    "effects": [
+      {
+        "effect": "network",
+        "hosts": ["api.example-fares.com"],
+        "why": "Reads fares."
+      }
+    ],
+    "pricing": {
+      "kind": "free"
+    }
+  },
+  "cases": [
+    {
+      "name": "the base manifest",
+      "with": {}
+    },
+    {
+      "name": "read and write_local declared, which every bot has",
+      "with": {
+        "effects": [
+          {
+            "effect": "read",
+            "why": "Reads its notes."
+          },
+          {
+            "effect": "write_local",
+            "why": "Keeps its watch list."
+          }
+        ]
+      }
+    },
+    {
+      "name": "driving one site under network",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "drive_site",
+              "host": "book.example-air.com"
+            },
+            "why": "Checks a fare page."
+          }
+        ]
+      }
+    },
+    {
+      "name": "a declared send, which goes to the person each time",
+      "with": {
+        "effects": [
+          {
+            "effect": "send_as_person",
+            "why": "Drafts a mail."
+          }
+        ]
+      }
+    },
+    {
+      "name": "runtime as a number",
+      "with": {
+        "requires": {
+          "runtime": 1
+        }
+      },
+      "refused": "requires.runtime is a string"
+    },
+    {
+      "name": "a runtime this build doesn't serve",
+      "with": {
+        "requires": {
+          "runtime": "2"
+        }
+      },
+      "refused": "Needs a newer Spade"
+    },
+    {
+      "name": "a network grant of git_push",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "tool",
+              "tool": "git_push"
+            },
+            "why": "Pushes."
+          }
+        ]
+      },
+      "refused": "person"
+    },
+    {
+      "name": "a network grant of send_message",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "tool",
+              "tool": "send_message"
+            },
+            "why": "Sends."
+          }
+        ]
+      },
+      "refused": "person"
+    },
+    {
+      "name": "a network grant of issue_comment",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "tool",
+              "tool": "issue_comment"
+            },
+            "why": "Comments."
+          }
+        ]
+      },
+      "refused": "person"
+    },
+    {
+      "name": "a network grant of pr_comment",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "tool",
+              "tool": "pr_comment"
+            },
+            "why": "Comments."
+          }
+        ]
+      },
+      "refused": "person"
+    },
+    {
+      "name": "a push grant",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "git_push",
+              "repo": "a/b",
+              "branch": "x/*"
+            },
+            "why": "Pushes."
+          }
+        ]
+      },
+      "refused": "push"
+    },
+    {
+      "name": "a grant under a send",
+      "with": {
+        "effects": [
+          {
+            "effect": "send_as_person",
+            "grant": {
+              "kind": "drive_site",
+              "host": "mail.example.com"
+            },
+            "why": "Sends."
+          }
+        ]
+      },
+      "refused": "never granted"
+    },
+    {
+      "name": "hosts under publish",
+      "with": {
+        "effects": [
+          {
+            "effect": "publish",
+            "hosts": ["api.example.com"],
+            "why": "Posts."
+          }
+        ]
+      },
+      "refused": "only network names hosts"
+    },
+    {
+      "name": "credential",
+      "with": {
+        "effects": [
+          {
+            "effect": "credential",
+            "why": "Reads a key."
+          }
+        ]
+      },
+      "refused": "credential"
+    },
+    {
+      "name": "drive",
+      "with": {
+        "effects": [
+          {
+            "effect": "drive",
+            "why": "Clicks."
+          }
+        ]
+      },
+      "refused": "drive_site"
+    },
+    {
+      "name": "a word that isn't an effect",
+      "with": {
+        "effects": [
+          {
+            "effect": "teleport",
+            "why": "Moves."
+          }
+        ]
+      },
+      "refused": "isn't an effect"
+    },
+    {
+      "name": "a publisher in the file",
+      "with": {
+        "publisher": "acme"
+      },
+      "refused": "signed manifest"
+    },
+    {
+      "name": "a price",
+      "with": {
+        "pricing": {
+          "kind": "paid"
+        }
+      },
+      "refused": "Paid"
+    },
+    {
+      "name": "a server",
+      "with": {
+        "mcpServers": {}
+      },
+      "refused": "plugin"
+    },
+    {
+      "name": "a module this build doesn't have",
+      "with": {
+        "uses": ["task", "telepathy"]
+      },
+      "refused": "telepathy"
+    },
+    {
+      "name": "effects as an object",
+      "with": {
+        "effects": {}
+      },
+      "refused": "effects is a list"
+    },
+    {
+      "name": "effects as a word",
+      "with": {
+        "effects": "network"
+      },
+      "refused": "effects is a list"
+    },
+    {
+      "name": "triggers as an object",
+      "with": {
+        "triggers": {}
+      },
+      "refused": "triggers is a list"
+    },
+    {
+      "name": "uses as a word",
+      "with": {
+        "uses": "task"
+      },
+      "refused": "uses lists runtime modules"
+    }
+  ]
+}

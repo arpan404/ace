@@ -12,7 +12,8 @@ import { Stage } from "./market-stage.tsx";
  * Installed: everything this machine installed from the marketplace, updates first, and the same
  * list narrowed to Updates. An update is never applied on its own: Update opens its review, and
  * only that review's Install replaces the version in use. A withdrawn entry stays off until the
- * person turns it on or removes it.
+ * person turns it on or removes it. Each bot made from a bot package is its own row; an update
+ * accepted while its bot works shows the version running and says the new one waits.
  */
 
 /** Installed entries with an update first, then by name. */
@@ -72,7 +73,7 @@ export function InstalledPage() {
       ) : !read.data ? null : list.length ? (
         <ul className="mk-rows" aria-label={updatesOnly ? "Updates" : "Installed"}>
           {list.map((item) => (
-            <InstalledRow key={`${item.type}/${item.name}`} item={item} />
+            <InstalledRow key={`${item.type}/${item.name}/${item.target ?? ""}`} item={item} />
           ))}
         </ul>
       ) : updatesOnly ? (
@@ -93,8 +94,27 @@ function InstalledRow(props: { item: MarketInstalled }) {
   const turnOn = useTurnOn();
   const { item } = props;
   const key = { source: item.source, type: item.type, name: item.name };
-  const version = item.update ? `${item.version} → ${item.update}` : item.version;
+  // A bot package's update or rollback moves its own bot.
+  const bot = item.type === "spade-bot" && item.target ? { bot: item.target } : {};
+  // An update the person accepted that waits for the bot's turn isn't offered again.
+  const update = item.update && item.update !== item.held?.version ? item.update : undefined;
+  const version = update ? `${item.version} → ${update}` : item.version;
   const busy = remove.isPending || turnOn.isPending;
+  // A linked bot goes back to the version it had before, from the copy kept here (ADR 0200).
+  const rollBack =
+    item.linked && item.previous ? (
+      <Button
+        size="sm"
+        variant="ghost"
+        aria-label={`Roll back ${item.title} to ${item.previous.version}`}
+        disabled={busy}
+        onClick={() =>
+          nav.push({ kind: "review", entry: key, update: true, rollback: true, ...bot })
+        }
+      >
+        Roll back
+      </Button>
+    ) : undefined;
   const failed = remove.error ?? turnOn.error;
   return (
     <li {...part("list-row", undefined, "market-installed")} className="mk-row">
@@ -114,6 +134,9 @@ function InstalledRow(props: { item: MarketInstalled }) {
           </span>
         )}
         {failed && <span className="mk-withdrawn-line">{failureSentence(failed, "remove")}</span>}
+        {item.held && (
+          <span className="mk-meta">Update to {item.held.version} waits for its turn</span>
+        )}
         {waitsForBots(item) && <BotsApproval item={item} />}
         <span className="mk-meta">
           {typeWord(item.type)} ·{" "}
@@ -126,26 +149,29 @@ function InstalledRow(props: { item: MarketInstalled }) {
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => remove.mutate(item)}>
               Remove
             </Button>
+            {rollBack}
             <Button
               size="sm"
               variant="secondary"
               disabled={busy}
               onClick={() => turnOn.mutate(item)}
             >
-              Turn on
+              {item.linked ? "Resume" : "Turn on"}
             </Button>
           </>
-        ) : item.update ? (
+        ) : update ? (
           <Button
             size="sm"
             variant="secondary"
             aria-label={`Update ${item.title}`}
             disabled={nav.offline}
             title={nav.offline ? offlineTitle("Update") : undefined}
-            onClick={() => nav.push({ kind: "review", entry: key, update: true })}
+            onClick={() => nav.push({ kind: "review", entry: key, update: true, ...bot })}
           >
             Update
           </Button>
+        ) : rollBack ? (
+          rollBack
         ) : (
           <Button
             size="sm"

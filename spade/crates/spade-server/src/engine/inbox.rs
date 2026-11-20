@@ -65,6 +65,26 @@ impl Engine {
             Some("answer") => self.inbox_answer(sender, body).await,
             Some("stop") => self.inbox_stop(sender, body),
             Some("move") => self.inbox_move(sender, body).await,
+            // An ace thread on the caller's machine asking a bot or club here (ADR 0198): the
+            // bodies of `/v1/thread-asks`, its keys kept apart under the caller's pairing.
+            Some("thread_ask") => self.thread_ask_from(
+                super::thread_asks::AskedFrom {
+                    host: &super::thread_asks::remote_sender(&sender.host),
+                    name: &sender.name,
+                    machine: Some(&sender.name),
+                },
+                body,
+            ),
+            Some("thread_answer") => {
+                let key = body["key"].as_str().unwrap_or("");
+                let wait = body["wait_ms"].as_u64().unwrap_or(0);
+                let host = super::thread_asks::remote_sender(&sender.host);
+                self.thread_answer_from(&host, key, wait).await
+            }
+            Some("thread_stop") => {
+                let key = body["key"].as_str().unwrap_or("");
+                self.thread_stop_from(&super::thread_asks::remote_sender(&sender.host), key)
+            }
             // How this machine's daemon knows the caller (ADR 0187): the device a move from it
             // is bound to once the person accepts it.
             Some("whoami") => (200, json!({ "sender": sender.host })),
@@ -173,6 +193,7 @@ impl Engine {
             from_agent,
             from_routine: None,
             from_group,
+            from_thread: None,
         });
         let entry = InboxEntry {
             from_host: sender.host.clone(),

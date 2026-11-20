@@ -24,6 +24,9 @@ pub(super) struct RecipeBody {
     pub grants: RecipeGrants,
     pub start_routines: bool,
     pub time_zone: Option<String>,
+    pub package: Option<spade_core::package::link::PackageId>,
+    pub envelope: Option<crate::packages::envelope::Envelope>,
+    pub switches: std::collections::BTreeMap<String, bool>,
     /// The body also named a template or a first message, which a recipe doesn't take.
     pub also: bool,
 }
@@ -79,6 +82,10 @@ pub(super) async fn create(state: AppState, body: RecipeBody) -> Response {
         }
         let found = state.engine.bot_for_transaction(transaction);
         match found {
+            // Never shown half made: its install is still putting it together.
+            Ok(Some(id)) if state.engine.installing(&id) => {
+                return refused(StatusCode::CONFLICT, "that install is still under way");
+            }
             Ok(Some(id)) => {
                 return match state.engine.agent_view(&id) {
                     Ok(Some(view)) => (
@@ -106,6 +113,10 @@ pub(super) async fn create(state: AppState, body: RecipeBody) -> Response {
         grants: body.grants,
         start_routines: body.start_routines,
         time_zone: body.time_zone,
+        package: body.package,
+        envelope: body.envelope,
+        shipped: None,
+        switches: body.switches,
     };
     let made_state = state.clone();
     let answer = off_thread(move || {

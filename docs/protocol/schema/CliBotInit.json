@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliBotInit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "files": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "from": {
+      "type": "string"
+    },
+    "left_out": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "name": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "template": {
+      "$ref": "https://ace.local/protocol/v1/CliBotStarter.json"
+    }
+  },
+  "required": [
+    "path",
+    "name",
+    "files"
+  ],
+  "type": "object"
+}

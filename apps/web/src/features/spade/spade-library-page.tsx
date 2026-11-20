@@ -20,6 +20,7 @@ import {
   readKnowledgeEntry,
 } from "./spade-knowledge-api.ts";
 import { DocTop, dayWords, leading } from "./spade-library-parts.tsx";
+import { SpadeProvenanceDialog } from "./spade-provenance.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { ProfileProblem, rowPill } from "./spade-profile-parts.tsx";
 import { agentsKey, type RosterBot } from "./use-spade-roster.ts";
@@ -54,6 +55,7 @@ export function LibraryPage(props: { bot: RosterBot; id: string; onBack(): void 
     queryFn: ({ signal }) => readKnowledgeEntry(client, props.id, signal),
   });
   const [confirming, setConfirming] = useState<Confirming>();
+  const [why, setWhy] = useState(false);
   const settle = async (entry?: SpadeKnowledgeEntry) => {
     if (entry) cache.setQueryData(key, entry);
     await cache.invalidateQueries({ queryKey: [...knowledgeKey, machine, bot.id] });
@@ -102,6 +104,9 @@ export function LibraryPage(props: { bot: RosterBot; id: string; onBack(): void 
   return (
     <article aria-label={entry.title} className="flex flex-col">
       <DocTop onBack={props.onBack}>
+        <Button size="sm" variant="ghost" className={rowPill} onClick={() => setWhy(true)}>
+          Where it's from
+        </Button>
         {!entry.trusted && (
           <Button size="sm" variant="secondary" className={rowPill} onClick={() => void trust()}>
             Trust this
@@ -136,6 +141,18 @@ export function LibraryPage(props: { bot: RosterBot; id: string; onBack(): void 
       <Origin bot={bot} entry={entry} />
       <BodyField entry={entry} onSave={(body, from) => save({ body }, from)} />
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
+      <SpadeProvenanceDialog
+        bot={bot.id}
+        of={why ? { kind: "entry", id: entry.id } : undefined}
+        onForget={async () => {
+          await deleteKnowledge(client, entry.id);
+          props.onBack();
+          await settle();
+        }}
+        // The page edits in place: its title and body stay open to correct.
+        onCorrect={() => undefined}
+        onDone={() => setWhy(false)}
+      />
     </article>
   );
 }

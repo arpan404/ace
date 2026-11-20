@@ -1,3 +1,4 @@
+import type { DeviceContextItem } from "@ace/protocol";
 import type { ClientApi } from "@ace/client";
 import type { SpadeExchange } from "@ace/client/spade-http";
 import { maxSpadeRequestBytes, type SpadeMethod } from "@ace/protocol";
@@ -73,7 +74,22 @@ export async function spadeBlob(
   path: string,
   signal?: AbortSignal,
 ): Promise<Blob> {
-  const answer = await spadeAnswer(client, { method: "GET", path }, signal);
+  return blobOf(await spadeAnswer(client, { method: "GET", path }, signal));
+}
+
+/** A binary answer to a request with a JSON body (spoken audio), as a Blob. */
+export async function spadePostBlob(
+  client: SpadeTarget,
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return blobOf(
+    await spadeAnswer(client, { method: "POST", path, body: JSON.stringify(body) }, signal),
+  );
+}
+
+function blobOf(answer: { body: SpadeBody; contentType: string | undefined }): Blob {
   const type = answer.contentType ?? "application/octet-stream";
   const { body } = answer;
   if ("text" in body) return new Blob([body.text], { type });
@@ -91,10 +107,24 @@ export function spadeBody(message: {
   images: readonly { data: string }[];
   documents?: readonly { name: string; data: string }[] | undefined;
   voice?: { data: string; mediaType: string } | undefined;
+  /** Devices the person named with `@` for the work (ADR 0198). */
+  devices?: readonly DeviceContextItem[] | undefined;
 }) {
   const documents = message.documents ?? [];
+  const devices = message.devices ?? [];
   return {
     text: message.text,
+    ...(devices.length
+      ? {
+          devices: devices.map((device) =>
+            Object.assign(
+              { id: device.id, name: device.name, kind: device.kind, machine: device.machine },
+              device.os ? { os: device.os } : {},
+              { online: device.online },
+            ),
+          ),
+        }
+      : {}),
     ...(message.images.length ? { images: message.images.map(({ data }) => ({ data })) } : {}),
     ...(documents.length ? { files: documents.map(({ name, data }) => ({ name, data })) } : {}),
     ...(message.voice

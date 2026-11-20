@@ -4,6 +4,7 @@
 mod agents;
 mod body;
 mod brains;
+mod cards;
 mod computer;
 mod connectors;
 mod digests;
@@ -15,16 +16,19 @@ mod media;
 mod memory;
 mod moves;
 mod oversight;
+mod packages;
 mod plugins;
 mod questions;
 mod reach;
 mod recipes;
 mod routines;
 mod routing;
+mod running;
 mod search;
 mod security;
 mod skills;
 mod teams;
+mod thread_asks;
 mod wakes;
 mod workers;
 mod workspace;
@@ -95,6 +99,11 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/agents/{id}/pin", put(agents::pin))
         .route("/agents/{id}/task", get(goals::read))
+        .route("/agents/{id}/task/history", get(agents::task_history))
+        .route(
+            "/agents/{id}/undo-made",
+            axum::routing::post(agents::undo_made),
+        )
         .route("/agents/{id}/tree", get(workers::tree))
         .route(
             "/agents/{id}/task/goal",
@@ -102,6 +111,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/main", get(moves::main_state).put(agents::set_main))
         .route("/endpoints", post(endpoints::create))
+        .route("/endpoints/local", get(endpoints::local))
+        .route("/endpoints/local/{server}", post(endpoints::use_local))
         .route(
             "/endpoints/{id}",
             axum::routing::patch(endpoints::update).delete(endpoints::delete),
@@ -139,8 +150,16 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/conversations/{id}/questions", get(questions::list))
         .route(
+            "/conversations/{id}/cards/{card}/actions",
+            post(cards::choose),
+        )
+        .route(
             "/conversations/{id}/questions/{call_id}",
             post(questions::reply),
+        )
+        .route(
+            "/conversations/{id}/questions/{call_id}/connected",
+            post(questions::connected),
         )
         .route("/conversations/{id}/live", get(live))
         .route("/conversations/{id}/compact", post(compact))
@@ -174,10 +193,13 @@ pub fn router(state: AppState) -> Router {
         .merge(files::routes())
         .merge(media::routes())
         .merge(teams::routes())
+        .merge(packages::routes())
+        .merge(thread_asks::routes())
         .merge(moves::routes())
         .merge(wakes::routes())
         .merge(digests::routes())
         .merge(reach::routes())
+        .merge(running::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()

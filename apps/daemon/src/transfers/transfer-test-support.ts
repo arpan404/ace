@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, vi } from "vitest";
-import { validateCloneUrl } from "@ace/git";
+import { validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
 import {
   Command,
   DeviceId,
@@ -214,6 +214,7 @@ export function registered(side: Side): string[] {
 export async function transferMachines(
   options: {
     scopes?: DeviceScope[];
+    sourceGitPolicy?: ProjectGitPolicy;
     cloneTimeoutMs?: number;
     /** Wraps the source's transfer transport, e.g. to drop a connection. */
     transport?: (inner: TransferTransport) => TransferTransport;
@@ -253,7 +254,7 @@ export async function transferMachines(
   cleanup.push(() => target.daemon.close());
   const transport = options.transport ? options.transport(transferTransport) : transferTransport;
   const sourceOptions = {
-    projects: projects(sourceRoot),
+    projects: { ...projects(sourceRoot), gitPolicy: options.sourceGitPolicy ?? fixturePolicy },
     transfers: { transport, sleep: quickSleep, offlineMs: 5_000 },
     ...(options.sourceEngineLimits ? { engineLimits: options.sourceEngineLimits } : {}),
   };

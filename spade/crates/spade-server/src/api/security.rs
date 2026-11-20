@@ -47,6 +47,7 @@ pub(super) fn routes() -> Router<AppState> {
             "/agents/{id}/checkpoints",
             get(checkpoints).post(checkpoint),
         )
+        .route("/agents/{id}/checkpoints/undo", get(undo_preview))
         .route(
             "/agents/{id}/checkpoints/{checkpoint}/restore",
             axum::routing::post(restore),
@@ -439,6 +440,50 @@ async fn checkpoint(State(state): State<AppState>, Path(id): Path<String>) -> Re
     .await
 }
 
+#[derive(Deserialize)]
+struct UndoQuery {
+    /// The position in the bot's conversation of the step (its `tool_started`) whose changes,
+    /// and everything after them, would be undone.
+    seq: i64,
+}
+
+/// What undoing a step (or a turn, from its first file-changing step) would revert: the
+/// checkpoint taken just before it and the files that would go back, be removed or come back.
+async fn undo_preview(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<UndoQuery>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(move || {
+        let started = match state.engine.bot_event_time(&id, query.seq) {
+            Ok(Some(at)) => at,
+            Ok(None) => return problem(StatusCode::NOT_FOUND, "there is no such step"),
+            Err(error) => return failed(SecurityError::Store(error.to_string())),
+        };
+        match security.undo_preview(&id, started) {
+            Ok(Some((checkpoint, changes))) => {
+                Json(json!({"checkpoint": checkpoint, "changes": changes})).into_response()
+            }
+            Ok(None) => problem(
+                StatusCode::NOT_FOUND,
+                "no checkpoint was kept from before this step",
+            ),
+            Err(error) => failed(error),
+        }
+    })
+    .await
+}
+
+/// `2026-11-19 14:03 UTC`, for the bot's note after an undo.
+fn utc_minute(at_ms: i64) -> String {
+    jiff::Timestamp::from_millisecond(at_ms)
+        .map(|at| at.strftime("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_else(|_| "an earlier checkpoint".to_owned())
+}
+
 async fn restore(
     State(state): State<AppState>,
     Path((id, checkpoint)): Path<(String, String)>,
@@ -469,8 +514,25 @@ async fn restore(
                 "the bot's services are running; stop them before restoring a checkpoint",
             );
         }
+        // What goes back, read before it does, for the bot's note.
+        let reverted = security.changes_since(&id, &checkpoint);
+        let at = security
+            .checkpoints(&id)
+            .ok()
+            .and_then(|all| all.into_iter().find(|c| c.id == checkpoint))
+            .map(|c| c.at);
         match security.restore_checkpoint(&id, &checkpoint) {
-            Ok(saved) => Json(json!({"restored": checkpoint, "saved": saved})).into_response(),
+            Ok(saved) => {
+                if let (Ok(changes), Some(at)) = (&reverted, at)
+                    && !changes.is_empty()
+                {
+                    let note = crate::security::undo::note_for_bot(&utc_minute(at), changes);
+                    if let Err(error) = state.engine.note_workspace_restored(&id, note) {
+                        tracing::warn!(%error, "the bot couldn't be told of the restore");
+                    }
+                }
+                Json(json!({"restored": checkpoint, "saved": saved})).into_response()
+            }
             Err(error) => failed(error),
         }
     })

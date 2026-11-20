@@ -99,9 +99,10 @@ export interface CommandSpec {
   readonly nounDefault?: boolean;
   /**
    * The person's alone (ADR 0178 §12.5): refused in an agent's shell, and an answer needs the
-   * person at a terminal to type its confirmation.
+   * person at a terminal to type its confirmation. `install` is a bot made or updated on this
+   * machine (ADR 0200 §8: installs need the person's standing).
    */
-  readonly personOnly?: "answer" | "setting";
+  readonly personOnly?: "answer" | "setting" | "install";
   /** Every word after the command's own goes to it unparsed (the release runtime's commands). */
   readonly passthrough?: boolean;
 }

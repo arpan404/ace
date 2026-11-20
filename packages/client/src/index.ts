@@ -114,9 +114,11 @@ export {
   readFileRange,
   type FileRangeInput,
   type FileReadInput,
+  type FileReadOptions,
   type FileReadOutcome,
   type FileReader,
 } from "./file-read.ts";
+export { type ReadPriority } from "./file-read-budget.ts";
 export type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 
 export {

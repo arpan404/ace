@@ -399,3 +399,25 @@ export function useTheme(): ThemeValue {
   if (!value) throw new Error("useTheme needs a <ThemeProvider>");
   return value;
 }
+
+/** The surfaces a mark is drawn on in each scheme: the page, raised fills and the side panel. */
+export type CanvasColours = Record<"light" | "dark", readonly string[]>;
+
+/**
+ * The page, raised and side-panel colours of each scheme of the theme or Suit on screen, so a
+ * mark (a bot's accent) can be checked against what it is really drawn on. Null outside a
+ * `ThemeProvider`.
+ */
+export function useCanvasColours(): CanvasColours | null {
+  const value = useContext(ThemeContext);
+  const theme = value?.appearance.theme;
+  const suit = value?.suit ?? null;
+  return useMemo(() => {
+    if (!theme) return null;
+    const of = (scheme: "light" | "dark") => {
+      const palette = suit ? suitPalette(suit.manifest, scheme) : themes[theme][scheme];
+      return [palette.s0, palette.s1, palette.sidebar];
+    };
+    return { light: of("light"), dark: of("dark") };
+  }, [theme, suit]);
+}

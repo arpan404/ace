@@ -854,6 +854,24 @@
                 {
                   "properties": {
                     "kind": {
+                      "const": "terminal",
+                      "type": "string"
+                    },
+                    "terminalId": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "terminalId"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "kind": {
                       "const": "files",
                       "type": "string"
                     }

@@ -15,6 +15,7 @@ export interface WasmDocument {
   line(index: number): string;
   lines(start: number, end: number): string[];
   lineEnding(): string;
+  setLineEnding(crlf: boolean): WasmApplied;
   version(): number;
   selections(): Uint32Array;
   primarySelection(): number;
@@ -30,6 +31,20 @@ export interface WasmDocument {
   moveLinesDown(): WasmApplied;
   duplicateLines(): WasmApplied;
   toggleLineComment(token: string): WasmApplied;
+  copyLinesUp(): WasmApplied;
+  deleteLines(): WasmApplied;
+  insertLineBelow(): WasmApplied;
+  insertLineAbove(): WasmApplied;
+  joinLines(): WasmApplied;
+  tab(): WasmApplied;
+  toggleBlockComment(open: string, close: string): WasmApplied;
+  typeText(text: string): WasmApplied;
+  smartNewline(): WasmApplied;
+  smartBackspace(): WasmApplied;
+  detectIndent(): Uint32Array;
+  matchingBracket(line: number, column: number, limit: number): Uint32Array;
+  indent(): Uint32Array;
+  setIndent(tabs: boolean, size: number): void;
   undo(): WasmApplied | undefined;
   redo(): WasmApplied | undefined;
   commit(): void;
@@ -40,6 +55,30 @@ export interface WasmDocument {
     wholeWord: boolean,
     limit: number,
   ): Uint32Array;
+  findWithin(
+    pattern: string,
+    regex: boolean,
+    caseSensitive: boolean,
+    wholeWord: boolean,
+    within: Uint32Array,
+    limit: number,
+  ): Uint32Array;
+  replaceAll(
+    pattern: string,
+    regex: boolean,
+    caseSensitive: boolean,
+    wholeWord: boolean,
+    replacement: string,
+    within: Uint32Array,
+  ): WasmApplied;
+  replaceMatch(
+    pattern: string,
+    regex: boolean,
+    caseSensitive: boolean,
+    wholeWord: boolean,
+    at: Uint32Array,
+    replacement: string,
+  ): WasmApplied;
   selectColumn(
     anchorLine: number,
     anchorColumn: number,
@@ -48,6 +87,16 @@ export interface WasmDocument {
     tabSize: number,
   ): void;
   selectNextOccurrence(): boolean;
+  selectAllOccurrences(): boolean;
+  skipOccurrence(): boolean;
+  expandSelection(): boolean;
+  free(): void;
+}
+
+/** The `LineChanges` class wasm-bindgen generates. */
+export interface WasmLineChanges {
+  readonly ranges: Uint32Array;
+  readonly texts: string[];
   free(): void;
 }
 
@@ -56,4 +105,6 @@ export interface WasmGlue {
   default(input?: unknown): Promise<unknown>;
   EditorDocument: new (text: string) => WasmDocument;
   lineMarks(original: string, current: string): Uint32Array;
+  merge3(base: string, mine: string, theirs: string): string[];
+  lineChanges(before: string, after: string): WasmLineChanges;
 }

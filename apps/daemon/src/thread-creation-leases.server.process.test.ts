@@ -284,16 +284,15 @@ test("a receipt-time admission rejection cleans only its uncommitted worktree an
       input: [{ type: "text", text: "Keep my draft" }],
     });
     await gitService.entered.promise;
-    const permissionModes = nativeModes.filter((entry) => entry.id === ":read-only");
+    // The CLI now allows no permission profile at all, so the thread can't take any mode.
+    const permissionModes = nativeModes.filter(() => false);
     h.registry.register(
       {
         ...original.adapter,
         capabilities: () => ({
           ...original.capabilities,
           permissionModes,
-          accessModes: accessModeOffers({ provider: "codex" }).filter(
-            (offer) => offer.mode === "read-only",
-          ),
+          accessModes: [],
           permissions: {
             modes: permissionModes.map((entry) => entry.id),
             permissionModes,

@@ -9,7 +9,7 @@ import { CliFailure } from "./output.ts";
  */
 
 /** What a person-only command is: answering a request, or changing a setting. */
-export type PersonOnly = "answer" | "setting" | "market";
+export type PersonOnly = "answer" | "setting" | "market" | "install";
 
 /** An agent's shell: ace starts every agent session with ACE_THREAD_ID and ACE_NO_INPUT=1. */
 export function agentShell(env: Readonly<Record<string, string | undefined>>): boolean {
@@ -65,6 +65,7 @@ const what: Record<PersonOnly, string> = {
   answer: "Answering a request",
   setting: "Changing a setting",
   market: "This market action",
+  install: "Installing a bot",
 };
 
 /** Why `kind` can't run here, or undefined when it may. `--yes` never changes the answer. */

@@ -1,4 +1,5 @@
 import type {
+  MarketBotUpdate,
   MarketEntryType,
   MarketNeed,
   MarketPublisher,
@@ -10,6 +11,7 @@ import type {
 import type { PluginReview } from "@ace/protocol/plugins";
 import {
   hashFiles,
+  recipeEffects,
   recipeEntries,
   recipeNeeds,
   type ArchiveFile,
@@ -33,6 +35,11 @@ export interface PreparedEntry {
   publisher?: MarketPublisher | undefined;
   from?: string | undefined;
   signed: boolean;
+  /**
+   * The market's signed version manifest as it served it: Spade believes a package's identity
+   * only from it, over these exact bytes (ADR 0200 §3.2). Absent for a git catalog's entry.
+   */
+  signedManifest?: unknown;
   reviewed: boolean;
   byAce: boolean;
   checked: CheckedEntry;
@@ -55,6 +62,8 @@ export interface PreparedReview extends PreparedEntry {
   /** A recipe's skills and plugins from the same source, each reviewed as itself. */
   brings: PreparedEntry[];
   spadeReady: boolean;
+  /** An update or rollback of a linked bot: which bot, and what Spade's plan says it does. */
+  updating?: MarketBotUpdate | undefined;
 }
 
 const textLimit = 65_536;
@@ -213,6 +222,7 @@ function body(entry: PreparedReview): MarketReviewBody {
         routines: recipe.routines,
         ...(recipe.needs.tools ? { tools: recipe.needs.tools } : {}),
         notes: recipe.notes,
+        ...(recipe.personality ? { personality: recipe.personality } : {}),
         brings: recipeEntries(recipe).map((brought) => ({
           type: brought.type,
           name: brought.name,
@@ -222,6 +232,16 @@ function body(entry: PreparedReview): MarketReviewBody {
         })),
         needs,
         spadeReady: entry.spadeReady,
+        ...(recipe.version === 3
+          ? {
+              linked: true,
+              effects: recipeEffects(recipe),
+              triggers: recipe.triggers,
+              ...(recipe.limits ? { limits: recipe.limits } : {}),
+              unused: Object.keys(recipe.extra ?? {}).slice(0, 64),
+            }
+          : {}),
+        ...(entry.updating ? { update: entry.updating } : {}),
       };
     }
     case undefined:

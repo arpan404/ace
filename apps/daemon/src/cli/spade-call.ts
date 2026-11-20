@@ -28,8 +28,21 @@ function spadeFailure(error: SpadeError): CliFailure {
   });
 }
 
-/** One Spade API call through the daemon's `spade.http` (ADR 0121). */
-export async function spadeCaller(client: Client, signal: AbortSignal): Promise<SpadeCall> {
+/** Spade's answer as it came: its status and body. */
+export interface SpadeAnswer {
+  readonly status: number;
+  readonly body: string;
+}
+
+/** A Spade API call that answers with any status; only a failure to reach Spade throws. */
+export type SpadeExchange = (
+  method: Parameters<SpadeCall>[0],
+  path: string,
+  body?: unknown,
+) => Promise<SpadeAnswer>;
+
+/** One Spade API exchange through the daemon's `spade.http` (ADR 0121). */
+export async function spadeExchanger(client: Client, signal: AbortSignal): Promise<SpadeExchange> {
   const { spadeExchange } = await import("@ace/client/spade-http");
   return async (method, path, body) => {
     const answer = await spadeExchange(
@@ -38,13 +51,31 @@ export async function spadeCaller(client: Client, signal: AbortSignal): Promise<
       { id: () => randomUUID(), signal },
     );
     if (answer.kind === "error") throw spadeFailure(answer);
-    if (answer.status >= 200 && answer.status < 300) return answer.body;
-    const said = /"(?:error|message)"\s*:\s*"([^"]{1,300})"/.exec(answer.body)?.[1];
-    throw new CliFailure(
-      answer.status === 404 ? "refused" : "failed",
-      said ? `Spade said: ${said}` : `Spade answered ${answer.status}.`,
-      undefined,
-      { code: answer.status === 404 ? "not_found" : "failed" },
-    );
+    return { status: answer.status, body: answer.body };
   };
+}
+
+/** A non-2xx answer as the failure the CLI reports. */
+export function answerFailure(answer: SpadeAnswer): CliFailure {
+  const said = /"(?:error|message)"\s*:\s*"([^"]{1,300})"/.exec(answer.body)?.[1];
+  return new CliFailure(
+    answer.status === 404 ? "refused" : "failed",
+    said ? `Spade said: ${said}` : `Spade answered ${answer.status}.`,
+    undefined,
+    { code: answer.status === 404 ? "not_found" : "failed" },
+  );
+}
+
+/** A call that answers with Spade's body, every non-2xx answer a failure. */
+export function callOf(exchange: SpadeExchange): SpadeCall {
+  return async (method, path, body) => {
+    const answer = await exchange(method, path, body);
+    if (answer.status >= 200 && answer.status < 300) return answer.body;
+    throw answerFailure(answer);
+  };
+}
+
+/** One Spade API call through the daemon's `spade.http` (ADR 0121). */
+export async function spadeCaller(client: Client, signal: AbortSignal): Promise<SpadeCall> {
+  return callOf(await spadeExchanger(client, signal));
 }

@@ -16,6 +16,7 @@ import { AutonomyChoice } from "./spade-autonomy-choice.tsx";
 import { ProfileCheckpoints, ProfileEgress } from "./spade-bot-checkpoints.tsx";
 import { CommandsChoice } from "./spade-commands-choice.tsx";
 import { ProfileNetworkRows } from "./spade-bot-network.tsx";
+import { ProfilePackageEffects } from "./spade-bot-package-effects.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { fault } from "./spade-profile-actions.ts";
 import { ProfileEmpty, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
@@ -52,8 +53,8 @@ export function ProfileSecurity(props: { bot: RosterBot }) {
 }
 
 /**
- * How the bot decides (ADR 0163, amendment 2), then where its commands run and what it may reach
- * (ADR 0171). A bot on the machine's settings
+ * How the bot decides (ADR 0163, amendment 2), what its package may do (ADR 0200 §3.4), then
+ * where its commands run and what it may reach (ADR 0171). A bot on the machine's settings
  * says so in one line, with the way to them and Set its own; one with its own, or once the
  * person sets its own, shows each choice with the way back to the machine's.
  */
@@ -93,6 +94,7 @@ function ProfileBoundaries(props: { bot: RosterBot; security: SpadeBotSecurity }
     return (
       <ProfileSection label="Security" actions={settings}>
         {decides}
+        <ProfilePackageEffects bot={props.bot} />
         <SettingRow title={`Same as ${place}`} density="compact" inline>
           <Button size="sm" variant="ghost" onClick={() => setSetting(true)}>
             Set its own
@@ -103,6 +105,7 @@ function ProfileBoundaries(props: { bot: RosterBot; security: SpadeBotSecurity }
   return (
     <ProfileSection label="Security" actions={settings}>
       {decides}
+      <ProfilePackageEffects bot={props.bot} />
       <CommandsChoice
         title="Commands run"
         value={security.own.commands ? security.commands : "inherit"}

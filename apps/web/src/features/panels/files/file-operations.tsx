@@ -1,5 +1,3 @@
-import { useClient } from "@ace/client-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -11,14 +9,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
-import { checkoutError } from "./checkout-source.ts";
-import { checkoutChanged } from "./checkout-refresh.ts";
-import { useCheckoutSource } from "./use-checkout.ts";
-import { fileManagement, type FileMutation } from "./file-management-source.ts";
+import type { FileMutation } from "./file-management-source.ts";
 import { cleanPath, parentPath, type FileOperationDialog } from "./file-operation.ts";
 import { ArchiveDialog } from "./folder-download.tsx";
 import { TrashDialog } from "./recently-deleted.tsx";
+import { useFileMutations } from "./use-file-mutations.ts";
 
 const titles = {
   create: "New file",
@@ -34,20 +29,13 @@ export function FileOperations(props: {
   onClose(): void;
   onChanged(path: string, destination?: string): void;
 }) {
-  const client = useClient();
-  const queries = useQueryClient();
-  const source = useCheckoutSource();
-  const toast = useToast();
   const { operation: op } = props;
   const original = "path" in op ? cleanPath(op.path) : "";
+  const many = op.kind === "delete" && op.paths && op.paths.length > 1 ? op.paths : undefined;
   const [value, setValue] = useState("folder" in op ? op.folder : original);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const manager = fileManagement(client, props.threadId);
-  const refresh = (paths: readonly (string | undefined)[]) => {
-    checkoutChanged(props.threadId, paths);
-    void queries.invalidateQueries({ queryKey: ["checkout"] });
-  };
+  const mutations = useFileMutations(props.threadId, (path) => props.onChanged(path));
   if (op.kind === "archive")
     return <ArchiveDialog threadId={props.threadId} path={original} onClose={props.onClose} />;
   if (op.kind === "trash")
@@ -60,6 +48,11 @@ export function FileOperations(props: {
     setError(undefined);
     try {
       const path = value.trim();
+      if (op.kind === "delete") {
+        await mutations.remove(many ?? [original]);
+        props.onClose();
+        return;
+      }
       let mutation: FileMutation;
       if (op.kind === "create" || op.kind === "mkdir") {
         mutation =
@@ -67,46 +60,18 @@ export function FileOperations(props: {
             ? { op: "create", path, expected: null, text: "" }
             : { op: "mkdir", path, expected: null };
       } else {
-        const expected = (await source.stat(props.threadId, original)).version;
-        if (expected === null) throw new Error("This path is gone. Refresh and try again.");
-        mutation =
-          op.kind === "delete"
-            ? { op: "delete", path: original, expected }
-            : {
-                op: op.kind,
-                path: original,
-                expected,
-                destination: path,
-                destinationExpected: null,
-              };
         if (op.kind === "rename" && parentPath(path) !== parentPath(original))
           throw new Error("Keep the same folder when renaming. Use Move to change folders.");
+        mutation = {
+          op: op.kind,
+          path: original,
+          expected: await mutations.versionOf(original),
+          destination: path,
+          destinationExpected: null,
+        };
       }
-      const result = await manager.mutate(mutation);
-      refresh([result.path, result.destination]);
+      const result = await mutations.run(mutation);
       props.onChanged(result.path, result.destination);
-      if (result.trashId) {
-        const trashId = result.trashId;
-        toast.add({
-          title: `Deleted ${original}`,
-          actionProps: {
-            children: "Undo",
-            onClick: () => {
-              void manager.mutate({ op: "restore", trashId, path: original, expected: null }).then(
-                () => {
-                  refresh([original]);
-                  props.onChanged(original);
-                },
-                (failure: unknown) =>
-                  toast.error({
-                    title: "Couldn't restore the file",
-                    description: checkoutError(failure).message,
-                  }),
-              );
-            },
-          },
-        });
-      }
       props.onClose();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn't change the file. Try again.");
@@ -121,7 +86,7 @@ export function FileOperations(props: {
           <DialogTitle>{titles[op.kind]}</DialogTitle>
           <DialogDescription>
             {op.kind === "delete"
-              ? `Move ${original} to Recently deleted? You can restore it from Recently deleted.`
+              ? `Move ${many ? `${many.length} items` : original} to Recently deleted? You can restore ${many ? "them" : "it"} from Recently deleted.`
               : "Use a path relative to this checkout."}
           </DialogDescription>
         </DialogHeader>

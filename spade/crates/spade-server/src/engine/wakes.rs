@@ -256,6 +256,10 @@ impl Engine {
         what: Option<&str>,
         data: Vec<String>,
     ) -> bool {
+        // A paused bot's wake stays open and armed; Resume fires it once (ADR 0200 §6.1).
+        if self.hold_firing(id, wake, cause, what, &data) {
+            return false;
+        }
         let open = self.load(id).ok().and_then(|events| {
             wake::open(events.iter())
                 .into_iter()
@@ -432,8 +436,11 @@ impl Engine {
     /// is due.
     pub(crate) fn wake_tick(self: &Arc<Self>) -> Option<i64> {
         let now = self.now_ms();
+        // A paused bot's wakes are held: never fired here, never what the timer waits for.
+        let paused = self.paused_conversations();
         let due: Vec<(String, String, Cause)> = lock(&self.wakes.armed)
             .iter()
+            .filter(|(id, _)| !paused.contains(id))
             .flat_map(|(id, list)| {
                 list.iter()
                     .filter(|a| a.open.due_ms.is_some_and(|due| due <= now))
@@ -452,8 +459,9 @@ impl Engine {
         }
         let next_check = self.check_in_jobs(now);
         let next_wake = lock(&self.wakes.armed)
-            .values()
-            .flatten()
+            .iter()
+            .filter(|(id, _)| !paused.contains(id))
+            .flat_map(|(_, list)| list)
             .filter_map(|a| a.open.due_ms)
             .min();
         [next_wake, next_check].into_iter().flatten().min()

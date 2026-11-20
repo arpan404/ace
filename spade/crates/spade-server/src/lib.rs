@@ -2,6 +2,7 @@
 
 pub mod api;
 mod atomic;
+pub mod bot_test;
 pub mod clock;
 pub mod computer;
 pub mod config;
@@ -9,7 +10,9 @@ pub mod engine;
 pub mod home;
 pub mod images;
 pub mod learning;
+pub mod local_models;
 pub mod media;
+pub mod packages;
 pub mod plugins;
 pub mod presets;
 pub mod proof;

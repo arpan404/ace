@@ -19,6 +19,7 @@ fn notice(category: Category, level: Option<Level>) -> Notice {
         level,
         engaged: false,
         bot_on: true,
+        approvals: Approvals::Notify,
     }
 }
 
@@ -54,6 +55,72 @@ fn do_not_disturb_holds_proactive_notices_but_never_a_stop_or_a_block() {
             assert_eq!(decided.why, Some(Why::Dnd));
         }
     }
+}
+
+#[test]
+fn approvals_set_to_wait_are_held_through_quiet_but_a_stop_never_is() {
+    let dnd = Settings {
+        dnd: true,
+        ..Settings::default()
+    };
+    let window = Settings {
+        quiet: Some(Window {
+            from: 22 * 60,
+            to: 7 * 60,
+        }),
+        ..Settings::default()
+    };
+    let approval = notice(Category::NeedsYou, Some(Level::Block));
+    let stop = notice(Category::Escalation, Some(Level::Stop));
+    // (settings, minute, approvals, expected for an approval or question, why)
+    let cases = [
+        (&dnd, 600, Approvals::Notify, Reach::Now, None),
+        (&dnd, 600, Approvals::Wait, Reach::Held, Some(Why::Dnd)),
+        (&window, 23 * 60, Approvals::Notify, Reach::Now, None),
+        (
+            &window,
+            23 * 60,
+            Approvals::Wait,
+            Reach::Held,
+            Some(Why::Quiet),
+        ),
+        // Outside the window and with no do not disturb, waiting changes nothing.
+        (&window, 12 * 60, Approvals::Wait, Reach::Now, None),
+        (&Settings::default(), 600, Approvals::Wait, Reach::Now, None),
+    ];
+    for (settings, minute, approvals, reach, why) in cases {
+        let asked = Notice {
+            approvals,
+            ..approval
+        };
+        let decided = decide(settings, asked, at(0, minute, &[]));
+        assert_eq!(
+            (decided.reach, decided.why, decided.counts),
+            (reach, why, false),
+            "{approvals:?} at {minute}"
+        );
+        let stopped = Notice { approvals, ..stop };
+        assert_eq!(
+            decide(settings, stopped, at(0, minute, &[])).reach,
+            Reach::Now,
+            "a stop always gets through ({approvals:?} at {minute})"
+        );
+    }
+    // The person is in that very conversation: nothing to wait for.
+    let mut ask = notice(Category::NeedsYou, Some(Level::Ask));
+    ask.approvals = Approvals::Wait;
+    ask.engaged = true;
+    assert_eq!(decide(&dnd, ask, at(0, 600, &[])).reach, Reach::Now);
+}
+
+#[test]
+fn approvals_default_to_notify_and_an_older_setting_still_reads() {
+    assert_eq!(Settings::default().approvals, Approvals::Notify);
+    let older: Settings = serde_json::from_value(json!({ "dnd": true })).unwrap_or_default();
+    assert_eq!(older.approvals, Approvals::Notify);
+    let waiting: Settings =
+        serde_json::from_value(json!({ "approvals": "wait" })).unwrap_or_default();
+    assert_eq!(waiting.approvals, Approvals::Wait);
 }
 
 #[test]

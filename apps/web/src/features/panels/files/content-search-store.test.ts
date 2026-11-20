@@ -1,5 +1,5 @@
 import type { ClientApi } from "@ace/client";
-import type { FilesServerMessage } from "@ace/protocol";
+import { ThreadId, type FilesServerMessage } from "@ace/protocol";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   contentSearchStore,
@@ -74,4 +74,68 @@ test("a thread with a Files tab open keeps its search however many threads come 
   contentSearchStore(fake.client, "open").update({ pattern: "kept" });
   for (let index = 0; index < 20; index++) retainContentSearch(fake.client, `other-${index}`)();
   expect(contentSearchStore(fake.client, "open").state.query.pattern).toBe("kept");
+});
+
+/** What a save through ace tells every client: the path it wrote. */
+const saved = (path: string): FilesServerMessage => ({
+  type: "files.changed",
+  change: { id: `change-${path}`, op: "write", path, version: null },
+});
+
+/** A client whose searches finish at once with no matches, and whose pushes the test sends. */
+function emptyClient() {
+  const listeners = new Set<(message: FilesServerMessage) => void>();
+  const searches: unknown[] = [];
+  const client = {
+    onMessage(listener: (message: FilesServerMessage) => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    send() {},
+    request(input: unknown, settings: { requestId: string }) {
+      searches.push(input);
+      return Promise.resolve({
+        type: "files.result",
+        requestId: settings.requestId,
+        value: { files: 0, matches: 0, truncated: false },
+      });
+    },
+  } as unknown as ClientApi;
+  const push = (message: FilesServerMessage) => {
+    for (const listener of listeners) listener(message);
+  };
+  return { client, searches, push };
+}
+
+test("a search with no results runs again when a file under its folder is saved, not elsewhere", async () => {
+  const fake = emptyClient();
+  const store = new ContentSearchStore(fake.client, "thread-a");
+  store.update({ pattern: "quokka", include: "src/**" }, true);
+  await vi.waitFor(() => expect(store.state.status).toBe("done"));
+  expect(fake.searches).toHaveLength(1);
+
+  fake.push(saved("docs/notes.md"));
+  await vi.advanceTimersByTimeAsync(250);
+  expect(fake.searches).toHaveLength(1);
+
+  // Several saves in a row run one search, once they pause.
+  fake.push(saved("src/deep/new.ts"));
+  fake.push(saved("src/other.ts"));
+  await vi.advanceTimersByTimeAsync(250);
+  expect(fake.searches).toHaveLength(2);
+});
+
+test("a search of the whole checkout with no results runs again when its root folder changes", async () => {
+  const fake = emptyClient();
+  const store = new ContentSearchStore(fake.client, "thread-a");
+  store.update({ pattern: "quokka" }, true);
+  await vi.waitFor(() => expect(store.state.status).toBe("done"));
+  fake.push({
+    type: "files.folders_changed",
+    threadId: ThreadId.parse("thread-a"),
+    folders: [""],
+    rescan: false,
+  });
+  await vi.advanceTimersByTimeAsync(250);
+  expect(fake.searches).toHaveLength(2);
 });

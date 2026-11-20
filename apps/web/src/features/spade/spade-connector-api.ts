@@ -1,4 +1,5 @@
 import {
+  parseSpadeAppsFit,
   parseSpadeConnectStart,
   parseSpadeConnector,
   parseSpadeConnectorAccess,
@@ -85,6 +86,12 @@ export async function setAccess(
   return sure(parseSpadeConnectorAccess(body), "allow list");
 }
 
+/** The catalogue apps that fit a need or a bot's task, best first, by id (Spade decides). */
+export async function readFit(target: SpadeTarget, need: string, options: Signal = {}) {
+  const path = `/v1/connectors/fit?need=${encodeURIComponent(need)}`;
+  return sure(parseSpadeAppsFit(await spadeHttp(target, "GET", path, options)), "apps");
+}
+
 /** Every connectors read; one machine's under `[...connectorsKey, machine key]`. */
 export const connectorsKey = ["spade", "connectors"] as const;
 
@@ -122,5 +129,27 @@ export function useConnectorAccess(agent: string) {
   return useQuery({
     queryKey: [...connectorsKey, machine, "access", agent],
     queryFn: ({ signal }) => readAccess(client, agent, { signal }),
+    // No bot yet (the new-bot flow): nothing to read.
+    enabled: agent.length > 0,
   });
+}
+
+/** The apps that fit `need` on the machine in scope; nothing to ask for an empty one. */
+export function useAppsFit(need: string) {
+  const machine = useSpadeMachine().key;
+  const client = useSpadeClient();
+  const trimmed = need.trim();
+  return useQuery({
+    queryKey: [...connectorsKey, machine, "fit", trimmed],
+    queryFn: ({ signal }) => readFit(client, trimmed, { signal }),
+    enabled: trimmed.length > 0,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/** Lets `agent` use `connector` too, keeping what it has. Spade's own bot, using all, keeps that. */
+export async function allowApp(target: SpadeTarget, agent: string, connector: string) {
+  const access = await readAccess(target, agent);
+  if (access.all || access.connectors.includes(connector)) return access;
+  return setAccess(target, agent, { all: false, connectors: [...access.connectors, connector] });
 }

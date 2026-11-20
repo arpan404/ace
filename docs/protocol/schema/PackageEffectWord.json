@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageEffectWord.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "network",
+    "publish",
+    "send_as_person",
+    "pay",
+    "change_access"
+  ],
+  "type": "string"
+}

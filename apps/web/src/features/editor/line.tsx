@@ -5,7 +5,7 @@ import type { LineMark } from "@ace/ui-core";
 import { memo } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { MatchSegment } from "./find-matches.ts";
-import { lineHeight, tabSize } from "./geometry.ts";
+import { tabSize } from "./geometry.ts";
 import type { Token } from "./highlighter.ts";
 
 const clipped = 20_000;
@@ -83,7 +83,11 @@ export const EditorLine = memo(function EditorLine(props: {
   tokens: readonly Token[] | undefined;
   gutter: number;
   top: number;
+  /** The row's height; the font and its size come from the editor's frame. */
+  lineHeight: number;
   mark: LineMark | undefined;
+  /** A press on the mark shows the change: the bar says so to the pointer. */
+  markAction?: boolean;
   current: boolean;
   matches: readonly MatchSegment[] | undefined;
   query: string;
@@ -91,6 +95,10 @@ export const EditorLine = memo(function EditorLine(props: {
   long: boolean;
   /** Unwrapped: clip the row at the DOM's limit. */
   clip: boolean;
+  /** The line starts a region: "open" can fold, "closed" is folded. */
+  fold?: "open" | "closed" | undefined;
+  /** This is the line's last row, where a folded line shows its ellipsis. */
+  lastRow?: boolean;
 }) {
   const text =
     props.clip && props.text.length > clipped ? `${props.text.slice(0, clipped)}…` : props.text;
@@ -101,11 +109,8 @@ export const EditorLine = memo(function EditorLine(props: {
       data-line={props.number === undefined ? undefined : props.line}
       data-row={props.row}
       data-long-line={props.long || undefined}
-      className={cn(
-        "absolute left-0 flex w-max min-w-full font-mono text-ui leading-[22px]",
-        props.current && "bg-foreground/5",
-      )}
-      style={{ top: props.top, height: lineHeight }}
+      className={cn("absolute left-0 flex w-max min-w-full", props.current && "bg-foreground/5")}
+      style={{ top: props.top, height: props.lineHeight, lineHeight: `${props.lineHeight}px` }}
     >
       <span
         aria-hidden
@@ -117,9 +122,21 @@ export const EditorLine = memo(function EditorLine(props: {
           "sticky left-0 z-[1] shrink-0 bg-background pr-4 text-right text-subtle-foreground tabular-nums select-none",
           props.current && "text-foreground",
           props.mark && markBar[props.mark],
+          props.mark && props.markAction && "cursor-pointer",
         )}
       >
         {props.number}
+        {props.fold ? (
+          <span
+            data-fold={props.fold}
+            className={cn(
+              "absolute top-0 right-2 w-3 text-center text-subtle-foreground",
+              props.fold === "open" && "opacity-0 group-hover/editor:opacity-100",
+            )}
+          >
+            {props.fold === "closed" ? "›" : "⌄"}
+          </span>
+        ) : null}
       </span>
       <span
         data-line-text={props.number === undefined ? undefined : props.line}
@@ -134,6 +151,14 @@ export const EditorLine = memo(function EditorLine(props: {
         ) : (
           text
         )}
+        {props.fold === "closed" && props.lastRow !== false ? (
+          <span
+            data-folded-marker
+            className="ml-1 rounded-sm bg-accent px-1 text-subtle-foreground"
+          >
+            ⋯
+          </span>
+        ) : null}
       </span>
     </div>
   );

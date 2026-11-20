@@ -51,6 +51,12 @@ const ComposeAction = z.discriminatedUnion("kind", [
     commandId: z.string().min(8).max(64),
     requestId: z.string().min(1).max(64),
   }),
+  /** Clear a stale Git lock on a stopped worktree start's project and retry it. */
+  z.object({
+    kind: z.literal("worktreeClearLock"),
+    commandId: z.string().min(8).max(64),
+    requestId: z.string().min(1).max(64),
+  }),
 ]);
 export class ComposeActions {
   readonly newThread: NewThread;
@@ -122,6 +128,9 @@ export class ComposeActions {
         break;
       case "worktreeBack":
         void this.newThread.worktrees.giveBack(action.commandId, action.requestId);
+        break;
+      case "worktreeClearLock":
+        void this.newThread.worktrees.clearLock(action.commandId, action.requestId);
         break;
       case "projects":
         void this.newThread.projects();

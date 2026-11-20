@@ -4,6 +4,7 @@ import {
   parseSpadeEgress,
   parseSpadeGrantAnswer,
   parseSpadeSecurityMachine,
+  parseSpadeUndoPreview,
   type SpadeAutonomy,
   type SpadeCommandsMode,
   type SpadeNetworkPolicy,
@@ -138,6 +139,19 @@ export async function restoreCheckpoint(target: SpadeTarget, agent: string, chec
   await spadeHttp(target, "POST", path);
 }
 
+/** What undoing the step at `seq` (and everything after it) would put back, before it does. */
+export async function readUndoPreview(
+  target: SpadeTarget,
+  agent: string,
+  seq: number,
+  signal?: AbortSignal,
+) {
+  const body = await spadeHttp(target, "GET", agentPath(agent, `checkpoints/undo?seq=${seq}`), {
+    signal,
+  });
+  return sure(parseSpadeUndoPreview(JSON.parse(body)), "undo");
+}
+
 export async function readEgress(target: SpadeTarget, agent: string, signal?: AbortSignal) {
   const body = await spadeHttp(target, "GET", agentPath(agent, "security/egress"), { signal });
   return sure(parseSpadeEgress(body), "network activity");
@@ -170,4 +184,17 @@ export function useBotSecurity(agent: string) {
     queryFn: ({ signal }) => readBotSecurity(client, agent, signal),
     retry: false,
   });
+}
+
+/**
+ * Turns one effect a bot's package declares on or off (ADR 0200 §3.4): on is the person's grant,
+ * and Spade refuses a key the package didn't declare.
+ */
+export async function setPackageEffect(
+  target: SpadeTarget,
+  agent: string,
+  key: string,
+  on: boolean,
+) {
+  await spadeHttp(target, "PUT", agentPath(agent, "package/effects"), { body: { key, on } });
 }

@@ -3,6 +3,7 @@ import { faceForId, parseStoredBotFace, storedBotFace, type BotFace } from "../b
 import { spadeJson, spadeRecord } from "./json.ts";
 import { parseSpadeComputer, type SpadeComputer } from "./computer.ts";
 import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
+import { parseSpadePackage, type SpadePackage } from "./packages.ts";
 import { parseSpadeTaskProgress, type SpadeTaskProgress } from "./autonomy.ts";
 import { parseSpadeArrival, parseSpadeMove, type SpadeArrival, type SpadeMove } from "./moves.ts";
 
@@ -20,8 +21,12 @@ export type SpadeAvatar =
   /** A character face; `raw` keeps the stored fields this client doesn't know. */
   | { kind: "character"; face: BotFace; raw: Record<string, unknown> };
 
-/** What an agent is doing: nothing, working, or waiting on the person (an approval, a question). */
-export type SpadeAgentState = "idle" | "working" | "waiting";
+/**
+ * What an agent is doing: nothing, working, waiting on the person (an approval, a question), or
+ * paused by them (ADR 0200 §6.1). A sleeping bot reads `working` here: never idle or done.
+ */
+/** `updating`: its package update or rollback is being applied (ADR 0200 §6.2); it works. */
+export type SpadeAgentState = "idle" | "working" | "waiting" | "paused" | "updating";
 
 /** The latest message in an agent's conversation, for its roster row. */
 export interface SpadeLastMessage {
@@ -33,6 +38,14 @@ export interface SpadeLastMessage {
   /** Another bot that sent it into this conversation (`from` is then `person`). */
   fromAgent: { id: string; name: string } | undefined;
 }
+
+export type SpadeMayCreate = "yes" | "ask" | "no";
+
+const madeByShape = z.object({
+  id: z.string(),
+  name: z.string().catch(""),
+  apps: z.array(z.string()).catch([]).default([]),
+});
 
 export interface SpadeAgent {
   id: string;
@@ -86,7 +99,38 @@ export interface SpadeAgent {
   fullAccess: boolean;
   /** The agent as Spade sent it, fields this client doesn't know included. */
   raw: Record<string, unknown>;
+  /**
+   * Whether it may make bots for the person (ADR 0161, amendment 1): `yes`, `ask` (the person
+   * agrees to each) or `no`. Spade's starts on `yes`, every other bot's on `ask`.
+   */
+  mayCreateBots: SpadeMayCreate;
+  /** The bot that made it, when one did, with the apps it suggested. */
+  madeBy: { id: string; name: string; apps: readonly string[] } | undefined;
+  /** Undo archived it: it had acted, so it was kept, stopped, its routines paused. */
+  archived: boolean;
+  /** The agent package it is linked to (ADR 0200 §3.9), shown in its profile. */
+  package?: SpadePackage | undefined;
+  /**
+   * Its accent (ADR 0200 §5.3): its package's `style.accent`, or the person's choice (`chosen`),
+   * where `accent` undefined means its face's colour. Undefined when it has none.
+   */
+  style?: SpadeAgentStyle | undefined;
 }
+
+export interface SpadeAgentStyle {
+  accent: string | undefined;
+  chosen: boolean;
+}
+
+const styleShape = z.object({
+  accent: z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/i)
+    .transform((hex) => hex.toLowerCase())
+    .nullish()
+    .catch(undefined),
+  chosen: z.boolean().catch(false).default(false),
+});
 
 const avatarShape = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("spade") }),
@@ -116,7 +160,7 @@ const agentShape = z.object({
   updated_at: time.default(0),
   last_activity: time.default(0),
   pinned_at: z.number().nullish().catch(undefined),
-  state: z.enum(["idle", "working", "waiting"]).optional().catch(undefined),
+  state: z.enum(["idle", "working", "waiting", "paused", "updating"]).optional().catch(undefined),
   waiting_for: z.enum(["approval", "question"]).nullish().catch(undefined),
   questions_for_later: z.number().int().nonnegative().nullish().catch(undefined),
   /** Before 0127 Spade said only whether it worked. */
@@ -197,8 +241,26 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     move: parseSpadeMove(record.move),
     arrived: parseSpadeArrival(record.arrived),
     fullAccess: record.autonomy === "full_access",
+    mayCreateBots:
+      record.may_create_bots === "yes" || record.may_create_bots === "no"
+        ? record.may_create_bots
+        : record.may_create_bots === "ask"
+          ? "ask"
+          : main
+            ? "yes"
+            : "ask",
+    madeBy: madeByShape.safeParse(record.made_by).data,
+    archived: record.archived === true,
+    package: parseSpadePackage(record.package),
+    style: main ? undefined : spadeAgentStyle(record.style),
     raw: record,
   };
+}
+
+function spadeAgentStyle(raw: unknown): SpadeAgentStyle | undefined {
+  const parsed = styleShape.safeParse(raw).data;
+  if (!parsed || (!parsed.accent && !parsed.chosen)) return undefined;
+  return { accent: parsed.accent ?? undefined, chosen: parsed.chosen };
 }
 
 /** `GET /v1/agents`: the agents as Spade orders them; undefined when the body has no list. */
@@ -236,3 +298,9 @@ export function splitSpadeModel(ref: string): { endpoint: string; model: string 
 
 export const spadeAgentNameMax = 40;
 export const spadeAgentTaskMax = 4000;
+
+/** `POST /v1/agents/{id}/undo-made`: what Undo did to a made bot; undefined when unreadable. */
+export function parseSpadeUndone(body: string): "removed" | "archived" | undefined {
+  const undone = spadeRecord(spadeJson(body))?.undone;
+  return undone === "removed" || undone === "archived" ? undone : undefined;
+}

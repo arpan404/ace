@@ -3,14 +3,14 @@ import {
   cursorModelParseFailure,
   type CursorModelRejection,
 } from "./cursor.ts";
-import { sessionSelectors, matchProfile } from "@ace/agent-registry";
+import { displayLabel, listedModels, matchProfile, sessionSelectors } from "@ace/agent-registry";
 import { CatalogModel } from "@ace/protocol";
 import {
-  AcpSession,
   ClaudeModels,
   CodexPage,
   ConfigOption,
   SelectConfigOption,
+  isModelConfig,
   isSelectConfig,
 } from "./native-schemas.ts";
 import { rawPayload } from "./raw.ts";
@@ -133,31 +133,56 @@ function applyConfig(model: CatalogModel, configs: z.infer<typeof ConfigOption>[
   }
   return CatalogModel.parse(model);
 }
+/** Whether the session carries a legacy `models.availableModels` list, well-formed or not. */
+function hasLegacyList(payload: unknown): boolean {
+  const models = field(payload, "models");
+  return Array.isArray(field(models, "availableModels"));
+}
+const field = (value: unknown, key: string): unknown =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? Object.getOwnPropertyDescriptor(value, key)?.value
+    : undefined;
+/** A session's well-formed config options, each read alone; none past the 64-option budget. */
+function acpConfigOptions(payload: unknown): z.infer<typeof ConfigOption>[] {
+  const raw = field(payload, "configOptions");
+  if (!Array.isArray(raw) || raw.length > 64) return [];
+  return raw.flatMap((entry) => {
+    const parsed = ConfigOption.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
 export function normalizeAcp(payload: unknown, instance: ModelInstance): CatalogModel[] {
   const profile = instance.acpAgentId?.startsWith("official:")
     ? matchProfile(instance.acpAgentId.slice(9), instance.installationVersion ?? "")
     : undefined;
   const generic = instance.provider === "acp" && instance.acpAgentId !== undefined;
-  const selectors = sessionSelectors(payload, profile, !generic);
+  // Every agent, profiled or not, offers the models it lists: through its `configOptions`
+  // model selector, else its legacy `models` list and `session/set_model` (ADR 0044).
+  const selectors = sessionSelectors(payload, profile);
   if (generic && !selectors?.model) return [];
-  const session = AcpSession.parse(payload);
-  const modelConfig = session.configOptions
-    ?.filter(isSelectConfig)
+  const sessionOptions = acpConfigOptions(payload);
+  // Each list on its own: a malformed config option beside a usable legacy list, or a malformed
+  // legacy list beside a usable selector, still lists the usable one.
+  if (!sessionOptions.some(isModelConfig) && !hasLegacyList(payload))
+    throw new Error("Missing model options");
+  const modelConfig = sessionOptions
+    .filter(isSelectConfig)
     .find((config) => config.id === selectors.model?.configId);
-  const current = modelConfig?.currentValue ?? session.models?.currentModelId;
-  const rows = modelConfig
-    ? options(modelConfig).map((option) => ({
-        modelId: option.value,
-        name: option.name,
-        native: option,
-      }))
-    : (session.models?.availableModels ?? []).map((option) => ({
-        modelId: option.modelId,
-        name: option.name,
-        native: option,
-      }));
+  const legacy = modelConfig ? undefined : listedModels(payload);
+  const current = modelConfig?.currentValue ?? legacy?.current;
+  // Only ids the session's selector would send are listed: never one it would refuse.
+  const sendable = selectors.model ? new Set(selectors.model.values) : undefined;
+  const rows = (
+    modelConfig
+      ? options(modelConfig).map((option) => ({
+          modelId: option.value,
+          name: displayLabel(option.name) || option.value,
+          native: option,
+        }))
+      : (legacy?.models ?? [])
+  ).filter((row) => !sendable || sendable.has(row.modelId));
   if (rows.length > 512) throw new Error("Too many models");
-  const sessionConfigs = session.configOptions ?? [];
+  const sessionConfigs = sessionOptions;
   const sessionExtensions = sessionConfigs.filter((config) => !isSelectConfig(config));
   const available = rows.filter((row) => chatMetadata(row.native));
   const representative = Math.max(
@@ -172,7 +197,8 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
     }
     if (!modelConfig && selectors?.model) model.selectorMethod = selectors.model.method;
     model.isDefault = row.modelId === current;
-    const perModel = PerModelConfigOptions.parse(row.native).configOptions;
+    // A malformed per-model list is the agent's to fix; the model is still listed without it.
+    const perModel = PerModelConfigOptions.safeParse(row.native).data?.configOptions;
     const configs = perModel ?? (model.isDefault ? sessionConfigs : []);
     // Metadata association does not imply model support. Preserve session extensions once,
     // even when per-model configs override semantics or no listed model is current.

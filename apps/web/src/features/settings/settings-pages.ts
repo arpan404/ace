@@ -1,5 +1,6 @@
 import {
   BellSimpleIcon,
+  CodeIcon,
   RobotIcon,
   DatabaseIcon,
   DeviceMobileIcon,
@@ -28,6 +29,7 @@ export type SettingsPath =
   | "/settings/general"
   | "/settings/agents"
   | "/settings/appearance"
+  | "/settings/editor"
   | "/settings/providers"
   | "/settings/notifications"
   | "/settings/source-control"
@@ -137,6 +139,7 @@ export const settingsPages: readonly SettingsPage[] = [
   { to: "/settings/beta", title: "Beta", icon: FlaskIcon, group: "machine" },
   { to: "/settings/general", title: "General", icon: GearSixIcon, group: "device" },
   { to: "/settings/appearance", title: "Appearance", icon: PaletteIcon, group: "device" },
+  { to: "/settings/editor", title: "Editor", icon: CodeIcon, group: "device" },
   { to: "/settings/notifications", title: "Notifications", icon: BellSimpleIcon, group: "device" },
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon, group: "device" },
   { to: "/settings/remote", title: "Fleet", icon: DevicesIcon, group: "network" },

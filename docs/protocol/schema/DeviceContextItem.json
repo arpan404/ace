@@ -1,0 +1,78 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceContextItem.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "laptop",
+        "desktop",
+        "server",
+        "phone",
+        "tablet",
+        "browser",
+        "simulator",
+        "emulator"
+      ],
+      "type": "string"
+    },
+    "machine": {
+      "additionalProperties": false,
+      "properties": {
+        "here": {
+          "type": "boolean"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "here"
+      ],
+      "type": "object"
+    },
+    "model": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "online": {
+      "type": "boolean"
+    },
+    "os": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "type": {
+      "const": "device",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "id",
+    "name",
+    "kind",
+    "machine",
+    "online"
+  ],
+  "type": "object"
+}

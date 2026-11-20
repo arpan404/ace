@@ -91,6 +91,12 @@ export interface ThreadState {
   tasks: Record<Key, BackgroundTask>;
   /** Optional for snapshots created before uncertain execution was represented. */
   uncertainTasks?: Record<Key, true>;
+  /**
+   * ace's own running tasks whose work waits on the person elsewhere (a bot asked from the
+   * thread, ADR 0198). Kept off the wire: the thread's status says it. Optional for snapshots
+   * from before it; the daemon marks its open asks again when it starts.
+   */
+  personTasks?: Record<Key, true>;
   interactionHistory: Record<string, Interaction>;
   taskHistory: Record<string, BackgroundTask>;
   indexes: LiveIndexes;

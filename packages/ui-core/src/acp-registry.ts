@@ -8,6 +8,7 @@ import type {
   RegistryInstallation,
   RegistryInstallPlan,
   RegistryInstallProgress,
+  RegistryPendingUpdate,
 } from "@ace/protocol";
 import { formatAgo } from "./time.ts";
 
@@ -206,6 +207,19 @@ export function installPhase(
   }
 }
 
+/**
+ * An agent waiting for the person to approve its update (ADR 0044 amendment): what changed, in
+ * one sentence. ace runs neither until they approve.
+ */
+export function registryUpdateSentence(update: Pick<RegistryPendingUpdate, "changed">): string {
+  const agent = update.changed.includes("agent");
+  const cli = update.changed.includes("native_cli");
+  if (agent && cli)
+    return "It and the CLI it drives were updated. ace won't run them until you approve.";
+  if (cli) return "The CLI it drives was updated. ace won't run it until you approve.";
+  return "It was updated. ace won't run it until you approve.";
+}
+
 /** Every refusal the daemon's registry gives, as fixed words a person can act on. */
 const failures: readonly [RegExp, string][] = [
   [/^Installation cancelled/, "Installation cancelled. Nothing was changed."],
@@ -221,6 +235,21 @@ const failures: readonly [RegExp, string][] = [
   [/^Refresh the registry/, "Refresh the registry, then try again."],
   [/^Select a local package manager/, "ace couldn't find the package manager this agent needs."],
   [/^Agent registry unavailable/, "This daemon can't install from the ACP registry yet."],
+  [/changed again/, "It changed again since you looked. Check it and approve again."],
+  [
+    /already approved or replaced/,
+    "This update changed since you looked. Check it and approve again.",
+  ],
+  [
+    /^This is yours to do/,
+    "Approve agents in the ace app signed in as you, or on a device you paired from it.",
+  ],
+  [/^Nothing changed since approval/, "This update is already approved."],
+  [/^Native bridge CLI changed or unavailable/, "ace can't find the CLI this agent drives."],
+  [/^Approved ACP installation unavailable/, "This agent isn't added on this computer anymore."],
+  [/^Couldn't approve this update/, "ace couldn't approve this update. Try again."],
+  [/^Only the person can approve agents/, "Only you can approve agents, from your own device."],
+  [/^Registry busy/, "ace is busy with another agent. Try again in a moment."],
   [/unavailable$/, "This agent isn't available for this computer."],
   [/not pinned/, "This entry doesn't pin an exact version, so ace won't install it."],
   [/^Unsupported archive/, "This agent ships in a format ace can't install."],

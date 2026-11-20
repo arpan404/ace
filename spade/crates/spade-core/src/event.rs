@@ -35,12 +35,52 @@ pub enum Known {
         /// It came through a group (ADR 0132): the bot's reply is posted there.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_group: Option<Box<FromGroup>>,
+        /// The person wrote it in an ace thread (ADR 0198); `context`, when the thread's summary
+        /// came with it, is untrusted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_thread: Option<Box<FromThread>>,
     },
     /// The agent's task or model changed (ADR 0126). Used from the next turn on: a turn's prompt
     /// takes the task in effect when its reply started, and `reply_started` names its model.
     AgentConfigured {
         task: String,
         model: String,
+        /// How the bot talks, when the person (or its template or recipe) set it; its own section
+        /// of the standing instructions. Absent on events from before personalities.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        personality: Option<crate::personality::Personality>,
+        /// Who changed the task, from what and why, when this event changed it; missing on events
+        /// from before task history and on a change of model alone. Boxed: most events carry none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        change: Option<Box<TaskChange>>,
+    },
+    /// This bot made a standing bot for the person (ADR 0161, amendment 1): its chat shows it with
+    /// Open and Undo.
+    BotMade {
+        bot: String,
+        name: String,
+        task: String,
+        /// The `bot_create` call's key: a run of the same call finds this bot.
+        call: String,
+    },
+    /// This bot added a bot to a club it is a member of (ADR 0161, amendment 1).
+    ClubAdded {
+        club: String,
+        club_name: String,
+        bot: String,
+        bot_name: String,
+    },
+    /// The bot was made from the person's first message without a name: its first turn chooses
+    /// its name and face (`profile_update`) until it does, the person names it, or that reply
+    /// ends (spade/docs/agents.md, New bots).
+    NamingOpened {},
+    /// The bot's name or face changed. `by` is `bot` (its own first naming, or with the person's
+    /// OK) or `person`.
+    ProfileChanged {
+        name: String,
+        by: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        face: bool,
     },
     /// The skill index for this conversation, stored before its first model call and again after
     /// each compaction, so the prompt's top stays cached in between; skills added meanwhile are
@@ -245,6 +285,11 @@ pub enum Known {
         /// Whether it ran as a background job. Only meaningful when `risk` is recorded.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         background: bool,
+        /// What the tool declared it does, as the gate read it (ADR 0171): the app shows a
+        /// send, a payment, a publish or a change outside the bot as a step undo can't reach.
+        /// Missing on events from before it was recorded and for undeclared tools.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effect: Option<crate::effect::Effect>,
     },
     ToolFinished {
         reply: String,
@@ -356,6 +401,15 @@ pub enum Known {
             deserialize_with = "lenient_authorized"
         )]
         launch: Option<Authorized>,
+        /// For a call Spade's classifier raised to the person (ADR 0172): the effect it read in
+        /// it, which the call is then held to as well as to its own (ADR 0200 §3.4). A word this
+        /// build doesn't know reads as [`crate::effect::Effect::Unknown`], never as none.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_effect"
+        )]
+        raised: Option<crate::effect::Effect>,
     },
     /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
     /// events naming `ask` or `full_access` read as `auto_review`.
@@ -561,6 +615,9 @@ pub enum Known {
         text: String,
         #[serde(default)]
         from: Option<GroupBot>,
+        /// The person wrote it in an ace thread (ADR 0198).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread: Option<FromThread>,
     },
     /// A group message was handed to a bot: by the person's post (`by` is `None`) or by a bot's
     /// `group_ask`.
@@ -692,6 +749,19 @@ pub enum Known {
         /// The machine it came from, by name.
         from: String,
     },
+    /// A card the bot showed (ADR 0200 §5.1), checked against its blocks' rules: its own row in
+    /// the conversation. Every version is one; the chat shows the latest. The model reads only
+    /// its call's result. Boxed: a card is larger than most events.
+    CardShown(Box<crate::card::Shown>),
+    /// The person pressed a choice on a card. Stored once per card version, and read by the bot
+    /// like a job's result, as a `<card_action>`.
+    CardAction {
+        card: String,
+        version: u32,
+        action: String,
+        /// The choice's label, fixed when the card was shown.
+        label: String,
+    },
 }
 
 /// The events after the bot's latest arrival from another machine (all of them when it never
@@ -778,6 +848,20 @@ pub enum Verdict {
     Refuse,
 }
 
+/// How a task change came about (`agent_configured`'s `change`). `by` is kept as a word, never
+/// parsed into a closed set, so a word a later build adds never drops the event (and its task).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskChange {
+    /// `person` (the profile, Undo, a restore) or `bot` (`task_update`).
+    pub by: String,
+    /// The task before this change.
+    #[serde(default)]
+    pub previous: String,
+    /// The bot's one line on what changed, or the person's own note; empty when none was given.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub why: String,
+}
+
 /// The agent that sent a message, and how many bot-to-bot hops led to it (1 when the sender was
 /// answering the person).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -821,6 +905,13 @@ fn lenient_authorized<'de, D: serde::Deserializer<'de>>(
     Ok(value.map(|value| serde_json::from_value(value).unwrap_or(Authorized::Contained)))
 }
 
+fn lenient_effect<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<crate::effect::Effect>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| crate::effect::Effect::declared(&value)))
+}
+
 /// The helper behind an approval asked in its bot's conversation (ADR 0152).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelperAsk {
@@ -845,6 +936,20 @@ pub struct FromGroup {
     pub machine: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub untrusted: bool,
+}
+
+/// The ace thread the person wrote a message in (ADR 0198), and whether a summary of that thread
+/// came with it: agents' words and tool output, so untrusted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FromThread {
+    pub id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub untrusted: bool,
+    /// The person's other machine the thread is on, by name, when its ace asked through the
+    /// fleet; `None` for this machine's ace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
 }
 
 /// A bot as a group names it: its id, name and machine (host id; `None` for this machine).
@@ -1003,6 +1108,7 @@ impl Event {
             from_agent: None,
             from_routine: None,
             from_group: None,
+            from_thread: None,
         })
     }
 

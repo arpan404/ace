@@ -321,6 +321,8 @@ it("work a replaced credential started finds no authority when it checks again, 
       subscribe: () => () => {},
       onProgress: () => () => {},
       useThreadDeletion: () => () => {},
+      // A projects device's hello reads due remote keys (ADR 0189).
+      readRemoteKeys: async () => {},
       async execute(command: { id: CommandId }, allowed: () => boolean) {
         checked.push(allowed());
         await held;

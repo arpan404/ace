@@ -7,28 +7,50 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
+import { Decorations } from "./decorations.tsx";
 import { EditorFindBar } from "./find-bar.tsx";
+import { EditorStatusLine } from "./status-line.tsx";
+import { useEditorStatus } from "./use-editor-status.ts";
+import { GoToLineBar } from "./go-to-line.tsx";
 import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
-import { gutterWidth, leastRowCells, lineHeight, longLine } from "./geometry.ts";
-import { useEditorKeys } from "./keys.ts";
+import {
+  gutterWidth,
+  leastRowCells,
+  lineHeight as defaultLineHeight,
+  longLine,
+} from "./geometry.ts";
+import { isMacPlatform, useEditorKeys } from "./keys.ts";
 import type { Token } from "./highlighter.ts";
 import { CaretLayers } from "./layers.tsx";
 import { EditorLine, sliceTokens } from "./line.tsx";
 import { usePointerSelection } from "./pointer.ts";
-import { useEditorDocument } from "./use-editor.ts";
+import { isFoldStart } from "./folding.ts";
+import { StickyHeaders } from "./sticky-headers.tsx";
+import { pinnedHeaders } from "./sticky.ts";
+import { useFolding } from "./use-folding.ts";
+import { useEditorDocument, type EditBatch } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
 import { useCellWidth, useEditorWidth, useMirrorLine } from "./use-editor-metrics.ts";
 import { useAnnouncement, useReveal, useRevealJump } from "./use-reveal.ts";
+import { useDecorations } from "./use-decorations.ts";
 import { useEditorFind } from "./use-editor-find.ts";
 import { editorWindow } from "./row-window.ts";
 import { ScrollAnchor } from "./use-anchor.ts";
 import { useVisibleLines } from "./use-visible-lines.ts";
+import { useEditorLayer } from "./use-layer.ts";
 import { useWrap, type WrapEdits } from "./use-wrap.ts";
 import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
 const paddingRight = 24;
+/** The gutter's right edge, where a line's fold control sits. */
+const foldControl = 16;
+/** The gutter's last pixels, where a changed line's bar takes a press. */
+const markZone = 6;
+/** Rulers are off unless the caller asks for them. */
+const noRulers: readonly number[] = [];
+const noLines: readonly number[] = [];
 
 /** How long the first paint waits for colours before it shows plain text. */
 const firstPaintHold = 250;
@@ -48,10 +70,37 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const wrap = props.wrap ?? false;
   /** The wrap index hears each edit as the document applies it, before React renders it. */
   const appliedRef = useRef<WrapEdits | undefined>(undefined);
+  /** Folds move with every edit, and open when it changes their hidden text. */
+  const foldRef = useRef<((spans: EditBatch["spans"]) => void) | undefined>(undefined);
+  /** Find in selection carries its scope through every edit. */
+  const scopeRef = useRef<((replacements: EditBatch["replacements"]) => void) | undefined>(
+    undefined,
+  );
+  /** A layer drawn over the text (annotations) carries its ranges through every edit. */
+  const layerRef = useRef<((replacements: EditBatch["replacements"]) => void) | undefined>(
+    undefined,
+  );
+  const replacedRef = useRef<((before: string, after: string) => void) | undefined>(undefined);
   /** Each caret's side of a hard break, as VS Code keeps it; secondary carets keep their own. */
   const [affinity, setAffinity] = useState<Affinity>(noAffinity);
+  /** A language picked in the status line: a name, null for plain text, undefined the file's. */
+  const [chosenLanguage, setChosenLanguage] = useState<string | null | undefined>(undefined);
+  const language =
+    chosenLanguage === undefined ? fileLanguage(props.path) : (chosenLanguage ?? undefined);
+  // The caller's default (a setting) wins whenever it changes; the status line can flip it between.
+  const [whitespace, setWhitespace] = useState(props.renderWhitespace ?? false);
+  const [whitespaceDefault, setWhitespaceDefault] = useState(props.renderWhitespace);
+  if (props.renderWhitespace !== whitespaceDefault) {
+    setWhitespaceDefault(props.renderWhitespace);
+    setWhitespace(props.renderWhitespace ?? false);
+  }
+  const lineHeight = props.lineHeight ?? defaultLineHeight;
+  const fontSize = props.fontSize;
+  const fontFamily = props.fontFamily?.trim() ? props.fontFamily : undefined;
   const state = useEditorDocument({
+    language: chosenLanguage,
     text: props.text,
+    shared: props.document,
     path: props.path,
     original: props.marks ? undefined : props.text,
     editable: !readOnly,
@@ -59,6 +108,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     onNoEdit: () => appliedRef.current?.discard(),
     onApplied: (batch) => {
       appliedRef.current?.after(batch);
+      scopeRef.current?.(batch.replacements);
+      layerRef.current?.(batch.replacements);
+      foldRef.current?.(batch.spans);
       // An edit or an undo replaces the document's selections: a side measured against the old
       // carets means nothing once their positions and order have changed.
       setAffinity(noAffinity);
@@ -74,13 +126,14 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
+  const [goingTo, setGoingTo] = useState(false);
   const [paint, setPaint] = useState(0);
   // A file with a grammar is first drawn with its colours: the plain text it would show while
   // markit's worker loads is held (kept in layout, not shown) until the first colours arrive,
   // or briefly after, so a slow or large file is never kept blank. Later changes keep the
   // colours they had.
   const [shown, setShown] = useState(false);
-  const held = !shown && fileLanguage(props.path) !== undefined;
+  const held = !shown && language !== undefined;
   useEffect(() => {
     // oxlint-disable-next-line react-compiler/set-state-in-effect -- the highlighter's first colours arrive outside React.
     if (paint > 0) setShown(true);
@@ -96,14 +149,15 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const name = pathParts(props.path).name;
   const lineCount = doc?.lenLines() ?? 0;
   const height = Math.max(120, viewport.height);
-  const gutter = gutterWidth(lineCount);
-  const cell = useCellWidth(scroller);
+  const gutter = gutterWidth(lineCount) + (props.layer?.margin ?? 0);
+  const cell = useCellWidth(scroller, `${fontSize ?? ""}/${fontFamily ?? ""}`);
   const columns = Math.max(
     leastRowCells,
     Math.floor((viewport.width - gutter - paddingRight) / cell),
   );
   const visible = useRef({ first: 0, last: 200 });
   const anchor = useMemo(() => new ScrollAnchor(scroller, setScroll), [scroller, setScroll]);
+  useLayoutEffect(() => anchor.setLineHeight(lineHeight), [anchor, lineHeight]);
   const layout = useWrap({
     doc,
     wrap,
@@ -113,7 +167,21 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     anchor,
   });
 
-  const view = editorWindow({ layout, lineCount, scrollTop: scroll.top, height });
+  const indentSize = doc?.indent().size ?? 2;
+  const folding = useFolding({
+    doc,
+    layout,
+    indentSize,
+    select: (selections) => {
+      setAffinity(noAffinity);
+      state.select(selections);
+    },
+  });
+  useLayoutEffect(() => {
+    foldRef.current = folding.mapThrough;
+  });
+
+  const view = editorWindow({ layout, lineCount, scrollTop: scroll.top, height, lineHeight });
   const { rows, firstRow, lastRow } = view;
   const first = view.firstLine;
   const last = view.lastLine;
@@ -123,6 +191,27 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   });
 
   const { lines, lineAt } = useVisibleLines({ doc, version: state.version, first, last });
+
+  // Sticky scroll: the headers of the blocks around the top line, re-read only when the top row,
+  // the text or the view's height changes, and never more than a bounded number of lines.
+  const stickyScroll = props.stickyScroll ?? true;
+  const topRow = Math.floor(scroll.top / lineHeight);
+  const viewRows = Math.floor(height / lineHeight);
+  const pinned = useMemo(
+    () =>
+      stickyScroll && doc && layout && lineCount > 0
+        ? pinnedHeaders({
+            lineAt: (line) => doc.line(line),
+            lineCount,
+            lineOfRow: (row) => layout.lineAt(row),
+            topRow,
+            viewRows,
+            indentSize,
+          })
+        : noLines,
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the document's text changes with its version, not its identity.
+    [stickyScroll, doc, layout, lineCount, topRow, viewRows, indentSize, state.version],
+  );
 
   const { contentWidth } = useEditorWidth({
     scroller,
@@ -169,6 +258,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     scroller,
     gutter,
     cell,
+    lineHeight,
     wrap,
     viewport,
     onScroll: setScroll,
@@ -182,11 +272,16 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     announce,
   });
 
+  const shared = props.document;
   useEffect(() => {
-    if (props.text === seenText.current) return;
+    // A shared document's text is its owner's; `text` is then only the gutter's base.
+    if (shared || props.text === seenText.current) return;
     seenText.current = props.text;
-    if (state.doc && state.doc.text() !== props.text) state.replaceText(props.text);
-  }, [props.text, state]);
+    const before = state.doc?.text();
+    if (before === undefined || before === props.text) return;
+    state.replaceText(props.text);
+    replacedRef.current?.(before, props.text);
+  }, [shared, props.text, state]);
 
   const {
     finder,
@@ -206,18 +301,36 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       reveal(position, false);
       announce(position);
     },
+    edit: state.edit,
     focusEditor: () => field.current?.focus({ preventScroll: true }),
+  });
+  useLayoutEffect(() => {
+    scopeRef.current = finder.mapScope;
   });
 
   const navigationKeys = useEditorKeys({
     state,
     readOnly,
     path: props.path,
+    language: chosenLanguage,
     rows: Math.max(1, Math.floor(height / lineHeight)),
     layout,
     affinity,
     onBefore: setAffinity,
     onFind: finder.openFind,
+    onFindAgain: finder.findAgain,
+    onGoToLine: () => setGoingTo(true),
+    onFold: (kind) => {
+      if (kind === "fold") folding.foldAtCarets();
+      else folding.unfoldAtCarets();
+    },
+    onChord: (event) => {
+      const mod = isMacPlatform() ? event.metaKey : event.ctrlKey;
+      if (mod && event.code === "Digit0") folding.foldAll();
+      else if (mod && event.code === "KeyJ") folding.unfoldAll();
+      else return false;
+      return true;
+    },
     ...(props.onSave ? { onSave: props.onSave } : {}),
     ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
     onEscape: () => {
@@ -231,9 +344,21 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const onKeyDown = (event: Parameters<typeof navigationKeys>[0]) => {
     // The mirrored line is for screen readers between keystrokes; a key starts from an empty box.
     if (field.current && !/^(Shift|Control|Alt|Meta)$/.test(event.key)) field.current.value = "";
+    if (props.layer?.onKey?.(event, layer.view)) return;
     if (input.onKeyDown(event)) return;
     navigationKeys(event);
   };
+
+  const decorations = useDecorations({
+    doc,
+    version: state.version,
+    selections: state.selections,
+    primary: state.primary,
+    lineAt,
+    first,
+    last,
+    indentSize,
+  });
 
   const byLine = useMemo(
     () => segmentsByLine(matches, first, last - 1, currentIndex),
@@ -248,9 +373,48 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
   }, [tokenKey, state.highlighter]);
 
+  const layer = useEditorLayer({
+    layer: props.layer,
+    state,
+    layout,
+    lineAt,
+    firstLine: first,
+    lastLine: last - 1,
+    firstRow,
+    lastRow,
+    gutter,
+    cell,
+    lineHeight,
+    readOnly,
+    host,
+    select: (selections) => {
+      setAffinity(noAffinity);
+      state.select(selections);
+    },
+    focus: () => field.current?.focus({ preventScroll: true }),
+  });
+  useLayoutEffect(() => {
+    layerRef.current = layer.edited;
+    replacedRef.current = layer.replaced;
+  });
+
   const pointer = usePointerSelection({
+    onGutter: (line, at) => {
+      // The change bar at the gutter's right edge shows what changed on that line.
+      if (props.onMarkClick && at.x >= gutter - markZone && props.marks?.has(line + 1)) {
+        props.onMarkClick(line + 1);
+        return true;
+      }
+      // A layer takes presses on the line number; the fold control keeps the gutter's right edge.
+      if (at.x < gutter - foldControl && props.layer?.onGutter?.(line, at.shiftKey, layer.view))
+        return true;
+      if (!folding.isFolded(line) && !folding.isFoldable(line)) return false;
+      folding.toggle(line);
+      return true;
+    },
     state,
     cell,
+    lineHeight,
     gutter,
     layout,
     element: host,
@@ -260,7 +424,20 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     onBefore: setAffinity,
   });
 
+  const editorStatus = useEditorStatus({
+    state,
+    readOnly,
+    language,
+    languageChosen: chosenLanguage !== undefined,
+    setChosenLanguage,
+    whitespace,
+    setWhitespace,
+    onStatus: props.onStatus,
+  });
+
   useImperativeHandle(ref, () => ({
+    status: () => editorStatus.status,
+    statusActions: () => editorStatus.actions,
     focus: () => field.current?.focus({ preventScroll: true }),
     text: () => state.doc?.text() ?? props.text,
     version: () => state.doc?.version() ?? 0,
@@ -297,27 +474,35 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       role="region"
       aria-label={props.label}
       data-selected-lines={selected}
-      className={cn(
-        "flex h-full min-h-0 flex-col focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]",
-        props.className,
-      )}
+      className={cn("flex h-full min-h-0 flex-col", props.className)}
     >
-      {finder.open ? (
-        <EditorFindBar
-          query={finder.query}
-          count={finder.matches.length}
-          index={finder.index}
-          status={finder.status}
-          regex={finder.regex}
-          caseSensitive={finder.caseSensitive}
-          wholeWord={finder.wholeWord}
-          onQuery={finder.setQuery}
-          onToggle={finder.toggle}
-          onStep={finder.step}
-          onClose={finder.close}
+      {finder.open ? <EditorFindBar finder={finder} mac={isMacPlatform()} /> : null}
+      {goingTo && doc ? (
+        <GoToLineBar
+          lineCount={lineCount}
+          lineLength={(line) => doc.line(line).length}
+          onGo={(position) => {
+            setGoingTo(false);
+            setAffinity(noAffinity);
+            state.select([{ anchor: position, head: position }]);
+            reveal(position, false);
+            announce(position);
+            field.current?.focus({ preventScroll: true });
+          }}
+          onClose={() => {
+            setGoingTo(false);
+            field.current?.focus({ preventScroll: true });
+          }}
         />
       ) : null}
-      <div className="relative min-h-0 flex-1">
+      <div
+        data-editor-frame
+        className="group/editor relative min-h-0 flex-1 font-mono text-ui focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]"
+        style={{
+          ...(fontSize === undefined ? {} : { fontSize }),
+          ...(fontFamily === undefined ? {} : { fontFamily }),
+        }}
+      >
         <div
           ref={scroller}
           data-editor-scroller
@@ -332,6 +517,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           onPointerCancel={pointer.onPointerUp}
           onDoubleClick={pointer.onDoubleClick}
           onClick={pointer.onTripleClick}
+          onContextMenu={(event) => {
+            if (props.layer?.onContextMenu?.(event, layer.view)) event.preventDefault();
+          }}
         >
           <div
             ref={host}
@@ -340,6 +528,24 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             style={{ height: rows * lineHeight, width: contentWidth || "100%" }}
           >
             <div aria-hidden>
+              <Decorations
+                lines={lineAt}
+                layout={layout}
+                firstLine={first}
+                lastLine={last - 1}
+                firstRow={firstRow}
+                lastRow={lastRow}
+                gutter={gutter}
+                cell={cell}
+                lineHeight={lineHeight}
+                indentGuides={props.indentGuides ?? true}
+                guides={decorations.guides}
+                indentSize={indentSize}
+                brackets={decorations.brackets}
+                occurrences={decorations.occurrences}
+                whitespace={whitespace}
+                rulers={props.rulers ?? noRulers}
+              />
               {lines.map((text, offset) => {
                 const line = first + offset;
                 const lineRows = layout?.rowsOf(line) ?? wholeLineRow;
@@ -374,8 +580,20 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                       }
                       gutter={gutter}
                       top={index * lineHeight}
+                      lineHeight={lineHeight}
                       mark={at === 0 ? (props.marks ?? state.marks)?.get(line + 1) : undefined}
+                      markAction={props.onMarkClick !== undefined && props.marks !== undefined}
                       current={line === caretLine}
+                      fold={
+                        at !== 0
+                          ? undefined
+                          : folding.isFolded(line)
+                            ? "closed"
+                            : isFoldStart(lineAt, lineCount, line, indentSize)
+                              ? "open"
+                              : undefined
+                      }
+                      lastRow={at === lineRows.length - 1}
                       matches={lineMatches ? segmentsOnRow(lineMatches, row.start, end) : undefined}
                       query={activeQuery}
                       long={long}
@@ -395,6 +613,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 lastRow={lastRow}
                 gutter={gutter}
                 cell={cell}
+                lineHeight={lineHeight}
+                blink={props.cursorBlinking}
                 affinity={affinity}
                 primary={state.primary}
                 composing={
@@ -402,8 +622,51 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 }
               />
             </div>
+            {doc && props.layer ? props.layer.render(layer.view) : null}
+            {props.peek && layout && props.peek.after < lineCount ? (
+              <div
+                data-editor-peek
+                role="presentation"
+                className="absolute z-[3]"
+                style={{
+                  top:
+                    (layout.startOf(props.peek.after) + layout.rowsOf(props.peek.after).length) *
+                    lineHeight,
+                  left: scroll.left,
+                  width: Math.max(0, viewport.width),
+                }}
+                // Presses inside belong to the peek, not to the caret beneath it.
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                {props.peek.content}
+              </div>
+            ) : null}
           </div>
         </div>
+        {doc ? (
+          <StickyHeaders
+            lines={pinned}
+            lineAt={lineAt}
+            gutter={gutter}
+            lineHeight={lineHeight}
+            scrollLeft={scroll.left}
+            onPick={(line) => {
+              const text = doc.line(line);
+              const at = { line, column: text.length - text.trimStart().length };
+              setAffinity(noAffinity);
+              state.select([{ anchor: at, head: at }]);
+              // The picked header lands just under the headers that still enclose it.
+              const element = scroller.current;
+              const outer = pinned.indexOf(line);
+              if (element && layout) {
+                element.scrollTop = Math.max(0, (layout.startOf(line) - outer) * lineHeight);
+                setScroll({ top: element.scrollTop, left: element.scrollLeft });
+              }
+              announce(at);
+              field.current?.focus({ preventScroll: true });
+            }}
+          />
+        ) : null}
         {doc ? (
           <textarea
             ref={field}
@@ -425,7 +688,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             onCompositionStart={input.onCompositionStart}
             onCompositionUpdate={input.onCompositionUpdate}
             onCompositionEnd={input.onCompositionEnd}
-            className="absolute size-px resize-none overflow-hidden border-0 bg-transparent p-0 font-mono text-ui text-transparent caret-transparent outline-none"
+            className="absolute size-px resize-none overflow-hidden border-0 bg-transparent p-0 text-transparent caret-transparent outline-none"
             style={{ left: textareaLeft, top: textareaTop }}
           />
         ) : null}
@@ -435,6 +698,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           </span>
         ) : null}
       </div>
+      {editorStatus.status && props.statusLine !== false ? (
+        <EditorStatusLine status={editorStatus.status} actions={editorStatus.actions} />
+      ) : null}
     </div>
   );
 }

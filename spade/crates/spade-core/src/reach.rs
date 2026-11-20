@@ -11,7 +11,7 @@ pub mod spend;
 use serde::{Deserialize, Serialize};
 
 use crate::escalation::Level;
-pub use settings::{AgentReach, Settings, Window};
+pub use settings::{AgentReach, Approvals, Settings, Window};
 
 const HOUR_MS: i64 = 3_600_000;
 const DAY_MS: i64 = 24 * HOUR_MS;
@@ -110,6 +110,8 @@ pub struct Notice {
     pub engaged: bool,
     /// The bot's own switch, resolved against the global one; `true` for notices of no bot.
     pub bot_on: bool,
+    /// What this bot's approvals and questions do through quiet: its own choice, else the global.
+    pub approvals: Approvals,
 }
 
 /// The moment a decision is made.
@@ -125,7 +127,10 @@ pub struct Moment<'a> {
 /// Whether `notice` interrupts the person now. A `stop` or a `block` (an approval, a question
 /// the turn waits on) always gets through do not disturb, quiet hours and the budget, and so
 /// does a question for later in a conversation the person is in. The brief comes at the time
-/// they chose, and the summary is what quiet held. The rest is proactive.
+/// they chose, and the summary is what quiet held. The rest is proactive. The one exception to
+/// "a block gets through" is the person's own: with approvals set to wait, an approval or a
+/// question a bot waits on is held through do not disturb and quiet hours (it stays in its chat,
+/// and the brief and digests list it under Waiting on you). A stop never waits.
 pub fn decide(settings: &Settings, notice: Notice, moment: Moment<'_>) -> Decision {
     if notice.category == Category::Record {
         return Decision::none(Why::Record);
@@ -136,8 +141,16 @@ pub fn decide(settings: &Settings, notice: Notice, moment: Moment<'_>) -> Decisi
     if !notice.bot_on {
         return Decision::none(Why::BotOff);
     }
-    let urgent = matches!(notice.level, Some(Level::Stop | Level::Block))
-        || (notice.category == Category::NeedsYou && notice.engaged);
+    let asks = notice.category == Category::NeedsYou;
+    let waits = asks
+        && notice.level == Some(Level::Block)
+        && notice.approvals == Approvals::Wait
+        && !notice.engaged;
+    if waits && let Some(why) = quiet(settings, moment.minute) {
+        return Decision::held(why);
+    }
+    let urgent =
+        matches!(notice.level, Some(Level::Stop | Level::Block)) || (asks && notice.engaged);
     if urgent || matches!(notice.category, Category::Brief | Category::Summary) {
         return Decision::now(false);
     }

@@ -24,6 +24,8 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         mode: crate::autonomy::Mode::AutoReview,
         remote: false,
         classifier: true,
+        ceiling: None,
+        command: None,
     }
 }
 

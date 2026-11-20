@@ -47,6 +47,12 @@ let checkedAt = performance.now();
 let ioSince: number | undefined;
 let ioNextAt = 0;
 let ioWrittenAt = 0;
+let mainWrittenAt = 0;
+/**
+ * While a stall lasts, the report on disk is brought up to date this often, between looks: the
+ * desktop's supervisor reads it to tell a daemon the machine starves of CPU from a hung one.
+ */
+const PROGRESS_MS = 2_000;
 
 function persist(next: StallReport): void {
   report = next;
@@ -179,8 +185,25 @@ setInterval(() => {
     }
     return;
   }
-  if (!observed.capture) return;
   const previous = report?.kind === "main" ? report : undefined;
+  if (!observed.capture) {
+    if (now - mainWrittenAt < PROGRESS_MS) return;
+    // No look: the silence, the CPU used and the lateness so far, with the stack already read.
+    mainWrittenAt = now;
+    persist({
+      pid: input.pid,
+      kind: "main",
+      silentSince: Math.max(0, Math.round(Date.now() - observed.silentMs)),
+      silentMs: observed.silentMs,
+      caught: previous?.caught ?? false,
+      stack: previous?.stack ?? [],
+      ended: false,
+      ...context(now),
+      ...(previous?.answerMs === undefined ? {} : { answerMs: previous.answerMs }),
+    });
+    return;
+  }
+  mainWrittenAt = now;
   persist({
     pid: input.pid,
     kind: "main",
