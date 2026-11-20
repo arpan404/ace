@@ -230,6 +230,9 @@ secrets are set. Until this ships, Spade shows every cloud app as Coming soon.
 
 ### 2. Register Spade with each maker and set the Worker secrets
 
+The step-by-step checklist, with status and every value to paste, is generated from the registry
+in [connector-registrations.md](connector-registrations.md) (`bun run docs:connectors`).
+
 Every app's redirect URL is `https://cloud.acehq.dev/v1/oauth/callback/<id>`. Secrets go in with
 `bunx wrangler secret put <NAME> --env production` from `apps/cloud`, with
 `XDG_CONFIG_HOME=~/.ace-cloudflare`. The scopes are the ones `apps/cloud/src/broker/apps.ts` asks
