@@ -39,7 +39,8 @@ function suggesting(api: FakeSpadeApi) {
 const feed = async () =>
   within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
 
-const card = async () => within(await (await feed()).findByRole("group", { name: "Travel suggests Inbox" }));
+const card = async () =>
+  within(await (await feed()).findByRole("group", { name: "Travel suggests Inbox" }));
 
 test("a suggested package shows its signed face, publisher and asks, and Review install opens the install review", async () => {
   const { spade } = await spadeApp("/spade/travel", suggesting, withMarket);
@@ -49,7 +50,9 @@ test("a suggested package shows its signed face, publisher and asks, and Review 
   expect(shown.getByText("Sorts your mail every morning.")).toBeTruthy();
   expect(shown.getByText("You forward me booking mails every week")).toBeTruthy();
   expect(shown.getByText("Ask to use gmail")).toBeTruthy();
-  expect(shown.getByText("Nothing is installed until you review it. Travel can't install it.")).toBeTruthy();
+  expect(
+    shown.getByText("Nothing is installed until you review it. Travel can't install it."),
+  ).toBeTruthy();
 
   await userEvent.click(shown.getByRole("button", { name: "Review install" }));
   // The Marketplace's own review, with its switches; nothing was installed or answered.
