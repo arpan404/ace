@@ -52,26 +52,17 @@ digits and dashes:
 
 ### Schemas
 
-A bounded subset of JSON Schema (`spade_core::schema`, and `data-schema.ts` in
-`@ace/marketplace`, held to the same rules by `spade-core/src/package/rules.json`):
-
-| `type`              | Keywords                                                      |
-| ------------------- | ------------------------------------------------------------- |
-| `object`            | `properties` (required, at most 64), `required`               |
-| `array`             | `items` (required), `maxItems` (required, 1–1000), `minItems` |
-| `string`            | `maxLength` (required, 1–10000), `minLength`, or `enum` alone |
-| `number`, `integer` | `minimum`, `maximum`                                          |
-| `boolean`           |                                                               |
-
-Every node may have `description` and `title`. An object takes only the fields it names. Nesting
-stops at six levels. Any other keyword (`pattern`, `format`, `$ref`, `additionalProperties`)
+`state` and each action's `value` are written in the same bounded JSON Schema subset as a
+contract's input and output (`spade_core::schema`, `readSchema` in `@ace/marketplace`; see
+[contracts.md](contracts.md)): objects with known fields, strings with a length, numbers,
+booleans, enums and arrays with a size, at most six levels deep. A keyword outside the subset
 refuses the declaration, so a schema never promises a check that isn't made.
 
 ## The bot's side
 
 - `panel_update {surface, data}` (module `ui`, effect `write_local`, since 0.0.25) sets a panel's
   whole state. `data` is checked against the panel's `state` schema (at most 64 KB) and refused
-  with every problem at its place (`data.trips[0].route: is needed`). Each update is a
+  with every problem at its place (`data.trips[0].route: is missing`). Each update is a
   `panel_updated` event in the bot's conversation; the panel shows the latest, live.
 - A card's `open` action may name a panel instead of a link: `{"kind": "open", "label": "All
 trips", "panel": "watchlist"}`, stored as `open_panel`. Only the bot's own panels.
