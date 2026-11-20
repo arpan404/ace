@@ -1,5 +1,5 @@
 import type { ClientCore } from "@ace/client";
-import { SpadeRequestError, parseSpadeEvents } from "@ace/ui-core/spade-chat";
+import { SpadeRequestError, parseSpadeEvents, spadeAgentTaskMax } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
 import {
   SpadeDraftWire,
@@ -7,6 +7,7 @@ import {
   spadeOpenCard,
   spadeRefusedAt,
 } from "./spade-question-rows.ts";
+import { spadeProfile, type SpadeProfileRow } from "./spade-profile.ts";
 import { segment, spadeText, type NativeSpade } from "./spade.ts";
 
 /*
@@ -53,11 +54,29 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
     callId: z.string().min(1).max(256),
   }),
   z.object({ type: z.literal("spade.enable") }),
+  /** A message the person posts to a group (ADR 0132): it starts a run its lead answers. */
+  z.object({
+    type: z.literal("spade.group.send"),
+    groupId: z.string().min(1).max(256),
+    conversationId,
+    text: z.string().trim().min(1).max(200_000),
+  }),
+  /** Stop ends the group's run: every ask still open, on every machine. */
+  z.object({ type: z.literal("spade.group.stop"), groupId: z.string().min(1).max(256) }),
+  /** A bot's profile, read afresh each time its sheet opens or is pulled. */
+  z.object({ type: z.literal("spade.profile"), agentId: z.string().min(1).max(256) }),
+  /** The bot's task, as the person wrote it on its profile. */
+  z.object({
+    type: z.literal("spade.task"),
+    agentId: z.string().min(1).max(256),
+    task: z.string().max(spadeAgentTaskMax),
+  }),
 ]);
 export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
 
 type Refusal = { ok: false; title: string; message: string; at?: number };
 type Outcome = { ok: true } | Refusal;
+type Answer = Outcome | { ok: true; profile: SpadeProfileRow };
 
 const path = (id: string) => `/v1/conversations/${segment(id)}`;
 const refused = (title: string, error: unknown): Refusal => ({
@@ -70,10 +89,10 @@ export async function answerSpade(
   owner: ClientCore,
   spade: NativeSpade,
   request: NativeSpadeRequest,
-  deps: { id(): string },
+  deps: { id(): string; now(): number },
   signal: AbortSignal,
-): Promise<Outcome> {
-  const ask = (method: "GET" | "POST" | "PUT", route: string, body?: unknown) =>
+): Promise<Answer> {
+  const ask = (method: "GET" | "POST" | "PUT" | "PATCH", route: string, body?: unknown) =>
     spadeText(owner, deps.id, method, route, body, signal);
   switch (request.type) {
     case "spade.send":
@@ -108,6 +127,39 @@ export async function answerSpade(
       return readBack(spade, request.conversationId, (route) => ask("GET", route));
     case "spade.enable":
       return enable(owner, spade, signal);
+    case "spade.group.send":
+      return sendToGroup(spade, request, deps, () =>
+        ask("POST", `/v1/groups/${segment(request.groupId)}/messages`, { text: request.text }),
+      );
+    case "spade.group.stop":
+      try {
+        await ask("POST", `/v1/groups/${segment(request.groupId)}/stop`);
+      } catch (error) {
+        // 404: nothing was running by the time Stop arrived, which is what Stop wanted.
+        if (!(error instanceof SpadeRequestError && error.status === 404))
+          return refused("Couldn't stop", error);
+      }
+      spade.refresh();
+      return { ok: true };
+    case "spade.profile": {
+      const bot = spade.bot(request.agentId);
+      if (!bot) return { ok: false, title: "", message: "Spade hasn't listed this bot yet." };
+      const profile = await spadeProfile(
+        bot,
+        spade.machineName,
+        (route) => ask("GET", route),
+        deps.now(),
+      );
+      return { ok: true, profile };
+    }
+    case "spade.task":
+      try {
+        await ask("PATCH", `/v1/agents/${segment(request.agentId)}`, { task: request.task.trim() });
+        spade.refresh();
+        return { ok: true };
+      } catch (error) {
+        return refused("Couldn't save the task", error);
+      }
   }
 }
 
@@ -199,6 +251,39 @@ async function send(
     follow?.apply({ kind: "refused", key });
     const bot = spade.botName(conversation);
     return refused(bot ? `Couldn't send to ${bot}` : "Couldn't send", error);
+  }
+}
+
+/**
+ * A post to a group shows at once, as a bot's message does; one Spade never stored is refused,
+ * so its words go back to the composer.
+ */
+async function sendToGroup(
+  spade: NativeSpade,
+  request: Extract<NativeSpadeRequest, { type: "spade.group.send" }>,
+  deps: { id(): string },
+  post: () => Promise<string>,
+): Promise<Outcome> {
+  const follow = spade.groupFollow(request.conversationId);
+  const key = `local-${deps.id()}`;
+  follow?.apply({ kind: "sent", key, text: request.text, images: [], documents: [] });
+  try {
+    await post();
+    spade.refresh();
+    return { ok: true };
+  } catch (error) {
+    if (
+      follow &&
+      error instanceof SpadeRequestError &&
+      error.unanswered &&
+      (await follow.reached(key))
+    ) {
+      spade.refresh();
+      return { ok: true };
+    }
+    follow?.apply({ kind: "refused", key });
+    const name = spade.groupName(request.groupId);
+    return refused(name ? `Couldn't send to ${name}` : "Couldn't send", error);
   }
 }
 

@@ -50,7 +50,10 @@ export class Patches {
   }
 }
 
-export async function setUp(seed: (spade: FakeSpadeApi) => void = () => {}, wait: typeof later = later) {
+export async function setUp(
+  seed: (spade: FakeSpadeApi) => void = () => {},
+  wait: typeof later = later,
+) {
   const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
   daemon.services.settings.write("beta.spade", true);
   daemon.services.settings.write("spade.enabled", true);
@@ -84,7 +87,7 @@ export async function setUp(seed: (spade: FakeSpadeApi) => void = () => {}, wait
       owner,
       spade,
       request,
-      { id: () => crypto.randomUUID() },
+      { id: () => crypto.randomUUID(), now: () => Date.now() },
       new AbortController().signal,
     );
   return { daemon, api, spade, patches, ask };
