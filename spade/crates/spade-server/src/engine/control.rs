@@ -101,6 +101,8 @@ impl Engine {
         // Only what the stop names: another worker may have closed the reply and started a new
         // one, with jobs of its own, since the stop was stored.
         let stopped_jobs = jobs::stop_named(self, id, reply.as_deref(), &jobs);
+        // The callees of the contract calls those jobs made stop their turn for them (ADR 0200 §7).
+        self.stop_calls(id, &jobs);
         // The helpers those jobs ran stop too, and no queued one starts (ADR 0152).
         self.stop_helpers(id, reply.as_deref(), &jobs);
         // A paused reply has no worker; one starts, sees the stored stop and closes it as stopped.

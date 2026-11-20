@@ -111,6 +111,21 @@ fn stopping_the_callee_stops_the_call() {
 }
 
 #[test]
+fn a_restart_that_cuts_the_callee_off_leaves_the_call_open_for_the_reply_that_carries_on() {
+    let events = vec![
+        call("c1", Vec::new()),
+        Event::reply_started("r1", "m"),
+        Event::reply_ended(ReplyEnd::Interrupted, "r1", ""),
+    ];
+    assert_eq!(open_calls(&events), vec!["c1"]);
+    assert_eq!(ended(&events, "c1"), None);
+    assert!(
+        crate::turn::unanswered_after(&events, "r1"),
+        "a new reply opens to answer it"
+    );
+}
+
+#[test]
 fn a_stored_failure_ends_the_call_with_its_problems_and_counts_its_misfits() {
     let misfit = |n: usize| {
         Event::Known(Known::ContractMisfit {
@@ -175,4 +190,35 @@ fn a_contract_event_round_trips_through_storage() {
     assert_eq!(Event::from_json(json), ended);
     let delivered = call("c1", vec![Effect::Network]);
     assert_eq!(Event::from_json(delivered.to_json()), delivered);
+}
+
+#[test]
+fn a_caller_reads_working_while_its_call_is_open_and_waiting_while_the_callee_waits_on_the_person() {
+    use crate::running::State;
+    assert_eq!(caller_state(State::Idle, [State::Idle]), State::Working);
+    assert_eq!(caller_state(State::Idle, [State::Sleeping]), State::Working);
+    assert_eq!(caller_state(State::Working, [State::Waiting]), State::Waiting);
+    assert_eq!(
+        caller_state(State::Paused, [State::Working, State::Waiting]),
+        State::Waiting
+    );
+    assert_eq!(caller_state(State::Idle, []), State::Idle);
+    let called = |job: &str| {
+        Event::Known(Known::ContractCalled(Box::new(Called {
+            job: job.into(),
+            call: format!("cc.{job}"),
+            bot: "fw".into(),
+            name: "Flight watcher".into(),
+            machine: None,
+            machine_name: None,
+            contract: "cheapest_fare".into(),
+        })))
+    };
+    let events = vec![called("j1"), called("j2")];
+    let open: Vec<&str> = calling(&events, &["j2".to_owned()])
+        .iter()
+        .map(|c| c.job.as_str())
+        .collect();
+    assert_eq!(open, vec!["j2"]);
+    assert_eq!(called_by(&events, "j1").map(|c| c.call.as_str()), Some("cc.j1"));
 }

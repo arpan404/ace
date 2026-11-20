@@ -87,7 +87,7 @@ impl Engine {
         self.find_bot(caller, reference).ok().map(|bot| bot.name)
     }
 
-    fn find_bot(&self, caller: &str, reference: &str) -> Result<Agent, String> {
+    pub(super) fn find_bot(&self, caller: &str, reference: &str) -> Result<Agent, String> {
         let reference = reference.trim();
         if let Ok(Some(me)) = self.store.agent_for_conversation(caller)
             && (me.id == reference || me.name == reference)
@@ -305,7 +305,7 @@ impl Engine {
 
     /// How many bot-to-bot hops led to the caller's current work: the depth of the latest
     /// message it was sent, 0 when that came from the person.
-    fn hops(&self, caller: &str) -> u32 {
+    pub(super) fn hops(&self, caller: &str) -> u32 {
         let events = self.load(caller).unwrap_or_default();
         events
             .iter()

@@ -310,4 +310,6 @@ pub struct Activity {
     pub ace_working: bool,
     /// Its worker bots that have not settled (ADR 0161); 0 before the tree is rolled up.
     pub workers: usize,
+    /// The bots on this machine its open contract calls wait on, by id (ADR 0200 §6.2).
+    pub calls: Vec<String>,
 }

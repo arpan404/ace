@@ -24,7 +24,7 @@ const DAY_MS: i64 = 24 * 60 * 60_000;
 const KEEP_KEYS_MS: i64 = 30 * DAY_MS;
 
 /// `value` as one short line, at most `most` characters.
-fn short(value: Option<&Value>, most: usize, otherwise: &str) -> String {
+pub(super) fn short(value: Option<&Value>, most: usize, otherwise: &str) -> String {
     let text = value.and_then(Value::as_str).unwrap_or(otherwise);
     let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let line: String = line.chars().take(most).collect();
@@ -62,6 +62,15 @@ impl Engine {
         match body["op"].as_str() {
             Some("bots") => self.inbox_bots(),
             Some("ask") => self.inbox_ask(sender, body),
+            // Contract calls (ADR 0200 §7) ride on the same keys, answers and stops.
+            Some("contracts") => self.inbox_contracts(),
+            Some("contract_call") => self.inbox_contract_call(sender, body),
+            Some("answer") if super::contracts_remote::is_call(body["key"].as_str().unwrap_or("")) => {
+                self.inbox_call_answer(sender, body).await
+            }
+            Some("stop") if super::contracts_remote::is_call(body["key"].as_str().unwrap_or("")) => {
+                self.inbox_call_stop(sender, body)
+            }
             Some("answer") => self.inbox_answer(sender, body).await,
             Some("stop") => self.inbox_stop(sender, body),
             Some("move") => self.inbox_move(sender, body).await,

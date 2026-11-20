@@ -16,6 +16,8 @@ mod classify;
 mod compact;
 mod computer;
 mod continuation;
+mod contracts;
+mod contracts_remote;
 mod control;
 mod digests;
 mod drive;
@@ -327,6 +329,10 @@ impl Engine {
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
             .with_tool(Arc::new(BotMessage(handle.clone())))
+            // Typed calls between the person's bots (ADR 0200 §7).
+            .with_tool(Arc::new(crate::tools::ContractsFind(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ContractCall(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ContractReturn(handle.clone())))
             .with_tool(Arc::new(HelperTool(handle.clone())))
             // A bot's own task, name and face.
             .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
@@ -578,6 +584,11 @@ impl Engine {
             ace_waiting: ace.iter().any(|c| c.state.waiting()),
             ace_working: ace.iter().any(|c| c.state.working()),
             workers: 0,
+            calls: spade_core::contract::calling(events.iter(), &transcript.jobs)
+                .into_iter()
+                .filter(|called| called.machine.is_none())
+                .map(|called| called.bot.clone())
+                .collect(),
         };
         self.activity
             .lock()
@@ -646,6 +657,10 @@ impl Engine {
             // A worker of it waits on the person (ADR 0161).
             State::Waiting if activity.waiting_for == Some("worker") => {
                 Some(roster::WORKER_WAITING.to_owned())
+            }
+            // A bot it called waits on the person for that call (ADR 0200 §6.2).
+            State::Waiting if activity.waiting_for == Some("callee") => {
+                Some(roster::CALLEE_WAITING.to_owned())
             }
             State::Waiting => Some(roster::WAITING_FOR_YOU.to_owned()),
             State::Sleeping => activity
@@ -818,6 +833,16 @@ impl Engine {
                         return Ok(spade_store::Delivered::Duplicate);
                     }
                     false
+                }
+                // Each contract call is delivered once, by its key (ADR 0200 §7).
+                Event::Known(Known::UserMessage {
+                    from_agent: Some(from),
+                    ..
+                }) if from.contract.as_ref().is_some_and(|request| {
+                    spade_core::contract::delivered_at(&events, &request.call).is_some()
+                }) =>
+                {
+                    return Ok(spade_store::Delivered::Duplicate);
                 }
                 // A wake fires once (ADR 0160): only while it is still open.
                 Event::Known(Known::WakeFired { wake, .. }) => {

@@ -38,6 +38,64 @@ pub struct Request {
     pub effects: Vec<Effect>,
 }
 
+/// A call this bot made, as its own conversation holds it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Called {
+    /// The `contract_call` job that carries it.
+    pub job: String,
+    pub call: String,
+    /// The callee's id, and its name as it was then.
+    pub bot: String,
+    pub name: String,
+    /// The callee's machine, by its host id and name, when it is another machine (ADR 0132).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_name: Option<String>,
+    pub contract: String,
+}
+
+/// The calls a conversation made whose job still runs, given its running jobs.
+pub fn calling<'a>(
+    events: impl IntoIterator<Item = &'a Event>,
+    running: &[String],
+) -> Vec<&'a Called> {
+    events
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Known(Known::ContractCalled(called)) if running.contains(&called.job) => {
+                Some(&**called)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The call job `job` made, if it made one.
+pub fn called_by<'a>(events: &'a [Event], job: &str) -> Option<&'a Called> {
+    events.iter().find_map(|event| match event {
+        Event::Known(Known::ContractCalled(called)) if called.job == job => Some(&**called),
+        _ => None,
+    })
+}
+
+/// A caller's state with its calls open (ADR 0200 §6.2): working while any is, and waiting while
+/// a callee waits on the person, as an ace child's caller does. Never done meanwhile.
+pub fn caller_state(
+    own: crate::running::State,
+    callees: impl IntoIterator<Item = crate::running::State>,
+) -> crate::running::State {
+    use crate::running::{State, rolled};
+    callees.into_iter().fold(own, |state, callee| {
+        let under = if callee == State::Waiting {
+            State::Waiting
+        } else {
+            State::Working
+        };
+        rolled(state, under)
+    })
+}
+
 /// How a call ended, as the callee stored it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -78,14 +136,13 @@ pub fn request_of(event: &Event) -> Option<&Request> {
     }
 }
 
+/// A reply's end that ends the calls it took up. A restart's interruption doesn't: the call stays
+/// open and a new reply carries on with it, so a restart of the callee never loses it.
 fn reply_end(event: &Event) -> bool {
     matches!(
         event,
         Event::Known(
-            Known::ReplyFinished { .. }
-                | Known::ReplyStopped { .. }
-                | Known::ReplyFailed { .. }
-                | Known::ReplyInterrupted { .. }
+            Known::ReplyFinished { .. } | Known::ReplyStopped { .. } | Known::ReplyFailed { .. }
         )
     )
 }
@@ -97,7 +154,8 @@ fn ending_of<'a>(event: &'a Event, call: &str) -> Option<&'a Ending> {
     }
 }
 
-/// The calls open in a conversation now: delivered, not ended, and no reply has ended since. Read
+/// The calls open in a conversation now: delivered, not ended, and no reply has ended since (a
+/// restart's interruption isn't an end). Read
 /// back from the end to the latest reply's end, so it costs the open turn's events, not history.
 pub fn open(events: &[Event]) -> Vec<&Request> {
     let mut ended: Vec<&str> = Vec::new();
@@ -126,7 +184,8 @@ pub fn delivered_at(events: &[Event], call: &str) -> Option<usize> {
 }
 
 /// How the call `call` ended, if it did: its stored ending, else the end of the reply that took
-/// it up. A turn that finished without returning fails it; a stopped one stops it.
+/// it up. A turn that finished without returning fails it; a stopped one stops it; one a restart
+/// interrupted leaves it open for the reply that carries on.
 pub fn ended(events: &[Event], call: &str) -> Option<Outcome> {
     let at = delivered_at(events, call)?;
     for event in &events[at..] {
@@ -153,9 +212,6 @@ pub fn ended(events: &[Event], call: &str) -> Option<Outcome> {
             }
             Event::Known(Known::ReplyFailed { error, .. }) => {
                 return failed(format!("It couldn't answer: {error}"));
-            }
-            Event::Known(Known::ReplyInterrupted { .. }) => {
-                return failed("It was cut off by a restart before it answered.".to_owned());
             }
             _ => {}
         }
