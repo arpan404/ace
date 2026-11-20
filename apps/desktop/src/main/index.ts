@@ -692,6 +692,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     const handlers = createHandlers({
       spade: spade.direct,
       deviceTabs: localhost.tabs,
+      machineTunnels: localhost.tunnels,
       info,
       runtime,
       settings,

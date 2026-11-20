@@ -29,6 +29,8 @@ const byCode: Readonly<Record<string, TunnelFailure>> = {
   tunnel_forbidden: "forbidden",
   tunnel_port_refused: "refused",
   tunnel_limit: "limit",
+  // The machine reset the stream before READY: nothing listens on the port.
+  tunnel_reset: "closed",
   offline: "offline",
   auth: "forbidden",
 };

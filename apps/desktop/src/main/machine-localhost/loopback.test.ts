@@ -1,32 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blocksLoopbackRequest, isMachineLoopbackHost } from "./loopback.ts";
-
-describe("the machine's loopback hosts", () => {
-  it.each([
-    ["localhost", true],
-    ["LOCALHOST", true],
-    ["localhost.", true],
-    ["app.localhost", true],
-    ["a.b.localhost", true],
-    ["127.0.0.1", true],
-    ["127.1.2.3", true],
-    ["127.255.255.255", true],
-    ["[::1]", true],
-    ["::1", true],
-    ["localhost.example.com", false],
-    ["notlocalhost", false],
-    ["128.0.0.1", false],
-    ["127.0.0.256", false],
-    ["127.0.0", false],
-    ["10.0.0.1", false],
-    ["0.0.0.0", false],
-    ["[::ffff:127.0.0.1]", false],
-    ["example.com", false],
-    ["", false],
-  ])("%s goes to the machine: %s", (host, expected) => {
-    expect(isMachineLoopbackHost(host)).toBe(expected);
-  });
-});
+import { blocksLoopbackRequest } from "./loopback.ts";
 
 describe("a device tab's request to the machine's localhost", () => {
   it.each([

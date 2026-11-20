@@ -47,6 +47,7 @@ import {
   DeviceTabOpenRequest,
   DeviceTabPlacement,
   DeviceTabState,
+  MachineTunnelPath,
 } from "./device-tabs.ts";
 import { DoctorReport, ProviderSummary, Toolchain } from "./onboarding.ts";
 import {
@@ -192,6 +193,8 @@ export const requests = {
   /** False: no such tab here. */
   "deviceTab.go": { request: DeviceTabGo, result: z.boolean() },
   "deviceTab.close": { request: DeviceTabId, result: None },
+  /** The path a remote machine's connection is on, for its tunnel here. Never logged. */
+  "machineTunnel.path": { request: MachineTunnelPath, result: None },
   /** Whether a terminal runs `ace`; waits for the launch's own install to finish. */
   "cli.status": { request: None, result: TerminalCommand },
   /** Turn the `ace` command on the terminal's PATH on or off, and save the choice. */

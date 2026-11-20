@@ -48,6 +48,16 @@ export interface DesktopDeviceTabs {
       | { tabId: string; action: "back" | "forward" | "reload" | "stop" },
   ): Promise<boolean>;
   close(tabId: string): Promise<void>;
+  /** The path a remote machine's connection is on, for its tunnel in the main process. */
+  tunnelPath(request: {
+    machineId: string;
+    path: {
+      key: string;
+      target: { kind: "direct"; url: string } | { kind: "relay"; url: string; hostId: string };
+      deviceId: string;
+      token: string;
+    } | null;
+  }): Promise<void>;
   onState(listener: (state: DeviceTabState) => void): () => void;
   onOpenTab(listener: (request: { from: string; url: string }) => void): () => void;
 }
@@ -121,7 +131,8 @@ export function desktopDeviceTabs(scope: object = globalThis): DesktopDeviceTabs
   const close = method(tabs, "close");
   const onState = method(tabs, "onState");
   const onOpenTab = method(tabs, "onOpenTab");
-  if (!open || !place || !go || !close || !onState || !onOpenTab) return undefined;
+  const tunnelPath = method(tabs, "tunnelPath");
+  if (!open || !place || !go || !close || !onState || !onOpenTab || !tunnelPath) return undefined;
   return {
     open: async (request) => {
       await open(request);
@@ -131,6 +142,9 @@ export function desktopDeviceTabs(scope: object = globalThis): DesktopDeviceTabs
       return receipt === "shown" || receipt === "hidden" ? receipt : "unavailable";
     },
     go: async (request) => (await Promise.resolve(go(request)).catch(() => false)) === true,
+    tunnelPath: async (request) => {
+      await Promise.resolve(tunnelPath(request)).catch(() => {});
+    },
     close: async (tabId) => {
       await Promise.resolve(close({ tabId })).catch(() => {});
     },

@@ -5,7 +5,7 @@ import type { MachineTunnel, TunnelStream } from "./tunnel-contract.ts";
  * A `MachineTunnel` to this computer's own loopback, for tests and for running the desktop app
  * against a dev server with no second machine (`ACE_DEV_LOOPBACK_TUNNEL=1`). It behaves as the
  * contract says: a refused port rejects with the code `refuse` names, and nothing listening
- * resets the stream.
+ * rejects with `tunnel_reset`.
  */
 export function loopbackTunnel(
   options: { refuse?(port: number): string | undefined } = {},
@@ -20,6 +20,11 @@ export function loopbackTunnel(
       const socket = connect({ host: "127.0.0.1", port, allowHalfOpen: true });
       open.add(socket);
       socket.on("close", () => open.delete(socket));
+      // As the machine does: a port with nothing listening rejects before the stream opens.
+      await new Promise<void>((resolve, reject) => {
+        socket.once("connect", resolve);
+        socket.once("error", () => reject(coded("tunnel_reset")));
+      });
       return socketStream(socket);
     },
     ports: { get: () => [], subscribe: () => () => {} },

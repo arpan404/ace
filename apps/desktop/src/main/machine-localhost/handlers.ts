@@ -1,8 +1,14 @@
 import { BrowserWindow, type WebContents } from "electron";
 import type { Handlers } from "../ipc.ts";
 import type { DeviceTabHost, DeviceTabs } from "./device-tabs.ts";
+import type { MachineTunnels } from "./tunnels.ts";
 
-type DeviceTabChannel = "deviceTab.open" | "deviceTab.place" | "deviceTab.go" | "deviceTab.close";
+type DeviceTabChannel =
+  | "deviceTab.open"
+  | "deviceTab.place"
+  | "deviceTab.go"
+  | "deviceTab.close"
+  | "machineTunnel.path";
 
 const hostOf = (sender: WebContents | undefined): DeviceTabHost | undefined => {
   const window = sender && BrowserWindow.fromWebContents(sender);
@@ -10,8 +16,15 @@ const hostOf = (sender: WebContents | undefined): DeviceTabHost | undefined => {
 };
 
 /** The bridge's `deviceTab.*` requests, for the app window that asks. */
-export function deviceTabHandlers(tabs: DeviceTabs): Pick<Handlers, DeviceTabChannel> {
+export function deviceTabHandlers(
+  tabs: DeviceTabs,
+  tunnels: MachineTunnels,
+): Pick<Handlers, DeviceTabChannel> {
   return {
+    "machineTunnel.path": (request) => {
+      tunnels.setPath(request.machineId, request.path ?? undefined);
+      return undefined;
+    },
     "deviceTab.open": async (request, sender) => {
       const host = hostOf(sender);
       if (!host) throw new Error("No window to open the tab in");

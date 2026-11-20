@@ -16,6 +16,7 @@ describe("why a tunnel stream didn't open", () => {
     ["tunnel_forbidden", "forbidden", socksReply.notAllowed],
     ["tunnel_port_refused", "refused", socksReply.notAllowed],
     ["tunnel_limit", "limit", socksReply.generalFailure],
+    ["tunnel_reset", "closed", socksReply.connectionRefused],
     ["offline", "offline", socksReply.networkUnreachable],
     ["timeout", "failed", socksReply.generalFailure],
   ])("%s is %s, answered %s", (code, failure, reply) => {

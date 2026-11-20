@@ -71,3 +71,23 @@ export type DeviceTabState = z.infer<typeof DeviceTabState>;
 
 /** A link in a device tab asked for a new tab (`target=_blank`). */
 export const DeviceTabOpenRequest = z.object({ from: TabId, url: Url });
+
+/**
+ * The path a remote machine's connection is on now, for its tunnel in the main process: the
+ * address, this device's id there and its credential. Null while the machine is offline or has
+ * no path a tunnel can use (an account machine, until ace's relay carries tunnels).
+ */
+export const MachineTunnelPath = z.object({
+  machineId: MachineId,
+  path: z
+    .object({
+      key: z.string().min(1).max(512),
+      target: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("direct"), url: Url }),
+        z.object({ kind: z.literal("relay"), url: Url, hostId: z.string().min(1).max(256) }),
+      ]),
+      deviceId: z.string().min(1).max(256),
+      token: z.string().min(1).max(4096),
+    })
+    .nullable(),
+});

@@ -20,6 +20,7 @@ import { deviceTabData, deviceTabRequest } from "./device-data.ts";
 import { deviceTabStateOf, subscribeDeviceTab } from "./device-store.ts";
 import { deviceTabProblem } from "./device-words.ts";
 import { useDevicePlacement } from "./use-device-placement.ts";
+import { useTunnelPath } from "./use-tunnel-path.ts";
 
 /**
  * A device tab (ADR 0194): a page the person opened on another machine's thread, running in a
@@ -46,6 +47,7 @@ export default function DeviceBrowserTab(props: TabViewProps) {
   const opened = useRef(false);
   const machine = data?.machine;
   const startUrl = data?.url;
+  useTunnelPath(machine);
   useEffect(() => {
     if (!tabs || !machine || !startUrl || opened.current) return;
     opened.current = true;

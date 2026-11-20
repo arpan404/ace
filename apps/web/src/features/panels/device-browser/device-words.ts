@@ -14,7 +14,7 @@ export function deviceTabProblem(failure: DeviceTabFailure): BrowserFailure {
       return {
         title: "This machine's localhost is off for your devices",
         detail:
-          "Turn on Localhost on your devices in this machine's settings, under More options, then reload.",
+          "Turn on Localhost on your devices in the machine's settings, under More options, then reload.",
       };
     case "forbidden":
       return {

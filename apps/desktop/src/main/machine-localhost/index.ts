@@ -3,7 +3,7 @@ import { emit } from "../ipc.ts";
 import { DeviceTabs } from "./device-tabs.ts";
 import { loopbackTunnel } from "./loopback-tunnel.ts";
 import { MachineSessions } from "./machine-sessions.ts";
-import type { MachineTunnel } from "./tunnel-contract.ts";
+import { MachineTunnels } from "./tunnels.ts";
 
 /**
  * Device tabs and the machines' localhost proxies, as the app runs them (ADR 0194). The tunnel
@@ -13,14 +13,12 @@ import type { MachineTunnel } from "./tunnel-contract.ts";
  * `ACE_DEV_LOOPBACK_TUNNEL=1` sends every machine's localhost to this computer's own, to try
  * device tabs against a local dev server without a second machine.
  */
-export function machineLocalhost(options: {
-  log(message: string): void;
-  tunnel?(machineId: string): MachineTunnel | undefined;
-}) {
+export function machineLocalhost(options: { log(message: string): void }) {
   const dev = process.env["ACE_DEV_LOOPBACK_TUNNEL"] === "1" && !app.isPackaged;
   const local = dev ? loopbackTunnel() : undefined;
+  const tunnels = new MachineTunnels();
   const sessions = new MachineSessions({
-    tunnel: (machineId) => local ?? options.tunnel?.(machineId),
+    tunnel: (machineId) => local ?? tunnels.tunnel(machineId),
     now: Date.now,
     log: options.log,
   });
@@ -33,7 +31,8 @@ export function machineLocalhost(options: {
   app.once("will-quit", () => {
     tabs.closeAll();
     local?.close();
+    tunnels.close();
     void sessions.close();
   });
-  return { tabs, sessions };
+  return { tabs, sessions, tunnels };
 }

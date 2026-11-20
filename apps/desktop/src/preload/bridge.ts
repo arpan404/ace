@@ -225,6 +225,7 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       place: (request: RequestOf<"deviceTab.place">) => call("deviceTab.place", request),
       go: (request: RequestOf<"deviceTab.go">) => call("deviceTab.go", request),
       close: (request: RequestOf<"deviceTab.close">) => call("deviceTab.close", request),
+      tunnelPath: (request: RequestOf<"machineTunnel.path">) => call("machineTunnel.path", request),
       onState: (listener: (value: EventOf<"deviceTab.state">) => void) =>
         subscribe("deviceTab.state", listener),
       onOpenTab: (listener: (value: EventOf<"deviceTab.openTab">) => void) =>

@@ -130,15 +130,13 @@ describe("the machine's localhost proxy", () => {
     expect(failures.recent(3000)).toBe("offline");
   });
 
-  it("resets the browser's connection when nothing listens on the machine's port", async () => {
+  it("refuses the browser's connection when nothing listens on the machine's port", async () => {
     const server = createServer();
     const port = await listen(server);
     await new Promise((resolve) => server.close(resolve));
     const { proxy, failures } = await proxyWith(loopbackTunnel());
-    const { code, socket } = await socks(proxy.port, "localhost", port);
-    expect(code).toBe(socksReply.succeeded);
-    await readAll(socket);
-    expect(socket.destroyed || socket.readableEnded).toBe(true);
+    const { code } = await socks(proxy.port, "localhost", port);
+    expect(code).toBe(socksReply.connectionRefused);
     expect(failures.recent(port)).toBe("closed");
   });
 
