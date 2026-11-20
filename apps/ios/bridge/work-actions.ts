@@ -98,6 +98,9 @@ function failed(error: unknown): Outcome {
         ok: false,
         message: "Not sent: the machine isn't connected. Try again once it is.",
       };
+    // The daemon refused the command before admission (e.g. operate revoked: "forbidden"),
+    // so it definitely did not happen.
+    if (error.code === "daemon") return { ok: false, message: actionErrorText(error.message) };
     return unconfirmed;
   }
   if (error instanceof Error && error.message) return { ok: false, message: error.message };
@@ -303,6 +306,8 @@ export async function clearLock(
 ): Promise<Outcome> {
   try {
     const result = await owner.command(lockCommand(target));
+    if (!result.ok && result.error === "forbidden")
+      return { ok: false, message: actionErrorText("forbidden") };
     const said = staleLockOutcome(result, target);
     return { ok: said.ok, message: `${said.title}. ${said.detail}` };
   } catch (error) {

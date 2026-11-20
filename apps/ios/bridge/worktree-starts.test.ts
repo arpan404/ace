@@ -419,6 +419,27 @@ test("after Clear Lock gets Retry accepted, the card stays busy until progress a
   ).toMatchObject({ locked: true, sending: "", canReturn: true });
 });
 
+test("when operate is revoked before admission, Clear Lock reports forbidden directly without saying it may have gone through", async () => {
+  const { ClientError } = await import("@ace/client");
+  const made = fixture(true, locked);
+  await until(() => card()?.card?.locked === true);
+  void made.starts.clearLock(id, "lock-forbidden");
+  await until(() => made.commands.length === 1);
+  made.commands[0]?.lose(new ClientError("daemon", "forbidden"));
+  const denied = "This device may not change the checkout: ask for full access on the host.";
+  expect(await until(() => receipt("lock-forbidden"))).toMatchObject({
+    ok: false,
+    message: denied,
+  });
+  expect(made.actions()).toEqual([]);
+  expect(await until(() => (card()?.card?.refused ? card()?.card : undefined))).toMatchObject({
+    locked: true,
+    sending: "",
+    canReturn: true,
+    refused: denied,
+  });
+});
+
 test("after a stale Git lock stops a worktree start, clearing the lock retries and starts the same thread", async () => {
   const { ClientCore } = await import("@ace/client");
   const { FakeDaemon, fakeTransport } = await import("@ace/fake-daemon");
