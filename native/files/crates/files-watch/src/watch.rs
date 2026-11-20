@@ -299,11 +299,12 @@ impl Events {
     }
 }
 
-/// Test-only: the receiving end of an [`Events`] made by [`Events::collecting`].
-#[cfg(test)]
+/// Test-only: the receiving end of an [`Events`] made by [`Events::collecting`]. Only the Linux
+/// backend's tests read events back this way.
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) struct Collected(Receiver<Command>);
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 impl Events {
     /// An `Events` whose events a test reads back, with no worker behind it.
     pub(crate) fn collecting() -> (Events, Collected) {
@@ -317,7 +318,7 @@ impl Events {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 impl Collected {
     /// Every path the events named until `quiet` passes with none arriving.
     pub(crate) fn paths(&self, quiet: Duration) -> Vec<std::path::PathBuf> {
