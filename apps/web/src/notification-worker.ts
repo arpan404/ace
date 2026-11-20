@@ -35,7 +35,7 @@ const target = z.object({
     .regex(/^\/(t\/[^/?]+|spade\/[^/?]+(\?request=[^&]+)?)$/),
 });
 
-/** Where an alert opens: its thread, or a Spade bot's conversation at its request (ADR 0194). */
+/** Where an alert opens: its thread, or a Spade bot's conversation at its request (ADR 0195). */
 export function alertPath(notice: Notification): string {
   if (notice.status === "spade" && notice.spade) {
     const { agent, request } = notice.spade;

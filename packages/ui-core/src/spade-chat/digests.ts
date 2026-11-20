@@ -71,7 +71,7 @@ const body: z.ZodType<DigestBody> = z.object({
 
 const row = z.object({
   id: z.coerce.string(),
-  /** `task` or `tree` for a digest; `brief` and `spend` sit beside them (ADR 0194). */
+  /** `task` or `tree` for a digest; `brief` and `spend` sit beside them (ADR 0195). */
   kind: z.string().catch("task").default("task"),
   agent: z.string(),
   made_ms: z.number(),
@@ -84,7 +84,7 @@ const row = z.object({
 /** One digest as the chat reads it, or the morning brief, or a spend alert's line. */
 export interface SpadeDigest {
   id: string;
-  /** A digest, the morning brief (ADR 0194) or a line saying a bot spends unusually fast. */
+  /** A digest, the morning brief (ADR 0195) or a line saying a bot spends unusually fast. */
   kind: "digest" | "brief" | "spend";
   agent: string;
   /** When Spade made it: where it sits in the chat. */

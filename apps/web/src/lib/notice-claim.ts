@@ -1,5 +1,5 @@
 /*
- * One system notification per alert across this browser's tabs and windows (ADR 0194): each
+ * One system notification per alert across this browser's tabs and windows (ADR 0195): each
  * tab hears the same alert, and the first to claim its id shows it. The claim is taken under a
  * Web Lock where the browser has them, so two tabs can't both take it; a mark in local storage
  * remembers it for a day.

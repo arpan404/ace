@@ -1,4 +1,4 @@
-//! Reaching the person (ADR 0194): the service-wide settings (notifications, do not disturb,
+//! Reaching the person (ADR 0195): the service-wide settings (notifications, do not disturb,
 //! quiet hours, the interruption budget, the morning brief, spend alerts), each bot's own
 //! switch, and the morning brief made now.
 

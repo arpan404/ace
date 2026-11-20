@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Notification, ThreadId } from "@ace/protocol";
 
 /*
- * Spade's notices (ADR 0165, ADR 0194) as ace's alerts. Spade decides whether each notice
+ * Spade's notices (ADR 0165, ADR 0195) as ace's alerts. Spade decides whether each notice
  * reaches the person now (do not disturb, quiet hours, the interruption budget); only those it
  * sends with `reach: "now"` become alerts. Read leniently: an unknown kind or category still
  * alerts with Spade's own sentence, and a notice that doesn't read alerts no one.

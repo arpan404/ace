@@ -1,4 +1,4 @@
-//! Reaching the person (ADR 0194). Every notice on `GET /v1/notices/live` passes through here:
+//! Reaching the person (ADR 0195). Every notice on `GET /v1/notices/live` passes through here:
 //! `spade_core::reach` decides whether it interrupts now or waits (do not disturb, quiet hours,
 //! the interruption budget), this records what was sent and what waits, and the timer sends one
 //! summary when quiet ends. What waited goes into the bot's next digest and the morning brief.

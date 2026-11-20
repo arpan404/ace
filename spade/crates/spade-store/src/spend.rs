@@ -63,7 +63,7 @@ impl Store {
     }
 
     /// What `conversation` spent in each of the `hours` hours before `to_ms`, oldest first: the
-    /// last entry is `[to_ms - 1h, to_ms)`. One read of the window's rows (ADR 0194).
+    /// last entry is `[to_ms - 1h, to_ms)`. One read of the window's rows (ADR 0195).
     pub fn spent_by_hour(&self, conversation: &str, to_ms: i64, hours: usize) -> Result<Vec<u64>> {
         const HOUR_MS: i64 = 3_600_000;
         let count = i64::try_from(hours).unwrap_or(0);

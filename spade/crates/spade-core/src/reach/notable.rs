@@ -1,4 +1,4 @@
-//! Which stored events are worth telling the person beyond their escalation level (ADR 0194): a
+//! Which stored events are worth telling the person beyond their escalation level (ADR 0195): a
 //! routine or the heartbeat that said something, a long background job that ended, a goal the
 //! check found done, a worker that finished. One fold serves the notice stream and the brief.
 

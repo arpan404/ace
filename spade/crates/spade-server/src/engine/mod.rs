@@ -242,7 +242,7 @@ pub struct Engine {
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
     digests: digests::Shared,
-    /// What reaches the person and what waits for them (ADR 0194, `reach`).
+    /// What reaches the person and what waits for them (ADR 0195, `reach`).
     reach: reach::Shared,
     /// Bots moving to or from another machine (ADR 0187, `moves`).
     moves: moves::Shared,

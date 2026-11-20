@@ -33,7 +33,7 @@ pub fn digests_key(agent: &str) -> String {
 }
 
 /// A digest's kinds: what the schedule counts from. A row of another kind sits beside them in
-/// the bot's chat: the morning brief and a spend alert (ADR 0194).
+/// the bot's chat: the morning brief and a spend alert (ADR 0195).
 const DIGEST_KINDS: &str = "('task', 'tree')";
 /// The morning brief's kind.
 pub const BRIEF: &str = "brief";

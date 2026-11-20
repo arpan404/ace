@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /*
- * The morning brief (ADR 0194, amending ADR 0165) as `GET /v1/digests` lists it: a row of kind
+ * The morning brief (ADR 0195, amending ADR 0165) as `GET /v1/digests` lists it: a row of kind
  * `brief` beside the main bot's conversation. What finished (each line opening the event it came
  * from), what waits on the person with the answers a tap can give, today's routines and spend.
  * Parsed leniently: a part that doesn't read is left out, never the whole brief.

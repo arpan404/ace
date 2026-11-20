@@ -1,4 +1,4 @@
-//! How Spade reaches the person outside its own page (ADR 0194): which notices interrupt now and
+//! How Spade reaches the person outside its own page (ADR 0195): which notices interrupt now and
 //! which wait, through do not disturb, the daily quiet window and the interruption budget, for
 //! the next brief or digest. Pure: the engine passes the clock, the person's minute of the day
 //! and the interruptions already sent.

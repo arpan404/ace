@@ -494,7 +494,7 @@ function RunItem(props: {
       );
     }
     case "digest":
-      // The morning brief and a spend alert sit where digests do (ADR 0194).
+      // The morning brief and a spend alert sit where digests do (ADR 0195).
       if (item.digest.kind === "brief")
         return <SpadeBriefBubble digest={item.digest} when={props.when} />;
       if (item.digest.kind === "spend")

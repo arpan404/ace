@@ -12,7 +12,7 @@ import { LoadingRows } from "./spade-settings-loading.tsx";
 import { CouldNotRead, fault, Refusal } from "./spade-settings-rows.tsx";
 
 /*
- * Settings › Spade › General, Notifications (ADR 0194): whether Spade notifies at all, do not
+ * Settings › Spade › General, Notifications (ADR 0195): whether Spade notifies at all, do not
  * disturb now, a daily quiet window, the interruption budget, the morning brief (ADR 0165's
  * amendment) and spend alerts (ADR 0166's amendment). Each change applies at once.
  */

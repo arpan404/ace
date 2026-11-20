@@ -9,7 +9,7 @@ import { fault, Refusal } from "./spade-settings-rows.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /**
- * Notifications, a section of Details (ADR 0194): whether this bot reaches the person outside
+ * Notifications, a section of Details (ADR 0195): whether this bot reaches the person outside
  * Spade's page. On unless turned off here; Spade's own settings still apply.
  */
 export function ProfileReach(props: { bot: RosterBot }) {

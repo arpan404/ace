@@ -39,7 +39,7 @@ pub(super) struct Shared {
     /// Where each bot's schedule last found nothing new, so a quiet window isn't built again
     /// every minute. Lost on restart, which only builds it once more.
     checked: Mutex<HashMap<String, i64>>,
-    /// When spend rates were last looked at (ADR 0194).
+    /// When spend rates were last looked at (ADR 0195).
     pub(super) spend_checked: Mutex<Option<i64>>,
     running: AtomicBool,
 }
@@ -73,7 +73,7 @@ impl Engine {
     }
 
     /// Sends a notice for each of `events` worth telling the person: those with a level, and a
-    /// routine that spoke, a long job's end, a checked goal and a finished worker (ADR 0194).
+    /// routine that spoke, a long job's end, a checked goal and a finished worker (ADR 0195).
     /// Called after every write, so it does nothing more than a check when no one listens; the
     /// history is read only for the events that need it.
     pub(super) fn notice_stored(&self, id: &str, events: &[StoredEvent]) {
@@ -234,7 +234,7 @@ impl Engine {
         if scheduled && built.quiet {
             return Ok(None);
         }
-        // What waited for the person in this tree comes here instead (ADR 0194).
+        // What waited for the person in this tree comes here instead (ADR 0195).
         let tree = tree_agents(&built);
         built.away = self
             .take_away(Some(&tree))?

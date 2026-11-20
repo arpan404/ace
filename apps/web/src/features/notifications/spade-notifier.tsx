@@ -9,7 +9,7 @@ import { useNotificationPrefs } from "./notification-prefs.ts";
 import { openSpadeAgent, spadeShow, withinBurst } from "./spade-notice-rules.ts";
 
 /**
- * Spade's alerts in this window (ADR 0194). Spade decided each reaches the person now and the
+ * Spade's alerts in this window (ADR 0195). Spade decided each reaches the person now and the
  * daemon delivered it once per device; this shows it as a toast while the window is in front
  * (never for the conversation on screen), else as one system notification across this
  * browser's tabs. The desktop app's own main process shows its system notifications.

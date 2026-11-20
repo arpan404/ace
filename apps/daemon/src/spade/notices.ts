@@ -33,7 +33,7 @@ export interface SpadeNoticeOptions {
 
 /**
  * Follows Spade's notice stream (`GET /v1/notices/live`, ADR 0165) for as long as Spade runs,
- * and hands each notice Spade sends to reach the person now (ADR 0194) to ace's notification
+ * and hands each notice Spade sends to reach the person now (ADR 0195) to ace's notification
  * worker, which delivers it to every desktop and web device once. One stream per daemon, so a
  * notice is one alert however many windows are open. The stream sends what happens while it is
  * open: a gap while Spade restarts is covered by Spade's summary and its brief, not replayed.

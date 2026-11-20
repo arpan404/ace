@@ -217,7 +217,7 @@ export const DeepLink = z.discriminatedUnion("kind", [
     itemId: z.string().optional(),
   }),
   z.object({ kind: z.literal("settings"), page: z.string().optional() }),
-  /** A Spade bot's conversation, with the approval or question to bring forward (ADR 0194). */
+  /** A Spade bot's conversation, with the approval or question to bring forward (ADR 0195). */
   z.object({
     kind: z.literal("spade"),
     agent: z.string().min(1),
@@ -252,7 +252,7 @@ export function deepLinkRoute(link: DeepLink): string {
 /** Notification categories; kept in step with the web's Settings › Notifications. */
 export const NotificationCategory = z.enum([
   "agentSays",
-  /** Spade's bots: what needs the person, what stopped, digests, briefs (ADR 0194). */
+  /** Spade's bots: what needs the person, what stopped, digests, briefs (ADR 0195). */
   "spade",
   "needsYou",
   "finished",

@@ -1,7 +1,7 @@
 import type { Notification } from "@ace/protocol";
 
 /*
- * How a Spade alert shows in this window (ADR 0194). Spade already decided it reaches the
+ * How a Spade alert shows in this window (ADR 0195). Spade already decided it reaches the
  * person now; the window decides how: nothing for the conversation on screen, a toast while
  * the window is in front, a system notification while it isn't (a browser tab that allowed
  * them), and one line for a burst. Pure: the notifier passes what it sees.

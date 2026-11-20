@@ -63,7 +63,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   services.spade = link;
   context.resources.own(() => link.close(), "spade");
   const host = spadeHostThread(context, link, dataDir);
-  // Spade's notices that reach the person now become ace's alerts (ADR 0194).
+  // Spade's notices that reach the person now become ace's alerts (ADR 0195).
   const notices = followSpadeNotices({
     ready: () => link.ready(),
     onReady: (listener) => link.onReady(listener),

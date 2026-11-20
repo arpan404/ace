@@ -9,7 +9,7 @@ export const NotificationStatus = z.enum([
   "unresponsive",
   "background_done",
   "agent_says",
-  /** A Spade notice (ADR 0194): `spade` says which bot, conversation and request it opens. */
+  /** A Spade notice (ADR 0195): `spade` says which bot, conversation and request it opens. */
   "spade",
   /**
    * One alert for a desktop or web device that missed some while it was away: the threads that
@@ -18,7 +18,7 @@ export const NotificationStatus = z.enum([
   "catch_up",
 ]);
 /**
- * What a Spade notice opens (ADR 0194): the bot, its conversation, the approval or question by
+ * What a Spade notice opens (ADR 0195): the bot, its conversation, the approval or question by
  * call id, or the digest or brief. `category` is Spade's word for what it is about
  * (`needs_you`, `escalation`, `digest`, `routine`, `finished`, `brief`, `spend`, `summary`).
  */

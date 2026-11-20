@@ -1,4 +1,4 @@
-//! Reaching the person (ADR 0194) through the real API: the notice stream says which notices
+//! Reaching the person (ADR 0195) through the real API: the notice stream says which notices
 //! interrupt now and which wait, do not disturb and the budget hold what they should, quiet's
 //! end sends one summary, the morning brief lists what finished, and an unusual spend rate
 //! alerts once. Scripted models; a clock the test sets where time matters.

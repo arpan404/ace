@@ -1,4 +1,4 @@
-//! The morning brief and spend alerts (ADR 0194, amending ADR 0165 and ADR 0166), run on the
+//! The morning brief and spend alerts (ADR 0195, amending ADR 0165 and ADR 0166), run on the
 //! digests' timer. The brief is stored beside the main bot's conversation as a digest row of
 //! kind `brief`, so the main chat shows it as a bubble and the bot never reads it; a spend alert
 //! is a row of kind `spend` in that bot's chat. Both go out on the notice stream.

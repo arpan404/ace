@@ -25,7 +25,7 @@ export const NotificationPrefs = z.object({
   /** In a browser tab: a system notification instead, while the tab is in the background. */
   browser: withDefault(z.boolean(), false),
   agentSays: withDefault(z.boolean(), true),
-  /** Spade's bots: what Spade sends to reach the person now (ADR 0194). */
+  /** Spade's bots: what Spade sends to reach the person now (ADR 0195). */
   spade: withDefault(z.boolean(), true),
 });
 export type NotificationPrefs = z.infer<typeof NotificationPrefs>;

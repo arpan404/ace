@@ -5,7 +5,7 @@ export const requestAnchor = (callId: string) =>
   `[data-question="${CSS.escape(callId)}"], [data-request="${CSS.escape(callId)}"]`;
 
 /**
- * Brings forward the approval or question a notification opened (ADR 0194): once the
+ * Brings forward the approval or question a notification opened (ADR 0195): once the
  * conversation shows, its card is scrolled to the middle and focused, so its keys answer it. A
  * card already answered is no longer raised; the conversation then just opens.
  */

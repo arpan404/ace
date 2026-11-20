@@ -2,7 +2,7 @@ import { z } from "zod";
 import { spadeJson, spadeRecord } from "./json.ts";
 
 /*
- * How Spade reaches the person (ADR 0194), as `GET /v1/reach` sends it: notifications on or
+ * How Spade reaches the person (ADR 0195), as `GET /v1/reach` sends it: notifications on or
  * off, do not disturb, a daily quiet window, the interruption budget, the morning brief and
  * spend alerts, with why proactive notices wait right now and how many do. Minutes are after
  * local midnight in the person's zone; money is in micros. Lenient: a field that doesn't read

@@ -53,7 +53,7 @@ pub struct Digest {
     /// This bot's spend in the window with its workers'.
     pub subtree_spend_micros: u64,
     /// What waited for the person (do not disturb, quiet hours, the interruption budget) and
-    /// came here instead (ADR 0194). Filled by the engine, which holds those notices.
+    /// came here instead (ADR 0195). Filled by the engine, which holds those notices.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub away: Vec<String>,
 }

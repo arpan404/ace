@@ -1,4 +1,4 @@
-//! How the person wants Spade to reach them (ADR 0194): notifications on or off, do not disturb,
+//! How the person wants Spade to reach them (ADR 0195): notifications on or off, do not disturb,
 //! a daily quiet window, the interruption budget, the morning brief (ADR 0165's amendment) and
 //! spend alerts (ADR 0166's amendment). Stored as JSON; every field has a default, so a setting
 //! an older build stored reads.

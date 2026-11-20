@@ -13,7 +13,7 @@ const timeOf = (at: number) =>
   new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
 /**
- * The morning brief (ADR 0194) as a message in Spade's main chat: what finished, each line
+ * The morning brief (ADR 0195) as a message in Spade's main chat: what finished, each line
  * opening the bot's conversation it happened in; what waits on the person, answered here in one
  * tap where it can be; today's routines; and spend since the last brief. Words, no chrome.
  */

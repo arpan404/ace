@@ -3,7 +3,7 @@ import { z } from "zod";
 import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
 
 /*
- * How Spade reaches the person (ADR 0194): its settings, a bot's own switch, and answering a
+ * How Spade reaches the person (ADR 0195): its settings, a bot's own switch, and answering a
  * request from the morning brief through the same routes the conversation's cards use.
  */
 
