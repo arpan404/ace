@@ -321,10 +321,13 @@ lowercase_query`, `whole_word_skips_substrings`, `include_and_exclude_globs`,
 `sink_false_stops_search`, `long_line_preview_is_bounded`. Bench: literal search over this repo
 (`apps/` and `packages/`), report time and bytes.
 
-Confinement: each file is opened through its folder's handle with no link following, then
-`files_safe::Root::is_at` proves before any read that its checkout path, resolved from the root
-with no link followed anywhere and nothing outside the root reached, is the open file (Linux
-`openat2` with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`, macOS `fstatat` with
+Confinement: on Linux each file is opened by its checkout path from the root handle in one
+`openat2` with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS`
+(`files_safe::Root::open_file_unlinked`), so the open is its own proof: no link followed anywhere,
+nothing outside the root reached, and nothing able to move between the proof and the open. Where
+that call is unavailable (other platforms, an old kernel, a seccomp filter) each file is opened
+through its folder's handle with no link following, then `files_safe::Root::is_at` proves before
+any read that its checkout path, resolved the same way, is the open file (macOS `fstatat` with
 `AT_SYMLINK_NOFOLLOW_ANY`, a no-link walk from the root elsewhere). Folders open with
 `Root::open_dir_unlinked`, and the `.gitignore` files above a nested checkout are read only as
 regular files, never through a link. Accepted limits, as for files-io's save:

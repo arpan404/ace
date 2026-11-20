@@ -122,6 +122,21 @@ impl Root {
         at::is_at(self, rel, file, opened)
     }
 
+    /// Opens `rel` for reading where the kernel can resolve it from the root in one call, with no
+    /// link followed anywhere and nothing outside the root reached (Linux `openat2` with
+    /// `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS`), and only while the root's
+    /// path still names the root.
+    ///
+    /// The file that opens is the one the checkout path names at that moment, which is what
+    /// [`Root::is_at`] proves after an open through a folder handle; here the proof and the open
+    /// are the same call, so nothing can move between them. `None` where the call cannot be made
+    /// (another platform, an old kernel, a seccomp filter): the caller opens the file another way
+    /// and proves it with [`Root::is_at`]. A refusal is an error, and so is a path that is not in
+    /// relative form.
+    pub fn open_file_unlinked(&self, rel: &str) -> Option<std::io::Result<cap_std::fs::File>> {
+        at::open_unlinked(self, rel)
+    }
+
     /// The root folder's identity, read when the root opened.
     #[cfg(unix)]
     pub(crate) fn identity(&self) -> Option<Identity> {

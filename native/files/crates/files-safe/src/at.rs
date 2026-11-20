@@ -35,6 +35,37 @@ pub(crate) fn is_at(root: &Root, rel: &str, file: &File, opened: &Metadata) -> b
     }
 }
 
+/// Opens `rel` for reading in one call that is its own proof; see [`Root::open_file_unlinked`].
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) fn open_unlinked(root: &Root, rel: &str) -> Option<io::Result<File>> {
+    use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
+    use rustix::io::Errno;
+
+    let rel = match Root::check(rel) {
+        Ok(rel) if !rel.is_empty() => rel,
+        Ok(_) => return Some(Err(io::Error::other("the root is not a file"))),
+        Err(error) => return Some(Err(io::Error::new(io::ErrorKind::InvalidInput, error))),
+    };
+    if !root_still_named(root) {
+        return Some(Err(io::Error::other(
+            "the root's path names another folder now",
+        )));
+    }
+    let resolve = ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS;
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NOCTTY | OFlags::CLOEXEC;
+    match openat2(root.dir(), rel, flags, Mode::empty(), resolve) {
+        Ok(opened) => Some(Ok(File::from_std(std::fs::File::from(opened)))),
+        // No openat2 here, or a filter refuses it: the caller proves the file another way.
+        Err(Errno::NOSYS | Errno::PERM | Errno::INVAL) => None,
+        Err(error) => Some(Err(error.into())),
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+pub(crate) fn open_unlinked(_root: &Root, _rel: &str) -> Option<io::Result<File>> {
+    None
+}
+
 /// Whether the root's path still names the folder its handle holds, so a root moved away and
 /// replaced by a link cannot lend its name to another tree. One lookup: the handle's own identity
 /// was read when the root opened.
