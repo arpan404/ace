@@ -1,6 +1,7 @@
 import { CliRequest, CliResult } from "./cli-control.ts";
 import { MachineCodeRequest, MachineCodeResult } from "./machine-access.ts";
 import { ChannelClose, PairRedeem, PairResult } from "./relay-channel.ts";
+import { TunnelPorts, TunnelRefused } from "./machine-tunnel.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
 import { MediaConnectRequest, MediaConnectResult } from "./media-connection.ts";
 import { AdmissionChanged, AdmissionRequest, AdmissionResult } from "./admission.ts";
@@ -376,6 +377,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   MachineCodeResult,
   PairResult,
   ChannelClose,
+  TunnelPorts,
+  TunnelRefused,
   MachinesResult,
   FleetResult,
   OutsideResult,

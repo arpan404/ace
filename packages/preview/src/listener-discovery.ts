@@ -73,6 +73,44 @@ export async function discoverListeners(io: ProcessIo = systemProcessIo): Promis
   throw new Error(`Unsupported preview discovery platform: ${io.platform}`);
 }
 
+/**
+ * The TCP ports `pids` listen on, reading only those processes' descriptors (cheap enough to ask
+ * at each tunnel open, unlike `discoverListeners`, which walks every process).
+ */
+export async function processListeningPorts(
+  pids: readonly number[],
+  io: ProcessIo = systemProcessIo,
+): Promise<Set<number>> {
+  if (!pids.length) return new Set();
+  if (io.platform === "linux") {
+    const tables = await Promise.all([
+      io.readText("/proc/net/tcp"),
+      io.readText("/proc/net/tcp6").catch(missing),
+    ]);
+    const rows = parseProcSockets(tables.join("\n"));
+    const wanted = new Set(rows.map((row) => row.inode));
+    const inodes = new Map<number, Set<string>>();
+    for (const pid of pids) {
+      const fds = await io.list(`/proc/${pid}/fd`).catch((): string[] => []);
+      const held = new Set<string>();
+      for (const fd of fds) {
+        const target = await io.link(`/proc/${pid}/fd/${fd}`).catch(missing);
+        const inode = /^socket:\[(\d+)\]$/.exec(target)?.[1];
+        if (inode && wanted.has(inode)) held.add(inode);
+      }
+      inodes.set(pid, held);
+    }
+    return new Set(joinProcListeners(rows, inodes).map((listener) => listener.port));
+  }
+  if (io.platform === "darwin") {
+    const args = ["-nP", "-a", "-p", pids.join(","), "-iTCP", "-sTCP:LISTEN", "-Fpn"];
+    const output = await io.run("lsof", args);
+    if (!answered(output.code)) throw new Error("lsof listener discovery failed");
+    return new Set(parseLsofListeners(output.stdout).map((listener) => listener.port));
+  }
+  throw new Error(`Unsupported listener discovery platform: ${io.platform}`);
+}
+
 /** Each visible process's parent. */
 export async function processParents(
   io: ProcessIo = systemProcessIo,

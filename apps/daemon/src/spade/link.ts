@@ -79,6 +79,8 @@ export class SpadeLink {
   private revoker: (() => Promise<boolean>) | undefined;
   private hidden = false;
   private live: (SpadeReady & { key: string }) | undefined;
+  /** The Spade process last seen running and the port it named, answering or not. */
+  private seenRunning: { pid: number; port: number } | undefined;
   private generation = 0;
   private silentSince: number | undefined;
   /** Looks in a row that found Spade not answering past its start grace: the backoff. */
@@ -116,6 +118,13 @@ export class SpadeLink {
     const before = JSON.stringify(this.status());
     this.hidden = hidden;
     this.announce(before);
+  }
+  /**
+   * Spade's service process and its port, as last seen running: its listeners are ace's own,
+   * which the machine's tunnel never reaches (ADR 0194).
+   */
+  listener(): { pid: number; port: number } | undefined {
+    return this.seenRunning;
   }
   /** Spade's grant for ace, reported with every status (never its token). */
   setGrant(grant: SpadeStatus["grant"]): void {
@@ -222,6 +231,7 @@ export class SpadeLink {
     const named = read?.ok ? read.endpoint : undefined;
     // A server.json left by a Spade that is gone names nothing.
     const endpoint = named && runtime.alive(named.pid) ? named : undefined;
+    this.seenRunning = endpoint ? { pid: endpoint.pid, port: endpoint.port } : undefined;
     const tokenText = endpoint && (await runtime.readText(join(dataDir, "token")));
     const token = tokenText ? readTokenFile(tokenText) : undefined;
     // Only a nonce goes out; the token stays here until the answer proves it is Spade's.

@@ -272,7 +272,16 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     .object({
       type: z.literal("hello"),
       channel: z
-        .enum(["files", "devices", "browser", "screen", "provider_auth", "media", "machine"])
+        .enum([
+          "files",
+          "devices",
+          "browser",
+          "screen",
+          "provider_auth",
+          "media",
+          "machine",
+          "tunnel",
+        ])
         .optional(),
       /**
        * With `channel: "media"` on a relay stream with the `media` purpose: the ticket from the
