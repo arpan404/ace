@@ -1,4 +1,10 @@
-import type { CatalogEntry, CatalogMention, ProviderKind } from "@ace/protocol";
+import type {
+  Addressee,
+  CatalogEntry,
+  CatalogMention,
+  DeviceContextItem,
+  ProviderKind,
+} from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import { displayAddress } from "./browser-address.ts";
 import type { ComposerToken } from "./composer-tokens.ts";
@@ -70,6 +76,10 @@ export interface MentionThread {
 
 export interface ComposerSuggestion<Tab extends MentionTab = MentionTab> {
   group: string;
+  /** A Spade bot, club or another thread's agent (ADR 0194). */
+  addressee?: Addressee | undefined;
+  /** A device of the fleet (ADR 0194). */
+  device?: DeviceContextItem | undefined;
   /** What the row reads. */
   label: string;
   detail?: string | undefined;
@@ -266,6 +276,7 @@ export function suggestionToken(
   values?: NonNullable<CatalogMention["values"]>,
 ): ComposerToken {
   const label = item.entry || item.threadId || item.tab ? item.label : `@${item.label}`;
+  const named = item.addressee || item.device;
   const entry = item.entry;
   const catalog: CatalogMention | undefined = entry
     ? {
@@ -284,8 +295,11 @@ export function suggestionToken(
     end: start + label.length,
     label,
     ...(catalog ? { catalog } : {}),
+    ...(item.addressee ? { addressee: item.addressee } : {}),
+    ...(item.device ? { device: item.device } : {}),
+    ...(named && item.detail ? { detail: item.detail } : {}),
     ...(item.path ? { file: { path: item.path } } : {}),
-    ...(item.threadId
+    ...(item.threadId && !named
       ? {
           thread: {
             type: "thread_ref" as const,

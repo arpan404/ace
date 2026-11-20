@@ -1,4 +1,6 @@
 import type {
+  Addressee,
+  DeviceContextItem,
   BrowserTabContextItem,
   CatalogEntry,
   CatalogMention,
@@ -23,6 +25,12 @@ export interface ComposerToken {
    * composer, and its hash once the daemon holds it.
    */
   attachment?: { key?: number | undefined; sha256?: string | undefined } | undefined;
+  /** A Spade bot, club or another thread's agent the message also goes to (ADR 0194). */
+  addressee?: Addressee | undefined;
+  /** A device the message names for the work (ADR 0194). */
+  device?: DeviceContextItem | undefined;
+  /** The chip's one line of context, shown on hover. */
+  detail?: string | undefined;
 }
 
 /** An edit touching a reference removes it; edits around it preserve its position. */
@@ -87,10 +95,40 @@ export function referenceContext(
   );
   return {
     items: tokens.flatMap((token): MessageContextItem[] =>
-      token.thread ? [token.thread] : token.browserTab ? [token.browserTab] : [],
+      token.thread
+        ? [token.thread]
+        : token.browserTab
+          ? [token.browserTab]
+          : token.device
+            ? [token.device]
+            : [],
     ),
     mentions,
   };
+}
+
+/** Who else a message goes to, each once, in the order written. */
+export function addresseesOf(tokens: readonly ComposerToken[]): Addressee[] {
+  const seen = new Set<string>();
+  return tokens.flatMap((token) => {
+    const to = token.addressee;
+    if (!to) return [];
+    const key = to.kind === "agent" ? `agent:${to.threadId}` : `${to.kind}:${to.id}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [to];
+  });
+}
+
+/** The devices a message names, each once. */
+export function devicesOf(tokens: readonly ComposerToken[]): DeviceContextItem[] {
+  const seen = new Set<string>();
+  return tokens.flatMap((token) => {
+    const device = token.device;
+    if (!device || seen.has(`${device.machine.id}/${device.id}`)) return [];
+    seen.add(`${device.machine.id}/${device.id}`);
+    return [device];
+  });
 }
 
 /**
