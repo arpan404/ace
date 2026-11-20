@@ -34,7 +34,14 @@ test("stopping a thread whose provider can't stop its background task still sett
   const { h, id } = await waitingOnShell({ fail: "OpenCode location is unavailable" });
   expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
   await h.engine.flush();
-  expect(h.adapter.commands.map((command) => command.type)).toEqual(["send", "interrupt", "close"]);
+  // A whole-thread Stop also asks the agent to stop its background shell (c4cc03d95e); the
+  // failed interrupt then closes the session.
+  expect(h.adapter.commands.map((command) => command.type)).toEqual([
+    "send",
+    "interrupt",
+    "stopTask",
+    "close",
+  ]);
   expect(taskStatuses(h, id)).toEqual(["unknown"]);
   expect(h.store.getThread(id)?.status.state).toBe("done");
   const notices = Object.values(h.store.snapshotThread(id).items).filter(
