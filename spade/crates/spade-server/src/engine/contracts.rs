@@ -8,7 +8,8 @@
 //!   the call it delivered and waits for it again. Its result arrives once, as a
 //!   `<contract_result>`.
 //! - The callee works under its own gate, ceiling and grants, held to the contract's effects
-//!   while the call is open ([`Engine::call_ceilings`]). It answers with `contract_return`,
+//!   until the reply that serves the call ends, and its helpers and workers for good
+//!   ([`Engine::call_ceilings`]). It answers with `contract_return`,
 //!   checked against the output schema: a misfit goes back to it, the third fails the call.
 //! - Stop on the caller stops the callee's turn for the call; Stop on the callee stops the call.
 //!
@@ -20,7 +21,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use spade_core::Event;
-use spade_core::contract::{self, Called, Ending, Outcome, Request};
+use spade_core::contract::{self, Called, Ending, Outcome, Request, Scope};
 use spade_core::event::{FromAgent, Known};
 use spade_core::package::contract::Contract;
 use spade_store::{Agent, StoreError};
@@ -163,15 +164,24 @@ impl Engine {
         let Ok(Some(me)) = self.store.agent_for_conversation(caller) else {
             return refused("Only a bot can call a contract.");
         };
+        let job = key.split_once('.').map_or(key, |(_, job)| job).to_owned();
+        let call = call_id(key);
         let depth = self.hops(caller) + 1;
+        // A run after a restart carries on with the call it made, to the bot it pinned then:
+        // never resolved by name or admitted again, so it never reaches a second bot.
+        let pinned = self
+            .load(caller)
+            .ok()
+            .and_then(|events| contract::called_by(&events, &job).cloned());
+        if let Some(called) = pinned {
+            return self.resume_call(&me, called, input, depth).await;
+        }
         if depth > MOST_HOPS {
             return refused(format!(
                 "Refused: this would be a chain of more than {MOST_HOPS} calls between bots. \
                  Answer with what you have."
             ));
         }
-        let job = key.split_once('.').map_or(key, |(_, job)| job).to_owned();
-        let call = call_id(key);
         let machine = text("machine");
         if !machine.is_empty() {
             let asked = super::contracts_remote::Asked {
@@ -211,7 +221,60 @@ impl Engine {
             return refused(format!("The call was not delivered: {error}"));
         }
         let outcome = self.wait_call(&target, &call, frames).await;
-        finished(&call, &target.name, &contract, outcome)
+        finished(&call, &target.name, &name, Some(&contract), outcome)
+    }
+
+    /// Carries on with call `called` after a restart, from what was stored: its callee by id
+    /// (and machine), its delivery and its outcome. Delivered only when the stored callee never
+    /// got it, and then only to that callee.
+    async fn resume_call(
+        self: &Arc<Self>,
+        me: &Agent,
+        called: Called,
+        input: Value,
+        depth: u32,
+    ) -> ToolOutput {
+        if let Some(machine) = &called.machine {
+            return self
+                .resume_elsewhere(me, &called, machine, input, depth)
+                .await;
+        }
+        let Ok(Some(target)) = self.store.agent(&called.bot) else {
+            let outcome = Outcome::Failed {
+                problems: vec![format!("{} was deleted before it answered.", called.name)],
+            };
+            return finished(&called.call, &called.name, &called.contract, None, outcome);
+        };
+        let frames = self.live(&target.conversation).frames.subscribe();
+        let delivered = self
+            .load(&target.conversation)
+            .is_ok_and(|events| contract::delivered_at(&events, &called.call).is_some());
+        let contract = if delivered {
+            // Its callee checked the output; checked here too while this side still has it.
+            self.contracts_of(&target.id)
+                .into_iter()
+                .find(|c| c.name == called.contract)
+        } else {
+            // Stored but never delivered (it stopped in between): admitted now, to that bot.
+            let contract = match self.callable(&target, &called.contract, &input) {
+                Ok(contract) => contract,
+                Err(why) => return refused(why),
+            };
+            if let Err(error) =
+                self.deliver_call(me, &target, &called.call, &contract, input, depth)
+            {
+                return refused(format!("The call was not delivered: {error}"));
+            }
+            Some(contract)
+        };
+        let outcome = self.wait_call(&target, &called.call, frames).await;
+        finished(
+            &called.call,
+            &target.name,
+            &called.contract,
+            contract.as_ref(),
+            outcome,
+        )
     }
 
     /// The contract `name` of `target` that takes `input`, or why a call to it can't start.
@@ -398,12 +461,13 @@ impl Engine {
                 if left == 1 { "try" } else { "tries" }
             ));
         }
-        // What the callee read during the call (not the call itself) decides whether the caller
-        // treats the output as untrusted, as a helper's result is (ADR 0152 §6).
+        // What the callee had in view when the call arrived, and what it read since (not the
+        // call itself), decides whether the caller treats the output as untrusted, as a helper's
+        // result is (ADR 0152 §6).
         let registry = self.registry_for(conversation);
-        let untrusted = events[at + 1..]
-            .iter()
-            .any(|event| spade_core::context::untrusted_event(event, &registry));
+        let untrusted = contract::output_untrusted(&events, at, |event| {
+            spade_core::context::untrusted_event(event, &registry)
+        });
         let ended = Event::Known(Known::ContractEnded {
             call: call.to_owned(),
             ending: Ending::Returned { output, untrusted },
@@ -444,23 +508,35 @@ impl Engine {
         }
     }
 
-    /// The ceilings an open contract call holds `conversation` to: the contract's effects for
-    /// each call open in it, refused in the contract's name.
-    pub(crate) fn call_ceilings(
-        &self,
-        conversation: &str,
-    ) -> Vec<(String, Vec<spade_core::effect::Effect>)> {
+    /// The ceilings contract calls hold `conversation` to, each refused in the contract's name:
+    /// every call its reply now serves, until that reply ends (returned or not), and, for a
+    /// worker, the calls its maker served when it made it, for good.
+    pub(crate) fn call_ceilings(&self, conversation: &str) -> Vec<Scope> {
         let Ok(events) = self.load(conversation) else {
             return Vec::new();
         };
-        contract::open(&events)
+        let mut held: Vec<Scope> = contract::scoped(&events)
             .into_iter()
-            .map(|request| {
-                (
-                    format!("The {} call", request.contract),
-                    request.effects.clone(),
-                )
-            })
+            .map(Scope::from)
+            .collect();
+        if let Some(link) = self.worker_link(conversation) {
+            held.extend(link.held);
+        }
+        held
+    }
+
+    /// The ceilings that hold helper `helper` for as long as it lives: the calls the reply that
+    /// started it served (ADR 0200 §7), though that reply has ended since.
+    pub(crate) fn helper_call_ceilings(&self, helper: &spade_store::StoredHelper) -> Vec<Scope> {
+        if helper.reply.is_empty() {
+            return Vec::new();
+        }
+        let Ok(events) = self.load(&helper.parent) else {
+            return Vec::new();
+        };
+        contract::scoped_by_reply(&events, &helper.reply)
+            .into_iter()
+            .map(Scope::from)
             .collect()
     }
 }
@@ -486,17 +562,27 @@ pub(super) fn call_message(from: FromAgent) -> Event {
 }
 
 /// The job's answer once a call ended: its `<contract_result>`, an error unless it returned, and
-/// untrusted when the callee read anything untrusted. The output is checked against the schema
-/// on this side too.
-pub(super) fn finished(call: &str, bot: &str, contract: &Contract, outcome: Outcome) -> ToolOutput {
-    let outcome = match outcome {
-        Outcome::Returned { output, untrusted } => match contract.misfit_output(&output) {
-            Some(problems) => Outcome::Failed { problems },
-            None => Outcome::Returned { output, untrusted },
-        },
-        other => other,
+/// untrusted when the callee read anything untrusted. The output of contract `name` is checked
+/// against `schema` on this side too when this side knows it, as a reader: a field it doesn't name
+/// passes, since the callee may run a newer version that added it (the callee's own check, which
+/// every output passed, stays strict).
+pub(super) fn finished(
+    call: &str,
+    bot: &str,
+    name: &str,
+    schema: Option<&Contract>,
+    outcome: Outcome,
+) -> ToolOutput {
+    let outcome = match (outcome, schema) {
+        (Outcome::Returned { output, untrusted }, Some(contract)) => {
+            match contract.misfit_output_read(&output) {
+                Some(problems) => Outcome::Failed { problems },
+                None => Outcome::Returned { output, untrusted },
+            }
+        }
+        (other, _) => other,
     };
-    let text = contract::result_text(call, bot, &contract.name, &outcome);
+    let text = contract::result_text(call, bot, name, &outcome);
     match outcome {
         Outcome::Returned { untrusted, .. } => {
             let mut output = ToolOutput::ok(text);

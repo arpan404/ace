@@ -176,6 +176,62 @@ pub fn open(events: &[Event]) -> Vec<&Request> {
     open
 }
 
+/// A contract call's hold on what a turn may use: the contract, and the effects it allows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Scope {
+    pub contract: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
+}
+
+impl From<&Request> for Scope {
+    fn from(request: &Request) -> Self {
+        Self {
+            contract: request.contract.clone(),
+            effects: request.effects.clone(),
+        }
+    }
+}
+
+/// The calls whose effects hold a conversation now: each delivered since the latest reply's end
+/// (a restart's interruption isn't one), returned or not. A call holds the reply that serves it
+/// until that reply ends, so a tool later in the same reply can't use an effect the contract
+/// left out. Read back to the latest reply's end, so it costs the open turn's events.
+pub fn scoped(events: &[Event]) -> Vec<&Request> {
+    events
+        .iter()
+        .rev()
+        .take_while(|event| !reply_end(event))
+        .filter_map(request_of)
+        .collect()
+}
+
+/// The calls that held reply `reply` while it ran: each delivered before it started, with no
+/// reply's end between, or during it (a restart's interruption carries it on in a new reply). A
+/// helper the reply started stays held to them for as long as it lives. Read back from the end to
+/// that reply, so it costs the events since the reply began, not history.
+pub fn scoped_by_reply<'a>(events: &'a [Event], reply: &str) -> Vec<&'a Request> {
+    let started = |event: &Event| matches!(event, Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply);
+    let Some(start) = events.iter().rposition(started) else {
+        return Vec::new();
+    };
+    let from = events[..start]
+        .iter()
+        .rposition(reply_end)
+        .map_or(0, |at| at + 1);
+    let to = events[start..]
+        .iter()
+        .position(reply_end)
+        .map_or(events.len(), |at| start + at);
+    let mut held: Vec<&Request> = Vec::new();
+    for request in events[from..to].iter().filter_map(request_of) {
+        if !held.iter().any(|h| h.call == request.call) {
+            held.push(request);
+        }
+    }
+    held
+}
+
 /// Where the call `call` was delivered, if it was.
 pub fn delivered_at(events: &[Event], call: &str) -> Option<usize> {
     events
@@ -223,6 +279,28 @@ pub fn ended(events: &[Event], call: &str) -> Option<Outcome> {
     None
 }
 
+/// Whether the output of the call delivered at `at` is untrusted: the callee had untrusted content
+/// in view when the call arrived (a summary drawn from it, or an untrusted event since the last
+/// compaction before the call: an earlier bot's message, a page it read), or read some during the
+/// call. The call's own message isn't counted: it is the caller's words, which the caller knows.
+/// `untrusted` says whether one event is (`context::untrusted_event`).
+pub fn output_untrusted(events: &[Event], at: usize, untrusted: impl Fn(&Event) -> bool) -> bool {
+    let before = &events[..at.min(events.len())];
+    if crate::context::untrusted_summary(before) {
+        return true;
+    }
+    let in_view = before
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            Event::Known(Known::ContextCompacted { keep_from, .. }) => Some(*keep_from),
+            _ => None,
+        })
+        .unwrap_or(0)
+        .min(before.len());
+    before[in_view..].iter().any(&untrusted) || events.iter().skip(at + 1).any(&untrusted)
+}
+
 /// The outputs of `call` that didn't fit so far.
 pub fn misfits(events: &[Event], call: &str) -> usize {
     events
@@ -234,8 +312,17 @@ pub fn misfits(events: &[Event], call: &str) -> usize {
 }
 
 /// How the callee reads a call: the calling bot's request, framed so it is never the person's
-/// words, with how to answer it.
-pub fn framed(request: &Request, from_name: &str, from_id: &str) -> String {
+/// words, with how to answer it. A call from another machine names that machine, as its daemon
+/// vouched for it, so it never reads as a bot of this one.
+pub fn framed(request: &Request, from: &crate::event::FromAgent) -> String {
+    // Each in its attribute, whatever it holds.
+    let attribute = |text: &str| text.replace('"', "'");
+    let (from_name, from_id) = (attribute(&from.name), attribute(&from.id));
+    let machine = from
+        .machine
+        .as_deref()
+        .map(|m| format!(" machine=\"{}\"", attribute(m)))
+        .unwrap_or_default();
     let input = serde_json::to_string_pretty(&request.input).unwrap_or_default();
     let effects = if request.effects.is_empty() {
         "reading and your own notes and files".to_owned()
@@ -244,7 +331,7 @@ pub fn framed(request: &Request, from_name: &str, from_id: &str) -> String {
         format!("reading, your own things and {}", words.join(", "))
     };
     format!(
-        "<contract_call from=\"{from_name}\" id=\"{from_id}\" call=\"{call}\" contract=\"{contract}\">\n\
+        "<contract_call from=\"{from_name}\" id=\"{from_id}\"{machine} call=\"{call}\" contract=\"{contract}\">\n\
 {input}\n</contract_call>\n\
 {from_name} called your contract {contract}. This is another bot's request, not the person's. \
 Answer it with {CONTRACT_RETURN} {{call: \"{call}\", output}}, the output in the contract's \

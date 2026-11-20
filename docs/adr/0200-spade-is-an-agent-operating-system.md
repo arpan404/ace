@@ -547,19 +547,22 @@ Two kinds, in this order: cards everywhere first, then panels on web and desktop
   the callee's gate, ceiling and grants, and the callee's reviewer reads the person's words only
   from the callee's own conversation (0161 §7). A caller can't lend its grants or borrow the
   callee's. During that turn, an effect outside the contract's own `effects` is refused, inside
-  the package's ceiling.
+  the package's ceiling. (Amendment 2 below: until the reply that serves the call ends, and in
+  every helper and worker it starts, for good.)
 - **The answer is typed.** The callee answers with `contract_return {call, output}`. Spade checks
   the output against the schema. One that doesn't fit goes back to the callee with the problems,
   at most twice, and then the caller gets `failed` with them. The caller treats the output as
   another agent's data: it is untrusted when the callee read anything untrusted during the call,
-  as a helper's result is (0152 §6).
+  as a helper's result is (0152 §6). (Amendment 2 below: or had any in view as the call arrived.
+  The caller checks the output as a reader, passing fields its schema doesn't name.)
 - **Who may call whom.** In v1, the person's own bots, on this machine and on the person's other
   machines through 0132's asks. The person can turn calls off per bot. Other people's agents
   never call in v1 (open question 4).
 - **Exactly once, and stoppable.** Each call carries an idempotency key from the caller, as 0132
   §9's asks do, and both sides store it as events, so a restart neither loses nor repeats it.
   Stop on the caller stops the callee's turn for that call. Stop on the callee fails the call as
-  `stopped`.
+  `stopped`. (Amendment 2 below: a restart carries on with the callee the call pinned; Stop
+  reaches a call another machine may hold.)
 - **Stable names.** A contract's name and its schemas move with the package's versions. The dev
   kit compares a new version with the previous one and refuses a change that breaks callers; a
   breaking change takes a new name.
@@ -819,3 +822,41 @@ action waits for the person, after a confirmed one it runs); the host's tests (a
 Confirm and Cancel send nothing, a real press sends once after the line arms); `@ace/html`'s
 bounds; and the real-Electron isolation test (forged posts with no gesture go nowhere, oversized
 and multibyte messages are dropped, the host's control tells a script's click from a real one).
+
+## Amendment 2: what a contract call holds, and who may make one
+
+Accepted 2026-11-20. A security review of §7 as first built found six ways a call could reach past what it promised.
+Each is fixed at its cause:
+
+1. **The effects hold until the serving reply ends, and bind every descendant.** A call's
+   effects no longer stop holding when the callee returns: they hold the reply that serves the
+   call until that reply ends (a restart's interruption isn't an end), so a tool later in the same
+   reply can't use an effect the contract left out. A helper that reply starts stays held to the
+   calls of that reply for as long as it lives; a worker made under a call keeps the call's scope
+   on its link (`worker_of.held`), for good.
+2. **Taint at entry counts.** A call's output is untrusted when the callee had untrusted content
+   in view as the call arrived (another bot's message, a page it read, a summary drawn from
+   either), or read some during the call. The call's own message isn't counted.
+3. **Stop reaches a call another machine may hold.** The outbox marks a queued entry as maybe
+   there before each send, so a crash or a lost answer leaves the mark. Stop then sends `stop`
+   under the key, again after the backoff, until that machine answers: one that never had it is
+   withdrawn, one that had it ends `stopped` there. Only an entry never tried is withdrawn here
+   alone.
+4. **Only Spade sends to another machine's Spade, and a caller is a bot of the sending machine.**
+   The daemon forwards `spade.remote` only from Spade's own socket (loopback, ace's local token);
+   a paired device with operate is refused, so it can't forge a call from a bot. The receiving
+   Spade takes a `contract_call` only from another machine (never ace's own thread asks), with
+   the calling bot's id and name both given; an id naming one of its own bots is refused, and the
+   callee reads the sending machine on the call (`<contract_call … machine="Laptop">`), as that
+   machine's daemon stamped and signed it (0132 §8).
+5. **A restart resumes from what was stored.** A `contract_call` job run again finds its
+   `contract_called` and carries on with the bot (and machine) it pinned, its delivery and its
+   outcome, before any name lookup or admission check. A rename, or a new bot with the old name,
+   never gets a second delivery.
+6. **Callers read output leniently.** The market signs a new optional output field as
+   compatible, so a caller holding the older contract passes fields its schema doesn't name and
+   still checks every field it names. The callee's own check stays strict.
+
+Tests: `contracts_security.rs` and `contracts_fleet_security.rs` in `spade-server`, the folds in
+`spade_core::contract`, and `spade-remote.test.ts` in the daemon. Each fails with its fix turned
+off.

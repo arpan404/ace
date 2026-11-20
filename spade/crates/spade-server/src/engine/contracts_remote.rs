@@ -172,47 +172,58 @@ impl Engine {
         if let Err(error) = self.note_called(caller, called) {
             return ToolOutput::error(format!("The call was not stored: {error}"));
         }
-        let request = json!({
-            "op": "contract_call",
-            "key": asked.call,
-            "to": to,
-            "contract": asked.contract,
-            "input": asked.input,
-            "from": { "id": asked.me.id, "name": asked.me.name },
-            "depth": asked.depth,
-        });
+        let request = call_request(&asked, &to);
         if let Err(error) = self.send_remote(asked.call, &target.host_id, &target.name, request) {
             return ToolOutput::error(format!("The call was not stored: {error}"));
         }
+        let shown = format!("{name} on {}", target.name);
+        // Without the schema here (that machine was away), its Spade checked the output.
+        self.remote_finished(asked.call, &shown, asked.contract, contract.as_ref())
+            .await
+    }
+
+    /// Carries on with call `called` to machine `machine` after a restart: sent under its key to
+    /// the bot it pinned (a key already stored keeps its first request), never resolved again.
+    pub(super) async fn resume_elsewhere(
+        self: &Arc<Self>,
+        me: &Agent,
+        called: &Called,
+        machine: &str,
+        input: Value,
+        depth: u32,
+    ) -> ToolOutput {
+        let machine_name = called.machine_name.as_deref().unwrap_or(machine);
+        let asked = Asked {
+            me,
+            job: &called.job,
+            call: &called.call,
+            bot: &called.bot,
+            contract: &called.contract,
+            input: &input,
+            depth,
+        };
+        let request = call_request(&asked, &called.bot);
+        if let Err(error) = self.send_remote(&called.call, machine, machine_name, request) {
+            return ToolOutput::error(format!("The call was not stored: {error}"));
+        }
+        let shown = format!("{} on {machine_name}", called.name);
+        self.remote_finished(&called.call, &shown, &called.contract, None)
+            .await
+    }
+
+    /// Waits for the outbox entry of call `call` to end, and answers as its job.
+    async fn remote_finished(
+        &self,
+        call: &str,
+        shown: &str,
+        name: &str,
+        schema: Option<&Contract>,
+    ) -> ToolOutput {
         let mut last: Option<OutboxEntry> = None;
         let _ = self
-            .wait_remote(asked.call, |entry| last = Some(entry.clone()))
+            .wait_remote(call, |entry| last = Some(entry.clone()))
             .await;
-        let outcome = outcome_of(last.as_ref());
-        let shown = format!("{name} on {}", target.name);
-        match contract {
-            Some(contract) => finished(asked.call, &shown, &contract, outcome),
-            None => {
-                let unchecked = Contract {
-                    name: asked.contract.to_owned(),
-                    summary: String::new(),
-                    input: Value::Null,
-                    output: Value::Null,
-                    effects: Vec::new(),
-                    examples: Vec::new(),
-                };
-                // The schema wasn't known here: its Spade checked the output.
-                let text = contract::result_text(asked.call, &shown, &unchecked.name, &outcome);
-                match outcome {
-                    Outcome::Returned { untrusted, .. } => {
-                        let mut out = ToolOutput::ok(text);
-                        out.untrusted = untrusted;
-                        out
-                    }
-                    _ => ToolOutput::error(text),
-                }
-            }
-        }
+        finished(call, shown, name, schema, outcome_of(last.as_ref()))
     }
 
     /// `contracts`: what this machine's bots offer another of the person's machines.
@@ -230,12 +241,31 @@ impl Engine {
         if !is_call(key) || key.len() > 160 {
             return refuse(400, "a call's key is cc. and at most 160 characters");
         }
+        // Only a bot of another of the person's machines calls a contract here, through that
+        // machine's Spade: never ace's own thread asks.
+        if sender.host.starts_with(super::thread_asks::FROM_ACE) {
+            return refuse(
+                403,
+                "only a bot on another machine can call a contract here",
+            );
+        }
         if self.store.inbox(&sender.host, key).ok().flatten().is_some() {
             return (200, json!({ "status": "duplicate" }));
         }
-        let Some(from) = body["from"].as_object() else {
-            return refuse(400, "a call names the bot it comes from");
+        let Some((from_id, from_name)) = caller_of_call(&body["from"]) else {
+            return refuse(
+                400,
+                "a call names the bot it comes from, by its id and name",
+            );
         };
+        // The caller is a bot of the sending machine, which its daemon vouched for: it can't be
+        // one of this machine's bots.
+        if self.store.agent(&from_id).ok().flatten().is_some() {
+            return refuse(
+                403,
+                "a call from another machine can't come from a bot of this one",
+            );
+        }
         let depth = body["depth"]
             .as_u64()
             .unwrap_or(1)
@@ -282,9 +312,10 @@ impl Engine {
             );
         }
         let from = FromAgent {
-            id: short(from.get("id"), 128, "bot"),
-            name: short(from.get("name"), crate::engine::NAME_CHARS, "A bot"),
+            id: from_id,
+            name: from_name,
             depth,
+            // Bound to the machine that sent it, as its daemon stamped and signed it.
             machine: Some(sender.name.clone()),
             contract: Some(Box::new(Request {
                 call: key.to_owned(),
@@ -387,6 +418,29 @@ impl Engine {
         self.stop_callee(&entry.agent_id, key);
         (200, json!({ "status": "stopped" }))
     }
+}
+
+/// The calling bot a call names: its id and name, each one short line, or `None` when either is
+/// missing.
+fn caller_of_call(from: &Value) -> Option<(String, String)> {
+    let line = |field: &str, most: usize| {
+        let text = from.get(field)?.as_str()?.trim();
+        (!text.is_empty()).then(|| short(Some(&Value::from(text)), most, ""))
+    };
+    Some((line("id", 128)?, line("name", crate::engine::NAME_CHARS)?))
+}
+
+/// The inbox request that delivers a call to bot `to` there.
+fn call_request(asked: &Asked<'_>, to: &str) -> Value {
+    json!({
+        "op": "contract_call",
+        "key": asked.call,
+        "to": to,
+        "contract": asked.contract,
+        "input": asked.input,
+        "from": { "id": asked.me.id, "name": asked.me.name },
+        "depth": asked.depth,
+    })
 }
 
 /// An ended call as the caller's machine reads it back.

@@ -192,7 +192,7 @@ pub fn person_text(
     if let Some(from) = from_agent {
         text = match &from.contract {
             // A contract call (ADR 0200 §7): its input, framed as the calling bot's request.
-            Some(request) => crate::contract::framed(request, &from.name, &from.id),
+            Some(request) => crate::contract::framed(request, from),
             None => format!(
                 "<bot_message from=\"{}\" id=\"{}\">\n{text}\n</bot_message>",
                 from.name, from.id

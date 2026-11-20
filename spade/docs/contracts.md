@@ -70,7 +70,9 @@ two (`{"input": {…}, "output": {…}}`, at most 40 KiB).
   that isn't in the package, isn't a JSON object, or holds any other field.
 - The file is written into the contract before `bot.json` is read
   (`spade_core::package::contract_files`, `inlineContractFiles` in `@ace/marketplace`, held
-  together by `rules.json`), so every reader, check, comparison and view sees one form.
+  together by `rules.json`), so every reader, check, comparison and view sees one form. A call
+  to such a contract runs as any other: the callee's strict output check, the caller's reader's
+  check, its effects' hold and its taint all read the schemas written in.
 - **The signature covers it.** The market's signed version manifest lists every file of the
   package with its size and sha256, and signs the list. The daemon sends each schema file beside
   `bot.json` in the envelope (`files`), and Spade takes one only when it is a `contracts/` file
@@ -95,9 +97,11 @@ two (`{"input": {…}, "output": {…}}`, at most 40 KiB).
 | `array`             | `items`, `maxItems` (required, 1 to 1,000), `minItems`                      |
 
 `description` and `title` are allowed anywhere. An `enum` alone is a string enum. At most six
-levels deep, 16 KiB in all. An object never takes a field it doesn't name. Any other keyword
-(`$ref`, `pattern`, `oneOf`) refuses the schema, so a schema never means more than the readers
-check.
+levels deep, 16 KiB in all. An object never takes a field it doesn't name, where a value is
+written (a call's input, the callee's output); a caller reading an output passes fields its
+schema doesn't name (`Schema::check_reading`), since the callee may run a newer version that
+added them. Any other keyword (`$ref`, `pattern`, `oneOf`) refuses the schema, so a schema never
+means more than the readers check.
 
 ## The tools (`spade.v1`, `agents`, since 0.0.25)
 
@@ -116,8 +120,10 @@ The caller reads:
 ```
 
 `status` is `returned`, `failed` (with the problems) or `stopped`; `untrusted="true"` marks output
-of a callee that read anything untrusted during the call (ADR 0152 §6), and the job's result is
-untrusted with it. Output from another machine is untrusted unless that machine says otherwise.
+of a callee that had anything untrusted in view as the call arrived (another bot's message, a
+page it read, a summary drawn from either; since the last compaction) or read any during the call
+(ADR 0152 §6), and the job's result is untrusted with it. The call's own message isn't counted.
+Output from another machine is untrusted unless that machine says otherwise.
 
 ## How a call runs
 
@@ -126,22 +132,33 @@ untrusted with it. Output from another machine is untrusted unless that machine 
   in the caller's conversation once, then delivers the call to the callee as a `user_message`
   whose `from_agent.contract` is `{call, contract, input, effects}`; Spade refuses a second
   delivery of the same id under the record lock. After a restart the job runs again with the same
-  key (as a helper's does), finds its call and waits for its end; nothing is lost or repeated.
+  key (as a helper's does) and carries on from its `contract_called`: the bot (and machine) it
+  pinned then, its delivery and its outcome, before any name lookup or admission check. A rename,
+  or another bot that took the name meanwhile, never gets the call; a call stored but never
+  delivered goes to the pinned bot only. Nothing is lost or repeated.
 - **The callee's own gate.** The callee reads the call as `<contract_call from=… call=…>`, never
   as the person's words; its reviewer reads the person only from its own conversation, and the
-  call taints the turn like any bot's message. While the call is open (delivered, not ended, no
-  reply ended since; a restart's interruption doesn't count), the callee and its helpers and
-  workers are held to the contract's `effects` inside the package's ceiling:
-  `Not run: The cheapest_fare call doesn't declare publishing.` The caller's grants never pass to
-  the callee, and the callee's own grants and switches reach no further than the contract.
+  call taints the turn like any bot's message. From its delivery until the reply that serves it
+  ends (returned or not; a restart's interruption isn't an end), the callee is held to the
+  contract's `effects` inside the package's ceiling, so a tool later in the reply that returned is
+  held too: `Not run: The cheapest_fare call doesn't declare publishing.` A helper that reply
+  starts stays held to its calls for as long as it lives, and a worker made under a call keeps the
+  call's scope on its link (`worker_of.held`) for good. The caller's grants never pass to the
+  callee, and the callee's own grants and switches reach no further than the contract.
 - **Checked output.** `contract_return` checks the output against the schema. A misfit is stored
   (`contract_misfit`) and goes back to the callee with the problems and the tries left; the third
   ends the call `failed` with them. A fitting output ends it `returned` (`contract_ended`). A turn
   that finishes without returning fails the call; a stopped one stops it. The caller checks the
-  output against the schema again.
+  output against the schema again, as a reader: a field its schema doesn't name passes (a newer
+  version may add optional output fields, which the signer allows), and every field it names is
+  checked.
 - **Stop.** Stop on the caller stops the callee's turn for each open call (here, or through the
   outbox's `stop` on another machine), also after a restart. Stop on the callee ends the call
-  `stopped`.
+  `stopped`. The outbox marks a queued entry as maybe there before each send (`maybe_there` in
+  its answer, stored before the request leaves), so a crash or a lost answer can't hide a call
+  that machine took: Stop on such an entry sends `stop` under its key, again after the backoff,
+  until that machine answers. One it never had (`unknown`) is withdrawn; one it had ends `stopped`
+  there. Only an entry never tried is withdrawn here alone.
 - **Rollup.** A caller reads `working` while a call is open, and `waiting` ("A bot it asked is
   waiting for you") while its callee waits on the person (ADR 0200 §6.2). For a callee on another
   machine, that machine answers the call's long poll early, `pending` with `waiting`, whenever
@@ -154,8 +171,18 @@ untrusted with it. Output from another machine is untrusted unless that machine 
 
 Only the person's own bots: on this machine, and on their other machines through ADR 0132's asks
 (the outbox and inbox ops `contracts`, `contract_call`, and `answer`/`stop` for `cc.` keys, under
-the same daily limit and 7-day wait). Other people's bots never call. The person turns calls to a
-bot off and on:
+the same daily limit and 7-day wait). Other people's bots never call.
+
+A call from another machine is Spade-to-Spade traffic only. The daemon forwards `spade.remote`
+only from Spade's own socket (loopback, ace's local token), never from a paired device, so only
+the sending machine's Spade names the calling bot, from its own record. The receiving Spade takes
+a `contract_call` only through the signed inbox from another machine (never ace's own thread
+asks), with the calling bot's `from.id` and `from.name` both given. An id naming one of its own
+bots is refused (403), and the callee reads the sending machine on the call:
+`<contract_call from="Trip planner" id="…" machine="Laptop" …>`, the machine as its daemon stamped
+and signed it (ADR 0132 §8).
+
+The person turns calls to a bot off and on:
 
 - `GET /v1/agents/{id}/contracts`: `{contracts, incoming}`.
 - `PUT /v1/agents/{id}/contracts {incoming}`.

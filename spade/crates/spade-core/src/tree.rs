@@ -83,6 +83,10 @@ pub struct Link {
     /// brief reaches the worker as its maker's message, which makes its turn untrusted.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub untrusted: bool,
+    /// The contract calls its maker was serving when it made it (ADR 0200 §7): the worker stays
+    /// held to each one's effects for as long as it lives, after the call and its reply end.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<crate::contract::Scope>,
 }
 
 /// A worker its parent started (`worker_started`), in the parent's conversation.
