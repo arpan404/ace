@@ -1,0 +1,17 @@
+<!doctype html>
+<!--
+  Dev-only harness for the Deck view (W3), served by the web dev server at
+  /src/features/editor-workbench/view/harness/index.html?scheme=dark|light. Never built: the
+  app's only entry is apps/web/index.html. No daemon: buffer facts and code are fake.
+-->
+<html lang="en" data-theme="ace" data-scheme="dark" data-surface="solid" data-density="comfortable">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Deck harness</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./harness.tsx"></script>
+  </body>
+</html>

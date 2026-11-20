@@ -1,6 +1,4 @@
-import { FilesIcon } from "@ace/icons";
 import { useEffect, useState } from "react";
-import { pinnedGlyph } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
@@ -8,14 +6,10 @@ import { formatBytes } from "@/components/format-bytes.ts";
 import type { BufferLoad } from "./buffers.ts";
 import { fileName } from "./paths.ts";
 
-// Empty states draw their glyph two-tone (components/empty-glyphs.ts).
-const filesGlyph = pinnedGlyph(FilesIcon, ["duotone"]);
-
 /** Spec 62: the last group with nothing open. The explorer beside it is the real way in. */
 export function NoFileOpen(props: { onQuickOpen?: (() => void) | undefined }) {
   return (
     <EmptyState
-      icon={filesGlyph}
       title="No file open"
       action={
         props.onQuickOpen && (
