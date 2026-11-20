@@ -494,8 +494,12 @@ test("a stream reset while its authorization waits gives its slot back and is ne
   waiting.abort();
   await new Promise((resolve) => setTimeout(resolve, 20));
   gate.resolve();
-  // The one slot is free again: the next open is admitted and dialed.
+  // The one slot is free again: the next open is admitted and dialed. READY follows the dial's
+  // connect, which can come before the listener's accept runs (it does on macOS), so poll.
   await device.open(port).ready;
+  await expect.poll(() => state.connections).toBe(1);
+  // The reset open never reached the listener: only the one connection, however long we wait.
+  await new Promise((resolve) => setTimeout(resolve, 50));
   expect(state.connections).toBe(1);
   expect(device.refused).toEqual([]);
 });
