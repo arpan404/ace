@@ -45,7 +45,9 @@ async function init(context: CommandContext): Promise<void> {
 async function check(context: CommandContext): Promise<void> {
   const { checkPackage, checkLines } = await import("../bot-kit/check.ts");
   const { emit } = await import("../io.ts");
-  const checked = await checkPackage(folderOf(context));
+  const checked = await checkPackage(folderOf(context), {
+    against: option(context.args, "against"),
+  });
   await emit(context.args, checked, { human: checkLines, quiet: (value) => [value.hash] });
 }
 
@@ -117,7 +119,7 @@ async function publish(context: CommandContext): Promise<void> {
   const { checkPackage } = await import("../bot-kit/check.ts");
   const { testPackage } = await import("../bot-kit/test.ts");
   const root = folderOf(context);
-  const checked = await checkPackage(root);
+  const checked = await checkPackage(root, { against: option(context.args, "against") });
   // The market runs a package's tests on its signer; one whose tests fail isn't listed.
   await testPackage(root, await program(context));
   const { publish: marketPublish } = await import("./market-flows.ts");

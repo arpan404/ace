@@ -98,6 +98,24 @@ export const PackageRequires = z.strictObject({
   spade: z.string().max(40).optional(),
 });
 
+/**
+ * A contract another of the person's bots may call (ADR 0200 §7): its input and output schemas
+ * in the bounded subset `@ace/marketplace`'s `readSchema` checks, the effects a call may use
+ * (within the package's), and examples. Schema only: the subset's rules are the reader's.
+ */
+export const PackageContract = z.strictObject({
+  name: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
+  summary: trimmedText(1, 200),
+  input: z.record(z.string(), z.unknown()),
+  output: z.record(z.string(), z.unknown()),
+  effects: z.array(PackageEffectWord).max(5).default([]),
+  examples: z
+    .array(z.strictObject({ input: z.unknown(), output: z.unknown() }))
+    .max(8)
+    .default([]),
+});
+export type PackageContract = z.infer<typeof PackageContract>;
+
 /** The version 3 fields a read recipe carries; a version 2 recipe has none of them. */
 export const packageFields = {
   requires: PackageRequires.optional(),
@@ -105,6 +123,7 @@ export const packageFields = {
   triggers: z.array(PackageTrigger).max(40).default([]),
   effects: z.array(PackageEffect).max(32).default([]),
   limits: PackageLimits.optional(),
+  contracts: z.array(PackageContract).max(16).optional(),
   tests: z
     .array(z.string().regex(/^tests\/[A-Za-z0-9._-]+\.json$/))
     .max(64)

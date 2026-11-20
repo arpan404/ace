@@ -42,6 +42,8 @@ export {
   type TrendRow,
 } from "./trending.ts";
 export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe } from "./recipe.ts";
+export { breakingChanges, contractLimits, readContracts } from "./contracts.ts";
+export { readSchema, schemaLimits, schemaMisfits, type Misfit, type Schema } from "./schema.ts";
 export {
   effectKey,
   grantedEffects,

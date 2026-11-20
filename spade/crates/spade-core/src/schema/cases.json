@@ -21,8 +21,14 @@
         { "value": { "from": "KTM", "to": "DEL" }, "at": "input.month" },
         { "value": { "from": "KTMX", "to": "DEL", "month": "2027-01" }, "at": "input.from" },
         { "value": { "from": "KT", "to": "DEL", "month": "2027-01" }, "at": "input.from" },
-        { "value": { "from": "KTM", "to": "DEL", "month": "2027-01", "seat": "aisle" }, "at": "input.seat" },
-        { "value": { "from": "KTM", "to": "DEL", "month": "2027-01", "direct": "yes" }, "at": "input.direct" },
+        {
+          "value": { "from": "KTM", "to": "DEL", "month": "2027-01", "seat": "aisle" },
+          "at": "input.seat"
+        },
+        {
+          "value": { "from": "KTM", "to": "DEL", "month": "2027-01", "direct": "yes" },
+          "at": "input.direct"
+        },
         { "value": ["KTM"], "at": "input" }
       ]
     },
@@ -34,7 +40,11 @@
           "fare": { "type": "number", "minimum": 0 },
           "stops": { "type": "integer", "minimum": 0, "maximum": 3 },
           "currency": { "enum": ["USD", "NPR", "INR"] },
-          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 40 }, "maxItems": 2 }
+          "carriers": {
+            "type": "array",
+            "items": { "type": "string", "maxLength": 40 },
+            "maxItems": 2
+          }
         },
         "required": ["fare"]
       },
@@ -58,13 +68,22 @@
       "schema": {
         "type": "object",
         "properties": {
-          "a": { "type": "object", "properties": {
-            "b": { "type": "object", "properties": {
-              "c": { "type": "object", "properties": {
-                "d": { "type": "array", "maxItems": 2, "items": { "type": "boolean" } }
-              } }
-            } }
-          } }
+          "a": {
+            "type": "object",
+            "properties": {
+              "b": {
+                "type": "object",
+                "properties": {
+                  "c": {
+                    "type": "object",
+                    "properties": {
+                      "d": { "type": "array", "maxItems": 2, "items": { "type": "boolean" } }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "fits": [{ "a": { "b": { "c": { "d": [true] } } } }, {}],
@@ -76,15 +95,27 @@
       "schema": {
         "type": "object",
         "properties": {
-          "a": { "type": "object", "properties": {
-            "b": { "type": "object", "properties": {
-              "c": { "type": "object", "properties": {
-                "d": { "type": "object", "properties": {
-                  "e": { "type": "array", "maxItems": 2, "items": { "type": "boolean" } }
-                } }
-              } }
-            } }
-          } }
+          "a": {
+            "type": "object",
+            "properties": {
+              "b": {
+                "type": "object",
+                "properties": {
+                  "c": {
+                    "type": "object",
+                    "properties": {
+                      "d": {
+                        "type": "object",
+                        "properties": {
+                          "e": { "type": "array", "maxItems": 2, "items": { "type": "boolean" } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -116,7 +147,11 @@
     {
       "name": "required naming a field it doesn't have",
       "refused": "required",
-      "schema": { "type": "object", "properties": { "a": { "type": "boolean" } }, "required": ["b"] }
+      "schema": {
+        "type": "object",
+        "properties": { "a": { "type": "boolean" } },
+        "required": ["b"]
+      }
     },
     {
       "name": "a null type",

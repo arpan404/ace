@@ -1738,6 +1738,7 @@ Example:
     "op": "botRecipe",
     "recipe": {
       "blurb": "example",
+      "contracts": [],
       "format": "spade-bot",
       "name": "example",
       "needs": {
@@ -1746,9 +1747,6 @@ Example:
       "notes": [],
       "plugins": [],
       "requires": {},
-      "style": {
-        "accent": "#79F67e"
-      },
       "task": "example",
       "tests": [],
       "version": 3

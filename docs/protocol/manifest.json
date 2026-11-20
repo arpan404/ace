@@ -33,8 +33,8 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 129274,
-      "sha256": "38256349b4e384c3134cef3564b17d29aefb513692b0dde3f4b9d022b53dea66"
+      "bytes": 129243,
+      "sha256": "e9b9beb97042636d712cb8c4bd1d2aae36b57a481e909b9572f22ca1a27c3574"
     },
     "requests.md": {
       "bytes": 125888,
@@ -3880,6 +3880,10 @@
       "bytes": 632,
       "sha256": "cd958bc1b5485813264b7d6aad88adb36a5a106b387b4546b1821628a82517ae"
     },
+    "schema/PackageContract.json": {
+      "bytes": 1353,
+      "sha256": "214c9ba1a9499d8a07019ba6462a416487a3155b9db7841a749983e1232c992d"
+    },
     "schema/PackageEffect.json": {
       "bytes": 910,
       "sha256": "aa272698d7d5f1679000f0d989cbaf588643936537ab02b3547dd1ba8ce06925"
@@ -4569,8 +4573,8 @@
       "sha256": "56549ee3cb5c0441b782e3de8a87e4cfc8504d7310fc9ad34b0d59dba575ea45"
     },
     "schema/Recipe.json": {
-      "bytes": 6514,
-      "sha256": "f759c205583ce07b2140669f719ebc746c11b8dee6a21cea390573e9e23c8226"
+      "bytes": 6679,
+      "sha256": "d4f6fb9a310a4cd67a70f7a168354ba76a12a2badd2c563d0d3d33217c7633ae"
     },
     "schema/RecipeConnectorId.json": {
       "bytes": 193,
@@ -6677,10 +6681,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1359667,
-      "sha256": "e968b47bc5bffc3a15c61c8519d445e1807baaf0d405fb2656396b1abb674610"
+      "bytes": 1360848,
+      "sha256": "596dfd0e748db89fa1f9ce858b2b89e421e3d29e96266fa0469790f62c46e3bd"
     }
   },
-  "input": "04ace3203c2fda498f45ca887b230d54bc44a5e4c278a77a122a00b50b310e7c",
+  "input": "a6f6f4d9a7f690f49f058e0e4e66ac5828f9b878db964e83c534bf4e35bacd46",
   "version": 1
 }

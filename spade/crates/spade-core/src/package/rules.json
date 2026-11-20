@@ -13,9 +13,7 @@
     "effects": [
       {
         "effect": "network",
-        "hosts": [
-          "api.example-fares.com"
-        ],
+        "hosts": ["api.example-fares.com"],
         "why": "Reads fares."
       }
     ],
@@ -190,9 +188,7 @@
         "effects": [
           {
             "effect": "publish",
-            "hosts": [
-              "api.example.com"
-            ],
+            "hosts": ["api.example.com"],
             "why": "Posts."
           }
         ]
@@ -261,10 +257,7 @@
     {
       "name": "a module this build doesn't have",
       "with": {
-        "uses": [
-          "task",
-          "telepathy"
-        ]
+        "uses": ["task", "telepathy"]
       },
       "refused": "telepathy"
     },
@@ -321,11 +314,7 @@
                   "maxLength": 7
                 }
               },
-              "required": [
-                "from",
-                "to",
-                "month"
-              ]
+              "required": ["from", "to", "month"]
             },
             "output": {
               "type": "object",
@@ -351,10 +340,7 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
             "effects": [],
             "examples": [
@@ -399,11 +385,7 @@
                   "maxLength": 7
                 }
               },
-              "required": [
-                "from",
-                "to",
-                "month"
-              ]
+              "required": ["from", "to", "month"]
             },
             "output": {
               "type": "object",
@@ -429,14 +411,9 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
-            "effects": [
-              "network"
-            ]
+            "effects": ["network"]
           }
         ]
       }
@@ -466,11 +443,7 @@
                   "maxLength": 7
                 }
               },
-              "required": [
-                "from",
-                "to",
-                "month"
-              ]
+              "required": ["from", "to", "month"]
             },
             "output": {
               "type": "object",
@@ -496,14 +469,9 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
-            "effects": [
-              "publish"
-            ]
+            "effects": ["publish"]
           }
         ]
       },
@@ -534,11 +502,7 @@
                   "maxLength": 7
                 }
               },
-              "required": [
-                "from",
-                "to",
-                "month"
-              ]
+              "required": ["from", "to", "month"]
             },
             "output": {
               "type": "object",
@@ -564,14 +528,9 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
-            "effects": [
-              "credential"
-            ]
+            "effects": ["credential"]
           }
         ]
       },
@@ -602,11 +561,7 @@
                   "maxLength": 7
                 }
               },
-              "required": [
-                "from",
-                "to",
-                "month"
-              ]
+              "required": ["from", "to", "month"]
             },
             "output": {
               "type": "object",
@@ -632,10 +587,7 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
             "effects": []
           },
@@ -660,11 +612,7 @@
                   "maxLength": 7
                 }
               },
-              "required": [
-                "from",
-                "to",
-                "month"
-              ]
+              "required": ["from", "to", "month"]
             },
             "output": {
               "type": "object",
@@ -690,10 +638,7 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
             "effects": []
           }
@@ -726,11 +671,7 @@
                   "maxLength": 7
                 }
               },
-              "required": [
-                "from",
-                "to",
-                "month"
-              ]
+              "required": ["from", "to", "month"]
             },
             "output": {
               "type": "object",
@@ -756,10 +697,7 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
             "effects": []
           }
@@ -792,11 +730,7 @@
                   "maxLength": 7
                 }
               },
-              "required": [
-                "from",
-                "to",
-                "month"
-              ]
+              "required": ["from", "to", "month"]
             },
             "output": {
               "type": "object",
@@ -822,10 +756,7 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
             "effects": []
           }
@@ -872,10 +803,7 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
             "effects": []
           }
@@ -908,11 +836,7 @@
                   "maxLength": 7
                 }
               },
-              "required": [
-                "from",
-                "to",
-                "month"
-              ]
+              "required": ["from", "to", "month"]
             },
             "output": {
               "type": "object",
@@ -938,10 +862,7 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
             "effects": [],
             "examples": [
@@ -1009,11 +930,7 @@
                   "maxLength": 7
                 }
               },
-              "required": [
-                "from",
-                "to",
-                "month"
-              ]
+              "required": ["from", "to", "month"]
             },
             "output": {
               "type": "object",
@@ -1039,10 +956,7 @@
                   "maxLength": 2048
                 }
               },
-              "required": [
-                "fare",
-                "currency"
-              ]
+              "required": ["fare", "currency"]
             },
             "effects": [],
             "price": 3

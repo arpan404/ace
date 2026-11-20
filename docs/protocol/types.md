@@ -22314,6 +22314,7 @@ Example:
   "name": [],
   "recipe": {
     "blurb": "example",
+    "contracts": [],
     "effects": [],
     "face": {},
     "format": "spade-bot",
@@ -22321,7 +22322,6 @@ Example:
     "name": "example",
     "plugins": [],
     "skills": [],
-    "tests": [],
     "version": 2
   },
   "routines": [],
@@ -25618,6 +25618,9 @@ Example:
     "format": "spade-bot",
     "name": "example",
     "requires": {},
+    "style": {
+      "accent": "#61Ce1d"
+    },
     "task": "example",
     "version": 3
   }
@@ -29386,6 +29389,31 @@ Example:
   "access": [],
   "screen": [],
   "type": "outside.state"
+}
+```
+
+## PackageContract
+
+[JSON Schema](schema/PackageContract.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"pattern":"^[a-z][a-z0-9_]{0,63}$"} |
+| summary | yes | string | {"minLength":1,"maxLength":200,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| input | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+| output | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+| effects | no | array | {"default":[],"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/PackageEffectWord.json"}} |
+| examples | no | array | {"default":[],"maxItems":8,"items":{"type":"object","properties":{"input":{},"output":{}},"required":["input","output"],"additionalProperties":false}} |
+
+Example:
+
+```json
+{
+  "examples": [],
+  "input": {},
+  "name": "nq",
+  "output": {},
+  "summary": "example"
 }
 ```
 
@@ -35011,6 +35039,7 @@ Example:
 | triggers | no | array | {"default":[],"maxItems":40,"items":{"$ref":"https://ace.local/protocol/v1/PackageTrigger.json"}} |
 | effects | no | array | {"default":[],"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/PackageEffect.json"}} |
 | limits | no | [PackageLimits.json](schema/PackageLimits.json) |  |
+| contracts | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageContract.json"}} |
 | tests | no | array | {"default":[],"maxItems":64,"items":{"type":"string","pattern":"^tests\\/[A-Za-z0-9._-]+\\.json$"}} |
 | style | no | object | {"properties":{"accent":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"required":["accent"],"additionalProperties":false} |
 
@@ -35025,6 +35054,9 @@ Example:
   },
   "name": "example",
   "needs": {},
+  "style": {
+    "accent": "#ABDDCF"
+  },
   "task": "example",
   "uses": [],
   "version": 3
