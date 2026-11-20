@@ -127,17 +127,22 @@ export function engineHandler(
       );
       if (transition) return transition;
       const p = command.payload;
-      if (p.type === "thread.permission.set") {
+      // A native mode by name is an access change: the same ceiling check and acknowledgement.
+      if (p.type === "thread.permission.set" || p.type === "thread.mode.set") {
         const state = repo.state(p.threadId);
         if (!state) return { commandId: command.id, ok: false, error: "thread_not_found" };
+        const capabilities =
+          repo.store.getThread(p.threadId)?.effectiveCapabilities ??
+          repo.store.getThread(p.threadId)?.capabilities ??
+          registry.get(state.config.provider, repo.backend(p.threadId)).capabilities;
         return (
-          repo.permissions.accept(
-            command,
-            repo.store.getThread(p.threadId)?.effectiveCapabilities ??
-              repo.store.getThread(p.threadId)?.capabilities ??
-              registry.get(state.config.provider, repo.backend(p.threadId)).capabilities,
-            now(),
-          ) ?? { commandId: command.id, ok: false, error: "not_implemented" }
+          (p.type === "thread.mode.set"
+            ? repo.permissions.acceptNative(command, capabilities, now())
+            : repo.permissions.accept(command, capabilities, now())) ?? {
+            commandId: command.id,
+            ok: false,
+            error: "not_implemented",
+          }
         );
       }
       let deliveryCommand = command;

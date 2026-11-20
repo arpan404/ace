@@ -405,7 +405,7 @@ test("the picker has Favorites and one tab per account, and a star is saved wher
   await until(() => (latest("compose.agents")?.favorites as string[] | undefined)?.length === 0);
 });
 
-test("access the provider can't express is never loosened: Send waits with the reason", async () => {
+test("access the provider can't express runs as its nearest mode, so Send doesn't wait", async () => {
   const compose = await connect(fixture());
   const agents = await readyAgents(compose);
   const cursor = (agents.providers as { provider: string }[]).some(
@@ -417,10 +417,8 @@ test("access the provider can't express is never loosened: Send waits with the r
     const patch = latest("compose.access");
     return patch?.provider === "cursor" && patch.state === "ready" && patch;
   });
-  expect(access.selected).toBeNull();
-  expect(access.problem).toBe(
-    "Cursor has nothing as strict as Read-only. Choose its access before sending.",
-  );
+  expect(access.selected).toBe("auto-review");
+  expect(access.problem).toBeNull();
 });
 
 test("a thread started from an issue links that issue", async () => {

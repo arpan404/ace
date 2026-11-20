@@ -65,15 +65,16 @@ export function validateCreation(
       models?.permissionCapabilities(p.provider, instanceId, entry.capabilities) ??
       entry.capabilities,
   };
-  // An explicit mode must be one the instance genuinely supports; ACP reports its modes
-  // only once a session opens.
+  // The person's own mode runs as the nearest one the instance offers, which the thread then
+  // says (ADR 0078, 2026-11-19); only an instance that offers no mode at all can't take one. A
+  // child's mode was already narrowed to an offered one under its parent. ACP reports its
+  // modes only once a session opens.
   const access = p.access === "inherit" ? undefined : p.access;
   const offers =
     p.provider === "acp"
       ? entry.capabilities.accessModes
       : reportedOrTable(p.provider, entry.capabilities.accessModes);
-  if (access && offers && !offers.some((offer) => offer.mode === access))
-    return fail("permission_mode_unsupported");
+  if (access && offers && !offers.length) return fail("permission_mode_unsupported");
   let handoff: ReturnType<typeof portableContext> | undefined;
   if (p.handoffFrom) {
     const source = repo.store.getThread(p.handoffFrom);

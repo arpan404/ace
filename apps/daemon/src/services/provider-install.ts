@@ -50,6 +50,8 @@ export function startProviderInstalls(context: ServiceContext): void {
                         context.options.providerStatus?.env?.HOME ?? process.env.HOME ?? homedir(),
                     }),
                   );
+                  // Listed in the picker now, not at the next start.
+                  await context.services.acpCatalog?.register(installation);
                 }
               },
             ),

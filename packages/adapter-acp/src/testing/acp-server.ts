@@ -78,7 +78,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     }
     const text = string(object(list(params["prompt"])[0])["text"]);
     if (text.startsWith("/unconfirmed")) {
-      result(message["id"], { stopReason: "future-paused" });
+      result(message["id"], { futureStop: "paused" });
       return;
     }
     if (text.startsWith("/catalog-") || text === "attachment-proof") {
