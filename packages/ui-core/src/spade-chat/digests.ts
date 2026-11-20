@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { spadeJson } from "./json.ts";
+import { parseSpadeBrief, type SpadeBrief } from "./briefs.ts";
 import { spadeMoney } from "./oversight.ts";
 
 /*
@@ -69,24 +70,33 @@ const body: z.ZodType<DigestBody> = z.object({
 });
 
 const row = z.object({
-  id: z.string(),
+  id: z.coerce.string(),
+  /** `task` or `tree` for a digest; `brief` and `spend` sit beside them (ADR 0194). */
+  kind: z.string().catch("task").default("task"),
   agent: z.string(),
   made_ms: z.number(),
   /** The plain rendering (or its polish): what shows when the digest itself can't be read. */
   text: words,
   polished: z.string().nullish().catch(undefined),
-  digest: body.optional().catch(undefined),
+  digest: z.unknown().optional(),
 });
 
-/** One digest as the chat reads it. */
+/** One digest as the chat reads it, or the morning brief, or a spend alert's line. */
 export interface SpadeDigest {
   id: string;
+  /** A digest, the morning brief (ADR 0194) or a line saying a bot spends unusually fast. */
+  kind: "digest" | "brief" | "spend";
   agent: string;
   /** When Spade made it: where it sits in the chat. */
   at: number;
   text: string;
   body: DigestBody | undefined;
+  /** The brief's parts, for a brief. */
+  brief?: SpadeBrief | undefined;
 }
+
+const kindOf = (kind: string): SpadeDigest["kind"] =>
+  kind === "brief" || kind === "spend" ? kind : "digest";
 
 const digestsShape = z.object({ digests: z.array(z.unknown()) });
 
@@ -99,7 +109,12 @@ export function parseSpadeDigests(text: string): SpadeDigest[] | undefined {
       const one = row.safeParse(raw);
       if (!one.success) return [];
       const { id, agent, made_ms, text: plain, polished, digest } = one.data;
-      return [{ id, agent, at: made_ms, text: polished?.trim() || plain, body: digest }];
+      const kind = kindOf(one.data.kind);
+      const text = polished?.trim() || plain;
+      if (kind === "brief")
+        return [{ id, kind, agent, at: made_ms, text, body: undefined, brief: parseSpadeBrief(digest) }];
+      const parsed = kind === "digest" ? body.safeParse(digest) : undefined;
+      return [{ id, kind, agent, at: made_ms, text, body: parsed?.success ? parsed.data : undefined }];
     })
     .toSorted((a, b) => a.at - b.at);
 }
@@ -190,13 +205,15 @@ export function withSpadeDigests<T extends object>(
   let next = 0;
   const place = (upTo: number) => {
     for (let digest = digests[next]; digest && digest.at <= upTo; digest = digests[++next]) {
-      out.push({
-        kind: "routine",
-        key: `digest-time:${digest.id}`,
-        name: "Digest",
-        label: "",
-        at: digest.at,
-      });
+      // A spend alert is one quiet line; a digest and a brief name themselves in a time line.
+      if (digest.kind !== "spend")
+        out.push({
+          kind: "routine",
+          key: `digest-time:${digest.id}`,
+          name: digest.kind === "brief" ? "Morning brief" : "Digest",
+          label: "",
+          at: digest.at,
+        });
       out.push({ kind: "digest", key: `digest:${digest.id}`, digest, at: digest.at });
     }
   };
