@@ -269,3 +269,38 @@ fn a_batch_of_twenty_thousand_creates_is_indexed_fully() {
         "a gitignored path never enters through a batch"
     );
 }
+
+#[test]
+fn a_deleted_folder_keeps_the_siblings_whose_names_start_with_its_own() {
+    let siblings = [
+        "src/a.rs",
+        "src/ab/one.rs",
+        "src/a-b/two.rs",
+        "lib/src/a/three.rs",
+    ];
+    let doomed = ["src/a/one.rs", "src/a/deep/two.rs"];
+    // A lone delete and a batch of many deletes take different routes through the index.
+    for extra in [0, 200] {
+        let filler: Vec<String> = (0..extra).map(|index| format!("tmp/f{index}.rs")).collect();
+        let mut all: Vec<&str> = siblings.iter().chain(&doomed).copied().collect();
+        all.extend(filler.iter().map(String::as_str));
+        let mut fixture = indexed(&all);
+        let mut changes = vec![deleted("src/a", true)];
+        changes.extend(filler.iter().map(|path| deleted(path, false)));
+        fixture.index.apply(&fixture.root, &changes);
+        for kept in siblings {
+            let name = kept.rsplit('/').next().unwrap_or(kept);
+            assert!(
+                paths(&fixture.index.search(name, 10)).contains(&kept),
+                "{kept} stays when src/a goes ({extra} other deletes)"
+            );
+        }
+        for gone in doomed {
+            let name = gone.rsplit('/').next().unwrap_or(gone);
+            assert!(
+                !paths(&fixture.index.search(name, 10)).contains(&gone),
+                "{gone} goes with src/a ({extra} other deletes)"
+            );
+        }
+    }
+}

@@ -11,6 +11,10 @@ use crate::membership::Membership;
 use crate::walk::{self, Filters, Folders, Walk};
 use crate::{IndexChange, PathIndex, Prepared};
 
+/// Up to this many deletions in one batch are matched by comparing each slot's leading bytes with
+/// every one of them; more are matched by looking each slot's ancestors up in a set.
+const DIRECT_DELETES: usize = 16;
+
 /// Compaction only pays off once the holes are this many, or half the index, whichever is larger.
 const COMPACT_FLOOR: usize = 65_536;
 
@@ -54,18 +58,12 @@ pub(crate) fn prepare(index: &PathIndex, root: &Root, changes: &[IndexChange]) -
 /// Drop every deleted path and its subtree in one pass over the slots, then add the new paths.
 pub(crate) fn commit(index: &mut PathIndex, prepared: Prepared) {
     if !prepared.deletes.is_empty() {
-        let deleted: HashSet<&str> = prepared.deletes.iter().map(String::as_str).collect();
-        let mut doomed = Vec::new();
-        for slot in 0..index.arena.slots() {
-            if !index.arena.is_live(slot) {
-                continue;
-            }
-            if let Some(path) = index.arena.get(slot)
-                && (deleted.contains(path) || under_deleted(path, &deleted))
-            {
-                doomed.push(slot);
-            }
-        }
+        let doomed = if prepared.deletes.len() <= DIRECT_DELETES {
+            let deletes: Vec<&str> = prepared.deletes.iter().map(String::as_str).collect();
+            index.arena.slots_at_or_under(&deletes)
+        } else {
+            doomed_by_ancestor(index, &prepared.deletes)
+        };
         for slot in doomed {
             if let Some(path) = index.arena.get(slot).map(str::to_owned) {
                 index.members.remove(&index.arena, &path);
@@ -93,6 +91,23 @@ pub(crate) fn commit(index: &mut PathIndex, prepared: Prepared) {
         index.arena.compact();
         reindex(index);
     }
+}
+
+/// The live slots at or below any of many deleted paths: one set lookup per ancestor of each slot.
+fn doomed_by_ancestor(index: &PathIndex, deletes: &[String]) -> Vec<u32> {
+    let deleted: HashSet<&str> = deletes.iter().map(String::as_str).collect();
+    let mut doomed = Vec::new();
+    for slot in 0..index.arena.slots() {
+        if !index.arena.is_live(slot) {
+            continue;
+        }
+        if let Some(path) = index.arena.get(slot)
+            && (deleted.contains(path) || under_deleted(path, &deleted))
+        {
+            doomed.push(slot);
+        }
+    }
+    doomed
 }
 
 /// Compacting renumbers slots, so the membership map has to be rebuilt from the arena.
