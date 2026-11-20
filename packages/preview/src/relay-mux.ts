@@ -71,7 +71,8 @@ export const gracefulDrainMs = 15_000;
  * Bytes the peer may have sent that wait for local sockets, across every stream of one mux.
  * Credit bounds each stream to one window; this bounds the sum below `maxStreams` windows, so a
  * peer that fills every stream while the sockets stop reading costs at most this much. A DATA
- * frame past it resets its stream.
+ * frame past it resets its stream. The machine tunnel's muxes pass it (ADR 0194); the preview
+ * relay's do not, and keep the per-stream window as their only bound.
  */
 export const maxQueuedBytes = 32 * 1024 * 1024;
 type MuxOptions = {
@@ -82,10 +83,15 @@ type MuxOptions = {
    * false resets it unopened. `allowPort` still decides afterwards.
    */
   admitOpen?: (port: number, id: number) => boolean;
-  /** Aggregate queued-bytes bound; `maxQueuedBytes` unless given (tests). */
+  /** Bytes queued for local sockets across every stream, past which a DATA resets; no bound unless given. */
   maxQueuedBytes?: number;
   /** Whether to connect stream `id`'s OPEN for `port`; refused, the stream is reset unopened. */
   allowPort?: (port: number, id: number) => Promise<boolean>;
+  /**
+   * Asked synchronously just before stream `id`'s socket connects and again as it connects,
+   * before READY: false resets the stream, which is removed first and never READY.
+   */
+  canConnect?: (port: number, id: number) => boolean;
   socketFactory?: (port: number, id: number) => { socket: PreviewSocket; connect: () => void };
   onClosed?: () => void;
   /**
@@ -108,7 +114,7 @@ export function createMux(options: MuxOptions) {
   let pendingFrameBytes = 0;
   let pendingPayloadBytes = 0;
   let queuedWriteBytes = 0;
-  const queueLimit = options.maxQueuedBytes ?? maxQueuedBytes;
+  const queueLimit = options.maxQueuedBytes ?? Number.POSITIVE_INFINITY;
   const maxPendingSends = options.maxStreams * 34 + 32;
   let unsubscribe: (() => void) | undefined;
   const close = () => {
@@ -350,7 +356,15 @@ export function createMux(options: MuxOptions) {
         await send(kinds.reset, id);
         return;
       }
+      const refuse = () => {
+        remove(stream);
+        void send(kinds.reset, id).catch(close);
+      };
+      if (options.canConnect && !options.canConnect(port, id)) return refuse();
       socket.once("connect", () => {
+        if (!alive(stream)) return;
+        // Nothing runs between this check and READY: a refused stream is never READY.
+        if (options.canConnect && !options.canConnect(port, id)) return refuse();
         // The peer can receive READY and send DATA before send() settles.
         stream.ready = true;
         void send(kinds.ready, id)

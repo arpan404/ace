@@ -32,6 +32,8 @@ export function attachPreviewRelay(options: {
    */
   canConnect?: (port: number, id: number) => boolean;
   maxStreams?: number;
+  /** Bytes queued for local sockets across every stream before a DATA resets (the mux's). */
+  maxQueuedBytes?: number;
   onClosed?: () => void;
   /**
    * Stream `id` left the mux, however it ended (refused streams' too): synchronously, so its
@@ -47,21 +49,15 @@ export function attachPreviewRelay(options: {
     ...(options.onClosed ? { onClosed: options.onClosed } : {}),
     ...(options.admitOpen ? { admitOpen: options.admitOpen } : {}),
     ...(options.onStreamClosed ? { onStreamRemoved: options.onStreamClosed } : {}),
-    socketFactory: (port, id) => {
+    // The mux asks again as the socket connects, before READY: the connect may have moved to the
+    // other loopback family after the first check.
+    ...(options.canConnect ? { canConnect: options.canConnect } : {}),
+    ...(options.maxQueuedBytes === undefined ? {} : { maxQueuedBytes: options.maxQueuedBytes }),
+    socketFactory: (port) => {
       const socket = new Socket({ allowHalfOpen: true });
-      // Again once connected, before READY (registered ahead of the mux's own listener): the
-      // connect may have moved to the other loopback family after the first check.
-      const canConnect = options.canConnect;
-      if (canConnect)
-        socket.once("connect", () => {
-          if (!canConnect(port, id)) socket.destroy();
-        });
       return {
         socket: previewSocket(socket, systemTimer),
-        connect: () => {
-          if (options.canConnect && !options.canConnect(port, id)) socket.destroy();
-          else socket.connect(loopbackConnection(port));
-        },
+        connect: () => socket.connect(loopbackConnection(port)),
       };
     },
   });

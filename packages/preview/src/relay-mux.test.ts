@@ -53,8 +53,15 @@ async function settle() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
-function host(options: { admitOpen?: (port: number) => boolean; maxQueuedBytes?: number } = {}) {
+function host(
+  options: {
+    admitOpen?: (port: number) => boolean;
+    maxQueuedBytes?: number;
+    canConnect?: () => boolean;
+  } = {},
+) {
   const sent: Frame[] = [];
+  const removed: { id: number; sentBefore: number }[] = [];
   let receive: ((frame: Uint8Array) => void) | undefined;
   const sockets: ReturnType<typeof heldSocket>[] = [];
   const mux = createMux({
@@ -62,6 +69,8 @@ function host(options: { admitOpen?: (port: number) => boolean; maxQueuedBytes?:
     timer: () => () => {},
     ...(options.maxQueuedBytes === undefined ? {} : { maxQueuedBytes: options.maxQueuedBytes }),
     ...(options.admitOpen ? { admitOpen: options.admitOpen } : {}),
+    ...(options.canConnect ? { canConnect: options.canConnect } : {}),
+    onStreamRemoved: (id) => removed.push({ id, sentBefore: sent.length }),
     allowPort: async () => true,
     socketFactory: () => {
       const made = heldSocket();
@@ -92,7 +101,7 @@ function host(options: { admitOpen?: (port: number) => boolean; maxQueuedBytes?:
     sent
       .filter((frame) => frame.kind === kinds.credit && frame.id === id)
       .reduce((sum, frame) => sum + frame.value, 0);
-  return { mux, sent, sockets, peer, opened, credit };
+  return { mux, sent, sockets, peer, opened, credit, removed };
 }
 
 const byte = (value: number) => new Uint8Array([value]);
@@ -199,4 +208,25 @@ test("a peer that resets without ending drops what still waited for the socket",
   expect(Array.from(Buffer.concat(socket.writes))).toEqual([1]);
   expect(socket.state.ended).toBe(false);
   expect(socket.state.destroyed).toBe(true);
+});
+
+test("a stream refused as its socket connects is reset and never READY", async () => {
+  // Allowed as the dial starts; by the time the socket connects the port is no longer allowed.
+  let asked = 0;
+  const { peer, sent, sockets, removed } = host({ canConnect: () => ++asked === 1 });
+  peer(kinds.open, 1, 3000);
+  await settle();
+  expect(asked).toBe(2);
+  expect(sockets[0]?.state.destroyed).toBe(true);
+  expect(sent.map((frame) => [frame.kind, frame.id])).toEqual([[kinds.reset, 1]]);
+  // Its slot was freed before the RESET went out.
+  expect(removed).toEqual([{ id: 1, sentBefore: 0 }]);
+});
+
+test("a stream refused before its socket dials is reset without a connect", async () => {
+  const { peer, sent, sockets } = host({ canConnect: () => false });
+  peer(kinds.open, 1, 3000);
+  await settle();
+  expect(sockets[0]?.state.destroyed).toBe(true);
+  expect(sent.map((frame) => [frame.kind, frame.id])).toEqual([[kinds.reset, 1]]);
 });

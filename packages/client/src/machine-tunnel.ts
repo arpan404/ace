@@ -1,4 +1,4 @@
-import { createMux, type PreviewChannel } from "@ace/preview/mux";
+import { createMux, maxQueuedBytes, type PreviewChannel } from "@ace/preview/mux";
 import { PreviewPort } from "@ace/protocol/preview";
 import type { TunnelRefusalCode } from "@ace/protocol";
 import {
@@ -196,6 +196,7 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
         connection.mux = createMux({
           channel,
           maxStreams,
+          maxQueuedBytes,
           timer: (run, ms) => options.schedule(run, ms),
         });
         for (const waiter of connection.waiting.splice(0)) waiter.resolve();

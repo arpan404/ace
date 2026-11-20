@@ -1,4 +1,5 @@
 import type { PreviewChannel } from "@ace/preview";
+import { maxQueuedBytes } from "@ace/preview/mux";
 import type { TunnelRefusalCode, TunnelServerMessage } from "@ace/protocol";
 import type { AcePorts } from "./ace-ports.ts";
 import { TunnelAdmission, tunnelAccess, type TunnelLimits } from "./policy.ts";
@@ -170,6 +171,7 @@ export function createTunnelHost(options: TunnelHostOptions): TunnelHost {
         mux = attachMux({
           channel,
           maxStreams: 512,
+          maxQueuedBytes,
           admitOpen: (port, id) => {
             if (ended) return false;
             const code = admission.admit(connection.device, name(id), {
