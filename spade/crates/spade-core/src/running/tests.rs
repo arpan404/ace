@@ -67,6 +67,7 @@ fn facts(id: &str, name: &str, state: State) -> Facts {
         network: Network::default(),
         next_wake: None,
         workers: Vec::new(),
+        development: false,
     }
 }
 
