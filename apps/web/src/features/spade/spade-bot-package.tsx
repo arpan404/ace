@@ -75,12 +75,20 @@ export function ProfilePackageLine(props: { bot: RosterBot }) {
       {here && !link.updating && !link.held && (update || link.previous || link.withdrawn) && (
         <div className="-ml-3.5 flex flex-wrap items-center gap-1">
           {update && !link.withdrawn && (
-            <Button variant="ghost" className={pillButton} onClick={() => open(`${at}/update`)}>
+            <Button
+              variant="ghost"
+              className={pillButton}
+              onClick={() => open(`${at}/update/${bot.id}`)}
+            >
               Update to {update}
             </Button>
           )}
           {link.previous && (
-            <Button variant="ghost" className={pillButton} onClick={() => open(`${at}/rollback`)}>
+            <Button
+              variant="ghost"
+              className={pillButton}
+              onClick={() => open(`${at}/rollback/${bot.id}`)}
+            >
               Roll back to {link.previous}
             </Button>
           )}

@@ -59,7 +59,7 @@ test("a linked bot's profile names its package and version, with Update and Roll
   await userEvent.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
   await waitFor(() =>
     expect(new URLSearchParams(history.location.search).get("market")).toBe(
-      "bot/flight-watcher/rollback",
+      "bot/flight-watcher/rollback/fares",
     ),
   );
 });
@@ -145,9 +145,9 @@ test("a packaged bot's Security section has each declared effect as a switch wit
 
 test("a bot from an ace template is offered the newer template its Spade ships, reviewed before it moves", async () => {
   const offered = { source: "spade", name: "inbox", version: "1.0.0", hash: "b".repeat(64) };
-  const { spade } = await spadeApp("/spade/inbox?profile=details", (spade) => {
-    withEndpoint(spade);
-    spade.addAgent({
+  const { spade } = await spadeApp("/spade/inbox?profile=details", (fake) => {
+    withEndpoint(fake);
+    fake.addAgent({
       id: "inbox",
       name: "My inbox",
       package: {

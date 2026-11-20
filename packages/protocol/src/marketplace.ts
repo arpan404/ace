@@ -76,6 +76,11 @@ export const MarketInstalled = z.strictObject({
   linked: z.boolean().optional(),
   /** The version a linked bot had before, kept pinned here so a rollback needs no network. */
   previous: z.strictObject({ version: z.string().max(64), hash: MarketHash }).optional(),
+  /**
+   * An update of a linked bot the person accepted while it worked: Spade applies it when the
+   * bot's turn ends. `version` above stays the one running until then.
+   */
+  held: z.strictObject({ version: z.string().max(64) }).optional(),
 });
 export type MarketInstalled = z.infer<typeof MarketInstalled>;
 
@@ -296,7 +301,12 @@ export type MarketInstallChoices = z.infer<typeof MarketInstallChoices>;
 /* ---------------------------------------------------------------- operations */
 
 const entryKey = { source: MarketSourceId, type: z.string().min(1).max(40), name: MarketEntryName };
-const installedKey = { type: MarketEntryType, name: MarketEntryName };
+const installedKey = {
+  type: MarketEntryType,
+  name: MarketEntryName,
+  /** For a bot package, which bot made from it (ADR 0200 §3.9): one package can make several. */
+  bot: z.string().min(1).max(80).optional(),
+};
 
 export const MarketOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("sources") }),

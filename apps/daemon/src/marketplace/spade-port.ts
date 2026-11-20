@@ -19,6 +19,10 @@ const Linked = Version.extend({
   source: z.string().min(1).max(64),
   name: z.string().min(1).max(128),
   previous: Version.nullish().catch(undefined),
+  held: z
+    .object({ version: z.string().min(1).max(64) })
+    .nullish()
+    .catch(undefined),
 });
 const Agents = z.object({
   agents: z
@@ -58,6 +62,16 @@ export async function spadeCall(
   path: string,
   body?: unknown,
 ): Promise<unknown> {
+  return (await spadeCallStatus(connection, method, path, body)).body;
+}
+
+/** [`spadeCall`], with the status Spade answered: a held update is a 202. */
+async function spadeCallStatus(
+  connection: SpadeConnection,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: unknown }> {
   const answer = await spadeRequest(
     connection,
     {
@@ -76,7 +90,7 @@ export async function spadeCall(
     const detail = problem.success ? (problem.data.error ?? problem.data.detail) : undefined;
     throw new Error(detail ? `Spade refused: ${detail}` : `Spade answered ${answer.status}`);
   }
-  return text ? JSON.parse(text) : undefined;
+  return { status: answer.status, body: text ? JSON.parse(text) : undefined };
 }
 
 const Planned = z.object({ plan: PackagePlan });
@@ -145,10 +159,14 @@ export function spadePort(
       return Planned.parse(await spadeCall(live(), "POST", path, { recipe: manifest })).plan;
     },
     async updateBot(bot, input) {
-      await spadeCall(live(), "POST", `/v1/agents/${encodeURIComponent(bot)}/package`, {
-        ...identity(input),
-        transaction: input.transaction,
-      });
+      const answer = await spadeCallStatus(
+        live(),
+        "POST",
+        `/v1/agents/${encodeURIComponent(bot)}/package`,
+        { ...identity(input), transaction: input.transaction },
+      );
+      // 202: the bot works, and Spade applies the step when its turn ends.
+      return { held: answer.status === 202 };
     },
     async withdrawBot(bot, reason) {
       const path = `/v1/agents/${encodeURIComponent(bot)}/package/withdrawn`;
@@ -175,14 +193,22 @@ export function spadePort(
       const listed = Agents.parse(await spadeCall(live(), "GET", "/v1/agents"));
       return listed.agents.find((agent) => agent.from_recipe?.transaction === transaction)?.id;
     },
-    async linkedBots() {
+    async bots() {
       const listed = Agents.parse(await spadeCall(live(), "GET", "/v1/agents"));
-      return listed.agents.flatMap((agent) => {
+      const links = listed.agents.flatMap((agent) => {
         const link = agent.package;
         if (!link) return [];
-        const { previous, ...current } = link;
-        return [{ id: agent.id, package: current, ...(previous ? { previous } : {}) }];
+        const { previous, held, ...current } = link;
+        return [
+          {
+            id: agent.id,
+            package: current,
+            ...(previous ? { previous } : {}),
+            ...(held ? { held } : {}),
+          },
+        ];
       });
+      return { ids: new Set(listed.agents.map((agent) => agent.id)), linked: links };
     },
     async deleteBot(id) {
       // Workers it made in the moments it existed stop with it.
