@@ -23,6 +23,14 @@ export function talkShortcutOf(
     : settings.spadeTalkShortcut;
 }
 
+/** The settings as the page sees them: the push-to-talk chord in force, its default filled in. */
+export function withTalkDefault(
+  settings: DesktopSettings,
+  platform: NodeJS.Platform,
+): DesktopSettings {
+  return { ...settings, spadeTalkShortcut: talkShortcutOf(settings, platform) };
+}
+
 /**
  * What a press means, given how the turn goes: listen when nothing is going on, or over Spade
  * thinking or speaking (it stops and listens again); send while the person is being heard.
