@@ -81,7 +81,7 @@ export type SpawnOptions = {
   /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
   windowsJobFactory?: WindowsJobFactory;
   /**
-   * How the child is lowered below the daemon's priority (`child-priority.ts`, ADR 0195); false
+   * How the child is lowered below the daemon's priority (`child-priority.ts`, ADR 0196); false
    * leaves it at the daemon's. Defaults to the real OS.
    */
   childPriority?: ChildPriorityPort | false;

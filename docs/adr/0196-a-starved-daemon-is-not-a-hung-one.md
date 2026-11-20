@@ -3,7 +3,7 @@
 Status: accepted. Date: 2026-11-19. Decided by: the owner (the incident and the fix asked for),
 the build of this ADR's PR (how). Amends the desktop supervisor's health and restart rules from
 [ADR 0186](0186-the-daemon-outlives-the-app.md) and the service startup deadline of
-[ADR 0175](0175-daemon-survives-a-failing-service.md).
+[ADR 0175](0175-the-daemon-always-comes-up.md).
 
 ## Context
 

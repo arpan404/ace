@@ -4,7 +4,7 @@ import { constants, setPriority } from "node:os";
 /**
  * The priority the processes the daemon starts (provider CLIs, git, toolchains, and the builds
  * and tools they start in turn, which inherit it) run at, so a pile of agent work cannot starve
- * the daemon's event loop (ADR 0195). Any process may lower its own children without privilege.
+ * the daemon's event loop (ADR 0196). Any process may lower its own children without privilege.
  *
  * - Linux, macOS and the BSDs: nice 5. The daemon itself stays at 0 (or above, where it may).
  * - Windows: BELOW_NORMAL, which Windows passes on to the child's own children.

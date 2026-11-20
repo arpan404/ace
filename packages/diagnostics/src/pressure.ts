@@ -1,6 +1,6 @@
 /**
  * How loaded the machine is, and whether that is heavy enough that a slow daemon is starved
- * rather than hung (ADR 0195). Pure: `pressure-read.ts` gathers the facts.
+ * rather than hung (ADR 0196). Pure: `pressure-read.ts` gathers the facts.
  */
 
 /** One line of a Linux PSI file (`/proc/pressure/*`): the share of time stalled, in percent. */
