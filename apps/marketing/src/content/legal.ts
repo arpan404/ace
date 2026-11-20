@@ -35,7 +35,7 @@ export const privacyPolicy: LegalDocument = {
   headline: "Privacy policy",
   title: "Privacy policy: what ace collects and why",
   description:
-    "What the ace account, relay, push gateway and website collect, how it is used, who processes it and how to delete it. ace never sees your code or prompts.",
+    "What ace's services collect and how to delete it. ace never sees your code or prompts, unless an outside MCP client you connect sends them.",
   updated,
   updatedIso,
   intro:
@@ -46,10 +46,10 @@ export const privacyPolicy: LegalDocument = {
       body: [
         {
           list: [
-            "Your code, prompts, transcripts and files stay on your machines. We never receive them.",
+            "Your code, prompts, transcripts and files stay on your machines. We never receive them, with one exception you have to turn on: an outside MCP client reaching a machine through ace's hosted address (see The hosted relay).",
             "We never ask for, store or pass on the credentials of your coding agents (Claude, Codex, Cursor and the others).",
             "An ace account is optional. If you create one, we keep your account id, email and name, and a short record of each machine you sign in.",
-            "Traffic through our relay is end-to-end encrypted between your devices and your machines. We can't read it.",
+            "Traffic through our relay is end-to-end encrypted between your devices and your machines. We can't read it. The exception is that outside MCP client path, where the relay sees the requests and replies it passes on.",
             "We don't sell data, show ads, use trackers or train AI models on anything of yours.",
           ],
         },
@@ -90,7 +90,7 @@ export const privacyPolicy: LegalDocument = {
     {
       heading: "The hosted relay",
       body: [
-        "When a device and a machine can't reach each other directly, ace connects them through our relay on Cloudflare. The connection is end-to-end encrypted between the two ends, so the relay forwards data it can't read: never your prompts, code, transcripts, files or screens.",
+        "When a device and a machine can't reach each other directly, ace connects them through our relay on Cloudflare. The connection is end-to-end encrypted between the two ends, so the relay forwards data it can't read: never your prompts, code, transcripts, files or screens. The outside MCP client path below is the one exception.",
         "One path works differently, and it is off unless you turn it on for a machine: an outside MCP client, such as a hosted AI assistant, reaching that machine through ace's hosted address. Those clients speak plain HTTPS, so Cloudflare ends the encryption and the relay sees their requests and replies, tokens included, while passing them on. It stores and logs none of it. To avoid this, connect such clients through Tailscale Funnel or your own address instead.",
         "To route a connection, the relay sees the IP addresses of both ends, the machine's host id, a short-lived signed pass (valid for five minutes) showing that the device and the machine belong to the same account, when the connection opens and closes, and the size of the encrypted messages. It keeps none of this after the connection ends, and it logs no messages, passes or addresses.",
       ],
