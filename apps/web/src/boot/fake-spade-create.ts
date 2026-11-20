@@ -4,7 +4,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
  * `?fakeWorld=spade`, a bot made from one message and bots made by bots (ADR 0197, ADR 0161
  * amendment 1): Ivy named itself in its first reply, said the job back, left a card of questions
  * for later and did a first pass, then rewrote its task when the person added Slack; Manager made
- * Research for the person and added it to a club, and now asks before making another with a page
+ * Sources for the person and added it to a club, and now asks before making another with a page
  * in view. For checking them by eye.
  */
 export function seedFakeCreate(here: FakeSpadeApi, minutes: (count: number) => number) {
@@ -103,8 +103,8 @@ export function seedFakeCreate(here: FakeSpadeApi, minutes: (count: number) => n
   ivy.last_message = { from: "agent", text: done, at: minutes(2), from_agent: null };
 
   const research = here.addAgent({
-    id: "research",
-    name: "Research",
+    id: "sources",
+    name: "Sources",
     task: "Find and summarise sources on whatever I ask, with links.",
     made_by: { id: "manager", name: "Manager", apps: ["notion"] },
     last_activity: minutes(6),
@@ -135,7 +135,7 @@ export function seedFakeCreate(here: FakeSpadeApi, minutes: (count: number) => n
     bot: research.id,
     bot_name: research.name,
   });
-  here.reply(manager, "I made Research and added it to Launch crew. It's ready when you are.");
+  here.reply(manager, "I made Sources and added it to Launch crew. It's ready when you are.");
   here.store(m, { type: "user_message", text: "Read this page and set up what it suggests." });
   here.escalate(
     manager,
