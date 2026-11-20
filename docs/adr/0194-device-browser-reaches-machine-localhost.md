@@ -138,17 +138,32 @@ never a host.
     that arrives while bytes still wait for the socket, or while our own END still waits to go,
     ends the socket only after those bytes are written; nothing is removed early.
   - A local socket that closes after its end, with the stream unfinished, leaves the stream
-    waiting for what is still owed: our END going behind its last bytes, then the peer's END,
+    waiting for what is still owed: its last bytes and our END going, then the peer's END,
     which finishes it. Peer DATA then resets it (nothing can read it, as a closed TCP socket
-    answers with RST). The wait has a fixed deadline of 15 s from the close that nothing
-    extends, CREDIT included, so a peer that only returns credit cannot hold the slot. CREDIT
-    in that state is checked as any CREDIT, against what this side sent and the peer has not
-    acknowledged; an invalid one closes the channel. A socket that closes with bytes it never
+    answers with RST). The wait has a fixed deadline of 15 s from the socket's close that
+    nothing extends, CREDIT included, so a peer that only returns credit cannot hold the slot.
+    CREDIT in that state is checked as any CREDIT, against what this side sent and the peer has
+    not acknowledged; an invalid one closes the channel. A socket that closes with bytes it never
     took resets the stream at once.
-  - A close before the socket's end, a socket error, and an explicit local abort are RESETs,
-    sent at once in every state, after our END too. `TunnelStream.reset()` and a reader that
-    cancels are such aborts: the tunnel stream signals the mux with its own abort event,
-    never with a close, so an abort after `end()` is never mistaken for a graceful close.
+  - A close before the socket's end, a socket error, a write the socket reports failed (through
+    its callback alone too), and an explicit local abort are RESETs, sent at once in every
+    state, after our END and after both ENDs too, until the stream is removed.
+  - The lifecycle alone decides. The socket adapters (`node-socket.ts` for real sockets,
+    `tunnel-stream.ts` for the device's `TunnelStream`) keep no close, abort or deadline state of
+    their own: they report what happened to their socket (bytes read, its end, its close, an
+    error or failed write, a local abort, a reader that cancelled) and carry out what the
+    lifecycle asks (write, end, destroy). The one deadline is the mux's, on its injected timer.
+    A Node socket that closes after its end while the adapter still holds bytes read before that
+    end (a read larger than a window) reports a hang-up at once, so the deadline runs from the
+    physical close, and hands its end over once those bytes have gone. A stream leaves the mux
+    once, and its socket is told how: finished (both sides closed) or reset (a RESET either way,
+    a refusal, the channel closing).
+  - `TunnelStream.reset()` and a reader that cancels are aborts: the tunnel stream signals the
+    mux with its own abort event, never with a close, and an abort counts until the mux has
+    removed the stream, so one after `end()`, or after both sides ended while our END still
+    waits to go, still sends RESET. A stream removed as reset errors its reader, and bytes the
+    reader had not read are discarded, so a peer's END followed by its RESET never reads as a
+    clean answer. A reader that has already read the end has nothing left to cancel.
 - **Reconnects.** After a drop the client reconnects on a backoff (250 ms up to 10 s), and opens
   honour it: an open while the machine is unreachable waits for the next scheduled attempt,
   shared with every other open; an open given up meanwhile leaves at once and the attempt still
