@@ -115,7 +115,10 @@ impl AceSkills {
             }) => return Ok(None),
             Err(error) => return Err(error),
         };
-        match (result.get("signed"), result.get("botJson").and_then(Value::as_str)) {
+        match (
+            result.get("signed"),
+            result.get("botJson").and_then(Value::as_str),
+        ) {
             (Some(signed), Some(bot_json)) => Ok(Some(MarketBot {
                 signed: signed.clone(),
                 bot_json: bot_json.to_owned(),

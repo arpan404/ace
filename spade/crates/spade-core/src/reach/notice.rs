@@ -69,9 +69,7 @@ pub fn parse(arguments: &Value) -> Result<Notice, String> {
         return Err("Give `title`: a few words the person reads first.".to_owned());
     }
     if title.chars().count() > TITLE_CHARS {
-        return Err(format!(
-            "Keep `title` under {TITLE_CHARS} characters."
-        ));
+        return Err(format!("Keep `title` under {TITLE_CHARS} characters."));
     }
     if body.chars().count() > BODY_CHARS {
         return Err(format!("Keep `body` under {BODY_CHARS} characters."));
@@ -177,7 +175,8 @@ mod tests {
 
     #[test]
     fn a_notice_is_a_plain_title_and_body() {
-        let notice = parse(&json!({ "title": " Fare\u{7}  dropped ", "body": "LIS to\nNRT: €612" }));
+        let notice =
+            parse(&json!({ "title": " Fare\u{7}  dropped ", "body": "LIS to\nNRT: €612" }));
         assert_eq!(
             notice,
             Ok(Notice {
@@ -226,7 +225,10 @@ mod tests {
             counts: true,
         };
         let held = limit(now, Rate::Hour);
-        assert_eq!((held.reach, held.why, held.counts), (Reach::Held, Some(Why::Rate), false));
+        assert_eq!(
+            (held.reach, held.why, held.counts),
+            (Reach::Held, Some(Why::Rate), false)
+        );
         assert_eq!(limit(now, Rate::Room), now);
         let quiet = Decision {
             reach: Reach::Held,

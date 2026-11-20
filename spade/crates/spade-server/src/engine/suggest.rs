@@ -16,8 +16,8 @@ use spade_core::event::{Call, Event, Known};
 use spade_core::question::suggest::{self, Installed, Publisher, Suggest};
 use spade_core::question::{self, Standing};
 
-use super::apps::Requested;
 use super::Engine;
+use super::apps::Requested;
 use crate::packages::envelope::{self, Envelope, MARKET};
 use crate::tools::ToolOutput;
 
@@ -124,11 +124,18 @@ impl Engine {
         if id.name != package {
             return Err(unknown(package));
         }
-        let publisher: Publisher = serde_json::from_value(sealed.signed["body"]["publisher"].clone())
-            .map_err(|_| format!("{package}'s signed listing names no publisher."))?;
+        let publisher: Publisher =
+            serde_json::from_value(sealed.signed["body"]["publisher"].clone())
+                .map_err(|_| format!("{package}'s signed listing names no publisher."))?;
         let manifest = crate::packages::manifest(&recipe)
             .map_err(|why| format!("{package} can't be installed on this Spade: {why}"))?;
-        Ok(suggest::card(MARKET, package, &id.version, publisher, &manifest))
+        Ok(suggest::card(
+            MARKET,
+            package,
+            &id.version,
+            publisher,
+            &manifest,
+        ))
     }
 
     fn open_cards(&self) -> Result<Vec<Open>, spade_store::StoreError> {

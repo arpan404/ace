@@ -232,9 +232,10 @@ pub fn parse(arguments: &Value) -> Result<(String, String), String> {
             "Keep `why` to one line, under {WHY_CHARS} characters."
         ));
     }
-    let named = package.chars().all(|c| {
-        c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.')
-    }) && package.len() <= 64;
+    let named = package
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'))
+        && package.len() <= 64;
     if !named {
         return Err(format!(
             "There's no package called {package} in the market: a package's name is lowercase \
@@ -253,7 +254,10 @@ mod tests {
     fn a_bot_can_only_name_a_package_and_a_reason() {
         assert_eq!(
             parse(&json!({ "package": "flight-watcher", "why": "You asked about fares" })),
-            Ok(("flight-watcher".to_owned(), "You asked about fares".to_owned()))
+            Ok((
+                "flight-watcher".to_owned(),
+                "You asked about fares".to_owned()
+            ))
         );
         for refused in [
             json!({ "package": "flight-watcher", "why": "x", "switches": {} }),
