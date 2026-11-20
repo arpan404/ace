@@ -147,7 +147,9 @@ Spade is one of ace's places. It adds no navigation of its own.
   reads Undone once used. A change asked of the person is a request card with the same before
   and now, Allow and Deny, never Always. The profile's task folds its Earlier versions, each with
   who changed it, why and when, and Restore.
-- **Clubs:** member runs with face and name, a profile with Members and Library, New club in
+- **Clubs:** up to 32 bots. A club's stack shows two faces and how many more ("+30") from 40px
+  up. New club's member list searches once there are more than eight bots, a picked bot always
+  listed. Member runs with face and name, a profile with Members and Library, New club in
   place, and @ to address a member.
 
 ## 6. Shape and buttons
