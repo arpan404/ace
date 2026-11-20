@@ -19,7 +19,9 @@ import XCTest
         let row = "thread.\(source).ios-done"
         // The Threads list's Inbox control is its readiness: waitForInbox flings a list that
         // opened scrolled back to its top, and revealRow scrolls to the row from there.
-        XCTAssertTrue(app.waitForInbox(timeout: 30), "the Threads list never showed")
+        let ready = app.waitForInbox(timeout: 30)
+        screenshot("00-launch")
+        XCTAssertTrue(ready, "the Threads list never showed:\n\(app.debugDescription.prefix(6000))")
 
         // A thread whose work moved there (ADR 0191) says so on its row, never its age, and its
         // long-press menu opens it on that machine.

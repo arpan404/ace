@@ -116,7 +116,9 @@ extension XCUIApplication {
         buttons["search.place.pulls"].tap()
     }
     /// The Threads list is up: its Inbox, Snoozed and Settled control shows.
-    var inboxReady: XCUIElement { buttons["threads.tab.inbox"] }
+    /// The Threads list's Inbox tab, by identifier on any element: some runtimes (iOS 26.1)
+    /// expose the tabs' capsule as one container, its tabs not as buttons.
+    var inboxReady: XCUIElement { descendants(matching: .any)["threads.tab.inbox"].firstMatch }
     /// The system back button of a pushed page. Some runtimes (iOS 27, the folded Duo) show it
     /// without a NavigationBar around it, so it is found by its usual identifier or label too.
     @MainActor func tapBack() {
