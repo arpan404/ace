@@ -120,18 +120,18 @@ records `untrusted: true`, so a later summary that folds it in stays untrusted.
 
 All under `/v1`, with the bearer token. Bodies are JSON; errors are `{"error": "…"}`.
 
-| Request                     | Body                      | Answer                                                                                                                          |
-| --------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /agents/{id}/notes`    |                           | `{"notes": [note…]}`, newest change first; `?q=` ranks                                                                          |
-| `POST /agents/{id}/notes`   | `{"text"}`                | `201` and the note, source `person`; `200` and the existing note when one already says the same (a matching suggestion is kept) |
-| `GET /notes`                |                           | The shared notes, as above                                                                                                      |
-| `POST /notes`               | `{"text"}`                | `201` and a shared note, or `200` as above                                                                                      |
-| `PATCH /notes/{note}`       | `{"text", "updated_at"?}` | The changed note; with `updated_at`, `409 {"error", "note"}` if the note changed since that version                             |
-| `POST /notes/{note}/accept` |                           | The kept suggestion, `suggested: false`                                                                                         |
-| `DELETE /notes/{note}`      |                           | `204`                                                                                                                           |
-| `GET /notes/{note}/provenance` |                        | Where it came from (below)                                                                                                      |
-| `GET /agents/{id}/learned`  |                           | `{"sources": [{key, label, notes, entries}]}`, most first                                                                       |
-| `POST /agents/{id}/learned/forget` | `{"source"}`       | `{"notes", "entries"}` forgotten                                                                                                |
+| Request                            | Body                      | Answer                                                                                                                          |
+| ---------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /agents/{id}/notes`           |                           | `{"notes": [note…]}`, newest change first; `?q=` ranks                                                                          |
+| `POST /agents/{id}/notes`          | `{"text"}`                | `201` and the note, source `person`; `200` and the existing note when one already says the same (a matching suggestion is kept) |
+| `GET /notes`                       |                           | The shared notes, as above                                                                                                      |
+| `POST /notes`                      | `{"text"}`                | `201` and a shared note, or `200` as above                                                                                      |
+| `PATCH /notes/{note}`              | `{"text", "updated_at"?}` | The changed note; with `updated_at`, `409 {"error", "note"}` if the note changed since that version                             |
+| `POST /notes/{note}/accept`        |                           | The kept suggestion, `suggested: false`                                                                                         |
+| `DELETE /notes/{note}`             |                           | `204`                                                                                                                           |
+| `GET /notes/{note}/provenance`     |                           | Where it came from (below)                                                                                                      |
+| `GET /agents/{id}/learned`         |                           | `{"sources": [{key, label, notes, entries}]}`, most first                                                                       |
+| `POST /agents/{id}/learned/forget` | `{"source"}`              | `{"notes", "entries"}` forgotten                                                                                                |
 
 `400` for text that is empty or too long, `404` for an unknown agent or note, `409` when the scope
 already holds 1,000 notes.
@@ -159,3 +159,11 @@ Trips"); `POST …/learned/forget {source}` deletes every one of them that answe
 When the person's message is stored, the notes recalled for it are in its `context` as
 `- [n_…] text`; the app reads their ids to show what a reply had in mind.
 
+## First run: About you
+
+Once Spade is on and has a model, the app asks four short questions in the main Spade's chat
+(what to call the person, what they do, what they want help with, how they like to be talked to),
+each skippable. Each answer becomes a shared note with source `person`. `GET /v1/onboarding`
+answers `{about_you, starters}`, each `done`, `skipped` or `null` while still to ask; `PUT` takes
+either and keeps it in Spade's settings, so no client asks again. `starters` is the card offering
+the templates as starter bots after it.

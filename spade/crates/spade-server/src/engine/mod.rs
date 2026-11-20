@@ -35,6 +35,7 @@ mod maintenance;
 mod media;
 mod memory;
 mod moves;
+pub mod onboarding;
 mod outbox;
 mod oversight;
 mod park;

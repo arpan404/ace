@@ -22,6 +22,48 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/notes/{note}/provenance", get(note_provenance))
         .route("/agents/{id}/learned", get(learned))
         .route("/agents/{id}/learned/forget", post(forget_source))
+        .route("/onboarding", get(onboarding).put(set_onboarding))
+}
+
+fn onboarding_json(state: &AppState) -> Response {
+    match state.engine.onboarding() {
+        Ok(steps) => {
+            let shown: serde_json::Map<String, serde_json::Value> = steps
+                .into_iter()
+                .map(|(step, done)| (step.to_owned(), json!(done)))
+                .collect();
+            Json(shown).into_response()
+        }
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    }
+}
+
+/// First run: what became of the About-you interview and the starter bots.
+async fn onboarding(State(state): State<AppState>) -> Response {
+    off_thread(move || onboarding_json(&state)).await
+}
+
+/// Records first-run steps: `{about_you?, starters?}`, each `done`, `skipped` or `null`.
+async fn set_onboarding(
+    State(state): State<AppState>,
+    Body(body): Body<serde_json::Map<String, serde_json::Value>>,
+) -> Response {
+    off_thread(move || {
+        for (step, value) in &body {
+            if !crate::engine::onboarding::STEPS.contains(&step.as_str()) {
+                return problem(StatusCode::BAD_REQUEST, &format!("there is no step {step}"));
+            }
+            let value = value.as_str();
+            if value.is_some_and(|v| !crate::engine::onboarding::valid(v)) {
+                return problem(StatusCode::BAD_REQUEST, "a step is done, skipped or null");
+            }
+            if let Err(error) = state.engine.set_onboarding(step, value) {
+                return problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string());
+            }
+        }
+        onboarding_json(&state)
+    })
+    .await
 }
 
 /// Where a note came from: its conversation and the message it answered, what was in view, an

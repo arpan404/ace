@@ -442,7 +442,7 @@ answered, a turn or job ends). Not stored. Older clients ignore the event name.
 
 ## Events
 
-| Type               | Fields                              | Meaning                               |
-| ------------------ | ----------------------------------- | ------------------------------------- |
+| Type               | Fields                              | Meaning                                  |
+| ------------------ | ----------------------------------- | ---------------------------------------- |
 | `agent_configured` | `task`, `model`, `personality?`     | The agent's task, model or voice changed |
-| `user_message`     | `…, from_agent?: {id, name, depth}` | `from_agent` when another bot sent it |
+| `user_message`     | `…, from_agent?: {id, name, depth}` | `from_agent` when another bot sent it    |
