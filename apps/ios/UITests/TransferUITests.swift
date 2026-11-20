@@ -1,7 +1,8 @@
 import XCTest
 
-/// Continue on… with two fixture machines (ADR 0101): the thread menu, the machine sheet, the
-/// options, the sending line above the composer, then the new thread on the other machine.
+/// Continue on… with two fixture machines (ADR 0101): a moved thread's row, the thread menu, the
+/// machine sheet and its Allow projects step, the options, the sending line above the composer,
+/// then the new thread on the other machine.
 /// Start the first fixture linked to the second, then launch this:
 /// `ACE_IOS_SPIKE_PORT=9961 ACE_IOS_SPIKE_MACHINE=1 ACE_IOS_SPIKE_PEER=9962 bun run spike:daemon`.
 /// `TEST_RUNNER_ACE_IOS_SPIKE_MACHINES` picks other ports and `TEST_RUNNER_ACE_IOS_SHOTS` a
@@ -16,8 +17,23 @@ import XCTest
         app.launchWithArguments()
         let source = "ios-spike-host-\(ports[0])", target = "ios-spike-host-\(ports[1])", name = "studio-\(ports[1])"
         let row = "thread.\(source).ios-done"
-        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
-        for _ in 0..<10 where !app.buttons[row].isHittable { app.swipeUp() }
+        // The Threads list's Inbox control is its readiness: waitForInbox flings a list that
+        // opened scrolled back to its top, and revealRow scrolls to the row from there.
+        XCTAssertTrue(app.waitForInbox(timeout: 30), "the Threads list never showed")
+
+        // A thread whose work moved there (ADR 0191) says so on its row, never its age, and its
+        // long-press menu opens it on that machine.
+        let moved = app.revealRow("thread.\(source).ios-moved")
+        XCTAssertTrue(moved.label.contains("Moved to \(name)"), "the moved row names where its work went: \(moved.label)")
+        screenshot("0-moved-row")
+        moved.press(forDuration: 1.0)
+        let openThere = app.buttons["row.openMoved"]
+        XCTAssertTrue(openThere.waitForExistence(timeout: 10))
+        XCTAssertEqual(openThere.label, "Open on \(name)")
+        screenshot("0b-moved-menu")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).tap()
+        XCTAssertTrue(app.waitForInbox(timeout: 15))
+
         app.revealRow(row).tap()
 
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))

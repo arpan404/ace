@@ -1,4 +1,5 @@
-import { FakeDaemon } from "@ace/fake-daemon";
+import { FakeDaemon, facts } from "@ace/fake-daemon";
+import { HostId, ThreadId } from "@ace/protocol";
 import type { ServerWebSocket } from "bun";
 
 /*
@@ -32,6 +33,35 @@ export function servePeer(daemon: FakeDaemon, port: number, schedule: (run: () =
   daemon.linkTo(away, { status: "offline" });
   daemon.linkTo(desk, { projects: false });
   peer.linkTo(daemon);
+  // A thread whose work moved to the peer while it worked (ADR 0191): its row says so and opens
+  // the thread there.
+  peer.createThread({
+    hasSentMessage: true,
+    id: "ios-moved-there",
+    workspaceId: "ace",
+    title: "Speed up the snapshot cache",
+    provider: "claude",
+  });
+  daemon.createThread({
+    hasSentMessage: true,
+    id: "ios-moved",
+    workspaceId: "ace",
+    title: "Speed up the snapshot cache",
+    provider: "claude",
+  });
+  daemon.apply("ios-moved", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.endTurn("root"),
+    {
+      type: "thread.moved",
+      to: {
+        hostId: HostId.parse(`ios-spike-host-${port}`),
+        name: `studio-${port}`,
+        threadId: ThreadId.parse("ios-moved-there"),
+      },
+    },
+  ]);
   const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
   const server = Bun.serve<undefined>({
     hostname: "127.0.0.1",
