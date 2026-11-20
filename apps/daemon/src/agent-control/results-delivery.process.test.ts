@@ -182,6 +182,9 @@ test("waiting delegate returns results through its MCP tool without a duplicate 
   await h.engine.flush();
   const child = h.service.journal.receipt(parent.threadId, "wait-greeter");
   if (!child) throw new Error("Missing child");
+  // The call prepares the child's model before it launches the child, which can outlast one
+  // engine flush; the child reads as waiting on its queue meanwhile.
+  await expect.poll(() => h.contexts.has(child.childId)).toBe(true);
   await h.complete(child.childId, "Hello");
   expect(await result).toMatchObject({
     ok: true,
