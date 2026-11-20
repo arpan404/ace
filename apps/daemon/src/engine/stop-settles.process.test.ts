@@ -155,7 +155,16 @@ const pastGrace = async (h: Awaited<ReturnType<typeof fixture>>) => {
 
 test("a message the provider takes within a Stop's grace isn't cut off by the Stop", async () => {
   // Work that keeps prompts out, from a provider that still takes this one and starts its turn.
-  const { h, id } = await leftRunning({ ...task, stoppable: false, blocksPrompts: true }, [start]);
+  const shell: Fact = {
+    type: "background.started",
+    agent: "root",
+    task: "shell",
+    kind: "shell",
+    title: "Background build",
+    stoppable: false,
+    blocksPrompts: true,
+  };
+  const { h, id } = await leftRunning(shell, [start]);
   expect(
     h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "go on" }] }).ok,
   ).toBe(true);

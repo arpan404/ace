@@ -55,7 +55,7 @@ test("a probe's command lookup and its run share one deadline from the probe's s
   const timers = new Set<{ at: number; run: () => void }>();
   const advance = (to: number) => {
     now = to;
-    for (const timer of [...timers])
+    for (const timer of timers)
       if (timer.at <= to) {
         timers.delete(timer);
         timer.run();

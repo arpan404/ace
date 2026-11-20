@@ -588,9 +588,8 @@ export class EngineRepository {
   /** The thread's newest command ace took, by intent id (never reused, never deleted). */
   latestIntent(id: ThreadId): number {
     return Number(
-      this.store
-        .statement("SELECT COALESCE(MAX(id),0) AS n FROM intents WHERE thread_id=?")
-        .get(id)?.n,
+      this.store.statement("SELECT COALESCE(MAX(id),0) AS n FROM intents WHERE thread_id=?").get(id)
+        ?.n,
     );
   }
   /**

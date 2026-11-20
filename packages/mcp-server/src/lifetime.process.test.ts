@@ -476,7 +476,7 @@ it("a host's hook and the tool share one deadline, counted from the call's start
   const timers = new Set<{ at: number; run: () => void }>();
   const advance = (to: number) => {
     now = to;
-    for (const timer of [...timers])
+    for (const timer of timers)
       if (timer.at <= to) {
         timers.delete(timer);
         timer.run();
