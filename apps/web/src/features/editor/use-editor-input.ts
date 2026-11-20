@@ -57,6 +57,12 @@ export function useEditorInput(
     state.edit((target) => target.insertText(text));
   };
 
+  /** A keystroke's text: brackets and quotes close themselves, unlike a paste. */
+  const typeKey = (text: string) => {
+    if (readOnly || !text) return;
+    state.edit((target) => target.typeText(text));
+  };
+
   const suppress = () => {
     suppressed.current = true;
     queueMicrotask(() => {
@@ -86,13 +92,13 @@ export function useEditorInput(
     const type = event.inputType ?? "";
     if (type === "insertLineBreak" || type === "insertParagraph") {
       block();
-      state.edit((target) => target.insertNewline());
+      state.edit((target) => target.smartNewline());
       return;
     }
     if (type === "deleteContentBackward" || type === "deleteSoftLineBackward") {
       block();
       state.edit((target) =>
-        type === "deleteSoftLineBackward" ? target.deleteWordBackward() : target.backspace(),
+        type === "deleteSoftLineBackward" ? target.deleteWordBackward() : target.smartBackspace(),
       );
       return;
     }
@@ -118,7 +124,9 @@ export function useEditorInput(
     }
     if (event.data !== null && event.data !== undefined) {
       block();
-      insert(normaliseNewlines(event.data));
+      const text = normaliseNewlines(event.data);
+      if (type === "insertText") typeKey(text);
+      else insert(text);
     }
   };
 
@@ -136,16 +144,17 @@ export function useEditorInput(
     if (event.nativeEvent.isComposing || event.keyCode === 229) return false;
     if (readOnly) return false;
     const word = mac ? event.altKey || event.metaKey : event.ctrlKey || event.altKey;
-    if (event.key === "Enter") {
+    // Cmd+Enter and Shift+Cmd+Enter open a line below or above: the line keys take those.
+    if (event.key === "Enter" && !(mac ? event.metaKey : event.ctrlKey)) {
       event.preventDefault();
       suppress();
-      state.edit((target) => target.insertNewline());
+      state.edit((target) => target.smartNewline());
       return true;
     }
     if (event.key === "Backspace") {
       event.preventDefault();
       suppress();
-      state.edit((target) => (word ? target.deleteWordBackward() : target.backspace()));
+      state.edit((target) => (word ? target.deleteWordBackward() : target.smartBackspace()));
       return true;
     }
     if (event.key === "Delete") {
@@ -166,7 +175,7 @@ export function useEditorInput(
     event.currentTarget.value = "";
     if (wasHandled) return;
     // A browser without beforeinput reports the whole insertion here instead.
-    insert(normaliseNewlines(value));
+    typeKey(normaliseNewlines(value));
   };
 
   const onCopy = (event: ClipboardEvent<HTMLTextAreaElement>) => {

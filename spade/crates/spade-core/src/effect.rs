@@ -11,8 +11,10 @@ use crate::autonomy::{self, Class, Mode};
 use crate::gate::Decision;
 use crate::tools::Risk;
 
+pub mod ceiling;
 pub mod drive;
 mod full_access;
+pub mod runtime;
 
 pub use full_access::NO_CLASSIFIER;
 
@@ -160,6 +162,13 @@ const BUILTIN: &[(&str, Effect)] = &[
     (PR_COMMENT, Effect::SendAsPerson),
     (ISSUE_COMMENT, Effect::SendAsPerson),
     (SEND_MESSAGE, Effect::SendAsPerson),
+    // Named for `spade.v1` (ADR 0200 §4): each reads as its risk always read it.
+    (crate::context::ASK_USER, Effect::Read),
+    (crate::tools::TOOL_SEARCH, Effect::Read),
+    ("apps_find", Effect::Read),
+    ("app_connect_request", Effect::Read),
+    // A card in the bot's own conversation, drawn by ace: the bot's output, like its reply.
+    (crate::card::CARD_SHOW, Effect::WriteLocal),
 ];
 
 /// The typed tools that hold the person's sign-in outside the sandbox (ADR 0171 decision 2).
@@ -167,6 +176,14 @@ pub const GIT_PUSH: &str = "git_push";
 pub const PR_COMMENT: &str = "pr_comment";
 pub const ISSUE_COMMENT: &str = "issue_comment";
 pub const SEND_MESSAGE: &str = "send_message";
+
+/// What the table says one of Spade's own tools does, with no fallback on its risk.
+pub fn table(name: &str) -> Option<Effect> {
+    BUILTIN
+        .iter()
+        .find(|(tool, _)| *tool == name)
+        .map(|(_, effect)| *effect)
+}
 
 /// What one of Spade's own tools does.
 pub fn builtin(name: &str, risk: Risk) -> Option<Effect> {
@@ -317,6 +334,9 @@ pub struct Call<'a> {
     /// Spade's classifier (ADR 0172) is on and loaded, so a call the gate lets run can still be
     /// raised to the person.
     pub classifier: bool,
+    /// For a packaged bot, or anything under one, what its package declared and the person left
+    /// on (ADR 0200 §3.4); `None` for every other bot.
+    pub ceiling: Option<ceiling::Ceiling<'a>>,
 }
 
 /// Why the person is asked, when it isn't the usual request.
@@ -397,6 +417,11 @@ pub fn route(call: Call<'_>) -> Route {
     // failed: no sandbox, checkpoint or classifier changes them.
     if call.credentials || call.effect == Some(Effect::Credential) {
         return Route::Refuse(autonomy::CREDENTIALS_REFUSED.to_owned());
+    }
+    // A packaged bot's ceiling, right after: an effect its package didn't declare, or one the
+    // person turned off, is refused before any review or request, in every mode.
+    if let Some(why) = ceiling::refusal(call.ceiling, call.effect) {
+        return Route::Refuse(why);
     }
     if let Some(effect) = call.effect
         && let Some(route) = persons(call, effect, allowed)
@@ -749,5 +774,7 @@ pub fn blocked_hint(kind: Blocked) -> &'static str {
     }
 }
 
+#[cfg(test)]
+mod ceiling_tests;
 #[cfg(test)]
 mod tests;

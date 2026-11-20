@@ -148,16 +148,16 @@ describe.skipIf(!executablePath)("page audio from ace's Chrome", () => {
     // A second of sound: fifty 20 ms Opus packets.
     await until(() => listener.audio().length >= 50);
     const chunks = listener.audio();
-    // Chrome captures the tab at the output device's rate (48 kHz speakers, 44.1 kHz Bluetooth
-    // headphones), the rate the page's own AudioContext runs at. The pitch check below
-    // decodes at the reported rate, so a wrong rate would also mishear the tone.
-    const pageRate = Number(await f.evaluate("audioContext.sampleRate"));
-    expect(chunks[0]).toMatchObject({ codec: "opus", sampleRate: pageRate });
+    // Opus always codes at 48 kHz, whatever rate the tab is captured at (the output device's on
+    // a Mac, the sound server's mix rate on Linux), so every chunk says 48 kHz. The pitch check
+    // below decodes at that rate, and its band is narrow enough that a wrong one (440 Hz heard
+    // as 404 or 479) fails it.
+    expect(chunks[0]).toMatchObject({ codec: "opus", sampleRate: 48_000 });
     const heard = await hear(f, chunks);
     expect(heard.errors).toEqual([]);
     expect(heard.peak).toBeGreaterThan(0.1);
-    expect(heard.pitch).toBeGreaterThan(400);
-    expect(heard.pitch).toBeLessThan(480);
+    expect(heard.pitch).toBeGreaterThan(425);
+    expect(heard.pitch).toBeLessThan(455);
     // Stamped on the video's clock: the newest sound and the newest picture are moments apart.
     await until(() => listener.video().length > 0);
     const lastVideo = listener.video().at(-1)?.timestamp ?? 0;

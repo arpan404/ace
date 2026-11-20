@@ -64,6 +64,12 @@ export interface TabKindOptions {
    * shell's view items. Loaded with the kinds, so keep it small.
    */
   MenuItems?: ComponentType<{ scope: string; tab: WorkspaceTab }>;
+  /**
+   * A preview tab (a file one click opened, which the next click replaces) draws its title in
+   * italics until kept. Answers the data the tab takes once kept (double-clicking it), or
+   * undefined when the tab isn't a preview.
+   */
+  preview?(tab: WorkspaceTab): { kept: unknown } | undefined;
   /** The tab title; default: the title the view last reported, else `label`. */
   title?(tab: WorkspaceTab): string;
   load(): Promise<TabModule>;
@@ -122,9 +128,12 @@ export interface CloseWarning {
 type LazyView = LazyExoticComponent<ComponentType<TabViewProps>>;
 
 export interface TabKind extends TabKindOptions {
-  /** The tab's view, loaded on first render. After a failed load, a fresh one that retries. */
-  view(): LazyView;
-  /** Its strip actions, from the same chunk. */
+  /**
+   * The tab's view once its code has loaded, to draw at once; undefined until then (`load`
+   * starts it).
+   */
+  loaded(): ComponentType<TabViewProps> | undefined;
+  /** Its strip actions, from the same chunk, loaded on first render; after a failed load, a fresh one that retries. */
   actions(): LazyView;
   /** Start loading the kind's code (hovering its launcher card, say). */
   preload(): void;
@@ -135,16 +144,22 @@ const Nothing: ComponentType<TabViewProps> = () => null;
 /** Declare a kind. Call once at module level, in the module a workspace's `kinds` loads. */
 export function defineTabKind(options: TabKindOptions): TabKind {
   let loading: Promise<TabModule> | undefined;
+  let arrived: TabModule | undefined;
   let failed = false;
   const load = () =>
-    (loading ??= options.load().catch((error: unknown) => {
-      // Offline, or a new build replaced the chunk: the next render tries again.
-      loading = undefined;
-      failed = true;
-      throw error;
-    }));
+    (loading ??= options.load().then(
+      (loaded) => {
+        arrived = loaded;
+        return loaded;
+      },
+      (error: unknown) => {
+        // Offline, or a new build replaced the chunk: the next render tries again.
+        loading = undefined;
+        failed = true;
+        throw error;
+      },
+    ));
   const make = () => ({
-    View: lazy(() => load()),
     Actions: lazy(() => load().then((module) => ({ default: module.Actions ?? Nothing }))),
   });
   let current = make();
@@ -158,7 +173,7 @@ export function defineTabKind(options: TabKindOptions): TabKind {
   return {
     ...options,
     load,
-    view: () => fresh().View,
+    loaded: () => arrived?.default,
     actions: () => fresh().Actions,
     preload: () => void load().catch(() => undefined),
   };

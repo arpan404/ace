@@ -3,6 +3,7 @@ import { faceForId, parseStoredBotFace, storedBotFace, type BotFace } from "../b
 import { spadeJson, spadeRecord } from "./json.ts";
 import { parseSpadeComputer, type SpadeComputer } from "./computer.ts";
 import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
+import { parseSpadePackage, type SpadePackage } from "./packages.ts";
 import { parseSpadeTaskProgress, type SpadeTaskProgress } from "./autonomy.ts";
 import { parseSpadeArrival, parseSpadeMove, type SpadeArrival, type SpadeMove } from "./moves.ts";
 
@@ -20,8 +21,11 @@ export type SpadeAvatar =
   /** A character face; `raw` keeps the stored fields this client doesn't know. */
   | { kind: "character"; face: BotFace; raw: Record<string, unknown> };
 
-/** What an agent is doing: nothing, working, or waiting on the person (an approval, a question). */
-export type SpadeAgentState = "idle" | "working" | "waiting";
+/**
+ * What an agent is doing: nothing, working, waiting on the person (an approval, a question), or
+ * paused by them (ADR 0200 §6.1). A sleeping bot reads `working` here: never idle or done.
+ */
+export type SpadeAgentState = "idle" | "working" | "waiting" | "paused";
 
 /** The latest message in an agent's conversation, for its roster row. */
 export interface SpadeLastMessage {
@@ -103,6 +107,8 @@ export interface SpadeAgent {
   madeBy: { id: string; name: string; apps: readonly string[] } | undefined;
   /** Undo archived it: it had acted, so it was kept, stopped, its routines paused. */
   archived: boolean;
+  /** The agent package it is linked to (ADR 0200 §3.9), shown in its profile. */
+  package?: SpadePackage | undefined;
 }
 
 const avatarShape = z.discriminatedUnion("kind", [
@@ -133,7 +139,7 @@ const agentShape = z.object({
   updated_at: time.default(0),
   last_activity: time.default(0),
   pinned_at: z.number().nullish().catch(undefined),
-  state: z.enum(["idle", "working", "waiting"]).optional().catch(undefined),
+  state: z.enum(["idle", "working", "waiting", "paused"]).optional().catch(undefined),
   waiting_for: z.enum(["approval", "question"]).nullish().catch(undefined),
   questions_for_later: z.number().int().nonnegative().nullish().catch(undefined),
   /** Before 0127 Spade said only whether it worked. */
@@ -224,6 +230,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
             : "ask",
     madeBy: madeByShape.safeParse(record.made_by).data,
     archived: record.archived === true,
+    package: parseSpadePackage(record.package),
     raw: record,
   };
 }

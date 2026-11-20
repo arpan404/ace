@@ -18,7 +18,13 @@ export interface MarketEntryKey {
 /** A page pushed over a place. */
 export type MarketPage =
   | { kind: "entry"; entry: MarketEntryKey }
-  | { kind: "review"; entry: MarketEntryKey; update: boolean }
+  | {
+      kind: "review";
+      entry: MarketEntryKey;
+      update: boolean;
+      /** Back to a linked bot's earlier version (ADR 0200 §6.1). */
+      rollback?: boolean | undefined;
+    }
   | { kind: "publisher"; handle: string }
   | { kind: "collection"; id: string }
   | { kind: "profile" }
@@ -111,6 +117,7 @@ export function parseMarket(value: unknown): MarketView | undefined {
   const pages: MarketPage[] = [{ kind: "entry", entry }];
   if (third === "review" || third === "update")
     pages.push({ kind: "review", entry, update: third === "update" });
+  if (third === "rollback") pages.push({ kind: "review", entry, update: true, rollback: true });
   return view(placeOf(entry.type), pages);
 }
 
@@ -124,7 +131,7 @@ export function formatMarket(at: MarketView): string {
     case "entry":
       return entryText(top.entry);
     case "review":
-      return `${entryText(top.entry)}/${top.update ? "update" : "review"}`;
+      return `${entryText(top.entry)}/${top.rollback ? "rollback" : top.update ? "update" : "review"}`;
     case "publisher":
       return `@${top.handle}`;
     case "collection":

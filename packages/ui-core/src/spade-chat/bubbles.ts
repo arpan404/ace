@@ -15,6 +15,7 @@ import { spadeHelperLine } from "./helper-words.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { spadeReplySteps, type SpadeStep } from "./steps.ts";
 import type { SpadeTurnUndo } from "./undo.ts";
+import type { SpadeCardRow } from "./cards.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, and under each reply
@@ -39,6 +40,8 @@ type SpadeBubbleOf =
       voice: SpadeVoiceRef | undefined;
       /** Not stored by Spade yet. */
       sending: boolean;
+      /** Written in an ace thread (ADR 0198): the line above links back to it. */
+      fromThread?: { id: string; title: string } | undefined;
     }
   /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
   | { kind: "routine"; key: string; name: string; label: string }
@@ -98,6 +101,8 @@ type SpadeBubbleOf =
       bot: string;
       botName: string;
     }
+  /** A card the bot showed (ADR 0200 §5.1): its own row, drawn from its data by ace's parts. */
+  | ({ kind: "card"; key: string } & SpadeCardRow)
   /** "Named itself Ivy", the name and face changed in place from the line. */
   | { kind: "named"; key: string; name: string; face: boolean; first: boolean }
   /** The person handed the computer back: one quiet line, its names behind a disclosure. */
@@ -230,6 +235,12 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       bubbles.push(entry);
       continue;
     }
+    if (entry.kind === "card") {
+      onlyGroups = false;
+      const { at, ...card } = entry;
+      bubbles.push({ ...card, ...stamp(at) });
+      continue;
+    }
     if (entry.kind === "quiet") {
       onlyGroups = false;
       bubbles.push({ kind: "quiet", key: entry.key, quiet: entry.quiet, ...stamp(entry.at) });
@@ -291,6 +302,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
               documents: entry.documents ?? [],
               voice: entry.voice,
               sending: entry.pending === true,
+              ...(entry.fromThread ? { fromThread: entry.fromThread } : {}),
               ...stamp(entry.at),
             },
       );

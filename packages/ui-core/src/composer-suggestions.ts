@@ -1,8 +1,15 @@
-import type { CatalogEntry, CatalogMention, ProviderKind } from "@ace/protocol";
+import type {
+  Addressee,
+  CatalogEntry,
+  CatalogMention,
+  DeviceContextItem,
+  ProviderKind,
+} from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import { displayAddress } from "./browser-address.ts";
 import type { ComposerToken } from "./composer-tokens.ts";
 import { catalogDisplayName } from "./extension-names.ts";
+import { appIcon, catalogMark } from "./mention-marks.ts";
 
 /*
  * What the composer suggests while typing `@` or a leading `/`, and what the + offers: one set
@@ -70,6 +77,10 @@ export interface MentionThread {
 
 export interface ComposerSuggestion<Tab extends MentionTab = MentionTab> {
   group: string;
+  /** A Spade bot, club or another thread's agent (ADR 0198). */
+  addressee?: Addressee | undefined;
+  /** A device of the fleet (ADR 0198). */
+  device?: DeviceContextItem | undefined;
   /** What the row reads. */
   label: string;
   detail?: string | undefined;
@@ -260,12 +271,20 @@ export function pickSuggestion(item: ComposerSuggestion, held: HeldReferences): 
  * file, the title for a thread, tab or catalog entry) and what it points at. Offsets start at
  * `start`.
  */
+/** A catalog entry's icon, else an app's mark by name when it is one. */
+function entryIcon(entry: CatalogEntry): string | undefined {
+  if (entry.icon) return entry.icon;
+  const mark = catalogMark(entry);
+  return mark.kind === "app" && mark.candidates.length ? appIcon(mark.candidates) : undefined;
+}
+
 export function suggestionToken(
   item: ComposerSuggestion,
   start: number,
   values?: NonNullable<CatalogMention["values"]>,
 ): ComposerToken {
   const label = item.entry || item.threadId || item.tab ? item.label : `@${item.label}`;
+  const named = item.addressee || item.device;
   const entry = item.entry;
   const catalog: CatalogMention | undefined = entry
     ? {
@@ -274,7 +293,7 @@ export function suggestionToken(
         name: entry.name,
         title: label,
         kind: entry.kind,
-        ...(entry.icon ? { icon: entry.icon } : {}),
+        ...(entryIcon(entry) ? { icon: entryIcon(entry) } : {}),
         arguments: "",
         ...(values ? { values } : {}),
       }
@@ -284,8 +303,11 @@ export function suggestionToken(
     end: start + label.length,
     label,
     ...(catalog ? { catalog } : {}),
+    ...(item.addressee ? { addressee: item.addressee } : {}),
+    ...(item.device ? { device: item.device } : {}),
+    ...(named && item.detail ? { detail: item.detail } : {}),
     ...(item.path ? { file: { path: item.path } } : {}),
-    ...(item.threadId
+    ...(item.threadId && !named
       ? {
           thread: {
             type: "thread_ref" as const,

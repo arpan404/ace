@@ -1,6 +1,11 @@
 import type { WithdrawalTarget } from "@ace/marketplace";
 import type { ScanContext } from "@ace/marketplace/scan";
-import type { MarketKeySet, MarketPublisher, MarketResult } from "@ace/protocol/marketplace";
+import type {
+  MarketBotUpdate,
+  MarketKeySet,
+  MarketPublisher,
+  MarketResult,
+} from "@ace/protocol/marketplace";
 import { blockedEntry } from "./blocklist.ts";
 import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
@@ -17,8 +22,10 @@ import { prepareWithBrings, Refused } from "./prepare.ts";
 import { publicInstall } from "./browse.ts";
 import { contentOnlyReview } from "./content-only.ts";
 import { reauthSentence } from "./fresh-sign-in.ts";
-import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
-import { verifiedKey, type MarketStore } from "./store.ts";
+import { buildReview, reviewPage, type PreparedEntry, type PreparedReview } from "./review.ts";
+import { verifiedKey, type MarketStore, type StoredInstall } from "./store.ts";
+import { bytesJson, packageAsksMore } from "./package-diff.ts";
+import { checkFiles } from "@ace/marketplace/checks";
 import { badgesOf, type Trust } from "./trust.ts";
 
 /*
@@ -78,6 +85,8 @@ export class OpenReviews {
     type: string,
     name: string,
     version: string | undefined,
+    /** An update of this linked bot (ADR 0200 §6.1). */
+    bot?: string,
   ): Promise<MarketResult> {
     const { store } = this.#ports;
     const source = store.source(sourceId);
@@ -104,6 +113,46 @@ export class OpenReviews {
     for (const prepared of [entry, ...brings])
       if (prepared.source === "market" && prepared.signed && prepared.publisher)
         store.saveVerifiedPublisher(verifiedKey(prepared), prepared.publisher.id);
+    return this.#open(entry, brings, bot ? { bot, rollback: false } : undefined);
+  }
+
+  /**
+   * A review of the version a linked bot had before (ADR 0200 §6.1), from the bytes pinned here:
+   * checked again, and needing no network. Installing it is the person's, as an update is.
+   */
+  async prepareRollback(install: StoredInstall): Promise<MarketResult> {
+    const { store } = this.#ports;
+    if (install.type !== "spade-bot" || !install.linked || !install.target)
+      return error("invalid", "Only a bot from a version 3 package rolls back");
+    if (!install.previous) return error("not_found", "There is no earlier version to go back to");
+    if (this.#pending.size >= maxPending)
+      return error("busy", "Too many reviews are open; finish or cancel one");
+    const files = await store.pinned(install.previous.hash, "spade-bot");
+    const checked = checkFiles("spade-bot", install.name, files);
+    if (checked.problems.length > 0 || checked.hash !== install.previous.hash)
+      return error("refused", "The earlier version no longer passes ace's checks");
+    const current = await store.pinned(install.hash, "spade-bot").catch(() => []);
+    const entry: PreparedEntry = {
+      source: install.source,
+      type: "spade-bot",
+      name: install.name,
+      title: install.title,
+      version: install.previous.version,
+      hash: install.previous.hash,
+      signed: install.signed ?? false,
+      reviewed: false,
+      byAce: false,
+      checked,
+      previous: { version: install.version, files: current },
+    };
+    return this.#open(entry, [], { bot: install.target, rollback: true });
+  }
+
+  async #open(
+    entry: PreparedEntry,
+    brings: PreparedEntry[],
+    moving: { bot: string; rollback: boolean } | undefined,
+  ): Promise<MarketResult> {
     const review: PreparedReview = {
       ...entry,
       id: this.#ports
@@ -114,9 +163,34 @@ export class OpenReviews {
       brings,
       spadeReady: entry.type === "spade-bot" ? this.#ports.spade.ready() : true,
     };
+    if (moving) {
+      const updating = await this.#plan(review, moving);
+      if ("op" in updating) return updating;
+      review.updating = updating;
+    }
     const built = buildReview(review);
     this.#pending.set(review.id, { review, items: built.items });
     return { op: "review", review: built.review };
+  }
+
+  /** What moving the bot to the review's version does, by Spade's plan and the two manifests. */
+  async #plan(
+    review: PreparedReview,
+    moving: { bot: string; rollback: boolean },
+  ): Promise<MarketBotUpdate | MarketResult> {
+    const next = review.checked.inspection;
+    if (next?.type !== "spade-bot" || next.recipe.version !== 3)
+      return error("invalid", "Only a bot from a version 3 package updates");
+    if (!this.#ports.spade.ready())
+      return error("unavailable", "Spade isn't running. Start Spade to update this bot.");
+    const manifest = bytesJson(review.checked.files);
+    const plan = await this.#ports.spade.planUpdate(moving.bot, manifest);
+    const before = review.previous
+      ? checkFiles("spade-bot", review.name, [...review.previous.files]).inspection
+      : undefined;
+    const asksMore =
+      before?.type === "spade-bot" ? packageAsksMore(before.recipe, next.recipe) : [];
+    return { bot: moving.bot, rollback: moving.rollback, plan, asksMore };
   }
 
   /** What the device's scan compares against: every listed entry, the signed lists. */

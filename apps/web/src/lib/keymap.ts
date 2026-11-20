@@ -17,6 +17,7 @@ export type KeyScope =
   | "newThread"
   | "panel"
   | "files"
+  | "editor"
   | "terminal"
   | "notifications";
 
@@ -239,6 +240,100 @@ export const keymap = {
     keys: "shift+mod+m",
     label: "Move the focused file",
     scope: "files",
+    fixed: true,
+  },
+  // The editor, a thread's editor workbench (features/panels/editor), while focus is inside it.
+  // Elsewhere the same keys keep their app-wide meaning: ⌘1–9 open threads, ⌥⌘S goes to Skills,
+  // ⌥⌘W and ⇧⌥⌘T close and reopen panel tabs in a browser.
+  "editor.save": { keys: "mod+s", label: "Save the file", scope: "editor", fixed: true },
+  "editor.saveAll": {
+    keys: "shift+mod+s",
+    also: ["alt+mod+s"],
+    label: "Save all files",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.close": {
+    keys: "mod+w",
+    web: "alt+mod+w",
+    label: "Close the editor",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.closeAll": {
+    keys: "mod+k mod+w",
+    label: "Close all editors",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.reopen": {
+    keys: "shift+mod+t",
+    web: "shift+alt+mod+t",
+    label: "Reopen the closed editor",
+    scope: "editor",
+    fixed: true,
+  },
+  // A browser keeps ⌃Tab: there ⌘P with nothing typed lists the same editors.
+  "editor.recent": {
+    keys: "ctrl+tab",
+    also: ["ctrl+shift+tab"],
+    label: "Recent editors (hold ⌃, tap Tab)",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.focusGroup": {
+    keys: "mod+1",
+    web: "alt+mod+1",
+    label: "Focus group 1 to 9",
+    scope: "editor",
+    fixed: true,
+  },
+  // Off Apple ⌃⌘ would be Ctrl alone, which moves by word: Ctrl+Shift+PageUp/PageDown there.
+  "editor.moveEditorBack": {
+    keys: "ctrl+mod+arrowleft",
+    nonApple: "shift+mod+pageup",
+    label: "Move the editor to the previous group",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.moveEditorOn": {
+    keys: "ctrl+mod+arrowright",
+    nonApple: "shift+mod+pagedown",
+    label: "Move the editor to the next group",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.splitRight": { keys: "alt+mod+\\", label: "Split right", scope: "editor", fixed: true },
+  "editor.splitDown": {
+    keys: "shift+alt+mod+\\",
+    label: "Split down",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.explorer": {
+    keys: "mod+b",
+    label: "Show or hide the explorer",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.nextHit": {
+    keys: "f4",
+    also: ["shift+f4"],
+    label: "Next or previous search hit",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.nextChange": {
+    keys: "alt+f5",
+    also: ["shift+alt+f5"],
+    label: "Next or previous agent change",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.composer": {
+    keys: "escape",
+    label: "Back to the composer",
+    scope: "editor",
     fixed: true,
   },
   // Base UI's toast viewport answers F6 itself; F6 walks regions now (`nextRegion`), so this

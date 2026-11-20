@@ -88,6 +88,39 @@ export function samplePlugin(name = "mail-tools"): ArchiveFile[] {
   });
 }
 
+/** A version 3 agent package (ADR 0200): Flight watcher at `version`, its manifest changed by `manifest`. */
+export function samplePackage(manifest: Record<string, unknown> = {}): ArchiveFile[] {
+  return folder({
+    "bot.json": JSON.stringify({
+      format: "spade-bot",
+      version: 3,
+      requires: { runtime: "1" },
+      name: "Flight watcher",
+      blurb: "Watches fares and tells you when one drops.",
+      task: "You watch flight fares for the person.",
+      model: "fast",
+      triggers: [
+        { kind: "message" },
+        {
+          kind: "schedule",
+          name: "Morning check",
+          instruction: "Check every watched trip.",
+          schedule: "daily at 7:00",
+        },
+      ],
+      effects: [
+        { effect: "network", hosts: ["api.example-fares.com"], why: "Reads fares." },
+        { effect: "send_as_person", why: "Drafts a mail to your travel agent. You send it." },
+      ],
+      limits: { spend_alert: { usd_per_day: 0.5 } },
+      notes: ["The person books."],
+      pricing: { kind: "free" },
+      ...manifest,
+    }),
+    "README.md": "# Flight watcher\n\nWatches fares.",
+  });
+}
+
 export function sampleRecipe(
   recipe: Record<string, unknown> = {},
   extra: Record<string, string> = {},

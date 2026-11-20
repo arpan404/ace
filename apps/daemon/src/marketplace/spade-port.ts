@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PackagePlan } from "@ace/protocol/marketplace";
 import type { SpadeConnection } from "../spade/forward.ts";
 import { spadeRequest } from "../spade/forward.ts";
 import type { MadeBot, SpadePort } from "./install.ts";
@@ -70,6 +71,16 @@ export async function spadeCall(
   return text ? JSON.parse(text) : undefined;
 }
 
+const Planned = z.object({ plan: PackagePlan });
+
+/**
+ * A version 3 package's part of `POST /v1/agents`: `bot.json` as published, read by Spade's own
+ * reader in place of the version 2 shape, its market identity, and the person's switches.
+ */
+function linked(input: Parameters<SpadePort["createBot"]>[0]["linked"]) {
+  return input ? { recipe: input.manifest, package: input.package, switches: input.switches } : {};
+}
+
 export function spadePort(connection: () => SpadeConnection | undefined): SpadePort {
   const live = () => {
     const current = connection();
@@ -99,9 +110,29 @@ export function spadePort(connection: () => SpadeConnection | undefined): SpadeP
           from_recipe: { ...input.fromRecipe, transaction: input.transaction },
           grants: input.grants,
           start_routines: input.startRoutines,
+          ...linked(input.linked),
         }),
       );
       return { id: made.agent.id, leftOut: made.left_out ?? [] };
+    },
+    async planUpdate(bot, manifest) {
+      const path = `/v1/agents/${encodeURIComponent(bot)}/package/plan`;
+      return Planned.parse(await spadeCall(live(), "POST", path, { recipe: manifest })).plan;
+    },
+    async updateBot(bot, input) {
+      await spadeCall(live(), "POST", `/v1/agents/${encodeURIComponent(bot)}/package`, {
+        recipe: input.manifest,
+        package: input.package,
+        transaction: input.transaction,
+      });
+    },
+    async withdrawBot(bot, reason) {
+      const path = `/v1/agents/${encodeURIComponent(bot)}/package/withdrawn`;
+      await spadeCall(live(), "POST", path, { reason });
+    },
+    async resumeBot(bot) {
+      const path = `/v1/agents/${encodeURIComponent(bot)}/package/withdrawn`;
+      await spadeCall(live(), "DELETE", path);
     },
     async pluginsOf(bot) {
       const path = `/v1/agents/${encodeURIComponent(bot)}/plugins`;

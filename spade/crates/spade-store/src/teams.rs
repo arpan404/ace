@@ -544,7 +544,7 @@ impl Store {
     ) -> Result<Delivered> {
         let ask = delivery.ask;
         let mut connection = self.lock()?;
-        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = connection.transaction()?;
         let known: bool = tx
             .query_row(
                 &format!(

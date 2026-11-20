@@ -107,13 +107,13 @@ test("⌘↵ steers the running turn instead of queueing", async () => {
 test("@ completes files from the checkout and the pick is sent with the message", async () => {
   const { feed, message } = await open("idle");
   await userEvent.type(message, "Look at @check");
-  const files = await screen.findByRole("listbox", { name: "Files and threads" });
+  const files = await screen.findByRole("listbox", { name: "Mention" });
   expect(within(files).getAllByRole("option")[0]?.textContent).toContain(
     "src/checkout/checkout.spec.ts",
   );
   await userEvent.keyboard("{ArrowDown}{Enter}");
   expect(message.textContent).toBe("Look at @payment-poller.ts ");
-  expect(screen.queryByRole("listbox", { name: "Files and threads" })).toBeNull();
+  expect(screen.queryByRole("listbox", { name: "Mention" })).toBeNull();
 
   await userEvent.type(message, "first{Enter}");
   expect(

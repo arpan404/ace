@@ -18,6 +18,14 @@ Spade is one of ace's places. It adds no navigation of its own.
   ordinary row. No head, no foot: the profile and Settings live in the rail.
 - **Conversation** (the main column). The floating pill, bubbles, raised cards, folded steps, the
   working line and the composer. The top bar carries no title here.
+- **Running** (ADR 0200 §6.3), a page in the main column at `/spade/running`: one list of every
+  bot on every machine, Spade's own an ordinary row among them, in the order needs you, working,
+  failed, sleeping, paused, idle. A row is the 40px face, the name, its state in words ("Checking
+  fares", "Waiting on you: a question", "Paused", "Failed: …"), then one quiet line: what it
+  holds open, spend today and this month, the network today and its next wake ("Held: …" while
+  paused). Its workers are listed under it in words. Stop, Pause or Resume, and Open are text
+  buttons. No head, no foot, no tints. It is opened from Spade's own profile (Details › Running)
+  and the palette (Running bots), never from a new rail icon or toolbar button.
 - **Profile** (ace's side panel). One place per bot: Details, Library, Computer. The person keeps
   talking while they change the bot, and watches its computer beside the chat. Below 680px the
   profile takes the window; on iPhone it is a sheet.
@@ -49,6 +57,7 @@ Spade is one of ace's places. It adds no navigation of its own.
   | ------------------ | -------------- | ----- | ---------------------------------------- |
   | Needs you          | looks up       | amber | the ask, in the needs-you text colour    |
   | Working            | moves          | none  | what it is doing, muted                  |
+  | Paused             | still, asleep  | none  | "Paused"                                 |
   | Failed             | slumps         | red   | what broke, in the failed text colour    |
   | Finished, not seen | pleased        | none  | name and line in full ink                |
   | At rest            | still          | none  | the last thing it said, as plain text    |
@@ -122,6 +131,13 @@ Spade is one of ace's places. It adds no navigation of its own.
   bubble. A request becomes one line ("Allowed · curl -s …"); in a run, they fold into the reply's
   steps. Left for later, a card folds to one line in place with Answer, and one pill above the
   composer.
+- **From ace (ADR 0198).** A message the person wrote in an ace thread with `@` this bot or club
+  carries a quiet line above their bubble, "From ace · Fix login" (`text-xs`, muted, the whole line
+  a link to that thread), and the bot's answer goes back to the thread. Nothing else marks it.
+- **`@` in a Spade chat.** The same picker as a thread's: in a club, its members with their faces
+  (inserted as plain `@Name`, which the club routes by), then the fleet's devices as chips. A
+  device named goes to the bot as context for the work: this machine, or "Move to…" if it lives
+  elsewhere.
 - **Composer.** The capsule: + on the left, the field, then the trailing slot. Empty, a mic for
   dictation and a filled round voice button (the accent, 40px); typed, the filled button is Send;
   while the bot works, Stop. Waiting on the person is not working, so a card shows Send. Spade

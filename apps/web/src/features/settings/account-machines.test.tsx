@@ -1,6 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { windowSessionStorage } from "@/boot/window-session.ts";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10_000 });
@@ -9,6 +10,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   sessionStorage.clear();
+  windowSessionStorage().removeItem?.(`ace.account.session:${origin}`);
 });
 
 const origin = "https://backend.example.com";
@@ -25,11 +27,15 @@ function signedIn(
   machines: { hostId: string; name: string; platform: string; lastSeenAt: number }[],
 ) {
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
-  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  // The window holds its session in memory, never in sessionStorage (ADR 0190).
+  windowSessionStorage().setItem(`ace.account.session:${origin}`, JSON.stringify(session));
   const forgotten: string[] = [];
   vi.stubGlobal("fetch", async (input: string, init?: RequestInit) => {
     const path = new URL(String(input)).pathname;
     if (path === "/v1/account/session") return Response.json(session);
+    // The ticket the app hands this machine's daemon to sign it in (ADR 0190).
+    if (path === "/v1/machine-enrollments" && init?.method === "POST")
+      return Response.json({ ticket: "e".repeat(43), expiresAt: 1_900_000_000_000 });
     if (path === "/v1/machines")
       return Response.json({
         machines: machines.filter((machine) => !forgotten.includes(machine.hostId)),

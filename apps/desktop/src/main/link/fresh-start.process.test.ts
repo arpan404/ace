@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createDevThread } from "@ace/daemon";
 import { HOME_FORMAT_FILE, prepareDaemonHome, resolveDaemonHome } from "@ace/service/home";
+import { readHomeCredentials } from "../daemon/probe.ts";
 import { DaemonRuntime } from "../daemon/runtime.ts";
 import { resolveTarget, type DaemonTarget } from "../daemon/target.ts";
 import { freePort, inProcessDaemons } from "./daemon-test-support.ts";
@@ -138,6 +139,7 @@ it("after a fresh start the desktop connects to its new local daemon without a m
   // The link reached that daemon, so the app's notification outbox is pinned to it.
   await eventually(() => expect(before.summaries.at(-1)).toEqual(working));
   const oldHost = await read(m.home, "host-id");
+  const oldRelayHost = (await readHomeCredentials(m.home))?.relayHostId;
   await before.stop();
 
   // A build with a newer home format: the next launch sets the old home aside.
@@ -149,12 +151,17 @@ it("after a fresh start the desktop connects to its new local daemon without a m
 
   const newHost = await read(m.home, "host-id");
   expect(newHost).not.toBe(oldHost);
-  // The page gets the new home's token and identity, never the ones it saw before.
+  const newRelayHost = (await readHomeCredentials(m.home))?.relayHostId;
+  expect(newRelayHost).toBeDefined();
+  expect(newRelayHost).not.toBe(oldRelayHost);
+  // The page gets the new home's token and identities, never the ones it saw before (the relay
+  // identity since ADR 0190, #2310).
   expect(await after.runtime.connection()).toEqual({
     mode: "daemon",
     url: `ws://127.0.0.1:${m.port}/`,
     token: (await read(m.home, "daemon-token")).trim(),
     localHostId: newHost,
+    localRelayHostId: newRelayHost,
   });
   // The same app data folder, and the link works with the new daemon.
   startWork(after, m.home);

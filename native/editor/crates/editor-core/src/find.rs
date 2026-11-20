@@ -76,12 +76,64 @@ impl Document {
     /// ranges so anchors still work. The text is cached between finds and rebuilt only after the
     /// document version changes.
     pub fn find(&self, query: &FindQuery, limit: usize) -> Vec<Range> {
+        self.find_within(query, &[], limit)
+    }
+
+    /// Finds matches that lie wholly inside one of `within`, at most `limit`, in document order.
+    ///
+    /// An empty `within` searches the whole document. Ranges may come in any order and may
+    /// overlap; a match must fit inside one of them.
+    pub fn find_within(&self, query: &FindQuery, within: &[Range], limit: usize) -> Vec<Range> {
+        self.match_spans(query, within, limit)
+            .into_iter()
+            .map(|(start, end)| Range::new(self.buffer.position(start), self.buffer.position(end)))
+            .collect()
+    }
+
+    /// Byte spans of the query's matches inside `within` (everything when empty).
+    pub(crate) fn match_spans(
+        &self,
+        query: &FindQuery,
+        within: &[Range],
+        limit: usize,
+    ) -> Vec<(usize, usize)> {
         if limit == 0 {
             return Vec::new();
         }
         let Some(regex) = compile(query) else {
             return Vec::new();
         };
+        let bounds = self.byte_bounds(within);
+        let text = self.search_text();
+        let mut spans = Vec::new();
+        let mut bound = 0;
+        for matched in regex.find_iter(&text) {
+            let (start, end) = (matched.start(), matched.end());
+            if query.whole_word && !is_whole_word(&text, start, end) {
+                continue;
+            }
+            if !bounds.is_empty() {
+                // Matches come in order, so a bound that ends before this match can hold no later one.
+                while bounds.get(bound).is_some_and(|(_, high)| *high < end) {
+                    bound += 1;
+                }
+                let Some((low, _)) = bounds.get(bound) else {
+                    break;
+                };
+                if start < *low {
+                    continue;
+                }
+            }
+            spans.push((start, end));
+            if spans.len() >= limit {
+                break;
+            }
+        }
+        spans
+    }
+
+    /// The whole text, cached until the version moves.
+    pub(crate) fn search_text(&self) -> std::cell::Ref<'_, String> {
         let stale = self
             .search_text
             .borrow()
@@ -91,23 +143,36 @@ impl Document {
             let text = self.buffer.text();
             *self.search_text.borrow_mut() = Some((self.version, text));
         }
-        let cache = self.search_text.borrow();
-        let Some((_, text)) = cache.as_ref() else {
-            return Vec::new();
-        };
-        let mut ranges = Vec::new();
-        for matched in regex.find_iter(text) {
-            if query.whole_word && !is_whole_word(text, matched.start(), matched.end()) {
-                continue;
-            }
-            ranges.push(Range::new(
-                self.buffer.position(matched.start()),
-                self.buffer.position(matched.end()),
-            ));
-            if ranges.len() >= limit {
-                break;
+        std::cell::Ref::map(self.search_text.borrow(), |cache| match cache {
+            Some((_, text)) => text,
+            None => empty_text(),
+        })
+    }
+
+    /// Ranges as sorted, merged byte spans.
+    fn byte_bounds(&self, within: &[Range]) -> Vec<(usize, usize)> {
+        let mut bounds: Vec<(usize, usize)> = within
+            .iter()
+            .map(|range| {
+                (
+                    self.buffer.offset(range.start),
+                    self.buffer.offset(range.end),
+                )
+            })
+            .collect();
+        bounds.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(bounds.len());
+        for (start, end) in bounds {
+            match merged.last_mut() {
+                Some(last) if start <= last.1 => last.1 = last.1.max(end),
+                _ => merged.push((start, end)),
             }
         }
-        ranges
+        merged
     }
+}
+
+fn empty_text() -> &'static String {
+    static EMPTY: String = String::new();
+    &EMPTY
 }

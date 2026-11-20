@@ -35,6 +35,9 @@ function stopGroup(pid: number): void {
   }
 }
 
+/** How long a stopped probe waits for its worker to confirm the exit before the worker is ended. */
+export const stopGraceMs = 2_000;
+
 const ProbeAddress = z.object({
   id: z.number().int().nonnegative(),
   type: z.unknown().optional(),
@@ -67,12 +70,21 @@ export function createProbeThread(
   let next = 0;
   const flights = new Map<number, Flight>();
   const stop = (flight: Flight) => {
+    const first = !flight.stopping;
     flight.stopping = true;
     if (flight.pid !== undefined) stopGroup(flight.pid);
     try {
       worker.postMessage({ type: "stop", id: flight.id });
     } catch {
       // A closed worker has already failed every flight.
+    }
+    // A worker stuck in a spawn reads no stop and sends no exit: past a short grace it is ended
+    // itself, which fails its flights, so neither the probe nor a global stop waits on it.
+    if (first) {
+      const cancel = workers.delay(() => {
+        if (flights.get(flight.id) === flight) worker.recycle();
+      }, stopGraceMs);
+      void flight.settled.then(cancel);
     }
     return flight.settled;
   };
@@ -214,16 +226,22 @@ export async function probeOffThread(
     stop.abort();
   }, options.timeoutMs);
   try {
-    const exit = await thread.run(
-      {
-        command,
-        args: [...args],
-        env,
-        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-        maxBytes: options.maxBytes,
-      },
-      options.halt ? AbortSignal.any([stop.signal, options.halt]) : stop.signal,
-    );
+    const exit = await thread
+      .run(
+        {
+          command,
+          args: [...args],
+          env,
+          ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+          maxBytes: options.maxBytes,
+        },
+        options.halt ? AbortSignal.any([stop.signal, options.halt]) : stop.signal,
+      )
+      // A probe stopped for its deadline or an abort says so, even when its worker had to be
+      // ended to stop it.
+      .catch((error: unknown) => {
+        throw failure ?? error;
+      });
     if (failure) throw failure;
     if (exit.reason === "output-limit") throw new OutputLimitError("Probe output exceeded limit");
     if (exit.reason === "spawn-error") throw new Error("Probe failed to start");

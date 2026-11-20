@@ -8,7 +8,8 @@ use std::cell::RefCell;
 use crate::applied::{OffsetMapper, Outcome};
 use crate::buffer::{Buffer, LineEnding};
 use crate::history::{Entry, History};
-use crate::position::Position;
+use crate::indent::Indent;
+use crate::position::{Position, Range};
 use crate::selection::Selection;
 use crate::transaction::{Applied, Edit, EditSet, Transaction};
 
@@ -27,6 +28,8 @@ pub struct Document {
     pub(crate) search_text: RefCell<Option<(u64, String)>>,
     /// Whether the current next-occurrence chain started from a word under a caret.
     pub(crate) word_chain: bool,
+    /// How an indent step is written.
+    pub(crate) indent: Indent,
 }
 
 impl Document {
@@ -40,7 +43,46 @@ impl Document {
             version: 0,
             search_text: RefCell::new(None),
             word_chain: false,
+            indent: Indent::default(),
         }
+    }
+
+    /// How one indent step is written: tabs, or a number of spaces.
+    pub fn indent(&self) -> Indent {
+        self.indent
+    }
+
+    /// The brackets to highlight for a caret at `at`: the bracket just before it (else the one
+    /// after) and its match, each as a one-character range. Scans at most `limit` characters, so
+    /// a caret in a huge file costs a bounded amount; an unmatched bracket gives `None`.
+    pub fn matching_bracket(&self, at: Position, limit: usize) -> Option<(Range, Range)> {
+        let (first, second) = self
+            .buffer
+            .matching_bracket(self.buffer.offset(at), limit)?;
+        let one = |offset: usize| {
+            Range::new(
+                self.buffer.position(offset),
+                self.buffer.position(offset + 1),
+            )
+        };
+        Some((one(first), one(second)))
+    }
+
+    /// The indentation the start of the text uses, or `None` when no line is indented. Reads at
+    /// most a fixed number of lines, so it costs the same on any file size.
+    pub fn detect_indent(&self) -> Option<Indent> {
+        let lines: Vec<_> = (0..self.buffer.len_lines().min(crate::indent::DETECT_LINES))
+            .map(|index| self.buffer.line(index))
+            .collect();
+        crate::indent::detect_indent(lines.iter().map(|line| line.as_ref()))
+    }
+
+    /// Sets how indent commands, Tab and new lines write one indent step.
+    pub fn set_indent(&mut self, indent: Indent) {
+        self.indent = Indent {
+            tabs: indent.tabs,
+            size: indent.size.clamp(1, 16),
+        };
     }
 
     /// The whole text, with its original line endings.
@@ -61,6 +103,25 @@ impl Document {
     /// The line ending the document was loaded with, used for every new line.
     pub fn line_ending(&self) -> LineEnding {
         self.buffer.line_ending()
+    }
+
+    /// Rewrites every line break with `ending` as one undo step, and writes new lines with it.
+    pub fn set_line_ending(&mut self, ending: LineEnding) -> Applied {
+        self.buffer.set_line_ending(ending);
+        let mut raw = Vec::new();
+        for line in 0..self.buffer.len_lines() {
+            let brk = self.buffer.line_break(line);
+            if brk.is_empty() || brk == ending.as_str() {
+                continue;
+            }
+            let end = self.buffer.line_full_end(line);
+            raw.push(Edit {
+                start: end - brk.len(),
+                end,
+                text: ending.as_str().to_owned(),
+            });
+        }
+        self.apply_mapped(EditSet::new(raw))
     }
 
     /// The number of edits applied so far. Clients use it to discard stale results.
@@ -101,6 +162,11 @@ impl Document {
     /// caret after the new text, and the others move with the text around them.
     pub fn apply(&mut self, edit: Transaction) -> Applied {
         let edits = self.transaction_edits(edit);
+        self.apply_mapped(edits)
+    }
+
+    /// Applies an edit set, carrying every selection through it as [`Document::apply`] does.
+    pub(crate) fn apply_mapped(&mut self, edits: EditSet) -> Applied {
         if edits.is_empty() {
             return self.unchanged();
         }
@@ -151,6 +217,7 @@ impl Document {
     pub fn undo(&mut self) -> Option<Applied> {
         let mut entry = self.history.take_undo()?;
         let outcome = self.run(&entry.inverse);
+        self.buffer.redetect_line_ending();
         let before = std::mem::take(&mut entry.before);
         let primary = before.len().saturating_sub(1);
         let (selections, primary) = self.normalize_selections(before, primary);
@@ -165,6 +232,7 @@ impl Document {
     pub fn redo(&mut self) -> Option<Applied> {
         let mut entry = self.history.take_redo()?;
         let outcome = self.run(&entry.forward);
+        self.buffer.redetect_line_ending();
         let after = std::mem::take(&mut entry.after);
         let primary = after.len().saturating_sub(1);
         let (selections, primary) = self.normalize_selections(after, primary);
@@ -220,6 +288,27 @@ impl Document {
             typing,
         );
         outcome.applied
+    }
+
+    /// Applies an edit set and leaves the selections at `after`, given as (anchor, head) byte
+    /// offsets in the text after the edit.
+    pub(crate) fn apply_with_offsets(
+        &mut self,
+        edits: EditSet,
+        after: Vec<(usize, usize)>,
+        typing: bool,
+    ) -> Applied {
+        if edits.is_empty() {
+            return self.unchanged();
+        }
+        let outcome = self.run(&edits);
+        let after = after
+            .into_iter()
+            .map(|(anchor, head)| {
+                Selection::new(self.buffer.position(anchor), self.buffer.position(head))
+            })
+            .collect();
+        self.finish(edits, outcome, after, typing)
     }
 
     /// Applies an edit set built by a command and leaves a caret at the end of every change.

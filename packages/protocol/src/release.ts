@@ -7,9 +7,11 @@ export const ReleaseTarget = z.enum([
   "win32-x64",
   "win32-arm64",
 ]);
+/** A release's semver, unanchored, for patterns that embed a version (`AceClient`). */
+export const RELEASE_VERSION_PATTERN = String.raw`\d+\.\d+\.\d+(?:-[a-z0-9.]+)?`;
 export const ReleaseVersion = z
   .string()
-  .regex(/^\d+\.\d+\.\d+(?:-[a-z0-9.]+)?$/)
+  .regex(new RegExp(`^${RELEASE_VERSION_PATTERN}$`))
   .max(80);
 export const ReleaseManifest = z.object({
   version: ReleaseVersion,

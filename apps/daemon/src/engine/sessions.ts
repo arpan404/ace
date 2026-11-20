@@ -92,9 +92,23 @@ function runningSelection(
   const offers = reportedOrTable(provider, (session.effectiveCapabilities ?? known).accessModes);
   return offers.find((offer) => offer.native === native)?.mode ?? null;
 }
+/** A Stop's pending close over work the provider can't stop (`Sessions.closeAfter`). */
+interface StopClose {
+  readonly session: ThreadActor["session"];
+  readonly generation: number;
+  /** The thread's newest command when the Stop came. */
+  readonly intent: number;
+  /** The thread's run sequence when the Stop came. */
+  readonly turn: number;
+  readonly tasks: readonly string[];
+  /** Its grace has run out: it closes as soon as nothing still being carried out says no. */
+  due: boolean;
+}
 export class Sessions {
   private dependencies: SessionDependencies;
   private closing = new Set<ThreadId>();
+  /** Each thread's pending close after a Stop, at most one (`closeAfter`). */
+  private stopCloses = new Map<ThreadId, StopClose>();
 
   private turnPermissions = new Map<ThreadId, number>();
   /**
@@ -936,21 +950,53 @@ export class Sessions {
     }
   }
   /**
-   * After a whole-thread Stop, the work the provider can't stop (`tasks`) gets the interrupt's
-   * grace to end by itself. Still running then, in the same session, it ends with that session
-   * (`closeForStop`), so a Stop always settles and the thread takes the next message; an ACP
-   * shell that outlived its prompt otherwise blocks prompts for as long as it runs (ADR 0052).
+   * After a whole-thread Stop, the work the provider can't stop that keeps the thread's next
+   * prompt out (`tasks`) gets the interrupt's grace to end by itself. If it still runs then, in
+   * the same session, with no new turn and no command for the thread carried out or handed to
+   * the provider since, it ends with that session (`closeForStop`), so a Stop always settles and
+   * the thread takes the next message (ADR 0052). Anything carried out since is the person's or
+   * the provider's going on, and the Stop no longer decides. A command still being carried out
+   * when the grace ends (a send preparing its checkpoint) is waited for: refused because that
+   * work keeps prompts out, it changed nothing, and the close goes ahead (`commandSettled`).
    */
   closeAfter(actor: ThreadActor, tasks: readonly string[]): void {
     if (!tasks.length) return;
-    const session = actor.session;
-    const generation = actor.generation;
-    this.dependencies.clock.setTimer(() => {
-      if (!session || actor.session !== session || actor.generation !== generation) return;
-      const state = this.dependencies.repo.requireState(actor.id);
-      if (!tasks.some((key) => state.tasks[key]?.status === "running")) return;
-      void this.closeForStop(actor);
+    const { repo, clock } = this.dependencies;
+    const check: StopClose = {
+      session: actor.session,
+      generation: actor.generation,
+      intent: repo.latestIntent(actor.id),
+      turn: repo.requireState(actor.id).runSeq ?? 0,
+      tasks,
+      due: false,
+    };
+    // A later Stop's check replaces an earlier one's.
+    this.stopCloses.set(actor.id, check);
+    clock.setTimer(() => {
+      if (this.stopCloses.get(actor.id) !== check) return;
+      check.due = true;
+      this.decideStopClose(actor);
     }, INTERRUPT_GRACE_MS);
+  }
+  /** One of the thread's commands finished: a Stop's close waiting on it decides now. */
+  commandSettled(actor: ThreadActor): void {
+    if (this.stopCloses.get(actor.id)?.due) this.decideStopClose(actor);
+  }
+  private decideStopClose(actor: ThreadActor): void {
+    const check = this.stopCloses.get(actor.id);
+    if (!check?.due) return;
+    const { repo } = this.dependencies;
+    const since = repo.commandsSince(actor.id, check.intent);
+    // Still being carried out: how it ends decides, once it has.
+    if (since === "in_flight") return;
+    this.stopCloses.delete(actor.id);
+    if (since === "acted") return;
+    if (!check.session || actor.session !== check.session) return;
+    if (actor.generation !== check.generation) return;
+    const state = repo.requireState(actor.id);
+    if ((state.runSeq ?? 0) !== check.turn) return;
+    if (!check.tasks.some((key) => state.tasks[key]?.status === "running")) return;
+    void this.closeForStop(actor);
   }
   async close(actor: ThreadActor, reason: "idle" | "user" | "shutdown"): Promise<void> {
     const session = actor.session;

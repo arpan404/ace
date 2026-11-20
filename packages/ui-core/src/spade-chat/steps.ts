@@ -53,6 +53,8 @@ const shownElsewhere = new Set([
   "memory_forget",
   "image_generate",
   "share_file",
+  // A card the bot showed is its own row (ADR 0200 §5.1).
+  "card_show",
   // A bot changing its own task, name or face: its own quiet line (`task-changed`, `named`).
   "task_update",
   "profile_update",

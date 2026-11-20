@@ -48,7 +48,7 @@ test("Add keeps the draft and accepts a context choice with the keyboard", async
   for (let index = 0; index < files; index++) await userEvent.keyboard("{ArrowDown}");
   await userEvent.keyboard("{Enter}");
   await waitFor(() => expect(message.textContent).toBe("Keep this draft @ "), { timeout: 1000 });
-  expect(await screen.findByRole("listbox", { name: "Files and threads" })).toBeTruthy();
+  expect(await screen.findByRole("listbox", { name: "Mention" })).toBeTruthy();
   expect(message.textContent).toBe("Keep this draft @ ");
 });
 

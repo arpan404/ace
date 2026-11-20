@@ -43,8 +43,20 @@ test("a settled megabyte plan remains readable through paging before and after r
       });
       if (response.page.collection !== "interactions") throw new Error("Wrong collection");
       expect(response.page.entries).toHaveLength(1);
-      expect(response.page.entries[0]?.request).toEqual({ kind: "plan_review", markdown });
+      // A request this large goes summarized and flagged in a page, and is read whole on
+      // demand (ADR 0157).
+      const [entry] = response.page.entries;
+      expect(entry?.request.kind).toBe("plan_review");
+      expect(entry?.request).not.toEqual({ kind: "plan_review", markdown });
+      expect(entry?.truncated?.chars).toBe(
+        JSON.stringify({ kind: "plan_review", markdown }).length,
+      );
       expect(response.page.entitiesBefore).toBeNull();
+      const whole = await client.readInteraction({
+        threadId: h.thread.id,
+        interactionId: interaction.id,
+      });
+      expect(whole.request).toEqual({ kind: "plan_review", markdown });
     };
     await read();
     client.networkOnline(false);

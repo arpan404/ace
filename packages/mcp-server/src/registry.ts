@@ -487,12 +487,27 @@ export class ToolRegistry {
       ...(options.actingFor ? { actingFor: options.actingFor } : {}),
     };
     const observe = this.observeCall?.(name, input, context);
+    // One deadline from the call's start covers all of it: the host's hook, the tool and the
+    // observation of its result. Past it the reply goes and the slot is freed; an observation
+    // still running (an attachment write on a stalled disk) carries on alone.
+    let reason: PublicToolCode = "cancelled";
+    const expired = Promise.withResolvers<void>();
+    const stopTimer = this.scheduler.after(entry?.timeoutMs ?? maxToolTimeoutMs, () => {
+      reason = "tool_timeout";
+      controller.abort();
+      expired.resolve();
+    });
     const finish = async (result: CallToolResult) => {
       // Evidence storage must not change a completed action's public outcome.
+      const observed = Promise.resolve()
+        .then(() => observe?.(result))
+        .catch(() => {
+          /* The host observer owns diagnostics. */
+        });
       try {
-        await observe?.(result);
-      } catch {
-        /* The host observer owns diagnostics. */
+        await Promise.race([observed, expired.promise]);
+      } finally {
+        stopTimer();
       }
       return result;
     };
@@ -520,6 +535,7 @@ export class ToolRegistry {
     };
     /** A call that ends before its tool runs gives its slot back. */
     const unstarted = (result: CallToolResult) => {
+      stopTimer();
       executionSettled = true;
       observationSettled = true;
       release();
@@ -531,10 +547,8 @@ export class ToolRegistry {
       const answer = await actWithin(
         this.actAs?.(entry.name, entry.capability, context.caller, context.actingFor),
         signal,
-        entry.timeoutMs,
-        this.scheduler,
       );
-      if (answer.kind === "stopped") return unstarted(failure(answer.code));
+      if (answer.kind === "stopped") return unstarted(failure(reason));
       act = answer.act;
     } catch (caught: unknown) {
       return unstarted(toolFailure(caught, this.report(entry.name, context.caller, caught)));
@@ -546,11 +560,9 @@ export class ToolRegistry {
     }
     if (signal.aborted) {
       act?.settled?.();
-      return unstarted(failure("cancelled"));
+      return unstarted(failure(reason));
     }
     const runAs = act ? { ...context, caller: act.caller } : context;
-    let reason: PublicToolCode = "cancelled";
-    let stopTimer: () => void = noop;
     let stopAbort: () => void = noop;
     const executing = Promise.resolve()
       .then(() => entry.execute(input, { ...runAs, signal }))
@@ -567,16 +579,10 @@ export class ToolRegistry {
         act?.settled?.();
         release();
       });
-    // The backend is queued to start before its deadline is armed, so a deadline that fires at
-    // once still finds it started, holding its slot until it settles.
     const stopped = new Promise<CallToolResult>((resolve) => {
       const abort = () => resolve(failure(reason));
       signal.addEventListener("abort", abort, { once: true });
       stopAbort = () => signal.removeEventListener("abort", abort);
-      stopTimer = this.scheduler.after(entry.timeoutMs, () => {
-        reason = "tool_timeout";
-        controller.abort();
-      });
     });
     // An uncooperative backend retains its slot until it settles, bounding detached work.
     try {

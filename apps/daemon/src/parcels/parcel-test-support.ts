@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import { createConnection, createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { expect, vi } from "vitest";
 import { z } from "zod";
@@ -104,4 +105,55 @@ export async function delivered(side: Side, threadId: ThreadId, parcelId: string
       expect(inputsOf(side, threadId)).toMatch(new RegExp(`Parcel ${parcelId} .* was delivered`)),
     { timeout: 30_000 },
   );
+}
+
+/**
+ * Another address for a machine's listener: a TCP proxy on another port of 127.0.0.1 to `port`,
+ * so the same pinned key answers there (reachable on macOS and Linux alike). `hold` keeps what
+ * new connections send, their TLS handshakes included, until `release`.
+ */
+export async function otherAddress(port: number) {
+  let holding = false;
+  const held: (() => void)[] = [];
+  const open = new Set<Socket>();
+  const server = createServer((client) => {
+    const upstream = createConnection({ host: "127.0.0.1", port });
+    for (const socket of [client, upstream]) {
+      open.add(socket);
+      socket.on("error", () => {});
+      socket.once("close", () => open.delete(socket));
+    }
+    upstream.pipe(client);
+    client.once("close", () => upstream.destroy());
+    upstream.once("close", () => client.destroy());
+    const waiting: Buffer[] = [];
+    let passing = !holding;
+    if (!passing)
+      held.push(() => {
+        passing = true;
+        for (const chunk of waiting.splice(0)) upstream.write(chunk);
+      });
+    client.on("data", (chunk: Buffer) => {
+      if (passing) upstream.write(chunk);
+      else waiting.push(chunk);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Proxy not listening");
+  return {
+    url: `https://127.0.0.1:${address.port}/`,
+    hold: () => void (holding = true),
+    /** Connections whose bytes are held. */
+    held: () => held.length,
+    release() {
+      holding = false;
+      for (const pass of held.splice(0)) pass();
+    },
+    close: () =>
+      new Promise<void>((resolve) => {
+        for (const socket of open) socket.destroy();
+        server.close(() => resolve());
+      }),
+  };
 }

@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "vitest";
 import { antigravityQuirks, createAcpAdapter } from "@ace/adapter-acp";
 import { AcpIdentity } from "@ace/protocol";
 import { INTERRUPT_GRACE_MS } from "../liveness/stop.ts";
+import type { EngineOptions } from "./index.ts";
 import { cleanupRecovery, fixture } from "./recovery-test-support.ts";
 import { scriptFrames } from "./test-support.ts";
 
@@ -21,53 +22,157 @@ const server = fileURLToPath(
   ),
 );
 
-test("a Stop over an Antigravity shell that outlived its reply closes the session once its grace runs out", async () => {
+/** An Antigravity thread on the ACP double, recording each session it opens and what it took. */
+async function antigravity(first = "antigravity-shell", beforeSend?: EngineOptions["beforeSend"]) {
   const frames = scriptFrames();
   const h = await fixture([], frames, {
     provider: "antigravity",
     capabilities: antigravityQuirks.capabilities("1.2.1"),
     permissionSettings: async () => ({ access: "full-access" as const }),
+    ...(beforeSend ? { beforeSend } : {}),
   });
-  h.registry.register(
-    createAcpAdapter(antigravityQuirks, {
-      // The release ace admits, so the session's saved conversation loads again after a close.
-      resolveLaunch: async () => ({
-        identity: AcpIdentity.parse({
-          acpAgentId: "antigravity",
-          installationId: "test-install",
-          instanceId: "test-instance",
-        }),
-        version: "1.2.1",
-        command: process.execPath,
-        args: [server],
-        env: {},
+  const adapter = createAcpAdapter(antigravityQuirks, {
+    // The release ace admits, so the session's saved conversation loads again after a close.
+    resolveLaunch: async () => ({
+      identity: AcpIdentity.parse({
+        acpAgentId: "antigravity",
+        installationId: "test-install",
+        instanceId: "test-instance",
       }),
-      acceptsIdentity: () => true,
+      version: "1.2.1",
+      command: process.execPath,
+      args: [server],
+      env: {},
     }),
+    acceptsIdentity: () => true,
+  });
+  const sessions: { prompts: string[]; closed: boolean }[] = [];
+  h.registry.register(
+    {
+      ...adapter,
+      async openSession(ctx) {
+        const session = await adapter.openSession(ctx);
+        const seen = { prompts: [] as string[], closed: false };
+        sessions.push(seen);
+        // The session is a class instance: only its sending and closing are watched.
+        const send: typeof session.send = async (input, ...rest) => {
+          await session.send(input, ...rest);
+          for (const part of input) if (part.type === "text") seen.prompts.push(part.text);
+        };
+        const close: typeof session.close = async (reason) => {
+          seen.closed = true;
+          await session.close(reason);
+        };
+        return new Proxy(session, {
+          get: (target, key) =>
+            key === "send" ? send : key === "close" ? close : Reflect.get(target, key, target),
+        });
+      },
+    },
     { installed: true, auth: "logged_in", loginHint: "", version: "1.2.1" },
   );
+  const id = await h.create(first);
   const running = () =>
     Object.values(h.store.snapshotThread(id).backgroundTasks).filter(
       (task) => task.status === "running",
     );
-  const id = await h.create("antigravity-shell");
   await expect.poll(() => running().length).toBe(1);
-  expect(h.store.getThread(id)?.status).toMatchObject({ state: "waiting" });
+  // Waiting on the shell, or working on the late tool: never done while it runs.
+  expect(h.store.getThread(id)?.status.state).not.toBe("done");
+  const send = (text: string) =>
+    h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text }] }).ok;
+  return { h, id, sessions, running, send };
+}
 
+test("a Stop over an Antigravity shell that outlived its reply closes the session once its grace runs out", async () => {
+  const { h, id, sessions, running, send } = await antigravity();
   expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
   await h.engine.flush();
   // Within its grace the shell may still end by itself: the thread waits on it.
   expect(running()).toHaveLength(1);
   expect(h.store.getThread(id)?.status).toMatchObject({ state: "waiting" });
+  expect(sessions.map((session) => session.closed)).toEqual([false]);
 
   h.clock.advance(h.clock.now() + INTERRUPT_GRACE_MS);
+  await expect.poll(() => sessions[0]?.closed).toBe(true);
   await expect.poll(() => running().length).toBe(0);
   await expect.poll(() => h.store.getThread(id)?.status.state).toBe("done");
-  // The person can carry on: the next message is taken, in a session opened for it.
+  // The person carries on: the next message reaches a session opened for it.
+  expect(send("next")).toBe(true);
+  await h.engine.flush();
+  await expect.poll(() => sessions[1]?.prompts).toEqual(["next"]);
+  expect(sessions[0]?.prompts).toEqual(["antigravity-shell"]);
+  expect(h.engine.queue(id).lastFailure).toBeNull();
+});
+
+test("a message the shell kept out still leaves the close to come, and then reaches the session opened for it", async () => {
+  const { h, id, sessions, send } = await antigravity();
+  expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
+  await h.engine.flush();
+  // Sent within the grace: the session takes no prompt beside the shell, so it is held unsent.
+  expect(send("while it runs")).toBe(true);
+  await h.engine.flush();
+  expect(sessions.map((session) => session.prompts)).toEqual([["antigravity-shell"]]);
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "not_sent", pendingCount: 1 });
+
+  // Nothing was taken, so the close still comes; the person sends the held message again.
+  h.clock.advance(h.clock.now() + INTERRUPT_GRACE_MS);
+  await expect.poll(() => sessions[0]?.closed).toBe(true);
+  await h.engine.flush();
   expect(
-    h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "next" }] }).ok,
+    h.command({
+      type: "queue.resume",
+      threadId: id,
+      expectedRevision: h.engine.queue(id).revision,
+    }).ok,
   ).toBe(true);
   await h.engine.flush();
-  await expect.poll(() => h.engine.queue(id).pendingCount).toBe(0);
-  expect(h.engine.queue(id).lastFailure).toBeNull();
+  await expect.poll(() => sessions[1]?.prompts).toEqual(["while it runs"]);
+});
+
+test("a Stop over a tool first reported after the reply, which holds the next prompt, closes the session too", async () => {
+  const { h, id, sessions, running, send } = await antigravity("late-tool");
+  expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
+  await h.engine.flush();
+  expect(running()).toHaveLength(1);
+  expect(sessions.map((session) => session.closed)).toEqual([false]);
+
+  h.clock.advance(h.clock.now() + INTERRUPT_GRACE_MS);
+  await expect.poll(() => sessions[0]?.closed).toBe(true);
+  await expect.poll(() => running().length).toBe(0);
+  expect(send("next")).toBe(true);
+  await h.engine.flush();
+  await expect.poll(() => sessions[1]?.prompts).toEqual(["next"]);
+});
+
+test("a send still preparing when the grace ends, then kept out by the shell, still gets the close", async () => {
+  // The send after the Stop is held while it prepares (its Git checkpoint, say).
+  const preparing = Promise.withResolvers<void>();
+  let sends = 0;
+  const { h, id, sessions, send } = await antigravity("antigravity-shell", async () => {
+    if (sends++ === 1) await preparing.promise;
+  });
+  expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
+  await h.engine.flush();
+  expect(send("just in time")).toBe(true);
+  await expect.poll(() => sends).toBe(2);
+
+  // The grace ends while the send is still being carried out: how it ends decides.
+  // (No flush here: it would wait on the send this test holds.)
+  h.clock.advance(h.clock.now() + INTERRUPT_GRACE_MS);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(sessions.map((session) => session.closed)).toEqual([false]);
+  // The shell keeps it out: nothing was taken, so the close comes.
+  preparing.resolve();
+  await expect.poll(() => sessions[0]?.closed).toBe(true);
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "not_sent", pendingCount: 1 });
+  expect(
+    h.command({
+      type: "queue.resume",
+      threadId: id,
+      expectedRevision: h.engine.queue(id).revision,
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  await expect.poll(() => sessions[1]?.prompts).toEqual(["just in time"]);
 });

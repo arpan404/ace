@@ -35,6 +35,10 @@ pub enum Known {
         /// It came through a group (ADR 0132): the bot's reply is posted there.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_group: Option<Box<FromGroup>>,
+        /// The person wrote it in an ace thread (ADR 0198); `context`, when the thread's summary
+        /// came with it, is untrusted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_thread: Option<Box<FromThread>>,
     },
     /// The agent's task or model changed (ADR 0126). Used from the next turn on: a turn's prompt
     /// takes the task in effect when its reply started, and `reply_started` names its model.
@@ -602,6 +606,9 @@ pub enum Known {
         text: String,
         #[serde(default)]
         from: Option<GroupBot>,
+        /// The person wrote it in an ace thread (ADR 0198).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread: Option<FromThread>,
     },
     /// A group message was handed to a bot: by the person's post (`by` is `None`) or by a bot's
     /// `group_ask`.
@@ -732,6 +739,19 @@ pub enum Known {
     Arrived {
         /// The machine it came from, by name.
         from: String,
+    },
+    /// A card the bot showed (ADR 0200 §5.1), checked against its blocks' rules: its own row in
+    /// the conversation. Every version is one; the chat shows the latest. The model reads only
+    /// its call's result. Boxed: a card is larger than most events.
+    CardShown(Box<crate::card::Shown>),
+    /// The person pressed a choice on a card. Stored once per card version, and read by the bot
+    /// like a job's result, as a `<card_action>`.
+    CardAction {
+        card: String,
+        version: u32,
+        action: String,
+        /// The choice's label, fixed when the card was shown.
+        label: String,
     },
 }
 
@@ -902,6 +922,16 @@ pub struct FromGroup {
     pub untrusted: bool,
 }
 
+/// The ace thread the person wrote a message in (ADR 0198), and whether a summary of that thread
+/// came with it: agents' words and tool output, so untrusted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FromThread {
+    pub id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub untrusted: bool,
+}
+
 /// A bot as a group names it: its id, name and machine (host id; `None` for this machine).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GroupBot {
@@ -1058,6 +1088,7 @@ impl Event {
             from_agent: None,
             from_routine: None,
             from_group: None,
+            from_thread: None,
         })
     }
 

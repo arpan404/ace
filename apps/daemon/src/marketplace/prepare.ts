@@ -296,7 +296,9 @@ export async function prepareWithBrings(
 ): Promise<{ entry: PreparedEntry; brings: PreparedEntry[] }> {
   const withPrevious = async (entry: PreparedEntry): Promise<PreparedEntry> => {
     const current = store.install(entry.type, entry.name);
-    if (!current || current.hash === entry.hash || entry.type === "spade-bot") return entry;
+    // A bot from a version 2 recipe never updates; a linked one does (ADR 0200 §3.9).
+    if (!current || current.hash === entry.hash || (entry.type === "spade-bot" && !current.linked))
+      return entry;
     const files: ArchiveFile[] = await store.pinned(current.hash, current.type).catch(() => []);
     return { ...entry, previous: { version: current.version, files } };
   };

@@ -226,8 +226,10 @@ Decided by the owner (2026-11-19: "a bot can create a new standing bot ... e.g. 
    back to its maker. It starts when the person writes to it, or its maker sends it a
    `bot_message`. A worker (`kind: worker`, the default) is unchanged.
 2. **Never more than a new bot.** A standing bot starts on the auto-review (Full access is never
-   inherited), with its own folder and no apps or plugins. The apps its maker names are kept as a
-   suggestion (`made_by.apps`), connected only by the person.
+   inherited), with its own folder and no apps or plugins. Each app its maker names waits in the
+   made bot's own chat as a connect card left for later (ADR 0131 amendment 1, ADR 0154), so the
+   person connects it there with a click; Spade connects nothing itself. An app the bot may use
+   already, or one Spade doesn't know, gets no card. The names stay in `made_by.apps`.
 3. **Who may.** A per-bot setting, `may_create_bots`: `yes`, `ask` (the person agrees to each
    one) or `no`. Spade, the main bot, starts on `yes`, every other bot on `ask`. With anything
    untrusted in view a bot always asks, whatever its setting. This is decided first

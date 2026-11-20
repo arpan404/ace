@@ -1,6 +1,6 @@
-# Editor workbench
+# Editor: the editor workbench
 
-Status: proposed, for the owner's approval before anything is built. Decision record:
+Status: accepted 2026-11-19; the owner settled the open questions (see Decided questions). Decision record:
 [ADR 0193](../adr/0193-one-editor-per-thread.md). Mockup:
 [workbench-mockup.html](workbench-mockup.html) (screenshots
 [1](workbench-mockup-1.jpg), [2](workbench-mockup-2.jpg)). Audit evidence: [audit/](audit/).
@@ -21,7 +21,7 @@ than today's, not just VS Code parity.
 
 ## Solution
 
-Each thread gets **one editor**: a panel tab named Editor that holds an explorer (Files and Search),
+Each thread gets **one editor**: a panel tab that holds an explorer (Files and Search),
 an editor area of one or more **groups** (each with its own tab strip, breadcrumbs and editors)
 and a slim status line. Every way of opening a checkout file opens it there: the explorer, quick
 open, a search hit, a mention in the chat, a link in an answer, the Work card. A glance opens a
@@ -49,7 +49,7 @@ tab.**
   Files tab (tree, then the file beside or over it) is exactly the compact editor, so the quick
   lookup survives unchanged in feel, minus the tab pile-up.
 - **Today's preview rule carries over.** `open-file.ts` already reuses a preview tab for a single
-  click and keeps a tab on a deliberate open; the rule moves from panel tabs to editor tabs.
+  click and keeps a tab on a deliberate open; the rule moves from panel tabs to the editor's tabs.
 - **The panel system stays as it is.** Summary, Changes, Browser and terminals stay panel tabs;
   the editor is one more. Full view, docking, the bottom panel and the phone's layout need no new
   cases.
@@ -63,11 +63,11 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 
 ### Place in the layout
 
-1. The Editor is a singleton panel tab of a thread that has a checkout. Chats (no project) have no
+1. The editor is a singleton panel tab of a thread that has a checkout. Chats (no project) have no
    Editor. It replaces today's pinned Files tab and every per-file `files:file:<path>` tab.
 2. The panel strip lists tools only: Summary, Changes, Editor, Browser, terminals, Preview and the
    rest. Files never appear in the panel strip again; they appear in the editor's own strips.
-3. The Editor's launcher card and its shortcut open it showing the explorer; ⌘P opens quick open
+3. The editor's launcher card and its shortcut open it showing the explorer; ⌘P opens quick open
    from anywhere in the thread, as today.
 4. **The editor asks for room.** When a file opens and the docked panel is narrower than 640px, the
    panel widens to 640px (the sidebar steps aside first, then the column narrows towards its 360px
@@ -82,7 +82,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
      names the others in its ⋯ menu ("Group 2: editor-groups.ts").
 6. Full view (⇧⌘F outside the editor) gives the editor the whole work area as today; the chat stays
    one panel-strip tab away ("‹ Chat" where full view's way back sits).
-7. The phone-sized web layout keeps today's single-file behaviour: the Editor takes the canvas with
+7. The phone-sized web layout keeps today's single-file behaviour: the editor takes the canvas with
    one group and no splits.
 
 ### Opening files: one consistent way
@@ -144,7 +144,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 26. **MRU switcher.** ⌃Tab (desktop) shows a solid popover of the focused group's editors in most
     recently used order; holding ⌃ and tapping Tab moves down, ⌃⇧Tab up, releasing ⌃ opens. On the
     web, where browsers keep ⌃Tab, ⌘P with an empty query is the same list.
-27. **Group focus.** ⌘1–⌘9 focus group 1–9 while focus is inside the editor (see Open questions);
+27. **Group focus.** ⌘1–⌘9 focus group 1–9 while focus is inside the editor (threads elsewhere);
     ⌃⌘← / ⌃⌘→ move the active editor to the previous or next group.
 28. **Overflow.** The strip scrolls sideways (wheel, trackpad); the active tab always scrolls into
     view; a ⌄ button at the strip's end, shown only while tabs overflow, lists the group's tabs with
@@ -236,8 +236,10 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     thread's editor shows them as it left them.
 50. **Quitting never asks** while drafts are kept (hot exit): the desktop app flushes drafts on quit
     and the web app on `pagehide`. Only when drafts cannot be kept (storage full or unavailable)
-    does quitting or closing the web tab ask, naming the files. Deleting a thread with unsaved files
-    adds "and 2 unsaved files" to its existing confirmation.
+    does quitting or closing the web tab ask, naming the files: the desktop quit stops and asks
+    Save, Don't save or Cancel. An edit counts as kept once its draft write has committed, so
+    closing the web tab within the 400 ms pause asks too, while the write finishes. Deleting a
+    thread with unsaved files adds "and 2 unsaved files" to its existing confirmation.
 51. **Auto save** (Settings › Editor): Off (default), After a pause (1 s), When focus leaves. An
     auto save that meets a version clash stops auto-saving that file and raises case 46.
 
@@ -257,7 +259,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     version: clean ones reload if changed (42), unsaved ones go to case 46.
 55. **Migration.** On first load, a thread's stored per-file panel tabs move into its editor's one
     group in their order with their preview flags, drafts move to the draft store, and the pinned
-    Files tab becomes the Editor tab. This is a client-side, one-time, pure transform of stored UI
+    Files tab becomes the editor tab. This is a client-side, one-time, pure transform of stored UI
     state; there is no daemon migration.
 
 ### Performance budget
@@ -288,24 +290,24 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 
 ### Keyboard map
 
-| Action                                | Desktop (macOS)   | Web              | Scope           |
-| ------------------------------------- | ----------------- | ---------------- | --------------- |
-| Quick open; empty query lists recents | ⌘P                | ⌘P               | thread          |
-| Open picked file in the next group    | ⌘↵ in quick open  | same             | quick open      |
-| Save / Save all                       | ⌘S / ⇧⌘S          | same             | editor          |
-| Close editor                          | ⌘W                | ⌥⌘W              | editor          |
-| Reopen closed editor                  | ⇧⌘T               | ⇧⌥⌘T             | editor          |
-| Recent editors (MRU)                  | ⌃Tab / ⌃⇧Tab      | ⌘P, empty        | editor          |
-| Focus group 1–9                       | ⌘1–⌘9             | ⌥⌘1–⌥⌘9 (see Q2) | editor          |
-| Move editor to previous / next group  | ⌃⌘← / ⌃⌘→         | same             | editor          |
-| Split right / down                    | ⌥⌘\ / ⇧⌥⌘\        | same             | editor          |
-| Show or hide the explorer             | ⌘B                | same             | editor          |
-| Search file contents                  | ⇧⌘F               | same             | editor (exists) |
-| Next / previous search hit            | F4 / ⇧F4          | same             | editor          |
-| Next / previous agent change          | ⌥F5 / ⇧⌥F5        | same             | editor          |
-| Go to line                            | ⌃G, or `:n` in ⌘P | same             | editor          |
-| Rename in explorer                    | F2                | same             | files (exists)  |
-| Back to the composer                  | Esc               | same             | editor          |
+| Action                                | Desktop (macOS)   | Web       | Scope           |
+| ------------------------------------- | ----------------- | --------- | --------------- |
+| Quick open; empty query lists recents | ⌘P                | ⌘P        | thread          |
+| Open picked file in the next group    | ⌘↵ in quick open  | same      | quick open      |
+| Save / Save all                       | ⌘S / ⇧⌘S          | same      | Editor          |
+| Close editor                          | ⌘W                | ⌥⌘W       | Editor          |
+| Reopen closed editor                  | ⇧⌘T               | ⇧⌥⌘T      | Editor          |
+| Recent editors (MRU)                  | ⌃Tab / ⌃⇧Tab      | ⌘P, empty | Editor          |
+| Focus group 1–9                       | ⌘1–⌘9             | ⌥⌘1–⌥⌘9   | Editor          |
+| Move editor to previous / next group  | ⌃⌘← / ⌃⌘→         | same      | Editor          |
+| Split right / down                    | ⌥⌘\ / ⇧⌥⌘\        | same      | Editor          |
+| Show or hide the explorer             | ⌘B                | same      | Editor          |
+| Search file contents                  | ⇧⌘F               | same      | Editor (exists) |
+| Next / previous search hit            | F4 / ⇧F4          | same      | Editor          |
+| Next / previous agent change          | ⌥F5 / ⇧⌥F5        | same      | Editor          |
+| Go to line                            | ⌃G, or `:n` in ⌘P | same      | Editor          |
+| Rename in explorer                    | F2                | same      | files (exists)  |
+| Back to the composer                  | Esc               | same      | Editor          |
 
 Editor-scoped keys follow the existing `scope` mechanism in `lib/keymap.ts` (as `files.search`
 already shadows Full view inside Files). ⌘\ stays the sidebar toggle; ⇧⌘E stays Focus thread
@@ -339,7 +341,7 @@ picks which to do.
 | 1   | An agent changed a file I was editing and nothing said so. On Save the only choices were Replace (throw away the agent's line) or Keep editing; no compare, no merge.                                                                                           | [14](audit/14-dirty-buffer-silent-diverge.jpg), [15](audit/15-conflict-replace-only.jpg)                    | 46: a line the moment it happens, Merge (three-way) and Compare; Replace only as an explicit answer.            |
 | 2   | After the agent inserted three lines, Changes › Last turn said "No text changes to show" for both files and the transcript's file chips read +0 −0. A correctness bug in what ace reports about agent work; it should be filed and fixed apart from this build. | [13](audit/13-agent-edits-invisible.jpg), [16](audit/16-changes-turn-empty.jpg)                             | Out of this build (separate bug). The attribution in 45 reads the same edit records, so it must be fixed first. |
 | 3   | Opening a file docks it in a ~360px panel beside a 760px chat column: code clipped at ~40 columns, the breadcrumb reduced to "… › w…", tab names cut.                                                                                                           | [02](audit/02-file-opens-cramped.jpg)                                                                       | 4–5: the editor asks for 640px once, compact and wide layouts by measured room.                                 |
-| 4   | Files and tools share one strip, which scrolls earlier files out of sight after three opens; "All tabs" lists names with no folder or state. In full view the chat, Summary, Changes and four files all sit in one row.                                         | [03](audit/03-three-files-strip-hides.jpg), [17](audit/17-full-view-mixed-strip.jpg)                        | 1–2, 20–29: one Editor tab with its own strips; Open editors with folders and states.                           |
+| 4   | Files and tools share one strip, which scrolls earlier files out of sight after three opens; "All tabs" lists names with no folder or state. In full view the chat, Summary, Changes and four files all sit in one row.                                         | [03](audit/03-three-files-strip-hides.jpg), [17](audit/17-full-view-mixed-strip.jpg)                        | 1–2, 20–29: one editor tab with its own strips; Open editors with folders and states.                           |
 | 5   | Files are read-only until the pencil; the "Editing" band pushes the file down 34px; the caret starts at line 1, not the hit; ⌘S drops back to read-only, so the next edit needs the pencil again.                                                               | [07](audit/07-edit-mode-shift.jpg), [09](audit/09-save-exits-edit.jpg)                                      | 30, 47: always editable, no mode, no bands; caret at the hit (12).                                              |
 | 6   | Unsaved state shows only inside the file; its tab looks like every other tab.                                                                                                                                                                                   | [08](audit/08-unsaved-no-tab-mark.jpg)                                                                      | 21, 29–30: unsaved dot in the tab and in Open editors; Save all.                                                |
 | 7   | An agent's edits below the fold leave no trace in the open editor, and its lines get the same green mark as my own edits.                                                                                                                                       | [13](audit/13-agent-edits-invisible.jpg)                                                                    | 43–45: working-colour bars, "Claude Code · just now", "changed 2 open files" with Next change.                  |
@@ -361,8 +363,9 @@ that refused a silent overwrite, full view's width.
 - **New kind** `editor` (singleton per thread) in `features/panels/thread-kinds.tsx`, replacing
   `filesKind`'s per-file instances. Its tab data is the workbench layout below, parsed leniently
   like every stored tab (`sanitize`): a bad layout falls back to one empty group.
-- **Pure model in `@ace/ui-core`** (`editor-workbench`), beside `workspace-tabs.ts`, so the web app
-  and later the iPad use one set of rules. Its stored shape:
+- **Pure model in `@ace/ui-core`** (`editor-workbench`, imported as
+  `@ace/ui-core/editor-workbench`), beside `workspace-tabs.ts`, so the web app and later the iPad
+  use one set of rules. Its stored shape:
 
   ```ts
   interface EditorLayout {
@@ -398,7 +401,7 @@ that refused a silent overwrite, full view's width.
 - **No protocol change for the core build.** Attribution (45) reads the turn's edit tool calls the
   client already receives; if those records prove unreliable (finding 2), the fix is a daemon
   bug fix, not a new message.
-- **Keymap** entries get an `editor` scope in `lib/keymap.ts`.
+- **Keymap** entries get a `editor` scope in `lib/keymap.ts`.
 - **Settings › Editor** gains Auto save.
 - Related ADRs: [0178](../adr/0178-rust-files-and-editor-core.md) (Rust files and editor core),
   [0193](../adr/0193-one-editor-per-thread.md) (this decision), [0056](../adr/0056-web-performance-architecture.md) (first-chunk budgets:
@@ -457,12 +460,13 @@ web perf test.
 - Syncing open editors across devices; editing on iOS.
 - The Changes-turn and file-chip line counts bug (finding 2): file it separately.
 
-## Open questions
+## Decided questions
 
-1. **Name.** Call the panel tab "Editor" (recommended: it now holds many files and edits them) or
-   keep "Files", the word the launcher, shortcut and iPhone menu use today?
-2. **⌘1–⌘9 inside the editor.** Focus groups (recommended, VS Code muscle memory) while focus is in
-   the editor, shadowing "Open thread 1–9" only there; or keep ⌘1–9 for threads everywhere and use
-   ⌃1–⌃9 for groups?
-3. **Auto save default.** Off (recommended: agents write the same checkout, and an explicit save is
-   the moment the person accepts the merge rules) or After a pause?
+Settled by the owner on 2026-11-19.
+
+1. **Name.** The panel tab is the **Editor**. It was named Deck during the build; the owner
+   renamed it Editor on 2026-11-20. The text-editing component inside it is the code editor, and
+   Settings › Editor keeps its name.
+2. **⌘1–⌘9.** Inside the editor they focus groups 1–9; everywhere else they keep opening threads 1–9.
+3. **Auto save.** Off by default: agents write the same checkout, and an explicit save is the moment
+   the person accepts the merge rules.

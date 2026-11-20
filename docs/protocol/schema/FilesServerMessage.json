@@ -256,6 +256,33 @@
     },
     {
       "properties": {
+        "files": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/FileSearchFile.json"
+          },
+          "maxItems": 5000,
+          "minItems": 1,
+          "type": "array"
+        },
+        "searchId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "files.search.matches",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "searchId",
+        "files"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "folders": {
           "items": {
             "maxLength": 4096,

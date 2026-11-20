@@ -22,6 +22,7 @@ import {
 } from "./fold-capabilities.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { parseSpadeDecision, type SpadeDecision } from "./decisions.ts";
+import { spadeCardChosen, spadeCardShown, type SpadeCardRow } from "./cards.ts";
 import { spadeRiskWeight, spadeStepFacts, type SpadeStepWeight } from "./step-facts.ts";
 import type { SpadeRefusedHost } from "./wire.ts";
 
@@ -174,6 +175,8 @@ export type SpadeEntry =
       fromRoutine?: { id: string; name: string; label: string; heartbeat: boolean };
       /** Sent here from a group the bot is in (ADR 0132). */
       fromGroup?: { id: string; name: string };
+      /** Written by the person in an ace thread (ADR 0198). */
+      fromThread?: { id: string; title: string };
       /** When Spade stored it; a message not stored yet has none. */
       at?: number;
       /** The notes Spade recalled for it, by id: what the reply to it had in mind (ADR 0128). */
@@ -230,7 +233,12 @@ export type SpadeEntry =
    */
   | ({ kind: "request"; key: string; at?: number } & SpadeRequest)
   /** An event that is nobody's words, as one quiet line where it happened (`spadeQuietLine`). */
-  | { kind: "quiet"; key: string; quiet: SpadeQuiet; at?: number };
+  | { kind: "quiet"; key: string; quiet: SpadeQuiet; at?: number }
+  /**
+   * A card the bot showed (ADR 0200 §5.1): its own row where it was first shown, updated in
+   * place by each later version.
+   */
+  | ({ kind: "card"; key: string; at?: number } & SpadeCardRow);
 
 /**
  * A call that asked the person, kept where it asked so its bubble stays in place once answered.
@@ -357,7 +365,7 @@ export interface SpadeConversationState {
 
 /** What a `status` frame said, and the last `seq` folded when it came. */
 export interface SpadeReported {
-  state: "idle" | "working" | "waiting" | "sleeping";
+  state: "idle" | "working" | "waiting" | "sleeping" | "paused";
   status: string | undefined;
   seq: number;
 }
@@ -531,6 +539,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ...(event.from_routine ? { fromRoutine: event.from_routine } : {}),
         ...(event.from_group
           ? { fromGroup: { id: event.from_group.id, name: event.from_group.name } }
+          : {}),
+        ...(event.from_thread
+          ? { fromThread: { id: event.from_thread.id, title: event.from_thread.title } }
           : {}),
         ...recalledOf(event.context),
         ...stamp(stored),
@@ -922,6 +933,28 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ...stamp(stored),
       });
       return true;
+    case "card_shown": {
+      const row = spadeCardShown(event);
+      if (!row) return false;
+      const at = cardAt(state, event.card);
+      const placed = at === undefined ? undefined : state.entries[at];
+      if (at !== undefined && placed?.kind === "card") {
+        // A replayed or older version never draws over a newer one.
+        if (placed.version >= row.version) return false;
+        state.entries[at] = { ...placed, ...row };
+        return true;
+      }
+      steer(state, { kind: "card", key, ...row, ...stamp(stored) });
+      return true;
+    }
+    case "card_action": {
+      const at = cardAt(state, event.card);
+      const placed = at === undefined ? undefined : state.entries[at];
+      const next = placed?.kind === "card" ? spadeCardChosen(placed, event) : undefined;
+      if (at === undefined || !placed || !next) return false;
+      state.entries[at] = { ...placed, ...next };
+      return true;
+    }
     case "club_added":
       steer(state, {
         kind: "club-added",
@@ -1037,6 +1070,15 @@ function remembered(
  * Change the request for `callId` where it stands, the newest first: a reply's part or an entry
  * of its own. Answers come soon after the ask, so the walk back is short. False when none is.
  */
+/** Where card `cardId` stands among the entries, walking back from the newest. */
+function cardAt(state: SpadeConversationState, cardId: string): number | undefined {
+  for (let index = state.entries.length - 1; index >= 0; index--) {
+    const entry = state.entries[index];
+    if (entry?.kind === "card" && entry.cardId === cardId) return index;
+  }
+  return undefined;
+}
+
 function updateRequest(
   state: SpadeConversationState,
   callId: string,

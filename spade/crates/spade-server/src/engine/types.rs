@@ -291,6 +291,8 @@ pub struct Activity {
     pub questions_for_later: usize,
     /// Why the latest reply on a subscription failed, until a later one works (ADR 0133).
     pub problem: Option<String>,
+    /// Why the latest reply failed, while that is how the latest one ended (ADR 0200 §6.2).
+    pub failure: Option<String>,
     /// The bot's task as it last said (ADR 0144).
     pub task: Option<spade_core::task::State>,
     /// The task's progress, from its goal, plan and checks (ADR 0159).

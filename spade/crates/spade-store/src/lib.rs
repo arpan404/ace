@@ -21,7 +21,7 @@ mod spend;
 mod teams;
 mod workers;
 
-pub use agents::{Agent, BOT_RECIPE, NewAgent, recipe_key};
+pub use agents::{Agent, BOT_PACKAGE, BOT_RECIPE, NewAgent, package_key, recipe_key};
 pub use digests::{BRIEF, DIGESTS, NewDigest, SPEND_ALERT, StoredDigest, digests_key};
 pub use endpoints::{StoredEndpoint, StoredModel};
 pub use episodes::{NewEpisode, StoredEpisode};
@@ -126,6 +126,15 @@ impl Store {
         Ok(Self {
             connection: Mutex::new(connection),
         })
+    }
+
+    /// A plain connection to the database at `path` with the settings every connection to it
+    /// shares (WAL, the busy timeout, write transactions begun `IMMEDIATE`), for what reaches
+    /// rows directly: tests and tools. Never migrates; [`Store::open`] does.
+    pub fn connect(path: impl AsRef<Path>) -> Result<Connection> {
+        let mut connection = Connection::open(path)?;
+        schema::share(&mut connection)?;
+        Ok(connection)
     }
 
     /// The schema version this build brings a database up to: the number of its migrations,

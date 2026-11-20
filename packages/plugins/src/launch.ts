@@ -1,5 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { spawnSupervised, type SpawnOptions } from "@ace/provider-kit/process";
 import { launchEnvironment } from "./launch-config.ts";
+import { claimLaunchDirectory, sweepLaunchDirectories } from "./launch-directory.ts";
 import { preparePluginSession } from "./session.ts";
 import type { PluginManager } from "./manager.ts";
 import type { Provider } from "./types.ts";
@@ -29,11 +32,32 @@ export async function launchPluginProcess(
     /** Writes the session's projection; tests stand in for a filesystem that stalls. */
     prepare?: typeof preparePluginSession;
     releaseMs?: number;
+    id?: () => string;
+    /** Runs between the sweep reading the root and acting on it; tests stall it here. */
+    sweepListed?: () => Promise<void>;
+    /** Told of each sweep this launch starts, which is never awaited. */
+    swept?: (sweep: Promise<void>) => void;
   } = {},
 ) {
   if (options.killGroupOnExit === false)
     throw new Error("Plugin launches require process-group cleanup on leader exit");
-  const session = await (seams.prepare ?? preparePluginSession)(manager, provider, root);
+  // Each launch projects into a directory of its own, held while it lives, so an earlier
+  // launch's cleanup, however late, removes only its own files and holds only its own lock.
+  const directory = await claimLaunchDirectory(root, (seams.id ?? randomUUID)());
+  const sweep = sweepLaunchDirectories(root, directory.name, seams.sweepListed);
+  seams.swept?.(sweep);
+  let prepared: Awaited<ReturnType<typeof preparePluginSession>>;
+  try {
+    prepared = await (seams.prepare ?? preparePluginSession)(manager, provider, directory.path);
+  } catch (error) {
+    directory.release();
+    throw error;
+  }
+  const session = {
+    ...prepared,
+    close: () =>
+      prepared.close().finally(() => rm(directory.path, { recursive: true, force: true })),
+  };
   try {
     const process = spawn({
       ...options,
@@ -45,12 +69,14 @@ export async function launchPluginProcess(
     // carries on alone, and the exit (with the launch slot and root its callers free on it) is
     // reported anyway. A leftover projection is replaced by the root's next launch. A failed
     // removal is cleanup and cannot change the exit result.
-    const exited = process.exited.finally(() =>
-      within(
+    const exited = process.exited.finally(() => {
+      // The launch is over once its process is: from here its directory may be swept.
+      directory.release();
+      return within(
         session.close().catch(() => {}),
         seams.releaseMs ?? PROJECTION_RELEASE_MS,
-      ),
-    );
+      );
+    });
     return {
       ...process,
       exited,
@@ -62,6 +88,7 @@ export async function launchPluginProcess(
       unsupported: session.unsupported,
     };
   } catch (error) {
+    directory.release();
     await session.close();
     throw error;
   }

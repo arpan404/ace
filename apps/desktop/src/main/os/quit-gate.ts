@@ -13,6 +13,13 @@ export interface QuitGatePorts {
   shutDown(): Promise<void>;
   /** Quits the app for real, once shutdown is over. */
   quit(): void;
+  /**
+   * Whether this quit may go on, asked before shutdown starts: false when the window couldn't
+   * keep its unsaved editor text and asks the person instead. A failed check never holds a quit.
+   */
+  confirm?(): Promise<boolean>;
+  /** The quit was called off by `confirm`. */
+  cancelled?(): void;
   timers: { set(delayMs: number, callback: () => void): () => void };
   log(level: "info" | "warn" | "error", message: string, data?: Record<string, unknown>): void;
   boundMs?: number;
@@ -62,13 +69,33 @@ export class QuitGate {
     if (this.done) return true;
     if (!this.quitWhenDone) {
       this.quitWhenDone = true;
-      void this.shutDown()
-        .then(() => this.ports.quit())
+      void this.confirmed()
+        .then(async (go) => {
+          if (!go) {
+            this.quitWhenDone = false;
+            this.ports.log("info", "Quit called off: the window couldn't keep unsaved text");
+            this.ports.cancelled?.();
+            return;
+          }
+          await this.shutDown();
+          this.ports.quit();
+        })
         .catch((error: unknown) =>
           this.ports.log("error", "Quitting after shutdown failed", { error: String(error) }),
         );
     }
     return false;
+  }
+
+  /** Shutdown under way (an update's restart) is past asking. */
+  private async confirmed(): Promise<boolean> {
+    if (this.stopping || !this.ports.confirm) return true;
+    try {
+      return await this.ports.confirm();
+    } catch (error) {
+      this.ports.log("warn", "Checking before quit failed", { error: String(error) });
+      return true;
+    }
   }
 
   private async bounded(): Promise<void> {

@@ -42,6 +42,7 @@ export const routePages = {
   "/spade/$agentId": null,
   "/spade/groups/$groupId": null,
   "/spade/new": null,
+  "/spade/running": null,
   "/spade/groups/new": null,
   "/usage": "usage",
   "/setup": "setup",

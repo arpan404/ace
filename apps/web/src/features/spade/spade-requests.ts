@@ -1,3 +1,4 @@
+import type { DeviceContextItem } from "@ace/protocol";
 import type { ClientApi } from "@ace/client";
 import type { SpadeExchange } from "@ace/client/spade-http";
 import { maxSpadeRequestBytes, type SpadeMethod } from "@ace/protocol";
@@ -106,10 +107,24 @@ export function spadeBody(message: {
   images: readonly { data: string }[];
   documents?: readonly { name: string; data: string }[] | undefined;
   voice?: { data: string; mediaType: string } | undefined;
+  /** Devices the person named with `@` for the work (ADR 0198). */
+  devices?: readonly DeviceContextItem[] | undefined;
 }) {
   const documents = message.documents ?? [];
+  const devices = message.devices ?? [];
   return {
     text: message.text,
+    ...(devices.length
+      ? {
+          devices: devices.map((device) =>
+            Object.assign(
+              { id: device.id, name: device.name, kind: device.kind, machine: device.machine },
+              device.os ? { os: device.os } : {},
+              { online: device.online },
+            ),
+          ),
+        }
+      : {}),
     ...(message.images.length ? { images: message.images.map(({ data }) => ({ data })) } : {}),
     ...(documents.length ? { files: documents.map(({ name, data }) => ({ name, data })) } : {}),
     ...(message.voice

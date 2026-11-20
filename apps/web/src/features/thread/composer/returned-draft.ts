@@ -4,8 +4,10 @@ import {
   mergeQuotes,
   placeAttachmentMarkers,
   returnedAnnotations,
+  returnedCodeAnnotations,
   returnedQuotes,
   splitAnnotationParts,
+  splitCodeAnnotationParts,
   splitQuoteParts,
   textPartsText,
   tokensFromInput,
@@ -49,11 +51,21 @@ export function draftFromMessage(message: {
   files: readonly { sha256: string; at?: number | undefined; name: string }[];
   options?: ReturnedDraft["options"];
 }): ReturnedDraft {
-  const annotatedParts = splitAnnotationParts(message.input);
+  const coded = splitCodeAnnotationParts(message.input);
+  const annotatedParts = splitAnnotationParts(coded.parts);
   const quoted = splitQuoteParts(annotatedParts.parts);
   const split = { ...annotatedParts, parts: quoted.parts };
   const files = message.files.map(({ sha256, name }) => ({ sha256, name }));
   const annotated = split.annotations && returnedAnnotations(split.annotations, files);
+  const code = coded.code && returnedCodeAnnotations(coded.code, (index) => `sent-code:${index}`);
+  const annotations =
+    annotated || code
+      ? boundedAnnotations({
+          items: annotated?.annotations.items ?? [],
+          pages: annotated?.annotations.pages ?? [],
+          ...(code ? { code } : {}),
+        })
+      : undefined;
   const lead = textPartsText(annotatedParts.parts).length - textPartsText(quoted.parts).length;
   const words = tokensFromInput(split.parts);
   return {
@@ -67,7 +79,7 @@ export function draftFromMessage(message: {
     ),
     mentions: message.mentions,
     attachments: annotated?.attachments ?? files,
-    ...(annotated ? { annotations: annotated.annotations } : {}),
+    ...(annotations ? { annotations } : {}),
     ...(quoted.quotes ? { quotes: returnedQuotes(quoted.quotes, (index) => `sent:${index}`) } : {}),
     options: message.options,
   };
@@ -81,12 +93,18 @@ function mergeAnnotations(
   if (!returned) return current;
   const ids = new Set(current?.items.map((item) => item.annotation.id));
   const urls = new Set(current?.pages.map((page) => page.url));
+  const codeIds = new Set(current?.code?.map((each) => each.id));
+  const code = [
+    ...(current?.code ?? []),
+    ...(returned.code ?? []).filter((each) => !codeIds.has(each.id)),
+  ].map((each, index) => Object.assign({}, each, { number: index + 1 }));
   return boundedAnnotations({
     items: [
       ...(current?.items ?? []),
       ...returned.items.filter((item) => !ids.has(item.annotation.id)),
     ],
     pages: [...(current?.pages ?? []), ...returned.pages.filter((page) => !urls.has(page.url))],
+    ...(code.length ? { code } : {}),
   });
 }
 

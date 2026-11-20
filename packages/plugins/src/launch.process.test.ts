@@ -1,8 +1,8 @@
-import { readFile, lstat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
-import { launchPluginProcess } from "./index.ts";
+import { launchPluginProcess, withProjectionLock } from "./index.ts";
 import { preparePluginSession } from "./session.ts";
 import { fixture } from "./test-support.ts";
 
@@ -43,7 +43,8 @@ test.each(["claude", "codex", "cursor", "opencode", "acp", "antigravity"] as con
         expect(process.sessionConfig.mcpServers).toContainEqual(
           expect.objectContaining({ name: "ace-sample__tools", command: "node" }),
         );
-      await expect(lstat(join(root, "generated"))).rejects.toMatchObject({ code: "ENOENT" });
+      // The launch's own directory, projection and all, is gone with it.
+      expect(await readdir(root)).toEqual([]);
     } finally {
       await f.close();
     }
@@ -94,41 +95,119 @@ test("OpenCode launch preserves existing runtime MCP servers and instruction pat
   }
 });
 
-test("a projection removal that stalls doesn't hold the exit, and finishes on its own later", async () => {
+test("a relaunch while the last launch's cleanup stalls keeps its own files when that cleanup ends", async () => {
+  const f = await fixture();
+  // A filesystem that hangs under the first launch's removal, holding that launch's lock.
+  const stalled = Promise.withResolvers<void>();
+  try {
+    await f.manager.accept(await f.prepare());
+    const root = join(f.root, "session");
+    let launches = 0;
+    const prepare: typeof preparePluginSession = async (manager, provider, directory) => {
+      const session = await preparePluginSession(manager, provider, directory);
+      if (launches++ > 0) return session;
+      return {
+        ...session,
+        close: () => withProjectionLock(directory, () => stalled.promise).then(session.close),
+      };
+    };
+    const ids = ["first", "second"];
+    const launch = (args: string[]) =>
+      launchPluginProcess(
+        f.manager,
+        "claude",
+        root,
+        { command: process.execPath, args, env: {}, name: "standin" },
+        undefined,
+        { prepare, releaseMs: 50, id: () => ids.shift() ?? "extra" },
+      );
+    const first = await launch(["-e", ""]);
+    const settled = await Promise.race([
+      first.exited.then(() => "exited"),
+      new Promise((resolve) => setTimeout(() => resolve("still waiting"), 5_000)),
+    ]);
+    // Reported past the cap while its removal still waits.
+    expect(settled).toBe("exited");
+    const second = await launch(["-e", "setInterval(() => {}, 1000)"]);
+    try {
+      const own = join(root, "launch-second", "generated");
+      await expect(lstat(own)).resolves.toBeDefined();
+      stalled.resolve();
+      await expect.poll(() => readdir(root)).toEqual(["launch-second"]);
+      await expect(lstat(own)).resolves.toBeDefined();
+    } finally {
+      await second.stop({ graceMs: 0 });
+    }
+    expect(await readdir(root)).toEqual([]);
+  } finally {
+    stalled.resolve();
+    await f.close();
+  }
+});
+
+/** Waits for the sweep a launch reported, or a moment when none was. */
+const settledSweep = (sweep: Promise<Promise<void>>) =>
+  Promise.race([sweep.then((done) => done), new Promise((done) => setTimeout(done, 2_000))]);
+
+test("a launch's sweep leaves alone a launch-named directory ace didn't make", async () => {
   const f = await fixture();
   try {
     await f.manager.accept(await f.prepare());
     const root = join(f.root, "session");
-    // A filesystem that hangs: the removal waits until the test lets it through.
-    const stalled = Promise.withResolvers<void>();
-    const prepare: typeof preparePluginSession = async (...args) => {
-      const session = await preparePluginSession(...args);
-      return { ...session, close: () => stalled.promise.then(session.close) };
-    };
+    await mkdir(join(root, "launch-notes"), { recursive: true });
+    await writeFile(join(root, "launch-notes", "todo.txt"), "keep me");
+    const sweep = Promise.withResolvers<Promise<void>>();
     const launched = await launchPluginProcess(
       f.manager,
       "claude",
       root,
       { command: process.execPath, args: ["-e", ""], env: {}, name: "standin" },
       undefined,
-      { prepare, releaseMs: 50 },
+      { swept: sweep.resolve },
     );
-    const settled = await Promise.race([
-      launched.exited.then(() => "exited"),
-      new Promise((resolve) => setTimeout(() => resolve("still waiting"), 5_000)),
-    ]);
-    expect(settled).toBe("exited");
-    // Reported with its projection still there; the removal completes once it can.
-    await expect(lstat(join(root, "generated"))).resolves.toBeDefined();
-    stalled.resolve();
-    await expect
-      .poll(() =>
-        lstat(join(root, "generated")).then(
-          () => "present",
-          (error) => error.code,
-        ),
-      )
-      .toBe("ENOENT");
+    await launched.exited;
+    await settledSweep(sweep.promise);
+    expect(await readFile(join(root, "launch-notes", "todo.txt"), "utf8")).toBe("keep me");
+  } finally {
+    await f.close();
+  }
+});
+
+test("a live launch's directory survives another launch's sweep that stalls and resumes", async () => {
+  const f = await fixture();
+  try {
+    await f.manager.accept(await f.prepare());
+    const root = join(f.root, "session");
+    const launch = (
+      id: string,
+      args: string[],
+      seams: Parameters<typeof launchPluginProcess>[5] = {},
+    ) =>
+      launchPluginProcess(
+        f.manager,
+        "claude",
+        root,
+        { command: process.execPath, args, env: {}, name: "standin" },
+        undefined,
+        { ...seams, id: () => id },
+      );
+    const live = await launch("live", ["-e", "setInterval(() => {}, 1000)"]);
+    try {
+      // Another launch's sweep reads the root, then stalls before acting on it.
+      const stalled = Promise.withResolvers<void>();
+      const sweep = Promise.withResolvers<Promise<void>>();
+      const other = await launch("other", ["-e", ""], {
+        sweepListed: () => stalled.promise,
+        swept: sweep.resolve,
+      });
+      await other.exited;
+      stalled.resolve();
+      await settledSweep(sweep.promise);
+      await expect(lstat(join(root, "launch-live", "generated"))).resolves.toBeDefined();
+    } finally {
+      await live.stop({ graceMs: 0 });
+    }
+    expect(await readdir(root)).toEqual([]);
   } finally {
     await f.close();
   }
