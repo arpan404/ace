@@ -206,7 +206,12 @@ class AcpSession implements ProviderSession {
         Array.isArray(update["configOptions"])
       ) {
         this.configuration.update({ configOptions: update["configOptions"] });
-      }
+      } else if (
+        params["sessionId"] === this.nativeSessionId &&
+        update["sessionUpdate"] === "current_mode_update" &&
+        typeof update["currentModeId"] === "string"
+      )
+        this.configuration.modeChanged(update["currentModeId"]);
       // The translator drops load replay too; replayed tools and children are not running now.
       if (this.loading) return;
       this.routing.receive(object(notification.params));
@@ -365,25 +370,34 @@ class AcpSession implements ProviderSession {
     this.routing.bindRoot(this.nativeSessionId);
     if (!this.nativeSessionId) throw new Error("ACP server did not return a session id");
     this.configuration.setup(session, mcpTransport);
+    // A saved mode or model the agent no longer lists (renamed, dropped, or a loaded session
+    // that reports none) or refuses doesn't stop the start: the daemon is told it didn't apply.
+    // An access mode that didn't apply is never claimed: the daemon records what runs instead.
     const mode = this.ctx.permissionMode;
-    if (mode) await this.setMode(mode);
-    if (this.ctx.model) {
-      const before = this.configuration.selectors.raw;
-      await this.setModel(this.ctx.model);
-      // A model's reply can carry a fresh set of options with the mode back at its default.
-      if (
-        mode &&
-        this.configuration.selectors.raw !== before &&
-        this.configuration.current("mode") !== mode
-      )
-        await this.setMode(mode);
-    }
+    if (mode && !(await this.attempt(() => this.setMode(mode))))
+      this.refusedOptions.push("permissionMode");
+    if (this.ctx.model && !(await this.attempt(() => this.setModel(this.ctx.model ?? ""))))
+      this.refusedOptions.push("model");
     // Effort follows the model: the model's own thinking levels arrive with its selection. An
     // agent that refuses the level keeps its default; a start never fails over effort, and the
     // daemon is told so the thread stops showing a level that isn't running.
     const effort = this.ctx.options?.["effort"];
     if (typeof effort === "string" && !(await this.selectEffort(effort)))
-      this.refusedOptions = ["effort"];
+      this.refusedOptions.push("effort");
+  }
+  /** Whether a selection at start applied; a closed session still fails the start. */
+  private async attempt(select: () => Promise<void>): Promise<boolean> {
+    try {
+      await select();
+      return true;
+    } catch (error) {
+      if (this.closed) throw error;
+      return false;
+    }
+  }
+  /** The native mode the session reports running, when it reports one. */
+  get permissionMode(): string | undefined {
+    return this.configuration.current("mode");
   }
   async selectEffort(effort: string): Promise<boolean> {
     if (!this.configuration.selectors.effort?.values.includes(effort)) return false;
@@ -394,10 +408,18 @@ class AcpSession implements ProviderSession {
       return false;
     }
   }
-  async select(kind: "model" | "mode" | "effort", value: string): Promise<void> {
+  /** Selections run one at a time, in the order asked; one never refuses another in flight. */
+  private selections: Promise<void> = Promise.resolve();
+  select(kind: "model" | "mode" | "effort", value: string): Promise<void> {
+    if (this.closed) return Promise.reject(new Error("ACP selectors require a settled session"));
+    const run = this.selections.then(() => this.selectNow(kind, value));
+    this.selections = run.catch(() => {});
+    return run;
+  }
+  private async selectNow(kind: "model" | "mode" | "effort", value: string): Promise<void> {
     // ACP lets a client change the session mode at any time, a running turn included, so a new
     // access mode lands at once. Model and effort still change only between turns.
-    if (this.closed || this.selecting) throw new Error("ACP selectors require a settled session");
+    if (this.closed) throw new Error("ACP selectors require a settled session");
     if (
       kind !== "mode" &&
       (this.active || this.routing.hasLiveChildren || this.pending.size || this.shells.blocked)
@@ -416,11 +438,26 @@ class AcpSession implements ProviderSession {
     }
   }
 
-  setModel(model: string): Promise<void> {
-    return this.select("model", model);
+  /** The mode ace last set; a model's reply that resets it gets it back. */
+  private wantedMode: string | undefined;
+  async setModel(model: string): Promise<void> {
+    const before = this.configuration.current("mode");
+    await this.select("model", model);
+    const now = this.configuration.current("mode");
+    if (now === before) return;
+    // A model's reply can carry a fresh set of options with the mode back at its default.
+    if (this.wantedMode && now !== this.wantedMode)
+      try {
+        await this.select("mode", this.wantedMode);
+        return;
+      } catch {
+        // The owner hears which mode runs now instead.
+      }
+    this.configuration.announceMode();
   }
-  setMode(mode: string): Promise<void> {
-    return this.select("mode", mode);
+  async setMode(mode: string): Promise<void> {
+    await this.select("mode", mode);
+    this.wantedMode = mode;
   }
   async send(
     input: ContentPart[],

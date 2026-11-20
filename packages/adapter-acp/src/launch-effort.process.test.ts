@@ -126,3 +126,112 @@ test("a running turn takes a new permission mode at once", async () => {
     await session.close("shutdown");
   }
 });
+
+/** A live session on the scripted agent, with the native modes it announced on its own. */
+async function live(serverArgs: string[], context: { permissionMode?: string; model?: string }) {
+  const frames: Frame[] = [];
+  const announced: string[] = [];
+  const session = await openAcpSession(
+    {
+      threadId: ThreadId.parse("selection-replies"),
+      cwd: process.cwd(),
+      ...context,
+      signal: new AbortController().signal,
+      onFrame(frame) {
+        frames.push(frame);
+      },
+      onPermissionMode(native) {
+        announced.push(native);
+      },
+      onExit() {},
+    },
+    genericQuirks,
+    {
+      command: process.execPath,
+      args: [
+        fileURLToPath(new URL("./testing/thinking-server.ts", import.meta.url)),
+        ...serverArgs,
+      ],
+    },
+  );
+  const selected = (configId: string) =>
+    frames
+      .filter(
+        (frame) =>
+          frame.dir === "send" && object(object(frame.data)["params"])["configId"] === configId,
+      )
+      .map((frame) => object(object(frame.data)["params"])["value"]);
+  return { session, frames, announced, selected };
+}
+
+test("a mode the agent answers with another one is refused, and the session reports what runs", async () => {
+  const { session } = await live(["--mode", "--ignore-mode"], {});
+  try {
+    await expect(session.setMode?.("yolo")).rejects.toThrow("not applied");
+    expect(session.permissionMode).toBe("default");
+  } finally {
+    await session.close("shutdown");
+  }
+});
+
+test("an effort the agent answers with another level is reported as not taken", async () => {
+  expect((await open("deep", "max", ["--ignore-thinking"])).refused).toEqual(["effort"]);
+});
+
+test("a saved model and mode the agent no longer lists still open, and say they didn't apply", async () => {
+  const { session } = await live(["--mode"], { permissionMode: "gone", model: "retired" });
+  try {
+    expect(session.refusedOptions).toEqual(["permissionMode", "model"]);
+    expect(session.permissionMode).toBe("default");
+  } finally {
+    await session.close("shutdown");
+  }
+});
+
+test("a mode set through session/set_mode is what the session reports running", async () => {
+  const { session } = await live(["--legacy-mode"], { permissionMode: "plan" });
+  try {
+    expect(session.refusedOptions).toEqual([]);
+    expect(session.permissionMode).toBe("plan");
+  } finally {
+    await session.close("shutdown");
+  }
+});
+
+test("an agent that leaves plan mode on its own says so, and the session reports the new mode", async () => {
+  const { session, announced } = await live(["--legacy-mode", "--leave-plan"], {
+    permissionMode: "plan",
+  });
+  try {
+    expect(announced).toEqual([]);
+    await session.send([{ type: "text", text: "work" }], "queue");
+    await expect.poll(() => announced).toEqual(["default"]);
+    expect(session.permissionMode).toBe("default");
+    expect(session.effectiveCapabilities?.planMode).toBe(true);
+  } finally {
+    await session.close("shutdown");
+  }
+});
+
+test("a model changed in a live session gets back the mode its reply reset", async () => {
+  const { session, selected, announced } = await live(["--mode"], { permissionMode: "yolo" });
+  try {
+    await session.setModel?.("deep");
+    expect(selected("mode")).toEqual(["yolo", "yolo"]);
+    expect(session.permissionMode).toBe("yolo");
+    expect(announced).toEqual([]);
+  } finally {
+    await session.close("shutdown");
+  }
+});
+
+test("mode changes asked back to back both reach the agent, in order", async () => {
+  const { session, selected } = await live(["--mode"], {});
+  try {
+    await Promise.all([session.setMode?.("yolo"), session.setMode?.("default")]);
+    expect(selected("mode")).toEqual(["yolo", "default"]);
+    expect(session.permissionMode).toBe("default");
+  } finally {
+    await session.close("shutdown");
+  }
+});

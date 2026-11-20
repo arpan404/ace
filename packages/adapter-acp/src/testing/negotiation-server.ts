@@ -28,6 +28,7 @@ const Envelope = z
 const write = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 let selectorValues = ["model-a", "model-b"];
 let signedIn = false;
+let currentModel = "model-a";
 const setup = () =>
   config.noSelectors
     ? {}
@@ -45,7 +46,7 @@ const setup = () =>
               id: "provider-model-id",
               category: "model",
               type: "select",
-              currentValue: "model-a",
+              currentValue: currentModel,
               options: selectorValues.map((value) => ({ value, name: value })),
             },
           ],
@@ -120,6 +121,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       write({ id: message.id, error: { code: -1, message: "Wrong config ID" } });
     else {
       selectorValues = ["model-b"];
+      currentModel = String(message.params.value);
       result(setup());
     }
   } else if (message.method === "session/set_model" || message.method === "session/set_mode")
