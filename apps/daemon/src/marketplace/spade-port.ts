@@ -14,12 +14,20 @@ const Made = z.object({
   agent: z.object({ id: z.string().min(1).max(80) }),
   left_out: z.array(z.string().max(500)).max(64).optional(),
 });
+const Version = z.object({ version: z.string().min(1).max(64), hash: z.string().min(1).max(128) });
+const Linked = Version.extend({
+  source: z.string().min(1).max(64),
+  name: z.string().min(1).max(128),
+  previous: Version.nullish().catch(undefined),
+});
 const Agents = z.object({
   agents: z
     .array(
       z.object({
         id: z.string().min(1).max(80),
         from_recipe: z.object({ transaction: z.string().max(80).optional() }).nullish(),
+        // A link this build can't read is no link: the bot stays as Spade has it.
+        package: Linked.nullish().catch(undefined),
       }),
     )
     .max(10_000),
@@ -81,7 +89,10 @@ function linked(input: Parameters<SpadePort["createBot"]>[0]["linked"]) {
   return input ? { recipe: input.manifest, package: input.package, switches: input.switches } : {};
 }
 
-export function spadePort(connection: () => SpadeConnection | undefined): SpadePort {
+export function spadePort(
+  connection: () => SpadeConnection | undefined,
+  version: () => string | undefined = () => undefined,
+): SpadePort {
   const live = () => {
     const current = connection();
     if (!current) throw new Error("Spade isn't running. Start Spade to make this bot.");
@@ -89,6 +100,7 @@ export function spadePort(connection: () => SpadeConnection | undefined): SpadeP
   };
   return {
     ready: () => connection() !== undefined,
+    version: () => (connection() ? version() : undefined),
     async createBot(input): Promise<MadeBot> {
       const { recipe } = input;
       const made = Made.parse(
@@ -150,6 +162,15 @@ export function spadePort(connection: () => SpadeConnection | undefined): SpadeP
     async findBot(transaction) {
       const listed = Agents.parse(await spadeCall(live(), "GET", "/v1/agents"));
       return listed.agents.find((agent) => agent.from_recipe?.transaction === transaction)?.id;
+    },
+    async linkedBots() {
+      const listed = Agents.parse(await spadeCall(live(), "GET", "/v1/agents"));
+      return listed.agents.flatMap((agent) => {
+        const link = agent.package;
+        if (!link) return [];
+        const { previous, ...current } = link;
+        return [{ id: agent.id, package: current, ...(previous ? { previous } : {}) }];
+      });
     },
     async deleteBot(id) {
       // Workers it made in the moments it existed stop with it.

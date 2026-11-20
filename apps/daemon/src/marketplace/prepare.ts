@@ -66,6 +66,8 @@ export interface PreparePorts {
   badges: Badges;
   /** What the scan compares against: the local index, the verified list, the blocklist. */
   scanContext: (publisher: MarketPublisher | undefined) => ScanContext;
+  /** The running Spade's version, which a package's `requires.spade` is checked against. */
+  spade?: string | undefined;
 }
 
 /** What ADR 0014's manager needs to review a plugin from bytes the marketplace verified. */
@@ -113,7 +115,7 @@ export async function prepareEntry(
     source.kind === "market"
       ? await fromMarket(ports, entryType, name, version)
       : await fromGit(ports, source, entryType, name);
-  const checked = checkFiles(entryType, name, fetched.files);
+  const checked = checkFiles(entryType, name, fetched.files, { spade: ports.spade });
   // A Suit that fails is still reviewed, so the person sees why; it can't be installed.
   if (checked.problems.length > 0 && entryType !== "suit")
     throw new Refused(`${name} doesn't pass ace's checks`, { problems: checked.problems });

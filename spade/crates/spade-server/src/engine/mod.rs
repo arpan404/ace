@@ -451,6 +451,8 @@ impl Engine {
         }
         // A package update a crash cut short is taken again from the start (ADR 0200 §6.2).
         crate::packages::recover(self);
+        // An update held while a bot worked applies to each bot that is still now.
+        crate::packages::held::recover(self);
         // Workers owed a report or a start since the last run get it (ADR 0161).
         self.start_workers();
         // Digests on each bot's schedule (ADR 0165).

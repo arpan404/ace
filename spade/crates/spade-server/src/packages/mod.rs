@@ -6,9 +6,11 @@
 //! resumption of a step a crash cut short.
 
 pub mod apply;
+pub mod held;
 pub mod switches;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use serde_json::{Value, json};
 use spade_core::package::link::{Link, Made, MadeNote, MadeRoutine, PackageId, switched_on};
@@ -234,41 +236,43 @@ pub fn set_switch(engine: &Engine, bot: &str, key: &str, on: bool) -> Result<Lin
     Ok(link)
 }
 
-/// A withdrawn version pauses its bot (ADR 0200 §6.1): its routines stop firing, with the
-/// reason shown; nothing is deleted. Saying it again changes nothing.
-pub fn withdraw(engine: &Engine, bot: &str, reason: &str) -> Result<Link, PackageError> {
+/// A withdrawn version pauses its bot (ADR 0200 §6.1) with the one pause the person has: its
+/// work stops, its wakes and routine slots are held, its services stop and messages to it wait,
+/// through a restart. The reason is shown; nothing is deleted. Saying it again changes nothing.
+pub fn withdraw(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, PackageError> {
     let mut link = link_of(engine, bot)?;
     if link.withdrawn.is_some() {
         return Ok(link);
     }
+    // Paused first: the reason is only words, the pause is what keeps the bot from acting.
+    engine.pause_agent(bot).map_err(failed)?;
     let reason: String = reason.trim().chars().take(500).collect();
-    let mut paused = Vec::new();
-    for view in routines::list(engine, bot).map_err(failed)? {
-        if view.routine.paused {
-            continue;
-        }
-        routines::update(
-            engine,
-            &view.routine.id,
-            routines::RoutineInput {
-                paused: Some(true),
-                ..routines::RoutineInput::default()
-            },
-        )
-        .map_err(failed)?;
-        paused.push(view.routine.id);
-    }
-    link.withdrawn = Some(spade_core::package::link::Withdrawn { reason, paused });
+    link.withdrawn = Some(spade_core::package::link::Withdrawn {
+        reason,
+        paused: Vec::new(),
+    });
     engine.set_bot_package(bot, &link).map_err(failed)?;
     Ok(link)
 }
 
-/// The person resumes a bot its package's withdrawal paused: the routines the pause stopped
-/// run again.
-pub fn resume(engine: &Engine, bot: &str) -> Result<Link, PackageError> {
-    let mut link = link_of(engine, bot)?;
+/// The person resumes a bot its package's withdrawal paused: the same Resume as the Running
+/// page's, so each wake that came due fires once and what waited is answered.
+pub fn resume(engine: &Arc<Engine>, bot: &str) -> Result<Link, PackageError> {
+    link_of(engine, bot)?;
+    engine.resume_agent(bot).map_err(failed)?;
+    // Resume forgets the withdrawal itself; one cut short is forgotten here.
+    forget_withdrawal(engine, bot)?;
+    link_of(engine, bot)
+}
+
+/// Resuming a bot ends its withdrawal's pause too: one pause, not two. Routines a withdrawal
+/// before the full pause stopped run again. Nothing to do for a bot that wasn't withdrawn.
+pub(crate) fn forget_withdrawal(engine: &Engine, bot: &str) -> Result<(), PackageError> {
+    let Some(mut link) = engine.bot_package(bot) else {
+        return Ok(());
+    };
     let Some(withdrawn) = link.withdrawn.take() else {
-        return Ok(link);
+        return Ok(());
     };
     for id in &withdrawn.paused {
         let resumed = routines::update(
@@ -285,8 +289,7 @@ pub fn resume(engine: &Engine, bot: &str) -> Result<Link, PackageError> {
         }
         resumed.map_err(failed)?;
     }
-    engine.set_bot_package(bot, &link).map_err(failed)?;
-    Ok(link)
+    engine.set_bot_package(bot, &link).map_err(failed)
 }
 
 /// A link as the profile and the daemon read it: the package and version, what it was before,
@@ -319,4 +322,14 @@ pub fn view(link: &Link) -> Value {
         "effects": effects,
         "limits": link.manifest.limits,
     })
+}
+
+/// [`view`], with the update the person accepted while the bot was working, held for its next
+/// still moment: `held {version}`.
+pub fn shown(engine: &Engine, bot: &str, link: &Link) -> Value {
+    let mut shown = view(link);
+    if let Some(held) = held::of(engine, bot) {
+        shown["held"] = json!({ "version": held.package.version });
+    }
+    shown
 }

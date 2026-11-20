@@ -41,6 +41,14 @@ export function seedFakePackages(here: FakeSpadeApi, now: number): void {
           on: true,
         },
         {
+          key: "network:drive_site:book.example-air.com",
+          effect: "network",
+          hosts: [],
+          grant: { kind: "drive_site", host: "book.example-air.com" },
+          why: "Opens a fare's page to check the price still holds.",
+          on: false,
+        },
+        {
           key: "send_as_person",
           effect: "send_as_person",
           hosts: [],

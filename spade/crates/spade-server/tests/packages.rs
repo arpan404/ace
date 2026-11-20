@@ -397,18 +397,26 @@ async fn an_update_turns_nothing_new_on_keeps_what_the_person_changed_and_a_roll
     Ok(())
 }
 
+/// The bot's row in `/v1/agents`.
+async fn row(spade: &Spade, bot: &str) -> Result<Value> {
+    Ok(bots(spade)
+        .await?
+        .into_iter()
+        .find(|a| a["id"] == bot)
+        .unwrap_or_default())
+}
+
+fn title() -> Script {
+    Script::reply("").plain(r#"{"title":"Fares"}"#)
+}
+
 #[tokio::test]
-async fn a_withdrawn_version_pauses_its_bot_and_deletes_nothing() -> Result {
-    let spade = secured(Vec::new(), Vec::new()).await?;
+async fn a_withdrawn_version_pauses_its_bot_with_the_one_pause_and_resume_answers_what_waited()
+-> Result {
+    let spade = secured(vec![Script::reply("Fares are up."), title()], Vec::new()).await?;
     let agent = installed(&spade, hosts_on(), true).await?;
     let bot = text(&agent["id"]);
-    assert!(
-        routines(&spade, &bot)
-            .await?
-            .iter()
-            .all(|(_, paused, _)| !*paused),
-        "the person started its routines"
-    );
+    let conversation = text(&agent["conversation"]);
     let before_notes = notes(&spade, &bot).await?;
     let (status, body) = spade
         .post(
@@ -421,23 +429,165 @@ async fn a_withdrawn_version_pauses_its_bot_and_deletes_nothing() -> Result {
         body["package"]["withdrawn"]["reason"],
         "It sent too many requests."
     );
-    let paused = routines(&spade, &bot).await?;
-    assert_eq!(paused.len(), 3);
-    assert!(paused.iter().all(|(_, paused, _)| *paused), "{paused:?}");
+    // The bot is paused as the person's Pause pauses it; its routines are left as they were.
+    let listed = row(&spade, &bot).await?;
+    assert_eq!(
+        (&listed["state"], &listed["status"]),
+        (&json!("paused"), &json!("Paused")),
+        "{listed}"
+    );
+    let kept = routines(&spade, &bot).await?;
+    assert_eq!(kept.len(), 3);
+    assert!(kept.iter().all(|(_, paused, _)| !*paused), "{kept:?}");
     assert_eq!(bots(&spade).await?.len(), 1, "the bot stays");
     assert_eq!(notes(&spade, &bot).await?, before_notes);
-    // The person resumes it as it is.
+    // A message to it waits.
+    spade.say(&conversation, "Any news?").await?;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let events = spade.events(&conversation).await?;
+    assert!(
+        !events.iter().any(|e| e["type"] == "reply_started"),
+        "nothing answers while paused"
+    );
+    // The Running page's Resume ends the withdrawal's pause too: there is one pause.
+    let (status, body) = spade
+        .post(&format!("/v1/agents/{bot}/resume"), json!({}))
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["type"] == "reply_started")
+            .count(),
+        1,
+        "what waited is answered once"
+    );
+    let (_, body) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
+    assert!(body["package"]["withdrawn"].is_null(), "{body}");
+    assert_ne!(row(&spade, &bot).await?["state"], "paused");
+    Ok(())
+}
+
+#[tokio::test]
+async fn resuming_a_withdrawn_bot_from_the_marketplace_is_the_same_resume() -> Result {
+    let spade = secured(Vec::new(), Vec::new()).await?;
+    let agent = installed(&spade, hosts_on(), false).await?;
+    let bot = text(&agent["id"]);
+    let (status, _) = spade
+        .post(
+            &format!("/v1/agents/{bot}/package/withdrawn"),
+            json!({ "reason": "Withdrawn." }),
+        )
+        .await?;
+    assert_eq!(status, 200);
     let (status, body) = spade
         .delete(&format!("/v1/agents/{bot}/package/withdrawn"))
         .await?;
     assert_eq!(status, 200, "{body}");
-    assert!(body["package"]["withdrawn"].is_null());
-    assert!(
-        routines(&spade, &bot)
-            .await?
-            .iter()
-            .all(|(_, paused, _)| !*paused)
-    );
+    assert!(body["package"]["withdrawn"].is_null(), "{body}");
+    assert_ne!(row(&spade, &bot).await?["state"], "paused");
+    let (_, running) = spade.get("/v1/running").await?;
+    let shown = running["bots"]
+        .as_array()
+        .and_then(|all| all.iter().find(|r| r["id"] == bot.as_str()).cloned())
+        .unwrap_or_default();
+    assert_ne!(shown["reads"], "paused", "{shown}");
+    Ok(())
+}
+
+fn slow_tool() -> Vec<Arc<dyn Tool>> {
+    vec![Arc::new(
+        FakeTool::new("pause", Risk::Read, "ok").slow(std::time::Duration::from_millis(1_500)),
+    )]
+}
+
+/// Asks for the update to 2.0.0 while the bot works: held, and the profile says so.
+async fn ask_while_working(spade: &Spade, bot: &str, conversation: &str) -> Result {
+    spade.say(conversation, "Check the fares").await?;
+    spade.wait_for(conversation, "tool_started").await?;
+    let (status, body) = spade
+        .post(
+            &format!("/v1/agents/{bot}/package"),
+            json!({ "recipe": watcher("2.0.0"), "package": package("2.0.0"), "transaction": "update-held" }),
+        )
+        .await?;
+    assert_eq!(status, 202, "held, not refused: {body}");
+    assert_eq!(body["package"]["version"], "1.0.0", "{body}");
+    assert_eq!(body["package"]["held"]["version"], "2.0.0", "{body}");
+    let listed = row(spade, bot).await?;
+    assert_eq!(listed["package"]["held"]["version"], "2.0.0", "{listed}");
+    Ok(())
+}
+
+/// Waits until the bot's package reads `version` with nothing held.
+async fn moved_to(spade: &Spade, bot: &str, version: &str) -> Result<Value> {
+    for _ in 0..400 {
+        let (_, body) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
+        if body["package"]["version"] == version && body["package"]["held"].is_null() {
+            return Ok(body["package"].clone());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    Err(format!("never moved to {version}").into())
+}
+
+async fn evening_checks(spade: &Spade, bot: &str) -> Result<usize> {
+    Ok(routines(spade, bot)
+        .await?
+        .iter()
+        .filter(|(name, _, _)| name == "Evening check")
+        .count())
+}
+
+#[tokio::test]
+async fn an_update_asked_for_while_the_bot_works_is_held_and_applied_once_when_it_is_still()
+-> Result {
+    let spade = secured(
+        vec![
+            Script::reply("").call("t1", "pause", json!({})),
+            Script::reply("Checked."),
+            title(),
+        ],
+        slow_tool(),
+    )
+    .await?;
+    let agent = installed(&spade, hosts_on(), false).await?;
+    let bot = text(&agent["id"]);
+    let conversation = text(&agent["conversation"]);
+    ask_while_working(&spade, &bot, &conversation).await?;
+    assert_eq!(evening_checks(&spade, &bot).await?, 0, "nothing moved yet");
+
+    spade.wait_for(&conversation, "reply_finished").await?;
+    let moved = moved_to(&spade, &bot, "2.0.0").await?;
+    assert_eq!(moved["previous"]["version"], "1.0.0");
+    assert_eq!(evening_checks(&spade, &bot).await?, 1);
+    // Asked again, the same step does nothing twice.
+    let again = move_to(&spade, &bot, "2.0.0", "update-held").await?;
+    assert_eq!(again["version"], "2.0.0");
+    assert_eq!(evening_checks(&spade, &bot).await?, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_update_held_while_the_bot_works_survives_a_restart_and_applies_once() -> Result {
+    let spade = secured(
+        vec![Script::reply("").call("t1", "pause", json!({}))],
+        slow_tool(),
+    )
+    .await?;
+    let agent = installed(&spade, hosts_on(), false).await?;
+    let bot = text(&agent["id"]);
+    let conversation = text(&agent["conversation"]);
+    ask_while_working(&spade, &bot, &conversation).await?;
+
+    // Spade stops mid-turn; the turn carries on after the restart and the update waits for it.
+    let spade = spade
+        .restart(slow_tool(), vec![Script::reply("Checked."), title()])
+        .await?;
+    secure(&spade).await?;
+    moved_to(&spade, &bot, "2.0.0").await?;
+    assert_eq!(evening_checks(&spade, &bot).await?, 1);
     Ok(())
 }
 

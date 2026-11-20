@@ -114,6 +114,10 @@ pub const PER_BOT_SETTINGS: &[&str] = &[
     "digests:",
     "model_roles:",
     "bot_recipe:",
+    // Its package link and installed version, and an update held for its next still moment
+    // (ADR 0200 §3.8): the target fetches the pinned bytes by hash itself.
+    "bot_package:",
+    "bot_package_held:",
     "security:",
     "knowledge_bytes.",
 ];
