@@ -286,8 +286,19 @@ loopback requests from pages that aren't themselves on a loopback host:
   because WebKit matches a frame's document load against the frame before it navigates (a new
   frame's `about:blank`), which would block a localhost app's own frames. Real web views on the
   iOS 26.1 simulator check a public frame in a localhost page fetching, loading an image,
-  posting a form and navigating itself to localhost (none arrive) beside the same from a
-  localhost frame (all arrive). The cost, seen on the same simulator: a localhost page's frame
+  posting a form, navigating itself, framing localhost, framing its own page that then
+  navigates there, being sent through a chain of redirects into localhost, loading an image a
+  redirect sends there, opening a websocket, sending a beacon, and starting a worker (served or
+  from a blob) that fetches localhost: none arrive, beside the same from a localhost frame, all
+  of which arrive. A public frame's refusal counts only once the frame has reported to the public
+  site that it ran and made each request, so a frame that never loaded can't pass for a refusal.
+  No request type tried there gets through, workers included, so no gap is known on that
+  WebKit. The navigation policy lives in the web view's navigation delegate, which WebKit holds
+  weakly, and a tab's web view outlives the view on screen (another tab can be shown while its
+  page runs on); the tab's model therefore keeps each page's delegate with its web view, never
+  the on-screen view. Measured on iOS 26.1 with the delegate gone, WebKit drops every navigation
+  of the page, so an orphaned page failed closed (broken, not leaking); the test switches tabs
+  away and back and requires a localhost frame's loads at every stage. The cost, seen on the same simulator: a localhost page's frame
   with no URL of its own (`srcdoc`, `about:blank`) is matched as that URL, so its loopback
   subresources are blocked although its document is the localhost app's. Letting `about:` frame
   URLs through would undo the rule, since a public frame can make a blank frame of its own and

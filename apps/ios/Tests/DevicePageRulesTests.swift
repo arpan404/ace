@@ -35,7 +35,9 @@ extension PageJourney: @retroactive CustomTestStringConvertible {
 
     /// The tab's frame policy stays on its page while another tab is shown and once it is shown
     /// again: the web view holds its navigation delegate weakly, so the tab's model keeps it, not
-    /// the view on screen. A localhost frame's loads, the control, arrive at every stage.
+    /// the view on screen. A localhost frame's loads, the control, arrive at every stage. With the
+    /// delegate gone, iOS 26.1's WebKit drops every navigation of the page (measured: the control
+    /// misses `other-tab-shown`), so the control is what catches a delegate that went with the view.
     @Test(arguments: [PageRulesScenario.Origin.publicSite, .loopback])
     func aDeviceTabsFramePolicyStaysOnItsPageAcrossTabSwitches(_ origin: PageRulesScenario.Origin) async throws {
         let run = try #require(await PageRulesRun.start(in: Self.window), "no network address to stand for a public site")
@@ -43,10 +45,10 @@ extension PageJourney: @retroactive CustomTestStringConvertible {
         let (reached, tried) = await run.runInDeviceTab(framing: origin)
         let stages = PageRulesRun.TabStage.allCases.map(\.rawValue)
         if origin == .publicSite {
-            #expect(tried == stages, "the public frame never reported trying")
-            #expect(reached == [])
+            #expect(tried == stages, "the public frame reported trying only \(tried)")
+            #expect(reached == [], "the public frame reached the machine at \(reached)")
         } else {
-            #expect(reached == stages)
+            #expect(reached == stages, "the localhost frame reached the machine only at \(reached)")
         }
     }
 
