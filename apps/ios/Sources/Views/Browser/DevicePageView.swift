@@ -33,8 +33,10 @@ struct DevicePageView: UIViewRepresentable {
         guard model.deviceTabs.takeLoad(tab), let url = URL(string: tab.url) else { return }
         // Nothing loads before the loopback rules are on the page: a public page must never
         // reach the machine's localhost through the phone's listeners, even once.
-        DevicePageEngine.loopbackRules { [weak view] rules in
-            guard let view else { return }
+        let tabs = model.deviceTabs
+        DevicePageEngine.loopbackRules { [weak view, weak tabs] rules in
+            // The rules may come after the tab closed or a newer load began; this load is gone.
+            guard let view, let tabs, tabs.stillLoads(tab, in: view) else { return }
             guard let rules else { status.unsafe = true; return }
             let content = view.configuration.userContentController
             content.remove(rules)

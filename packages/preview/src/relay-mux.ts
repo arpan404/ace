@@ -135,15 +135,8 @@ export function createMux(options: MuxOptions) {
     closed = true;
     unsubscribe?.();
     options.channel.close();
-    const removed = [...streams.values()];
-    streams.clear();
-    for (const stream of removed) {
-      stream.cancelDeadline?.();
-      stream.socket.destroy("reset");
-      stream.wake?.();
-      stream.cancelSend?.();
-      options.onStreamRemoved?.(stream.id);
-    }
+    // The same removal as a RESET, so queued bytes and their accounting go with each stream.
+    for (const stream of [...streams.values()]) remove(stream, "reset");
     options.onClosed?.();
   };
   const sendFrame = async (frame: Uint8Array) => {

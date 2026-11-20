@@ -99,6 +99,13 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
     /// The web view already made for a tab, if any.
     func existingView(_ id: String) -> WKWebView? { views[id] }
 
+    /// Whether `view` is still `tab`'s open page and `tab`'s load is still the latest, so a load
+    /// that waited (for the loopback rules) may run: never on a closed tab, a replaced page, or
+    /// after a newer load.
+    func stillLoads(_ tab: DeviceTabsPatch.Tab, in view: WKWebView) -> Bool {
+        views[tab.id] === view && loaded[tab.id] == tab.load
+    }
+
     /// The open tabs as a new runtime takes them (`restore`), each with the loads its page has
     /// already run, so none loads again.
     func restoreEntries() -> [[String: Any]] {

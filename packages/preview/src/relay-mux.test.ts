@@ -470,3 +470,21 @@ test("a socket that hangs up and never hands over its end is reset at the deadli
   expect(kindsOf(sent).at(-1)).toBe(kinds.reset);
   expect(socket.state.removal).toBe("reset");
 });
+
+test("closing the channel with writes still held resets each stream and leaves no bytes counted as queued", async () => {
+  const { mux, peer, opened, removed } = host();
+  const socket = await opened(1);
+  for (let i = 0; i < 4; i++) peer(kinds.data, 1, 1, byte(i));
+  await settle();
+  expect(socket.inFlight).toBe(1);
+  expect(mux.stats().queuedWriteBytes).toBe(4);
+  mux.close();
+  expect(mux.stats().queuedWriteBytes).toBe(0);
+  expect(mux.stats().streams).toBe(0);
+  expect(socket.state.removal).toBe("reset");
+  expect(removed.map((entry) => entry.id)).toEqual([1]);
+  // A write that completes after the close changes nothing.
+  socket.drain();
+  await settle();
+  expect(mux.stats().queuedWriteBytes).toBe(0);
+});
