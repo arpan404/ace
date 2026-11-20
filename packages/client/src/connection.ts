@@ -21,6 +21,7 @@ import {
   CredentialReplacedClose,
   DeviceRevokedClose,
   MachineCodeRefusal,
+  type ClientCloseReport,
   type ClientMessage,
   type ServerMessage as Message,
 } from "@ace/protocol";
@@ -102,6 +103,10 @@ export class Connection {
   #since: number | undefined;
   #lastReadyAt: number | undefined;
   #lastClose: ConnectionClose | undefined;
+  /** How the last connection ended, for the next main hello to tell the daemon; cleared at a welcome. */
+  #closeReport: Omit<ClientCloseReport, "downMs"> | undefined;
+  /** When the current connection was welcomed, on the monotonic clock. */
+  #readyAt: number | undefined;
   #heartbeat: Heartbeat;
   /** Every duration this connection measures runs on this clock; `options.now` only stamps
    * moments it shows or keeps (`since`, `lastReadyAt`, a close's `at`, `nextRetryAt`). */
@@ -309,6 +314,18 @@ export class Connection {
     const at = this.#options.now?.();
     this.#lastClose = { code, reason, ...(at === undefined ? {} : { at }) };
     this.#lostAt = this.#monotonic();
+    const wasReady = this.state === "ready";
+    const aliveMs =
+      wasReady && this.#readyAt !== undefined
+        ? Math.max(0, Math.round(this.#lostAt - this.#readyAt))
+        : undefined;
+    this.#closeReport = {
+      code: Number.isInteger(code) && code >= 0 && code <= 4999 ? code : 1006,
+      reason: reason.slice(0, 240),
+      wasReady,
+      ...(aliveMs === undefined ? {} : { aliveMs }),
+      attempt: this.#attempt,
+    };
     const decision = disconnectDecision(this.#active, this.#online, code, reason);
     const closed = {
       code,
@@ -478,6 +495,16 @@ export class Connection {
       : undefined;
     return rest;
   }
+  /** The last close as the next hello reports it, with how long the connection has been down. */
+  #lastCloseReport(report: Omit<ClientCloseReport, "downMs">): ClientCloseReport {
+    const down = this.#lostAt === undefined ? undefined : this.#monotonic() - this.#lostAt;
+    return {
+      ...report,
+      ...(down === undefined || !Number.isFinite(down)
+        ? {}
+        : { downMs: Math.max(0, Math.round(down)) }),
+    };
+  }
   #hello(transport: Transport, credential: Credential, main = false): ClientMessage {
     const parsed = parseCredential(credential);
     // Asked only where the next connect can use it: on the main socket (not a side path), and
@@ -498,6 +525,7 @@ export class Connection {
       ...(transport.flowControl?.length ? { flowControl: [...transport.flowControl] } : {}),
       ...parsed,
       ...(ask ? { nextTicket: true as const } : {}),
+      ...(main && this.#closeReport ? { lastClose: this.#lastCloseReport(this.#closeReport) } : {}),
     };
   }
   /** A server frame that breaks the protocol: drop this socket and reconnect with backoff. */
@@ -647,6 +675,8 @@ export class Connection {
         });
         this.error = undefined;
         this.#since = this.#lastReadyAt = this.#options.now?.();
+        this.#readyAt = this.#monotonic();
+        this.#closeReport = undefined;
         this.state = "ready";
         this.#nudged = false;
         if (this.#lastClose) {
