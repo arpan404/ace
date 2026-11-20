@@ -126,3 +126,16 @@ describe("a draft", () => {
     expect(reopened.buffer.snapshot()).toMatchObject({ dirty: false, clash: undefined });
   });
 });
+
+describe("memory", () => {
+  it("of a freed buffer holds none of its text", async () => {
+    const disk = fakeDisk({ "a.ts": "aaaaaaaaa\n", "b.ts": "bbbbbbbbb\n" });
+    const { registry } = session(disk, memoryDrafts(), 10);
+    const a = await opened(registry, "a.ts");
+    a.setVisible(false);
+    await opened(registry, "b.ts");
+
+    expect(a.buffer.snapshot().status).toEqual({ kind: "evicted" });
+    expect(a.buffer.baseText()).toBeUndefined();
+  });
+});

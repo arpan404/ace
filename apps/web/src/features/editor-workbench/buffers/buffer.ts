@@ -394,6 +394,7 @@ export class Buffer implements TextBuffer {
         }
         this.#base = { text, version: result.version };
         this.#clash = undefined;
+        this.#conflictMine = "";
         if (doc.version() === at) this.#markClean();
         else this.#unclean();
         this.#cancelDraft?.();
@@ -422,12 +423,14 @@ export class Buffer implements TextBuffer {
       land: (text) => this.#land(text, "merge"),
       setClash: (clash, mine) => {
         this.#clash = clash;
-        if (mine !== undefined) this.#conflictMine = mine;
+        if (clash?.kind !== "conflict") this.#conflictMine = "";
+        else if (mine !== undefined) this.#conflictMine = mine;
         this.#emit({ type: "state" });
       },
       rebase: (theirs, text, newer, by) => {
         this.#base = theirs;
         this.#clash = newer && { kind: "changed", theirs: newer, by };
+        this.#conflictMine = "";
         if (text === theirs.text && !newer) this.#markClean();
         else this.#unclean();
         void this.#persist();
@@ -469,7 +472,10 @@ export class Buffer implements TextBuffer {
     this.#emit({ type: "state" });
   }
 
+  /** Lets go of the text: the document, the base it was read from and a conflict's copy. */
   #free(): void {
+    this.#base = undefined;
+    this.#conflictMine = "";
     if (!this.#doc) return;
     this.#doc.dispose();
     this.#doc = undefined;
