@@ -1,4 +1,6 @@
 import {
+  parseSpadeLocalServers,
+  type SpadeLocalServer,
   parseSpadeAgent,
   parseSpadeAgents,
   parseSpadeEndpoint,
@@ -54,6 +56,8 @@ export interface SpadeAgentDraft {
   model: string;
   /** Absent: Spade picks a face. */
   avatar?: SpadeAvatarChoice;
+  /** How it talks (`spadePersonalityBody`); `null` leaves it to the bot. */
+  personality?: Record<string, unknown> | null;
 }
 
 /**
@@ -199,6 +203,32 @@ export async function addEndpoint(
 ): Promise<SpadeEndpoint> {
   const body = await spadeHttp(target, "POST", "/v1/endpoints", { body: draft });
   return sure(parseSpadeEndpoint(body), "new endpoint");
+}
+
+/** Model servers on this computer (Ollama, LM Studio): running or not, and their models. */
+export async function readLocalServers(
+  target: SpadeTarget,
+  signal?: AbortSignal,
+): Promise<SpadeLocalServer[]> {
+  const body = await spadeHttp(target, "GET", "/v1/endpoints/local", { signal });
+  return parseSpadeLocalServers(body);
+}
+
+/**
+ * Uses one of a local server's models: Spade adds the server as an endpoint the first time (no
+ * key) and saves the model. Answers the `endpoint/model` a picker sets.
+ */
+export async function pickLocalModel(
+  target: SpadeTarget,
+  server: string,
+  model: string,
+): Promise<string> {
+  const body = await spadeHttp(target, "POST", `/v1/endpoints/local/${segment(server)}`, {
+    body: { model },
+  });
+  const value = (JSON.parse(body) as { value?: unknown }).value;
+  if (typeof value !== "string") throw new Error("Spade's answer didn't make sense.");
+  return value;
 }
 
 export async function editEndpoint(

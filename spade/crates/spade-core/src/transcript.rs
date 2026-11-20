@@ -640,6 +640,7 @@ mod tests {
                 name: "web_search".into(),
                 risk: None,
                 background: false,
+                effect: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -728,6 +729,7 @@ mod tests {
                 name: "web_search".into(),
                 risk: None,
                 background: false,
+                effect: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -900,6 +902,7 @@ mod tests {
                 name: "send_email".into(),
                 risk: None,
                 background: false,
+                effect: None,
             }),
         ];
         let transcript = Transcript::fold(&events);

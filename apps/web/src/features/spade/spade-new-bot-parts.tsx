@@ -92,8 +92,7 @@ export function RunsWith(props: {
 /**
  * Under the new bot's composer: the templates as chips, each its face and name, one press to
  * start from it (again to let it go), From the marketplace when that is on, and More settings,
- * which shows the model and machine on the page. A personality step joins More settings once the
- * person's personality settings ship.
+ * which shows the model and machine and how the bot talks (its personality) on the page.
  */
 export function StartChips(props: {
   client: ClientApi;

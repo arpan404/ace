@@ -180,11 +180,12 @@ impl Tool for KnowledgeTool {
     }
 
     fn run_in(&self, key: &str, arguments: Value, turn: &TurnFacts) -> ToolFuture {
-        let (engine, call, turn) = (self.engine.get(), self.call, turn.clone());
+        let (engine, call, mut turn) = (self.engine.get(), self.call, turn.clone());
         let caller = key
             .split_once('.')
             .map_or(key, |(conversation, _)| conversation)
             .to_owned();
+        turn.call = key.split_once('.').map(|(_, call)| call.to_owned());
         Box::pin(async move {
             match engine {
                 Some(engine) => engine.knowledge_call(&caller, call, &arguments, &turn),

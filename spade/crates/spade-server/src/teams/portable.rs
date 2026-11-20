@@ -251,7 +251,8 @@ pub fn import(
         left_out.push("Connectors aren't set up on this machine.".to_owned());
     }
     for note in file.notes.iter().take(MOST_FILE_NOTES) {
-        if let Err(why) = engine.add_note(&NoteScope::Agent(id.clone()), note) {
+        let what = format!("the bot file {}", file.name.trim());
+        if let Err(why) = engine.import_note(&NoteScope::Agent(id.clone()), note, &what) {
             left_out.push(format!("A note wasn't kept: {why}"));
         }
     }
@@ -363,6 +364,11 @@ pub fn from_template(
     let agent = engine.create_agent(input)?;
     let id = agent.agent.id.clone();
     let mut left_out = Vec::new();
+    if let Some(personality) = template.personality
+        && let Err(why) = engine.start_with_personality(&id, personality)
+    {
+        left_out.push(format!("Its personality wasn't set: {why}"));
+    }
     for r in &template.routines {
         let made = routines::create(
             engine,

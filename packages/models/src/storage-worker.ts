@@ -11,9 +11,12 @@ const db = new DatabaseSync(path);
 db.exec(
   "PRAGMA cache_size=-512; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; CREATE TABLE IF NOT EXISTS model_catalog (instance TEXT PRIMARY KEY, payload TEXT NOT NULL)",
 );
+// Capacity per kind, as the catalog holds rows (`catalog.ts` `kindLimit`): 64 CLI accounts and
+// 512 ACP agents' rows. An ACP row is a short list, so it is held to a smaller payload.
 const write = db.prepare(
-  "INSERT INTO model_catalog(instance, payload) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM model_catalog WHERE instance=?) OR (SELECT count(*) FROM model_catalog) < 64 ON CONFLICT(instance) DO UPDATE SET payload=excluded.payload",
+  "INSERT INTO model_catalog(instance, payload) SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM model_catalog WHERE instance=?1) OR (SELECT count(*) FROM model_catalog WHERE (json_extract(payload, '$.provider') = 'acp') = ?3) < ?4 ON CONFLICT(instance) DO UPDATE SET payload=excluded.payload",
 );
+const acpPayloadLimit = 256 * 1024;
 const remove = db.prepare("DELETE FROM model_catalog WHERE instance=?");
 const Request = z.object({
   id: z.number().int().positive(),
@@ -27,10 +30,11 @@ port.on("message", (value: unknown) => {
       case "replace": {
         const entry = CachedEntry.parse(request.data);
         const payload = JSON.stringify(entry);
-        if (Buffer.byteLength(payload) > 4 * 1024 * 1024)
+        const acp = entry.provider === "acp";
+        if (Buffer.byteLength(payload) > (acp ? acpPayloadLimit : 4 * 1024 * 1024))
           throw new Error("Cache entry exceeds limit");
         // Admission and replacement are one statement, so failed deletions keep their durable slot.
-        if (write.run(entry.instance, payload, entry.instance).changes !== 1)
+        if (write.run(entry.instance, payload, acp ? 1 : 0, acp ? 512 : 64).changes !== 1)
           throw new Error("Persisted instance limit reached");
         break;
       }

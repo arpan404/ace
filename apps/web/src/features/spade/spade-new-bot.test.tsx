@@ -150,6 +150,19 @@ test("the profile lists the task's earlier versions, and Restore puts one back",
   );
 });
 
+test("the profile's Personality saves each change as it is made", async () => {
+  const { spade } = await spadeApp("/spade/ivy", ivy);
+  await openProfile("Ivy");
+  const heading = await screen.findByRole("heading", { name: "Personality" });
+  const section = within(heading.closest("section") ?? document.body);
+  await userEvent.click(section.getByRole("switch", { name: "Humour" }));
+  await waitFor(() =>
+    expect(spade.sent("PATCH", "/v1/agents/ivy")).toEqual([
+      { personality: { humour: true, emoji: false } },
+    ]),
+  );
+});
+
 test("with untrusted content in view a task change asks the person, with the change, and no Always", async () => {
   const { spade } = await spadeApp("/spade/ivy", (api) => {
     const bot = ivy(api, "Summarise pages I send");
@@ -226,6 +239,25 @@ test("More settings chooses the model and machine, and is never needed", async (
     ]),
   );
   expect(spade.sent("POST", "/v1/agents")).toEqual([]);
+});
+
+test("More settings sets how the new bot talks, and it goes with the bot it makes", async () => {
+  const { spade } = await spadeApp("/spade", withSpade);
+  await openNew("New bot");
+  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
+  const personality = within(await screen.findByRole("group", { name: "Personality" }));
+  await userEvent.click(personality.getByRole("combobox", { name: "Tone" }));
+  await userEvent.click(await screen.findByRole("option", { name: /^Warm/ }));
+  await userEvent.click(personality.getByRole("switch", { name: "Emoji" }));
+  await send("Cheer me on through my running plan");
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/agents")).toEqual([
+      expect.objectContaining({
+        naming: true,
+        personality: { tone: "warm", humour: false, emoji: true },
+      }),
+    ]),
+  );
 });
 
 test("a machine chosen for a new bot that goes out of reach stays chosen, and says so", async () => {

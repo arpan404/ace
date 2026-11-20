@@ -149,7 +149,9 @@ async fn with_untrusted_content_in_view_even_spade_asks_before_making_a_bot() ->
 
 #[tokio::test]
 async fn undo_removes_a_made_bot_that_did_nothing_and_archives_one_that_acted() -> Result {
-    let post = support::FakeTool::new("post_update", Risk::Write, "Posted.").declares(Effect::Read);
+    // It sends in the person's name: the gate records that on the step, and asks the person.
+    let post = support::FakeTool::new("post_update", Risk::Write, "Posted.")
+        .declares(Effect::SendAsPerson);
     let spade = Spade::start(
         vec![
             research(),
@@ -192,6 +194,14 @@ async fn undo_removes_a_made_bot_that_did_nothing_and_archives_one_that_acted() 
         .unwrap_or_default()
         .to_owned();
     spade.say(&poster_chat, "Post today's update").await?;
+    spade.wait_for(&poster_chat, "approval_requested").await?;
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{poster_chat}/approvals/u1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
     spade.wait_for(&poster_chat, "reply_finished").await?;
     let (status, body) = spade
         .post(

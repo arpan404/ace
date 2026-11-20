@@ -474,7 +474,8 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
         connection.execute("DROP TABLE helpers", [])?;
         connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
         connection.execute_batch(
-            "ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
+            "ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin;
+                 ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
                  DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
@@ -484,7 +485,7 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 11,
+            crate::schema::current_version() as i64 - 12,
         )?;
     }
     let store = Store::open(&path)?;
@@ -594,11 +595,11 @@ fn spending_caps_an_earlier_build_stored_are_dropped_and_the_review_switch_kept(
     {
         let connection = rusqlite::Connection::open(&path)?;
         connection
-            .execute_batch("DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
+            .execute_batch("ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin; ALTER TABLE knowledge DROP COLUMN origin; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 2,
+            crate::schema::current_version() as i64 - 3,
         )?;
     }
     let store = Store::open(&path)?;

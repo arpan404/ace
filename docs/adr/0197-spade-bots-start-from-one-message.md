@@ -21,7 +21,8 @@ behind in the chat, and the bot's standing instructions drifted from what the pe
 1. **One message makes the bot.** New bot asks "What should this bot do?" over the composer. What
    the person sends is the bot's task and its first message, in one call
    (`POST /v1/agents {task, naming: true, first_message}`). Templates are chips under the
-   composer; model and machine are behind More settings, never required.
+   composer; model, machine and personality (tone, humour, emoji) are behind More settings, never
+   required.
 2. **The bot names itself.** A bot made with `naming` is "New bot" until its first reply, which
    is told to choose its name and face with `profile_update` before it answers. That first naming
    runs without asking while nothing untrusted is in view; it closes once the bot names itself,
@@ -51,4 +52,5 @@ behind in the chat, and the bot's standing instructions drifted from what the pe
   it at the person's request".
 - The apps a task names show under its first name from the catalogue alone, behind one
   component (`SuggestedApps`); Spade's own fit replaces it when it lands.
-- A personality step belongs under More settings once the person's personality settings ship.
+- More settings carries the personality step (the personality settings that shipped in
+  #2351), sent with the bot it makes.

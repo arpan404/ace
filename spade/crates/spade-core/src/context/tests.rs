@@ -128,6 +128,7 @@ fn a_call_that_started_but_never_finished_is_reported_as_unknown_not_unrun() {
             name: "send_email".into(),
             risk: None,
             background: false,
+            effect: None,
         }),
         Event::reply_ended(ReplyEnd::Interrupted, "r1", ""),
     ];
@@ -778,6 +779,7 @@ fn the_task_in_the_prompt_is_the_one_set_before_the_turn_began() {
         Event::Known(Known::AgentConfigured {
             task: task.into(),
             model: "e/m".into(),
+            personality: None,
             change: None,
         })
     };

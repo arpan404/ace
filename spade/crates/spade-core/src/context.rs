@@ -289,6 +289,10 @@ pub fn instructions(system: &str, events: &[Event]) -> String {
     if let Some(note) = crate::self_edit::naming_note(events) {
         system.push_str(&format!("\n\n{note}"));
     }
+    // How the bot talks, a section of its own apart from the task.
+    if let Some(personality) = personality_for_turn(events) {
+        system.push_str(&format!("\n\n{}", personality.section()));
+    }
     if let Some(index) = skills.filter(|index| !index.is_empty()) {
         system.push_str(&format!("\n\n{index}"));
     }
@@ -341,18 +345,41 @@ fn configured_for_turn(events: &[Event]) -> Option<(&str, bool)> {
         .iter()
         .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
         .unwrap_or(events.len());
+    let before = &events[..started];
+    let task = before.iter().rev().find_map(|event| match event {
+        Event::Known(Known::AgentConfigured { task, .. }) => Some(task.as_str()),
+        _ => None,
+    })?;
+    // Whose words it is: the latest event that changed the task says, since a change of model or
+    // personality alone repeats the task with no change of its own.
+    let by_bot = before
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            Event::Known(Known::AgentConfigured {
+                change: Some(change),
+                ..
+            }) => Some(change.by == crate::self_edit::BY_BOT),
+            _ => None,
+        })
+        .unwrap_or(false);
+    Some((task, by_bot))
+}
+
+/// The bot's personality for the open turn, as [`task_for_turn`] reads its task: from the last
+/// `agent_configured` stored before the latest `reply_started`.
+pub fn personality_for_turn(events: &[Event]) -> Option<crate::personality::Personality> {
+    let started = events
+        .iter()
+        .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
+        .unwrap_or(events.len());
     events[..started]
         .iter()
         .rev()
         .find_map(|event| match event {
-            Event::Known(Known::AgentConfigured { task, change, .. }) => Some((
-                task.as_str(),
-                change
-                    .as_deref()
-                    .is_some_and(|c| c.by == crate::self_edit::BY_BOT),
-            )),
+            Event::Known(Known::AgentConfigured { personality, .. }) => Some(*personality),
             _ => None,
-        })
+        })?
 }
 
 /// The conversation as model messages. A message the person sent while tools were running is

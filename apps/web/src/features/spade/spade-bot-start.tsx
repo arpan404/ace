@@ -1,6 +1,9 @@
 import type { ClientApi } from "@ace/client";
 import {
   spadeAgentTaskMax,
+  spadePersonalityBody,
+  spadeQuietPersonality,
+  type SpadePersonality,
   spadeFirstUsableModel,
   type SpadeAgent,
   type SpadeTemplate,
@@ -21,6 +24,7 @@ import { SuggestedApps } from "./spade-suggested-apps.tsx";
 import { SpadeMachineScope, useSpadeClient } from "./spade-machine.tsx";
 import { ConversationSkeleton, PageScroller, useSpadeLine } from "./spade-screen-parts.tsx";
 import { RunsWith, StartChips } from "./spade-new-bot-parts.tsx";
+import { PersonalityRows } from "./spade-profile-personality.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { importAgent, readTemplates } from "./spade-teams-api.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
@@ -233,6 +237,8 @@ function NewBotConversation(props: {
   const [model, setModel] = useState("");
   const [template, setTemplate] = useState<SpadeTemplate>();
   const [more, setMore] = useState(false);
+  // How it talks, when the person chose under More settings; else left to the bot.
+  const [personality, setPersonality] = useState<SpadePersonality>();
   // Apps connected from the template's suggestions, given to the bot once it is made.
   const [apps, setApps] = useState<readonly string[]>([]);
   const models = useSpadeModels(props.blocked === undefined);
@@ -250,9 +256,10 @@ function NewBotConversation(props: {
             template: template.id,
             ...withZone(browserTimeZone()),
             ...(model ? { model } : {}),
+            ...voiced(personality),
           }
         : // The first message is its task; it names itself as it starts.
-          { task, naming: true, ...(model ? { model } : {}) },
+          { task, naming: true, ...(model ? { model } : {}), ...voiced(personality) },
       message,
     );
     // A bot starts with no apps; these the person connected for it here.
@@ -276,21 +283,33 @@ function NewBotConversation(props: {
               {template ? `What should ${template.name} do first?` : "What should this bot do?"}
             </h1>
             {more && (
-              <RunsWith
-                hosts={props.hosts}
-                host={props.host}
-                name={name}
-                model={model}
-                newBotModel={models.data?.newBotModel}
-                firstUsable={spadeFirstUsableModel(models.data?.endpoints ?? [])}
-                onModel={setModel}
-                onMachine={(next) => {
-                  // Another machine has its own models and templates.
-                  setModel("");
-                  setTemplate(undefined);
-                  props.onMachine(next);
-                }}
-              />
+              <>
+                <RunsWith
+                  hosts={props.hosts}
+                  host={props.host}
+                  name={name}
+                  model={model}
+                  newBotModel={models.data?.newBotModel}
+                  firstUsable={spadeFirstUsableModel(models.data?.endpoints ?? [])}
+                  onModel={setModel}
+                  onMachine={(next) => {
+                    // Another machine has its own models and templates.
+                    setModel("");
+                    setTemplate(undefined);
+                    props.onMachine(next);
+                  }}
+                />
+                <div
+                  aria-label="Personality"
+                  role="group"
+                  className="mt-2 w-full max-w-md text-left"
+                >
+                  <PersonalityRows
+                    value={personality ?? spadeQuietPersonality}
+                    onChange={setPersonality}
+                  />
+                </div>
+              </>
             )}
           </div>
           {template && (
@@ -327,5 +346,9 @@ function NewBotConversation(props: {
     </Screen>
   );
 }
+
+/** The personality the person chose for the new bot, as `POST /v1/agents` takes it. */
+const voiced = (personality: SpadePersonality | undefined) =>
+  personality ? { personality: spadePersonalityBody(personality) } : {};
 
 const withZone = (zone: string | undefined) => (zone === undefined ? {} : { time_zone: zone });

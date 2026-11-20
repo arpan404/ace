@@ -78,16 +78,16 @@ pub fn route(tool: &str, arguments: &serde_json::Value, tainted: bool, may: May)
 }
 
 /// Whether a bot has acted outside itself: any step it started that does more than read or
-/// change its own things (its folder, notes, plan, routines). A tool Spade doesn't know counts as
-/// acting outside, so Undo never deletes a bot that may have.
+/// change its own things (its folder, notes, plan, routines). The effect the gate recorded on the
+/// step decides; an older step without one is read by its tool and risk. A step Spade can't say
+/// that of counts as acting outside, so Undo never deletes a bot that may have.
 pub fn acted_outside(events: &[Event]) -> bool {
     events.iter().any(|event| match event {
-        Event::Known(Known::ToolStarted { name, risk, .. }) => {
-            let risk = risk.unwrap_or(Risk::Write);
-            !matches!(
-                effect::builtin(name, risk),
-                Some(Effect::Read | Effect::WriteLocal)
-            )
+        Event::Known(Known::ToolStarted {
+            name, risk, effect, ..
+        }) => {
+            let effect = effect.or_else(|| effect::builtin(name, risk.unwrap_or(Risk::Write)));
+            !matches!(effect, Some(Effect::Read | Effect::WriteLocal))
         }
         _ => false,
     })
@@ -99,12 +99,17 @@ mod tests {
     use serde_json::json;
 
     fn started(name: &str, risk: Option<Risk>) -> Event {
+        declared(name, risk, None)
+    }
+
+    fn declared(name: &str, risk: Option<Risk>, effect: Option<Effect>) -> Event {
         Event::Known(Known::ToolStarted {
             reply: "r".into(),
             call_id: "c".into(),
             name: name.into(),
             risk,
             background: false,
+            effect,
         })
     }
 
@@ -148,5 +153,16 @@ mod tests {
         ]));
         assert!(acted_outside(&[started("send_message", Some(Risk::Write))]));
         assert!(acted_outside(&[started("gmail__send", None)]));
+        // What the gate recorded decides: an app's read is no act outside, its send is.
+        assert!(!acted_outside(&[declared(
+            "notion__search",
+            Some(Risk::Write),
+            Some(Effect::Read)
+        )]));
+        assert!(acted_outside(&[declared(
+            "slack__post",
+            Some(Risk::Read),
+            Some(Effect::SendAsPerson)
+        )]));
     }
 }

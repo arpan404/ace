@@ -8,6 +8,13 @@ import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { providerCli, requireMinimum } from "@ace/provider-kit/cli-requirements";
 import { refreshedSources, sourceFailed } from "./catalog-sources.ts";
 import { cleanCatalog } from "./catalog-cleanup.ts";
+import {
+  AcpProbeSpacing,
+  acpProbeAllowed,
+  reportedProbe,
+  type RefreshCause,
+} from "./acp-probe-gate.ts";
+import { keepLearnedOptions } from "./learned-options.ts";
 import { createCleanModelView, providerConfiguration } from "./preferences.ts";
 import { ModelMetadataPool } from "./model-pool.ts";
 import type { ProviderConfigurations } from "@ace/protocol";
@@ -55,6 +62,8 @@ type State = {
   invalidating?: Promise<void>;
   flight?: Promise<ModelInstanceStatus>;
   probeRevision?: string;
+  /** ACP: a `refresh` or sign-in reset the row, so the next read may load it again once. */
+  acpDue?: boolean;
   abort?: AbortController;
   view?: {
     preferences: ProviderConfigurations;
@@ -63,6 +72,22 @@ type State = {
   };
 };
 const emptyPreferences: ProviderConfigurations = [];
+/**
+ * Rows the catalog holds, live or cached, per kind: 64 accounts of the CLI providers, and one
+ * per approved ACP agent and account, as many as the agent registry approves (512), so no
+ * approved agent goes missing. Rows are small (a few interned models each), so the bound is
+ * memory-safe; a full kind evicts its own oldest cached row, never the other kind's.
+ */
+function kindLimit(provider: string): number {
+  return provider === "acp" ? 512 : 64;
+}
+const storedLimit = 64 + 512;
+function sameModes(
+  left: readonly import("@ace/protocol").NativePermissionMode[] | undefined,
+  right: readonly import("@ace/protocol").NativePermissionMode[],
+): boolean {
+  return left !== undefined && JSON.stringify(left) === JSON.stringify(right);
+}
 function cacheRevision(instance: ModelInstance): string {
   return instance.provider === "opencode"
     ? createHash("sha256")
@@ -82,6 +107,10 @@ function cacheRevision(instance: ModelInstance): string {
           .digest("hex")
       : instance.loginRevision;
 }
+/**
+ * What a cached row belongs to. An ACP agent's row serves it in every project, so its working
+ * folder is no part of it (ADR 0044, amendment "models before the first thread").
+ */
 function identityRevision(instance: ModelInstance): string {
   return createHash("sha256")
     .update(
@@ -91,7 +120,7 @@ function identityRevision(instance: ModelInstance): string {
         instance.loginRevision,
         instance.backend,
         instance.homeDir,
-        instance.cwd,
+        instance.provider === "acp" ? undefined : instance.cwd,
         instance.acpAgentId,
         instance.installationId,
         instance.instanceId,
@@ -118,6 +147,8 @@ export type CatalogOptions = {
     signal: AbortSignal,
     diagnostic?: (metadata: DiscoveryDiagnostics) => void,
   ) => Promise<string>;
+  /** The least time between two probes of one ACP agent's row, whatever asks. Default 60s. */
+  acpProbeIntervalMs?: number;
   /**
    * Reads (`list`, `resolve`) re-check connections owned by the CLIs at most this often, so a
    * login changed outside ace shows the next time someone looks, and an unread catalog spawns
@@ -160,6 +191,9 @@ export class ModelCatalog implements ModelCatalogApi {
   readonly #sessionTails = new Map<string, Promise<void>>();
   readonly #probes = new Set<Promise<void>>();
   readonly #listeners = new Set<(filter: ModelFilter) => void>();
+  /** ACP rows that loaded a model list in this run (`AcpRowFacts.loadedBefore`). */
+  readonly #acpLoaded = new Set<string>();
+  readonly #acpSpacing: AcpProbeSpacing;
   #closing: Promise<void> | undefined;
   #active = 0;
   #closed = false;
@@ -171,6 +205,7 @@ export class ModelCatalog implements ModelCatalogApi {
   constructor(options: CatalogOptions) {
     this.#options = options;
     this.#deletions = new PendingDeletions(options.storage);
+    this.#acpSpacing = new AcpProbeSpacing(options.acpProbeIntervalMs ?? 60_000);
     for (const duration of [
       options.ttlMs ?? 21_600_000,
       options.timeoutMs ?? 15_000,
@@ -185,9 +220,10 @@ export class ModelCatalog implements ModelCatalogApi {
     )
       throw new Error("Invalid concurrency");
     const entries = options.storage.load();
-    if (entries.length > 64) throw new Error("Too many cached instances");
+    if (entries.length > storedLimit) throw new Error("Too many cached instances");
     for (const entry of entries) {
       const parsed = CachedEntry.parse(entry);
+      if (parsed.provider === "acp") this.#acpLoaded.add(parsed.instance);
       this.#persisted.set(parsed.instance, {
         ...parsed,
         ...refreshedSources(
@@ -238,6 +274,7 @@ export class ModelCatalog implements ModelCatalogApi {
       state.unconfiguredAt = this.#options.now();
       state.dirty = false;
       delete state.error;
+      if (state.entry && state.config.provider === "acp") this.#acpLoaded.add(state.config.id);
       delete state.entry;
       state.backoff.reset();
       state.retryAt = 0;
@@ -511,6 +548,14 @@ export class ModelCatalog implements ModelCatalogApi {
   hasInstance(instance: string): boolean {
     return this.#states.has(instance);
   }
+  /**
+   * The instance as registered now, for a session to report into later: its metadata is taken
+   * only while the instance is still registered with this same login (`updateFromSession`).
+   */
+  registered(id: string): ModelInstance | undefined {
+    const state = this.#states.get(id);
+    return state ? structuredClone(state.config) : undefined;
+  }
   registerInstance(input: InstanceInput, admit?: () => Promise<void>): void {
     if (this.#closed) throw new Error("Catalog closed");
     const parsed = ModelInstance.parse(input);
@@ -523,23 +568,33 @@ export class ModelCatalog implements ModelCatalogApi {
         : parsed;
     if (this.#removals.has(config.id)) throw new Error("Instance removal is still draining");
     const old = this.#states.get(config.id);
-    if (!old && this.#states.size >= 64) throw new Error("Instance limit reached");
+    const kind = config.provider === "acp" ? "acp" : "cli";
+    const live = this.#providers.get("acp")?.size ?? 0;
+    const liveOfKind = kind === "acp" ? live : this.#states.size - live;
+    if (!old && liveOfKind >= kindLimit(config.provider)) throw new Error("Instance limit reached");
     // Re-registration also invalidates flights when executable/env/cwd changed.
     const entry = old?.entry ?? this.#persisted.get(config.id);
     const compatible =
       entry?.provider === config.provider &&
       (old
         ? identityRevision(old.config) === identityRevision(config)
-        : entry.identityRevision
-          ? entry.identityRevision === identityRevision(config)
-          : entry.revision === this.#revision(config));
+        : entry.identityRevision === identityRevision(config) ||
+          // No identity stored, or (ACP) one that still hashed the folder of the session that
+          // wrote it: the revision then names the same agent, installation, account and login.
+          ((!entry.identityRevision || config.provider === "acp") &&
+            entry.revision === this.#revision(config)));
     // A failed removal stays pending for the next retry.
     if (entry && !compatible) void this.#deletions.remove(config.id).catch(() => {});
     old?.abort?.abort();
     old?.probe?.abort.abort();
     if (old) this.#providers.get(old.config.provider)?.delete(config.id);
-    if (!old && !this.#persisted.has(config.id) && this.#states.size + this.#persisted.size >= 64) {
-      const evicted = this.#persisted.keys().next().value;
+    if (old?.entry && old.config.provider === "acp") this.#acpLoaded.add(config.id);
+    if (!old && !this.#persisted.has(config.id)) {
+      const cached = [...this.#persisted.values()].filter(
+        (row) => (row.provider === "acp" ? "acp" : "cli") === kind,
+      );
+      const evicted =
+        liveOfKind + cached.length >= kindLimit(config.provider) ? cached[0]?.instance : undefined;
       if (evicted !== undefined) {
         // A failed removal stays pending for the next retry.
         void this.#deletions.remove(evicted).catch(() => {});
@@ -560,7 +615,8 @@ export class ModelCatalog implements ModelCatalogApi {
     this.#providers.set(config.provider, ids);
     this.#persisted.delete(config.id);
     const registered = this.#states.get(config.id);
-    if (registered && entry && compatible && !old) {
+    // A restored ACP row is served as it is: its sessions, not a restart, bring it up to date.
+    if (registered && entry && compatible && !old && config.provider !== "acp") {
       registered.dirty = true;
       // A refresh reports its own failures inside its flight.
       void this.#refresh(registered).catch(() => {});
@@ -575,6 +631,54 @@ export class ModelCatalog implements ModelCatalogApi {
     if (!state || this.#closed) return;
     state.permissionModes = [...modes];
     this.#changed(state);
+    this.#persistPermissionModes(state, modes);
+  }
+  /**
+   * A session's reported modes survive a restart: written onto the cached entry, in line with
+   * other session writes. Without a cached entry the next discovery stores them instead.
+   */
+  #persistPermissionModes(
+    state: State,
+    modes: readonly import("@ace/protocol").NativePermissionMode[],
+  ): void {
+    // Compared with the latest entry inside the queue: a write still queued may change it.
+    if (!state.entry && !this.#sessionTails.has(state.config.id)) return;
+    if (this.#sessionWrites.size >= 64) return;
+    const id = state.config.id;
+    const previous = this.#sessionTails.get(id) ?? Promise.resolve();
+    const write = previous
+      .catch(() => {})
+      .then(async () => {
+        const current = state.entry;
+        if (this.#states.get(id) !== state || !current) return;
+        if (sameModes(current.permissionModes, modes)) return;
+        const next = { ...current, permissionModes: [...modes] };
+        await this.#options.storage.replace(next);
+        if (state.entry === current) state.entry = next;
+      });
+    this.#sessionWrites.add(write);
+    this.#sessionTails.set(id, write);
+    const cleanup = () => {
+      this.#sessionWrites.delete(write);
+      if (this.#sessionTails.get(id) === write) this.#sessionTails.delete(id);
+    };
+    // A failed write leaves the in-memory modes; the next session or discovery writes them.
+    void write.then(cleanup, cleanup);
+  }
+  /**
+   * Takes this instance's place in the write queue (session writes and discovery alike) and
+   * resolves once every write before it settled; the returned release lets the next one run.
+   */
+  async #holdWrites(id: string): Promise<() => void> {
+    const previous = this.#sessionTails.get(id) ?? Promise.resolve();
+    const held = Promise.withResolvers<void>();
+    const tail = previous.catch(() => {}).then(() => held.promise);
+    this.#sessionTails.set(id, tail);
+    await previous.catch(() => {});
+    return () => {
+      held.resolve();
+      if (this.#sessionTails.get(id) === tail) this.#sessionTails.delete(id);
+    };
   }
   /** Metadata from an already authorized session. No process, session or inference is started. */
   async updateFromSession(input: InstanceInput, metadata: unknown): Promise<void> {
@@ -585,22 +689,12 @@ export class ModelCatalog implements ModelCatalogApi {
     const state = this.#states.get(instance.id);
     if (!state || cacheRevision(state.config) !== cacheRevision(instance))
       return Promise.reject(new Error("Session model generation changed"));
-    const models = normalizeAcp(metadata, instance);
+    const reported = normalizeAcp(metadata, instance);
     const permissionModes = acpPermissionModes(metadata, {
       provider: instance.provider,
       profile: instance.acpAgentId?.startsWith("official:")
         ? matchProfile(instance.acpAgentId.slice(9), instance.installationVersion ?? "")?.id
         : undefined,
-    });
-    const entry = CachedEntry.parse({
-      provider: instance.provider,
-      instance: instance.id,
-      revision: this.#revision(instance),
-      loginRevision: instance.loginRevision,
-      identityRevision: identityRevision(instance),
-      refreshedAt: this.#options.now(),
-      permissionModes,
-      ...refreshedSources(cleanCatalog(models), undefined, state.entry, this.#options.now()),
     });
     const previous = this.#sessionTails.get(instance.id) ?? Promise.resolve();
     const write = previous
@@ -611,6 +705,19 @@ export class ModelCatalog implements ModelCatalogApi {
         if (this.#deletions.has(instance.id)) await this.#deletions.remove(instance.id);
         if (this.#states.get(instance.id) !== state)
           throw new Error("Session model generation changed");
+        // Merged with the entry as the writes before this one left it, so a level another
+        // session learned meanwhile is kept.
+        const models = keepLearnedOptions(reported, state.entry?.models);
+        const entry = CachedEntry.parse({
+          provider: instance.provider,
+          instance: instance.id,
+          revision: this.#revision(instance),
+          loginRevision: instance.loginRevision,
+          identityRevision: identityRevision(instance),
+          refreshedAt: this.#options.now(),
+          permissionModes,
+          ...refreshedSources(cleanCatalog(models), undefined, state.entry, this.#options.now()),
+        });
         await this.#options.storage.replace(entry);
         if (this.#states.get(instance.id) === state) {
           state.entry = entry;
@@ -645,7 +752,12 @@ export class ModelCatalog implements ModelCatalogApi {
       loginRevision: revision,
       ...(method ? { signInMethod: method } : {}),
     });
-    return this.refresh({ instance });
+    // A sign-in starts no ACP agent: the previous login's list is gone, and the next read loads
+    // the row as it would after a refresh (`acpProbeAllowed`).
+    if (config.provider !== "acp") return this.refresh({ instance });
+    const next = this.#states.get(instance);
+    if (next) next.acpDue = true;
+    return Promise.resolve(next ? [this.#status(next)] : []);
   }
   removeInstance(instance: string): Promise<void> {
     instance = ModelInstance.shape.id.parse(instance);
@@ -658,6 +770,8 @@ export class ModelCatalog implements ModelCatalogApi {
     if (state) this.#providers.get(state.config.provider)?.delete(instance);
     this.#states.delete(instance);
     this.#persisted.delete(instance);
+    this.#acpLoaded.delete(instance);
+    this.#acpSpacing.forget(instance);
     if (state) this.#changed(state);
     const removal = Promise.resolve().then(async () => {
       // Storage failure must not short-circuit process cleanup. Flight settles before
@@ -730,6 +844,9 @@ export class ModelCatalog implements ModelCatalogApi {
         permissionModes.map((mode) => mode.id),
       ),
       instance: state.config.id,
+      ...(state.config.modelProbe
+        ? { modelProbe: reportedProbe(state.config, this.#acpFacts(state).loadedBefore) }
+        : {}),
       ...(state.config.acpAgentId ? { acpAgentId: state.config.acpAgentId } : {}),
       ...(state.config.installationId ? { installationId: state.config.installationId } : {}),
       ...(state.config.instanceId ? { instanceId: state.config.instanceId } : {}),
@@ -772,15 +889,15 @@ export class ModelCatalog implements ModelCatalogApi {
       ...(state.error ? { error: state.error } : {}),
     };
   }
-  #revalidate(states: State[]): void {
+  #revalidate(states: State[], cause: RefreshCause): void {
     if (this.#closed) return;
     for (const state of states)
       // A refresh reports its own failures inside its flight.
       if (this.#stale(state) && this.#options.now() >= state.retryAt)
-        void this.#refresh(state).catch(() => {});
+        void this.#refresh(state, cause).catch(() => {});
   }
   revalidate(): void {
-    this.#revalidate(this.#select({}));
+    this.#revalidate(this.#select({}), "background");
   }
   /**
    * While a client shows the catalog (it is subscribed to changes), re-check the connections
@@ -823,7 +940,7 @@ export class ModelCatalog implements ModelCatalogApi {
     const options = ModelListOptions.parse(input);
     const states = this.#select(options);
     this.#checkConnections();
-    this.#revalidate(states);
+    this.#revalidate(states, "read");
     const models: ModelListResult["models"] = [];
     let skipped = options.offset;
     let remaining = options.limit + 1;
@@ -859,7 +976,7 @@ export class ModelCatalog implements ModelCatalogApi {
     const filter = ModelFilter.parse(input);
     const states = this.#select(filter);
     this.#checkConnections();
-    this.#revalidate(states);
+    this.#revalidate(states, "read");
     return this.#resolve(input, states);
   }
   resolveCached(input: ModelRoleSpec): ModelResolution {
@@ -910,11 +1027,42 @@ export class ModelCatalog implements ModelCatalogApi {
     }
     await Promise.all(pending);
   }
+  /**
+   * Discover again. An ACP row starts no agent here (any device with the operate scope may ask):
+   * it is only reset, and the next read loads it again (`acpProbeAllowed`).
+   */
   async refresh(input: ModelFilter = {}): Promise<ModelInstanceStatus[]> {
     if (this.#closed) throw new Error("Catalog closed");
+    const filter = ModelFilter.parse(input);
     return Promise.all(
-      this.#select(ModelFilter.parse(input)).map((state) => this.#refreshCurrent(state)),
+      this.#select(filter).map((state) => {
+        if (state.config.provider !== "acp") return this.#refreshCurrent(state, "background");
+        state.acpDue = true;
+        state.dirty = true;
+        this.#changed(state);
+        return Promise.resolve(this.#status(state));
+      }),
     );
+  }
+  /**
+   * The person asked for this row's models (Load models): the one call that starts an ACP agent
+   * unasked by a read. Its caller admits only the person. Attempts stay spaced and a failing
+   * agent keeps its retry pause; nothing here resets either.
+   */
+  async load(instance: string): Promise<ModelInstanceStatus[]> {
+    if (this.#closed) throw new Error("Catalog closed");
+    const state = this.#states.get(ModelInstance.shape.id.parse(instance));
+    if (!state) return [];
+    if (state.config.provider !== "acp") return this.refresh({ instance: state.config.id });
+    return [await this.#refresh(state, "request")];
+  }
+  #acpFacts(state: State): import("./acp-probe-gate.ts").AcpRowFacts {
+    if (state.entry) this.#acpLoaded.add(state.config.id);
+    return {
+      loaded: state.entry !== undefined,
+      loadedBefore: this.#acpLoaded.has(state.config.id),
+      due: state.acpDue === true,
+    };
   }
   async loadMissing(input: ModelFilter = {}): Promise<ModelInstanceStatus[]> {
     if (this.#closed) throw new Error("Catalog closed");
@@ -927,26 +1075,30 @@ export class ModelCatalog implements ModelCatalogApi {
             !state.entry ||
             (!state.entry.models.length && (state.flight !== undefined || this.#stale(state))),
         )
-        .map((state) => this.#refresh(state)),
+        .map((state) => this.#refresh(state, "read")),
     );
   }
-  async #refreshCurrent(state: State): Promise<ModelInstanceStatus> {
+  async #refreshCurrent(state: State, cause: RefreshCause): Promise<ModelInstanceStatus> {
     state.probeRetryAt = 0;
     state.backoff.reset();
     state.retryAt = 0;
     let revision = this.#revision(state.config);
-    let status = await this.#refresh(state);
+    let status = await this.#refresh(state, cause);
     // An explicit refresh owns its result through same-account version/settings replacements.
     while (!this.#closed && this.#states.get(state.config.id) === state) {
       const current = this.#revision(state.config);
       if (!state.flight && current === revision) break;
       revision = current;
-      status = await this.#refresh(state);
+      status = await this.#refresh(state, cause);
     }
     return status;
   }
-  #refresh(state: State): Promise<ModelInstanceStatus> {
-    if (state.config.provider === "acp" || this.#configuration(state.config).enabled === false)
+  #refresh(state: State, cause: RefreshCause = "background"): Promise<ModelInstanceStatus> {
+    if (
+      (state.config.provider === "acp" &&
+        !acpProbeAllowed(state.config, this.#acpFacts(state), cause)) ||
+      this.#configuration(state.config).enabled === false
+    )
       return Promise.resolve(this.#status(state));
     if (state.flight) return state.flight;
     if (this.#options.now() < state.retryAt) return Promise.resolve(this.#status(state));
@@ -955,6 +1107,11 @@ export class ModelCatalog implements ModelCatalogApi {
       this.#failed(state, undefined);
       this.#changed(state);
       return Promise.resolve(this.#status(state));
+    }
+    if (state.config.provider === "acp") {
+      if (!this.#acpSpacing.admit(state.config.id, this.#options.now()))
+        return Promise.resolve(this.#status(state));
+      delete state.acpDue;
     }
     const abort = new AbortController();
     const startedAt = this.#options.now();
@@ -967,6 +1124,7 @@ export class ModelCatalog implements ModelCatalogApi {
       .then(async () => {
         await this.#acquire();
         let cancel: (() => void) | undefined;
+        let releaseWrites: (() => void) | undefined;
         let timedOut = false;
         try {
           await state.invalidating;
@@ -1049,6 +1207,15 @@ export class ModelCatalog implements ModelCatalogApi {
             return;
           if (!models.length && models.sources === undefined)
             throw new Error("The CLI returned no model choices");
+          // In line with session writes: built on, and stored after, the latest entry.
+          releaseWrites = await this.#holdWrites(state.config.id);
+          if (
+            this.#states.get(state.config.id) !== state ||
+            this.#closed ||
+            abort.signal.aborted ||
+            this.#revision(state.config) !== revision
+          )
+            return;
           const combined = refreshedSources(
             cleanCatalog(models),
             models.sources,
@@ -1069,7 +1236,8 @@ export class ModelCatalog implements ModelCatalogApi {
             ),
             ...combined,
             models: cleanCatalog(combined.models),
-            permissionModes: state.permissionModes ?? state.entry?.permissionModes,
+            permissionModes:
+              models.permissionModes ?? state.permissionModes ?? state.entry?.permissionModes,
           });
           entry.models = entry.models.map((model) => this.#metadata.intern(model));
           let revocationsStored = false;
@@ -1186,6 +1354,7 @@ export class ModelCatalog implements ModelCatalogApi {
           }
         } finally {
           cancel?.();
+          releaseWrites?.();
           this.#release();
         }
       })

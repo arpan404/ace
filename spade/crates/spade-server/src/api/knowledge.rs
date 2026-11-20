@@ -23,6 +23,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/knowledge/{entry}/links", post(link))
         .route("/knowledge/{entry}/links/{to}", delete(unlink))
         .route("/knowledge/{entry}/merge", post(merge))
+        .route("/knowledge/{entry}/provenance", get(entry_provenance))
         .route("/agents/{id}/episodes", get(episodes))
         .route("/episodes/{episode}", get(episode))
 }
@@ -241,4 +242,15 @@ async fn episode(State(state): State<AppState>, Path(episode): Path<String>) -> 
             .episode_view(&episode)
             .map(|e| episode_json(&e)),
     )
+}
+
+/// Where an entry came from: its source, trust and author, the conversation and message it
+/// answered, what was in view, and when.
+async fn entry_provenance(State(state): State<AppState>, Path(entry): Path<String>) -> Response {
+    super::off_thread(move || match state.engine.entry_provenance(&entry) {
+        Ok(Some(shown)) => Json(shown).into_response(),
+        Ok(None) => problem(StatusCode::NOT_FOUND, "there is no such entry"),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    })
+    .await
 }

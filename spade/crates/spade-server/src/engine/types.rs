@@ -212,6 +212,8 @@ pub struct AgentChange {
     pub task: Option<String>,
     pub model: Option<String>,
     pub avatar: Option<AvatarInput>,
+    /// How it talks; `Some(None)` leaves it to the bot again.
+    pub personality: Option<Option<spade_core::personality::Personality>>,
     /// One line on why the task changed, kept in its history.
     pub why: Option<String>,
     /// Who changes it: the bot itself (`self_edit::BY_BOT`), else the person.

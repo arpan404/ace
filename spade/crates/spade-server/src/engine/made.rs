@@ -185,6 +185,7 @@ impl Engine {
         let first = [Event::Known(Known::AgentConfigured {
             task: task.clone(),
             model: model.clone(),
+            personality: None,
             change: None,
         })];
         let apps: Vec<String> = asked

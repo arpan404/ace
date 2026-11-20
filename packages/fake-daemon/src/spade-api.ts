@@ -131,6 +131,16 @@ export class FakeSpadeApi implements FakeSpadeServer {
   skillStore: { skills: Json[]; ace: boolean } = { skills: [], ace: false };
   /** What the bots remember, their own and the shared ones (ADR 0128). */
   readonly notes: FakeSpadeNotes;
+  /** First run, as Spade keeps it (`GET /v1/onboarding`), finished unless a test asks again. */
+  readonly onboarding: Record<string, string | null> = { about_you: "done", starters: "done" };
+  /** Where each note or page came from, by its id, as `GET …/provenance` answers. */
+  readonly provenance = new Map<string, Json>();
+  /** The sources each bot learned from, as `GET /v1/agents/{id}/learned` answers. */
+  readonly learned = new Map<string, Json[]>();
+  /** Each `POST …/learned/forget`, by bot, its source key. */
+  readonly forgotSources: { agent: string; source: string }[] = [];
+  /** Model servers on this computer, as `GET /v1/endpoints/local` answers (`{id, name, …}`). */
+  localServers: Json[] = [];
   /** Each bot's knowledge pages and past work (ADR 0164). */
   readonly knowledge: FakeSpadeKnowledge;
   /** Each bot's services (ADR 0160). */
@@ -558,6 +568,27 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (!agent) return problem(404, "No such agent.");
       return this.roles.agentRoute(request.method, id, agent.model, this.fastModel, body);
     }
+    if ((root === "notes" || root === "knowledge") && id && sub === "provenance") {
+      const shown = this.provenance.get(id);
+      return shown === undefined ? problem(404, "there is no such note") : reply(shown);
+    }
+    if (root === "agents" && id && sub === "learned") {
+      if (subId === "forget" && request.method === "POST") {
+        const source = String((body as { source?: unknown }).source ?? "");
+        this.forgotSources.push({ agent: id, source });
+        this.learned.set(
+          id,
+          (this.learned.get(id) ?? []).filter((s) => (s as { key?: unknown }).key !== source),
+        );
+        return reply({ notes: 1, entries: 0 });
+      }
+      return reply({ sources: this.learned.get(id) ?? [] });
+    }
+    if (root === "onboarding" && request.method === "GET") return reply(this.onboarding);
+    if (root === "onboarding" && request.method === "PUT") {
+      Object.assign(this.onboarding, body);
+      return reply(this.onboarding);
+    }
     const searched = new URLSearchParams(query).get("q") ?? "";
     if (root === "notes") return this.notes.route(request.method, null, id, body, sub, searched);
     if (root === "agents" && id && sub === "notes")
@@ -664,6 +695,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
       });
     if (root === "subscriptions" && request.method === "GET")
       return reply({ providers: this.subscriptions, error: null });
+    if (root === "endpoints" && id === "local" && request.method === "GET")
+      return reply({ servers: this.localServers });
+    if (root === "endpoints" && id === "local" && sub && request.method === "POST")
+      return this.useLocalModel(sub, String(body.model ?? ""));
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
     if (root === "keys" && id) return this.keyRoute(request.method, id);
     if (root === "search") return this.search.route(request.method, id, body, this.keychain);
@@ -936,6 +971,32 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (proposal.state !== "open") return problem(409, "this proposal was already answered");
     proposal.state = body.save === true ? "saved" : "discarded";
     return reply({ proposal });
+  }
+
+  /** As Spade: the local server added as a keyless endpoint the first time, the model saved on it. */
+  private useLocalModel(server: string, model: string): FakeSpadeAnswer {
+    const local = this.localServers.find((candidate) => candidate.id === server);
+    if (!local || !model.trim()) return problem(404, "No such model server.");
+    let endpoint = this.endpoints.find((candidate) => candidate.base_url === local.base_url);
+    if (!endpoint) {
+      endpoint = {
+        id: server,
+        name: local.name,
+        format: "openai-chat",
+        base_url: local.base_url,
+        header_names: [],
+        session_header: null,
+        needs_key: false,
+        key_set: false,
+        key_source: null,
+        models: [],
+      };
+      this.endpoints.push(endpoint);
+      local.endpoint = server;
+    }
+    const models = endpoint.models as Json[];
+    if (!models.some((saved) => saved.id === model)) models.push({ id: model, source: "typed" });
+    return reply({ endpoint, value: `${String(endpoint.id)}/${model.trim()}` });
   }
 
   private endpointRoute(

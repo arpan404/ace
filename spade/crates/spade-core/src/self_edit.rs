@@ -132,6 +132,7 @@ mod tests {
         Event::Known(Known::AgentConfigured {
             task: task.into(),
             model: "e/m".into(),
+            personality: None,
             change: by.and_then(|by| change("", task, by, "why")),
         })
     }

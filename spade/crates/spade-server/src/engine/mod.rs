@@ -29,13 +29,16 @@ mod jobs;
 mod judge;
 mod knowledge;
 mod knowledge_api;
+mod learned;
 mod ledger;
+mod local;
 pub(crate) use ledger::Admission;
 mod made;
 mod maintenance;
 mod media;
 mod memory;
 mod moves;
+pub mod onboarding;
 mod outbox;
 mod oversight;
 mod park;
@@ -77,6 +80,8 @@ pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use knowledge::{KnowledgeCall, KnowledgeError, entry_json};
 pub use knowledge_api::KnowledgeInput;
+pub use learned::{Forgotten, Learned};
+pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
@@ -246,6 +251,8 @@ pub struct Engine {
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
     /// Bots' sandbox, network policies and grants (ADR 0167), once the server has set them.
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
+    /// The local model servers Spade looks for; Ollama's and LM Studio's defaults when unset.
+    local_servers: Mutex<Option<Vec<crate::local_models::LocalServer>>>,
     /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
@@ -368,6 +375,7 @@ impl Engine {
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
+            local_servers: Mutex::new(None),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
             reach: reach::Shared::default(),

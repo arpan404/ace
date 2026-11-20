@@ -271,6 +271,12 @@ pub struct TurnFacts {
     /// The only untrusted thing in view is a summary drawn from untrusted text: a note saved or
     /// rewritten now is kept as a suggestion the person keeps or dismisses (memory.md).
     pub memory_suggests: bool,
+    /// The untrusted content in view, each in a few words, oldest first: what a note or entry
+    /// written now records as read (its origin).
+    pub in_view: Vec<String>,
+    /// The call running, set by the tool from its key: what a note or entry written now
+    /// records as having written it.
+    pub call: Option<String>,
 }
 
 /// Tools whose list changes while Spade runs, such as ace's. Every one is offered deferred, so

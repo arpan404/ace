@@ -225,6 +225,11 @@ export interface SessionContext {
   onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;
   onSessionMetadata?(metadata: unknown): void;
   /**
+   * The agent reports running a native permission mode ace didn't just ask for (it changed its
+   * own mode, or a selection's reply came back with another).
+   */
+  onPermissionMode?(native: string): void;
+  /**
    * The session is waiting for the home folders of these accounts (their names) to answer
    * startup's check before it starts; called once, when the wait has become noticeable.
    */
@@ -262,6 +267,16 @@ export interface ProviderSession {
   configure?(selection: ExecutionSelection): Promise<void | "reopen">;
   readonly effectiveCapabilities?: Capabilities | undefined;
   readonly acpSupport?: AcpSessionSupport | undefined;
+  /**
+   * Execution options the session was opened with that the provider didn't take (an effort its
+   * model doesn't list, or one it refused). The thread stops showing them; it runs the default.
+   */
+  readonly refusedOptions?: readonly string[];
+  /**
+   * The native permission mode the session reports running, when it reports one. Read when
+   * `refusedOptions` names `permissionMode`: the mode asked for didn't apply.
+   */
+  readonly permissionMode?: string | undefined;
   setModel?(model: string): Promise<void>;
   setMode?(mode: string): Promise<void>;
   /** Set, pause or resume the provider's native goal. Providers without goals omit it. */

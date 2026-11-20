@@ -1,10 +1,11 @@
 import {
   mergeSpadeModels,
+  spadeLocalChoices,
   spadeSubscriptionSources,
   type SpadeEndpoint,
 } from "@ace/ui-core/spade-chat";
 import { CaretDownIcon, CheckIcon } from "@ace/icons";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useState, type KeyboardEvent } from "react";
 import { Input } from "@/components/ui/input.tsx";
 import { menuItem, menuLabel } from "@/components/ui/menu-styles.ts";
@@ -12,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { selectTrigger } from "@/components/ui/select.tsx";
 import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { cn } from "@/lib/cn.ts";
-import { readLiveModels } from "./spade-api.ts";
+import { pickLocalModel, readLiveModels } from "./spade-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import {
   spadeModelGroups,
@@ -23,6 +24,7 @@ import {
 import {
   modelsKey,
   useEndpointModels,
+  useLocalServers,
   useSpadeModels,
   useSpadeSubscriptions,
 } from "./use-spade-models.ts";
@@ -85,6 +87,13 @@ export function SpadeModelPicker(props: {
             setOpen(false);
           }}
         />
+        <LocalChoices
+          open={open}
+          onPick={(value) => {
+            props.onChange(value);
+            setOpen(false);
+          }}
+        />
       </PopoverContent>
     </Popover>
   );
@@ -118,6 +127,55 @@ function useModelSources(live: boolean): SpadeModelSources {
     })),
     subscriptions: spadeSubscriptionSources(subscriptions.data?.providers ?? []),
   };
+}
+
+/**
+ * Models on this computer not added yet (a running Ollama's or LM Studio's), under the list:
+ * picking one adds its server as an endpoint with no key, saves the model and chooses it.
+ */
+function LocalChoices(props: { open: boolean; onPick(value: string): void }) {
+  const client = useSpadeClient();
+  const cache = useQueryClient();
+  const local = useLocalServers(props.open);
+  const [problem, setProblem] = useState<string>();
+  const [picking, setPicking] = useState<string>();
+  const choices = spadeLocalChoices(local.data ?? []);
+  if (!choices.length) return null;
+  const pick = async (server: string, model: string) => {
+    setPicking(`${server}/${model}`);
+    setProblem(undefined);
+    try {
+      const value = await pickLocalModel(client, server, model);
+      await cache.invalidateQueries({ queryKey: modelsKey });
+      props.onPick(value);
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : "Try again.");
+    } finally {
+      setPicking(undefined);
+    }
+  };
+  return (
+    <div role="group" aria-label="On this computer" className="border-t border-border pt-1">
+      <div className={cn(menuLabel, "pt-2")}>On this computer</div>
+      {choices.map(({ server, model }) => (
+        <button
+          key={`${server.id}/${model}`}
+          type="button"
+          disabled={picking !== undefined}
+          onClick={() => void pick(server.id, model)}
+          className={cn(menuItem, "w-full")}
+        >
+          <span className="max-w-[70%] shrink-0 truncate">{model}</span>
+          <span className="min-w-0 flex-1 truncate text-right text-xs text-subtle-foreground">
+            {picking === `${server.id}/${model}`
+              ? "Adding…"
+              : `${server.name} · Runs on this computer`}
+          </span>
+        </button>
+      ))}
+      {problem && <p className="px-2 py-1 text-xs text-destructive">{problem}</p>}
+    </div>
+  );
 }
 
 /** The open list: a search field over the groups, the arrow keys moving through them. */

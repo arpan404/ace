@@ -188,6 +188,9 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
       return { kind: "note", text: spadeQuietLine(bubble.quiet).label };
     case "remembered":
       return { kind: "note", text: `Remembered: ${bubble.note.text}` };
+    // The iPhone doesn't show which notes a reply had in mind yet.
+    case "recalled":
+      return undefined;
     case "files":
       return { kind: "note", text: bubble.paths.join(", ") };
     case "question":

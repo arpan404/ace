@@ -26,6 +26,9 @@ pub struct Template {
     /// `fast` (the person's fast model) or `capable` (their default).
     pub model_kind: String,
     pub routines: Vec<TemplateRoutine>,
+    /// How a bot made from it talks, from its first turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub personality: Option<spade_core::personality::Personality>,
 }
 
 #[derive(Deserialize)]

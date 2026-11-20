@@ -93,6 +93,15 @@ Spade is one of ace's places. It adds no navigation of its own.
   reached the network, pushed, commented, sent). Words only: no icons, badges or tints. Notes it
   saved and what it showed the person keep their own places. Helpers are one line each, opening
   to their steps. Raw markdown and raw tool arguments never show.
+- **Undo.** When a reply changed the bot's files, its step line ends in the quiet words "Undo
+  these changes" (the whole turn, from its first file-changing step), and each such step offers
+  them too. They open a dialog that first says what goes back, which new files are removed and which
+  deleted files come back (paths in mono on `--chat-well`), and what undo can't take back, then
+  Undo. A step undo can't reach says so plainly in its own line, in full ink: "Can't be undone:
+  it was sent in your name.", "…a payment can't be taken back from here.", "…it's published.",
+  "Can't be undone here: it changed linear." The step's declared effect decides it, not its name (ADR 0167, spade/docs/security.md).
+- **What it had in mind.** Under a finished reply whose message recalled notes, one quiet line
+  ("Had 2 notes in mind") opens to them; each opens where it's from.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.
 - **Raised card** (an open question or request, and only those): `--chat-raised`, its edge and
   lift (`shadow-chat-raised`), 18 corners, 20px padding, at most 600px. The amber needs-you glyph
@@ -141,8 +150,16 @@ Spade is one of ace's places. It adds no navigation of its own.
   back. The face opens a popover to change it.
 - **Routines** are a section of Details: schedule, webhook (its address and secret only here, with
   Copy), heartbeat, on a thread event. A row says a failed last run in words; paused reads paused.
-- **Library:** notes (Spade's own starts with About you), files and skills. A suggested note offers
-  Keep or Dismiss; ↵ saves an edit, Esc puts it back.
+- **Library:** notes (Spade's own starts with About you), pages, Learned from, past work, files
+  and skills. A suggested note offers Keep or Dismiss; ↵ saves an edit, Esc puts it back. Each
+  note (on hover, like Delete) and each page offers "Where it's from": a dialog with who wrote
+  it, the conversation and the message it answered, what it had read, its trust and when, then
+  Forget this, Correct this, and "Forget everything from …" for each of its sources. **Learned
+  from** lists those sources (a conversation, a site, an app, an import) with what each taught,
+  and Forget all behind a confirm; the person's own words are never in it.
+- **Personality** (a section of Details, after Runs with): Tone (its own way, Concise, Warm,
+  Formal, Playful), Humour and Emoji switches, off until turned on. Saved as each changes, taken
+  from the next turn.
 - **Computer:** the surfaces it used (screen, browser, terminal) live at panel size, Activity in
   words (only exceptions stand out), and Take over only while it drives (it is at work and the
   surface is live, never live alone: Spade keeps a surface live a while after its last use);
@@ -150,12 +167,19 @@ Spade is one of ace's places. It adds no navigation of its own.
   no face, button or spinner.
   While the computer starts, its small face and "Waking up…". Never used: one line.
 
-## 5. New bot and groups
+## 5. First run, new bot and groups
+
+- **First run.** Once Spade is on and has a model, the main Spade's chat ends in a raised card:
+  four short questions, one at a time (‹ n/4 ›: what to call you, what you do, what you want help
+  with, how you like to be talked to, the last with quick picks), each skippable, and Skip for
+  now. The answers become About-you notes, edited later in Library › About you. Then a second
+  card offers the templates as starter bots, each with Create; Done or Not now. Spade remembers
+  either way.
 
 - **New bot** is a conversation, not a form (ADR 0197): "What should this bot do?" in 22/28 at
   600 over the composer, nothing to fill in. Under the composer, the templates as chips (a 20px
   face and the name, pressed while chosen, the question becoming "What should Morning digest do
-  first?"), From the marketplace when that is on, and More settings, which shows the model and
+  first?"), From the marketplace when that is on, and More settings, which shows how it talks (tone, humour, emoji), the model and
   machine line on the page. Every bot starts on the auto-review, and Full access is chosen in the
   profile, never here. Import lives once, in +; a failed import is said where the bot would have
   appeared.
