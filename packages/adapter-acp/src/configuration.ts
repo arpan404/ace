@@ -86,6 +86,25 @@ export class AcpConfiguration {
     );
     this.#ctx.onCapabilities?.(this.capabilities, this.support);
   }
+  /** The value the session last reported for a selector, when it reports one. */
+  current(kind: "model" | "mode" | "effort"): string | undefined {
+    const selector = this.selectors[kind];
+    if (!selector) return undefined;
+    const raw = object(this.selectors.raw);
+    if (selector.configId) {
+      const options = Array.isArray(raw["configOptions"]) ? raw["configOptions"] : [];
+      const entry = options.find((option) => object(option)["id"] === selector.configId);
+      const value = object(entry)["currentValue"];
+      return typeof value === "string" ? value : undefined;
+    }
+    const value =
+      kind === "mode"
+        ? object(raw["modes"])["currentModeId"]
+        : kind === "model"
+          ? object(raw["models"])["currentModelId"]
+          : undefined;
+    return typeof value === "string" ? value : undefined;
+  }
   async select(kind: "model" | "mode" | "effort", value: string, sessionId: string): Promise<void> {
     const request = selectorRequest(this.selectors, kind, value, sessionId);
     const result = await this.#rpc.request(request.method, request.params, {
