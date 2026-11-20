@@ -289,8 +289,12 @@ export class ThreadSummary {
     });
   }
 
+  #storeOf(threadId: string): ThreadSource | undefined {
+    return threadId === this.#threadId ? this.#store : this.#held.get(threadId)?.lease.store;
+  }
+
   #name(threadId: string, agent: Agent): string {
-    const store = threadId === this.#threadId ? this.#store : this.#held.get(threadId)?.lease.store;
+    const store = this.#storeOf(threadId);
     return agentName(agent, agent.spawnedBy ? store?.item(agent.spawnedBy) : undefined);
   }
 
@@ -322,6 +326,7 @@ export class ThreadSummary {
           name: (threadId, agent) => this.#name(threadId, agent),
           agent: (id) => this.#store.agent(id),
           item: (id) => this.#store.item(id),
+          threadItem: (threadId, id) => this.#storeOf(threadId)?.item(id),
         },
         this.#preview,
       );

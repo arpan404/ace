@@ -131,10 +131,62 @@ describe("the phone's Summary", () => {
     await until(() => view(sink)?.now.sub === "1 agent working", "subagent counted");
     // The main agent's turn ended, but its tree is still at work: never done.
     expect(view(sink)?.now.lead).toBe("Working");
-    expect(view(sink)?.agents).toBe("2 working");
+    expect(view(sink)?.agents?.working.map((row) => row.name)).toEqual(["Reviewer"]);
+    expect(view(sink)?.now.progress?.words).toBe("0 of 1 done");
     daemon.apply("now", [facts.endTurn("reviewer")]);
     await until(() => view(sink)?.now.lead === "Done", "tree settled");
     expect(view(sink)?.now.sub).toBe("1 agent finished");
+  });
+
+  test("the agents read who waits on you first, then working, failed, and the finished folded", async () => {
+    const ask = "ask-branch";
+    const { sink, follow } = await opened("order", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.subagent("codex", "done1", "Linter", "s1"),
+      facts.turn("done1", "spawn"),
+      facts.endTurn("done1"),
+      facts.subagent("codex", "broke", "Migrator", "s2"),
+      facts.turn("broke", "spawn"),
+      facts.endTurn("broke", "failed", { kind: "provider", message: "boom" }),
+      facts.subagent("codex", "busy", "Tester", "s3"),
+      facts.turn("busy", "spawn"),
+      facts.subagent("codex", "asker", "Planner", "s4"),
+      facts.turn("asker", "spawn"),
+      {
+        type: "interaction.opened",
+        agent: "asker",
+        interaction: ask,
+        blocking: true,
+        request: {
+          kind: "question",
+          questions: [
+            {
+              id: "q",
+              text: "Which branch?",
+              options: [],
+              multiSelect: false,
+              allowOther: true,
+              secret: false,
+            },
+          ],
+        },
+      },
+      facts.subagent("codex", "done2", "Docs", "s5"),
+      facts.turn("done2", "spawn"),
+      facts.endTurn("done2"),
+    ]);
+    follow();
+    await until(() => (view(sink)?.agents?.asks.length ?? 0) > 0, "asker listed");
+    const agents = view(sink)?.agents;
+    const names = (rows: { name: string }[] | undefined) => rows?.map((row) => row.name);
+    expect(names(agents?.asks)).toEqual(["Planner"]);
+    expect(agents?.asks[0]).toMatchObject({ step: "Asks: Which branch?", action: "Answer" });
+    expect(names(agents?.working)).toEqual(["Tester"]);
+    expect(names(agents?.failed)).toEqual(["Migrator"]);
+    expect(names(agents?.done)).toEqual(["Linter", "Docs"]);
+    expect(agents?.doneWords).toBe("2 done");
+    expect(view(sink)?.now.progress).toEqual({ done: 2, total: 5, words: "2 of 5 done" });
   });
 
   test("a delegate stays working while the thread it delegated to still works", async () => {
