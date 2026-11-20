@@ -531,3 +531,23 @@ it("a 300 KB chunk crosses the relay in exactly one encrypted data frame per sma
   expect(encrypted).toHaveLength(Math.ceil((metaBytes + payload.length) / 65_498));
   expect(encrypted.every((length) => length <= 65_535)).toBe(true);
 });
+
+it("a long thread's JSON crosses the relay in frames of exactly 65,535 bytes, never more", async () => {
+  // The largest frame a phone must take in one WebSocket message (#1876): a client's receive
+  // limit is set from it, so a frame past it would end every relayed channel that carries one.
+  const { relay, connect } = await setup();
+  let counting = false;
+  const encrypted: number[] = [];
+  const via = await proxy(relay.url, (_path, direction, frame) => {
+    if (counting && direction === "in") encrypted.push(frame.length);
+    return frame;
+  });
+  const { client, server } = await connect(via);
+  const text = JSON.stringify({ type: "pong", padding: "a".repeat(1_100_000) });
+  counting = true;
+  await server.sendText(text);
+  expect(await client.receiveRaw()).toBe(text);
+  expect(encrypted.length).toBeGreaterThan(16);
+  expect(encrypted.slice(0, -1).every((length) => length === 65_535)).toBe(true);
+  expect(Math.max(...encrypted)).toBe(65_535);
+});
