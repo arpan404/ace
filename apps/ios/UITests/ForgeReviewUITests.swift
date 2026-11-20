@@ -114,6 +114,48 @@ import XCTest
         screenshot("task-ticked")
     }
 
+    /// #245's settings guide carries two of mira's suggestions on the current diff and one on
+    /// the save bar that a push outdated. Commit opens GitHub's message; a batch commits both at
+    /// once, after which their lines changed and only the agent is offered.
+    func testSuggestionsCommitOneByOneOrAsABatch() {
+        let app = openPull()
+        let timeline = app.buttons["forge.pull.timeline"]
+        app.reveal(timeline)
+        timeline.tap()
+        let commit = app.buttons["forge.suggestion.commit.2456"]
+        XCTAssertTrue(commit.waitForExistence(timeout: 20))
+        app.reveal(commit)
+        // Pushed over since: GitHub can't commit it, so only the agent is offered.
+        XCTAssertFalse(app.buttons["forge.suggestion.commit.2458"].exists)
+        XCTAssertTrue(app.buttons["forge.suggestion.agent.2458"].exists)
+        screenshot("suggestions")
+        commit.tap()
+        let message = app.textFields["forge.editor"].firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertEqual(message.value as? String, "Apply suggestion from @mira")
+        screenshot("suggestion-commit")
+        app.buttons["Cancel"].tap()
+        app.buttons["forge.suggestion.batch.2456"].tap()
+        let second = app.buttons["forge.suggestion.batch.2457"]
+        app.reveal(second)
+        second.tap()
+        let batch = app.buttons["forge.batch.commit"]
+        XCTAssertTrue(batch.waitForExistence(timeout: 5))
+        XCTAssertEqual(batch.label, "Commit 2 suggestions")
+        XCTAssertEqual(app.buttons["forge.suggestion.batch.2456"].label, "Remove from batch")
+        screenshot("suggestion-batch")
+        batch.tap()
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertEqual(message.value as? String, "Apply suggestions from code review")
+        app.buttons["forge.write.primary"].tap()
+        // One commit took both: the batch empties and their lines are no longer on the diff.
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["forge.suggestion.commit.2456"])
+        wait(for: [gone], timeout: 20)
+        XCTAssertFalse(app.buttons["forge.batch.commit"].exists)
+        XCTAssertTrue(app.buttons["forge.suggestion.agent.2457"].exists)
+        screenshot("suggestion-committed")
+    }
+
     private func openPull() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
