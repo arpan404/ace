@@ -15,10 +15,10 @@ import {
   sent,
   until,
 } from "./thread-harness.ts";
+// After the harness, which installs the test host every bridge module needs.
+import { ThreadVisit } from "./thread-visit.ts";
 
 const idle = () => {};
-/** As `main.ts` says a tail is shown: native has confirmed the open thread's ready. */
-const nativeShowsReady = () => pump.delivered("thread:ready");
 
 /*
  * The thread screen's bridge messages over the real SDK and an in-process fake daemon
@@ -635,7 +635,7 @@ test("a thread stays shown when the daemon's snapshot replaces the one kept from
   await until(() => latest("thread.ready"), "the transcript shown after the daemon's snapshot");
 }, 20_000);
 
-test("a long thread shows its newest screenful first, then the rest of its window behind it", async () => {
+test("a long thread shows its newest screenful first, and the rest of its window only once that is on screen", async () => {
   const fake = fixture();
   fake.createThread({ id: "long", workspaceId: "ace", title: "long", provider: "codex" });
   fake.apply("long", [facts.rootAgent("codex")]);
@@ -646,24 +646,40 @@ test("a long thread shows its newest screenful first, then the rest of its windo
       facts.message("root", `answer-${index}`, "assistant", `Answer ${index} `.repeat(120)),
       facts.endTurn("root"),
     ]);
-  // As the app's bridge opens a thread (`main.ts`): from a screenful, the rest once it is shown.
-  open(connect(fake, { tail: { ...screenTail, shown: nativeShowsReady } }), "long");
-  const first = await until(() => latest("thread.ready"), "the first screen shown");
-  // The first screen is the tail alone, in a few frames, not the 200-item window.
-  expect(first.count).toBeLessThanOrEqual(screenTail.items);
-  const before = native.frames.indexOf(first);
-  expect(
-    native.frames.slice(0, before).filter((frame) => frame.type === "thread.item").length,
-  ).toBe(first.count);
-  expect(native.batches.length).toBeLessThanOrEqual(6);
-  // Then the whole window follows behind it, under its own fence.
-  const full = await until(
-    () => native.frames.find((frame) => frame.type === "thread.ready" && frame !== first),
-    "the whole window",
-  );
-  expect(full.count).toBe(200);
-  const pass = native.frames.slice(before + 1, native.frames.indexOf(full));
-  expect(
-    new Set(pass.filter((frame) => frame.type === "thread.item").map((frame) => frame.id)).size,
-  ).toBe(200);
+  // As the app's bridge opens a thread (`main.ts`): from a screenful, and the rest of its window
+  // once native says that screenful is drawn.
+  const visit = new ThreadVisit(pump, { leaving: idle, opened: idle });
+  const client = connect(fake, {
+    tail: { ...screenTail, shown: (threadId) => visit.firstScreen(threadId) },
+  });
+  visit.open(client, "long", false);
+  try {
+    const first = await until(() => latest("thread.ready"), "the first screen");
+    // The first screen is the tail alone, in a few frames, not the 200-item window.
+    expect(first.count).toBeLessThanOrEqual(screenTail.items);
+    const before = native.frames.indexOf(first);
+    expect(
+      native.frames.slice(0, before).filter((frame) => frame.type === "thread.item").length,
+    ).toBe(first.count);
+    expect(native.batches.length).toBeLessThanOrEqual(6);
+    // Acknowledged is not drawn: until native says the screen shows, the window stays away.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(native.frames.filter((frame) => frame.type === "thread.ready")).toHaveLength(1);
+    // A first screen reported for another generation counts for nothing.
+    visit.shown("long", visit.epoch - 1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(native.frames.filter((frame) => frame.type === "thread.ready")).toHaveLength(1);
+    visit.shown("long", visit.epoch);
+    const full = await until(
+      () => native.frames.find((frame) => frame.type === "thread.ready" && frame !== first),
+      "the whole window",
+    );
+    expect(full.count).toBe(200);
+    const pass = native.frames.slice(before + 1, native.frames.indexOf(full));
+    expect(
+      new Set(pass.filter((frame) => frame.type === "thread.item").map((frame) => frame.id)).size,
+    ).toBe(200);
+  } finally {
+    visit.back();
+  }
 }, 20_000);

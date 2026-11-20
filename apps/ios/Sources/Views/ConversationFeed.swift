@@ -692,6 +692,7 @@ struct ConversationFeed: View {
             var still = Transaction()
             still.disablesAnimations = true
             withTransaction(still) { revealed = true }
+            model.threadShown(thread)
             TranscriptJumpHooks.revealed(after: CACurrentMediaTime() - started, capped: outcome == .capped)
             TranscriptJumpHooks.landed { Double(intent.metrics.bottom) }
         }

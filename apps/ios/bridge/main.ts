@@ -94,6 +94,8 @@ const Action = z.discriminatedUnion("type", [
   /** `warm`: native kept its copy of the thread from an earlier visit (`native-ledger.ts`). */
   z.object({ type: z.literal("open"), threadId: z.string().min(1), warm: z.boolean().optional() }),
   z.object({ type: z.literal("back") }),
+  /** The open thread's first screen is on show, under native's navigation generation `epoch`. */
+  z.object({ type: z.literal("thread.shown"), threadId: z.string().min(1), epoch: z.number().int() }),
   z.object({ type: z.literal("network"), online: z.boolean() }),
   /** Unmetered, unconstrained network and not Low Power Mode: reading ahead may run. */
   z.object({ type: z.literal("readAhead"), allowed: z.boolean() }),
@@ -255,12 +257,8 @@ async function start(json: string): Promise<void> {
     ...(account ? {} : { expectedHostId: config.hostId }),
     limits: { items: config.itemLimit, text: 8192 },
     // A thread paints from one screenful. The rest of its window is asked for once native has
-    // that screenful (its ready), so the window never replaces it before it is drawn.
-    openTail: {
-      ...screenTail,
-      shown: (threadId) =>
-        visit.threadId === threadId ? pump.delivered("thread:ready") : Promise.resolve(),
-    },
+    // drawn that screenful (`thread.shown`), so the window never replaces it before it shows.
+    openTail: { ...screenTail, shown: (threadId) => visit.firstScreen(threadId) },
     transport: () => nativeTransport(trust, early),
     credential,
     // An account socket closes when its grant runs out unless it is sent a new one (ADR 0114).
@@ -657,6 +655,9 @@ function action(json: string): void {
         break;
       case "back":
         visit.back();
+        break;
+      case "thread.shown":
+        visit.shown(value.threadId, value.epoch);
         break;
       case "network":
         client.networkOnline(value.online);
