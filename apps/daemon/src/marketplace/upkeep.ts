@@ -16,9 +16,12 @@ export async function turnOffWithdrawn(
 ): Promise<void> {
   for (const install of store.installs()) {
     const reason = withdrawalOf(state, install.source, install);
-    if (!reason || install.state !== "on" || install.type === "spade-bot") continue;
-    await turnOff(ports(), install);
-    store.saveInstall({ ...install, state: "withdrawn", reason: reason.slice(0, 500) });
+    // A bot from a version 2 recipe is the person's; a linked one pauses (ADR 0200 §6.1).
+    if (!reason || install.state !== "on" || (install.type === "spade-bot" && !install.linked))
+      continue;
+    const withdrawn = { ...install, state: "withdrawn" as const, reason: reason.slice(0, 500) };
+    await turnOff(ports(), withdrawn);
+    store.saveInstall(withdrawn);
   }
 }
 
@@ -26,7 +29,7 @@ export async function turnOffWithdrawn(
 export async function markUpdates(store: MarketStore): Promise<void> {
   const listings = new Map<string, Awaited<ReturnType<MarketStore["listing"]>>>();
   for (const install of store.installs()) {
-    if (install.type === "spade-bot" || install.bundledBy) continue;
+    if ((install.type === "spade-bot" && !install.linked) || install.bundledBy) continue;
     const listing = listings.get(install.source) ?? (await store.listing(install.source));
     listings.set(install.source, listing);
     const listed = listing.entries.find(

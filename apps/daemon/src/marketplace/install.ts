@@ -1,15 +1,17 @@
 import type { MarketInstallChoices, MarketInstalled } from "@ace/protocol/marketplace";
 import {
   contentHash,
+  grantedEffects,
   grantedNeeds,
   hashFiles,
   recipeNeeds,
   type ArchiveFile,
 } from "@ace/marketplace";
-import { type Recipe } from "@ace/protocol/marketplace";
+import { type PackageLinkId, type PackagePlan, type Recipe } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import type { BotInspection } from "@ace/marketplace/checks";
 import { Transaction } from "./journal.ts";
+import { bytesJson } from "./package-diff.ts";
 import type { PluginFilesInput } from "./prepare.ts";
 import type { PreparedEntry, PreparedReview } from "./review.ts";
 import { approvedForBots, type MarketStore, type StoredInstall } from "./store.ts";
@@ -54,6 +56,13 @@ export interface MadeBot {
   leftOut: string[];
 }
 
+/** A version 3 package's link (ADR 0200 §3.9): its identity, and `bot.json` as published. */
+export interface PackageInput {
+  package: PackageLinkId;
+  /** `bot.json` as the signed bytes have it: Spade reads it with its own reader. */
+  manifest: unknown;
+}
+
 /** What the daemon asks of Spade, through its link (`POST /v1/agents` with `recipe`). */
 export interface SpadePort {
   ready(): boolean;
@@ -64,7 +73,17 @@ export interface SpadePort {
     startRoutines: boolean;
     /** The install's transaction: Spade makes one bot per transaction, however often asked. */
     transaction: string;
+    /** For a version 3 package: the bot stays linked, with the effect switches the person set. */
+    linked?: PackageInput & { switches: Record<string, boolean> };
   }): Promise<MadeBot>;
+  /** What moving a linked bot to `manifest` would do: Spade's plan, for the review. */
+  planUpdate(bot: string, manifest: unknown): Promise<PackagePlan>;
+  /** Moves a linked bot to another version, one step keyed by `transaction`. */
+  updateBot(bot: string, input: PackageInput & { transaction: string }): Promise<void>;
+  /** Its version was withdrawn: the bot is paused with the reason, nothing deleted. */
+  withdrawBot(bot: string, reason: string): Promise<void>;
+  /** The person resumes a bot its version's withdrawal paused. */
+  resumeBot(bot: string): Promise<void>;
   /** A bot's allowed plugins, by name. */
   pluginsOf(bot: string): Promise<string[]>;
   setPlugins(bot: string, plugins: string[]): Promise<void>;
@@ -228,7 +247,9 @@ async function landFolders(
 ): Promise<string[]> {
   const names: string[] = [];
   for (const folder of folders) {
-    if (ports.store.install("spade-skill", folder.name))
+    const present = ports.store.install("spade-skill", folder.name);
+    // An update of a linked bot replaces the skills its own earlier version brought.
+    if (present && present.bundledBy !== `spade-bot/${review.name}`)
       throw new Error(`A skill called ${folder.name} is already installed`);
     const hashed = hashFiles(folder.files);
     const hash = contentHash(hashed);
@@ -309,7 +330,38 @@ async function installIn(
   // The recipe's bytes are pinned before the bot exists, so a made bot always has them.
   await step(ports);
   await ports.store.pin(review.hash, "spade-bot", review.checked.files);
-  const granted = grantedNeeds(recipeNeeds(inspection.recipe), choices.needs);
+  const { recipe } = inspection;
+  const linked =
+    recipe.version === 3
+      ? {
+          package: {
+            source: review.source,
+            name: review.name,
+            version: review.version,
+            hash: review.hash,
+          },
+          manifest: bytesJson(review.checked.files),
+        }
+      : undefined;
+  // An update or rollback of a linked bot moves that bot; nothing new is made (ADR 0200 §6.1).
+  if (review.updating) {
+    if (!linked) throw new Error("Only a bot from a version 3 package updates");
+    const before = ports.store.install(review.type, review.name);
+    await step(ports);
+    await ports.spade.updateBot(review.updating.bot, { ...linked, transaction: tx.id });
+    tx.learned();
+    await step(ports);
+    return saveRecord(
+      ports,
+      tx,
+      record(review, ports.now(), {
+        target: review.updating.bot,
+        linked: true,
+        ...(before ? { previous: { version: before.version, hash: before.hash } } : {}),
+      }),
+    );
+  }
+  const granted = grantedNeeds(recipeNeeds(recipe), choices.needs);
   await step(ports);
   const made = tx.note({ kind: "bot", transaction: tx.id });
   const bot = await ports.spade.createBot({
@@ -324,11 +376,18 @@ async function installIn(
       skills,
     },
     startRoutines: choices.startRoutines,
+    ...(linked
+      ? { linked: { ...linked, switches: grantedEffects(recipe, choices.effects ?? {}) } }
+      : {}),
   });
   if (made.kind === "bot") made.id = bot.id;
   tx.learned();
   await step(ports);
-  return saveRecord(ports, tx, record(review, ports.now(), { target: bot.id }));
+  return saveRecord(
+    ports,
+    tx,
+    record(review, ports.now(), { target: bot.id, ...(linked ? { linked: true } : {}) }),
+  );
 }
 
 /** Turns an installed entry off (withdrawn, or the person's choice) without deleting it. */
@@ -340,10 +399,18 @@ export async function turnOff(ports: InstallPorts, install: StoredInstall): Prom
     case "spade-plugin":
       await ports.plugins?.setEnabled(install.name, false);
       return;
-    case "spade-skill":
     case "spade-bot":
+      // A linked bot is paused with the reason, nothing deleted (ADR 0200 §6.1); one made from a
+      // version 2 recipe is the person's and is left alone.
+      if (install.linked && install.target)
+        await ports.spade.withdrawBot(
+          install.target,
+          install.reason ?? "Its version was withdrawn.",
+        );
+      return;
+    case "spade-skill":
     case "ace-plugin":
-      // A skill leaves Spade's list by its state; a bot made from a recipe is the person's.
+      // A skill leaves Spade's list by its state.
       return;
   }
 }
@@ -362,8 +429,11 @@ export async function turnOn(ports: InstallPorts, install: StoredInstall): Promi
     case "spade-plugin":
       await ports.plugins?.setEnabled(install.name, true);
       return;
-    case "spade-skill":
     case "spade-bot":
+      await ports.store.pinned(install.hash, install.type);
+      if (install.linked && install.target) await ports.spade.resumeBot(install.target);
+      return;
+    case "spade-skill":
     case "ace-plugin":
       await ports.store.pinned(install.hash, install.type);
       return;

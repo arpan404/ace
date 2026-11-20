@@ -314,6 +314,7 @@ export class FakeMarketplaceWire {
         };
       }
       case "prepare":
+      case "prepareRollback":
       case "prepareUpdate": {
         const source =
           operation.op === "prepare"
