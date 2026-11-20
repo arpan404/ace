@@ -171,6 +171,18 @@ export function parseSpadeRunning(body: string): SpadeRunningBot[] | undefined {
   return bots.flatMap((raw) => parseSpadeRunningBot(raw) ?? []);
 }
 
+/**
+ * An action's answer (`POST /v1/agents/{id}/{stop,pause,resume}`): whether it changed anything,
+ * and every row as it reads after. Undefined when the body has no `bots` list.
+ */
+export function parseSpadeRunningAnswer(
+  body: string,
+): { changed: boolean; bots: SpadeRunningBot[] } | undefined {
+  const bots = parseSpadeRunning(body);
+  if (!bots) return undefined;
+  return { changed: spadeRecord(spadeJson(body))?.changed === true, bots };
+}
+
 const spadeRunningReadsWords: Record<SpadeRunningReads, string> = {
   needs_you: "Waiting on you",
   working: "Working",
