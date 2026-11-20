@@ -274,6 +274,10 @@ pub fn instructions(system: &str, events: &[Event]) -> String {
             task.trim()
         ));
     }
+    // How the bot talks, a section of its own apart from the task.
+    if let Some(personality) = personality_for_turn(events) {
+        system.push_str(&format!("\n\n{}", personality.section()));
+    }
     if let Some(index) = skills.filter(|index| !index.is_empty()) {
         system.push_str(&format!("\n\n{index}"));
     }
@@ -328,6 +332,22 @@ pub fn task_for_turn(events: &[Event]) -> Option<&str> {
             Event::Known(Known::AgentConfigured { task, .. }) => Some(task.as_str()),
             _ => None,
         })
+}
+
+/// The bot's personality for the open turn, as [`task_for_turn`] reads its task: from the last
+/// `agent_configured` stored before the latest `reply_started`.
+pub fn personality_for_turn(events: &[Event]) -> Option<crate::personality::Personality> {
+    let started = events
+        .iter()
+        .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
+        .unwrap_or(events.len());
+    events[..started]
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            Event::Known(Known::AgentConfigured { personality, .. }) => Some(*personality),
+            _ => None,
+        })?
 }
 
 /// The conversation as model messages. A message the person sent while tools were running is

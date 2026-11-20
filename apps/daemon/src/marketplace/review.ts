@@ -213,6 +213,7 @@ function body(entry: PreparedReview): MarketReviewBody {
         routines: recipe.routines,
         ...(recipe.needs.tools ? { tools: recipe.needs.tools } : {}),
         notes: recipe.notes,
+        ...(recipe.personality ? { personality: recipe.personality } : {}),
         brings: recipeEntries(recipe).map((brought) => ({
           type: brought.type,
           name: brought.name,

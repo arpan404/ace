@@ -363,9 +363,18 @@ mod tests {
         assert!(checkpoints.due_in("b1", 0, Some("r1")));
         assert!(checkpoints.take("b1", &workspace, "cp1", 0, "auto").is_ok());
         checkpoints.taken_in("b1", "r1");
-        assert!(!checkpoints.due_in("b1", 10, Some("r1")), "the same turn waits the minute");
-        assert!(!checkpoints.due_in("b1", 10, None), "work of no turn waits the minute");
-        assert!(checkpoints.due_in("b1", 10, Some("r2")), "the next turn takes its own");
+        assert!(
+            !checkpoints.due_in("b1", 10, Some("r1")),
+            "the same turn waits the minute"
+        );
+        assert!(
+            !checkpoints.due_in("b1", 10, None),
+            "work of no turn waits the minute"
+        );
+        assert!(
+            checkpoints.due_in("b1", 10, Some("r2")),
+            "the next turn takes its own"
+        );
     }
 
     #[test]

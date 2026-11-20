@@ -195,7 +195,9 @@ status: "online"|"offline"}]}`: the linked machines this daemon can call.
 (`config/templates.json`).
 
 **Template** = `{"id", "name", "blurb", "task", "face", "model_kind": "fast"|"capable",
-"routines": [{"name", "instruction", "schedule"}]}`. `schedule` is a phrase routines read
+"routines": [{"name", "instruction", "schedule"}], "personality"?: {"tone", "humour", "emoji"}}`.
+A template's personality is the bot's from its first turn ([agents.md](agents.md)); `POST
+/v1/agents` may give its own `personality`, which wins. `schedule` is a phrase routines read
 (`weekdays at 8:00`).
 
 `POST /v1/agents` takes `template` (an id): `name`, `task` and `avatar` default to the
@@ -220,7 +222,8 @@ fetches and reviews it; when the person presses Install it posts it to `POST /v1
     "model": "fast",
     "routines": [{ "name": "Morning sort", "instruction": "…", "schedule": "weekdays at 8:00" }],
     "tools": ["web_search"],
-    "notes": ["…"]
+    "notes": ["…"],
+    "personality": { "tone": "concise", "humour": false, "emoji": false }
   },
   "from_recipe": { "source": "market", "name": "inbox", "version": "1.2.0" },
   "grants": {
@@ -236,7 +239,8 @@ It makes one top-level bot as a template does: name, task and face from the reci
 face value is repaired), the person's own fast model for `fast` and their default for `capable`
 (never a model id from the file), and routines from their schedules, paused unless
 `start_routines`. `tools`, when present, narrows the bot's built-in tools as a worker's grant
-does (ADR 0161): it never adds one. `notes` become the bot's own notes.
+does (ADR 0161): it never adds one. `notes` become the bot's own notes. `personality`, when
+present, is how the bot talks from its first turn; a tone Spade doesn't know refuses the recipe.
 
 Nothing in the recipe is a grant; only `grants` is. A granted catalogue id or https address this
 machine has connected is allowed for the bot; the others are named in `left_out` ("Connect after

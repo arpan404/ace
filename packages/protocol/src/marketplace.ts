@@ -16,6 +16,7 @@ import {
 } from "./marketplace-base.ts";
 
 import { marketPublishOperations, marketPublishResults } from "./marketplace-publish-ops.ts";
+import { SpadePersonality } from "./marketplace-catalog.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
 
 export * from "./marketplace-base.ts";
@@ -150,6 +151,7 @@ export const MarketReviewBody = z.discriminatedUnion("type", [
     routines: z.array(MarketRoutineRow).max(32),
     tools: z.array(z.string().max(64)).max(64).optional(),
     notes: z.array(z.string().max(2000)).max(50),
+    personality: SpadePersonality.optional(),
     /** Skills and plugins it brings, each reviewed in its own section (`readReview`). */
     brings: z
       .array(

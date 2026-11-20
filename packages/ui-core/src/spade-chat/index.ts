@@ -35,6 +35,7 @@ export * from "./quiet.ts";
 export * from "./wakes.ts";
 export * from "./digests.ts";
 export * from "./knowledge.ts";
+export * from "./personality.ts";
 export * from "./services.ts";
 export * from "./roles.ts";
 export * from "./goal.ts";

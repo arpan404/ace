@@ -778,6 +778,7 @@ fn the_task_in_the_prompt_is_the_one_set_before_the_turn_began() {
         Event::Known(Known::AgentConfigured {
             task: task.into(),
             model: "e/m".into(),
+            personality: None,
         })
     };
     let mut events = vec![

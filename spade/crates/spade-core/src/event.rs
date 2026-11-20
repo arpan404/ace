@@ -41,6 +41,10 @@ pub enum Known {
     AgentConfigured {
         task: String,
         model: String,
+        /// How the bot talks, when the person (or its template or recipe) set it; its own section
+        /// of the standing instructions. Absent on events from before personalities.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        personality: Option<crate::personality::Personality>,
     },
     /// The skill index for this conversation, stored before its first model call and again after
     /// each compaction, so the prompt's top stays cached in between; skills added meanwhile are

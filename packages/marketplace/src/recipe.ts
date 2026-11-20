@@ -31,6 +31,7 @@ const known = new Set([
   "plugins",
   "needs",
   "notes",
+  "personality",
 ]);
 
 export interface ReadRecipe {

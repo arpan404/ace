@@ -24,6 +24,7 @@ pub mod maintenance;
 pub mod memory;
 pub mod outward;
 pub mod oversight;
+pub mod personality;
 pub mod question;
 pub mod redact;
 pub mod research;

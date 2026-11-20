@@ -209,6 +209,8 @@ pub struct AgentChange {
     pub task: Option<String>,
     pub model: Option<String>,
     pub avatar: Option<AvatarInput>,
+    /// How it talks; `Some(None)` leaves it to the bot again.
+    pub personality: Option<Option<spade_core::personality::Personality>>,
 }
 
 #[derive(Debug, thiserror::Error)]

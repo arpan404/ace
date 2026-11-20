@@ -195,7 +195,11 @@ mod tests {
         assert_eq!(before(&all, 50).map(|c| c.id.as_str()), Some("b"));
         assert_eq!(before(&all, 89).map(|c| c.id.as_str()), Some("b"));
         assert_eq!(before(&all, 1_000).map(|c| c.id.as_str()), Some("c"));
-        assert_eq!(before(&all, 9), None, "work before any checkpoint can't be undone");
+        assert_eq!(
+            before(&all, 9),
+            None,
+            "work before any checkpoint can't be undone"
+        );
     }
 
     #[test]

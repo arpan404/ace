@@ -362,6 +362,11 @@ pub fn from_template(
     let agent = engine.create_agent(input)?;
     let id = agent.agent.id.clone();
     let mut left_out = Vec::new();
+    if let Some(personality) = template.personality
+        && let Err(why) = engine.start_with_personality(&id, personality)
+    {
+        left_out.push(format!("Its personality wasn't set: {why}"));
+    }
     for r in &template.routines {
         let made = routines::create(
             engine,

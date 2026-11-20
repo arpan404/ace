@@ -141,6 +141,7 @@ impl Engine {
                 Event::Known(Known::AgentConfigured {
                     task: task.clone(),
                     model: model.clone(),
+                    personality: None,
                 })
             })
             .into_iter()
@@ -159,6 +160,22 @@ impl Engine {
             self.now_ms(),
         )?;
         self.view(&id)
+    }
+
+    /// Gives a bot just made its personality (a template's, a recipe's or the person's), from its
+    /// first turn on.
+    pub fn start_with_personality(
+        &self,
+        id: &str,
+        personality: spade_core::personality::Personality,
+    ) -> Result<AgentView, AgentError> {
+        self.update_agent(
+            id,
+            AgentChange {
+                personality: Some(Some(personality)),
+                ..AgentChange::default()
+            },
+        )
     }
 
     /// Changes an agent. Name and avatar apply at once; a task or model change is stored as an
@@ -202,6 +219,20 @@ impl Engine {
                 new_avatar.as_deref().unwrap_or(&agent.avatar),
                 self.now_ms(),
             )?;
+        }
+        if let Some(personality) = change.personality
+            && personality != agent.personality
+        {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let stored = self
+                .store
+                .set_agent_personality(id, personality, self.now_ms());
+            self.forget_activity(&agent.conversation);
+            let stored = stored?;
+            let _ = self
+                .live(&agent.conversation)
+                .frames
+                .send(super::Frame::Stored(stored));
         }
         let task = new_task.unwrap_or_else(|| agent.task.clone());
         let model = new_model.unwrap_or_else(|| agent.model.clone());

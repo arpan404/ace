@@ -76,10 +76,7 @@ async fn undoing_a_turn_restores_the_files_it_changed_and_lists_them_first() -> 
     let seq = started_at(&w, "c2").await?;
     let (status, preview) = w
         .spade
-        .get(&format!(
-            "/v1/agents/{}/checkpoints/undo?seq={seq}",
-            w.bot
-        ))
+        .get(&format!("/v1/agents/{}/checkpoints/undo?seq={seq}", w.bot))
         .await?;
     assert_eq!(status, 200, "{preview}");
     assert_eq!(listed(&preview["changes"]["changed"]), vec!["plan.md"]);
@@ -135,10 +132,7 @@ async fn a_step_from_before_any_checkpoint_has_nothing_to_undo_to() -> Result {
     let seq = started_at(&w, "c1").await?;
     let (status, body) = w
         .spade
-        .get(&format!(
-            "/v1/agents/{}/checkpoints/undo?seq={seq}",
-            w.bot
-        ))
+        .get(&format!("/v1/agents/{}/checkpoints/undo?seq={seq}", w.bot))
         .await?;
     assert_eq!(status, 404, "{body}");
     Ok(())

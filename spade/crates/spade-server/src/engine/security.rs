@@ -6,8 +6,8 @@ use std::sync::Arc;
 use serde_json::Value;
 use spade_core::autonomy::Mode;
 use spade_core::effect::{self, Effect, Granted};
-use spade_core::grant::Action;
 use spade_core::event::{Event, Known};
+use spade_core::grant::Action;
 use spade_store::StoreError;
 
 use super::Engine;

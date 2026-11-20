@@ -712,7 +712,9 @@ impl Security {
             return Ok(None);
         };
         let changes = undo::changes(&self.checkpoints.copy_of(bot, &checkpoint.id), &workspace)
-            .map_err(|why| SecurityError::Store(format!("the files couldn't be compared: {why}")))?;
+            .map_err(|why| {
+                SecurityError::Store(format!("the files couldn't be compared: {why}"))
+            })?;
         Ok(Some((checkpoint, changes)))
     }
 

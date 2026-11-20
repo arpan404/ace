@@ -21,6 +21,12 @@ describe. Agents run on models from the person's own endpoints.
   conversation and used from its next turn, never mid-turn: a turn's prompt takes the task stored
   before its `reply_started`, placed in the cached top of the prompt, and `reply_started` names
   its model. A restart rebuilds the identical prompt. Name and avatar changes apply at once.
+- **Personality** (`{tone?: concise|warm|formal|playful, humour: bool, emoji: bool}`, humour and
+  emoji off unless chosen) is how the bot talks. Set in the profile, or brought by a template or
+  recipe, it is stored on the row and in the same `agent_configured` event (a task change keeps
+  it), and taken from the next turn as a section of its own after the task, in `<personality>`
+  tags, saying it changes only style, never the task or what the bot may do. With none set there
+  is no section. `PATCH` with `personality: null` clears it.
 - **Delete** first marks the agent as being deleted, under the lock every delivery takes: from
   then on no message or job result reaches it, no turn, job or title starts, and messages answer
   `404`. Its turn and jobs are stopped and given up to 5 seconds to let go; whatever is still
@@ -375,7 +381,7 @@ then.
 | --------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `GET /agents`                                 |                                                                            | `{"agents":[Agent]}`: main first, then by `last_activity`  |
 | `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?}`                  | `201 {"agent"}`; `model` defaults as below                 |
-| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`                         | `200 {"agent"}`; `409` for the main agent's name or avatar |
+| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`, `personality`          | `200 {"agent"}`; `409` for the main agent's name or avatar |
 | `DELETE /agents/{id}`                         |                                                                            | `204`; `409` for the main agent                            |
 | `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                         | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |
 | `PUT /main`                                   | `{"enabled": bool}`                                                        | `204`                                                      |
@@ -429,5 +435,5 @@ answered, a turn or job ends). Not stored. Older clients ignore the event name.
 
 | Type               | Fields                              | Meaning                               |
 | ------------------ | ----------------------------------- | ------------------------------------- |
-| `agent_configured` | `task`, `model`                     | The agent's task or model changed     |
+| `agent_configured` | `task`, `model`, `personality?`     | The agent's task, model or voice changed |
 | `user_message`     | `…, from_agent?: {id, name, depth}` | `from_agent` when another bot sent it |
