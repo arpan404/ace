@@ -80,10 +80,9 @@ test("an Antigravity session's reported modes outlive a restart and offer Full a
       storage: openModelStorage(path),
       discover: async () => {
         discoveries++;
-        return normalizeCodex(codexPayload("gemini-3-pro"), antigravity).map((model) => ({
-          ...model,
-          provider: "antigravity" as const,
-        }));
+        return normalizeCodex(codexPayload("gemini-3-pro"), antigravity).map((model) =>
+          Object.assign(model, { provider: "antigravity" as const }),
+        );
       },
       now: () => clock.now,
       deadline: clock.deadline,
