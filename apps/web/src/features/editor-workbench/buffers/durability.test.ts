@@ -70,3 +70,26 @@ describe("a slow save", () => {
     expect(drafts.peek(file)).toBe("one\n");
   });
 });
+
+describe("a draft", () => {
+  it("is deleted after a save even when the buffer goes while an older write is out", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const drafts = memoryDrafts();
+    const { time, registry } = session(disk, drafts);
+    const lease = await opened(registry);
+    const { buffer } = lease;
+    replaceLine(buffer, 0, "ONE");
+    const release = drafts.hold();
+    await time.advance(400);
+    // The tab closes; its unsaved buffer stays until the save lands, then goes.
+    lease.release();
+    expect(await buffer.save()).toMatchObject({ kind: "saved" });
+    await settle();
+    release();
+    await settle();
+
+    expect(drafts.peek(file)).toBeUndefined();
+    const reopened = await opened(session(disk, drafts).registry);
+    expect(reopened.buffer.snapshot()).toMatchObject({ dirty: false, clash: undefined });
+  });
+});

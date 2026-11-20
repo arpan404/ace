@@ -36,7 +36,10 @@ export interface FilePort {
 /** Unsaved text kept on the device, with the version and text it started from. */
 export type Draft = Omit<MigratedDraft, "path">;
 
-/** Device storage for drafts (IndexedDB in the app). A failed write rejects. */
+/**
+ * Device storage for drafts (IndexedDB in the app). A failed write rejects. Puts and deletes
+ * take effect in the order they are called, even while earlier ones are still running.
+ */
 export interface DraftStore {
   get(key: BufferKey): Promise<Draft | undefined>;
   put(key: BufferKey, draft: Draft): Promise<void>;

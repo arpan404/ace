@@ -1,5 +1,6 @@
 import { EditorDocument } from "@ace/editor";
 import type { Author } from "./attribution.ts";
+import { DraftSlot } from "./draft-slot.ts";
 import { opening } from "./opening.ts";
 import { reconcile, type ReconcileHost } from "./reconcile.ts";
 import { landLineChanges, utf8Length } from "./text-edits.ts";
@@ -81,8 +82,8 @@ export class Buffer implements TextBuffer {
   #draftKept = true;
   #saving: Promise<SaveOutcome> | undefined;
   #cancelDraft: (() => void) | undefined;
-  /** Draft writes and deletes, in order, so a late write never outlives a save. */
-  #storage: Promise<void> = Promise.resolve();
+  /** Draft writes and deletes, started when asked and applied in order. */
+  readonly #slot = new DraftSlot((kept) => this.#keep(kept));
   #generation = 0;
   /** A disk change arrived while loading or saving: look again afterwards. */
   #recheck = false;
@@ -165,7 +166,7 @@ export class Buffer implements TextBuffer {
       this.#cancelDraft = undefined;
       return this.#persist();
     }
-    return this.#storage;
+    return this.#slot.settled();
   }
 
   async load(): Promise<void> {
@@ -272,8 +273,8 @@ export class Buffer implements TextBuffer {
     this.#dirty = false;
     this.#clash = undefined;
     // The person chose to drop the edits: a draft store that can't be reached changes nothing.
-    this.#queue(() => this.#ctx.drafts.delete(this.key).catch(() => {}));
-    await this.#storage.catch(() => {});
+    const key = this.key;
+    await this.#slot.write(() => this.#ctx.drafts.delete(key), true);
     this.#free();
     await this.load();
   }
@@ -493,32 +494,27 @@ export class Buffer implements TextBuffer {
     void this.diskChanged();
   }
 
-  /** Makes the stored draft match the buffer: its text while unsaved, nothing once saved. */
+  /**
+   * Makes the stored draft match the buffer: its text while unsaved, nothing once saved. Decided
+   * and started now, so the write reflects the buffer as it is and nothing freed later skips it.
+   */
   #persist(): Promise<void> {
-    return this.#queue(async () => {
-      const doc = this.#doc;
-      const base = this.#base;
-      if (!doc || !base) return;
-      const text = doc.text();
-      this.bytes = utf8Length(text);
-      if (text === base.text && this.#clash === undefined) {
-        if (this.#dirty) this.#markClean();
-        await this.#ctx.drafts.delete(this.key).catch(() => {});
-        this.#keep(true);
-      } else if (this.keeps()) {
-        const draft = { text, original: base.text, version: base.version };
-        await this.#ctx.drafts.put(this.key, draft).then(
-          () => this.#keep(true),
-          () => this.#keep(false),
-        );
-      }
-      this.#ctx.changed();
-    });
-  }
-
-  #queue(task: () => Promise<void>): Promise<void> {
-    this.#storage = this.#storage.then(task, task);
-    return this.#storage;
+    const doc = this.#doc;
+    const base = this.#base;
+    if (!doc || !base) return this.#slot.settled();
+    const key = this.key;
+    const text = doc.text();
+    this.bytes = utf8Length(text);
+    let written: Promise<void>;
+    if (text === base.text && this.#clash === undefined) {
+      if (this.#dirty) this.#markClean();
+      written = this.#slot.write(() => this.#ctx.drafts.delete(key), true);
+    } else if (this.keeps()) {
+      const draft = { text, original: base.text, version: base.version };
+      written = this.#slot.write(() => this.#ctx.drafts.put(key, draft));
+    } else written = this.#slot.settled();
+    this.#ctx.changed();
+    return written;
   }
 
   #keep(kept: boolean): void {
