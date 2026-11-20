@@ -325,7 +325,7 @@ test("the profile holds the bot's routines and spending in Details, its notes an
   await userEvent.click(await profile.findByRole("button", { name: /fares\.csv/ }));
   // A file opens in Computer's Files, beside what else it used.
   const tabs = await profile.findByRole("tablist", { name: "Computer" });
-  expect(within(tabs).getByRole("tab", { name: "Deck" }).getAttribute("aria-selected")).toBe(
+  expect(within(tabs).getByRole("tab", { name: "Files" }).getAttribute("aria-selected")).toBe(
     "true",
   );
   expect(within(tabs).getByRole("tab", { name: "Terminal" })).toBeTruthy();
