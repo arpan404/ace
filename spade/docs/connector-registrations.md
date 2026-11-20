@@ -16,16 +16,17 @@ Slack can: `bun run docs:connectors slack --yes` creates the app from its manife
 | --- | --- | --- | --- | --- |
 | Figma | maker approval | Submitted | 10 | Figma paused new MCP clients; the access request is on file for when they resume |
 | Vercel | maker approval | Submitted | 10 |  |
-| Pipedrive | maker approval | Not started | 15 | Posting on Pipedrive's developer community needs the owner's signed-in account |
+| Pipedrive | maker approval | Submitted | 15 |  |
 | Ramp | maker approval | Submitted | 10 |  |
-| Canva | ace cloud app | Blocked | 20 | Canva's developer portal needs the owner's signed-in Canva account, behind a Cloudflare human check |
-| Slack | ace cloud app | Blocked | 10 | Needs SLACK_CONFIG_TOKEN, an app configuration token with app_configurations:write that the owner makes at api.slack.com/apps under Your App Configuration Tokens |
-| Box | ace cloud app | Blocked | 15 | Box's Admin Console needs a signed-in Box enterprise admin, the owner's |
-| Zoom | ace cloud app | Blocked | 25 | Zoom's App Marketplace needs the owner's signed-in Zoom account |
+| Typeform | maker approval | Submitted | 10 |  |
+| Canva | ace cloud app | Blocked | 20 | App Spade (AAHOGFmMfvY) is created, but Canva only enables Outside Canva and MCP once the owner turns on multi-factor sign-in for their Canva account, which needs a password and an authenticator |
+| Slack | ace cloud app | Blocked | 10 | Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it |
+| Box | ace cloud app | Blocked | 15 | Box offers only a paid trial, no free account; the owner chose free accounts only |
+| Zoom | ace cloud app | Blocked | 25 | Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it |
 | GitHub | public app | Not started | 5 |  |
-| Asana | ace cloud app | Blocked | 10 | Asana's developer console needs the owner's signed-in Asana account |
-| HubSpot | ace cloud app | Blocked | 10 | HubSpot's MCP Connectors page needs the owner's signed-in HubSpot account |
-| Front | ace cloud app | Blocked | 15 | Front's developer settings need a signed-in Front company admin, the owner's |
+| Asana | ace cloud app | Blocked | 10 | Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it |
+| HubSpot | ace cloud app | Blocked | 10 | Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it |
+| Front | ace cloud app | Blocked | 15 | Front offers only a paid trial, no free account; the owner chose free accounts only |
 | Google Workspace (Gmail, Calendar, Chat, Docs, Drive, Sheets, Slides) | ace cloud app | Blocked | 60 | Owner parked it: OAuth verification plus the yearly security assessment for the restricted scopes |
 
 ## 1. Figma
@@ -85,9 +86,7 @@ Notes:
 
 ## 3. Pipedrive
 
-Kind: maker approval. Status: not started. About 15 minutes.
-
-**Blocked on:** Posting on Pipedrive's developer community needs the owner's signed-in account.
+Kind: maker approval. Status: submitted. Started 2026-11-20. About 15 minutes.
 
 Send to: [A post on Pipedrive's developer community](https://devcommunity.pipedrive.com/). The message, ready to send, is written to `tools/connector-registrations/out/outreach/pipedrive.md`.
 
@@ -105,6 +104,7 @@ Values:
 
 Notes:
 
+- Posted on 2026-11-20 in the API category; first posts wait for a moderator before they show.
 - Once Pipedrive says yes, remove "waits_for": "maker_approval" from Pipedrive's entry in spade/config/connectors.json and release.
 
 ## 4. Ramp
@@ -130,11 +130,34 @@ Notes:
 - Ramp: "custom clients and gateways must have their exact redirect URI allowlisted" (https://support.ramp.com/ramp-mcp/).
 - Once Ramp says yes, remove "waits_for": "maker_approval" from Ramp's entry in spade/config/connectors.json and release.
 
-## 5. Canva
+## 5. Typeform
 
-Kind: ace cloud app. Status: blocked. About 20 minutes.
+Kind: maker approval. Status: submitted. Started 2026-11-20. About 10 minutes.
 
-**Blocked on:** Canva's developer portal needs the owner's signed-in Canva account, behind a Cloudflare human check.
+Send to: [Typeform's MCP client request form](https://form.typeform.eu/to/JYjeBnvZ). The message, ready to send, is written to `tools/connector-registrations/out/outreach/typeform.md`.
+
+> We build Spade, the assistant in ace, an open-source MCP client that runs on people's own computers. We'd like Typeform to accept Spade's client ID metadata document, or add its loopback redirect to the dynamic registration allowlist, so our users can connect Typeform's MCP server.
+
+Values:
+
+- Client name: `Spade`
+- Homepage: `https://acehq.dev`
+- Client ID metadata document: `https://acehq.dev/oauth/spade.json`
+- Redirect URI (loopback, any port): `http://127.0.0.1/v1/connectors/callback`
+- Privacy policy: `https://acehq.dev/privacy`
+- Terms of service: `https://acehq.dev/terms`
+- Contact: `founders@acehq.dev`
+
+Notes:
+
+- Typeform: "we may exceptionally add you to our Dynamic Client Registration (DCR) allowlist" (https://developer.typeform.com/developers/mcp/build-a-connector/). They follow up within 7 days.
+- Once Typeform says yes, remove "waits_for": "maker_approval" from Typeform's entry in spade/config/connectors.json and release.
+
+## 6. Canva
+
+Kind: ace cloud app. Status: blocked. Started 2026-11-20. About 20 minutes.
+
+**Blocked on:** App Spade (AAHOGFmMfvY) is created, but Canva only enables Outside Canva and MCP once the owner turns on multi-factor sign-in for their Canva account, which needs a password and an authenticator.
 
 Where: Canva Developer Portal > Your apps > Create an app > Outside Canva, then Configuration > Integration methods > Canva MCP on.
 
@@ -188,11 +211,11 @@ Notes:
 
 - Public integrations are reviewed by Canva; private ones are only for Enterprise teams (https://www.canva.dev/docs/connect/creating-integrations/).
 
-## 6. Slack
+## 7. Slack
 
-Kind: ace cloud app. Status: blocked. About 10 minutes.
+Kind: ace cloud app. Status: blocked. Started 2026-11-20. About 10 minutes.
 
-**Blocked on:** Needs SLACK_CONFIG_TOKEN, an app configuration token with app_configurations:write that the owner makes at api.slack.com/apps under Your App Configuration Tokens.
+**Blocked on:** Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it.
 
 Where: Slack API > Your Apps > Create New App > From a manifest, or bun run docs:connectors slack --yes.
 
@@ -245,14 +268,16 @@ XDG_CONFIG_HOME=~/.ace-cloudflare bunx wrangler secret put SPADE_CLOUD_SLACK_CLI
 
 Notes:
 
+- App Spade (A0CKMKQ6RAQ) created from the manifest in the New Workspace workspace on 2026-11-20.
+- Worker secrets: the client ID and secret are in the owner's macOS keychain (service SPADE_CLOUD_SLACK_CLIENT_ID / _CLIENT_SECRET, account spade-cloud); they go into ace-relay once wrangler is logged in to the Cloudflare account that runs it
 - Scopes are user scopes, not bot scopes.
 - Slack: "only directory-published apps or internal apps may use MCP" (https://docs.slack.dev/ai/slack-mcp-server/). Until Spade is listed in the Slack Marketplace it works only in the owner's own workspace.
 
-## 7. Box
+## 8. Box
 
 Kind: ace cloud app. Status: blocked. About 15 minutes.
 
-**Blocked on:** Box's Admin Console needs a signed-in Box enterprise admin, the owner's.
+**Blocked on:** Box offers only a paid trial, no free account; the owner chose free accounts only.
 
 Where: Box Admin Console > Integrations > Box MCP server > Configure > Additional Configuration > Add Integration Credentials (Box's guide doesn't give the console's address).
 
@@ -288,11 +313,11 @@ Notes:
 - No scopes to enter: Box sets its own, and the broker asks for none.
 - Credentials are made per enterprise by a Box admin. Box may limit them to the owner's enterprise; its docs don't say they work in other enterprises, so one shipped client may not be possible.
 
-## 8. Zoom
+## 9. Zoom
 
-Kind: ace cloud app. Status: blocked. About 25 minutes.
+Kind: ace cloud app. Status: blocked. Started 2026-11-20. About 25 minutes.
 
-**Blocked on:** Zoom's App Marketplace needs the owner's signed-in Zoom account.
+**Blocked on:** Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it.
 
 Where: Zoom App Marketplace > Develop > Build app > General app (user-managed OAuth) > Create.
 
@@ -335,9 +360,11 @@ XDG_CONFIG_HOME=~/.ace-cloudflare bunx wrangler secret put SPADE_CLOUD_ZOOM_CLIE
 
 Notes:
 
+- General app Spade created on 2026-11-20 with the redirect and all seven scopes; Zoom shows it ready for local test.
+- Worker secrets: the client ID and secret are in the owner's macOS keychain (service SPADE_CLOUD_ZOOM_CLIENT_ID / _CLIENT_SECRET, account spade-cloud); they go into ace-relay once wrangler is logged in to the Cloudflare account that runs it
 - People outside the owner's Zoom account can sign in only once the app is published to the Zoom App Marketplace (https://developers.zoom.us/docs/mcp/servers/connect-to-zoom-mcp-servers/).
 
-## 9. GitHub
+## 10. GitHub
 
 Kind: public app. Status: not started. About 5 minutes.
 
@@ -362,11 +389,11 @@ Notes:
 - Copy the Client ID into spade/config/connector-apps.json as the client_id of the github entry and commit it; it is public by design.
 - If the owner is an organisation that restricts OAuth apps, approve Spade under its third-party access settings.
 
-## 10. Asana
+## 11. Asana
 
-Kind: ace cloud app. Status: blocked. About 10 minutes.
+Kind: ace cloud app. Status: blocked. Started 2026-11-20. About 10 minutes.
 
-**Blocked on:** Asana's developer console needs the owner's signed-in Asana account.
+**Blocked on:** Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it.
 
 Where: Asana developer console > Create new app > MCP app, then OAuth and Manage distribution in the sidebar.
 
@@ -403,13 +430,15 @@ XDG_CONFIG_HOME=~/.ace-cloudflare bunx wrangler secret put SPADE_CLOUD_ASANA_CLI
 
 Notes:
 
+- MCP app Spade (1220730039774516) created on 2026-11-20 in a free Asana account, distribution set to any workspace.
+- Worker secrets: the client ID and secret are in the owner's macOS keychain (service SPADE_CLOUD_ASANA_CLIENT_ID / _CLIENT_SECRET, account spade-cloud); they go into ace-relay once wrangler is logged in to the Cloudflare account that runs it
 - Asana's V2 MCP server has no dynamic registration: every client registers first (https://developers.asana.com/docs/integrating-with-asanas-mcp-server).
 
-## 11. HubSpot
+## 12. HubSpot
 
-Kind: ace cloud app. Status: blocked. About 10 minutes.
+Kind: ace cloud app. Status: blocked. Started 2026-11-20. About 10 minutes.
 
-**Blocked on:** HubSpot's MCP Connectors page needs the owner's signed-in HubSpot account.
+**Blocked on:** Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it.
 
 Where: HubSpot > Development > MCP Connectors > Create MCP connector.
 
@@ -442,13 +471,15 @@ XDG_CONFIG_HOME=~/.ace-cloudflare bunx wrangler secret put SPADE_CLOUD_HUBSPOT_C
 
 Notes:
 
+- MCP connector Spade (app 62806104) created on 2026-11-20 in a free HubSpot account, portal 248064312.
+- Worker secrets: the client ID and secret are in the owner's macOS keychain (service SPADE_CLOUD_HUBSPOT_CLIENT_ID / _CLIENT_SECRET, account spade-cloud); they go into ace-relay once wrangler is logged in to the Cloudflare account that runs it
 - No scopes to enter: HubSpot sets its own, and the broker asks for none.
 
-## 12. Front
+## 13. Front
 
 Kind: ace cloud app. Status: blocked. About 15 minutes.
 
-**Blocked on:** Front's developer settings need a signed-in Front company admin, the owner's.
+**Blocked on:** Front offers only a paid trial, no free account; the owner chose free accounts only.
 
 Where: Front > Settings > Company > Developer: create the app, then Features > Add feature > Front MCP, with OAuth on.
 
@@ -487,7 +518,7 @@ Notes:
 
 - Front may require publishing the app before people at other companies can sign in (https://dev.frontapp.com/docs/mcp-server).
 
-## 13. Google Workspace (Gmail, Calendar, Chat, Docs, Drive, Sheets, Slides)
+## 14. Google Workspace (Gmail, Calendar, Chat, Docs, Drive, Sheets, Slides)
 
 Kind: ace cloud app. Status: blocked. About 60 minutes.
 
