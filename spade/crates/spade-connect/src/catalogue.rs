@@ -70,6 +70,10 @@ pub struct Entry {
     pub id: String,
     pub name: String,
     pub category: Category,
+    /// Words a task that needs it may use ("issues", "inbox"): how [`crate::fit`] finds the
+    /// apps that fit a bot's task or a need it names, with no model call.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<String>,
     pub url: String,
     pub sign_in: Vec<SignIn>,
     #[serde(default)]
@@ -235,6 +239,7 @@ mod tests {
             "id",
             "name",
             "category",
+            "words",
             "url",
             "sign_in",
             "via",

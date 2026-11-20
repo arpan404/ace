@@ -172,6 +172,7 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
                 shared: Box::default(),
                 transient: false,
                 command: None,
+                reconnect: None,
             }
         }
         // Nothing ran (ace was away or busy): a background call is parked and tried again later

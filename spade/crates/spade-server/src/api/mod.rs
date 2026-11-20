@@ -142,6 +142,10 @@ pub fn router(state: AppState) -> Router {
             "/conversations/{id}/questions/{call_id}",
             post(questions::reply),
         )
+        .route(
+            "/conversations/{id}/questions/{call_id}/connected",
+            post(questions::connected),
+        )
         .route("/conversations/{id}/live", get(live))
         .route("/conversations/{id}/compact", post(compact))
         .route("/conversations/{id}/seen", put(seen))
