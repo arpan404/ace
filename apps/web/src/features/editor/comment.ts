@@ -73,8 +73,13 @@ const byLanguage: Record<string, CommentTokens> = {
   hs: { line: "--", block: ["{-", "-}"] },
 };
 
-/** The comment tokens for this file's language, if it has any. */
-export function commentTokens(path: string): CommentTokens | undefined {
+/**
+ * The comment tokens for this file's language, if it has any. `chosen` is a language picked in
+ * the status line, which wins over the file's own; `null` there means plain text.
+ */
+export function commentTokens(path: string, chosen?: string | null): CommentTokens | undefined {
+  if (chosen === null) return undefined;
+  if (chosen !== undefined) return byLanguage[chosen];
   const language = fileLanguage(path);
   if (language && byLanguage[language]) return byLanguage[language];
   const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();

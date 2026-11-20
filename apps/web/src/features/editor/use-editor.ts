@@ -67,6 +67,8 @@ export interface EditBatch {
 export function useEditorDocument(options: {
   text: string;
   path: string;
+  /** A language picked over the file's own: a name, or null for plain text. */
+  language?: string | null | undefined;
   /** Text the gutter compares against; undefined leaves the external marks alone. */
   original?: string | undefined;
   /** Called after each applied edit, with no text: ask `doc.text()` only when needed. */
@@ -162,7 +164,8 @@ export function useEditorDocument(options: {
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a retry (`attempt`) loads the document again.
   }, [initial, attempt]);
 
-  const language = fileLanguage(path);
+  const language =
+    options.language === undefined ? fileLanguage(path) : (options.language ?? undefined);
   const highlightDelay = options.highlightDelay;
   useEffect(() => {
     let live = true;

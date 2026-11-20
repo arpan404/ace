@@ -27,7 +27,12 @@ const edit = (run: (doc: EditorDocument) => Applied | undefined): EditorCommand 
 });
 
 /** The edit or selection a key makes, or undefined when it is not a line key. */
-export function lineCommand(event: KeyLike, mac: boolean, path: string): EditorCommand | undefined {
+export function lineCommand(
+  event: KeyLike,
+  mac: boolean,
+  path: string,
+  language?: string | null,
+): EditorCommand | undefined {
   const mod = mac ? event.metaKey : event.ctrlKey;
   const other = mac ? event.ctrlKey : event.metaKey;
   if (other && !(mac && event.ctrlKey && event.code === "KeyJ")) return undefined;
@@ -50,7 +55,7 @@ export function lineCommand(event: KeyLike, mac: boolean, path: string): EditorC
     return edit((doc) => doc.joinLines());
   if (mod && !alt && !shift && code === "KeyL") return { kind: "select", run: selectLines };
   if (mod && !alt && !shift && (key === "/" || code === "Slash")) {
-    const tokens = commentTokens(path);
+    const tokens = commentTokens(path, language);
     if (tokens?.line) {
       const token = tokens.line;
       return edit((doc) => doc.toggleLineComment(token));
@@ -60,7 +65,7 @@ export function lineCommand(event: KeyLike, mac: boolean, path: string): EditorC
     return undefined;
   }
   if (!mod && alt && shift && code === "KeyA") {
-    const block = commentTokens(path)?.block;
+    const block = commentTokens(path, language)?.block;
     if (!block) return undefined;
     return edit((doc) => doc.toggleBlockComment(block[0], block[1]));
   }

@@ -49,6 +49,22 @@ impl Buffer {
         self.line_ending
     }
 
+    pub(crate) fn set_line_ending(&mut self, ending: LineEnding) {
+        self.line_ending = ending;
+    }
+
+    /// Reads the ending from the first line break again, after an undo put other text back.
+    /// A document with no break keeps the ending it had.
+    pub(crate) fn redetect_line_ending(&mut self) {
+        if self.len_lines() > 1 {
+            self.line_ending = if self.ending_len(0) == 2 {
+                LineEnding::Crlf
+            } else {
+                LineEnding::Lf
+            };
+        }
+    }
+
     pub(crate) fn text(&self) -> String {
         self.rope.to_string()
     }

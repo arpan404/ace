@@ -30,7 +30,9 @@ export interface CodeEditorProps {
   label: string;
   /** Wrap long lines at the editor's width, as the Files tab's preference asks. */
   wrap?: boolean;
-  /** Draw a mark for every space and tab. Off by default. */
+  /** The status line under the text (position, indentation, line ending, language). On by default. */
+  statusLine?: boolean;
+  /** Draw a mark for every space and tab. Off by default; the status line can turn it on. */
   renderWhitespace?: boolean;
   /** Vertical rulers at these columns. None by default. */
   rulers?: readonly number[];

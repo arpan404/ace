@@ -46,6 +46,11 @@ export class EditorDocument {
     return this.#inner.lineEnding() === "\r\n" ? "\r\n" : "\n";
   }
 
+  /** Rewrites every line break with `ending` as one undo step; new lines use it from now on. */
+  setLineEnding(ending: "\n" | "\r\n"): Applied {
+    return readApplied(this.#inner.setLineEnding(ending === "\r\n"));
+  }
+
   /** The number of edits applied so far. */
   version(): number {
     return this.#inner.version();

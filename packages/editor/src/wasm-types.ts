@@ -15,6 +15,7 @@ export interface WasmDocument {
   line(index: number): string;
   lines(start: number, end: number): string[];
   lineEnding(): string;
+  setLineEnding(crlf: boolean): WasmApplied;
   version(): number;
   selections(): Uint32Array;
   primarySelection(): number;

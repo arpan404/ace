@@ -36,6 +36,8 @@ export interface EditorKeyOptions {
   state: EditorDocumentState;
   readOnly: boolean;
   path: string;
+  /** A language picked in the status line (null: plain text), for the comment keys. */
+  language?: string | null | undefined;
   /** Visible rows, for Page Up and Page Down. */
   rows: number;
   /** The document's visual rows, so Up and Down move a row and not a line. */
@@ -278,7 +280,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
       options.onSave();
       return;
     }
-    const command = options.readOnly ? undefined : lineCommand(event, mac, path);
+    const command = options.readOnly ? undefined : lineCommand(event, mac, path, options.language);
     if (command) {
       event.preventDefault();
       goal.current = undefined;

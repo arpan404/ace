@@ -105,6 +105,25 @@ impl Document {
         self.buffer.line_ending()
     }
 
+    /// Rewrites every line break with `ending` as one undo step, and writes new lines with it.
+    pub fn set_line_ending(&mut self, ending: LineEnding) -> Applied {
+        self.buffer.set_line_ending(ending);
+        let mut raw = Vec::new();
+        for line in 0..self.buffer.len_lines() {
+            let brk = self.buffer.line_break(line);
+            if brk.is_empty() || brk == ending.as_str() {
+                continue;
+            }
+            let end = self.buffer.line_full_end(line);
+            raw.push(Edit {
+                start: end - brk.len(),
+                end,
+                text: ending.as_str().to_owned(),
+            });
+        }
+        self.apply_mapped(EditSet::new(raw))
+    }
+
     /// The number of edits applied so far. Clients use it to discard stale results.
     pub fn version(&self) -> u64 {
         self.version
@@ -198,6 +217,7 @@ impl Document {
     pub fn undo(&mut self) -> Option<Applied> {
         let mut entry = self.history.take_undo()?;
         let outcome = self.run(&entry.inverse);
+        self.buffer.redetect_line_ending();
         let before = std::mem::take(&mut entry.before);
         let primary = before.len().saturating_sub(1);
         let (selections, primary) = self.normalize_selections(before, primary);
@@ -212,6 +232,7 @@ impl Document {
     pub fn redo(&mut self) -> Option<Applied> {
         let mut entry = self.history.take_redo()?;
         let outcome = self.run(&entry.forward);
+        self.buffer.redetect_line_ending();
         let after = std::mem::take(&mut entry.after);
         let primary = after.len().saturating_sub(1);
         let (selections, primary) = self.normalize_selections(after, primary);

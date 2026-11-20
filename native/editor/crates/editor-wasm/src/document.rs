@@ -2,7 +2,7 @@
 
 //! The document class JavaScript drives.
 
-use editor_core::{Document, FindQuery, Indent, Position};
+use editor_core::{Document, FindQuery, Indent, LineEnding, Position};
 use wasm_bindgen::prelude::*;
 
 use crate::applied::Applied;
@@ -63,6 +63,17 @@ impl EditorDocument {
     #[wasm_bindgen(js_name = lineEnding)]
     pub fn line_ending(&self) -> String {
         self.core.line_ending().as_str().to_owned()
+    }
+
+    /// Rewrites every line break as `"\n"` or `"\r\n"` as one undo step.
+    #[wasm_bindgen(js_name = setLineEnding)]
+    pub fn set_line_ending(&mut self, crlf: bool) -> Applied {
+        let ending = if crlf {
+            LineEnding::Crlf
+        } else {
+            LineEnding::Lf
+        };
+        Applied::new(self.core.set_line_ending(ending))
     }
 
     /// The number of edits applied so far.

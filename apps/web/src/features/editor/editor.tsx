@@ -9,6 +9,7 @@ import { useElementSize } from "@/lib/element-size.ts";
 import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
 import { Decorations } from "./decorations.tsx";
 import { EditorFindBar } from "./find-bar.tsx";
+import { EditorStatusLine } from "./status-line.tsx";
 import { GoToLineBar } from "./go-to-line.tsx";
 import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
 import { gutterWidth, leastRowCells, lineHeight, longLine } from "./geometry.ts";
@@ -63,7 +64,15 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   );
   /** Each caret's side of a hard break, as VS Code keeps it; secondary carets keep their own. */
   const [affinity, setAffinity] = useState<Affinity>(noAffinity);
+  /** A language picked in the status line: a name, null for plain text, undefined the file's. */
+  const [chosenLanguage, setChosenLanguage] = useState<string | null | undefined>(undefined);
+  const language =
+    chosenLanguage === undefined ? fileLanguage(props.path) : (chosenLanguage ?? undefined);
+  const [whitespace, setWhitespace] = useState(props.renderWhitespace ?? false);
+  /** Bumped when the indent setting changes, which lives in the document, not in React. */
+  const [, setIndentRevision] = useState(0);
   const state = useEditorDocument({
+    language: chosenLanguage,
     text: props.text,
     path: props.path,
     original: props.marks ? undefined : props.text,
@@ -96,7 +105,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   // or briefly after, so a slow or large file is never kept blank. Later changes keep the
   // colours they had.
   const [shown, setShown] = useState(false);
-  const held = !shown && fileLanguage(props.path) !== undefined;
+  const held = !shown && language !== undefined;
   useEffect(() => {
     // oxlint-disable-next-line react-compiler/set-state-in-effect -- the highlighter's first colours arrive outside React.
     if (paint > 0) setShown(true);
@@ -247,6 +256,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     state,
     readOnly,
     path: props.path,
+    language: chosenLanguage,
     rows: Math.max(1, Math.floor(height / lineHeight)),
     layout,
     affinity,
@@ -420,7 +430,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 indentSize={indentSize}
                 brackets={decorations.brackets}
                 occurrences={decorations.occurrences}
-                whitespace={props.renderWhitespace ?? false}
+                whitespace={whitespace}
                 rulers={props.rulers ?? noRulers}
               />
               {lines.map((text, offset) => {
@@ -528,6 +538,24 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           </span>
         ) : null}
       </div>
+      {doc && props.statusLine !== false ? (
+        <EditorStatusLine
+          selections={state.selections}
+          primary={state.primary}
+          indent={doc.indent()}
+          lineEnding={doc.lineEnding()}
+          language={language}
+          whitespace={whitespace}
+          readOnly={readOnly}
+          onIndent={(indent) => {
+            doc.setIndent(indent);
+            setIndentRevision((value) => value + 1);
+          }}
+          onLineEnding={(ending) => state.edit((target) => target.setLineEnding(ending))}
+          onLanguage={(next) => setChosenLanguage(next ?? null)}
+          onWhitespace={setWhitespace}
+        />
+      ) : null}
     </div>
   );
 }
