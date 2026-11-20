@@ -26,9 +26,7 @@ import {
   type WindowsJobFactory,
 } from "./process-containment.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
-import { findInstalledExecutable } from "./discovery/shim-resolver.ts";
-import { probeLaunch } from "./discovery/probe-launch.ts";
-import { VersionManagerToolMissingError } from "./discovery/version-manager-shim.ts";
+import { resolveProbeLaunch, resolveWithin, type ProbeLaunch } from "./probe-resolve.ts";
 export {
   stopOwnedGroups,
   observeProcessGroups,
@@ -393,6 +391,8 @@ export type ProbeOptions = {
   spawn?: typeof spawnRawSupervised;
   schedule?: (callback: () => void, milliseconds: number) => () => void;
   thread?: ProbeThread;
+  /** Resolves what runs, reading the filesystem; tests stand in for one that hangs. */
+  resolve?: typeof resolveProbeLaunch;
 };
 type ProbeResult = { stdout: string; stderr: string; code: number | null };
 export async function probeOutput(
@@ -408,10 +408,10 @@ export async function probeOutput(
   let settled: Promise<unknown> = Promise.resolve();
   const release = admitProcess(
     async () => {
-      halt.abort();
+      halt.abort(new Error("Probe stopped"));
       await settled;
     },
-    () => halt.abort(),
+    () => halt.abort(new Error("Probe stopped")),
   );
   const running = runProbe(command, args, options, maxBytes, halt.signal);
   settled = running.catch(() => {});
@@ -428,34 +428,36 @@ async function runProbe(
   maxBytes: number,
   halt: AbortSignal,
 ): Promise<ProbeResult> {
-  // A probe only reads. A version manager's shim can install or update its tool when it runs,
-  // so a shim is probed through the installed binary its manager names, or not at all.
-  const found = await findInstalledExecutable(
-    command,
-    { ...process.env, ...options.env },
-    {
-      ...(options.signal ? { signal: options.signal } : {}),
-      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    },
-  );
-  if (found && "refused" in found) throw found.refused;
-  if (found && "absent" in found) throw new VersionManagerToolMissingError(found.path);
-  // The CLI's own interpreter and anything it starts from PATH must not reach a shim either.
-  const launch = await probeLaunch(
-    found && "run" in found ? found.run : command,
-    args,
-    { ...process.env, ...options.env },
-    {
-      ...(options.signal ? { signal: options.signal } : {}),
-      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    },
-  );
   const schedule =
     options.schedule ??
     ((callback: () => void, ms: number) => {
       const timer = setTimeout(callback, ms);
       return () => clearTimeout(timer);
     });
+  // A probe only reads: what it runs never reaches a version manager's shim. Resolving reads the
+  // filesystem, so it is given up on the caller's abort, a global stop or the probe's timeout,
+  // even while a read under it hangs; a stop then never waits on a stalled mount.
+  const asked = new AbortController();
+  const ask = () => asked.abort(new Error("Probe aborted"));
+  if (options.signal?.aborted) ask();
+  options.signal?.addEventListener("abort", ask, { once: true });
+  let launch: ProbeLaunch;
+  try {
+    launch = await resolveWithin(
+      (signal) =>
+        (options.resolve ?? resolveProbeLaunch)(
+          command,
+          args,
+          { ...process.env, ...options.env },
+          { signal, cwd: options.cwd },
+        ),
+      AbortSignal.any([asked.signal, halt]),
+      options.timeoutMs ?? 30_000,
+      schedule,
+    );
+  } finally {
+    options.signal?.removeEventListener("abort", ask);
+  }
   // A spawn blocks its thread until the child starts, seconds under load: keep it off this one.
   if (!options.spawn)
     return probeOffThread(launch.command, launch.args, {
