@@ -9,10 +9,12 @@ import {
   threadMenu,
   threadMenuLabels,
 } from "./thread-menu.ts";
+import { entry } from "./test-entries.fixture.ts";
 
 const done: ThreadStatus = { state: "done" };
 const working: ThreadStatus = { state: "working", agents: 3 };
 const flags = { settled: false, unread: false, pinned: false };
+const workspace = (id: string) => ({ id, name: id, path: `/w/${id}` });
 
 describe("thread menu", () => {
   it("offers settling only once the tree stops working, and unsettling once settled", () => {
@@ -21,6 +23,21 @@ describe("thread menu", () => {
     const settled = threadMenu({ status: working }, { ...flags, settled: true });
     expect(settled).toContain("unsettle");
     expect(settled).not.toContain("settle");
+  });
+
+  it("offers a new thread from the default branch on a project thread, never on a chat", () => {
+    const project = entry("ace", done, 0, {
+      workspaceId: "ace",
+      details: { workspace: workspace("ace") },
+    });
+    expect(threadMenu(project, flags)).toContain("new-on-main");
+    const chat = entry("chat-1", done, 0, {
+      workspaceId: "chat-1",
+      details: { workspace: { ...workspace("chat-1"), kind: "chat" } },
+    });
+    const menu = threadMenu(chat, flags);
+    expect(menu).not.toContain("new-on-main");
+    expect(menu).toEqual(expect.arrayContaining(["rename", "settle", "archive", "delete"]));
   });
 
   it("toggles read, pin and auto-settle by the thread's own state", () => {

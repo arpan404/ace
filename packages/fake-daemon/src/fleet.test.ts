@@ -38,8 +38,9 @@ test("a fake machine keeps links to other machines until they are unlinked", asy
       kind: "linked",
       link: { hostId: studio, profile: "studio", name: "Studio", status: "online" },
     });
+    // The link holds what the other machine's pairing link granted, here view only (#2312).
     expect(daemon.services.fleet.links()).toEqual([
-      expect.objectContaining({ hostId: studio, access: "operate" }),
+      expect.objectContaining({ hostId: studio, access: "read", projects: false }),
     ]);
     expect(await ask({ op: "links" })).toMatchObject({ links: [{ hostId: studio }] });
     expect(await ask({ op: "unlink", hostId: studio })).toEqual({ kind: "unlinked" });

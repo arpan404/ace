@@ -134,6 +134,8 @@ it("an app's ace-client name, garbled or missing, never changes how the account 
   for (const [path, client] of [
     ["/v1/account/session", undefined],
     ["/v1/account/session", "desktop/0.0.24-beta.1"],
+    ["/v1/account/session", "ios/0.1.0"],
+    ["/v1/account/session", "ios/development"],
     ["/v1/account/session", "garbled"],
     [`/v1/account/session?ace-client=${encodeURIComponent("web/0.0.24-beta.1")}`, undefined],
   ] as const) {

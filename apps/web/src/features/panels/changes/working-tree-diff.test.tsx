@@ -43,7 +43,7 @@ async function openUncommitted() {
 
 test("uncommitted changes show each file with its added and removed lines", async () => {
   const diff = await openUncommitted();
-  const retry = within(diff).getByRole("region", { name: "src/retry.ts" });
+  const retry = await within(diff).findByRole("region", { name: "src/retry.ts" });
   const removed = within(retry)
     .getByText(codeText(/return 1;/))
     .closest("[data-diff-row]");
@@ -115,7 +115,7 @@ test("a binary file reads as binary with nothing to review, and the truncation n
   expect(within(jar).getByText("Binary file: there are no lines to review.")).toBeTruthy();
   expect(within(jar).queryByRole("button", { name: "Viewed" })).toBeNull();
   // Text files still take a Viewed mark.
-  const retry = within(diff).getByRole("region", { name: "src/retry.ts" });
+  const retry = await within(diff).findByRole("region", { name: "src/retry.ts" });
   expect(within(retry).getByRole("button", { name: "Viewed" })).toBeTruthy();
 
   expect(

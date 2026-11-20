@@ -19,8 +19,13 @@ export class FakeMachineAccount {
     machineCode: { set: false },
     owner: null,
   };
+  /** The machine's host id on ace's relay, which an app signing it in gets a ticket for. */
+  private readonly relayHostId: string | undefined;
+  constructor(options: { relayHostId?: string } = {}) {
+    this.relayHostId = options.relayHostId;
+  }
   status(): MachineAccountStatus {
-    return this.state;
+    return this.relayHostId ? { ...this.state, relayHostId: this.relayHostId } : this.state;
   }
   signIn(origin: string, account: AceAccount): MachineAccountStatus {
     this.state = {
@@ -30,7 +35,7 @@ export class FakeMachineAccount {
       account,
       owner: this.state.owner ?? { account: account.id },
     };
-    return this.state;
+    return this.status();
   }
   signOut(): MachineAccountStatus {
     this.state = {
@@ -38,7 +43,7 @@ export class FakeMachineAccount {
       machineCode: this.state.machineCode,
       owner: this.state.owner ?? null,
     };
-    return this.state;
+    return this.status();
   }
   /** The owner let it go: nobody owns it until the next sign-in. */
   releaseOwner(): void {
@@ -48,11 +53,11 @@ export class FakeMachineAccount {
   setCode(code: unknown): MachineAccountStatus | undefined {
     if (!MachineCode.safeParse(code).success) return undefined;
     this.state = { ...this.state, machineCode: { set: true } };
-    return this.state;
+    return this.status();
   }
   clearCode(): MachineAccountStatus {
     this.state = { ...this.state, machineCode: { set: false } };
-    return this.state;
+    return this.status();
   }
 }
 

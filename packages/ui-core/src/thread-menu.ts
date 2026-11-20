@@ -1,4 +1,5 @@
 import type { ThreadListEntry, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
+import { isChatEntry } from "./chat-list.ts";
 import { leftRunningCount, listTreeFacts, treeInBackground, treeWorking } from "./live-status.ts";
 import { pluralCount } from "./counts.ts";
 import { joinNames } from "./join-names.ts";
@@ -100,15 +101,19 @@ export function autoSettleChoice(
 
 /**
  * The thread's actions in menu order: start another, rename, fork, link; read, pin and move;
- * settle and auto-settle; archive (or, archived, restore) and permanent delete.
+ * settle and auto-settle; archive (or, archived, restore) and permanent delete. A chat has no
+ * repository, so it offers no new thread from a default branch.
  */
 export function threadMenu(
-  entry: Pick<ThreadListEntry, "status" | "autoSettle" | "archivedAt">,
+  entry: Pick<ThreadListEntry, "status" | "autoSettle" | "archivedAt"> &
+    Partial<Pick<ThreadListEntry, "workspaceId" | "details">>,
   flags: Pick<ThreadRowFlags, "settled" | "unread" | "pinned">,
 ): ThreadMenuId[] {
   const settle = settleChoice(entry, flags);
+  const { workspaceId } = entry;
+  const chat = workspaceId !== undefined && isChatEntry({ workspaceId, details: entry.details });
   return [
-    "new-on-main",
+    ...(chat ? [] : ["new-on-main" as const]),
     "rename",
     "fork",
     "copy-link",

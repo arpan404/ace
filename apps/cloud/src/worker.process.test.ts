@@ -92,7 +92,12 @@ it("a daemon and a device on the same account exchange encrypted messages in bot
 });
 
 it("a daemon and a device that name their versions, or garble them, connect as before", async () => {
-  for (const aceClient of ["daemon/0.0.24-beta.1", "not a client"]) {
+  for (const aceClient of [
+    "daemon/0.0.24-beta.1",
+    "ios/0.1.0",
+    "ios/development",
+    "not a client",
+  ]) {
     const { connect } = await host({ aceClient });
     const { client, server } = await connect();
     await client.send({ type: "ping" });

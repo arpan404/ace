@@ -12,7 +12,7 @@ struct SpadeTab<Bar: View>: View {
     /// conversation, as Projects' does for a page.
     @ViewBuilder let bar: () -> Bar
     @State private var machine: String?
-    @State private var path: [String] = []
+    @State private var path: [SpadeRoute] = []
     @State private var watch = SpadeWatch()
 
     private var session: MachineSession? {
@@ -28,9 +28,11 @@ struct SpadeTab<Bar: View>: View {
             .homeBar { bar() }
             .navigationTitle(HomeTabs.title(.spade))
             .toolbar { if inbox.spadeSessions.count > 1 { ToolbarItem(placement: .topBarTrailing) { machineMenu } } }
-            .navigationDestination(for: String.self) { conversation in
+            .navigationDestination(for: SpadeRoute.self) { route in
                 if let client = session?.client {
-                    SpadeConversationView(client: client, conversation: conversation)
+                    SpadeConversationView(client: client, conversation: route.conversation, group: route.group) {
+                        path.append($0)
+                    }
                 }
             }
         }
@@ -60,6 +62,12 @@ struct SpadeTab<Bar: View>: View {
     }
 }
 
+/// Where the Spade tab's stack goes: a bot's conversation, or a group's (ADR 0132).
+struct SpadeRoute: Hashable {
+    let conversation: String
+    let group: String?
+}
+
 /// One machine's bots, or what Spade says while it can't list them.
 private struct SpadeList: View {
     let client: ClientModel
@@ -82,9 +90,13 @@ private struct SpadeList: View {
             Section { placeLine(line) }
         }
         if let bots = spade.bots {
+            // The groups read but the bots didn't: the groups show, and the bots can be read again.
+            if spade.listFailed {
+                ProblemRow("Couldn't read Spade's bots", id: "spade.listProblem") { client.spadeRefresh() }
+            }
             ForEach(bots) { bot in
-                NavigationLink(value: bot.conversation) { SpadeBotRow(bot: bot) }
-                    .accessibilityIdentifier("spade.bot.\(bot.id)")
+                NavigationLink(value: SpadeRoute(conversation: bot.conversation, group: bot.group)) { SpadeBotRow(bot: bot) }
+                    .accessibilityIdentifier(bot.group.map { "spade.group.\($0)" } ?? "spade.bot.\(bot.id)")
             }
         } else if spade.listFailed {
             EmptyState(icon: nil, title: "Couldn't read Spade's bots", failed: true) {
@@ -153,43 +165,6 @@ struct SpadeBotRow: View {
         case "failed": AceTheme.StatusText.failed
         case "unseen": AceDesign.Ink.primary
         default: AceDesign.Ink.muted
-        }
-    }
-}
-
-/// A bot's face: Spade's own mark for Spade, else its initial on a quiet disc, with an amber dot
-/// while it needs the person, red when it failed, grey while it is off.
-struct SpadeBotFace: View {
-    let bot: SpadeModel.Bot
-    private static let size = AceDesign.Size.tap - AceDesign.Space.tight
-    var body: some View {
-        Group {
-            if bot.main {
-                SpadeMark(size: Self.size, moving: bot.state == "working").foregroundStyle(AceDesign.Ink.primary)
-            } else {
-                Text(bot.initial)
-                    .aceFont(AceDesign.TextRole.header)
-                    .foregroundStyle(AceDesign.Ink.primary)
-                    .frame(width: Self.size, height: Self.size)
-                    .background(AceDesign.Surface.fill, in: Circle())
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if let dot {
-                Circle().fill(dot)
-                    .frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot)
-                    .overlay(Circle().stroke(AceDesign.Surface.background, lineWidth: AceTheme.Dimensions.border * 2))
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private var dot: Color? {
-        switch bot.state {
-        case "needs-you": AceDesign.Status.needsYou
-        case "failed": AceDesign.Status.failed
-        case "off": AceDesign.Ink.faint
-        default: nil
         }
     }
 }
