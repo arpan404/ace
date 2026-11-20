@@ -35,6 +35,11 @@ export interface PreparedEntry {
   publisher?: MarketPublisher | undefined;
   from?: string | undefined;
   signed: boolean;
+  /**
+   * The market's signed version manifest as it served it: Spade believes a package's identity
+   * only from it, over these exact bytes (ADR 0200 §3.2). Absent for a git catalog's entry.
+   */
+  signedManifest?: unknown;
   reviewed: boolean;
   byAce: boolean;
   checked: CheckedEntry;

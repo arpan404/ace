@@ -93,11 +93,11 @@ export function devLine(step: CliBotDev, watching: boolean): string {
   const more = watching ? " Watching for saves; Ctrl-C to stop." : "";
   switch (step.step) {
     case "installed":
-      return `Installed ${step.name} as a development bot (${step.version}).${more}`;
+      return `Installed ${step.name} as a development bot (${step.hash.slice(0, 7)}).${more}`;
     case "updated":
-      return `Updated ${step.name} to ${step.version}.`;
+      return `Updated ${step.name} (${step.hash.slice(0, 7)}).`;
     case "unchanged":
-      return `${step.name} is up to date (${step.version}).${more}`;
+      return `${step.name} is up to date (${step.hash.slice(0, 7)}).${more}`;
     case "waiting":
       return `${step.name} is working; the update waits for its next quiet moment.${why}`;
     case "refused":

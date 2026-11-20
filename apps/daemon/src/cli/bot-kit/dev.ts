@@ -6,11 +6,19 @@ import type { CliBotDev } from "@ace/protocol/cli-outputs";
 import { CliFailure } from "../output.ts";
 import type { SpadeAnswer, SpadeExchange } from "../spade-call.ts";
 import { checkPackage } from "./check.ts";
-import { allOn, asksMore, devBotOf, effectLines, installBody, nextDevVersion } from "./dev-plan.ts";
+import {
+  allOn,
+  asksMore,
+  devBotOf,
+  effectLines,
+  installBody,
+  localPackageName,
+} from "./dev-plan.ts";
 
 /*
  * `ace bot dev [PATH]` (ADR 0200 §9): the package installed on a Spade as a development bot,
- * `local/<folder>`, through the same install path as the market's, then updated on each save.
+ * linked to the local package of its name (`local/<name>`), through the same install path as the
+ * market's, then updated on each save.
  * Every save is checked first; one that asks for more asks the person again; one that comes
  * while the bot works waits for its next quiet moment. Nothing here decides: `dev-plan.ts` does.
  */
@@ -85,7 +93,9 @@ async function current(root: string) {
 }
 
 interface State {
-  bot?: { id: string; name: string; version: string; hash: string } | undefined;
+  bot?: { id: string; name: string } | undefined;
+  /** The content hash last applied in this run: a save that changes nothing is skipped. */
+  hash?: string | undefined;
   /** The manifest last applied in this run, to see what a save adds. */
   applied?: Record<string, unknown> | undefined;
 }
@@ -94,14 +104,14 @@ interface State {
 export async function devStep(root: string, io: DevIo, state: State): Promise<CliBotDev> {
   const folder = resolve(root);
   const now = await current(folder);
-  const name = now.checked.name;
   const listed = await io.exchange("GET", "/v1/agents");
   if (listed.status !== 200) throw new CliFailure("failed", said(listed));
-  state.bot ??= devBotOf(json(listed), name);
+  const name = String(now.recipe["name"]);
+  state.bot ??= devBotOf(json(listed), localPackageName(name));
   const hash = now.checked.hash;
   if (!state.bot) {
     const ok = await io.confirm(
-      `Install ${String(now.recipe["name"])} here as a development bot? Its routines start paused.`,
+      `Install ${name} here as a development bot? Its routines start paused.`,
       effectLines(now.recipe),
     );
     if (!ok)
@@ -109,15 +119,12 @@ export async function devStep(root: string, io: DevIo, state: State): Promise<Cl
         code: "confirm",
         hint: "Run it in your own terminal to answer, or pass --yes.",
       });
-    const version = nextDevVersion(undefined);
     const made = await io.exchange(
       "POST",
       "/v1/agents",
       installBody({
         recipe: now.recipe,
-        name,
-        version,
-        hash,
+        folder: now.checked.name,
         switches: allOn(now.keys),
         transaction: `dev-${randomUUID()}`,
       }),
@@ -125,13 +132,13 @@ export async function devStep(root: string, io: DevIo, state: State): Promise<Cl
     if (made.status !== 201 && made.status !== 200)
       throw new CliFailure("failed", `It didn't install: ${said(made)}`);
     const agent = (json(made) as { agent?: { id?: string; name?: string } } | undefined)?.agent;
-    state.bot = { id: agent?.id ?? "", name: agent?.name ?? name, version, hash };
+    state.bot = { id: agent?.id ?? "", name: agent?.name ?? name };
+    state.hash = hash;
     state.applied = now.recipe;
-    return { step: "installed", bot: state.bot.id, name: state.bot.name, version, hash };
+    return { step: "installed", bot: state.bot.id, name: state.bot.name, hash };
   }
   const bot = state.bot;
-  if (bot.hash === hash)
-    return { step: "unchanged", bot: bot.id, name: bot.name, version: bot.version, hash };
+  if (state.hash === hash) return { step: "unchanged", bot: bot.id, name: bot.name, hash };
   const planned = await io.exchange("POST", `/v1/agents/${bot.id}/package/plan`, {
     recipe: now.recipe,
   });
@@ -147,30 +154,21 @@ export async function devStep(root: string, io: DevIo, state: State): Promise<Cl
         step: "refused",
         bot: bot.id,
         name: bot.name,
-        version: bot.version,
         hash,
         why: ["It asks for more, and you said no. Change it back or run ace bot dev again."],
       };
   }
-  const version = nextDevVersion(bot.version);
   const transaction = `dev-${randomUUID()}`;
   for (;;) {
+    // No identity is claimed: a local package's update is the manifest it is moved to.
     const applied = await io.exchange("POST", `/v1/agents/${bot.id}/package`, {
       recipe: now.recipe,
-      package: { source: "local", name, version, hash },
       transaction,
     });
     if (applied.status === 200) break;
     if (applied.status !== 409)
       throw new CliFailure("failed", `It didn't update: ${said(applied)}`);
-    await io.report({
-      step: "waiting",
-      bot: bot.id,
-      name: bot.name,
-      version,
-      hash,
-      why: [said(applied)],
-    });
+    await io.report({ step: "waiting", bot: bot.id, name: bot.name, hash, why: [said(applied)] });
     await io.wait(RETRY_MS);
   }
   // What the person said yes to just now is on.
@@ -182,9 +180,9 @@ export async function devStep(root: string, io: DevIo, state: State): Promise<Cl
     if (switched.status !== 200)
       throw new CliFailure("failed", `${key} wasn't turned on: ${said(switched)}`);
   }
-  state.bot = { ...bot, version, hash };
+  state.hash = hash;
   state.applied = now.recipe;
-  return { step: "updated", bot: bot.id, name: bot.name, version, hash };
+  return { step: "updated", bot: bot.id, name: bot.name, hash };
 }
 
 /** A save's problems as a step, so watching carries on. */
@@ -194,8 +192,7 @@ function refusedStep(state: State, error: CliFailure): CliBotDev {
     step: "refused",
     bot: state.bot?.id ?? "",
     name: state.bot?.name ?? "",
-    version: state.bot?.version ?? "",
-    hash: state.bot?.hash ?? "",
+    hash: state.hash ?? "",
     why: problems?.length ? problems : [error.message],
   };
 }

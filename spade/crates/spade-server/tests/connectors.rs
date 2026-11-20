@@ -54,7 +54,7 @@ async fn a_sign_in_as_spades_client_document_ends_at_the_shared_callback() -> Re
     document.serve(&json!({
         "client_id": document.url(),
         "client_name": "Spade",
-        "redirect_uris": ["http://127.0.0.1/v1/connectors/callback"],
+        "redirect_uris": ["http://localhost/v1/connectors/callback"],
         "token_endpoint_auth_method": "none",
     }));
     let app = FakeConnector::start(app_tools()).await;
@@ -80,8 +80,12 @@ async fn a_sign_in_as_spades_client_document_ends_at_the_shared_callback() -> Re
     let back = app
         .approve(started["sign_in_url"].as_str().unwrap_or_default())
         .await;
+    // Spade's own address, reached by the name the document lists.
+    let shared = spade
+        .base
+        .replacen("http://127.0.0.1:", "http://localhost:", 1);
     assert!(
-        back.starts_with(&format!("{}/v1/connectors/callback?", spade.base)),
+        back.starts_with(&format!("{shared}/v1/connectors/callback?")),
         "{back}"
     );
     assert_eq!(app.registrations(), 0);

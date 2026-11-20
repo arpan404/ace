@@ -95,6 +95,13 @@ pub(super) async fn handle_calls(
     for pending in calls {
         let (name, arguments) = resolve(&pending.call);
         match pending.status {
+            // A packaged bot has only the tools of the modules it uses (ADR 0200 §4.3), checked
+            // before any tool the turn loop answers itself: `tool_search`, `ask_user` and
+            // `app_connect_request` are `apps`' and `ui`'s like any other.
+            Status::New if !engine.uses_allow(id, &name) => {
+                let missing = ToolOutput::error(ceiling::not_used(&name));
+                finish_tool(engine, id, reply, &pending.call, &name, missing).await;
+            }
             Status::New if name == TOOL_SEARCH => runnable.push((pending.call, name, arguments)),
             // A helper may use only what its profile allows (ADR 0152), checked before any tool
             // the turn loop answers itself: a helper's `ask_user` would wait on a question
@@ -369,13 +376,59 @@ pub(super) async fn handle_calls(
                         .is_some_and(|tool| tool.hints().is_some() && !tool.sealed());
                     // One reading of the classifier for this call, for routing and screening.
                     let classifier = engine.classifier_ready();
-                    // A bot's own task, name and face are decided first, in every access level:
+                    // A packaged bot's declared effects, as the person left them on, for it and
+                    // everything under it (ADR 0200 §3.4).
+                    let ceiling = engine.ceiling(id);
+                    let gate = effect::Call {
+                        tool: &name,
+                        rule,
+                        risk: def.risk,
+                        always,
+                        effect: declared,
+                        remembered,
+                        place,
+                        // Anything untrusted the prompt shows, from any turn since compaction.
+                        tainted: !in_view.is_empty(),
+                        // The sandbox's deny-list holds a sandboxed call; anything else that
+                        // names a credential place, or a script it runs that reads one, is
+                        // refused on every level.
+                        credentials: (place != Place::Sandbox || remote)
+                            && (classed.credentials || autonomy::reaches_credentials(&arguments)),
+                        standing: autonomy::STANDING.contains(&name.as_str()),
+                        fits: autonomy::fits_review(&arguments, &classed.shown),
+                        // A grant records no launch: it holds for a contained launch only.
+                        granted: if limit == Authorized::Contained {
+                            engine.granted(id, &name, &arguments, declared)
+                        } else {
+                            effect::Granted::No
+                        },
+                        checkpointed: held && classed.runs == Runs::Host,
+                        target: target.as_deref(),
+                        drive,
+                        mode,
+                        remote,
+                        classifier,
+                        ceiling: ceiling
+                            .as_ref()
+                            .map(|(bot, allows)| effect::ceiling::Ceiling {
+                                bot,
+                                allows: *allows,
+                            }),
+                        command: ceiling::outside_class(&classed),
+                    };
+                    // The ceiling first, before any route of Spade's own: nothing a packaged bot
+                    // does, a bot it makes for the person included, gets past what its package
+                    // declared.
+                    let own = effect::ceiling_refusal(&gate).map(Route::Refuse);
+                    // A bot's own task, name and face are decided next, in every access level:
                     // with anything untrusted in view, a change goes to the person.
-                    let own = spade_core::self_edit::route(
-                        &name,
-                        untrusted || !in_view.is_empty(),
-                        spade_core::self_edit::naming_open(events),
-                    );
+                    let own = own.or_else(|| {
+                        spade_core::self_edit::route(
+                            &name,
+                            untrusted || !in_view.is_empty(),
+                            spade_core::self_edit::naming_open(events),
+                        )
+                    });
                     // A bot made for the person, or added to a club: its setting, and the person
                     // whenever untrusted content is in view (ADR 0161, amendment 1).
                     let own = own.or_else(|| {
@@ -386,48 +439,9 @@ pub(super) async fn handle_calls(
                             engine.may_create(id),
                         )
                     });
-                    // A packaged bot's declared effects, as the person left them on, for it and
-                    // everything under it (ADR 0200 §3.4).
-                    let ceiling = engine.ceiling(id);
                     let route = match own {
                         Some(route) => route,
-                        None => effect::route(effect::Call {
-                            tool: &name,
-                            rule,
-                            risk: def.risk,
-                            always,
-                            effect: declared,
-                            remembered,
-                            place,
-                            // Anything untrusted the prompt shows, from any turn since compaction.
-                            tainted: !in_view.is_empty(),
-                            // The sandbox's deny-list holds a sandboxed call; anything else that
-                            // names a credential place, or a script it runs that reads one, is
-                            // refused on every level.
-                            credentials: (place != Place::Sandbox || remote)
-                                && (classed.credentials
-                                    || autonomy::reaches_credentials(&arguments)),
-                            standing: autonomy::STANDING.contains(&name.as_str()),
-                            fits: autonomy::fits_review(&arguments, &classed.shown),
-                            // A grant records no launch: it holds for a contained launch only.
-                            granted: if limit == Authorized::Contained {
-                                engine.granted(id, &name, &arguments, declared)
-                            } else {
-                                effect::Granted::No
-                            },
-                            checkpointed: held && classed.runs == Runs::Host,
-                            target: target.as_deref(),
-                            drive,
-                            mode,
-                            remote,
-                            classifier,
-                            ceiling: ceiling.as_ref().map(|(bot, allows)| {
-                                effect::ceiling::Ceiling {
-                                    bot,
-                                    allows: *allows,
-                                }
-                            }),
-                        }),
+                        None => effect::route(gate),
                     };
                     // An app's write in Full access runs counting on the screening.
                     let required = remote && declared != Some(effect::Effect::Read);
@@ -1048,6 +1062,17 @@ async fn run_tools(
                 finished.push_back((call, name, gone));
                 continue;
             }
+            // The ceiling as it is now: the person may have turned a switch off since this call
+            // was decided, asked about or queued (ADR 0200 §3.4).
+            match ceiling::refused_now(engine, id, &call.id, &name, &arguments, stop).await {
+                None => return Handled::Stopped,
+                Some(Some(why)) => {
+                    let refused = ToolOutput::ok(autonomy::refused(&why));
+                    finished.push_back((call, name, refused));
+                    continue;
+                }
+                Some(None) => {}
+            }
             let background = def.as_ref().is_some_and(|def| def.background);
             let risk = match &def {
                 Some(def) => Some(def.risk),
@@ -1362,3 +1387,4 @@ async fn finish_tool(
 }
 
 mod again;
+mod ceiling;

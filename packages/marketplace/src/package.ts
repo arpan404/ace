@@ -114,10 +114,18 @@ function newer(wanted: string, have: string): boolean {
   return false;
 }
 
+/**
+ * Spade's own tools that send in the person's name (`spade_core::effect`'s table): a `tool` grant
+ * of one is never made, as Spade's reader refuses it. `rules.json` holds both readers to this.
+ */
+const sendingTools = new Set(["git_push", "pr_comment", "issue_comment", "send_message"]);
+
 function effectProblems(raw: unknown, at: string): MarketProblem[] {
   const entry = AnyRecord.safeParse(raw);
   if (!entry.success) return [problem(`${at} is an object`)];
   const word = entry.data["effect"];
+  // Every bot reads and writes its own folder: declaring that changes nothing.
+  if (word === "read" || word === "write_local") return [];
   if (word === "credential")
     return [problem(`${at}: credential can't be declared; Spade never hands a bot a secret`)];
   if (word === "drive")
@@ -148,6 +156,13 @@ function effectProblems(raw: unknown, at: string): MarketProblem[] {
       problems.push(
         problem(
           `${at}: a package can't ask for a push, a comment or a folder; those are yours to give`,
+        ),
+      );
+    const tool = grant.data["tool"];
+    if (kind === "tool" && typeof tool === "string" && sendingTools.has(tool))
+      problems.push(
+        problem(
+          `${at}: ${tool} sends something in the person's name. That always goes to the person.`,
         ),
       );
     if (entry.data["hosts"] !== undefined)
@@ -198,7 +213,9 @@ export function readPackage(
   const requires = AnyRecord.safeParse(json["requires"]);
   if (requires.success) {
     const runtime = requires.data["runtime"];
-    if (runtime !== undefined && String(runtime) !== packageRuntime)
+    if (runtime !== undefined && typeof runtime !== "string")
+      problems.push(problem(`requires.runtime is a string, like "${packageRuntime}"`));
+    else if (runtime !== undefined && runtime !== packageRuntime)
       problems.push(
         problem(
           `Needs a newer Spade: it asks for runtime ${JSON.stringify(String(runtime))}, and this one serves ${packageRuntime}`,

@@ -15,7 +15,8 @@ use spade_core::package::link::{Link, PackageId};
 
 use super::body::Body;
 use super::{AppState, off_thread, problem};
-use crate::packages::{self, PackageError, apply::Step};
+use crate::packages::envelope::{self, Envelope};
+use crate::packages::{self, PackageError, apply::Step, held::Asked};
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -47,7 +48,13 @@ fn answer(result: Result<Link, PackageError>) -> Response {
 }
 
 async fn read(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    off_thread(move || answer(packages::link_of(&state.engine, &id))).await
+    off_thread(move || match packages::link_of(&state.engine, &id) {
+        Ok(link) => {
+            Json(json!({ "package": packages::shown(&state.engine, &id, &link) })).into_response()
+        }
+        Err(error) => refused(&error),
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -75,11 +82,60 @@ async fn plan(
 
 #[derive(Deserialize)]
 struct UpdateBody {
+    #[serde(default)]
     recipe: Value,
-    package: PackageId,
+    /// What the caller says the version is: believed only as `envelope` proves it.
+    #[serde(default)]
+    package: Option<PackageId>,
+    /// The market's signed manifest and `bot.json` as it signed it (ADR 0200 §3.2).
+    #[serde(default)]
+    envelope: Option<Envelope>,
     transaction: String,
     #[serde(default)]
     time_zone: Option<String>,
+}
+
+/// The manifest and identity an update or rollback moves `bot` to: a market package's only from
+/// the market's signature over those exact bytes, and of the same package; a local package's
+/// from its manifest, never claiming a market identity.
+fn proven(
+    engine: &crate::engine::Engine,
+    bot: &str,
+    body: &UpdateBody,
+) -> Result<(spade_core::package::Manifest, PackageId), PackageError> {
+    let link = packages::link_of(engine, bot)?;
+    let invalid = |why: &str| PackageError::Invalid(why.to_owned());
+    let (package, recipe) = match &body.envelope {
+        Some(sealed) => {
+            let (package, recipe) = envelope::verify(sealed, &engine.market_keys())
+                .map_err(|why| invalid(&format!("the version's identity isn't proven: {why}")))?;
+            if !body.recipe.is_null() && body.recipe != recipe {
+                return Err(invalid("recipe isn't the bot.json the market signed"));
+            }
+            if body.package.as_ref().is_some_and(|claimed| {
+                (&claimed.name, &claimed.version, &claimed.hash)
+                    != (&package.name, &package.version, &package.hash)
+            }) {
+                return Err(invalid("package isn't the version the market signed"));
+            }
+            if envelope::is_local(&link.package) || package.name != link.package.name {
+                return Err(invalid(
+                    "a bot moves only between versions of its own package",
+                ));
+            }
+            (package, recipe)
+        }
+        None if body.package.is_some() || !envelope::is_local(&link.package) => {
+            return Err(invalid(
+                "a version's identity comes from the market's signed manifest (envelope)",
+            ));
+        }
+        None => {
+            let package = envelope::local(&body.recipe, &link.manifest.name);
+            (package, body.recipe.clone())
+        }
+    };
+    Ok((packages::manifest(&recipe)?, package))
 }
 
 fn transaction_ok(transaction: &str) -> bool {
@@ -91,7 +147,7 @@ fn transaction_ok(transaction: &str) -> bool {
 }
 
 /// `POST /v1/agents/{id}/package {recipe, package, transaction}`: an update or a rollback the
-/// person accepted, one step keyed by its transaction.
+/// person accepted, one step keyed by its transaction; held while the bot works (202).
 async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -101,19 +157,26 @@ async fn update(
         return problem(StatusCode::BAD_REQUEST, "a transaction is a short id");
     }
     off_thread(move || {
-        let applied = packages::manifest(&body.recipe).and_then(|manifest| {
-            packages::update(
+        let asked = proven(&state.engine, &id, &body).and_then(|(manifest, package)| {
+            packages::held::ask(
                 &state.engine,
                 &id,
                 Step {
                     manifest,
-                    package: body.package,
+                    package,
                     transaction: body.transaction,
                     time_zone: body.time_zone,
                 },
             )
         });
-        answer(applied)
+        // While the bot works the step is held for its next still moment: 202, saying so.
+        let (status, link) = match asked {
+            Ok(Asked::Applied(link)) => (StatusCode::OK, link),
+            Ok(Asked::Held(link)) => (StatusCode::ACCEPTED, link),
+            Err(error) => return refused(&error),
+        };
+        let shown = packages::shown(&state.engine, &id, &link);
+        (status, Json(json!({ "package": shown }))).into_response()
     })
     .await
 }

@@ -1054,7 +1054,7 @@ Each scenario in tests/ runs on a throwaway Spade with spade-testkit's fake mode
 
 Install the package here as a development bot, and update it on every save.
 
-It installs once as local/<folder>, linked to the folder, its routines paused. Each save is checked and applied as an update at the bot's next quiet moment. A save that asks for more (an effect, a trigger kind, an app) asks you again. Ctrl-C to stop watching; the bot stays.
+It installs once, linked to the local package of its name (local/<name>), its routines paused. Each save is checked and applied as an update at the bot's next quiet moment. A save that asks for more (an effect, a trigger kind, an app) asks you again. Ctrl-C to stop watching; the bot stays.
 
 - `PATH`: The package's folder; this one when omitted
 

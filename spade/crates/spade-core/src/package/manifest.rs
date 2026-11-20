@@ -881,11 +881,14 @@ impl Reader<'_> {
         let Some(requires) = self.fields.get("requires") else {
             return;
         };
+        // A string, as the marketplace's reader has it: `"1"`, never `1`.
         let runtime = match requires.get("runtime") {
             None => None,
             Some(Value::String(r)) => Some(r.clone()),
-            Some(Value::Number(n)) => Some(n.to_string()),
-            Some(_) => Some(String::new()),
+            Some(_) => {
+                self.problem(format!("requires.runtime is a string, like \"{RUNTIME}\""));
+                None
+            }
         };
         if let Some(runtime) = runtime
             && runtime != RUNTIME

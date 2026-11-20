@@ -99,6 +99,7 @@ fn installed() -> Link {
         previous: None,
         withdrawn: None,
         pending: None,
+        installing: false,
     }
 }
 

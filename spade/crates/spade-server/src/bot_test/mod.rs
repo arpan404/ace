@@ -364,36 +364,21 @@ async fn secure(
     .await)
 }
 
-/// The install body: a linked development bot, every declared effect switched on.
+/// The install body: every declared effect switched on. With no market signature the package
+/// installs as a local package, linked to `local/<name>` (ADR 0200 §3.2).
 fn install(recipe: &Value, manifest: &Manifest) -> Value {
     let switches: serde_json::Map<String, Value> = manifest
         .effect_keys()
         .into_iter()
         .map(|key| (key, Value::Bool(true)))
         .collect();
-    let name = slug(&manifest.name);
     json!({
         "recipe": recipe,
-        "from_recipe": { "source": "local", "name": name, "version": "test" },
-        "package": { "source": "local", "name": name, "version": "test", "hash": "test" },
+        "from_recipe": { "source": "local", "name": manifest.name, "version": "test" },
         "grants": { "connectors": [], "plugins": [], "skills": [] },
         "switches": switches,
         "start_routines": false,
     })
-}
-
-fn slug(name: &str) -> String {
-    let slug: String = name
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    let slug = slug.trim_matches('-').to_owned();
-    if slug.is_empty() {
-        "package".to_owned()
-    } else {
-        slug
-    }
 }
 
 /// One scenario on its own throwaway Spade.

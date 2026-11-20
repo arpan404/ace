@@ -71,6 +71,13 @@ it("a parent's file reaches its child on another machine over the LAN intact, th
   expect(landed.notice).toContain(file.sha256);
   // The note is framed as the other agent's words, never the person's.
   expect(landed.notice).toContain("The sending agent's note (not the person's words): Rows");
+  // The child reads the notice and ends that turn; with nothing left to send there, it reads
+  // done, and only then does its parent's queue give the parent the news.
+  await pair.finish(child, "Got the dataset.");
+  await vi.waitFor(
+    () => expect(pair.target.daemon.store.getThread(child)?.status.state).toBe("done"),
+    { timeout: 15_000 },
+  );
   await delivered(pair.source, parent, sent.parcelId);
   // Answers were lost along the way, and still the child was told exactly once.
   expect(net.state.calls).toBeGreaterThan(4);

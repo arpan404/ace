@@ -67,7 +67,9 @@ pub fn from_template(
             grants: RecipeGrants::default(),
             start_routines: choices.start_routines,
             time_zone: choices.time_zone,
-            package: Some(template.package.clone()),
+            package: None,
+            envelope: None,
+            shipped: Some(template.package.clone()),
             switches,
         },
     )?;

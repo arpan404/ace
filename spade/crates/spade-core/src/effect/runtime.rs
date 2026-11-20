@@ -240,6 +240,19 @@ pub fn tool(name: &str) -> Option<&'static Tool> {
     })
 }
 
+/// Whether a bot its package narrows to the modules `uses` has the tool `name` (ADR 0200 §4.3):
+/// a tool of the API when its module is among them, and an app's or plugin's own tool (`app`)
+/// when `apps` is. A name outside the API that is no app's (a harness internal, such as
+/// `decision_log` or the skill library's tools) is every bot's, whatever it uses.
+pub fn uses_allow(uses: &[String], name: &str, app: bool) -> bool {
+    let module = match tool(resolve(name)) {
+        Some(tool) => Some(tool.module),
+        None if app => Some(Module::Apps),
+        None => None,
+    };
+    module.is_none_or(|module| uses.iter().any(|used| used == module.name()))
+}
+
 /// The tool a call to `name` runs: itself, or what its alias now calls.
 pub fn resolve(name: &str) -> &str {
     ALIASES

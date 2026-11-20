@@ -80,7 +80,9 @@ export function mentionRows<Tab extends MentionTab>(input: {
           name: club.name,
           faces: club.members
             .slice(0, 3)
-            .map((member) => ({ id: member.agent, ...withAvatar(avatarJson(member.avatar)) })),
+            .map((member) =>
+              Object.assign({ id: member.agent }, withAvatar(avatarJson(member.avatar))),
+            ),
         },
         picture: { kind: "club", members: club.members } satisfies MentionPicture,
       },

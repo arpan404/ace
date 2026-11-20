@@ -10,8 +10,8 @@ import { invoke, openCli } from "../cli-test-support.ts";
 
 /*
  * `ace bot dev` on a development Spade (ADR 0200 §9): a real `spade` on a throwaway data folder,
- * reached by its own address and token (`--spade`). The package installs once as a linked
- * development bot, local/<folder>, with its routines paused; each save becomes an update; a save
+ * reached by its own address and token (`--spade`). The package installs once as a development
+ * bot linked to the local package of its name, routines paused; each save becomes an update; a save
  * that asks for more waits for the person's yes. Spade runs with no keychain, no ace and a model
  * endpoint nothing listens on: nothing here reaches the network or a model.
  */
@@ -165,11 +165,11 @@ it.skipIf(!run)(
     const next = lines(dev.child);
     try {
       const installed = await next((line) => line["step"] === "installed");
-      expect(installed).toMatchObject({ name: "Fare watcher", version: "0.0.0-dev.1" });
+      expect(installed).toMatchObject({ name: "Fare watcher" });
       const bot = String(installed["bot"]);
       const linked = await api("GET", `/v1/agents/${bot}/package`);
       expect(linked.body).toMatchObject({
-        package: { source: "local", name: "fare-watcher", version: "0.0.0-dev.1" },
+        package: { source: "local", name: "local/fare-watcher", version: "local" },
       });
       expect(await effects(bot)).toMatchObject([{ key: "network", on: true }]);
       const routines = await api("GET", `/v1/agents/${bot}/routines`);
@@ -179,7 +179,7 @@ it.skipIf(!run)(
 
       // A save is an update, with no review.
       await writeFile(join(folder, "bot.json"), manifest({ task: "You watch fares and hotels." }));
-      await next((line) => line["step"] === "updated" && line["version"] === "0.0.0-dev.2");
+      await next((line) => line["step"] === "updated");
       const updated = (await agents()).find((agent) => agent.id === bot);
       expect(updated?.task).toBe("You watch fares and hotels.");
 

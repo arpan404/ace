@@ -1,44 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { asksMore, devBotOf, nextDevVersion } from "./dev-plan.ts";
+import { asksMore, devBotOf, localPackageName } from "./dev-plan.ts";
 
-describe("a development bot's version", () => {
+describe("the local package a development bot is linked to", () => {
   it.each([
-    [undefined, "0.0.0-dev.1"],
-    ["0.0.0-dev.1", "0.0.0-dev.2"],
-    ["0.0.0-dev.41", "0.0.0-dev.42"],
-    // A bot linked to a published version starts development over.
-    ["1.2.0", "0.0.0-dev.1"],
-  ])("after %s is %s", (previous, next) => {
-    expect(nextDevVersion(previous)).toBe(next);
+    ["Fare watcher", "local/fare-watcher"],
+    ["  Fare -- Watcher 2 ", "local/fare-watcher-2"],
+    // Spade keeps ASCII letters and digits only.
+    ["Café bot", "local/caf-bot"],
+    ["!!!", "local/bot"],
+  ])("for %s is %s", (name, package_) => {
+    expect(localPackageName(name)).toBe(package_);
   });
 });
 
 describe("the development bot of a folder", () => {
   const agents = {
     agents: [
-      { id: "a1", name: "Fare watcher", package: { source: "market", name: "fare-watcher" } },
+      { id: "a1", name: "Fare watcher", package: { source: "market", name: "local/fare-watcher" } },
       {
         id: "a2",
         name: "Fare watcher",
-        package: { source: "local", name: "fare-watcher", version: "0.0.0-dev.3", hash: "h3" },
+        package: { source: "local", name: "local/fare-watcher", version: "local", hash: "h2" },
       },
-      { id: "a3", name: "Other", package: { source: "local", name: "other" } },
+      { id: "a3", name: "Other", package: { source: "local", name: "local/other" } },
       { id: "a4", name: "Plain" },
     ],
   };
 
   it("is the local one of its name, never the market's", () => {
-    expect(devBotOf(agents, "fare-watcher")).toEqual({
-      id: "a2",
-      name: "Fare watcher",
-      version: "0.0.0-dev.3",
-      hash: "h3",
-    });
+    expect(devBotOf(agents, "local/fare-watcher")).toEqual({ id: "a2", name: "Fare watcher" });
   });
 
   it("is none when no local bot has its name, or the answer has no list", () => {
-    expect(devBotOf(agents, "flight-watcher")).toBeUndefined();
-    expect(devBotOf({ error: "x" }, "fare-watcher")).toBeUndefined();
+    expect(devBotOf(agents, "local/flight-watcher")).toBeUndefined();
+    expect(devBotOf({ error: "x" }, "local/fare-watcher")).toBeUndefined();
   });
 });
 

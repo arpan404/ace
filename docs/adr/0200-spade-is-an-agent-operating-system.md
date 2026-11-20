@@ -261,7 +261,13 @@ This is the phone-permission model on top of ADR 0171's effects.
     as ADR 0163 amendment 1 says.
   - A switch the person turns off narrows the ceiling too: that effect is undeclared for this
     bot. The person can turn effects off later in the bot's Security page, and turn on again only
-    what the package declared.
+    what the package declared. Turning one on there is the person's grant, as on the review.
+  - **How the review starts them.** A package by ace starts with what it declares on. One from
+    anyone else starts with only low-risk reaches on: `network` to the hosts it names. Its strong
+    effects start off for the person to turn on: acting in pages or apps as the person
+    (`drive_site`, `drive_app`), a `tool` grant, `network` without hosts, publishing, and the
+    person-only effects (sending as the person, paying, changing access). The person-only ones
+    still go to the person each time once on.
 - **Everything else is decided as for any bot.** A packaged bot starts on the auto-review. A
   package can't ask for Full access; turning it on is the person's, per bot (0163 amendment 2).
   The sandbox, taint, provenance, the classifier and the reviewer are unchanged. The ceiling is

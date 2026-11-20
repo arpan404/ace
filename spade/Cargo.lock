@@ -3592,6 +3592,7 @@ dependencies = [
  "portable-pty",
  "regex",
  "reqwest",
+ "ring",
  "rmcp",
  "rusqlite",
  "rustix",

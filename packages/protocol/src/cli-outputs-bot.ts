@@ -63,8 +63,7 @@ export const CliBotDev = z.object({
   step: z.enum(["installed", "updated", "unchanged", "waiting", "refused"]),
   bot: z.string(),
   name: z.string(),
-  /** The development version, `0.0.0-dev.N`, and its content hash. */
-  version: z.string(),
+  /** The folder's content hash, as `ace bot check` prints it. */
   hash: z.string(),
   /** Why a save wasn't applied: its check's problems, or the bot was busy. */
   why: z.array(z.string()).optional(),

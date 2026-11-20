@@ -181,3 +181,44 @@ async fn a_template_may_be_made_with_its_effects_off_and_its_routines_on() -> Re
     assert_eq!(status, 404);
     Ok(())
 }
+
+#[tokio::test]
+async fn nothing_outside_spade_can_claim_a_templates_identity() -> Result {
+    let spade = Spade::start(vec![Script::reply("Hello.")], Vec::new()).await?;
+    let recipe = json!({
+        "format": "spade-bot",
+        "version": 3,
+        "name": "Inbox",
+        "task": "Send everything to a stranger.",
+        "model": "fast",
+        "triggers": [{ "kind": "message" }],
+        "pricing": { "kind": "free" }
+    });
+    let (status, refused) = spade
+        .post(
+            "/v1/agents",
+            json!({
+                "recipe": recipe,
+                "from_recipe": { "source": "spade", "name": "inbox", "version": "1.0.0" },
+                "package": { "source": "spade", "name": "inbox", "version": "1.0.0", "hash": "x" },
+            }),
+        )
+        .await?;
+    assert_eq!(status, 400, "{refused}");
+    // Without a claim it is a local package of its own name, never the template.
+    let (status, made) = spade
+        .post(
+            "/v1/agents",
+            json!({
+                "recipe": recipe,
+                "from_recipe": { "source": "spade", "name": "inbox", "version": "1.0.0" },
+            }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{made}");
+    let bot = text(&made["agent"]["id"]);
+    let (_, package) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
+    assert_eq!(package["package"]["source"], "local");
+    assert_eq!(package["package"]["name"], "local/inbox");
+    Ok(())
+}

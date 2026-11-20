@@ -71,9 +71,11 @@ Spade follows the MCP authorization spec (2026-07-28):
    own, `http://127.0.0.1:<Spade's port>/v1/connectors/callback/<connector id>`: an answer that
    comes back to another connector's address is refused, which keeps a server that sends no `iss`
    from mixing up sign-ins. As the metadata document, it is the one address the document lists,
-   `http://127.0.0.1:<Spade's port>/v1/connectors/callback` (any port is allowed on loopback,
-   RFC 8252): the `state` picks the sign-in, `iss` is then required, and an answer at the address
-   its sign-in didn't use is refused. The document is used only while Spade listens on 127.0.0.1.
+   `http://localhost:<Spade's port>/v1/connectors/callback` (any port is allowed on loopback; a
+   name, not `127.0.0.1`, because some servers refuse an IP address in a document's redirects,
+   ADR 0136 amendment 1): the `state` picks the sign-in, `iss` is then required, and an answer at the address
+   its sign-in didn't use is refused. The document is used only while Spade listens on 127.0.0.1, which the browser reaches as
+   `localhost`.
 7. **Callback.** The `state` must be one Spade started, unused, and under ten minutes old; it is
    spent on first use, whatever the answer. The `iss` parameter is checked by RFC 9207: compared
    as a plain string when present, and required when the server advertises

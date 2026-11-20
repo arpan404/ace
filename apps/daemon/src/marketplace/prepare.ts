@@ -66,6 +66,8 @@ export interface PreparePorts {
   badges: Badges;
   /** What the scan compares against: the local index, the verified list, the blocklist. */
   scanContext: (publisher: MarketPublisher | undefined) => ScanContext;
+  /** The running Spade's version, which a package's `requires.spade` is checked against. */
+  spade?: string | undefined;
 }
 
 /** What ADR 0014's manager needs to review a plugin from bytes the marketplace verified. */
@@ -113,7 +115,7 @@ export async function prepareEntry(
     source.kind === "market"
       ? await fromMarket(ports, entryType, name, version)
       : await fromGit(ports, source, entryType, name);
-  const checked = checkFiles(entryType, name, fetched.files);
+  const checked = checkFiles(entryType, name, fetched.files, { spade: ports.spade });
   // A Suit that fails is still reviewed, so the person sees why; it can't be installed.
   if (checked.problems.length > 0 && entryType !== "suit")
     throw new Refused(`${name} doesn't pass ace's checks`, { problems: checked.problems });
@@ -158,6 +160,7 @@ export async function prepareEntry(
     publisher: fetched.publisher,
     from: source.kind === "git" ? source.address : undefined,
     signed: fetched.signed,
+    ...(fetched.signedManifest === undefined ? {} : { signedManifest: fetched.signedManifest }),
     reviewed: fetched.reviewed,
     byAce: fetched.byAce,
     checked,
@@ -176,6 +179,8 @@ interface Fetched {
   title: string | undefined;
   publisher: MarketPublisher | undefined;
   signed: boolean;
+  /** The signed version manifest as the market served it. */
+  signedManifest?: unknown;
   reviewed: boolean;
   byAce: boolean;
   /** The plugin manager's pin: a git commit, or the hash's first 40 digits for the market. */
@@ -251,6 +256,7 @@ async function fromMarket(
     title: "problem" in summary ? undefined : summary.title,
     publisher: manifest.publisher,
     signed: true,
+    signedManifest: body.data.manifest,
     reviewed,
     byAce,
     commit: manifest.hash.slice(0, 40),

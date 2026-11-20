@@ -42,7 +42,7 @@ mod moves;
 pub mod onboarding;
 mod outbox;
 mod oversight;
-mod packages;
+pub(crate) mod packages;
 mod park;
 mod pause;
 mod plugin_hooks;
@@ -188,6 +188,12 @@ pub struct Engine {
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
     record_lock: Mutex<()>,
+    /// Bots whose package link is being changed (an install, an update or rollback, a switch, a
+    /// withdrawal): one change to a bot's package at a time (`packages::Busy`).
+    pub(crate) package_busy: crate::packages::Changing,
+    /// The market keys a package's signed manifest must verify with (ADR 0200 §3.2): the ones
+    /// this build ships, unless a test trusts its own.
+    market_keys: std::sync::RwLock<Vec<crate::packages::envelope::MarketKey>>,
     /// Each conversation's activity, so listing conversations folds only those that changed.
     /// Every stored event goes through `append_events`, which drops the entry.
     activity: Mutex<HashMap<String, Activity>>,
@@ -360,6 +366,8 @@ impl Engine {
             ),
             live: Mutex::default(),
             record_lock: Mutex::default(),
+            package_busy: crate::packages::Changing::default(),
+            market_keys: std::sync::RwLock::new(crate::packages::envelope::shipped()),
             activity: Mutex::default(),
             // Closed until `open_for_work`, so nothing runs before ace's tools are back.
             admission: AtomicBool::new(false),
@@ -444,13 +452,17 @@ impl Engine {
         // bot has back, so a conversation that never runs again is remembered too.
         self.sweep_episodes();
         self.end_maintenance();
+        // A bot an install a crash cut short left goes before anything is scheduled for it, and a
+        // package update cut short is taken again from the start (ADR 0200 §3.4, §6.2).
+        crate::packages::recover_installs(self);
+        crate::packages::recover(self);
         // Bots' wakes are armed from their events and `keep` services start again (ADR 0160).
         self.restore_wakes();
         if let Err(error) = self.resume_groups() {
             tracing::error!(%error, "could not pick up the groups' open asks");
         }
-        // A package update a crash cut short is taken again from the start (ADR 0200 §6.2).
-        crate::packages::recover(self);
+        // An update held while a bot worked applies to each bot that is still now.
+        crate::packages::held::recover(self);
         // Workers owed a report or a start since the last run get it (ADR 0161).
         self.start_workers();
         // Digests on each bot's schedule (ADR 0165).

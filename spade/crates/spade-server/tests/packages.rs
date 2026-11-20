@@ -12,156 +12,10 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use spade_core::effect::Effect;
 use spade_core::tools::Risk;
-use spade_server::clock::{CountingIds, SystemClock};
-use spade_server::security::{Security, Setup};
-use spade_server::tools::{EngineHandle, Tool};
-use spade_store::Store;
+use spade_server::tools::Tool;
 use spade_testkit::Script;
+use support::packaged::*;
 use support::{FakeTool, Result, Spade};
-
-fn watcher(version: &str) -> Value {
-    let mut triggers = vec![
-        json!({ "kind": "message" }),
-        json!({ "kind": "schedule", "name": "Morning check", "instruction": "Check every watched trip.", "schedule": "daily at 7:00" }),
-        json!({ "kind": "event", "name": "After a failure", "instruction": "Look at what failed.", "event": "thread.failed" }),
-        json!({ "kind": "webhook", "name": "Fare feed", "instruction": "Read the posted fare." }),
-    ];
-    let mut effects = vec![
-        json!({ "effect": "network", "hosts": ["api.example-fares.com"], "why": "Reads fares." }),
-        json!({ "effect": "send_as_person", "why": "Drafts a mail to your travel agent. You send it." }),
-    ];
-    let mut task = "You watch flight fares for the person.".to_owned();
-    if version == "2.0.0" {
-        triggers.push(json!({ "kind": "schedule", "name": "Evening check", "instruction": "Check again.", "schedule": "daily at 19:00" }));
-        effects.push(json!({ "effect": "publish", "why": "Posts a weekly fare report." }));
-        task = "You watch flight and hotel prices for the person.".to_owned();
-    }
-    json!({
-        "format": "spade-bot",
-        "version": 3,
-        "requires": { "runtime": "1" },
-        "name": "Flight watcher",
-        "blurb": "Watches fares.",
-        "task": task,
-        "model": "capable",
-        "triggers": triggers,
-        "effects": effects,
-        "limits": { "spend_alert": { "usd_per_day": 0.5 }, "workers_at_once": 2 },
-        "notes": ["The person books. Never press a purchase button."],
-        "pricing": { "kind": "free" }
-    })
-}
-
-fn package(version: &str) -> Value {
-    json!({ "source": "market", "name": "flight-watcher", "version": version, "hash": format!("hash-{version}") })
-}
-
-fn install(switches: Value, start_routines: bool) -> Value {
-    json!({
-        "recipe": watcher("1.0.0"),
-        "from_recipe": { "source": "market", "name": "flight-watcher", "version": "1.0.0", "transaction": "install-1" },
-        "package": package("1.0.0"),
-        "grants": { "connectors": [], "plugins": [], "skills": [] },
-        "switches": switches,
-        "start_routines": start_routines,
-    })
-}
-
-fn hosts_on() -> Value {
-    json!({ "network:hosts:api.example-fares.com": true, "send_as_person": true })
-}
-
-async fn secure(spade: &Spade) -> Result {
-    let bots = EngineHandle::default();
-    bots.set(&spade.engine);
-    let data = spade.dir.path().to_path_buf();
-    let security = Security::start(Setup {
-        runner: spade_sandbox::Runner::unavailable("no sandbox in this test"),
-        store: Store::open(&spade.database())?,
-        home: data.join("home"),
-        spade_data: data.clone(),
-        ace_data: None,
-        workspaces: data.join("workspace"),
-        log_dir: data.join("egress"),
-        clock: Arc::new(SystemClock),
-        ids: Arc::new(CountingIds::default()),
-        bots,
-        person_key: None,
-    })
-    .await;
-    spade.engine.set_security(security);
-    Ok(())
-}
-
-async fn secured(scripts: Vec<Script>, tools: Vec<Arc<dyn Tool>>) -> Result<Spade> {
-    let spade = Spade::start(scripts, tools).await?;
-    secure(&spade).await?;
-    Ok(spade)
-}
-
-fn text(value: &Value) -> String {
-    value.as_str().unwrap_or_default().to_owned()
-}
-
-async fn bots(spade: &Spade) -> Result<Vec<Value>> {
-    let (_, body) = spade.get("/v1/agents").await?;
-    Ok(body["agents"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|a| a["kind"] == "bot")
-        .collect())
-}
-
-/// The bot's routines by name: (name, paused, instruction).
-async fn routines(spade: &Spade, bot: &str) -> Result<Vec<(String, bool, String)>> {
-    let (_, body) = spade.get(&format!("/v1/agents/{bot}/routines")).await?;
-    let mut all: Vec<(String, bool, String)> = body["routines"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .map(|r| {
-            (
-                text(&r["name"]),
-                r["paused"].as_bool().unwrap_or(false),
-                text(&r["instruction"]),
-            )
-        })
-        .collect();
-    all.sort();
-    Ok(all)
-}
-
-async fn notes(spade: &Spade, bot: &str) -> Result<Vec<String>> {
-    let (_, body) = spade.get(&format!("/v1/agents/{bot}/notes")).await?;
-    let mut all: Vec<String> = body["notes"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .map(|n| text(&n["text"]))
-        .collect();
-    all.sort();
-    Ok(all)
-}
-
-async fn installed(spade: &Spade, switches: Value, start: bool) -> Result<Value> {
-    let (status, made) = spade.post("/v1/agents", install(switches, start)).await?;
-    assert_eq!(status, 201, "{made}");
-    Ok(made["agent"].clone())
-}
-
-fn switches_of(package: &Value) -> Vec<(String, bool)> {
-    package["effects"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .map(|e| (text(&e["key"]), e["on"].as_bool().unwrap_or(false)))
-        .collect()
-}
 
 #[tokio::test]
 async fn installing_a_package_makes_a_linked_bot_with_triggers_paused_and_only_the_switches_left_on()
@@ -172,7 +26,7 @@ async fn installing_a_package_makes_a_linked_bot_with_triggers_paused_and_only_t
     let bot = text(&agent["id"]);
     assert_eq!(agent["package"]["name"], "flight-watcher");
     assert_eq!(agent["package"]["version"], "1.0.0");
-    assert_eq!(agent["package"]["hash"], "hash-1.0.0");
+    assert_eq!(agent["package"]["hash"], package("1.0.0")["hash"]);
     assert_eq!(
         switches_of(&agent["package"]),
         vec![
@@ -225,22 +79,21 @@ async fn installing_a_package_makes_a_linked_bot_with_triggers_paused_and_only_t
 async fn a_failure_part_way_leaves_nothing_installed() -> Result {
     // No security service: the switch the person left on can't be set up once the bot exists.
     let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    support::market::trust(&spade.engine);
     let (status, body) = spade.post("/v1/agents", install(hosts_on(), false)).await?;
     assert_eq!(status, 400, "{body}");
+    assert!(
+        text(&body["error"]).contains("security isn't ready"),
+        "{body}"
+    );
     assert!(bots(&spade).await?.is_empty(), "the half-made bot is gone");
-    // A version 3 package without its market identity is refused before anything is made.
-    let mut unlinked = install(json!({}), false);
-    unlinked.as_object_mut().map(|body| body.remove("package"));
-    let (status, _) = spade.post("/v1/agents", unlinked).await?;
+    // A market identity the market's signature doesn't prove is refused before anything is made.
+    let mut unproven = install(json!({}), false);
+    unproven.as_object_mut().map(|body| body.remove("envelope"));
+    let (status, _) = spade.post("/v1/agents", unproven).await?;
     assert_eq!(status, 400);
     assert!(bots(&spade).await?.is_empty());
     Ok(())
-}
-
-fn finished<'a>(events: &'a [Value], call: &str) -> Option<&'a Value> {
-    events
-        .iter()
-        .find(|e| e["type"] == "tool_finished" && e["call_id"] == call)
 }
 
 #[tokio::test]
@@ -290,28 +143,6 @@ async fn a_call_outside_what_the_package_declared_and_the_person_left_on_is_refu
         .unwrap_or_default();
     assert_eq!(asked["call_id"], "t3", "{asked}");
     Ok(())
-}
-
-async fn plan(spade: &Spade, bot: &str, version: &str) -> Result<Value> {
-    let (status, body) = spade
-        .post(
-            &format!("/v1/agents/{bot}/package/plan"),
-            json!({ "recipe": watcher(version) }),
-        )
-        .await?;
-    assert_eq!(status, 200, "{body}");
-    Ok(body["plan"].clone())
-}
-
-async fn move_to(spade: &Spade, bot: &str, version: &str, transaction: &str) -> Result<Value> {
-    let (status, body) = spade
-        .post(
-            &format!("/v1/agents/{bot}/package"),
-            json!({ "recipe": watcher(version), "package": package(version), "transaction": transaction }),
-        )
-        .await?;
-    assert_eq!(status, 200, "{body}");
-    Ok(body["package"].clone())
 }
 
 #[tokio::test]
@@ -397,18 +228,26 @@ async fn an_update_turns_nothing_new_on_keeps_what_the_person_changed_and_a_roll
     Ok(())
 }
 
+/// The bot's row in `/v1/agents`.
+async fn row(spade: &Spade, bot: &str) -> Result<Value> {
+    Ok(bots(spade)
+        .await?
+        .into_iter()
+        .find(|a| a["id"] == bot)
+        .unwrap_or_default())
+}
+
+fn title() -> Script {
+    Script::reply("").plain(r#"{"title":"Fares"}"#)
+}
+
 #[tokio::test]
-async fn a_withdrawn_version_pauses_its_bot_and_deletes_nothing() -> Result {
-    let spade = secured(Vec::new(), Vec::new()).await?;
+async fn a_withdrawn_version_pauses_its_bot_with_the_one_pause_and_resume_answers_what_waited()
+-> Result {
+    let spade = secured(vec![Script::reply("Fares are up."), title()], Vec::new()).await?;
     let agent = installed(&spade, hosts_on(), true).await?;
     let bot = text(&agent["id"]);
-    assert!(
-        routines(&spade, &bot)
-            .await?
-            .iter()
-            .all(|(_, paused, _)| !*paused),
-        "the person started its routines"
-    );
+    let conversation = text(&agent["conversation"]);
     let before_notes = notes(&spade, &bot).await?;
     let (status, body) = spade
         .post(
@@ -421,23 +260,165 @@ async fn a_withdrawn_version_pauses_its_bot_and_deletes_nothing() -> Result {
         body["package"]["withdrawn"]["reason"],
         "It sent too many requests."
     );
-    let paused = routines(&spade, &bot).await?;
-    assert_eq!(paused.len(), 3);
-    assert!(paused.iter().all(|(_, paused, _)| *paused), "{paused:?}");
+    // The bot is paused as the person's Pause pauses it; its routines are left as they were.
+    let listed = row(&spade, &bot).await?;
+    assert_eq!(
+        (&listed["state"], &listed["status"]),
+        (&json!("paused"), &json!("Paused")),
+        "{listed}"
+    );
+    let kept = routines(&spade, &bot).await?;
+    assert_eq!(kept.len(), 3);
+    assert!(kept.iter().all(|(_, paused, _)| !*paused), "{kept:?}");
     assert_eq!(bots(&spade).await?.len(), 1, "the bot stays");
     assert_eq!(notes(&spade, &bot).await?, before_notes);
-    // The person resumes it as it is.
+    // A message to it waits.
+    spade.say(&conversation, "Any news?").await?;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let events = spade.events(&conversation).await?;
+    assert!(
+        !events.iter().any(|e| e["type"] == "reply_started"),
+        "nothing answers while paused"
+    );
+    // The Running page's Resume ends the withdrawal's pause too: there is one pause.
+    let (status, body) = spade
+        .post(&format!("/v1/agents/{bot}/resume"), json!({}))
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["type"] == "reply_started")
+            .count(),
+        1,
+        "what waited is answered once"
+    );
+    let (_, body) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
+    assert!(body["package"]["withdrawn"].is_null(), "{body}");
+    assert_ne!(row(&spade, &bot).await?["state"], "paused");
+    Ok(())
+}
+
+#[tokio::test]
+async fn resuming_a_withdrawn_bot_from_the_marketplace_is_the_same_resume() -> Result {
+    let spade = secured(Vec::new(), Vec::new()).await?;
+    let agent = installed(&spade, hosts_on(), false).await?;
+    let bot = text(&agent["id"]);
+    let (status, _) = spade
+        .post(
+            &format!("/v1/agents/{bot}/package/withdrawn"),
+            json!({ "reason": "Withdrawn." }),
+        )
+        .await?;
+    assert_eq!(status, 200);
     let (status, body) = spade
         .delete(&format!("/v1/agents/{bot}/package/withdrawn"))
         .await?;
     assert_eq!(status, 200, "{body}");
-    assert!(body["package"]["withdrawn"].is_null());
-    assert!(
-        routines(&spade, &bot)
-            .await?
-            .iter()
-            .all(|(_, paused, _)| !*paused)
-    );
+    assert!(body["package"]["withdrawn"].is_null(), "{body}");
+    assert_ne!(row(&spade, &bot).await?["state"], "paused");
+    let (_, running) = spade.get("/v1/running").await?;
+    let shown = running["bots"]
+        .as_array()
+        .and_then(|all| all.iter().find(|r| r["id"] == bot.as_str()).cloned())
+        .unwrap_or_default();
+    assert_ne!(shown["reads"], "paused", "{shown}");
+    Ok(())
+}
+
+fn slow_tool() -> Vec<Arc<dyn Tool>> {
+    vec![Arc::new(
+        FakeTool::new("pause", Risk::Read, "ok").slow(std::time::Duration::from_millis(1_500)),
+    )]
+}
+
+/// Asks for the update to 2.0.0 while the bot works: held, and the profile says so.
+async fn ask_while_working(spade: &Spade, bot: &str, conversation: &str) -> Result {
+    spade.say(conversation, "Check the fares").await?;
+    spade.wait_for(conversation, "tool_started").await?;
+    let (status, body) = spade
+        .post(
+            &format!("/v1/agents/{bot}/package"),
+            json!({ "recipe": watcher("2.0.0"), "package": package("2.0.0"), "envelope": sealed("2.0.0"), "transaction": "update-held" }),
+        )
+        .await?;
+    assert_eq!(status, 202, "held, not refused: {body}");
+    assert_eq!(body["package"]["version"], "1.0.0", "{body}");
+    assert_eq!(body["package"]["held"]["version"], "2.0.0", "{body}");
+    let listed = row(spade, bot).await?;
+    assert_eq!(listed["package"]["held"]["version"], "2.0.0", "{listed}");
+    Ok(())
+}
+
+/// Waits until the bot's package reads `version` with nothing held.
+async fn moved_to(spade: &Spade, bot: &str, version: &str) -> Result<Value> {
+    for _ in 0..400 {
+        let (_, body) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
+        if body["package"]["version"] == version && body["package"]["held"].is_null() {
+            return Ok(body["package"].clone());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    Err(format!("never moved to {version}").into())
+}
+
+async fn evening_checks(spade: &Spade, bot: &str) -> Result<usize> {
+    Ok(routines(spade, bot)
+        .await?
+        .iter()
+        .filter(|(name, _, _)| name == "Evening check")
+        .count())
+}
+
+#[tokio::test]
+async fn an_update_asked_for_while_the_bot_works_is_held_and_applied_once_when_it_is_still()
+-> Result {
+    let spade = secured(
+        vec![
+            Script::reply("").call("t1", "pause", json!({})),
+            Script::reply("Checked."),
+            title(),
+        ],
+        slow_tool(),
+    )
+    .await?;
+    let agent = installed(&spade, hosts_on(), false).await?;
+    let bot = text(&agent["id"]);
+    let conversation = text(&agent["conversation"]);
+    ask_while_working(&spade, &bot, &conversation).await?;
+    assert_eq!(evening_checks(&spade, &bot).await?, 0, "nothing moved yet");
+
+    spade.wait_for(&conversation, "reply_finished").await?;
+    let moved = moved_to(&spade, &bot, "2.0.0").await?;
+    assert_eq!(moved["previous"]["version"], "1.0.0");
+    assert_eq!(evening_checks(&spade, &bot).await?, 1);
+    // Asked again, the same step does nothing twice.
+    let again = move_to(&spade, &bot, "2.0.0", "update-held").await?;
+    assert_eq!(again["version"], "2.0.0");
+    assert_eq!(evening_checks(&spade, &bot).await?, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_update_held_while_the_bot_works_survives_a_restart_and_applies_once() -> Result {
+    let spade = secured(
+        vec![Script::reply("").call("t1", "pause", json!({}))],
+        slow_tool(),
+    )
+    .await?;
+    let agent = installed(&spade, hosts_on(), false).await?;
+    let bot = text(&agent["id"]);
+    let conversation = text(&agent["conversation"]);
+    ask_while_working(&spade, &bot, &conversation).await?;
+
+    // Spade stops mid-turn; the turn carries on after the restart and the update waits for it.
+    let spade = spade
+        .restart(slow_tool(), vec![Script::reply("Checked."), title()])
+        .await?;
+    secure(&spade).await?;
+    moved_to(&spade, &bot, "2.0.0").await?;
+    assert_eq!(evening_checks(&spade, &bot).await?, 1);
     Ok(())
 }
 
@@ -499,6 +480,8 @@ async fn a_packages_uses_narrows_its_bot_to_those_modules_tools() -> Result {
     .await?;
     let mut body = install(hosts_on(), false);
     body["recipe"]["uses"] = json!(["task", "memory"]);
+    body["envelope"] = support::market::envelope("flight-watcher", "1.0.0", &body["recipe"]);
+    body.as_object_mut().map(|body| body.remove("package"));
     let (status, made) = spade.post("/v1/agents", body).await?;
     assert_eq!(status, 201, "{made}");
     let conversation = text(&made["agent"]["conversation"]);

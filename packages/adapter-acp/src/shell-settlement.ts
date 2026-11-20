@@ -10,6 +10,15 @@ interface NativeTool {
   shell: boolean;
 }
 const terminal = new Set(["succeeded", "failed", "cancelled", "declined"]);
+/**
+ * Whether a tool's live update holds the session's next prompt: the root's work while no prompt
+ * is open, other than a shell that outlived its prompt (that one blocks prompts on its own). The
+ * one rule for both the session's input gate (`busy`) and the work the translator reports as
+ * holding prompts, so a Stop always sees what the gate waits on.
+ */
+export function holdsNextPrompt(promptOpen: boolean, ofRoot: boolean, survivedShell: boolean) {
+  return !promptOpen && ofRoot && !survivedShell;
+}
 /** Pure native settlement, indexed by live tools rather than prior notifications. */
 export class ShellSettlement {
   readonly quirks: AcpQuirks;
@@ -37,7 +46,7 @@ export class ShellSettlement {
     if (terminal.has(tool.status)) this.forget(key);
     else {
       this.tools.set(key, tool);
-      if (!this.promptOpen && owner === this.root && !this.unsettled.has(key))
+      if (holdsNextPrompt(this.promptOpen, owner === this.root, this.unsettled.has(key)))
         this.afterPrompt.add(key);
     }
   }

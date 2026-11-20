@@ -4,7 +4,7 @@ import { prepareSpadeVoice, type PreparedVoice } from "./spade-attachments.ts";
 import { transcribe } from "./spade-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import type { SpadeTarget } from "./spade-requests.ts";
-import { resumePushToTalk } from "./spade-push-to-talk.ts";
+import { resumePushToTalk } from "@/boot/desktop-push-to-talk.ts";
 import { onSpeechChange, speakingNow, stopSpeaking } from "./spade-speech.ts";
 import {
   talkOff,

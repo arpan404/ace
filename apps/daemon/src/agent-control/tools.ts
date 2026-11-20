@@ -320,6 +320,9 @@ export function createAgentControlPort(
             );
           if (request.machine) {
             if (!machines) throw new AgentControlError("machine_unavailable", "no_machines");
+            // Its child runs there, but a call from work a Stop ended is refused here, before
+            // any task of the call is sent (ADR 0191).
+            service.admission.validateRemote(caller, request.requestId);
             return undefined;
           }
           if (request.workspace && extensions.delegateWorkspace) return undefined;

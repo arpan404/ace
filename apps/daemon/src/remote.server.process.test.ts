@@ -293,9 +293,12 @@ describe("remote access", () => {
     });
     const first = await startDaemon({ config: config, engine: noProviderDiscovery });
     cleanups.push(() => first.close());
+    await first.remoteStarted.direct;
     const credential = readFileSync(first.tokenPath, "utf8");
     const origin = readFileSync(join(home, "daemon-endpoint"), "utf8");
     if (!first.remoteUrl || !first.fingerprint) throw new Error("Remote listener missing");
+    // Read while it listens: a closed daemon's remote listener has no fingerprint.
+    const fingerprint = first.fingerprint;
     const result = PairingResponse.parse(
       await accessRequest(origin, "/v1/pairings", { token: credential, method: "POST", body: {} }),
     );
@@ -310,8 +313,9 @@ describe("remote access", () => {
     await first.close();
     const second = await startDaemon({ config: config, engine: noProviderDiscovery });
     cleanups.push(() => second.close());
+    await second.remoteStarted.direct;
     if (!second.remoteUrl || !second.fingerprint) throw new Error("Remote listener missing");
-    expect(second.fingerprint).toBe(first.fingerprint);
+    expect(second.fingerprint).toBe(fingerprint);
     expect(statSync(join(home, "tls/key.pem")).mode & 0o777).toBe(0o600);
     const fresh = SocketTicket.parse(
       await accessRequest(second.remoteUrl.replace("wss:", "https:"), "/v1/tickets", {
