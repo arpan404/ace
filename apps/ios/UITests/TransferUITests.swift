@@ -41,6 +41,8 @@ import XCTest
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: openThere)
         wait(for: [gone], timeout: 10)
+        // Back to the list's top, as a person would: tapping its tab again scrolls it up.
+        app.homeTab("threads").tap()
 
         app.revealRow(row).tap()
 
