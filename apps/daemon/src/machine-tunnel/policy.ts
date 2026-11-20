@@ -84,7 +84,8 @@ export class TunnelAdmission {
     );
     bucket.at = now;
     this.#devices.set(device, bucket);
-    if (bucket.open.size >= this.#limits.streamsPerDevice || bucket.tokens < 1) return "tunnel_limit";
+    if (bucket.open.size >= this.#limits.streamsPerDevice || bucket.tokens < 1)
+      return "tunnel_limit";
     bucket.tokens -= 1;
     bucket.open.add(stream);
     return undefined;

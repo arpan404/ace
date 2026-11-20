@@ -18,7 +18,8 @@
     "./spade-live": "./src/spade-live.ts",
     "./screen-stream": "./src/screen-stream.ts",
     "./media": "./src/media.ts",
-    "./machine-tunnel": "./src/machine-tunnel.ts",
+    "./machine-tunnel": "./src/machine-tunnel-paths.ts",
+    "./machine-tunnel/node": "./node/machine-tunnel.ts",
     "./worktree-creations": "./src/worktree-creations.ts",
     "./access": "./src/access.ts",
     "./access-ticket": "./src/access-ticket.ts",
@@ -47,6 +48,7 @@
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/secure-channel": "workspace:*",
+    "ws": "^8.18.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -58,7 +60,6 @@
     "@ace/media": "workspace:*",
     "@ace/relay": "workspace:*",
     "@ace/screen": "workspace:*",
-    "@types/ws": "^8.18.1",
-    "ws": "^8.18.3"
+    "@types/ws": "^8.18.1"
   }
 }
