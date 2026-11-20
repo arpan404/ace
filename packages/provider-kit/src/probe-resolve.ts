@@ -43,20 +43,17 @@ export async function resolveWithin(
   const deadline = new AbortController();
   const cancel = schedule(() => deadline.abort(new Error("Probe timed out")), timeoutMs);
   const bounded = AbortSignal.any([signal, deadline.signal]);
-  let stopListening = () => {};
-  const given = new Promise<never>((_, reject) => {
-    const abort = () => reject(bounded.reason);
-    if (bounded.aborted) abort();
-    bounded.addEventListener("abort", abort, { once: true });
-    stopListening = () => bounded.removeEventListener("abort", abort);
-  });
+  const given = Promise.withResolvers<never>();
+  const abort = () => given.reject(bounded.reason);
+  if (bounded.aborted) abort();
+  bounded.addEventListener("abort", abort, { once: true });
   const resolving = resolve(bounded);
   // Given up, it may still fail later: that failure is no one's.
   resolving.catch(() => {});
   try {
-    return await Promise.race([resolving, given]);
+    return await Promise.race([resolving, given.promise]);
   } finally {
     cancel();
-    stopListening();
+    bounded.removeEventListener("abort", abort);
   }
 }

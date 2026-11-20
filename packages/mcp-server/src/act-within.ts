@@ -19,17 +19,15 @@ export async function actWithin<T extends Act>(
   scheduler: { after(ms: number, run: () => void): () => void },
 ): Promise<ActOutcome<T>> {
   if (!(pending instanceof Promise)) return { kind: "act", act: pending };
-  let giveUp: (code: "cancelled" | "tool_timeout") => void = () => {};
-  const given = new Promise<ActOutcome<T>>((resolve) => {
-    giveUp = (code) => resolve({ kind: "stopped", code });
-  });
+  const given = Promise.withResolvers<ActOutcome<T>>();
+  const giveUp = (code: "cancelled" | "tool_timeout") => given.resolve({ kind: "stopped", code });
   const abort = () => giveUp("cancelled");
   signal.addEventListener("abort", abort, { once: true });
   if (signal.aborted) abort();
   const cancelTimer = scheduler.after(timeoutMs, () => giveUp("tool_timeout"));
   const answered = pending.then((act): ActOutcome<T> => ({ kind: "act", act }));
   try {
-    const outcome = await Promise.race([answered, given]);
+    const outcome = await Promise.race([answered, given.promise]);
     if (outcome.kind === "stopped")
       // Too late for this call: whatever it acts as is let go once it comes, and a refusal
       // that comes instead is no one's.
