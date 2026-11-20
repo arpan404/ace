@@ -66,6 +66,31 @@ test.runIf(posix)(
   },
 );
 
+test.runIf(posix)(
+  "a test PATH's npm is npm's own CLI, not a wrapper that looks for node beside itself",
+  async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "ace-tool-path-npm-")));
+    // mise's Node install: bin/npm is a wrapper script, bin/npx links to npm's CLI.
+    const nodeBin = join(root, "installs/node/26/bin");
+    await tool(nodeBin, "node");
+    await tool(nodeBin, "npm");
+    const cliDir = join(root, "installs/node/26/lib/node_modules/npm/bin");
+    const npm = await tool(cliDir, "npm-cli.js");
+    const npx = await tool(cliDir, "npx-cli.js");
+    await symlink("../lib/node_modules/npm/bin/npx-cli.js", join(nodeBin, "npx"));
+
+    const PATH = await prepareTestToolPath(
+      join(root, "tools"),
+      { PATH: nodeBin },
+      process.execPath,
+      [],
+    );
+
+    expect(await realpath(join(PATH, "npm"))).toBe(npm);
+    expect(await realpath(join(PATH, "npx"))).toBe(npx);
+  },
+);
+
 test("every process a test starts finds no agent CLI and no version-manager shim on its PATH", async () => {
   // The setup file gave this worker the environment every test daemon and fixture inherits.
   const env = process.env;
