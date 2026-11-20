@@ -3,7 +3,8 @@
 //! proved carries its proof wherever it waits (held while the bot works, written down before a
 //! crash), and is taken only on it; one recorded with none (by a build before proofs) or with
 //! one that no longer verifies waits for the person to accept the version again. A local
-//! package's identity claims nothing, so needs no proof.
+//! package's identity claims nothing, so needs no proof, and one Spade ships (a template) is
+//! proven by its built-in bytes.
 
 use serde_json::Value;
 use spade_core::package::Manifest;
@@ -20,6 +21,13 @@ pub fn unproven(
     proof: Option<&Value>,
 ) -> Option<String> {
     if envelope::is_local(package) {
+        return None;
+    }
+    // A package Spade ships itself (a template) is proven by its built-in bytes.
+    if crate::teams::template_packages()
+        .iter()
+        .any(|shipped| shipped.package == *package && shipped.manifest == *manifest)
+    {
         return None;
     }
     let Some(proof) = proof else {
