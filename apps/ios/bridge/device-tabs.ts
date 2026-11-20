@@ -208,8 +208,8 @@ export class DeviceTabs {
   #pagePorts(): number[] {
     const ports: number[] = [];
     for (const tab of this.#tabs)
-      for (const url of [tab.url, tab.failed]) {
-        const port = url === undefined ? undefined : loopbackPort(url);
+      for (const address of [tab.url, tab.failed]) {
+        const port = address === undefined ? undefined : loopbackPort(address);
         if (port !== undefined) ports.push(port);
       }
     return ports;
