@@ -74,7 +74,9 @@ test("typed text marks the tab unsaved and stays out of the stored layout", asyn
   await userEvent.keyboard("{Control>}a{/Control}");
   await userEvent.keyboard("// typed");
   const tab = within(panel).getByRole("tab", { name: "retry.ts" });
-  await waitFor(() => expect(tab.querySelector("[data-shows]")?.getAttribute("data-shows")).toBe("unsaved"));
+  await waitFor(() =>
+    expect(tab.querySelector("[data-shows]")?.getAttribute("data-shows")).toBe("unsaved"),
+  );
   expect(view.textContent).toContain("// typed");
   // The layout (with its tab) is stored; the unsaved text goes to the device's draft store.
   await waitFor(() => expect(storage.getItem("ace.workspace") ?? "").toContain("src/retry.ts"));

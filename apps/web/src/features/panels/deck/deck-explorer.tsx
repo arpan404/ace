@@ -11,6 +11,7 @@ import {
   useContentSearch,
 } from "../files/content-search-store.ts";
 import type { FileOperationDialog } from "../files/file-operation.ts";
+import { useDeck } from "../files/file-tree-deck.ts";
 import { FileTree } from "../files/file-tree.tsx";
 import type { OpenHow } from "../files/tree-commands.ts";
 import { useFileActions, type UploadState } from "../files/use-file-actions.ts";
@@ -51,6 +52,7 @@ export function DeckExplorer(props: {
   const { threadId, explorer, onExplorer } = props;
   const client = useClient();
   const [operation, setOperation] = useState<FileOperationDialog>();
+  const deck = useDeck(threadId);
   const open = (path: string, how: OpenHow = "keep") => props.onOpen(path, { how });
   const fileActions = useFileActions(threadId, (uploaded) => open(uploaded));
   useEffect(() => retainContentSearch(client, threadId), [client, threadId]);
@@ -75,7 +77,8 @@ export function DeckExplorer(props: {
             onClose={() => setOperation(undefined)}
             onChanged={(changed, destination) => {
               if (operation.kind === "create") open(changed);
-              if (destination && props.current === changed) open(destination);
+              // A moved or renamed entry: its open editors (or those inside it) follow.
+              if (destination) deck.renamed({ from: changed, to: destination, folder: true });
             }}
           />
         </Suspense>

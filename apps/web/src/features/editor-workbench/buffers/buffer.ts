@@ -246,8 +246,9 @@ export class Buffer implements TextBuffer {
     this.#cancelDraft = undefined;
     this.#dirty = false;
     this.#clash = undefined;
-    this.#queue(() => this.#ctx.drafts.delete(this.key));
-    await this.#storage;
+    // The person chose to drop the edits: a draft store that can't be reached changes nothing.
+    this.#queue(() => this.#ctx.drafts.delete(this.key).catch(() => {}));
+    await this.#storage.catch(() => {});
     this.#free();
     await this.load();
   }

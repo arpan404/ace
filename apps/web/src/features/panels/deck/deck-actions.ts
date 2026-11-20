@@ -94,7 +94,7 @@ export async function confirmClose(host: DeckActionsHost, refs: readonly TabRef[
     host.change(closeTabs(host.layout(), closing, unsavedOf(host)).layout);
     return;
   }
-  await Promise.all(paths.map((path) => host.buffers.buffer(path)?.discard()));
+  await Promise.allSettled(paths.map((path) => host.buffers.buffer(path)?.discard()));
   host.change(discardTabs(host.layout(), refs));
 }
 
