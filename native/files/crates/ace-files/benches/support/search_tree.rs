@@ -11,7 +11,9 @@
 //! and the rare literal sits in about one source file in twenty thousand.
 //!
 //! The folder is the bench's only when it carries the ownership marker the bench created
-//! exclusively; a non-empty folder without it is refused, and a run holds an exclusive lock on it.
+//! exclusively: a regular file, never a link, holding exactly the bench's text. A non-empty folder
+//! without it is refused, a run holds an exclusive lock on it, and regenerating removes only the
+//! entries the generator writes, so anything else in the folder survives.
 
 use std::fs;
 use std::io;
@@ -24,6 +26,19 @@ const OWNER: &str = ".ace-search-bench-owned";
 const MARKER: &str = ".ace-search-bench-tree";
 /// Locked for the whole run.
 const LOCK: &str = ".ace-search-bench-lock";
+/// What the ownership marker holds. A marker with anything else in it is not ours.
+const OWNER_TEXT: &str = "ace-files search bench folder\n";
+/// Every top-level entry the generator writes; regenerating removes these and nothing else.
+const GENERATED: [&str; 8] = [
+    ".gitignore",
+    ".git",
+    "node_modules",
+    "assets",
+    "dist",
+    "web",
+    "src",
+    MARKER,
+];
 /// Bumped whenever the generator changes, so an old tree is not reused.
 const VERSION: u32 = 1;
 /// Files per leaf folder.
@@ -55,7 +70,7 @@ pub fn ensure(
         return Err(format!("{} is a symlink", dir.display()).into());
     }
     fs::create_dir_all(dir)?;
-    let owned = fs::read(dir.join(OWNER)).is_ok();
+    let owned = owned(dir)?;
     let foreign = fs::read_dir(dir)?
         .filter_map(Result::ok)
         .any(|entry| entry.file_name() != LOCK);
@@ -82,23 +97,14 @@ pub fn ensure(
         });
     }
     if owned {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let name = entry.file_name();
-            if name == LOCK || name == OWNER {
-                continue;
-            }
-            if entry.file_type()?.is_dir() {
-                fs::remove_dir_all(entry.path())?;
-            } else {
-                fs::remove_file(entry.path())?;
-            }
-        }
+        remove_generated(dir)?;
     } else {
+        use std::io::Write as _;
         fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(dir.join(OWNER))?;
+            .open(dir.join(OWNER))?
+            .write_all(OWNER_TEXT.as_bytes())?;
     }
     let started = Instant::now();
     println!("generating {files} files at {}", dir.display());
@@ -117,11 +123,50 @@ pub fn ensure(
     })
 }
 
+/// Whether the folder carries the bench's ownership marker: false when there is none, an error
+/// when something else holds that name (a link, a folder, a file with other text).
+fn owned(dir: &Path) -> Result<bool, Box<dyn std::error::Error>> {
+    let path = dir.join(OWNER);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.file_type().is_file() && fs::read_to_string(&path)? == OWNER_TEXT {
+        return Ok(true);
+    }
+    Err(format!(
+        "{} is not this bench's ownership marker; pick another --dir",
+        path.display()
+    )
+    .into())
+}
+
+/// Removes what [`generate`] wrote, and only that. A link in one of those places is removed as a
+/// link, never followed.
+fn remove_generated(dir: &Path) -> io::Result<()> {
+    for name in GENERATED {
+        let path = dir.join(name);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_dir() => fs::remove_dir_all(&path)?,
+            Ok(_) => fs::remove_file(&path)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
 fn marker_text(files: usize) -> String {
     format!("version={VERSION}\nfiles={files}\n")
 }
 
 fn lock(dir: &Path) -> Result<fs::File, Box<dyn std::error::Error>> {
+    if let Ok(metadata) = fs::symlink_metadata(dir.join(LOCK))
+        && !metadata.file_type().is_file()
+    {
+        return Err(format!("{} is not a regular file", dir.join(LOCK).display()).into());
+    }
     let file = fs::OpenOptions::new()
         .read(true)
         .write(true)
