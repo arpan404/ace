@@ -38,9 +38,9 @@ function counting(port: ReturnType<typeof fakeDisk>["port"]) {
     reads,
     port: {
       ...port,
-      read: (key: BufferKey, signal?: AbortSignal) => {
-        reads.set(key.path, (reads.get(key.path) ?? 0) + 1);
-        return port.read(key, signal);
+      read: (file: BufferKey, signal?: AbortSignal) => {
+        reads.set(file.path, (reads.get(file.path) ?? 0) + 1);
+        return port.read(file, signal);
       },
     },
   };

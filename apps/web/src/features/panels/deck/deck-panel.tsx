@@ -20,6 +20,8 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent,
+  type ReactNode,
+  useLayoutEffect,
 } from "react";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import {
@@ -43,6 +45,7 @@ import {
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
 import { contentSearchStore } from "../files/content-search-store.ts";
+import { onRevealInExplorer } from "../files/file-tree-deck.ts";
 import { openInDeck, type OpenInDeckOptions } from "../files/open-file.ts";
 import { useRecentFilesStore } from "../files/files-state.ts";
 import { useChangeMarks } from "../files/use-change-marks.ts";
@@ -97,7 +100,10 @@ export function DeckPanel(props: TabViewProps) {
   const carried = useMemo(() => draftsOf(stored), [stored]);
   const layout = useMemo(() => withoutDrafts(stored), [stored]);
   const latest = useRef(layout);
-  latest.current = layout;
+  // Handlers read the layout as it is now, even between a change and its render.
+  useLayoutEffect(() => {
+    latest.current = layout;
+  }, [layout]);
   const buffers = useDeckBuffers(
     registry,
     threadId,
@@ -161,9 +167,13 @@ export function DeckPanel(props: TabViewProps) {
     if (focused.active !== undefined) recentFiles.remember(threadId, focused.active);
   }, [recentFiles, threadId, focused.active]);
   const { see } = session;
+  const lookedAt =
+    focused.active !== undefined && session.changes.has(focused.active)
+      ? focused.active
+      : undefined;
   useEffect(() => {
-    if (focused.active !== undefined) see([focused.active]);
-  }, [focused.active, see, session.changes]);
+    if (lookedAt !== undefined) see([lookedAt]);
+  }, [lookedAt, see]);
 
   // Saves asked for offline run once the daemon is back (spec 66).
   useEffect(() => {
@@ -179,6 +189,17 @@ export function DeckPanel(props: TabViewProps) {
   const setExplorer = (patch: Partial<ExplorerState>) =>
     change({ ...latest.current, explorer: { ...latest.current.explorer, ...patch } });
   const [focusSearch, setFocusSearch] = useState(0);
+  // Reveal in Files (the tab menu) brings the explorer out to show the file.
+  useEffect(() =>
+    onRevealInExplorer(threadId, () => {
+      if (compact) setOverlay(true);
+      else if (!latest.current.explorer.open || latest.current.explorer.side !== "files")
+        change({
+          ...latest.current,
+          explorer: { ...latest.current.explorer, open: true, side: "files" },
+        });
+    }),
+  );
   const fromExplorer = (path: string, how: ExplorerOpen) => {
     open(path, {
       keep: how.how !== "preview",
@@ -193,7 +214,6 @@ export function DeckPanel(props: TabViewProps) {
 
   // The status line's left side (spec 41, 45, 66).
   const changes = session.changes;
-  const paths = openPaths(layout);
   const notice: StatusNotice | undefined =
     problem === "offline"
       ? { text: "Saving when the daemon reconnects" }
@@ -314,7 +334,7 @@ export function DeckPanel(props: TabViewProps) {
       onConfirmClose={(refs) => void confirmClose(host, refs)}
       onSaveAll={() => void saveAll(host)}
       open={layout.explorer.openEditors}
-      onOpenChange={(openEditors) => setExplorer({ openEditors })}
+      onOpenChange={(unfolded) => setExplorer({ openEditors: unfolded })}
     />
   );
   const explorer = (
@@ -375,16 +395,8 @@ export function DeckPanel(props: TabViewProps) {
             actions.open({ kind: "changes", data: { scope: "working-tree", path } })
           }
           onQuickOpen={() => quickOpen.set(() => threadId)}
-          renderEditor={(editor) => <RevealedEditor threadId={threadId} {...editor} />}
-          tabMenuItems={(path) => (
-            <DeckTabMenuItems
-              threadId={threadId}
-              path={path}
-              onReveal={() =>
-                compact ? setOverlay(true) : setExplorer({ open: true, side: "files" })
-              }
-            />
-          )}
+          renderEditor={editorFor(threadId)}
+          tabMenuItems={menuFor(threadId)}
           explorerToggle={
             <button
               type="button"
@@ -407,6 +419,29 @@ export function DeckPanel(props: TabViewProps) {
 /** A layout with no files: the Deck holds none until carried-over drafts are stored. */
 function emptyOf(layout: EditorLayout): EditorLayout {
   return { ...layout, root: { kind: "group", id: focusedGroup(layout).id, tabs: [], mru: [] } };
+}
+
+const renderers = new Map<string, (editor: DeckEditorProps) => ReactNode>();
+const menus = new Map<string, (path: string) => ReactNode>();
+
+/** One thread's items for its tabs' menus. */
+function menuFor(threadId: string): (path: string) => ReactNode {
+  let menu = menus.get(threadId);
+  if (!menu) {
+    menu = (path) => <DeckTabMenuItems threadId={threadId} path={path} />;
+    menus.set(threadId, menu);
+  }
+  return menu;
+}
+
+/** One thread's editor renderer, kept so a group's editor never remounts on a re-render. */
+function editorFor(threadId: string): (editor: DeckEditorProps) => ReactNode {
+  let render = renderers.get(threadId);
+  if (!render) {
+    render = (editor) => <RevealedEditor threadId={threadId} {...editor} />;
+    renderers.set(threadId, render);
+  }
+  return render;
 }
 
 /** The Deck's editor, taking the place an open asked it to reveal (spec 12–13). */

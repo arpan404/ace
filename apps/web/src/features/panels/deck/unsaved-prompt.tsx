@@ -79,9 +79,7 @@ export function UnsavedPrompt() {
   const question = useSyncExternalStore(subscribe, () => current);
   // Kept after an answer so the card doesn't empty while it fades out.
   const [shown, setShown] = useState(question);
-  useEffect(() => {
-    if (question) setShown(question);
-  }, [question]);
+  if (question && question !== shown) setShown(question);
   useEffect(() => () => current?.answer("cancel"), []);
   const primary = useRef<HTMLButtonElement>(null);
   const card = question ?? shown;

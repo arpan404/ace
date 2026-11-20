@@ -1,3 +1,4 @@
+/* oxlint-disable unicorn/consistent-function-scoping -- the probe is serialized into the page as one function, so its helpers live inside it. */
 import type { Page } from "@playwright/test";
 import { z } from "zod";
 
@@ -38,7 +39,10 @@ const Load = z.object({
 });
 type Load = z.infer<typeof Load>;
 
-/** Init script: installs `aceDeckProbe`. Runs on every load, before the app. */
+/**
+ * Init script: installs `aceDeckProbe`. Runs on every load, before the app. It is serialized
+ * into the page, so its helpers must live inside it.
+ */
 export function installDeckProbe() {
   const probe: DeckProbe = { switches: [], keys: [], load: { errors: [] } };
   globalThis.aceDeckProbe = probe;

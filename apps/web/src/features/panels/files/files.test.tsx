@@ -1,9 +1,8 @@
 import { coldStartReplay } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
-
+import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { folderFixture } from "./folders-test-support.ts";
 

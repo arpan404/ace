@@ -53,11 +53,13 @@ export interface WorkspaceDefinition extends Omit<WorkspaceDefinitionOptions, "k
   upgrade(workspace: ScopeWorkspace): ScopeWorkspace;
 }
 
+const unchanged = (workspace: ScopeWorkspace) => workspace;
+
 export function defineWorkspace(options: WorkspaceDefinitionOptions): WorkspaceDefinition {
   let loading: Promise<readonly TabKind[]> | undefined;
   let byKind = new Map<string, TabKind>();
   let ready = false;
-  let upgrade: (workspace: ScopeWorkspace) => ScopeWorkspace = (workspace) => workspace;
+  let upgrade: (workspace: ScopeWorkspace) => ScopeWorkspace = unchanged;
   const load = () =>
     (loading ??= options.kinds().then(
       (module) => {

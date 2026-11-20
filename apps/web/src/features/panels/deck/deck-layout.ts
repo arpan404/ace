@@ -81,9 +81,12 @@ export function renameInLayout(layout: EditorLayout, rename: DeckRename): Editor
 export function openEditorsMru(layout: EditorLayout): readonly string[] {
   const focused = focusedGroup(layout);
   const groups = [focused, ...groupsOf(layout).filter((group) => group.id !== focused.id)];
-  return [
-    ...new Set(groups.flatMap((group) => [...group.mru, ...group.tabs.map((tab) => tab.path)])),
-  ];
+  const paths = new Set<string>();
+  for (const group of groups) {
+    for (const path of group.mru) paths.add(path);
+    for (const tab of group.tabs) paths.add(tab.path);
+  }
+  return [...paths];
 }
 
 /** Every path open in any group, once. */

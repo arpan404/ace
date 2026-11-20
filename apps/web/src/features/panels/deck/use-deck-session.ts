@@ -2,7 +2,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import { useThreadField } from "@ace/client-react/thread-field";
 import { providerDisplayName, type Turn } from "@ace/ui-core";
 import type { EditorLayout } from "@ace/ui-core/editor-workbench";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BufferRegistry } from "@/features/editor-workbench/index.ts";
 import type { DeckBuffers } from "@/features/editor-workbench/index.ts";
 import { useTurns } from "@/lib/diffs/use-turns.ts";
@@ -61,7 +61,9 @@ export function useDeckSession(
 
   // The disk moved: a watched folder changed, an ace file operation, or the watcher fell behind.
   const open = useRef(paths);
-  open.current = paths;
+  useEffect(() => {
+    open.current = paths;
+  }, [paths]);
   // A write that landed after a file was read but before its folder was watched gets no notice:
   // once the daemon has a folder newly, its open files look at the disk once more.
   useEffect(() => {
@@ -156,11 +158,13 @@ export function useDeckSession(
       for (const off of offs) off();
     };
   }, [buffers, pathKey, threadId]);
-  useEffect(() => setChanges((current) => keepOpen(current, paths)), [paths]);
-  useEffect(() => buffers.setAgentMarks(changes), [buffers, changes]);
+  // A closed file's mark goes with its tab.
+  const shown = useMemo(() => keepOpen(changes, paths), [changes, paths]);
+  useEffect(() => buffers.setAgentMarks(shown), [buffers, shown]);
 
-  return useMemo(
-    () => ({ changes, see: (seen) => setChanges((current) => seeChanges(current, seen)) }),
-    [changes],
+  const see = useCallback(
+    (seen: Iterable<string>) => setChanges((current) => seeChanges(current, seen)),
+    [],
   );
+  return useMemo(() => ({ changes: shown, see }), [shown, see]);
 }

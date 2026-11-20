@@ -22,9 +22,9 @@ export function draftFlush(ports: DraftFlushPorts) {
     /** Resolves once the window flushed its drafts, it has none to ask, or the bound passed. */
     run(): Promise<void> {
       return new Promise<void>((resolve) => {
-        let cancel = () => {};
+        let cancel: (() => void) | undefined;
         const done = () => {
-          cancel();
+          cancel?.();
           if (waiting === done) waiting = undefined;
           resolve();
         };

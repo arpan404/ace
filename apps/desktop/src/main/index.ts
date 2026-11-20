@@ -296,9 +296,9 @@ function main(target: DaemonTarget, crashDumps: string): void {
   // Hot exit: the window writes its unsaved editor text to the device before anything stops.
   const drafts = draftFlush({
     ask: () => {
-      const target = contents();
-      if (!target || target.isDestroyed()) return false;
-      emit(target, "drafts.flush", undefined);
+      const page = contents();
+      if (!page || page.isDestroyed()) return false;
+      emit(page, "drafts.flush", undefined);
       return true;
     },
     timers,
