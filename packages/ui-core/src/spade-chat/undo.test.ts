@@ -115,6 +115,36 @@ describe("undo in the conversation", () => {
     expect(steps?.undo).toBeUndefined();
   });
 
+  test("a send that failed doesn't say it was sent, only that what got through stays", () => {
+    const c = conversation();
+    c.stored({ type: "user_message", text: "Push it" });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: [{ id: "c1", name: "git_push", arguments: { branch: "main" } }],
+    });
+    c.stored({
+      type: "tool_started",
+      reply: "r1",
+      call_id: "c1",
+      name: "git_push",
+      effect: "send_as_person",
+    });
+    c.stored({
+      type: "tool_finished",
+      reply: "r1",
+      call_id: "c1",
+      name: "git_push",
+      content: "no repository",
+      is_error: true,
+    });
+    c.stored({ type: "reply_finished", reply: "r1", text: "It failed.", cost_micros: 0 });
+    const steps = c.bubbles().find((b): b is Steps => b.kind === "steps");
+    expect(steps?.steps[0]?.cantUndo).toBe("Can't be undone from here if any of it went through.");
+  });
+
   test("what a step can't undo comes from the gate's declared effect, not the tool's name", () => {
     const { steps } = reply([
       // Named like a payment, declared a read: nothing stays.

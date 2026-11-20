@@ -659,8 +659,19 @@ impl Security {
             if reserved(&maintenance, &bot) {
                 return Err(RESERVED.to_owned());
             }
-            if !workspace.is_dir() || !checkpoints.due_in(&bot, now, turn.as_deref()) {
+            if !checkpoints.due_in(&bot, now, turn.as_deref()) {
                 return Ok(());
+            }
+            // A bot's first file-changing work makes its folder: its empty folder is what
+            // undoing that work goes back to, so it is made now and checkpointed like any other.
+            if !workspace.is_dir() {
+                match std::fs::create_dir_all(&workspace) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => {
+                        return Err(format!("the bot's folder couldn't be made: {error}"));
+                    }
+                }
             }
             checkpoints
                 .take(&bot, &workspace, &id, now, "auto")

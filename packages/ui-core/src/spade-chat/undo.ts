@@ -56,6 +56,9 @@ function effectStays(effect: string, app: string | undefined): string | undefine
 export function spadeCantUndo(part: CallPart): string | undefined {
   if (part.state !== "done" && part.state !== "failed") return undefined;
   const declared = part.effect && effectStays(part.effect, appOf(part.name));
+  // A failed step may or may not have gone out: never say it was sent, paid or published.
+  if (declared && part.state === "failed")
+    return "Can't be undone from here if any of it went through.";
   if (declared) return declared;
   const ran = part.ran;
   if (ran?.contained === false) return "Can't be undone here: it ran outside the bot's sandbox.";

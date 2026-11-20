@@ -135,7 +135,7 @@ async fn undoing_a_turn_restores_the_files_it_changed_and_lists_them_first() -> 
 }
 
 #[tokio::test]
-async fn a_step_from_before_any_checkpoint_has_nothing_to_undo_to() -> Result {
+async fn a_new_bots_first_write_undoes_back_to_its_empty_folder() -> Result {
     let w = world(true, vec![], |_| {
         vec![
             write("c1", "plan.md", "first plan"),
@@ -145,12 +145,15 @@ async fn a_step_from_before_any_checkpoint_has_nothing_to_undo_to() -> Result {
     .await?;
     w.spade.say(&w.conversation, "Write a plan").await?;
     w.spade.wait_for(&w.conversation, "reply_finished").await?;
-    // The workspace didn't exist before the first write, so no checkpoint came before it.
+    // The folder didn't exist before the first write: it was made empty and checkpointed, so
+    // that write can be undone too.
     let seq = started_at(&w, "c1").await?;
-    let (status, body) = w
+    let (status, preview) = w
         .spade
         .get(&format!("/v1/agents/{}/checkpoints/undo?seq={seq}", w.bot))
         .await?;
-    assert_eq!(status, 404, "{body}");
+    assert_eq!(status, 200, "{preview}");
+    assert_eq!(listed(&preview["changes"]["added"]), vec!["plan.md"]);
+    assert!(listed(&preview["changes"]["changed"]).is_empty(), "{preview}");
     Ok(())
 }
