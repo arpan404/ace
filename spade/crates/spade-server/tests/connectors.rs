@@ -100,11 +100,25 @@ async fn signing_in_ends_at_spades_callback_and_no_answer_or_row_carries_a_token
 
     let (status, listed) = spade.get("/v1/connectors").await?;
     assert_eq!(status, 200);
-    assert!(
-        listed["catalogue"]
-            .as_array()
-            .is_some_and(|c| c.iter().any(|e| e["id"] == "linear"))
+    let catalogue = listed["catalogue"]
+        .as_array()
+        .ok_or("no catalogue in /v1/connectors")?;
+    let linear = catalogue
+        .iter()
+        .find(|e| e["id"] == "linear")
+        .ok_or("no linear")?;
+    assert!(linear.get("setup").is_none(), "{linear}");
+    let asana = catalogue
+        .iter()
+        .find(|e| e["id"] == "asana")
+        .ok_or("no asana")?;
+    assert_eq!(
+        asana["setup"]["redirect"],
+        format!("{}/v1/connectors/callback/asana", spade.base),
+        "{asana}"
     );
+    assert_eq!(asana["setup"]["where"], "https://app.asana.com/0/my-apps");
+    assert_eq!(asana["setup"]["scopes"], json!(["default"]));
 
     let (status, started) = spade
         .post(

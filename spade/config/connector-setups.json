@@ -1,0 +1,87 @@
+{
+  "about": "Setup steps for apps that sign in with the person's own client ID. See ADR 0197.",
+  "checked": "2026-11-19",
+  "setups": [
+    {
+      "connector": "asana",
+      "where": "https://app.asana.com/0/my-apps",
+      "where_label": "Asana developer console",
+      "steps": [
+        { "text": "Click Create new app, name it, choose MCP app, then Create app." },
+        { "text": "Under OAuth, add this redirect URL exactly:", "redirect": true },
+        {
+          "text": "Under Manage distribution, choose Any workspace or pick yours, then Save changes."
+        },
+        { "text": "Copy the client ID and the client secret." }
+      ],
+      "values": ["client_id", "client_secret"],
+      "scopes": ["default"],
+      "source": "https://developers.asana.com/docs/integrating-with-asanas-mcp-server",
+      "notes": "Asana matches the redirect exactly, so add it again if Spade's port changes."
+    },
+    {
+      "connector": "box",
+      "where": "https://developer.box.com/guides/box-mcp/remote/",
+      "where_label": "Box's guide to the Admin Console",
+      "steps": [
+        {
+          "text": "In the Box Admin Console, open Integrations, find Box MCP server and click Configure."
+        },
+        { "text": "Click Add Integration Credentials, name it and save." },
+        { "text": "Add this redirect URI:", "redirect": true },
+        { "text": "Choose the access scopes the bots may use." },
+        { "text": "Copy the client ID and the client secret." }
+      ],
+      "values": ["client_id", "client_secret"],
+      "scopes": [],
+      "source": "https://developer.box.com/guides/box-mcp/remote/",
+      "notes": "Only a Box admin can do this, and the credentials work in that admin's enterprise."
+    },
+    {
+      "connector": "canva",
+      "where": "https://www.canva.com/developers/apps",
+      "where_label": "Canva Developer Portal",
+      "steps": [
+        { "text": "Create an app, then open Outside Canva and click Start integrating." },
+        { "text": "Under Configuration, turn on Canva MCP." },
+        { "text": "Under Redirect URLs, add this one:", "redirect": true },
+        { "text": "Under Credentials, copy the client ID, then Generate secret and copy it." }
+      ],
+      "values": ["client_id", "client_secret"],
+      "scopes": [
+        "profile:read",
+        "design:meta:read",
+        "design:content:read",
+        "design:content:write",
+        "folder:read",
+        "folder:write",
+        "brandtemplate:meta:read",
+        "brandtemplate:content:read",
+        "brandtemplate:content:write",
+        "comment:read",
+        "comment:write",
+        "asset:read",
+        "asset:write",
+        "brandkit:read",
+        "help:answers:read",
+        "help:answers:write"
+      ],
+      "source": "https://www.canva.dev/docs/apps/mcp/access/",
+      "notes": "Canva shows the secret once. Public apps are reviewed by Canva; some tools need Canva Pro."
+    },
+    {
+      "connector": "hubspot",
+      "where": "https://app.hubspot.com/l/mcp-auth-apps/",
+      "where_label": "HubSpot MCP Connectors",
+      "steps": [
+        { "text": "Click Create MCP connector and give it a name." },
+        { "text": "Set the redirect URL to this one, then Create:", "redirect": true },
+        { "text": "Copy the client ID and the client secret from the connector's page." }
+      ],
+      "values": ["client_id", "client_secret"],
+      "scopes": [],
+      "source": "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server",
+      "notes": "HubSpot sets the scopes from the tools you allow when you connect."
+    }
+  ]
+}
