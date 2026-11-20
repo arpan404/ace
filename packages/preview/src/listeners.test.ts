@@ -3,7 +3,6 @@ import {
   joinProcListeners,
   parseLsofCwds,
   parseLsofListeners,
-  parseProcessParents,
   parseProcSockets,
 } from "./detection.ts";
 
@@ -74,12 +73,7 @@ test("/proc listening sockets join to the processes holding their inodes", () =>
   ]);
 });
 
-test("process parents and working directories survive malformed rows", () => {
-  expect([...parseProcessParents("    1     0\n  326     1\n garbage\n  400   326\n")]).toEqual([
-    [1, 0],
-    [326, 1],
-    [400, 326],
-  ]);
+test("working directories survive malformed rows", () => {
   expect([
     ...parseLsofCwds("p64980\nfcwd\nn/Users/ada/app\np64981\nfcwd\nn/tmp/other dir\npx\nn/x"),
   ]).toEqual([

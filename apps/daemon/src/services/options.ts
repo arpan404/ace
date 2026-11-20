@@ -60,6 +60,11 @@ export type DaemonOptions = {
   utility?: import("./utility.ts").UtilityDaemonOptions;
   /** The host owns daemon cancellation, including initialization before endpoint discovery. */
   signal?: AbortSignal;
+  /**
+   * Called once an authenticated stop request (POST /v1/stop, `ace stop`) has begun the
+   * shutdown. The process host ends the process from here, as it does after a signal.
+   */
+  onStopRequest?: () => void;
   files?: Pick<import("@ace/files").FilesOptions, "workspaceRuntime" | "maxReservedBytes">;
   /** Startup deadlines and scheduler are injected at the timer boundary. */
   startup?: Partial<import("./startup.ts").StartupRuntime>;

@@ -174,6 +174,11 @@ export function installShutdownHandlers({
   return dispose;
 }
 
+/** The leaders of every process group this process owns now. */
+export function ownedGroupLeaders(): number[] {
+  return [...owned.keys()];
+}
+
 export async function stopOwnedGroups(graceMs = 500): Promise<void> {
   const results = await Promise.allSettled(stoppers().map((entry) => entry.stop(graceMs)));
   if (results.some((result) => result.status === "rejected"))

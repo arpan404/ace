@@ -99,10 +99,9 @@ async function bundle(context: CommandContext): Promise<void> {
 export const machineHandlers: Handlers = {
   "daemon.start": (context) => runtime(context, ["start"]),
   "daemon.serve": (context) => runtime(context, ["serve"]),
-  // The providers area owns `control.ts`; `ace stop` keeps its module and bytes.
   "daemon.stop": async (context) => {
     const args = legacy(context, ["stop"]);
-    return (await import("../control.ts")).stopCommand(args, (await context.config()).dataDir);
+    return (await import("../daemon-stop.ts")).stopCommand(args, (await context.config()).dataDir);
   },
   "daemon.status": async (context) => {
     const { daemonHealth } = await import("../daemon-health.ts");

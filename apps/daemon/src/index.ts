@@ -1,8 +1,13 @@
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { namedFetch } from "@ace/client/ace-client";
-import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
+import {
+  observeProcessGroups,
+  ownedGroupLeaders,
+  stopOwnedGroups,
+} from "@ace/provider-kit/process";
+import { captureDescendants, stopMembers, type TreeMember } from "@ace/provider-kit/process-tree";
 import { verifyWindowsRecovery } from "./process-recovery.ts";
-import { forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
+import { FORCED_GRACE_MS, forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
 import { daemonLockedUse } from "./locked-use-installer.ts";
 import { privilegedRunnerFromEnv } from "./locked-use-privileged.ts";
@@ -350,7 +355,24 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const reason: unknown = options.signal?.reason;
     return reason instanceof DaemonStop ? reason.reason : { source: "abort" };
   };
+  /*
+   * Every process below the groups the daemon owns, read before shutdown signals any of them.
+   * A provider's child that left its group (setsid, a detached helper) never gets a group
+   * signal, and once its leader exits it belongs to init, where no tree reaches it.
+   */
+  let ownedTree: TreeMember[] | undefined;
+  const captureOwnedTree = (): TreeMember[] => {
+    if (ownedTree) return ownedTree;
+    try {
+      ownedTree = captureDescendants(ownedGroupLeaders());
+    } catch (error) {
+      ownedTree = [];
+      log.log("warn", "The daemon's child process tree could not be read", logError(error));
+    }
+    return ownedTree;
+  };
   const abort = () => {
+    captureOwnedTree();
     resources.beginShutdown();
     if (initialized) void closeResources(abortReason()).catch(() => {});
   };
@@ -390,6 +412,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     return closing;
   };
   const disposeResources = async () => {
+    const tree = captureOwnedTree();
     resources.beginShutdown();
     const runtime = { ...systemStartup, ...options.startup };
     let disposed = false;
@@ -403,6 +426,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
       } catch (error) {
         results.push({ status: "rejected", reason: error });
       }
+      // What outlived its own service's stop: never a clean shutdown while one still runs.
+      const left = await stopMembers(tree, FORCED_GRACE_MS);
+      if (left.length)
+        results.push({
+          status: "rejected",
+          reason: new Error(
+            `Child processes outlived the daemon: ${left.map((member) => member.pid).join(", ")}`,
+          ),
+        });
       const errors = results.flatMap((result, index) =>
         result.status === "rejected"
           ? [
@@ -423,7 +455,13 @@ export async function startDaemon(options: DaemonOptions = {}) {
     });
     const cancelForcedStop = forceStopAfterPoliteWindow({
       schedule: runtime.schedule,
-      stop: options.stopProcesses ?? stopOwnedGroups,
+      stop: async (graceMs) => {
+        const [groups] = await Promise.allSettled([
+          (options.stopProcesses ?? stopOwnedGroups)(graceMs),
+          stopMembers(tree, graceMs),
+        ]);
+        if (groups.status === "rejected") throw groups.reason;
+      },
       log,
       pending: pendingShutdown,
     });
@@ -627,7 +665,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
       shutdown: shutdownControl(config.dataDir, {
         id: randomUUID,
         now,
-        close: () => closeResources({ source: "stop-request" }),
+        close: () => {
+          const closed = closeResources({ source: "stop-request" });
+          // The process host ends the process once it has closed, as after a signal.
+          options.onStopRequest?.();
+          return closed;
+        },
       }),
       ...services,
       get promptFiles() {

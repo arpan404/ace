@@ -29,6 +29,7 @@ import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 import { resolveProbeLaunch, resolveWithin, type ProbeLaunch } from "./probe-resolve.ts";
 export {
   stopOwnedGroups,
+  ownedGroupLeaders,
   observeProcessGroups,
   installShutdownHandlers,
   registerGroup,

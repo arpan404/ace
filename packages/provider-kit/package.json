@@ -42,6 +42,7 @@
     "./cleanup": "./src/cleanup.ts",
     "./cursor-selection": "./src/cursor-selection.ts",
     "./process-identity": "./src/process-identity.ts",
+    "./process-tree": "./src/process-tree.ts",
     "./process-inventory": "./src/process-inventory.ts",
     "./process-containment": "./src/process-containment.ts",
     "./process-owner": "./src/process-owner.ts",
