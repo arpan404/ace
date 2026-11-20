@@ -32,11 +32,14 @@ other was restoring, or load its pages twice (#2013, found in the Codex review o
    browser to move it.
 2. **Moves of one thread run one at a time.** `BrowserService.moveEngine` queues per thread; a
    move that finds the browser already on its engine only keeps the setting.
-3. **The move commits only once the browser opened on the new engine.** The daemon closes the
-   browser as a shutdown does, its tabs kept in the tab store, and opens it on the new engine
-   with those tabs (same ids, private tabs still private, the shown tab shown). Only then does
-   it write the thread's `browser.backend`. A daemon that stops mid-move has written nothing, so
-   its next open brings the tabs back on the engine the setting still names.
+3. **The move commits only once the browser opened on the new engine.** The daemon first
+   records the tabs it carries in a move journal of its own (`browser_engine_moves`), then
+   closes the browser as a shutdown does and opens it on the new engine with those tabs (same
+   ids, private tabs still private, the shown tab shown). Only then does it write the thread's
+   `browser.backend`, and only after that write does the journal entry go. The new engine's
+   session may already have saved a shorter list to the tab store (an engine that restored
+   fewer tabs), so a daemon that stops anywhere before the write reopens the journal's tabs on
+   the engine the setting still names, then drops the entry.
 4. **A failed open leaves the browser where it was.** When the new engine won't open, the tabs
    open again on the engine the browser was on and the request fails with the reason; the
    setting was never changed. If writing the setting fails after the move, the browser goes
@@ -63,8 +66,11 @@ other was restoring, or load its pages twice (#2013, found in the Codex review o
 
 - `packages/browser/src/engine-move.process.test.ts`: two devices moving at once end with one
   browser on the engine and its page loaded once; a failed open brings every tab back with the
-  shown and private ones as they were; a daemon that stops mid-move reopens the tabs on the old
-  engine; a move queued behind a failed one still moves.
+  shown and private ones as they were; a daemon that stops mid-move, or after the new engine
+  saved fewer tabs but before the setting, reopens every tab on the old engine; a move queued
+  behind a failed one still moves.
+- `apps/daemon/src/browser-engine-moves.test.ts`: the journal's tabs outlive the daemon until
+  the move settles.
 - `apps/daemon/src/browser-engine-move.server.process.test.ts`: the same through the daemon's
   socket with real settings.
 - `packages/client/src/browser-engine-here.test.ts`: against a daemon that answers

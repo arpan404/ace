@@ -7,7 +7,7 @@ import { BrowserEngineMoved, type BrowserServerMessage } from "@ace/protocol";
 import { BrowserService, connectBrowser, type EnginePreference } from "./index.ts";
 import { backendFixture } from "./backend-test-support.ts";
 import { TabbedHeadless } from "./tabbed-test-support.ts";
-import type { BrowserTabRecord, BrowserTabStore } from "./tab-store.ts";
+import type { BrowserTabRecord, BrowserTabStore, EngineMoveJournal } from "./tab-store.ts";
 
 /** A tab store as the daemon's SQLite one behaves, in memory: it outlives a daemon. */
 function memoryTabs(): BrowserTabStore & { saved: Map<string, BrowserTabRecord[]> } {
@@ -17,6 +17,17 @@ function memoryTabs(): BrowserTabStore & { saved: Map<string, BrowserTabRecord[]
     load: (threadId) => saved.get(threadId) ?? [],
     save: (threadId, tabs) => void saved.set(threadId, [...tabs]),
     clear: (threadId) => void saved.delete(threadId),
+  };
+}
+
+/** A move journal as the daemon's SQLite one behaves, in memory: it outlives a daemon. */
+function memoryJournal(): EngineMoveJournal & { kept: Map<string, BrowserTabRecord[]> } {
+  const kept = new Map<string, BrowserTabRecord[]>();
+  return {
+    kept,
+    begin: (threadId, tabs) => void kept.set(threadId, [...tabs]),
+    pending: (threadId) => kept.get(threadId),
+    end: (threadId) => void kept.delete(threadId),
   };
 }
 
@@ -30,14 +41,30 @@ async function machine(kept: EnginePreference | undefined) {
   const writes: EnginePreference[] = [];
   const headless = new TabbedHeadless();
   const tabs = memoryTabs();
+  const journal = memoryJournal();
   const backendPreference = (open: { threadId: string }) =>
     preferences.get(open.threadId) ?? "auto";
-  const f = await backendFixture({ headlessBackend: headless, backendPreference, tabStore: tabs });
+  const f = await backendFixture({
+    headlessBackend: headless,
+    backendPreference,
+    tabStore: tabs,
+    moveJournal: journal,
+  });
+  /** While set, a setting write waits here: the move stands between its reopen and its commit. */
+  let held: PromiseWithResolvers<void> | undefined;
+  const asked: string[] = [];
   const engine = {
     write: async (threadId: string, value: EnginePreference) => {
+      asked.push(value);
+      await held?.promise;
       writes.push(value);
       preferences.set(threadId, value);
     },
+  };
+  const holdWrites = () => {
+    held = Promise.withResolvers<void>();
+    const gate = held;
+    return () => gate.resolve();
   };
   const device = (connectionId: string) => {
     const replies: BrowserServerMessage[] = [];
@@ -93,6 +120,9 @@ async function machine(kept: EnginePreference | undefined) {
     f,
     headless,
     tabs,
+    journal,
+    asked,
+    holdWrites,
     preferences,
     writes,
     device,
@@ -123,6 +153,8 @@ it("two devices moving one thread at once end with one browser there and its pag
   expect(m.pages()).toEqual(["https://one.example/ (shown)"]);
   expect(m.preferences.get("thread")).toBe("headless");
   expect(BrowserEngineMoved.parse(web.ok ? web.result : undefined).failed).toEqual([]);
+  // Settled, the move keeps no copy of its own.
+  expect(m.journal.pending("thread")).toBeUndefined();
 });
 
 it("a move to an engine that can't open brings every tab back where it was, the shown and private ones as they were", async () => {
@@ -189,6 +221,43 @@ it("a daemon that stops mid-move opens the thread's tabs again on the engine it 
     "https://one.example/",
     "https://two.example/",
   ]);
+  expect(m.writes).toEqual([]);
+});
+
+it("a daemon that stops after the new engine saved fewer tabs, before the setting, reopens every tab where it was", async () => {
+  const m = await machine("headless");
+  await m.load("https://one.example/", "https://two.example/");
+  const release = m.holdWrites();
+  onTestFinished(release);
+
+  // The desktop's single page takes one of the two: its session saves a shorter list.
+  void m.device("phone").move("embedded");
+  await expect.poll(() => m.asked).toEqual(["embedded"]);
+  expect(m.f.service.state("thread").backend).toBe("embedded");
+  await expect.poll(() => m.tabs.load("thread").length).toBeLessThan(2);
+
+  // The daemon stops there; a new one starts on what was kept.
+  const home = await mkdtemp(join(tmpdir(), "ace-engine-window-"));
+  const restarted = new BrowserService({
+    dataDir: home,
+    headlessBackend: new TabbedHeadless(),
+    backendPreference: m.backendPreference,
+    tabStore: m.tabs,
+    moveJournal: m.journal,
+  });
+  onTestFinished(async () => {
+    await restarted.close();
+    await rm(home, { recursive: true, force: true });
+  });
+  await restarted.open({ threadId: "thread", workspaceId: "workspace-thread" });
+
+  expect(restarted.state("thread")).toMatchObject({ backend: "headless", closed: false });
+  expect(m.pages(restarted).map((page) => page.replace(" (shown)", ""))).toEqual([
+    "https://one.example/",
+    "https://two.example/",
+  ]);
+  // Back, the session keeps the tabs itself: the move's copy is gone.
+  expect(m.journal.pending("thread")).toBeUndefined();
   expect(m.writes).toEqual([]);
 });
 

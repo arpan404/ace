@@ -6,8 +6,8 @@ import type { BrowserTabRecord } from "./tab-store.ts";
  * or in ace's Chrome (`headless`). The daemon owns a move so devices asking at once can't close
  * a browser another is restoring or load its pages twice: moves of one thread run one at a time,
  * and a move that finds the browser already there leaves it alone. The thread's setting is
- * written only once its browser opened on the new engine, so a daemon that stops mid-move
- * reopens the thread's tabs where they were.
+ * written only once its browser opened on the new engine, and the move's own copy of the tabs
+ * is kept until then, so a daemon that stops mid-move reopens every tab where it was.
  */
 
 export type BrowserEngine = "embedded" | "headless";
@@ -37,6 +37,8 @@ export interface EngineMoveHost {
   hasActiveSession(threadId: string): boolean;
   /** The thread's browser, live and untouched when it is open. */
   open(options: { threadId: string; workspaceId: string }): Promise<BrowserState>;
+  /** The move is over: its own copy of the tabs can go. */
+  settleMove(threadId: string): void;
   /** Closes the open browser and opens it on `engine` with its tabs, or back where it was. */
   rehost(
     options: { threadId: string; workspaceId: string },
@@ -99,6 +101,9 @@ export async function moveEngine(
   if (engine === "embedded" && desktopMissing(snapshot))
     throw new Error("The desktop app isn't running on this machine, so its browser can't open.");
   const moved = await host.rehost(at, engine);
+  // Back where it was, the browser's own tabs are what a restart restores; with no browser
+  // open at all, the move's copy stays for the next open.
+  if (!moved.ok && moved.restored) host.settleMove(threadId);
   if (!moved.ok)
     throw new Error(
       moved.restored
@@ -109,11 +114,15 @@ export async function moveEngine(
   try {
     await preference.write(threadId, engine);
   } catch (error) {
-    // The choice wasn't kept: the browser goes back to the engine its setting still names.
-    if (snapshot.backend === "embedded" || snapshot.backend === "headless")
-      await host.rehost(at, snapshot.backend);
+    // The choice wasn't kept: the browser goes back, with the move's own copy of the tabs, to
+    // the engine its setting still names.
+    if (snapshot.backend === "embedded" || snapshot.backend === "headless") {
+      const back = await host.rehost(at, snapshot.backend);
+      if (back.ok || back.restored) host.settleMove(threadId);
+    }
     throw error;
   }
+  host.settleMove(threadId);
   return { state: moved.state, failed: missing(snapshot, moved.state) };
 }
 

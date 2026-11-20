@@ -97,8 +97,10 @@ export class BrowserService {
   private engineMoves = new EngineMoves(this);
   /** A move's engine for its reopen, before the move commits it to the thread's setting. */
   private engineOverrides = new Map<string, BrowserEngine>();
-  /** A move's tabs, handed straight to its reopen (the tab store keeps them across a restart). */
+  /** A move's tabs, handed straight to its reopen (the move journal keeps them across a restart). */
   private handedTabs = new Map<string, BrowserTabRecord[]>();
+  /** Threads whose open is bringing back the tabs of a move that never settled. */
+  private recovered = new Set<string>();
   get hasActiveSessions(): boolean {
     return this.sessions.size > 0 || this.opening.size > 0 || this.recoveries.size > 0;
   }
@@ -221,8 +223,12 @@ export class BrowserService {
     const task = this.launch(options, scope);
     this.opening.set(options.threadId, task);
     try {
-      return (await task).state;
+      const { state } = await task;
+      // The tabs of a move that never settled are open again: the session keeps them now.
+      if (this.recovered.delete(options.threadId)) this.settleMove(options.threadId);
+      return state;
     } finally {
+      this.recovered.delete(options.threadId);
       this.opening.delete(options.threadId);
       if (!this.sessions.has(options.threadId)) this.policyScopes.delete(options.threadId);
     }
@@ -676,6 +682,12 @@ export class BrowserService {
   private restoredTabs(threadId: string): BrowserTabRecord[] {
     const handed = this.handedTabs.get(threadId);
     if (handed) return handed;
+    // A move that never settled (the daemon stopped mid-move) left its own copy of the tabs.
+    const moved = this.journaled(threadId);
+    if (moved?.length) {
+      this.recovered.add(threadId);
+      return moved;
+    }
     try {
       const own = (this.options.tabStore?.load(threadId) ?? []).toSorted(
         (a, b) => a.position - b.position,
@@ -994,9 +1006,10 @@ export class BrowserService {
   }
   /**
    * Moves the thread's open browser to `engine` with its tabs (ADR 0194): it closes as a daemon
-   * shutdown does, its tabs kept in the tab store, and opens on `engine` with them. When that
-   * open fails, the tabs open again on the engine the browser was on. Nothing here writes the
-   * thread's setting, so a daemon that stops mid-move reopens the tabs where the setting says.
+   * shutdown does, its tabs kept in the move journal and the tab store, and opens on `engine`
+   * with them. When that open fails, the tabs open again on the engine the browser was on.
+   * Nothing here writes the thread's setting or settles the move, so a daemon that stops before
+   * `settleMove` reopens the journal's tabs where the setting says.
    */
   async rehost(
     options: { threadId: string; workspaceId: string },
@@ -1006,11 +1019,15 @@ export class BrowserService {
     await this.recoveries.get(threadId);
     const session = this.sessions.get(threadId) ?? (await this.opening.get(threadId));
     const live = session && !session.state.closed ? session : undefined;
-    const tabs = live ? carriedTabs(live.tabRecords(), live.state, () => `tab-${this.id()}`) : [];
+    // Within a move (going back after its setting couldn't be kept), its own copy is carried.
+    const tabs =
+      this.journaled(threadId) ??
+      (live ? carriedTabs(live.tabRecords(), live.state, () => `tab-${this.id()}`) : []);
     const was = live?.state.backend;
     const shown = live?.state.activeTabId;
     if (tabs.length)
       try {
+        this.options.moveJournal?.begin(threadId, tabs);
         this.options.tabStore?.save(threadId, tabs);
       } catch (error) {
         this.options.onError?.(error);
@@ -1025,6 +1042,26 @@ export class BrowserService {
       const back = was === "embedded" || was === "headless" ? was : undefined;
       const restored = await this.openWith(options, back, tabs, shown).catch(() => undefined);
       return { ok: false, error, restored };
+    }
+  }
+  /**
+   * The move is over (its setting kept, or its browser back where it was): its copy of the tabs
+   * goes, and the open session's own tab records are what a restart restores.
+   */
+  settleMove(threadId: string): void {
+    try {
+      this.options.moveJournal?.end(threadId);
+    } catch (error) {
+      this.options.onError?.(error);
+    }
+  }
+  /** The tabs of this thread's unsettled move; undefined when none or unreadable. */
+  private journaled(threadId: string): BrowserTabRecord[] | undefined {
+    try {
+      return this.options.moveJournal?.pending(threadId);
+    } catch (error) {
+      this.options.onError?.(error);
+      return undefined;
     }
   }
   /**

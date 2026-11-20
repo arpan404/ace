@@ -22,6 +22,7 @@ import { BrowserForget } from "../browser-forget.ts";
 import { chooseProfileScope, projectProfileScope } from "../browser-profile-scope.ts";
 import { BrowserProjectForget } from "../browser-forget-projects.ts";
 import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
+import { SqliteEngineMoveJournal } from "../browser-engine-moves.ts";
 import { watchBrowserTurns, type BrowserTurnPort } from "../browser-turns.ts";
 import type { ServiceContext } from "./types.ts";
 import type { Store } from "../store.ts";
@@ -106,6 +107,9 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       ((threadId) => grantOfCaller(threadId) !== undefined),
     dataDir: config.dataDir,
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
+    // An engine move's own copy of its tabs, until it settles (ADR 0194).
+    moveJournal:
+      options.browser?.moveJournal ?? new SqliteEngineMoveJournal((sql) => store.statement(sql)),
     // A fork (not a delegated thread) starts its browser with a copy of its parent's tabs.
     forkedFrom:
       options.browser?.forkedFrom ??

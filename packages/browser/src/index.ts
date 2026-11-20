@@ -54,7 +54,7 @@ export type {
   EncodedChunk,
   VideoHost,
 } from "./backend.ts";
-export type { BrowserTabRecord, BrowserTabStore } from "./tab-store.ts";
+export type { BrowserTabRecord, BrowserTabStore, EngineMoveJournal } from "./tab-store.ts";
 export { agentTabLimit, daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
 export { TabBudget } from "./tab-budget.ts";
 export type { LifecycleSchedule } from "./session-lifecycle.ts";
