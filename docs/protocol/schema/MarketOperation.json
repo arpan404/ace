@@ -283,6 +283,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "bot": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
         "name": {
           "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
         },
@@ -304,6 +309,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "bot": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
         "name": {
           "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
         },
@@ -325,6 +335,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "bot": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
         "name": {
           "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
         },
@@ -346,6 +361,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "bot": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
         "name": {
           "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
         },

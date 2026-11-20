@@ -33,11 +33,15 @@ export function publicInstall(install: StoredInstall): MarketInstalled {
     signed: _signed,
     publisher: _publisher,
     approvedHash: _approved,
+    signedManifest: _manifest,
+    previousSignedManifest: _before,
+    waiting,
     ...rest
   } = install;
+  const shown = waiting ? { ...rest, held: { version: waiting.version } } : rest;
   return install.type === "spade-skill"
-    ? { ...rest, botsApproved: approvedForBots(install) }
-    : rest;
+    ? { ...shown, botsApproved: approvedForBots(install) }
+    : shown;
 }
 
 async function enabledListings(store: MarketStore) {

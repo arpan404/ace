@@ -207,9 +207,42 @@ type CreateMode = "ok" | "fail" | "drop" | "hang";
  * A create can fail, make the bot and drop the answer, or make it and never answer; a bot made
  * with a transaction id already used answers with that bot, as Spade does.
  */
+interface FakeLink {
+  source: string;
+  name: string;
+  version: string;
+  hash: string;
+}
+
+interface FakeSpadeBot {
+  from_recipe?: unknown;
+  package?: Record<string, unknown> | undefined;
+  /** An update held for the end of the bot's turn. */
+  heldLink?: FakeLink | undefined;
+}
+
+const linkOf = (link: FakeLink) => ({
+  source: link.source,
+  name: link.name,
+  version: link.version,
+  hash: link.hash,
+});
+
+/** Spade's update or rollback: the version it ran becomes `previous`. */
+function moveTo(bot: FakeSpadeBot, next: FakeLink): void {
+  const before = bot.package;
+  bot.package = {
+    ...linkOf(next),
+    ...(before ? { previous: { version: before["version"], hash: before["hash"] } } : {}),
+  };
+  bot.heldLink = undefined;
+}
+
 export async function fakeSpade() {
   const made: Record<string, unknown>[] = [];
-  const bots = new Map<string, { from_recipe?: unknown; package?: unknown }>();
+  const bots = new Map<string, FakeSpadeBot>();
+  /** Bots at work: an update to one is held for the end of its turn, as Spade holds it. */
+  const working = new Set<string>();
   let version: string | undefined = "0.0.30";
   const allowed = new Map<string, string[]>();
   let createMode: CreateMode = "ok";
@@ -240,6 +273,7 @@ export async function fakeSpade() {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (request.method === "GET" && url.pathname === "/v1/agents")
       return send(response, 200, {
+        // oxlint-disable-next-line oxc/no-map-spread -- Builds the answer from stored bots without changing them.
         agents: [...bots].map(([id, bot]) => ({
           id,
           from_recipe: bot.from_recipe,
@@ -259,7 +293,12 @@ export async function fakeSpade() {
       if (createMode === "fail") return send(response, 500, { error: "The bot couldn't be made" });
       made.push(body as Record<string, unknown>);
       const id = `bot_${made.length}`;
-      bots.set(id, { from_recipe: input.from_recipe });
+      // A market package's bot is linked to the version its envelope proves, as Spade links it.
+      const claimed = (body as { package?: FakeLink }).package;
+      bots.set(id, {
+        from_recipe: input.from_recipe,
+        ...(claimed ? { package: linkOf(claimed) } : {}),
+      });
       if (createMode === "drop") return response.destroy();
       if (createMode === "hang") return void hanging.push(response);
       return send(response, 201, { agent: { id } });
@@ -280,7 +319,18 @@ export async function fakeSpade() {
       if (!bots.has(bot)) return send(response, 404, { error: "no such bot" });
       if (linked[2] === "/plan") return send(response, 200, { plan: packagePlan });
       packageCalls.push({ bot, method: request.method ?? "", path: linked[2] ?? "", body });
-      return send(response, 200, { package: {} });
+      const claimed = (body as { package?: FakeLink } | undefined)?.package;
+      if (request.method === "POST" && linked[2] === undefined && claimed) {
+        const current = bots.get(bot);
+        // While the bot works the step waits for its turn to end: 202, saying which version.
+        if (working.has(bot) && current?.package) {
+          current.package = { ...current.package, held: { version: claimed.version } };
+          current.heldLink = linkOf(claimed);
+          return send(response, 202, { package: current.package });
+        }
+        if (current) moveTo(current, linkOf(claimed));
+      }
+      return send(response, 200, { package: bots.get(bot)?.package ?? {} });
     }
     const plugins = /^\/v1\/agents\/([^/]+)\/plugins$/.exec(url.pathname);
     if (plugins?.[1]) {
@@ -317,6 +367,20 @@ export async function fakeSpade() {
     /** A bot a move brought here, linked to its package at the version it has (ADR 0187). */
     arrive(id: string, link: Record<string, unknown>) {
       bots.set(id, { package: link });
+    },
+    /** A bot that moved to another machine: this Spade no longer has it. */
+    moveAway(id: string) {
+      bots.delete(id);
+    },
+    /** The bot is at work: an update is held until `finishTurn`. */
+    startTurn(id: string) {
+      working.add(id);
+    },
+    /** Its turn ended with nothing of it working: a held update applies now, once. */
+    finishTurn(id: string) {
+      working.delete(id);
+      const bot = bots.get(id);
+      if (bot?.heldLink) moveTo(bot, bot.heldLink);
     },
     setCreate(mode: CreateMode) {
       createMode = mode;

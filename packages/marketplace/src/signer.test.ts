@@ -20,7 +20,16 @@ import {
   verifyVerifiedList,
   verifyWithdrawn,
 } from "./signing.ts";
-import { keySetOf, sampleSkill, signedVersion, signedWithdrawn, testKey } from "./testing.ts";
+import {
+  folder,
+  keySetOf,
+  samplePackage,
+  sampleSkill,
+  signedVersion,
+  signedWithdrawn,
+  testKey,
+  testPublisher,
+} from "./testing.ts";
 
 /* The signer through its I/O, here an in-memory market. */
 
@@ -298,5 +307,102 @@ describe("the signed lists", () => {
       ["version", "Spam"],
       ["version", "Spam"],
     ]);
+  });
+});
+
+describe("a bot package's own tests", () => {
+  const files = samplePackage({ tests: ["tests/hello.json"] });
+  const withTest = [...files, ...folder({ "tests/hello.json": "{}" })];
+  const hash = contentHash(hashFiles(withTest));
+  const pending = {
+    "/v1/signer/pending": {
+      versions: [
+        {
+          type: "spade-bot",
+          name: "flight-watcher",
+          version: "1.0.0",
+          hash,
+          publisher: testPublisher,
+          size: 1,
+          published: 1,
+          approved: true,
+        },
+      ],
+      withdrawals: [],
+    },
+    "/v1/signer/scan-context": { entries: [], verified: [], newPublishers: [] },
+  };
+  const stored = () => {
+    const at = memory(pending);
+    at.io.object = async () => writeArchive(withTest);
+    return at;
+  };
+
+  it("are run before it is signed, and a version whose tests pass is signed", async () => {
+    const { io, puts } = stored();
+    const ran: string[][] = [];
+    const report = await signPending(io, next, () => 30, trusted, {
+      testBot: async (given) => {
+        ran.push(given.map((file) => file.path).toSorted());
+        return { passed: true, scenarios: 1, failures: [] };
+      },
+    });
+    expect(ran).toEqual([["README.md", "bot.json", "tests/hello.json"]]);
+    expect(report.signed).toEqual(["spade-bot/flight-watcher@1.0.0"]);
+    expect(report.tested).toEqual([{ version: "spade-bot/flight-watcher@1.0.0", scenarios: 1 }]);
+    expect(puts.map((put) => put.path)).toEqual([
+      "/v1/signer/versions/spade-bot/flight-watcher/1.0.0",
+    ]);
+  });
+
+  it("refuse a version whose tests fail, never signing it, with each failure for the publisher", async () => {
+    const { io, puts } = stored();
+    const report = await signPending(io, next, () => 30, trusted, {
+      testBot: async () => ({
+        passed: false,
+        scenarios: 1,
+        failures: [
+          { path: "tests/hello.json", message: 'Says hello: The reply doesn\'t say "hello"' },
+        ],
+      }),
+    });
+    expect(report.signed).toEqual([]);
+    expect(report.blocked).toEqual([
+      {
+        version: "spade-bot/flight-watcher@1.0.0",
+        reason:
+          "Its tests failed when ace's market ran them: tests/hello.json: Says hello: The reply doesn't say \"hello\"",
+      },
+    ]);
+    const [put] = puts;
+    expect(put?.path).toBe("/v1/signer/blocks/spade-bot/flight-watcher/1.0.0");
+    expect(put?.body).toMatchObject({
+      scan: {
+        verdict: "block",
+        findings: [
+          expect.objectContaining({
+            rule: "tests-failed",
+            path: "tests/hello.json",
+            message: 'Says hello: The reply doesn\'t say "hello"',
+          }),
+        ],
+      },
+    });
+  });
+
+  it("leave a version unsigned and pending when this signer can't run its tests", async () => {
+    for (const testBot of [
+      undefined,
+      async () => {
+        throw new Error("spade isn't installed");
+      },
+    ]) {
+      const { io, puts } = stored();
+      const report = await signPending(io, next, () => 30, trusted, { testBot });
+      expect(report.signed).toEqual([]);
+      expect(report.blocked).toEqual([]);
+      expect(report.refused).toHaveLength(1);
+      expect(puts).toEqual([]);
+    }
   });
 });

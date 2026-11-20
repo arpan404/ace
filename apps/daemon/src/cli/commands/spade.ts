@@ -165,6 +165,18 @@ export const spadeCommands: readonly CommandSpec[] = [
     output: "bot.action",
   },
   {
+    id: "bot.unarchive",
+    personOnly: "setting",
+    words: ["bot", "unarchive"],
+    summary: "Bring back a bot Undo archived: the routines that were on come back on",
+    description:
+      "Nothing of it was deleted. Its routines that were on run again from their next time; the ones that were paused stay paused.",
+    group: "spade-market",
+    mutates: true,
+    args: [botArg],
+    output: "bot.action",
+  },
+  {
     id: "feature.list",
     words: ["feature", "list"],
     summary: "Beta features and whether each is on",

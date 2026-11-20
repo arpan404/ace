@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { adoptArrivedBots } from "./arrived-bots.ts";
+import { reconcileBots } from "./arrived-bots.ts";
 import type { LinkedBot, SpadePort } from "./install.ts";
 import { MarketStore } from "./store.ts";
 
@@ -31,16 +31,16 @@ it("never fetches for a template's bot or a local package's, only for a market p
       package: { source: "market", name: "flight-watcher", version: "1.0.0", hash: "h3" },
     },
   ];
-  const port: Pick<SpadePort, "ready" | "linkedBots"> = {
+  const port: Pick<SpadePort, "ready" | "bots"> = {
     ready: () => true,
-    linkedBots: async () => linked,
+    bots: async () => ({ ids: new Set(linked.map((bot) => bot.id)), linked }),
   };
   const fetched: string[] = [];
-  const changed = await adoptArrivedBots({
+  const changed = await reconcileBots({
     store,
     spade: port as SpadePort,
     now: () => 1,
-    fetch: async (source, name, version) => {
+    fetch: async (source: string, name: string, version: string) => {
       fetched.push(`${source}/${name}@${version}`);
       throw new Error("offline");
     },

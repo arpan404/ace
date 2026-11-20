@@ -299,9 +299,13 @@ export async function prepareWithBrings(
   type: string,
   name: string,
   version: string | undefined,
+  /** The linked bot an update moves; a bot package's review without one makes a new bot. */
+  bot?: string,
 ): Promise<{ entry: PreparedEntry; brings: PreparedEntry[] }> {
   const withPrevious = async (entry: PreparedEntry): Promise<PreparedEntry> => {
-    const current = store.install(entry.type, entry.name);
+    // Installing a bot package again makes another bot: nothing it replaces (ADR 0200 §3.9).
+    if (entry.type === "spade-bot" && bot === undefined) return entry;
+    const current = store.install(entry.type, entry.name, bot);
     // A bot from a version 2 recipe never updates; a linked one does (ADR 0200 §3.9).
     if (!current || current.hash === entry.hash || (entry.type === "spade-bot" && !current.linked))
       return entry;

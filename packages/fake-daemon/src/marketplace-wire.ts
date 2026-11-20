@@ -68,6 +68,11 @@ const hash = (seed: string) =>
     .join("")
     .slice(0, 64);
 const key = (type: string, name: string) => `${type}/${name}`;
+/** An install's row: a bot package's is its bot's, one package making several bots. */
+const rowOf = (item: { type: string; name: string; target?: string | undefined }) =>
+  item.type === "spade-bot" && item.target
+    ? `${key(item.type, item.name)}#${item.target}`
+    : key(item.type, item.name);
 
 function plainReview(entry: FakeMarketEntry, id: string, now: number): MarketReview {
   const { summary } = entry;
@@ -166,6 +171,14 @@ export class FakeMarketplaceWire {
     this.publishing = new FakeMarketPublishing(now);
   }
 
+  /** The install an operation names; a bot package's by its `bot`, else the first of its name. */
+  #find(at: { type: string; name: string; bot?: string | undefined }): MarketInstalled | undefined {
+    if (at.bot) return this.#installed.get(rowOf({ ...at, target: at.bot }));
+    return [...this.#installed.values()].find(
+      (item) => item.type === at.type && item.name === at.name,
+    );
+  }
+
   seed(seed: MarketplaceSeed): void {
     for (const entry of seed.entries ?? [])
       this.#entries.set(
@@ -174,7 +187,7 @@ export class FakeMarketplaceWire {
       );
     this.#featured = seed.featured ?? this.#featured;
     this.#categories = seed.categories ?? this.#categories;
-    for (const item of seed.installed ?? []) this.#installed.set(key(item.type, item.name), item);
+    for (const item of seed.installed ?? []) this.#installed.set(rowOf(item), item);
     if (seed.sources) this.#sources = seed.sources;
     this.#refuse = seed.refuse ?? this.#refuse;
     this.#readAt = seed.readAt;
@@ -297,7 +310,7 @@ export class FakeMarketplaceWire {
             code: "not_found",
             message: `${operation.type}/${operation.name} isn't listed`,
           };
-        const installed = this.#installed.get(key(operation.type, operation.name));
+        const installed = this.#find(operation);
         return {
           op: "read",
           entry: {
@@ -323,7 +336,7 @@ export class FakeMarketplaceWire {
         const source =
           operation.op === "prepare"
             ? operation.source
-            : (this.#installed.get(key(operation.type, operation.name))?.source ?? "market");
+            : (this.#find(operation)?.source ?? "market");
         const entry = this.#entries.get(`${source}:${key(operation.type, operation.name)}`);
         const refused = this.#refuse[key(operation.type, operation.name)];
         if (refused) return { op: "error", code: "refused", message: refused };
@@ -342,9 +355,7 @@ export class FakeMarketplaceWire {
             scan: entry.blocked,
           };
         const replaces =
-          operation.op === "prepareUpdate"
-            ? this.#installed.get(key(operation.type, operation.name))?.version
-            : undefined;
+          operation.op === "prepareUpdate" ? this.#find(operation)?.version : undefined;
         const moved =
           operation.op === "prepareUpdate"
             ? entry.updateReview
@@ -410,7 +421,7 @@ export class FakeMarketplaceWire {
           state: "on",
           target: review.type === "spade-bot" ? (bot ?? `bot_${this.#counter}`) : review.name,
         };
-        this.#installed.set(key(review.type, review.name), installed);
+        this.#installed.set(rowOf(installed), installed);
         this.#reviews.delete(operation.id);
         this.#changed();
         return { op: "done", installed };
@@ -421,16 +432,19 @@ export class FakeMarketplaceWire {
       case "installed":
         return { op: "installed", installed: [...this.#installed.values()] };
       case "remove":
-        if (!this.#installed.delete(key(operation.type, operation.name)))
-          return { op: "error", code: "not_found", message: "That entry isn't installed" };
+        {
+          const item = this.#find(operation);
+          if (!item || !this.#installed.delete(rowOf(item)))
+            return { op: "error", code: "not_found", message: "That entry isn't installed" };
+        }
         this.#changed();
         return { op: "done" };
       case "turnOn": {
-        const item = this.#installed.get(key(operation.type, operation.name));
+        const item = this.#find(operation);
         if (!item) return { op: "error", code: "not_found", message: "That entry isn't installed" };
         const { reason: _reason, ...rest } = item;
         const on: MarketInstalled = { ...rest, state: "on" };
-        this.#installed.set(key(item.type, item.name), on);
+        this.#installed.set(rowOf(item), on);
         this.#changed();
         return { op: "done", installed: on };
       }

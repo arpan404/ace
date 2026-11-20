@@ -64,7 +64,9 @@ impl Engine {
         for child in self.worker_children(id) {
             match self.node_state(&child, 1) {
                 State::Waiting => around.children_waiting = true,
-                State::Working | State::Sleeping => around.children_working = true,
+                State::Working | State::Updating | State::Sleeping => {
+                    around.children_working = true
+                }
                 // Paused by the person: it holds, and holds nothing of its maker's up.
                 State::Idle | State::Paused => {}
             }

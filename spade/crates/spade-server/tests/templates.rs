@@ -340,3 +340,127 @@ async fn another_publishers_package_keeps_its_routines_paused() -> Result {
     assert_eq!(fired(&spade, &chat).await?, 0);
     Ok(())
 }
+
+/// As an older Spade made `bot` from its template: an earlier version of the package, whose name
+/// and task were others and which didn't declare sending as the person.
+fn made_by_an_older_spade(spade: &Spade, bot: &str, task: &str) {
+    let Some(mut link) = spade.engine.bot_package(bot) else {
+        panic!("a template bot is linked");
+    };
+    let mut older = link.manifest.clone();
+    older.task = task.to_owned();
+    older.name = "Inbox (old)".to_owned();
+    link.made.name = older.name.clone();
+    older
+        .effects
+        .retain(|declared| declared.key() != "send_as_person");
+    link.manifest = older;
+    link.on.remove("send_as_person");
+    link.package.version = "0.9.0".to_owned();
+    link.package.hash = "a".repeat(64);
+    link.made.task = task.to_owned();
+    spade
+        .engine
+        .update_agent(
+            bot,
+            spade_server::engine::AgentChange {
+                task: Some(task.to_owned()),
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+    spade
+        .engine
+        .set_bot_package(bot, &link)
+        .unwrap_or_else(|e| panic!("{e}"));
+}
+
+async fn agent_of(spade: &Spade, bot: &str) -> Result<Value> {
+    let (_, body) = spade.get("/v1/agents").await?;
+    Ok(body["agents"]
+        .as_array()
+        .and_then(|agents| agents.iter().find(|a| a["id"] == bot).cloned())
+        .unwrap_or(Value::Null))
+}
+
+fn switch_of(package: &Value, key: &str) -> Option<bool> {
+    package["effects"]
+        .as_array()?
+        .iter()
+        .find(|e| e["key"] == key)
+        .and_then(|e| e["on"].as_bool())
+}
+
+#[tokio::test]
+async fn a_newer_template_is_offered_to_a_bot_made_from_an_older_one_and_moves_it_only_once_the_person_accepts()
+-> Result {
+    let spade = Spade::start(vec![Script::reply("Hello.")], Vec::new()).await?;
+    let (status, made) = spade
+        .post(
+            "/v1/agents",
+            json!({ "template": "inbox", "name": "Inbox" }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{made}");
+    let bot = text(&made["agent"]["id"]);
+    made_by_an_older_spade(&spade, &bot, "Sort the inbox the old way.");
+    // The person renamed it: theirs from now on.
+    let (status, body) = spade
+        .patch(&format!("/v1/agents/{bot}"), json!({ "name": "My inbox" }))
+        .await?;
+    assert_eq!(status, 200, "{body}");
+
+    // This Spade ships 1.0.0: offered, nothing changed yet.
+    let (_, body) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
+    let link = &body["package"];
+    assert_eq!(link["version"], "0.9.0", "{body}");
+    assert_eq!(link["template_update"]["version"], "1.0.0", "{body}");
+    let (status, offer) = spade
+        .get(&format!("/v1/agents/{bot}/package/template"))
+        .await?;
+    assert_eq!(status, 200, "{offer}");
+    let plan = &offer["plan"];
+    assert_eq!(plan["task"], "replace", "{plan}");
+    assert_eq!(plan["name"], "kept", "the person's name stays: {plan}");
+    assert_eq!(plan["asks_more"], json!(["send_as_person"]), "{plan}");
+    let agent = agent_of(&spade, &bot).await?;
+    assert_eq!(agent["task"], "Sort the inbox the old way.", "{agent}");
+
+    // Only the version offered is taken, and never one claimed without it.
+    let mut wrong = offer["package"].clone();
+    wrong["hash"] = json!("b".repeat(64));
+    let (status, refused) = spade
+        .post(
+            &format!("/v1/agents/{bot}/package"),
+            json!({ "package": wrong, "transaction": "template-wrong" }),
+        )
+        .await?;
+    assert_eq!(status, 400, "{refused}");
+
+    let (status, moved) = spade
+        .post(
+            &format!("/v1/agents/{bot}/package"),
+            json!({ "package": offer["package"], "transaction": "template-1" }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{moved}");
+    let link = &moved["package"];
+    assert_eq!(link["version"], "1.0.0", "{moved}");
+    assert_eq!(link["previous"]["version"], "0.9.0", "{moved}");
+    // What it asks for that the older one didn't starts off; what the person left on stays on.
+    assert_eq!(switch_of(link, "send_as_person"), Some(false), "{moved}");
+    assert_eq!(switch_of(link, "network"), Some(true), "{moved}");
+    let agent = agent_of(&spade, &bot).await?;
+    assert_eq!(agent["name"], "My inbox", "{agent}");
+    let shipped = spade_server::teams::package_of("inbox").map(|p| p.manifest.task.clone());
+    assert_eq!(agent["task"].as_str(), shipped.as_deref(), "{agent}");
+
+    // Nothing newer is offered now.
+    let (_, body) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
+    assert!(body["package"]["template_update"].is_null(), "{body}");
+    let (status, _) = spade
+        .get(&format!("/v1/agents/{bot}/package/template"))
+        .await?;
+    assert_eq!(status, 404);
+    Ok(())
+}

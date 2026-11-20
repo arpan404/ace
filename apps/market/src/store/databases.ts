@@ -1,5 +1,6 @@
 import type { MarketEntryType } from "@ace/protocol/marketplace";
 import type { Env } from "../env.ts";
+import { catalogueBindingNames, domainBindingNames } from "./binding-names.ts";
 
 /*
  * Which D1 database holds what (ADR 0174 §16): a catalogue per entry type, and one database per
@@ -12,22 +13,14 @@ import type { Env } from "../env.ts";
  * The entry types the market has a catalogue for, in the order fan-outs read and merge them:
  * by type name, so merged lists keep the order one `ORDER BY type` gave.
  */
-export const catalogueBindings = {
-  "spade-bot": "MARKET_BOTS",
-  "spade-plugin": "MARKET_PLUGINS",
-  "spade-skill": "MARKET_SKILLS",
-  suit: "MARKET_SUITS",
-} as const satisfies Partial<Record<MarketEntryType, keyof Env>>;
+export const catalogueBindings = catalogueBindingNames satisfies Partial<
+  Record<MarketEntryType, keyof Env>
+>;
 
 export type CatalogueType = keyof typeof catalogueBindings;
 export const catalogueTypes = Object.keys(catalogueBindings) as CatalogueType[];
 
-export const domainBindings = {
-  publishers: "MARKET_PUBLISHERS",
-  counts: "MARKET_COUNTS",
-  moderation: "MARKET_MODERATION",
-  lists: "MARKET_LISTS",
-} as const satisfies Record<string, keyof Env>;
+export const domainBindings = domainBindingNames satisfies Record<string, keyof Env>;
 
 export type Domain = keyof typeof domainBindings;
 

@@ -291,46 +291,7 @@ impl Engine {
                 let bot = self.agent_of(&id);
                 match (found.keep, bot) {
                     (true, Some(bot)) => {
-                        let again = Event::Known(Known::ServiceStarted {
-                            service: found.service.clone(),
-                            name: found.name.clone(),
-                            command: found.command.clone(),
-                            cwd: found.cwd.clone(),
-                            keep: true,
-                            restarts: found.restarts.saturating_add(1),
-                            contained_only: found.contained_only,
-                            launch: found.launch,
-                            bound: found.bound.clone(),
-                        });
-                        if self.record(&id, &again).is_ok() {
-                            let _ = self.launch(
-                                &id,
-                                &bot,
-                                &found.service,
-                                &found.name,
-                                &found.command,
-                                &found.cwd,
-                                // No gate decides a restart: it is held to the verdict that
-                                // started it. One it let start only held starts only held again,
-                                // or not at all; so does one an older build recorded no launch
-                                // for. Elsewhere its start passes that verdict's warrant, read
-                                // against its folder as it is now.
-                                match found.launch {
-                                    Some(limit)
-                                        if limit != Authorized::Contained
-                                            && !found.contained_only =>
-                                    {
-                                        Decided::Reviewed
-                                    }
-                                    _ => Decided::Contained,
-                                },
-                                found.launch.map(|limit| Warrant {
-                                    limit,
-                                    bound: Bound::from_stored(found.bound.clone()),
-                                    incomplete: false,
-                                }),
-                            );
-                        }
+                        self.start_again(&id, &bot, &found);
                     }
                     _ => self.service_ended(
                         &id,
@@ -342,5 +303,49 @@ impl Engine {
                 }
             }
         }
+    }
+
+    /// Starts `found` again, under its own id and held to the verdict that started it: recorded
+    /// first, then launched. Whether it was recorded.
+    pub(super) fn start_again(self: &Arc<Self>, id: &str, bot: &str, found: &Service) -> bool {
+        let again = Event::Known(Known::ServiceStarted {
+            service: found.service.clone(),
+            name: found.name.clone(),
+            command: found.command.clone(),
+            cwd: found.cwd.clone(),
+            keep: found.keep,
+            restarts: found.restarts.saturating_add(1),
+            contained_only: found.contained_only,
+            launch: found.launch,
+            bound: found.bound.clone(),
+        });
+        if let Err(error) = self.record(id, &again) {
+            tracing::error!(%error, "could not store that a service starts again");
+            return false;
+        }
+        let _ = self.launch(
+            id,
+            bot,
+            &found.service,
+            &found.name,
+            &found.command,
+            &found.cwd,
+            // No gate decides a start again: it is held to the verdict that started it. One it
+            // let start only held starts only held again, or not at all; so does one an older
+            // build recorded no launch for. Elsewhere its start passes that verdict's warrant,
+            // read against its folder as it is now.
+            match found.launch {
+                Some(limit) if limit != Authorized::Contained && !found.contained_only => {
+                    Decided::Reviewed
+                }
+                _ => Decided::Contained,
+            },
+            found.launch.map(|limit| Warrant {
+                limit,
+                bound: Bound::from_stored(found.bound.clone()),
+                incomplete: false,
+            }),
+        );
+        true
     }
 }

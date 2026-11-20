@@ -37,6 +37,7 @@ const actionWords: Record<SpadeRunningAction, string> = {
   stop: "Stop",
   pause: "Pause",
   resume: "Resume",
+  unarchive: "Unarchive",
 };
 
 /** The line's colour: the list's needs-you and failed tones only. */
@@ -108,6 +109,7 @@ function RunningItem(props: {
     spadeRunningSpendWords(row.spend),
     spadeRunningNetworkWords(row.network),
     wake,
+    row.archived ? "Archived" : undefined,
     row.machine.primary ? undefined : `On ${row.machine.name}`,
   ].filter(Boolean);
   const run = (action: SpadeRunningAction) => {

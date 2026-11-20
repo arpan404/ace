@@ -25,7 +25,8 @@ export type SpadeAvatar =
  * What an agent is doing: nothing, working, waiting on the person (an approval, a question), or
  * paused by them (ADR 0200 §6.1). A sleeping bot reads `working` here: never idle or done.
  */
-export type SpadeAgentState = "idle" | "working" | "waiting" | "paused";
+/** `updating`: its package update or rollback is being applied (ADR 0200 §6.2); it works. */
+export type SpadeAgentState = "idle" | "working" | "waiting" | "paused" | "updating";
 
 /** The latest message in an agent's conversation, for its roster row. */
 export interface SpadeLastMessage {
@@ -139,7 +140,7 @@ const agentShape = z.object({
   updated_at: time.default(0),
   last_activity: time.default(0),
   pinned_at: z.number().nullish().catch(undefined),
-  state: z.enum(["idle", "working", "waiting", "paused"]).optional().catch(undefined),
+  state: z.enum(["idle", "working", "waiting", "paused", "updating"]).optional().catch(undefined),
   waiting_for: z.enum(["approval", "question"]).nullish().catch(undefined),
   questions_for_later: z.number().int().nonnegative().nullish().catch(undefined),
   /** Before 0127 Spade said only whether it worked. */
