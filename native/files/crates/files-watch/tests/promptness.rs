@@ -80,6 +80,38 @@ fn a_lone_create_delete_and_rename_in_a_quiet_folder_arrive_within_half_a_second
     );
 }
 
+#[test]
+fn a_delete_right_after_a_rename_arrives_within_300_ms() {
+    // FSEvents marks the removal of a name that was just renamed into place as a rename record
+    // too. Taken for the old half of a rename, it waited the full pairing wait for a new name
+    // that never comes, and the file stayed in every index for two seconds.
+    // In a folder no one has open, so only the OS watch can report it.
+    const PROMPT: Duration = Duration::from_millis(300);
+    let session = Session::start(daemon_options(), |root| {
+        std::fs::create_dir(root.join("sub")).unwrap();
+        for index in 0..5 {
+            std::fs::write(root.join(format!("sub/old{index}.txt")), b"x").unwrap();
+        }
+    });
+    let mut took = Vec::new();
+    for round in 0..5 {
+        let from = format!("sub/old{round}.txt");
+        let to = format!("sub/moved{round}.txt");
+        std::fs::rename(session.path(&from), session.path(&to)).unwrap();
+        session.wait_for(&to, ChangeKind::Created);
+        session.wait_for(&from, ChangeKind::Deleted);
+        std::thread::sleep(Duration::from_millis(200));
+        took.push(timed(&session, &to, ChangeKind::Deleted, || {
+            std::fs::remove_file(session.path(&to)).unwrap();
+        }));
+    }
+    eprintln!("deletes after a rename: {took:?}");
+    assert!(
+        took.iter().all(|took| *took <= PROMPT),
+        "a delete right after a rename must arrive within {PROMPT:?}: {took:?}"
+    );
+}
+
 /// How soon a lone deletion or rename should reach the sink: one 75 ms debounce and the OS's
 /// own delivery, with room for a loaded CI machine. Nothing may hold either for a partner first.
 const PROMPT_REMOVAL: Duration = Duration::from_millis(150);
