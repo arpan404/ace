@@ -166,6 +166,8 @@ export type SpadeEntry =
       fromGroup?: { id: string; name: string };
       /** When Spade stored it; a message not stored yet has none. */
       at?: number;
+      /** The notes Spade recalled for it, by id: what the reply to it had in mind (ADR 0128). */
+      recalled?: readonly string[];
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
@@ -504,6 +506,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ...(event.from_group
           ? { fromGroup: { id: event.from_group.id, name: event.from_group.name } }
           : {}),
+        ...recalledOf(event.context),
         ...stamp(stored),
       });
       return true;
@@ -892,6 +895,14 @@ const sameMessage = (
 function helperEntry(state: SpadeConversationState, job: string) {
   const line = state.entries.find((entry) => entry.kind === "helper" && entry.job === job);
   return line?.kind === "helper" ? line : undefined;
+}
+
+/** The note ids a message's fixed context recalled (`- [n_4] …` lines); nothing for none. */
+function recalledOf(context: string | null | undefined): { recalled?: readonly string[] } {
+  const ids = [...(context ?? "").matchAll(/^- \[(n_[A-Za-z0-9_-]+)\]/gm)].flatMap((m) =>
+    m[1] ? [m[1]] : [],
+  );
+  return ids.length ? { recalled: [...new Set(ids)] } : {};
 }
 
 /** When Spade stored an event, for the entry it makes; nothing when the event had no time. */

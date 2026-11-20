@@ -23,6 +23,7 @@ import {
 } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
+import { SpadeFirstRun } from "./spade-first-run.tsx";
 import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
 import { ConversationPill } from "./spade-pill.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
@@ -301,6 +302,7 @@ export function Conversation(props: {
             }
           />
         )}
+        {bot.kind === "main" && view.loaded && line.ready && <SpadeFirstRun main={bot} />}
       </Scroller>
       <SpadeComposer
         name={bot.name}

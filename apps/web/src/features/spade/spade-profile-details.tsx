@@ -14,6 +14,7 @@ import { ProfileSecurity } from "./spade-bot-security.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
 import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
+import { ProfilePersonality } from "./spade-profile-personality.tsx";
 import { ProfileRoutines } from "./spade-routines.tsx";
 import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.ts";
 import { DeleteMakerDialog, type DeletingMaker } from "./spade-delete-maker.tsx";
@@ -53,6 +54,7 @@ export function ProfileDetails(props: { bot: RosterBot }) {
         <ProfileMachine bot={bot} />
         <BotRoles bot={bot} />
       </ProfileSection>
+      <ProfilePersonality bot={bot} />
       <ProfileRoutines bot={bot} />
       <ProfileApps bot={bot} />
       <ProfilePlugins bot={bot} />

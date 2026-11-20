@@ -92,6 +92,8 @@ const known = z.discriminatedUnion("type", [
     documents: spadeDocumentList,
     /** A voice message's recording; `text` is its transcript (ADR 0134). */
     voice: spadeVoiceField,
+    /** What Spade fixed with it: the time, and the notes it recalled (`- [n_…] text`). */
+    context: z.string().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("reply_started"), reply, model: z.string().optional() }),
   z.object({ type: z.literal("reply_progress"), reply, text }),

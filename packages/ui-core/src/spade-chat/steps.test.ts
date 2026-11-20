@@ -124,6 +124,8 @@ describe("a reply's steps", () => {
         meta: ["In its sandbox", "Exit code 0", "Hard to undo"],
         blocked: ["Blocked example.com: not on this bot's network allow-list"],
         notable: true,
+        // Held by the sandbox, so undo can put its files back.
+        undoFrom: expect.any(Number),
       },
     ]);
   });

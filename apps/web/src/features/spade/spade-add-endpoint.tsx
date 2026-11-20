@@ -1,6 +1,8 @@
 import {
   spadeFormatNames,
   spadeFormats,
+  spadeLocalServerWords,
+  type SpadeLocalServer,
   type SpadeFormat,
   type SpadePreset,
 } from "@ace/ui-core/spade-chat";
@@ -19,7 +21,7 @@ import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { addEndpoint } from "./spade-api.ts";
-import { modelsKey } from "./use-spade-models.ts";
+import { modelsKey, useLocalServers } from "./use-spade-models.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 
 /** `Name: value` lines as headers; a line without a colon is left out. */
@@ -87,6 +89,15 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     setUrl(preset.baseUrl);
     setSession(preset.sessionHeader ?? "");
   };
+  // A model server on this computer: its address and format, and no key.
+  const fillLocal = (local: SpadeLocalServer) => {
+    setFrom(custom);
+    setName(local.name);
+    setFormat("openai-chat");
+    setUrl(local.baseUrl);
+    setSession("");
+    setNeedsKey(false);
+  };
   const ready = name.trim() !== "" && /^https?:\/\/\S+$/.test(url.trim());
   const add = async () => {
     setSaving(true);
@@ -117,6 +128,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
           <DialogTitle>Add endpoint</DialogTitle>
         </DialogHeader>
         <DialogBody>
+          <LocalServers onUse={fillLocal} />
           <Field label="From" htmlFor={ids.from}>
             <Select
               id={ids.from}
@@ -193,5 +205,39 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Model servers on this computer (Ollama, LM Studio), looked for at their usual ports: each one
+ * running offers Use, which fills in its address with no key. Nothing found, nothing shown.
+ */
+function LocalServers(props: { onUse(local: SpadeLocalServer): void }) {
+  const headingId = useId();
+  const servers = useLocalServers(true).data ?? [];
+  if (!servers.some((local) => local.running)) return null;
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-1">
+      <h3 id={headingId} className="text-ui font-medium">
+        On this computer
+      </h3>
+      <ul className="flex flex-col">
+        {servers.map((local) => (
+          <li key={local.id} className="flex min-h-9 items-center gap-3">
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="text-ui">{local.name}</span>
+              <span className="truncate text-xs text-muted-foreground">
+                {local.endpoint ? "Added already" : spadeLocalServerWords(local)}
+              </span>
+            </div>
+            {local.running && !local.endpoint && (
+              <Button variant="ghost" size="sm" onClick={() => props.onUse(local)}>
+                Use
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
