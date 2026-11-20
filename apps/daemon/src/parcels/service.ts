@@ -110,6 +110,9 @@ export function startParcels(context: ServiceContext): void {
   if (unfollowLinks) resources.own(unfollowLinks);
   const link = new ParcelLink({
     pinned: options.parcels?.pinned ?? pinnedRequest,
+    // Polling every linked machine must not open a TLS connection per call: parcels share the
+    // machine's kept-open connections, which also refuse a pairing no longer saved.
+    ...(services.machineConnections ? { connections: services.machineConnections } : {}),
     relay,
     paths: (profile) => rows.paths(profile.id)?.paths ?? [],
     hosted: (url) => isHostedRelay(url, config.hostedRelayUrl),

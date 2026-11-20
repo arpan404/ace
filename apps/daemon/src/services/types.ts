@@ -96,6 +96,11 @@ export interface Services {
   /** Agents here using other paired machines (ADR 0078). */
   /** Projects and threads this machine sends to other machines (ADR 0101). */
   transfers?: import("../transfers/service.ts").DaemonTransfers;
+  /**
+   * One kept-open, pinned connection set per paired machine (ADR 0078), shared by machine calls,
+   * transfers and parcels on the address each machine was linked on.
+   */
+  machineConnections?: import("../machines/connections.ts").MachineConnections;
   machines?: {
     caller: import("../machines/caller.ts").MachineCaller;
     children: import("../machines/children.ts").MachineChildren;
