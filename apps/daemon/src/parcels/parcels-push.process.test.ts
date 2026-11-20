@@ -90,18 +90,31 @@ it("a parent's file reaches its child on another machine over the LAN intact, th
   expect(again).toMatchObject({ detail: expect.stringMatching(/already exists/) });
 });
 
-it("a push to a machine unlinked while it runs sends that machine nothing more, on any route", async () => {
-  // Every parcel call that reaches a route, and those made once the pairing is gone.
-  const state = { chunks: 0, unlinked: false, after: [] as string[] };
+it("a push to a machine unlinked while it runs sends it nothing more, even on the Tailscale path it answered on last", async () => {
+  const state = { linked: "", tailscale: "", chunks: 0, unlinked: false };
+  const reached: string[] = [];
+  const after: string[] = [];
   let unlink: (() => void) | undefined;
   const pinned: ParcelLinkDeps["pinned"] = async (profile, route, options) => {
-    if (state.unlinked) state.after.push(`${profile.origin} ${String(route.body).slice(0, 80)}`);
-    else if (String(route.body).includes('"action":"chunk"') && ++state.chunks === 2) unlink?.();
+    const chunk = String(route.body).includes('"action":"chunk"');
+    if (state.unlinked) after.push(profile.origin);
+    // The address it was linked on is down: its Tailscale path answers, and is preferred.
+    else if (profile.origin === state.linked) throw new MachineFailure("offline");
+    else if (chunk && (reached.push(profile.origin), ++state.chunks === 2)) unlink?.();
     return pinnedRequest(profile, route, options);
   };
   const pair = await pairedMachines({ access: "operate", sourceParcels: { pinned, pollMs: 50 } });
+  const home = join(pair.source.h.home, "daemon");
+  const read = new Profiles(home);
+  const saved = read.get("studio");
+  read.close();
+  if (!saved?.origin || !saved.fingerprint) throw new Error("No direct pairing");
+  state.linked = saved.origin;
+  const address = new URL(saved.origin);
+  address.hostname = "127.0.0.2";
+  state.tailscale = address.href;
   unlink = () => {
-    const profiles = new Profiles(join(pair.source.h.home, "daemon"));
+    const profiles = new Profiles(home);
     try {
       profiles.remove("studio");
     } finally {
@@ -111,11 +124,20 @@ it("a push to a machine unlinked while it runs sends that machine nothing more, 
   };
   const parent = pair.source.caller.threadId;
   const child = await delegateChild(pair);
+  // What the machine last said it serves: the same listener over Tailscale, under the same key.
+  pair.source.daemon.store
+    .statement("INSERT OR REPLACE INTO parcel_paths VALUES (?,?,?)")
+    .run(
+      saved.id,
+      JSON.stringify([{ kind: "tailscale", url: state.tailscale, fingerprint: saved.fingerprint }]),
+      Date.now(),
+    );
   randomFile(await folderOf(pair.source, parent), "dataset.bin", 700 * 1024);
   await pair.source.call({ op: "data.send", to: child, path: "dataset.bin" });
 
   await vi.waitFor(() => expect(state.unlinked).toBe(true), { timeout: 15_000 });
+  expect(reached).toEqual([state.tailscale, state.tailscale]);
   // Resends and outbox polls run every 50 ms: none of them goes anywhere now.
   await new Promise((resolve) => setTimeout(resolve, 1500));
-  expect(state.after).toEqual([]);
+  expect(after).toEqual([]);
 });
