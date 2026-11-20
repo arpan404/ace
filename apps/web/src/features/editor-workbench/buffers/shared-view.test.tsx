@@ -132,8 +132,15 @@ test("a merge the registry lands shows in the mounted editor, and unmounting kee
 });
 
 /** A view that follows the buffer to a new document, as the Deck's editor does. */
-function LiveView(props: { buffer: TextBuffer; label: string; ref: Ref<EditorHandle> }) {
-  const { buffer } = props;
+function LiveView({
+  ref,
+  buffer,
+  label,
+}: {
+  buffer: TextBuffer;
+  label: string;
+  ref: Ref<EditorHandle>;
+}) {
   const view = useSyncExternalStore(
     (changed) => buffer.subscribe(changed),
     () => buffer.view(),
@@ -141,11 +148,11 @@ function LiveView(props: { buffer: TextBuffer; label: string; ref: Ref<EditorHan
   if (!view) return null;
   return (
     <CodeEditor
-      ref={props.ref}
+      ref={ref}
       document={view}
       text={view.doc.text()}
       path={file.path}
-      label={props.label}
+      label={label}
       statusLine={false}
       highlightDelay={60_000}
       commitAfter={50}
