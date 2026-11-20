@@ -103,7 +103,7 @@ describe("supervised processes", () => {
         "  console.log(own + ' ' + String(child).trim());",
         "}, 300);",
       ].join("\n");
-      const proc = spawnTextSupervised({
+      const proc = spawnSupervised({
         command: process.execPath,
         args: ["-e", script],
         env: {},

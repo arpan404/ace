@@ -481,7 +481,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       {
         // A stop asked for meanwhile ends the wait.
         sleep: (delayMs) =>
-          new Promise<void>((resolve) => setTimeout(resolve, delayMs)).then(() =>
+          new Promise<void>((wake) => setTimeout(wake, delayMs)).then(() =>
             lifetime.signal.throwIfAborted(),
           ),
         onBusy: (attempt, delayMs, error) =>

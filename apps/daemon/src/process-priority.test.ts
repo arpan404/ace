@@ -75,11 +75,11 @@ describe("the daemon's priority at start", () => {
   });
 });
 
-describe("on Linux, a negative nice the OS would refuse", () => {
-  const limits = (soft: string) =>
-    `Limit                     Soft Limit           Hard Limit           Units\nMax nice priority         ${soft}                    ${soft}\n`;
-  const status = (capEff: string) => `Name:\tace\nCapEff:\t${capEff}\n`;
+const limits = (soft: string) =>
+  `Limit                     Soft Limit           Hard Limit           Units\nMax nice priority         ${soft}                    ${soft}\n`;
+const status = (capEff: string) => `Name:\tace\nCapEff:\t${capEff}\n`;
 
+describe("on Linux, a negative nice the OS would refuse", () => {
   it.each([
     ["an ordinary user (RLIMIT_NICE 0)", limits("0"), status("0000000000000000"), false],
     ["RLIMIT_NICE high enough", limits("30"), status("0000000000000000"), true],
