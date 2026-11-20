@@ -20,6 +20,8 @@ export interface AgentState {
   cancelAt?: number;
   planTool?: ToolState;
   pendingSpawnKey?: string;
+  /** Stands in for an Antigravity subagent that has no native session of its own. */
+  placeholder?: boolean;
 }
 export interface ToolState {
   nativeId: string;

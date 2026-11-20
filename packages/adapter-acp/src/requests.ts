@@ -1,6 +1,7 @@
 import { retainToolRaw } from "./tool-raw.ts";
 import { finalizeTool } from "./tool-final.ts";
 import { retireTool } from "./completed-tools.ts";
+import { answerRefusesTool } from "./settlement.ts";
 import type { Fact } from "@ace/core";
 import { object, raw, string, type Data } from "./data.ts";
 import { decodeResolution, interactionKey, interactionRequest } from "./interactions.ts";
@@ -87,33 +88,30 @@ export function answerRequest(
   if (!pending) return false;
   s.requests.delete(id);
   const resolution = decodeResolution(pending.method, pending.params, result, pending.request);
+  const cancelled = object(result["outcome"])["outcome"] === "cancelled";
   facts.push({
     type: "interaction.closed",
     interaction: pending.key,
-    state: object(result["outcome"])["outcome"] === "cancelled" ? "cancelled" : "resolved",
+    state: cancelled ? "cancelled" : "resolved",
     ...(resolution ? { resolution } : {}),
   });
   if (pending.tool) {
     const tool = pending.tool;
-    tool.declined =
-      (resolution?.kind === "plan_review" && resolution.decision === "reject") ||
-      (resolution?.kind === "approval" &&
-        pending.request.kind === "approval" &&
-        pending.request.options.some(
-          (o) => o.id === resolution.optionId && ["deny", "deny_always"].includes(o.kind),
-        ));
-    tool.status = tool.declined ? "declined" : "running";
-    if (tool.declined) s.liveTools.delete(tool);
+    tool.declined = answerRefusesTool(pending.request, resolution, false);
+    // A cancelled request never let the tool start: it settles like a decline, as cancelled.
+    tool.status = tool.declined ? "declined" : cancelled ? "cancelled" : "running";
+    const settled = tool.status !== "running";
+    if (settled) s.liveTools.delete(tool);
     else s.liveTools.add(tool);
     retainToolRaw(tool, raw(frame, pending.method), {});
-    const detail = tool.declined ? finalizeTool(tool, s.quirks) : undefined;
+    const detail = settled ? finalizeTool(tool, s.quirks) : undefined;
     facts.push({
       type: "item.upsert",
       agent: pending.owner.key,
       item: tool.key,
       draft: {
         type: "tool_call",
-        complete: tool.declined,
+        complete: settled,
         call: { status: tool.status, ...(detail ? { detail } : {}), raw: [...tool.raw] },
       },
     });

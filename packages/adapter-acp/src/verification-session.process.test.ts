@@ -11,7 +11,7 @@ import {
   createTranslatorIdentity,
 } from "./index.ts";
 import { object } from "./data.ts";
-async function setup(quirks = extensionQuirks) {
+async function setup(quirks = extensionQuirks, resume = false) {
   const threadId = ThreadId.parse("shell-queue");
   const state = createThreadState({
     threadId,
@@ -29,6 +29,7 @@ async function setup(quirks = extensionQuirks) {
       threadId,
       cwd: process.cwd(),
       signal: new AbortController().signal,
+      ...(resume ? { resume: { nativeSessionId: "native-root" } } : {}),
       onFrame(frame) {
         frames.push(frame);
         for (const fact of translator.translate(frame, frame.t))
@@ -41,6 +42,7 @@ async function setup(quirks = extensionQuirks) {
     {
       command: process.execPath,
       args: [fileURLToPath(new URL("./testing/uncertain-shell-server.ts", import.meta.url))],
+      version: "1.2.1",
     },
   );
   function wait(predicate: (frame: Frame) => boolean): Promise<Frame> {
@@ -111,6 +113,61 @@ it("rejects reprompting while an Antigravity shell survives a normal prompt end"
     expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
     await expect(h.session.send(input("next"), "queue")).rejects.toThrow("shell");
     expect(promptCount(h.frames)).toBe(1);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+/** Fails instead of hanging when the session never takes the input. */
+const taken = (sent: Promise<void>) =>
+  Promise.race([
+    sent,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("input was never taken")), 2_000),
+    ),
+  ]);
+it("takes new input after the person denies an Antigravity shell that never ran", async () => {
+  const h = await setup(antigravityQuirks);
+  try {
+    const first = h.session.send(input("denied-shell"), "queue");
+    await h.wait((frame) => object(frame.data)["method"] === "session/request_permission");
+    await h.session.resolve("request:number:101", { kind: "approval", optionId: "no" });
+    await first;
+    await taken(h.session.send(input("next"), "queue"));
+    expect(promptCount(h.frames)).toBe(2);
+    expect(h.state.status.state).toBe("done");
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+it("takes new input after an Antigravity prompt ends with a shell still awaiting approval", async () => {
+  const h = await setup(antigravityQuirks);
+  try {
+    await h.session.send(input("unanswered-shell"), "queue");
+    await taken(h.session.send(input("next"), "queue"));
+    expect(promptCount(h.frames)).toBe(2);
+    expect(h.state.status.state).toBe("done");
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+it("takes new input after an error reply ends a prompt with a running Antigravity shell", async () => {
+  const h = await setup(antigravityQuirks);
+  try {
+    await expect(h.session.send(input("failing-shell"), "queue")).rejects.toThrow();
+    await taken(h.session.send(input("next"), "queue"));
+    expect(promptCount(h.frames)).toBe(2);
+    expect(Object.values(h.state.tasks)).toEqual([]);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+it("a loaded session's replayed shell and child never hold back new input", async () => {
+  const h = await setup(antigravityQuirks, true);
+  try {
+    await taken(h.session.send(input("plain"), "queue"));
+    await taken(h.session.send(input("next"), "queue"));
+    expect(promptCount(h.frames)).toBe(2);
+    expect(h.state.status.state).toBe("done");
   } finally {
     await h.session.close("shutdown");
   }

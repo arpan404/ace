@@ -152,6 +152,7 @@ export function placeholderChild(state: TranslationState, tool: ToolState, facts
   if (!tool.child) {
     const id = state.key("placeholder");
     const child = state.agent(id, facts);
+    child.placeholder = true;
     child.spawn = tool.key;
     tool.child = child;
     state.childTools.set(id, tool);

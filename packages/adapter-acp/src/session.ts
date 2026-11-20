@@ -10,7 +10,7 @@ import { redactLease } from "./frame-redaction.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { ShellSettlement } from "./shell-settlement.ts";
-import { cancellationGraceMs, promptStop } from "./settlement.ts";
+import { answerRefusesTool, cancellationGraceMs, promptStop } from "./settlement.ts";
 import {
   InputRejected,
   SteerTargetLost,
@@ -131,6 +131,8 @@ class AcpSession implements ProviderSession {
   readonly queue: Queued[] = [];
   active = false;
   selecting = false;
+  /** session/load is in flight: its replayed updates are history, not live work. */
+  loading = false;
   closed = false;
   deliberate = false;
   /** Whether this connection has carried ace's guidance (system prompt or first prompt). */
@@ -194,6 +196,8 @@ class AcpSession implements ProviderSession {
       ) {
         this.configuration.update({ configOptions: update["configOptions"] });
       }
+      // The translator drops load replay too; replayed tools and children are not running now.
+      if (this.loading) return;
       this.routing.receive(object(notification.params));
       this.shells.receive(object(notification.params));
       if (!this.routing.hasLiveChildren) this.clearGrace();
@@ -317,6 +321,7 @@ class AcpSession implements ProviderSession {
     const systemPrompt =
       negotiated.systemPromptAppend && this.ctx.mcp ? this.guidance(this.ctx.mcp) : undefined;
     let opened: unknown;
+    this.loading = resume !== undefined;
     try {
       opened = await openWithSignIn(
         this.rpc,
@@ -340,6 +345,8 @@ class AcpSession implements ProviderSession {
       const failure = resume ? resumeLoadFailure(error) : undefined;
       if (failure) throw openingError(failure, this.ctx, this.launch);
       throw error;
+    } finally {
+      this.loading = false;
     }
     if (systemPrompt) this.guided = true;
     const session = object(opened);
@@ -525,6 +532,8 @@ class AcpSession implements ProviderSession {
         this.fail(error);
         throw error;
       }
+      // The translator closes the turn's open requests at its end; nothing can answer them now.
+      this.cancelQuestions(stop === "cancelled" ? undefined : new Set([this.nativeSessionId]));
       this.shells.promptEnded(this.nativeSessionId, stop);
       if (this.shells.blocked)
         this.rejectQueue(new Error("ACP shell execution completion is unconfirmed"));
@@ -537,6 +546,8 @@ class AcpSession implements ProviderSession {
       }
       next.resolve();
     } catch (error) {
+      // An error reply ends the prompt with no stop reason: its tools ended with it.
+      if (next.batch.written) this.shells.promptEnded(this.nativeSessionId, "");
       next.reject(sanitizedError(error, this.ctx));
     } finally {
       this.active = false;
@@ -576,6 +587,7 @@ class AcpSession implements ProviderSession {
     const validated = validateResolution(request, resolution);
     const answer = encodeResolution(pending.request.method, validated, request);
     this.pending.delete(key);
+    this.answered(pending, answerRefusesTool(request, validated, false));
     pending.answer(answer);
     // drain() settles each turn it takes, so its rejection has no reporter here.
     void this.drain().catch(() => {});
@@ -583,9 +595,16 @@ class AcpSession implements ProviderSession {
   cancelQuestions(owners?: Set<string>): void {
     for (const [key, pending] of this.pending)
       if (!owners || owners.has(pending.owner)) {
+        this.answered(pending, true);
         pending.answer({ outcome: { outcome: "cancelled" } });
         this.pending.delete(key);
       }
+  }
+  /** Tells shell settlement how a tool's request was answered, as the translator sees it. */
+  answered(pending: PendingInteraction, refused: boolean): void {
+    const params = object(pending.request.params);
+    const tool = string(params["toolCallId"] ?? object(params["toolCall"])["toolCallId"]);
+    if (tool) this.shells.answered(pending.owner, tool, refused);
   }
   async interrupt(target: { agent?: string; cascade: boolean }): Promise<void> {
     if (this.closed) throw new Error("ACP session closed");
