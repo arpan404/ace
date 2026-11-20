@@ -2,8 +2,9 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 
 /*
  * `?fakeWorld=spade`, a bot's panels (ADR 0200 §5.2): Fare watch's package ships "Watched trips",
- * a page that lists what it watches with a Stop for each; pressing one tells the bot, which says
- * so and sets the panel again. Price check's page throws on its own, so it stops. For checking
+ * a page that lists what it watches with Book and Stop for each. Stop tells the bot, which says so
+ * and sets the panel again; Book is declared `confirm`, so ace asks on its own line under the page
+ * first. Price check's page throws on its own, so it stops. For checking
  * panels by eye in both schemes, in the real sandboxed frame.
  */
 
@@ -15,7 +16,7 @@ const watchedPage = `<!doctype html>
 <style>
   body { margin: 0; padding: 4px 16px 16px; font: 14px/1.45 var(--font-sans, system-ui); color: var(--foreground); }
   ul { margin: 0; padding: 0; list-style: none; }
-  li { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  li { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
   .route { font-weight: 500; }
   .when { color: var(--muted-foreground); font-size: 13px; }
   .fare { font-variant-numeric: tabular-nums; text-align: right; }
@@ -43,9 +44,11 @@ const watchedPage = `<!doctype html>
     what.append(text("div", "route", trip.route), text("div", "when", trip.when));
     const fare = text("div", "fare", "€" + trip.fare);
     fare.append(text("span", "change", trip.change));
+    const book = text("button", "", "Book");
+    book.addEventListener("click", () => acePanel.act("book_fare", trip.route));
     const stop = text("button", "", "Stop");
     stop.addEventListener("click", () => acePanel.act("stop_watching", trip.route));
-    item.append(what, fare, stop);
+    item.append(what, fare, book, stop);
     return item;
   }
   function show(state) {
@@ -82,23 +85,32 @@ export function seedFakeAgentPanels(here: FakeSpadeApi) {
           id: "watched",
           title: "Watched trips",
           html: watchedPage,
-          actions: [{ name: "stop_watching", label: "Stop watching" }],
+          actions: [
+            { name: "stop_watching", label: "Stop watching" },
+            { name: "book_fare", label: "Book this fare", confirm: true },
+          ],
         },
       ],
       (action) => {
         const route = typeof action.value === "string" ? action.value : "";
-        watched = watched.filter((trip) => trip.route !== route);
-        const words = `Stopped watching ${route}. Still watching ${watched.length} trips.`;
-        here.store(fares.conversation, { type: "reply_started", reply: `r-stop-${route}` });
+        const booked = action.name === "book_fare";
+        if (!booked) watched = watched.filter((trip) => trip.route !== route);
+        const words = booked
+          ? `Booked ${route}. I'll send the ticket when it comes.`
+          : `Stopped watching ${route}. Still watching ${watched.length} trips.`;
+        here.store(fares.conversation, {
+          type: "reply_started",
+          reply: `r-${action.name}-${route}`,
+        });
         here.store(fares.conversation, {
           type: "step_finished",
-          reply: `r-stop-${route}`,
+          reply: `r-${action.name}-${route}`,
           text: words,
           calls: [],
         });
         here.store(fares.conversation, {
           type: "reply_finished",
-          reply: `r-stop-${route}`,
+          reply: `r-${action.name}-${route}`,
           text: words,
         });
         here.panels.update(fares, "watched", { trips: watched });
