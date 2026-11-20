@@ -303,3 +303,95 @@ async fn an_update_brings_its_panels_new_page_and_one_without_it_changes_nothing
     assert_eq!(page.text().await?, newer);
     Ok(())
 }
+
+/// Installs a watcher named `name` showing `page`; answers its id, its conversation and the
+/// page's hash.
+async fn watching(spade: &Spade, name: &str, page: &str) -> Result<(String, String, String)> {
+    let mut body = install(json!({ "panels/watchlist/index.html": page }));
+    body["recipe"]["name"] = json!(name);
+    body["from_recipe"]["transaction"] = json!(format!("install-{}", name.to_lowercase()));
+    let (status, made) = spade.post("/v1/agents", body).await?;
+    assert_eq!(status, 201, "{made}");
+    let bot = made["agent"]["id"].as_str().unwrap_or_default().to_owned();
+    let chat = made["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let hash = shown(spade, &chat).await?;
+    Ok((bot, chat, hash))
+}
+
+/// The page the panel of the bot whose conversation is `chat` shows.
+async fn shown(spade: &Spade, chat: &str) -> Result<String> {
+    let (_, listed) = spade
+        .get(&format!("/v1/conversations/{chat}/panels"))
+        .await?;
+    Ok(listed["panels"][0]["page"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned())
+}
+
+async fn served(spade: &Spade, hash: &str) -> Result<u16> {
+    let page = spade
+        .http
+        .get(format!("{}/v1/panels/pages/{hash}", spade.base))
+        .bearer_auth(TOKEN)
+        .send()
+        .await?;
+    Ok(page.status().as_u16())
+}
+
+#[tokio::test]
+async fn pages_no_bot_shows_are_collected_and_a_page_still_shown_is_kept() -> Result {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let page = |n: u8| PAGE.replace("<ul", &format!("<h1>Page {n}</h1><ul"));
+    // An update replaces the first bot's page with a new one.
+    let (updated, chat, replaced) = watching(&spade, "Fares", &page(1)).await?;
+    let mut next = watcher();
+    next["name"] = json!("Fares");
+    let (status, body) = spade
+        .post(
+            &format!("/v1/agents/{updated}/package"),
+            json!({ "recipe": next, "transaction": "update-fares",
+                    "pages": { "panels/watchlist/index.html": page(2) } }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let current = shown(&spade, &chat).await?;
+    assert_ne!(current, replaced);
+    // Two bots show one page; one of them is uninstalled.
+    let (gone_sharer, _, shared) = watching(&spade, "Trains", &page(3)).await?;
+    let (_, _, still_shared) = watching(&spade, "Buses", &page(3)).await?;
+    assert_eq!(shared, still_shared);
+    // A bot with a page of its own is uninstalled.
+    let (gone, _, alone) = watching(&spade, "Ferries", &page(4)).await?;
+    for bot in [&gone_sharer, &gone] {
+        let (status, body) = spade.delete(&format!("/v1/agents/{bot}")).await?;
+        assert_eq!(status, 204, "{body}");
+    }
+    // Until a collection runs, the pages nobody shows are still kept.
+    assert_eq!(served(&spade, &replaced).await?, 200);
+    assert_eq!(served(&spade, &alone).await?, 200);
+
+    assert_eq!(spade.engine.collect_panel_pages(), 2);
+    assert_eq!(served(&spade, &replaced).await?, 404, "the replaced page");
+    assert_eq!(
+        served(&spade, &alone).await?,
+        404,
+        "the uninstalled bot's page"
+    );
+    assert_eq!(
+        served(&spade, &current).await?,
+        200,
+        "the updated bot's page"
+    );
+    assert_eq!(
+        served(&spade, &shared).await?,
+        200,
+        "a page another bot shows"
+    );
+    // A second pass finds nothing more.
+    assert_eq!(spade.engine.collect_panel_pages(), 0);
+    Ok(())
+}

@@ -118,6 +118,9 @@ pub const PER_BOT_SETTINGS: &[&str] = &[
     // (ADR 0200 §3.8): the target fetches the pinned bytes by hash itself.
     "bot_package:",
     "bot_package_held:",
+    // Which page each of its panels shows (ADR 0200 §5.2); the pages themselves go by their
+    // hash beside its images.
+    "bot_panels:",
     // The ceiling its maker's package held it to, when a packaged bot made it (ADR 0200 §3.4).
     "package_ceiling:",
     // The accent the person chose for it, over its package's (ADR 0200 §5.3).
