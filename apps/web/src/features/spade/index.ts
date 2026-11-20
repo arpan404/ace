@@ -20,5 +20,3 @@ export { useSpadeConnectors } from "./spade-connector-api.ts";
 export { SpadeFace } from "./spade-face.tsx";
 export { GroupFaces } from "./spade-group-faces.tsx";
 export { readGroups } from "./spade-teams-api.ts";
-export { agentsKey } from "./use-spade-roster.ts";
-export { groupsKey } from "./use-spade-groups.ts";

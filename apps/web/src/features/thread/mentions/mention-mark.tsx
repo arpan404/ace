@@ -19,7 +19,7 @@ import { MentionIcon } from "@/components/mention-chip.tsx";
 import { AppMark, useKnownApp } from "@/components/ui/app-mark.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { deviceGlyphs } from "@/features/devices/index.ts";
-import { GroupFaces, SpadeFace } from "@/features/spade/index.ts";
+import { MentionFace, MentionFaces } from "@/lib/spade-mentions.tsx";
 
 /*
  * The picture of everything `@` can name (ADR 0194), the same in the picker's rows and in the
@@ -95,9 +95,9 @@ export function MentionMark(props: { picture: MentionPicture; size?: 14 | 16 | u
         glyph(ChatCircleIcon, size)
       );
     case "bot":
-      return <SpadeFace avatar={picture.avatar} size={size} />;
+      return <MentionFace avatar={picture.avatar} size={size} />;
     case "club":
-      return <GroupFaces members={picture.members} size={size} />;
+      return <MentionFaces members={picture.members} size={size} />;
     case "device":
       return glyph(deviceGlyph(picture), size);
     case "catalog":

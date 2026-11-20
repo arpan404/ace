@@ -1,5 +1,5 @@
 import { FakeSpadeApi, longHistory } from "@ace/fake-daemon";
-import type { Command, CommandPayload } from "@ace/protocol";
+import { CommandId, type Command, type CommandPayload } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -59,9 +59,14 @@ test("typing @ lists bots with their faces, clubs with their members' faces, and
   await userEvent.type(message, "@");
   const list = await menu();
   const bot = await within(list).findByRole("option", { name: /^Research Finds sources/ });
-  expect(bot.querySelector('[data-part="avatar"][data-variant="character"]')).not.toBeNull();
+  // Spade draws the faces; its code arrives the first time one is on screen.
+  await waitFor(() =>
+    expect(bot.querySelector('[data-part="avatar"][data-variant="character"]')).not.toBeNull(),
+  );
   const club = within(list).getByRole("option", { name: /^Launch Research and Writer/ });
-  expect(club.querySelectorAll('[data-part="avatar"]').length).toBeGreaterThan(1);
+  await waitFor(() =>
+    expect(club.querySelectorAll('[data-part="avatar"]').length).toBeGreaterThan(1),
+  );
   await within(list).findByRole("option", { name: /^Studio Mac/ });
   const order = sections(list);
   expect(order.indexOf("Spade bots")).toBeLessThan(order.indexOf("Clubs"));
@@ -182,7 +187,7 @@ test("a bot's reply appears in the thread under its face and name, beside ace's 
             type: "message",
             role: "user",
             parts: [{ type: "text", text: "@Research why does it 500?" }],
-            origin: { kind: "person", commandId: about },
+            origin: { kind: "person", commandId: CommandId.parse(about) },
             complete: true,
           },
         },
@@ -227,7 +232,7 @@ test("a bot's reply appears in the thread under its face and name, beside ace's 
   const reply = await screen.findByText("The session cookie expired.");
   const row = reply.closest('[data-part="bot-reply"]');
   expect(row?.textContent).toContain("Research");
-  expect(row?.querySelector('[data-part="avatar"]')).not.toBeNull();
+  await waitFor(() => expect(row?.querySelector('[data-part="avatar"]')).not.toBeNull());
   expect(screen.getByText("Research answered")).toBeTruthy();
   expect(screen.getByText("Shares: this message, its last 3 turns")).toBeTruthy();
   // The person's words draw the bot it named as its chip.

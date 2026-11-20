@@ -123,7 +123,6 @@ export function AppMark(props: {
 export function useKnownApp(candidates: readonly string[]): string | undefined {
   "use no memo";
   useSyncExternalStore(subscribe, () => version);
-  const key = candidates.join(",");
-  useEffect(() => load(undefined), [key]);
+  useEffect(() => load(undefined), []);
   return tables ? candidates.find((id) => tables?.appArt[id]) : undefined;
 }

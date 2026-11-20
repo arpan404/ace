@@ -2,6 +2,8 @@ import { SuitCornerOrnaments } from "@/theme/suits/suit-ornament.tsx";
 import { TransferHost } from "@/features/transfers/index.ts";
 import { TransferOpenerProvider } from "@/lib/transfer-opener.ts";
 import { ThreadPreviewProvider } from "@/lib/thread-preview.tsx";
+import { SpadeMentionsProvider } from "@/lib/spade-mentions.tsx";
+import { spadeMentions } from "./spade-mentions.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { ForgeButton } from "@/components/forge-button.tsx";
 import { UsageLink } from "@/components/usage-bars.tsx";
@@ -128,7 +130,9 @@ export function AppShell() {
                       <ThreadLeaveProvider>
                         <ThreadPreviewProvider value={ThreadHoverPreview}>
                           <PullRequestViewProvider value={PullRequestTab.Component}>
-                            <Outlet />
+                            <SpadeMentionsProvider value={spadeMentions}>
+                              <Outlet />
+                            </SpadeMentionsProvider>
                           </PullRequestViewProvider>
                         </ThreadPreviewProvider>
                       </ThreadLeaveProvider>

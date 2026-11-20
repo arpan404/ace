@@ -17,7 +17,7 @@ import { channelEndpoint } from "@/boot/main-machine.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useDeviceSession } from "@/features/devices/index.ts";
 import { machineDevices } from "@/features/settings/index.ts";
-import { agentsKey, groupsKey, readAgents, readGroups } from "@/features/spade/index.ts";
+import { useSpadeMentions } from "@/lib/spade-mentions.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { useClock } from "@/lib/time.ts";
@@ -185,17 +185,18 @@ export function useMentionSources(input: {
     const agent = agentRow(thread);
     return agent ? [{ ...agent, detail: agentDetail(agent) }] : [];
   });
+  const spade = useSpadeMentions();
   const bots = useQuery({
-    queryKey: [...agentsKey, "primary"],
-    queryFn: ({ signal }) => readAgents(client, { signal }),
-    enabled: open,
+    queryKey: ["mentions", "spade", "bots"],
+    queryFn: ({ signal }) => spade?.readBots(client, signal) ?? Promise.resolve([]),
+    enabled: open && !!spade,
     staleTime: 10_000,
     retry: false,
   });
   const clubs = useQuery({
-    queryKey: [...groupsKey, "primary"],
-    queryFn: ({ signal }) => readGroups(client, { signal }),
-    enabled: open,
+    queryKey: ["mentions", "spade", "clubs"],
+    queryFn: ({ signal }) => spade?.readClubs(client, signal) ?? Promise.resolve([]),
+    enabled: open && !!spade,
     staleTime: 10_000,
     retry: false,
   });

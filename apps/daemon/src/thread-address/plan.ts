@@ -202,7 +202,7 @@ export function botRepliesText(
   // The newest replies matter most: older ones give way first.
   const blocks: string[] = [];
   let size = Buffer.byteLength(head) + 64;
-  for (const reply of [...replies].reverse()) {
+  for (const reply of replies.toReversed()) {
     const from = reply.club ? `${reply.bot} in ${reply.club}` : reply.bot;
     const block = `\n<bot_reply from=${JSON.stringify(from)}>\n${reply.text}\n</bot_reply>`;
     size += Buffer.byteLength(block);

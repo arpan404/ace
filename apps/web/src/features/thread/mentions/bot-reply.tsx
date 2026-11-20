@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { SpadeFace } from "@/features/spade/index.ts";
+import { MentionFace } from "@/lib/spade-mentions.tsx";
 
 /**
  * A Spade bot's reply in the thread (ADR 0194): its face and name (and its club), then its words,
@@ -59,7 +59,7 @@ export function BotReply(props: { threadId: string; itemId: string }) {
   };
   return (
     <div data-part="bot-reply" className="flex min-w-0 gap-2.5">
-      <SpadeFace
+      <MentionFace
         avatar={parseSpadeAvatar(speaker.avatar, speaker.id)}
         size={24}
         className="mt-0.5"

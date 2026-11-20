@@ -91,16 +91,17 @@ function packFor(store: Store, thread: Thread, share: "thread" | "message", file
   return contextPack(facts, files, page.items, createTextRedactor({}));
 }
 
+const refuse = (command: Command, error: string): CommandResult => ({
+  commandId: command.id,
+  ok: false,
+  error,
+});
+
 export function createThreadAddressSession({
   options,
   send,
   canReadThread,
 }: SocketContext): SocketService {
-  const refuse = (command: Command, error: string): CommandResult => ({
-    commandId: command.id,
-    ok: false,
-    error,
-  });
   return {
     command: {
       types: ["thread.address"],

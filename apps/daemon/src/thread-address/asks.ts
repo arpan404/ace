@@ -168,7 +168,7 @@ export class ThreadAsks {
   }
   async close(): Promise<void> {
     this.closing.abort();
-    await Promise.allSettled([...this.running.values()]);
+    await Promise.allSettled(this.running.values());
   }
 
   private async loop(key: string): Promise<void> {
