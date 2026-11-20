@@ -53,6 +53,7 @@ export const routePages = {
   "/settings/general": null,
   "/settings/profile": null,
   "/settings/appearance": null,
+  "/settings/editor": null,
   "/settings/agents": null,
   "/settings/prompts": null,
   "/settings/providers/": null,

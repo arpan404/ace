@@ -22,6 +22,8 @@ export interface EditorLayerView {
   lastRow: number;
   gutter: number;
   cell: number;
+  /** The height of one visual row, in pixels. */
+  lineHeight: number;
   selections: readonly Selection[];
   primary: number;
   readOnly: boolean;

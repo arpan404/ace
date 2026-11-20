@@ -3,7 +3,7 @@ import type { MouseEvent, PointerEvent } from "react";
 import { useRef } from "react";
 import { carrySides, noAffinity, type Affinity } from "./affinity.ts";
 import { wordAt } from "./cursor.ts";
-import { lineHeight, tabSize } from "./geometry.ts";
+import { tabSize } from "./geometry.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
 import type { RowLayout } from "./wrap-index.ts";
 import { atHardBreak, columnOnRow } from "./wrap.ts";
@@ -19,6 +19,7 @@ import { atHardBreak, columnOnRow } from "./wrap.ts";
 export function usePointerSelection(options: {
   state: EditorDocumentState;
   cell: number;
+  lineHeight: number;
   gutter: number;
   layout: RowLayout | undefined;
   element: { current: HTMLDivElement | null };
@@ -34,7 +35,7 @@ export function usePointerSelection(options: {
    */
   onGutter?: ((line: number, at: { x: number; shiftKey: boolean }) => boolean) | undefined;
 }) {
-  const { state, cell, gutter, layout } = options;
+  const { state, cell, lineHeight, gutter, layout } = options;
   const drag = useRef<
     | {
         anchor: Position;

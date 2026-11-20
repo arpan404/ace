@@ -1,4 +1,4 @@
-import { lineHeight } from "./geometry.ts";
+import { lineHeight as defaultLineHeight } from "./geometry.ts";
 import type { RowLayout } from "./wrap-index.ts";
 
 /*
@@ -38,8 +38,11 @@ export function editorWindow(options: {
   lineCount: number;
   scrollTop: number;
   height: number;
+  /** The height of one visual row; the editor's default when unset. */
+  lineHeight?: number;
 }): EditorWindow {
   const { layout, lineCount, scrollTop, height } = options;
+  const lineHeight = options.lineHeight ?? defaultLineHeight;
   // Where the scroll sits from the counts as they stand: an unmeasured line counts as one row.
   const estimated = layout?.total() ?? 0;
   const guessFirst =

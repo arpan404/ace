@@ -62,6 +62,7 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/settings/general": ["/settings/general", "settings"],
   "/settings/profile": ["/settings/profile", "settings"],
   "/settings/appearance": ["/settings/appearance", "settings"],
+  "/settings/editor": ["/settings/editor", "settings"],
   "/settings/agents": ["/settings/agents", "settings"],
   "/settings/prompts": ["/settings/prompts", "settings"],
   "/settings/providers/": ["/settings/providers", "settings"],

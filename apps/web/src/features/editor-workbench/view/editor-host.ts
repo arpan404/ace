@@ -52,6 +52,28 @@ export interface BufferEditorProps {
   marks?: ReadonlyMap<number, LineMark> | undefined;
   /** Drawn over the text: the thread's code annotations (`useEditorAnnotations`). */
   layer?: EditorLayer | undefined;
+  /** How the text looks (Settings › Editor); the code editor's defaults where unset. */
+  look?: EditorLook | undefined;
+  /** A press on a change mark (1-based line), while the file has no unsaved edits. */
+  onMarkClick?: ((line: number) => void) | undefined;
+  /** An inline block under a line (a change's diff), while the file has no unsaved edits. */
+  peek?: { after: number; content: ReactNode } | undefined;
+  /** The person typed in this view (auto save waits for a pause). */
+  onEdited?: (() => void) | undefined;
+  /** This view's text lost the keyboard (auto save on focus change). */
+  onBlurred?: (() => void) | undefined;
+}
+
+/** The device's editor preferences a view applies, live. */
+export interface EditorLook {
+  fontSize: number;
+  lineHeight: number;
+  fontFamily: string;
+  wordWrap: boolean;
+  renderWhitespace: boolean;
+  indentGuides: boolean;
+  stickyScroll: boolean;
+  cursorBlinking: boolean;
 }
 
 /** A file the editor doesn't show as text: a picture, a player, a binary or too-large file. */

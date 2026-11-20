@@ -1,3 +1,4 @@
+import type { Indent } from "@ace/editor";
 import type { Author } from "./attribution.ts";
 import { Buffer, type BufferContext } from "./buffer.ts";
 import type {
@@ -28,6 +29,8 @@ export interface BufferRegistryOptions {
   draftDelay?: number;
   /** Who changed a file on disk at `at` (the attribution matcher over the turn's edit calls). */
   attribute?: (key: BufferKey, at: number) => Author;
+  /** How a file read from now on indents when it shows no indentation of its own. */
+  indent?: () => Indent;
 }
 
 /** The app's one set of buffers, keyed by checkout and path, shared by every view of a file. */
@@ -112,6 +115,7 @@ export function createBufferRegistry(options: BufferRegistryOptions): BufferRegi
     ready: options.ready,
     draftDelay: options.draftDelay ?? defaultDraftDelay,
     attribute: options.attribute ?? (() => ({ kind: "unknown" })),
+    indent: options.indent,
     changed: check,
   };
 

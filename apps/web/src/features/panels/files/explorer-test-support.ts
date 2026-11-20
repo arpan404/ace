@@ -13,8 +13,8 @@ export { bytes, expand, menuPick, row, threadId } from "./tree-test-queries.ts";
  * more, from the fake daemon.
  */
 
-export async function openExplorer() {
-  const app = harness();
+export async function openExplorer(options: Parameters<typeof harness>[0] = {}) {
+  const app = harness(options);
   const folders = folderFixture(app.client, threadId);
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open(`/t/${threadId}`);

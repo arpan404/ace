@@ -13,7 +13,7 @@ import { useFileMutations } from "./use-file-mutations.ts";
 export type { TreeEntry } from "./tree-entry.ts";
 
 /** How a file opens from the tree: a preview the next pick replaces, kept, or in its own tab. */
-export type OpenHow = "preview" | "keep" | "tab";
+export type OpenHow = "preview" | "keep" | "side";
 
 /** Everything the tree's menus and keys can do to its rows. */
 export interface TreeCommands {
