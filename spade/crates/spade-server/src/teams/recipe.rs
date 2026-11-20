@@ -357,7 +357,11 @@ fn furnish(
     }
     for note in &recipe.notes {
         engine
-            .add_note(&NoteScope::Agent(id.to_owned()), note)
+            .import_note(
+                &NoteScope::Agent(id.to_owned()),
+                note,
+                &format!("the {} recipe", recipe.name.trim()),
+            )
             .map_err(|why| invalid(format!("a note wasn't kept: {why}")))?;
     }
     if let (Some(hub), false) = (connectors, granted.is_empty()) {

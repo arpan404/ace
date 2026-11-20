@@ -250,7 +250,8 @@ pub fn import(
         left_out.push("Connectors aren't set up on this machine.".to_owned());
     }
     for note in file.notes.iter().take(MOST_FILE_NOTES) {
-        if let Err(why) = engine.add_note(&NoteScope::Agent(id.clone()), note) {
+        let what = format!("the bot file {}", file.name.trim());
+        if let Err(why) = engine.import_note(&NoteScope::Agent(id.clone()), note, &what) {
             left_out.push(format!("A note wasn't kept: {why}"));
         }
     }

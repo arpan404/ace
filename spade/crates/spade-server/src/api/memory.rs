@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::body::Body;
-use super::{AppState, problem};
+use super::{AppState, off_thread, problem};
 use crate::engine::{NoteError, NoteScope, note_json};
 
 pub(super) fn routes() -> Router<AppState> {
@@ -19,6 +19,69 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/notes", get(list_shared).post(add_shared))
         .route("/notes/{note}", patch(change).delete(forget))
         .route("/notes/{note}/accept", post(accept))
+        .route("/notes/{note}/provenance", get(note_provenance))
+        .route("/agents/{id}/learned", get(learned))
+        .route("/agents/{id}/learned/forget", post(forget_source))
+}
+
+/// Where a note came from: its conversation and the message it answered, what was in view, an
+/// import, its sources labelled, and when.
+async fn note_provenance(State(state): State<AppState>, Path(note): Path<String>) -> Response {
+    off_thread(move || match state.engine.note_provenance(&note) {
+        Ok(Some(shown)) => Json(shown).into_response(),
+        Ok(None) => problem(StatusCode::NOT_FOUND, "there is no such note"),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    })
+    .await
+}
+
+/// Every source a bot's notes and knowledge came from, with how many of each.
+async fn learned(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    off_thread(move || {
+        match state.engine.agent_view(&id) {
+            Ok(Some(_)) => {}
+            Ok(None) => return problem(StatusCode::NOT_FOUND, "there is no such agent"),
+            Err(error) => return problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+        }
+        match state.engine.learned(&id) {
+            Ok(sources) => Json(json!({
+                "sources": sources.iter().map(|s| json!({
+                    "key": s.key, "label": s.label, "notes": s.notes, "entries": s.entries,
+                })).collect::<Vec<_>>(),
+            }))
+            .into_response(),
+            Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+        }
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct Forget {
+    /// A source key from `GET …/learned`.
+    source: String,
+}
+
+/// Forgets everything a bot learned from one source; the person's own words stay.
+async fn forget_source(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<Forget>,
+) -> Response {
+    off_thread(move || {
+        match state.engine.agent_view(&id) {
+            Ok(Some(_)) => {}
+            Ok(None) => return problem(StatusCode::NOT_FOUND, "there is no such agent"),
+            Err(error) => return problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+        }
+        match state.engine.forget_source(&id, body.source.trim()) {
+            Ok(gone) => {
+                Json(json!({ "notes": gone.notes, "entries": gone.entries })).into_response()
+            }
+            Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+        }
+    })
+    .await
 }
 
 #[derive(Deserialize, Default)]

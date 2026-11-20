@@ -321,3 +321,45 @@ pub(super) async fn settings(
     }
     StatusCode::NO_CONTENT.into_response()
 }
+
+/// Model servers on this computer (Ollama, LM Studio): whether each runs, its models, and the
+/// endpoint already added for it.
+pub(super) async fn local(State(state): State<AppState>) -> Response {
+    let servers: Vec<Value> = state
+        .engine
+        .local_servers()
+        .await
+        .into_iter()
+        .map(|s| {
+            json!({
+                "id": s.server.id, "name": s.server.name, "base_url": s.server.base_url,
+                "running": s.running, "models": s.models, "endpoint": s.endpoint,
+            })
+        })
+        .collect();
+    Json(json!({ "servers": servers })).into_response()
+}
+
+#[derive(Deserialize)]
+pub(super) struct LocalModel {
+    model: String,
+}
+
+/// Uses one of a local server's models: its endpoint added the first time, the model saved.
+pub(super) async fn use_local(
+    State(state): State<AppState>,
+    Path(server): Path<String>,
+    Body(body): Body<LocalModel>,
+) -> Response {
+    off_thread(
+        move || match state.engine.use_local_model(&server, &body.model) {
+            Ok((view, value)) => Json(json!({
+                "endpoint": one_endpoint(&state, &view),
+                "value": value,
+            }))
+            .into_response(),
+            Err(error) => endpoint_problem(&error),
+        },
+    )
+    .await
+}

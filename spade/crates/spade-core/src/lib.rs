@@ -25,6 +25,7 @@ pub mod memory;
 pub mod outward;
 pub mod oversight;
 pub mod personality;
+pub mod provenance;
 pub mod question;
 pub mod redact;
 pub mod research;

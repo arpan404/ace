@@ -78,6 +78,8 @@ pub(super) async fn handle_calls(
     let facts = TurnFacts {
         untrusted: (!in_view.is_empty()).then(|| in_view.join(", ")),
         memory_suggests: summary_only,
+        in_view: in_view.clone(),
+        call: None,
     };
     // How the bot decides (ADR 0163, amendment 2), read once for the step's calls.
     let mode = engine.autonomy(id);
