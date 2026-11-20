@@ -8,6 +8,8 @@ import SwiftUI
 struct WorktreeStartView: View {
     let card: WorktreeStartCard
     let act: (String) -> Void
+    /// Clear a stale Git lock on the project and retry this start, once confirmed; nil when view-only.
+    var clearLock: (() -> Void)? = nil
     /// Back to New thread with the words, once the start stopped; nil while it can't.
     var back: (() -> Void)? = nil
     /// Back is on its way to the phone's store and the daemon.
@@ -34,7 +36,7 @@ struct WorktreeStartView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Steps")
                 if !card.note.isEmpty { words(card.note, tone: AceTheme.Colours.mutedForeground) }
-                if card.locked {
+                if card.locked, clearLock == nil {
                     words("Clear the stale Git lock in ace on your computer, then Retry.", tone: AceTheme.Colours.mutedForeground)
                 }
                 if !card.refused.isEmpty { words(card.refused, tone: AceTheme.Status.failed) }
@@ -68,8 +70,17 @@ struct WorktreeStartView: View {
         }
         // The way on stays in view at any detent and text size: steps and log scroll above it.
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
-            if !card.actions.isEmpty || back != nil {
+            let canClear = card.locked && clearLock != nil
+            if canClear || !card.actions.isEmpty || back != nil {
                 VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                    if let clearLock, card.locked {
+                        Button(card.sending == "clearLock" ? "Clearing lock…" : "Clear the lock and try again",
+                               role: .destructive, action: clearLock)
+                            .buttonStyle(.bordered)
+                            .disabled(!card.sending.isEmpty || backing)
+                            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                            .accessibilityIdentifier("worktree.clearLock")
+                    }
                     if !card.actions.isEmpty {
                         ViewThatFits(in: .horizontal) {
                             HStack(spacing: AceDesign.Space.related) { actionButtons }
@@ -80,7 +91,7 @@ struct WorktreeStartView: View {
                     if !backProblem.isEmpty { words(backProblem, tone: AceTheme.Status.failed) }
                     if let back {
                         Button(backing ? "Going back…" : "Back to New thread", action: back)
-                            .disabled(backing)
+                            .disabled(backing || !card.sending.isEmpty)
                             .buttonStyle(.borderless)
                             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                             .frame(minHeight: AceDesign.Size.tap)
@@ -103,7 +114,7 @@ struct WorktreeStartView: View {
         ForEach(card.actions) { action in
             Button(action.label) { act(action.id) }
                 .buttonStyle(.bordered)
-                .disabled(!card.sending.isEmpty)
+                .disabled(!card.sending.isEmpty || backing)
                 .accessibilityIdentifier("worktree.\(action.id)")
         }
     }

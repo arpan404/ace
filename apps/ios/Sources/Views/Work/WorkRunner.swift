@@ -54,11 +54,8 @@ private struct WorkQuestions: ViewModifier {
                 Button(ask.confirm) { runner.carryAlong(model: model) }.accessibilityIdentifier("work.carryAlong")
                 Button("Cancel", role: .cancel) { runner.asking = nil }
             } message: { ask in Text(ask.detail) }
-            .confirmationDialog("Clear the stale Git lock?", isPresented: $confirmingLock, titleVisibility: .visible) {
-                Button("Clear lock", role: .destructive) { runner.clearLock(model: model) }.accessibilityIdentifier("work.clearLock.confirm")
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("A Git operation an earlier ace daemon started never confirmed its cleanup. ace clears the lock only after checking that daemon has stopped. Continue only if nothing it started is still changing these files.")
+            .staleLockConfirmation(isPresented: $confirmingLock, confirmId: "work.clearLock.confirm") {
+                runner.clearLock(model: model)
             }
     }
 }
@@ -68,5 +65,17 @@ extension View {
     /// lock. Haptics mark each outcome.
     func workQuestions(runner: WorkRunner, model: ClientModel, confirmingLock: Binding<Bool>) -> some View {
         modifier(WorkQuestions(runner: runner, model: model, confirmingLock: confirmingLock))
+    }
+
+    /// Confirmation before asking the daemon to retire a stale Git lock, shared between
+    /// existing threads (Work sheet / transcript) and a new thread's worktree start.
+    @MainActor func staleLockConfirmation(isPresented: Binding<Bool>, confirmId: String,
+                                          confirm: @escaping @MainActor () -> Void) -> some View {
+        confirmationDialog("Clear the stale Git lock?", isPresented: isPresented, titleVisibility: .visible) {
+            Button("Clear lock", role: .destructive, action: confirm).accessibilityIdentifier(confirmId)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("A Git operation an earlier ace daemon started never confirmed its cleanup. ace clears the lock only after checking that daemon has stopped. Continue only if nothing it started is still changing these files.")
+        }
     }
 }
