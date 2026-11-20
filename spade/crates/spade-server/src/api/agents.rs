@@ -352,25 +352,26 @@ fn make_bot(
     avatar: Option<AvatarInput>,
 ) -> Result<(AgentView, Option<Vec<String>>), Box<Response>> {
     if let Some(template) = &body.template {
+        // A template is ace's own package: it installs the way a package does, linked to it.
         let model = body
             .model
             .clone()
-            .or_else(|| crate::teams::template_model(&state.engine, template))
-            .unwrap_or_else(|| state.engine.new_bot_default());
-        let named = body.name.as_deref().is_some_and(|n| !n.trim().is_empty());
-        let input = AgentInput {
-            name: body.name.unwrap_or_default(),
-            task: body.task,
+            .or_else(|| crate::teams::template_model(&state.engine, template));
+        let choices = crate::teams::TemplateChoices {
+            name: body.name.clone(),
+            task: body.task.clone(),
             model,
             avatar,
-            naming: false,
+            time_zone: body.time_zone.clone(),
+            switches: (!body.switches.is_empty()).then(|| body.switches.clone()),
+            start_routines: body.start_routines,
         };
         return match crate::teams::from_template(
             &state.engine,
+            state.connectors.as_deref(),
+            state.engine.plugins().map(|p| &**p),
             template,
-            input,
-            named,
-            body.time_zone,
+            choices,
         ) {
             Ok(made) => Ok((made.agent, Some(made.left_out))),
             Err(crate::teams::PortableError::NotFound) => {

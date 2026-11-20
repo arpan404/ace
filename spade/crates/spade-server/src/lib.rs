@@ -2,6 +2,7 @@
 
 pub mod api;
 mod atomic;
+pub mod bot_test;
 pub mod clock;
 pub mod computer;
 pub mod config;

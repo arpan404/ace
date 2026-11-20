@@ -1,0 +1,30 @@
+{
+  "name": "Answers its first message",
+  "given": {
+    "message": "Is anything on fire?"
+  },
+  "model": [
+    {
+      "calls": [
+        {
+          "tool": "todo",
+          "arguments": {
+            "items": [
+              {
+                "text": "Answer: Is anything on fire?",
+                "done": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "say": "Nothing needs you right now."
+    }
+  ],
+  "expect": {
+    "calls": ["todo"],
+    "reply_contains": ["needs you"]
+  }
+}

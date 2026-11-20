@@ -1,0 +1,30 @@
+{
+  "name": "Answers its first message",
+  "given": {
+    "message": "How do heat pumps work in very cold weather?"
+  },
+  "model": [
+    {
+      "calls": [
+        {
+          "tool": "todo",
+          "arguments": {
+            "items": [
+              {
+                "text": "Answer: How do heat pumps work in very cold weather?",
+                "done": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "say": "Here is what the sources say, with how sure I am."
+    }
+  ],
+  "expect": {
+    "calls": ["todo"],
+    "reply_contains": ["sources"]
+  }
+}

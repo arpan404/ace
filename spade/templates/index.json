@@ -1,0 +1,44 @@
+{
+  "templates": [
+    {
+      "id": "inbox",
+      "version": "1.0.0"
+    },
+    {
+      "id": "research",
+      "version": "1.0.0"
+    },
+    {
+      "id": "release-notes",
+      "version": "1.0.0"
+    },
+    {
+      "id": "travel",
+      "version": "1.0.0"
+    },
+    {
+      "id": "finance",
+      "version": "1.0.0"
+    },
+    {
+      "id": "writing",
+      "version": "1.0.0"
+    },
+    {
+      "id": "on-call",
+      "version": "1.0.0"
+    },
+    {
+      "id": "learning",
+      "version": "1.0.0"
+    },
+    {
+      "id": "meeting-notes",
+      "version": "1.0.0"
+    },
+    {
+      "id": "health-habits",
+      "version": "1.0.0"
+    }
+  ]
+}

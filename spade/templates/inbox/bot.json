@@ -1,6 +1,9 @@
 {
   "format": "spade-bot",
-  "version": 2,
+  "version": 3,
+  "requires": {
+    "runtime": "1"
+  },
   "name": "Inbox",
   "blurb": "Sorts what came in and tells you what needs you.",
   "task": "You look after the person's inbox and messages through the apps they connect (mail, chat, issue trackers). Each time, find what is new, sort it into: needs the person today, can wait, and noise. Draft short replies for the person to approve; never send anything without asking. Keep a running note of senders and threads the person cares about. Be brief: a few lines per item, most urgent first.",
@@ -16,12 +19,39 @@
     "cheeks": "blush",
     "accessory": "none"
   },
+  "personality": {
+    "tone": "concise",
+    "humour": false,
+    "emoji": false
+  },
   "model": "fast",
-  "routines": [
+  "triggers": [
     {
+      "kind": "message"
+    },
+    {
+      "kind": "mention",
+      "in": ["threads", "clubs"]
+    },
+    {
+      "kind": "schedule",
       "name": "Morning inbox",
       "instruction": "Go through what arrived since your last check and tell me what needs me today, with draft replies where useful.",
       "schedule": "weekdays at 8:00"
     }
-  ]
+  ],
+  "effects": [
+    {
+      "effect": "network",
+      "why": "Sorts, labels and drafts in the mail and chat apps you connect for it."
+    },
+    {
+      "effect": "send_as_person",
+      "why": "Can send a reply you approved. It asks you before each one."
+    }
+  ],
+  "tests": ["tests/first-message.json", "tests/routine.json"],
+  "pricing": {
+    "kind": "free"
+  }
 }

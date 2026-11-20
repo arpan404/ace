@@ -1,0 +1,30 @@
+{
+  "name": "Answers its first message",
+  "given": {
+    "message": "Prepare my 2pm with the design team."
+  },
+  "model": [
+    {
+      "calls": [
+        {
+          "tool": "todo",
+          "arguments": {
+            "items": [
+              {
+                "text": "Answer: Prepare my 2pm with the design team.",
+                "done": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "say": "Here is what to know before your 2pm with the design team."
+    }
+  ],
+  "expect": {
+    "calls": ["todo"],
+    "reply_contains": ["2pm"]
+  }
+}

@@ -4,11 +4,13 @@
 //!
 //! - [`manifest`] reads `bot.json` and refuses what a package may never carry.
 //! - [`link`] is what a bot installed from a version 3 package keeps of it, and its ceiling.
+//! - [`scenario`] reads a package's scenario tests and checks what a run of one showed.
 //! - [`update`] plans an update or a rollback: what the package replaces, what stays because
 //!   the person or the bot changed it, and what the new version asks for that starts off.
 
 pub mod link;
 pub mod manifest;
+pub mod scenario;
 pub mod update;
 
 pub use manifest::{Declared, Limits, Manifest, PackageTrigger, read};
