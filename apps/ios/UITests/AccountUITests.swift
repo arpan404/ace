@@ -192,14 +192,25 @@ import XCTest
         guard safari.wait(for: .runningForeground, timeout: 15) else { return nil }
         let bar = safari.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier IN {'URL', 'Address', 'TabBarItemTitle'}")).firstMatch
-        guard bar.waitForExistence(timeout: 15) else { return nil }
+        guard bar.waitForExistence(timeout: 15) else { return unread(safari) }
         bar.tap()
         let field = safari.textFields.matching(NSPredicate(format: "identifier IN {'URL', 'Address'}")).firstMatch
-        guard field.waitForExistence(timeout: 10), let value = field.value as? String, !value.isEmpty else { return nil }
+        guard field.waitForExistence(timeout: 10), let value = field.value as? String, !value.isEmpty else {
+            return unread(safari)
+        }
         // Leave the address as it was.
         let cancel = safari.buttons["Cancel"]
         if cancel.exists { cancel.tap() }
         return value.hasPrefix("http") ? value : "https://\(value)"
+    }
+
+    /// No address could be read: keeps Safari's element tree with the result, to see why.
+    private func unread(_ safari: XCUIApplication) -> String? {
+        let tree = XCTAttachment(string: safari.debugDescription)
+        tree.name = "safari-tree"
+        tree.lifetime = .keepAlways
+        add(tree)
+        return nil
     }
 
     private func launch(_ extra: [String] = []) -> XCUIApplication {
