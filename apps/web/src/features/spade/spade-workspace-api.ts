@@ -1,5 +1,8 @@
 import {
+  parseSpadeFolder,
   parseSpadeProposal,
+  spadeOwnFolder,
+  type SpadeWorkspaceFolder,
   parseSpadeProposals,
   type SpadeProposal,
 } from "@ace/ui-core/spade-chat";
@@ -12,20 +15,8 @@ import { segment, spadeBlob, spadeHttp, type SpadeTarget } from "./spade-request
 
 type Signal = { signal?: AbortSignal | undefined };
 
-export interface SpadeFileEntry {
-  name: string;
-  /** Relative to the workspace, with `/`. */
-  path: string;
-  kind: "folder" | "file" | "link";
-  size: number;
-  modifiedAt: number | undefined;
-}
-
-export interface SpadeFolder {
-  path: string;
-  entries: SpadeFileEntry[];
-  truncated: boolean;
-}
+export type { SpadeFileEntry } from "@ace/ui-core/spade-chat";
+export type SpadeFolder = SpadeWorkspaceFolder;
 
 export interface SpadeFileView {
   path: string;
@@ -51,35 +42,12 @@ function json(body: string): unknown {
   }
 }
 
-const kinds = new Set(["folder", "file", "link"]);
 const str = (value: unknown) => (typeof value === "string" ? value : undefined);
 const num = (value: unknown) => (typeof value === "number" ? value : undefined);
 
 function sure<T>(value: T | undefined, what: string): T {
   if (value === undefined) throw new Error(`Spade's ${what} didn't make sense.`);
   return value;
-}
-
-function parseFolder(body: string): SpadeFolder | undefined {
-  const fields = record(json(body));
-  if (!fields || !Array.isArray(fields.entries)) return undefined;
-  const entries = fields.entries.flatMap((raw): SpadeFileEntry[] => {
-    const entry = record(raw);
-    const name = str(entry?.name);
-    const path = str(entry?.path);
-    const kind = str(entry?.kind);
-    if (!entry || !name || path === undefined || !kind || !kinds.has(kind)) return [];
-    return [
-      {
-        name,
-        path,
-        kind: kind as SpadeFileEntry["kind"],
-        size: num(entry.size) ?? 0,
-        modifiedAt: num(entry.modified_at),
-      },
-    ];
-  });
-  return { path: str(fields.path) ?? "", entries, truncated: fields.truncated === true };
 }
 
 function parseFile(body: string): SpadeFileView | undefined {
@@ -106,13 +74,10 @@ export async function readFolder(
   options: Signal = {},
 ): Promise<SpadeFolder> {
   const body = await spadeHttp(target, "GET", `${base(bot)}/workspace${at(path)}`, options);
-  const folder = sure(parseFolder(body), "folder");
+  const folder = sure(parseSpadeFolder(body), "folder");
   if (path !== "") return folder;
-  return { ...folder, entries: folder.entries.filter((entry) => entry.name !== spadeOwn) };
+  return { ...folder, entries: folder.entries.filter((entry) => entry.name !== spadeOwnFolder) };
 }
-
-/** Spade's own folder at the top of a workspace: its bookkeeping, not the bot's files. */
-const spadeOwn = ".spade";
 
 export async function readFile(
   target: SpadeTarget,
