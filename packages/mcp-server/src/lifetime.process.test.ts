@@ -404,3 +404,53 @@ it("a thread holding forty long waits can still call its other tools", async () 
     credentials.close();
   }
 });
+
+it.each(["the client leaves", "the tool's deadline passes"] as const)(
+  "a host's hook that hangs gives the call's slot back when %s",
+  async (how) => {
+    const deadlines: (() => void)[] = [];
+    const hooks: Promise<undefined>[] = [new Promise<undefined>(() => {})];
+    const registry = new ToolRegistry({
+      scheduler: {
+        after(_, callback) {
+          deadlines.push(callback);
+          return () => {};
+        },
+      },
+      maxCalls: 1,
+      // The first call's hook never answers; later ones answer at once.
+      actAs: () => hooks.shift() ?? Promise.resolve(undefined),
+    });
+    const credentials = new CredentialRegistry(() => "a".repeat(64));
+    const lease = credentials.issue(scope(), new AbortController().signal);
+    registry.register({
+      name: "ace_wait",
+      description: "Wait",
+      input,
+      output,
+      capability: null,
+      timeoutMs: 1_000,
+      async run() {
+        return { done: true };
+      },
+    });
+    const client = new AbortController();
+    const first = registry.call("ace_wait", {}, lease.principal, client.signal);
+    await expect.poll(() => deadlines.length).toBe(1);
+    if (how === "the client leaves") client.abort();
+    else deadlines[0]?.();
+    expect(await first).toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: expect.stringContaining(
+            how === "the client leaves" ? '"code":"cancelled"' : '"code":"tool_timeout"',
+          ),
+        },
+      ],
+    });
+    expect(
+      await registry.call("ace_wait", {}, lease.principal, new AbortController().signal),
+    ).toMatchObject({ structuredContent: { done: true } });
+  },
+);
