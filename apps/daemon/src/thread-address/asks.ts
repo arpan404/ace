@@ -32,7 +32,13 @@ const retryMs = (attempt: number) => Math.min(1_000 * 2 ** Math.min(attempt, 6),
 
 export type SpadeCall = (
   connection: SpadeConnection,
-  input: { method: string; path: string; body?: Buffer; contentType?: string },
+  input: {
+    method: string;
+    path: string;
+    body?: Buffer;
+    contentType?: string;
+    headers?: Readonly<Record<string, string>>;
+  },
   options: { signal: AbortSignal; maxBytes: number },
 ) => Promise<SpadeAnswer>;
 
@@ -41,6 +47,11 @@ export interface ThreadAsksPorts {
   /** Spade's API while it answers. */
   spade(): SpadeConnection | undefined;
   call: SpadeCall;
+  /**
+   * The daemon's signature over a request's body (`ace:thread`, as the inbox's), or undefined
+   * when its token can't be read: Spade takes a thread ask only from ace itself.
+   */
+  sign(body: Buffer): Readonly<Record<string, string>> | undefined;
   /** Writes one message item on the thread's root agent. */
   post(threadId: ThreadId, key: string, draft: ItemDraft): void;
   /** Starts or ends the thread's background row for an ask. */
@@ -300,14 +311,16 @@ export class ThreadAsks {
     body?: unknown,
   ): Promise<{ status: number; text: string } | undefined> {
     const timeout = AbortSignal.any([this.closing.signal, AbortSignal.timeout(pollMs + 15_000)]);
+    const bytes = body === undefined ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body));
+    const headers = this.ports.sign(bytes);
+    if (!headers) return undefined;
     const answered = await this.ports.call(
       connection,
       {
         method,
         path: route,
-        ...(body === undefined
-          ? {}
-          : { body: Buffer.from(JSON.stringify(body)), contentType: "application/json" }),
+        headers,
+        ...(body === undefined ? {} : { body: bytes, contentType: "application/json" }),
       },
       { signal: timeout, maxBytes: 4 * 1024 * 1024 },
     );

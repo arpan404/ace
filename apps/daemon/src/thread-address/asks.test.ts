@@ -35,6 +35,8 @@ class FakeSpade {
     for (const wake of this.changed.splice(0)) wake();
   }
   call: SpadeCall = async (_connection, input, options) => {
+    if (input.headers?.["x-ace-inbox-proof"] !== "signed")
+      return { kind: "response", status: 403, body: Buffer.from("{}") };
     const respond = (status: number, value: unknown) => ({
       kind: "response" as const,
       status,
@@ -80,6 +82,7 @@ function harness(spade = new FakeSpade(), home = mkdtempSync(join(tmpdir(), "ace
     store: new ThreadAskStore(store),
     spade: () => (up ? connection : undefined),
     call: spade.call,
+    sign: () => ({ "x-ace-inbox-proof": "signed" }),
     post: (_thread, key, draft) => posts.set(key, draft),
     hold: (_thread, task, hold) => holds.push(`${task} ${"title" in hold ? "start" : hold.status}`),
     title: () => "Fix login",

@@ -5,6 +5,8 @@ import { spadeRequest } from "@ace/service/spade";
 import { sharesWords } from "@ace/ui-core/mention-shares";
 import { AgentId, Command, type CommandResult, type DeviceId, type Thread } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
+import { readLocalToken } from "../local-token.ts";
+import { inboxProof } from "../machines/target-spade.ts";
 import type { Store } from "../store.ts";
 import { ThreadAskStore, type AskRow } from "../thread-address/asks-store.ts";
 import { askTaskPrefix, ThreadAsks } from "../thread-address/asks.ts";
@@ -28,6 +30,21 @@ export function startThreadAddress(context: ServiceContext): void {
     store: new ThreadAskStore(store),
     spade: () => services.spade?.ready()?.connection,
     call: spadeRequest,
+    sign: (body) => {
+      let key: string;
+      try {
+        key = readLocalToken(context.config.dataDir);
+      } catch {
+        return undefined;
+      }
+      const time = now();
+      return {
+        "x-ace-from-host": threadAskSender,
+        "x-ace-from-name": "ace",
+        "x-ace-inbox-time": String(time),
+        "x-ace-inbox-proof": inboxProof(key, time, threadAskSender, "ace", body),
+      };
+    },
     post: (threadId, key, draft) => engine.posts.post(threadId, key, draft),
     hold: (threadId, task, hold) => {
       const agent = engine.rootAgent(threadId);
@@ -49,6 +66,9 @@ export function startThreadAddress(context: ServiceContext): void {
     return asks.close();
   });
 }
+
+/** Who thread asks come from, as Spade checks: no paired machine's device id looks like it. */
+const threadAskSender = "ace:thread";
 
 /** What of the thread the pack names: its project (none for a chat), branch and pull request. */
 function packThread(thread: Thread) {
