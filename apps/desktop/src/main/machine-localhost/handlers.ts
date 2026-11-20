@@ -21,8 +21,10 @@ export function deviceTabHandlers(
   tunnels: MachineTunnels,
 ): Pick<Handlers, DeviceTabChannel> {
   return {
-    "machineTunnel.path": (request) => {
-      tunnels.setPath(request.machineId, request.path ?? undefined);
+    "machineTunnel.path": (request, sender) => {
+      // A path held for the window that told it: its lease ends with the window's page.
+      if (sender && !sender.isDestroyed())
+        tunnels.publish(sender.id, request.machineId, request.path ?? undefined);
       return undefined;
     },
     "deviceTab.open": async (request, sender) => {

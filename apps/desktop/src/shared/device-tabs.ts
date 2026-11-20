@@ -73,9 +73,11 @@ export type DeviceTabState = z.infer<typeof DeviceTabState>;
 export const DeviceTabOpenRequest = z.object({ from: TabId, url: Url });
 
 /**
- * The path a remote machine's connection is on now, for its tunnel in the main process: the
- * address, this device's id there and its credential. Null while the machine is offline or has
- * no path a tunnel can use (an account machine, until ace's relay carries tunnels).
+ * The path a remote machine's connection is on now, for its tunnel in the main process: one the
+ * window's connection verified, with what the tunnel must prove on it (a direct listener's
+ * public-key pin, a relay's daemon key, the daemon's id in every welcome), this device's id there
+ * and its credential. Null while the machine is offline, gone, or on no path a tunnel can use
+ * (an account machine, until ace's relay carries tunnels): the window's lease then ends.
  */
 export const MachineTunnelPath = z.object({
   machineId: MachineId,
@@ -83,11 +85,20 @@ export const MachineTunnelPath = z.object({
     .object({
       key: z.string().min(1).max(512),
       target: z.discriminatedUnion("kind", [
-        z.object({ kind: z.literal("direct"), url: Url }),
-        z.object({ kind: z.literal("relay"), url: Url, hostId: z.string().min(1).max(256) }),
+        z.object({
+          kind: z.literal("direct"),
+          url: Url,
+          fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+        }),
+        z.object({ kind: z.literal("relay"), url: Url, hostKey: z.string().min(1).max(256) }),
       ]),
+      /** The daemon every welcome must name: the paired machine's host id. */
+      expectedHostId: z.string().min(1).max(256),
       deviceId: z.string().min(1).max(256),
       token: z.string().min(1).max(4096),
     })
     .nullable(),
 });
+
+/** Typing moves to a device tab's address field (`CmdOrCtrl+L` pressed in its page). */
+export const DeviceTabFocus = z.object({ tabId: TabId });
