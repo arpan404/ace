@@ -268,6 +268,20 @@ describe("the machine's localhost proxy", () => {
     expect(failures.recent(3000)).toBeUndefined();
   });
 
+  it("gives up a plain request's open when the browser goes away while it waits", async () => {
+    const { tunnel, signals } = counted(loopbackTunnel({ hold: () => new Promise(() => {}) }));
+    const { proxy, failures } = await proxyWith(tunnel);
+    const raw = connect({ host: "127.0.0.1", port: proxy.port });
+    raw.on("error", () => {});
+    raw.write(
+      `GET http://localhost:3000/ HTTP/1.1\r\nHost: localhost:3000\r\nProxy-Authorization: ${authorization()}\r\n\r\n`,
+    );
+    await expect.poll(() => signals.length).toBe(1);
+    raw.destroy();
+    await expect.poll(() => signals[0]?.aborted).toBe(true);
+    expect(failures.recent(3000)).toBeUndefined();
+  });
+
   it("resets the machine's side when the browser's connection is reset", async () => {
     let farClosed!: () => void;
     const closedFar = new Promise<void>((resolve) => (farClosed = resolve));

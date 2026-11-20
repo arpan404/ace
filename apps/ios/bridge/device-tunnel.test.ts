@@ -1,4 +1,4 @@
-import { openMachineTunnel } from "@ace/client/machine-tunnel";
+import { openMachineTunnel, type MachineTunnel } from "@ace/client/machine-tunnel";
 import { portableReadableStream } from "@ace/native-host";
 import { describe, expect, test } from "vitest";
 import { DeviceLoopback } from "./device-loopback.ts";
@@ -80,5 +80,26 @@ describe("a device tab's connection through the tunnel", () => {
     await until(() => host.of("c1", "reset").length > 0);
     expect(host.of("c1", "reset")).toHaveLength(1);
     expect(problems.get(closedPort)).toBe("nothing");
+  });
+
+  test("a page connection that goes while its stream still opens gives the open up", async () => {
+    const host = new FakeLoopbackHost();
+    const signals: AbortSignal[] = [];
+    const tunnel: MachineTunnel = {
+      ports: { get: () => [5173], subscribe: () => () => {} },
+      open: (_port, options) => {
+        if (options?.signal) signals.push(options.signal);
+        return new Promise(() => {});
+      },
+      close: () => {},
+    };
+    const loopback = new DeviceLoopback(host, () => tunnel, {
+      port: () => {},
+      released: () => {},
+    });
+    loopback.event("accept", "c1", 5173);
+    expect(signals.map((signal) => signal.aborted)).toEqual([false]);
+    loopback.event("reset", "c1", 0);
+    expect(signals.map((signal) => signal.aborted)).toEqual([true]);
   });
 });

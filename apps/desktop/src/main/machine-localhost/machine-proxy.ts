@@ -74,7 +74,7 @@ export class MachineProxy {
 
   static async listen(options: MachineProxyOptions): Promise<MachineProxy> {
     const sockets = new Set<Duplex>();
-    const agent = new TunnelAgent((port) => openStream(options, port));
+    const agent = new TunnelAgent((port, signal) => openStream(options, port, signal));
     const server = createServer({
       // A request's body may take as long as it takes (an upload); its headers may not.
       requestTimeout: 0,
@@ -120,11 +120,18 @@ export class MachineProxy {
   }
 }
 
+/**
+ * A plain-HTTP request's options, with the signal its open is given up on: aborted when the
+ * browser's request goes, so a stream still opening for it never holds a slot on the machine.
+ * Node and Bun hand a request's own options through to `createConnection`.
+ */
+type TunnelRequestArgs = ClientRequestArgs & { tunnelSignal?: AbortSignal };
+
 /** Kept plain-HTTP connections to the machine's ports, each one a tunnel stream. */
 class TunnelAgent extends Agent {
-  #open: (port: number) => Promise<TunnelStream>;
+  #open: (port: number, signal: AbortSignal | undefined) => Promise<TunnelStream>;
 
-  constructor(open: (port: number) => Promise<TunnelStream>) {
+  constructor(open: (port: number, signal: AbortSignal | undefined) => Promise<TunnelStream>) {
     super({ keepAlive: true, maxSockets: keptPerPort, maxFreeSockets: 8, timeout: keptIdleMs });
     this.#open = open;
   }
@@ -132,10 +139,10 @@ class TunnelAgent extends Agent {
   // Asynchronous, as the agent allows: the callback gets the stream once it opens, or the
   // open's error, which the request then fails with (the agent reads no stream beside one).
   override createConnection(
-    options: ClientRequestArgs,
+    options: TunnelRequestArgs,
     callback?: (error: Error | null, stream: Duplex) => void,
   ): undefined {
-    this.#open(Number(options.port)).then(
+    this.#open(Number(options.port), options.tunnelSignal).then(
       (stream) => callback?.(null, new TunnelSocket(stream)),
       (error: unknown) =>
         callback?.(error instanceof Error ? error : new Error(String(error)), closedStream()),
@@ -288,7 +295,8 @@ function forward(
     (request.headers["content-length"] ?? "0") === "0";
   const headers = forwardHeaders(request.rawHeaders);
   const send = (again: boolean) => {
-    const upstream = httpRequest({
+    const gone = new AbortController();
+    const args: TunnelRequestArgs = {
       agent,
       host: "127.0.0.1",
       port: target.port,
@@ -296,10 +304,15 @@ function forward(
       path: target.path,
       headers,
       setHost: false,
-    });
+      tunnelSignal: gone.signal,
+    };
+    const upstream = httpRequest(args);
     let answered = false;
     response.once("close", () => {
-      if (!response.writableFinished) upstream.destroy();
+      if (response.writableFinished) return;
+      // A stream still opening for this request is given up on the machine too.
+      gone.abort();
+      upstream.destroy();
     });
     upstream.on("response", (incoming) => {
       answered = true;

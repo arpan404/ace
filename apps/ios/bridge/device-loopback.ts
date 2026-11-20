@@ -35,6 +35,8 @@ interface Connection {
   gone: boolean;
   machineEnded: boolean;
   done: boolean;
+  /** Aborted when the connection goes: an open still under way is given up on the machine. */
+  readonly opening: AbortController;
 }
 
 export class DeviceLoopback {
@@ -112,9 +114,10 @@ export class DeviceLoopback {
       gone: false,
       machineEnded: false,
       done: false,
+      opening: new AbortController(),
     };
     this.#connections.set(id, connection);
-    tunnel.open(port).then(
+    tunnel.open(port, { signal: connection.opening.signal }).then(
       (stream) => {
         if (connection.done) {
           stream.reset();
@@ -192,6 +195,7 @@ export class DeviceLoopback {
     connection.done = true;
     connection.written?.();
     this.#connections.delete(id);
+    connection.opening.abort();
   }
 
   /** The machine finished and its side is gone: the page's side closes once its END has gone. */
@@ -200,6 +204,7 @@ export class DeviceLoopback {
     if (!connection || connection.done) return;
     connection.done = true;
     this.#connections.delete(id);
+    connection.opening.abort();
     if (!connection.phoneEnded) this.#host.act(id, "close");
   }
 
@@ -209,6 +214,7 @@ export class DeviceLoopback {
     if (!connection) return;
     connection.done = true;
     this.#connections.delete(id);
+    connection.opening.abort();
     connection.written?.();
     connection.stream?.reset();
     if (phone) this.#host.act(id, "reset");
