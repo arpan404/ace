@@ -205,7 +205,10 @@ import QuartzCore
     @ObservationIgnored private var flushTask: Task<Void, Never>?
     /// The current runtime's decoded frames, waiting for the main thread (`FrameIntake`).
     @ObservationIgnored private var intake = FrameIntake()
-    @ObservationIgnored private var takingFrames = false
+    /// Frames taken from the intake and not yet held, oldest first. A frame held can flush the
+    /// batch and that can navigate (a snapshot retry opens the thread again), which takes the
+    /// rest from here in order, so none is ever held ahead of one before it.
+    @ObservationIgnored private var taken: [FrameIntake.Frame] = []
     @ObservationIgnored private let frameTiming: FrameTiming
     @ObservationIgnored private var sawFrame = false
     /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
@@ -358,14 +361,19 @@ import QuartzCore
     /// Holds the frames decoded since last time, in arrival order, and answers those only the main
     /// thread could (`FrameIntake`). A frame held here can flush the batch; frames decoded meanwhile
     /// wait for the next turn, so none is held ahead of one before it.
-    private func takeFrames() {
-        guard !takingFrames else { return }
-        takingFrames = true
-        defer { takingFrames = false }
-        for frame in intake.take() {
+    private func takeFrames(_ frames: [FrameIntake.Frame]? = nil) {
+        taken.append(contentsOf: frames ?? intake.take())
+        while !taken.isEmpty {
+            let frame = taken.removeFirst()
             let accepted = hold(frame.patches, bytes: frame.bytes)
             if !frame.answered { runtime?.acknowledge(accepted: accepted) }
         }
+    }
+    /// Before the open thread changes: stops early answers and applies every frame decoded so far
+    /// under the generation it was meant for (`FrameIntake.fence`).
+    private func fenceFrames() {
+        takeFrames(intake.fence())
+        flushFrames()
     }
     /// Patches the person is waiting on, which never wait for the batch.
     private static func urgent(_ patch: BridgePatch) -> Bool {
@@ -798,7 +806,7 @@ import QuartzCore
     }
     func open(_ id: String, isSnapshotRetry: Bool = false) {
         if !isSnapshotRetry { onOpenThread?(id) }
-        flushFrames()
+        fenceFrames()
         generation += 1
         if thread?.id != id { visits += 1 }
         // The thread already on screen, visited again (a new route, a snapshot retry), keeps
@@ -823,6 +831,7 @@ import QuartzCore
         ThreadOpenTrace.shared.showing(true)
         thread = opened
         action(["type": "open", "threadId": id, "warm": warm])
+        intake.opened(id, epoch: generation)
     }
     /// A rejected or mismatched snapshot fence retries the current open once, preserving
     /// the old display. A second consecutive failure raises the explicit failed-sync
@@ -837,7 +846,7 @@ import QuartzCore
         open(id, isSnapshotRetry: true)
     }
     func back() {
-        flushFrames()
+        fenceFrames()
         generation += 1; action(["type": "back"])
         if let thread {
             shelf.keep(thread)
@@ -859,7 +868,7 @@ import QuartzCore
     /// Drop the open thread's kept copy and read it again from the machine, in place.
     func reloadFromMachine() {
         guard let current = thread else { return }
-        flushFrames()
+        fenceFrames()
         generation += 1
         sheets.reset()
         browser.close(streams: runtime?.browserStreams)
@@ -873,6 +882,7 @@ import QuartzCore
         ThreadOpenTrace.shared.open(current.id, warm: false)
         // The bridge leaves the thread, forgets its copy and opens it again under this generation.
         action(["type": "cache.reload", "threadId": current.id])
+        intake.opened(current.id, epoch: generation)
     }
     /// Where this runtime's sockets deliver browser pictures (`ClientModel+Browser.swift`).
     var browserStreams: BrowserStreamHub? { runtime?.browserStreams }
@@ -984,8 +994,11 @@ import QuartzCore
         }
     }
     private func retireRuntime() -> Task<Void, Never>? {
-        // What the old runtime was told is shown applies first; nothing of it applies after.
-        flushFrames()
+        // What the old runtime was told is shown applies first; nothing of it applies after: its
+        // intake closes, and the next runtime brings its own.
+        fenceFrames()
+        intake.close()
+        intake = FrameIntake()
         batch.reset()
         invalidateConfirmations()
         snapshotRetries.removeAll()
