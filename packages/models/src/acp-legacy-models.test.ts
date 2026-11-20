@@ -80,3 +80,42 @@ test("model names lose control and bidi characters, and ids carrying them are ne
   );
   expect(configRows.map((row) => [row.id, row.displayName])).toEqual([["one", "One"]]);
 });
+
+test("a malformed standard selector beside a well-formed legacy list still lists the legacy models", () => {
+  const rows = normalizeAcp(
+    {
+      configOptions: [{ id: "model", category: "model", type: "select", options: "not a list" }],
+      ...legacy([{ modelId: "alpha" }, { modelId: "beta" }]),
+    },
+    agent("local:custom"),
+  );
+  expect(rows.map((row) => [row.id, row.selectorMethod])).toEqual([
+    ["alpha", "session/set_model"],
+    ["beta", "session/set_model"],
+  ]);
+});
+
+test("a malformed legacy list beside a well-formed standard selector still lists the selector's models", () => {
+  const rows = normalizeAcp(
+    {
+      configOptions: [
+        {
+          id: "model",
+          category: "model",
+          type: "select",
+          currentValue: "alpha",
+          options: [
+            { value: "alpha", name: "Alpha" },
+            { value: "beta", name: "Beta" },
+          ],
+        },
+      ],
+      models: { availableModels: "not a list", currentModelId: 7 },
+    },
+    agent("local:custom"),
+  );
+  expect(rows.map((row) => [row.id, row.selectorMethod])).toEqual([
+    ["alpha", "session/set_config_option"],
+    ["beta", "session/set_config_option"],
+  ]);
+});

@@ -210,9 +210,9 @@ export class AcpConfiguration {
  * redacted id is another string than the agent's, so sending it would select something the
  * agent never listed. The redacted setup stays in `raw` for display.
  */
+const clean = (values: readonly string[]) =>
+  values.filter((value) => !value.includes(leaseRedaction));
 function sendable(selectors: SelectorState): SelectorState {
-  const clean = (values: readonly string[]) =>
-    values.filter((value) => !value.includes(leaseRedaction));
   return {
     ...selectors,
     ...(selectors.model
