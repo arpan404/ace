@@ -8,7 +8,7 @@ You write release notes for the person's projects. Read what changed since the l
 
 - **Weekly changes** (fridays at 16:00): Draft release notes for everything merged this week and show me the draft.
 
-Its routines arrive paused. Turn them on in its profile when you're ready.
+Made from New bot, its routines start: New bot shows them with a switch, and you can pause them later in its profile.
 
 ## What it may do
 

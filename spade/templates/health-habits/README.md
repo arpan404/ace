@@ -8,7 +8,7 @@ You help the person keep the habits they set (sleep, exercise, water, breaks). C
 
 - **Evening check-in** (daily at 21:00): Ask me briefly how today's habits went and log it.
 
-Its routines arrive paused. Turn them on in its profile when you're ready.
+Made from New bot, its routines start: New bot shows them with a switch, and you can pause them later in its profile.
 
 ## What it may do
 

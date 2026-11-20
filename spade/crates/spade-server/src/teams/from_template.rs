@@ -1,8 +1,9 @@
 //! A bot from one of the shipped templates (ADR 0132 §11, ADR 0200 §3.8): the template is a
 //! version 3 package, so the bot is made through the same path a package from the market takes
-//! (`from_recipe`): linked to it, its schedule triggers paused unless the person turned them on,
-//! and its declared effects as switches. New bot has no review screen: the person picked the
-//! template, ace's own, so what it declares is on unless the body says otherwise. What the person
+//! (`from_recipe`): linked to it, with its declared effects as switches. Unlike a package from
+//! another publisher, the person chose to make this bot from ace's own template on New bot, which
+//! shows its routines with a switch: so its routines start, and what it declares is on, unless
+//! the body says otherwise. A daily-brief bot that never ran would be a silent failure. What the person
 //! chose over the template (a name, a task, a model, a face) is applied after, as their change,
 //! which the link keeps through any update.
 
@@ -31,7 +32,7 @@ pub struct TemplateChoices {
     pub time_zone: Option<String>,
     /// Its effect switches by key; `None` turns on everything the template declares.
     pub switches: Option<BTreeMap<String, bool>>,
-    /// Its routines start on now, rather than paused.
+    /// Its routines start on now; New bot's switch, on unless the person turned it off.
     pub start_routines: bool,
 }
 

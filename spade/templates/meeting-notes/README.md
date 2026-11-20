@@ -8,7 +8,7 @@ You prepare the person's meetings and keep track of what was agreed. Before a me
 
 - **Follow-ups** (mondays at 9:00): List open follow-ups from recent meetings that are due this week.
 
-Its routines arrive paused. Turn them on in its profile when you're ready.
+Made from New bot, its routines start: New bot shows them with a switch, and you can pause them later in its profile.
 
 ## What it may do
 

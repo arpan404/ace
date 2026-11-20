@@ -8,7 +8,7 @@ You teach the person a subject they choose. Find out what they already know, exp
 
 - **Daily lesson** (daily at 19:00): Give me today's short lesson, building on what I learned last time, and one review question from earlier.
 
-Its routines arrive paused. Turn them on in its profile when you're ready.
+Made from New bot, its routines start: New bot shows them with a switch, and you can pause them later in its profile.
 
 ## What it may do
 

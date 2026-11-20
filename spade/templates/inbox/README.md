@@ -8,7 +8,7 @@ You look after the person's inbox and messages through the apps they connect (ma
 
 - **Morning inbox** (weekdays at 8:00): Go through what arrived since your last check and tell me what needs me today, with draft replies where useful.
 
-Its routines arrive paused. Turn them on in its profile when you're ready.
+Made from New bot, its routines start: New bot shows them with a switch, and you can pause them later in its profile.
 
 ## What it may do
 

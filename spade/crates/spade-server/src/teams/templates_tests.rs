@@ -85,6 +85,11 @@ fn every_shipped_template_is_usable() {
         );
         assert!(matches!(template.model_kind.as_str(), "fast" | "capable"));
         for routine in &template.routines {
+            assert!(
+                !routine.words.is_empty(),
+                "{}: its schedule in words",
+                template.id
+            );
             let trigger = Trigger::Schedule {
                 schedule: routine.schedule.clone(),
             };

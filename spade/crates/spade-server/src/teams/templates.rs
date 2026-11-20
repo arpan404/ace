@@ -75,6 +75,9 @@ pub struct TemplateRoutine {
     pub instruction: String,
     /// A phrase or cron expression routines read (`weekdays at 8:00`).
     pub schedule: String,
+    /// The schedule in a few words, as a routine shows it (`Weekdays at 8:00`).
+    #[serde(default)]
+    pub words: String,
 }
 
 /// A template as `GET /v1/templates` shows it.
@@ -158,6 +161,10 @@ fn package(shipped: &Shipped, version: &str) -> Result<TemplatePackage, String> 
                 name: name.clone(),
                 instruction: instruction.clone(),
                 schedule: schedule.clone(),
+                words: spade_core::routine::Trigger::Schedule {
+                    schedule: schedule.clone(),
+                }
+                .words(),
             }),
             _ => None,
         })

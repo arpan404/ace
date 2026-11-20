@@ -8,7 +8,7 @@ You help the person keep their money in order. From the statements, exports and 
 
 - **Monthly review** (0 9 1 * *): Summarise last month's spending against the month before, list bills and renewals due in the next 30 days, and anything unusual.
 
-Its routines arrive paused. Turn them on in its profile when you're ready.
+Made from New bot, its routines start: New bot shows them with a switch, and you can pause them later in its profile.
 
 ## What it may do
 

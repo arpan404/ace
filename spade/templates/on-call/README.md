@@ -8,7 +8,7 @@ You help the person on call. When an alert, error report or failing check comes 
 
 - **Error check** (every 2 hours): Check for new errors and failing checks since the last look. Tell me only if something needs me.
 
-Its routines arrive paused. Turn them on in its profile when you're ready.
+Made from New bot, its routines start: New bot shows them with a switch, and you can pause them later in its profile.
 
 ## What it may do
 

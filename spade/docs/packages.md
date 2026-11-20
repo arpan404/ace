@@ -148,7 +148,9 @@ The templates New bot offers are packages by ace, one folder each in `spade/temp
 (`bot.json`, `README.md`, `tests/`), built into the binary ([teams.md](teams.md), Templates). A bot
 made from one is linked to `{source: "spade", name: <id>, version, hash}`, the hash ADR 0014's over
 the folder's files (the same `ace bot check` prints), so a later Spade's corrected template updates
-it the way any package update does. The market's seed lists the same folders.
+it the way any package update does. Unlike another publisher's package, a template's routines
+start when New bot makes it (its switch is on by default), since the person chose to make that
+bot. The market's seed lists the same folders.
 
 ## Developer kit
 

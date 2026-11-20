@@ -77,8 +77,10 @@ pub(super) struct NewAgent {
     from_recipe: Option<crate::engine::FromRecipe>,
     #[serde(default)]
     grants: Option<crate::teams::RecipeGrants>,
+    /// Its routines start on now. A recipe's or package's are paused unless this says so; an
+    /// ace template's start unless this says no: the person chose to make that bot.
     #[serde(default)]
-    start_routines: bool,
+    start_routines: Option<bool>,
     /// A version 3 package's market identity (ADR 0200 §3.9): the bot it makes stays linked.
     /// Believed only as `envelope` proves it.
     #[serde(default)]
@@ -320,7 +322,7 @@ impl NewAgent {
             recipe: self.recipe.unwrap_or_default(),
             from_recipe: self.from_recipe,
             grants: self.grants.unwrap_or_default(),
-            start_routines: self.start_routines,
+            start_routines: self.start_routines.unwrap_or(false),
             time_zone: self.time_zone,
             package: self.package,
             envelope: self.envelope,
@@ -369,7 +371,7 @@ fn make_bot(
             avatar,
             time_zone: body.time_zone.clone(),
             switches: (!body.switches.is_empty()).then(|| body.switches.clone()),
-            start_routines: body.start_routines,
+            start_routines: body.start_routines.unwrap_or(true),
         };
         return match crate::teams::from_template(
             &state.engine,
