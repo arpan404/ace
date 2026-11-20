@@ -1,0 +1,198 @@
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
+import type { DeckBuffers } from "./buffers.ts";
+import type { DeckHost, EditorStatus } from "./deck-host.ts";
+import { bindGroupActions } from "./group-actions.ts";
+import { GroupView } from "./group-view.tsx";
+import { deckGroups, focusedGroup, type DeckLayout, type DeckOps } from "./layout.ts";
+import { fileName } from "./paths.ts";
+import { SplitGrid } from "./split-grid.tsx";
+import { agentChangeNotice, StatusLine } from "./status-line.tsx";
+
+/** Spec 5: under this width the Deck shows only the focused group. */
+export const compactBelowPx = 760;
+
+export interface DeckProps extends Omit<DeckHost, "reportStatus"> {
+  layout: DeckLayout;
+  /** W1's model; `createInterimOps` until W1 lands. */
+  ops: DeckOps;
+  onLayoutChange(next: DeckLayout): void;
+  /** Steps to the next unseen agent change across open editors (⌥F5). */
+  onNextChange?: (() => void) | undefined;
+  /** Compact layout's way to the explorer ("Show files"), at the strip's left. */
+  explorerToggle?: ReactNode;
+}
+
+/**
+ * The Deck: a thread's editor area. Groups in a split tree, each with its own strip; one status
+ * line for the focused group; ⌘1–9 focus groups while focus is inside it (spec 27).
+ */
+export function Deck(props: DeckProps) {
+  const { layout, ops, onLayoutChange } = props;
+  const root = useRef<HTMLDivElement>(null);
+  const compact = useCompact(root);
+  const groups = deckGroups(layout.root);
+  const focused = focusedGroup(layout);
+  const [statuses, setStatuses] = useState<ReadonlyMap<string, EditorStatus>>(new Map());
+  const reportStatus = useCallback((group: string, status: EditorStatus | undefined) => {
+    setStatuses((current) => {
+      if (current.get(group) === status) return current;
+      const next = new Map(current);
+      if (status) next.set(group, status);
+      else next.delete(group);
+      return next;
+    });
+  }, []);
+  const host: DeckHost = { ...props, reportStatus };
+  const paths = [...new Set(groups.flatMap((group) => group.tabs.map((tab) => tab.path)))];
+  const agentNotice = useAgentNotice(props.buffers, paths, props.onNextChange);
+  const pendingFocus = useRef(false);
+
+  useEffect(() => {
+    if (!pendingFocus.current) return;
+    pendingFocus.current = false;
+    focusInside(
+      root.current?.querySelector<HTMLElement>(`[data-group-id="${CSS.escape(focused.id)}"]`),
+    );
+  }, [focused.id]);
+
+  const renderGroup = (group: (typeof groups)[number], others?: ReactNode) => {
+    const number = groups.indexOf(group) + 1;
+    const isFocused = group.id === focused.id;
+    return (
+      <GroupView
+        key={group.id}
+        group={group}
+        number={number}
+        focused={isFocused}
+        last={groups.length === 1}
+        host={host}
+        actions={bindGroupActions(group.id, layout, ops, onLayoutChange)}
+        stripLead={compact && isFocused ? props.explorerToggle : undefined}
+        groupMenu={others}
+      />
+    );
+  };
+
+  return (
+    <div
+      ref={root}
+      role="group"
+      aria-label="Deck"
+      data-part="deck"
+      data-compact={compact ? "" : undefined}
+      className="flex h-full min-h-0 min-w-0 flex-col bg-background"
+      onKeyDown={(event) => {
+        const number = groupKey(event);
+        if (number === undefined) return;
+        const target = groups[number - 1];
+        // Unclaimed: a ⌘ digit with no such group falls through to the app (open thread n).
+        if (!target) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (target.id === focused.id) {
+          focusInside(
+            root.current?.querySelector<HTMLElement>(`[data-group-id="${CSS.escape(target.id)}"]`),
+          );
+          return;
+        }
+        pendingFocus.current = true;
+        onLayoutChange(ops.focus(layout, target.id));
+      }}
+    >
+      <div className="flex min-h-0 flex-1">
+        {compact ? (
+          renderGroup(
+            focused,
+            groups.length > 1 && (
+              <>
+                {groups.map((group, index) =>
+                  group.id === focused.id ? null : (
+                    <MenuItem
+                      key={group.id}
+                      onClick={() => onLayoutChange(ops.focus(layout, group.id))}
+                    >
+                      {`Group ${index + 1}: ${group.active ? fileName(group.active) : "empty"}`}
+                    </MenuItem>
+                  ),
+                )}
+                <MenuSeparator />
+              </>
+            ),
+          )
+        ) : (
+          <SplitGrid
+            node={layout.root}
+            renderGroup={(group) => renderGroup(group)}
+            onResize={(at, sizes) => onLayoutChange(ops.resize(layout, at, sizes))}
+          />
+        )}
+      </div>
+      <StatusLine status={statuses.get(focused.id)} agentNotice={agentNotice} />
+    </div>
+  );
+}
+
+/** ⌘1–⌘9 on macOS, Ctrl+1–9 elsewhere; ⌥ is allowed too, for the web's ⌥⌘ variant. */
+function groupKey(event: React.KeyboardEvent): number | undefined {
+  if (!(event.metaKey || event.ctrlKey) || event.shiftKey) return undefined;
+  const match = /^Digit([1-9])$/.exec(event.code);
+  return match ? Number(match[1]) : undefined;
+}
+
+/** Put focus in a group: its editor when it has one, else its strip's tab stop. */
+function focusInside(group: HTMLElement | null | undefined): void {
+  const target =
+    group?.querySelector<HTMLElement>(
+      '[data-part="deck-editor"] [tabindex]:not([tabindex="-1"])',
+    ) ??
+    group?.querySelector<HTMLElement>('[data-part="deck-editor"] textarea') ??
+    group?.querySelector<HTMLElement>('[role="tab"][tabindex="0"]');
+  target?.focus();
+}
+
+function useCompact(root: React.RefObject<HTMLDivElement | null>): boolean {
+  const [compact, setCompact] = useState(false);
+  useLayoutEffect(() => {
+    const element = root.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const width = element.getBoundingClientRect().width;
+      setCompact(width > 0 && width < compactBelowPx);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [root]);
+  return compact;
+}
+
+/** The status line's agent summary, recomputed whenever any open file's facts change. */
+function useAgentNotice(
+  buffers: DeckBuffers,
+  paths: readonly string[],
+  onNextChange: (() => void) | undefined,
+) {
+  const key = paths.join("\n");
+  const signature = useSyncExternalStore(buffers.subscribe, () => {
+    const notice = agentChangeNotice(
+      key ? key.split("\n").map((path) => buffers.facts(path)) : [],
+      undefined,
+    );
+    return notice?.text ?? "";
+  });
+  if (!signature) return undefined;
+  return {
+    text: signature,
+    action: onNextChange && { label: "Next change", run: onNextChange },
+  };
+}
