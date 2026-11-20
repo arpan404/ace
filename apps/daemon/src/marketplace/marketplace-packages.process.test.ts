@@ -99,6 +99,11 @@ describe("agent packages", () => {
         // Spade reads the published bot.json with its own reader.
         recipe: expect.objectContaining({ version: 3, name: "Flight watcher" }),
         package: { source: "market", name: "flight-watcher", version: "1.0.0", hash: first.hash },
+        // What proves that identity to Spade: the market's signature and bot.json's exact text.
+        envelope: {
+          signed: expect.objectContaining({ body: expect.objectContaining({ hash: first.hash }) }),
+          bot_json: expect.stringContaining('"Flight watcher"'),
+        },
         switches: { "network:hosts:api.example-fares.com": true, send_as_person: false },
         start_routines: false,
       }),
@@ -157,9 +162,13 @@ describe("agent packages", () => {
       { op: "install", id: back.review.id, hash: back.review.hash, choices: none },
       "done",
     );
+    // The rollback proves the earlier version with its signed manifest, kept here: no network.
     expect(spade.packageCalls.at(-1)).toMatchObject({
       bot,
-      body: { package: { version: "1.0.0", hash: first.hash } },
+      body: {
+        package: { version: "1.0.0", hash: first.hash },
+        envelope: { signed: { body: { version: "1.0.0", hash: first.hash } } },
+      },
     });
     expect(await installedBot()).toMatchObject({
       version: "1.0.0",

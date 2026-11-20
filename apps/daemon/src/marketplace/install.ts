@@ -11,7 +11,7 @@ import { type PackageLinkId, type PackagePlan, type Recipe } from "@ace/protocol
 import type { PluginReview } from "@ace/protocol/plugins";
 import type { BotInspection } from "@ace/marketplace/checks";
 import { Transaction } from "./journal.ts";
-import { bytesJson } from "./package-diff.ts";
+import { bytesJson, bytesText } from "./package-diff.ts";
 import type { PluginFilesInput } from "./prepare.ts";
 import type { PreparedEntry, PreparedReview } from "./review.ts";
 import { approvedForBots, type MarketStore, type StoredInstall } from "./store.ts";
@@ -56,11 +56,15 @@ export interface MadeBot {
   leftOut: string[];
 }
 
-/** A version 3 package's link (ADR 0200 §3.9): its identity, and `bot.json` as published. */
+/**
+ * A version 3 package's link (ADR 0200 §3.9): `bot.json` as published and, for a market package,
+ * the market's signed manifest with `bot.json`'s exact text, which is all Spade believes its
+ * identity from. Without one (a git catalog's entry) Spade links it as a local package.
+ */
 export interface PackageInput {
-  package: PackageLinkId;
   /** `bot.json` as the signed bytes have it: Spade reads it with its own reader. */
   manifest: unknown;
+  signed?: { package: PackageLinkId; signedManifest: unknown; botJson: string } | undefined;
 }
 
 /** What the daemon asks of Spade, through its link (`POST /v1/agents` with `recipe`). */
@@ -342,18 +346,35 @@ async function installIn(
   await step(ports);
   await ports.store.pin(review.hash, "spade-bot", review.checked.files);
   const { recipe } = inspection;
-  const linked =
+  const linked: PackageInput | undefined =
     recipe.version === 3
       ? {
-          package: {
-            source: review.source,
-            name: review.name,
-            version: review.version,
-            hash: review.hash,
-          },
           manifest: bytesJson(review.checked.files),
+          signed:
+            review.signedManifest === undefined
+              ? undefined
+              : {
+                  package: {
+                    source: review.source,
+                    name: review.name,
+                    version: review.version,
+                    hash: review.hash,
+                  },
+                  signedManifest: review.signedManifest,
+                  botJson: bytesText(review.checked.files),
+                },
         }
       : undefined;
+  // A linked bot keeps its version's signed manifest, and the one before, for a later move.
+  const signedRecord = (before?: StoredInstall) =>
+    linked
+      ? {
+          ...(review.signedManifest === undefined ? {} : { signedManifest: review.signedManifest }),
+          ...(before?.signedManifest === undefined
+            ? {}
+            : { previousSignedManifest: before.signedManifest }),
+        }
+      : {};
   // An update or rollback of a linked bot moves that bot; nothing new is made (ADR 0200 §6.1).
   if (review.updating) {
     if (!linked) throw new Error("Only a bot from a version 3 package updates");
@@ -368,6 +389,7 @@ async function installIn(
       record(review, ports.now(), {
         target: review.updating.bot,
         linked: true,
+        ...signedRecord(before),
         ...(before ? { previous: { version: before.version, hash: before.hash } } : {}),
       }),
     );
@@ -397,7 +419,10 @@ async function installIn(
   return saveRecord(
     ports,
     tx,
-    record(review, ports.now(), { target: bot.id, ...(linked ? { linked: true } : {}) }),
+    record(review, ports.now(), {
+      target: bot.id,
+      ...(linked ? { linked: true, ...signedRecord() } : {}),
+    }),
   );
 }
 

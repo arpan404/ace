@@ -38,9 +38,14 @@ export function packageAsksMore(before: Recipe, next: Recipe): string[] {
   return asks;
 }
 
-/** `bot.json` as the verified bytes hold it. */
-export function bytesJson(files: readonly ArchiveFile[]): unknown {
+/** `bot.json` exactly as the verified bytes hold it, as text. */
+export function bytesText(files: readonly ArchiveFile[]): string {
   const bot = files.find((file) => file.path === "bot.json");
   if (!bot) throw new Error("The package has no bot.json");
-  return JSON.parse(new TextDecoder().decode(bot.content));
+  return new TextDecoder("utf-8", { ignoreBOM: true }).decode(bot.content);
+}
+
+/** `bot.json` as the verified bytes hold it. */
+export function bytesJson(files: readonly ArchiveFile[]): unknown {
+  return JSON.parse(bytesText(files));
 }
