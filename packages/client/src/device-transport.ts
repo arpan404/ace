@@ -67,6 +67,9 @@ export function authenticatedChannel(
   let controller: AbortController | undefined;
   let cancelRetry: (() => void) | undefined;
   let limitAttempts = 0;
+  // A tunnel's frames are small and come many to a socket read; credit already bounds their
+  // bytes, so only the byte bound applies to them.
+  const maxPending = kind === "tunnel" ? 8192 : 32;
   const close = () => {
     epoch++;
     ready = false;
@@ -192,7 +195,9 @@ export function authenticatedChannel(
             const code = event.success ? event.data.code : 1006;
             if (epoch !== stamp) return;
             if (code !== 4013) {
-              fail();
+              // Messages that came before the close are read first: a refusal the daemon sent
+              // just before closing (a tunnel's, say) still reaches the consumer.
+              void inbound.finally(fail);
               return;
             }
             const waitingEvents = events;
@@ -236,7 +241,7 @@ export function authenticatedChannel(
               !bytes ||
               bytes > 8 * 1024 * 1024 + 4096 ||
               queued + bytes > 16 * 1024 * 1024 ||
-              pending >= 32
+              pending >= maxPending
             ) {
               fail();
               return;

@@ -26,6 +26,8 @@ export function attachPreviewRelay(options: {
   allowPort: (port: number, id: number) => Promise<boolean>;
   maxStreams?: number;
   onClosed?: () => void;
+  /** Stream `id`'s loopback socket closed, however it ended (refused streams' too). */
+  onStreamClosed?: (id: number) => void;
 }) {
   return createMux({
     channel: options.channel,
@@ -33,8 +35,12 @@ export function attachPreviewRelay(options: {
     maxStreams: cap(options.maxStreams),
     timer: systemTimer,
     ...(options.onClosed ? { onClosed: options.onClosed } : {}),
-    socketFactory: (port) => {
+    socketFactory: (port, id) => {
       const socket = new Socket({ allowHalfOpen: true });
+      if (options.onStreamClosed) {
+        const closed = options.onStreamClosed;
+        socket.once("close", () => closed(id));
+      }
       return {
         socket: previewSocket(socket, systemTimer),
         connect: () => {

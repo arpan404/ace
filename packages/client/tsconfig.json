@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "lib": ["es2024", "dom"] },
-  "include": ["src", "bench", "tools"]
+  "include": ["src", "node", "bench", "tools"]
 }

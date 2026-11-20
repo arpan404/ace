@@ -64,7 +64,7 @@ type MuxOptions = {
   maxStreams: number;
   /** Whether to connect stream `id`'s OPEN for `port`; refused, the stream is reset unopened. */
   allowPort?: (port: number, id: number) => Promise<boolean>;
-  socketFactory?: (port: number) => { socket: PreviewSocket; connect: () => void };
+  socketFactory?: (port: number, id: number) => { socket: PreviewSocket; connect: () => void };
   onClosed?: () => void;
   timer: MuxTimer;
 };
@@ -250,7 +250,7 @@ export function createMux(options: MuxOptions) {
   };
   const accept = async (id: number, port: number) => {
     // Reserve capacity before awaiting authorization. A rejected open is reset, never dialed.
-    const connection = options.socketFactory?.(port);
+    const connection = options.socketFactory?.(port, id);
     if (!connection) throw new Error("Missing host socket factory");
     const { socket } = connection;
     if (closed) {
