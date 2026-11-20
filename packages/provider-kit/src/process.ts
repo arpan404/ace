@@ -428,14 +428,44 @@ async function runProbe(
   maxBytes: number,
   halt: AbortSignal,
 ): Promise<ProbeResult> {
-  const schedule =
+  const timer =
     options.schedule ??
     ((callback: () => void, ms: number) => {
-      const timer = setTimeout(callback, ms);
-      return () => clearTimeout(timer);
+      const timeout = setTimeout(callback, ms);
+      return () => clearTimeout(timeout);
     });
+  // One deadline from the probe's start: resolving what runs and running it share the timeout.
+  const deadline = new AbortController();
+  const cancelDeadline = timer(
+    () => deadline.abort(new Error("Probe timed out")),
+    options.timeoutMs ?? 30_000,
+  );
+  /** What each phase is given as its timer: that one deadline, never a fresh one. */
+  const schedule = (callback: () => void) => {
+    if (deadline.signal.aborted) {
+      callback();
+      return () => {};
+    }
+    deadline.signal.addEventListener("abort", callback, { once: true });
+    return () => deadline.signal.removeEventListener("abort", callback);
+  };
+  try {
+    return await runResolved(command, args, options, maxBytes, halt, deadline.signal, schedule);
+  } finally {
+    cancelDeadline();
+  }
+}
+async function runResolved(
+  command: string,
+  args: readonly string[],
+  options: ProbeOptions,
+  maxBytes: number,
+  halt: AbortSignal,
+  deadline: AbortSignal,
+  schedule: (callback: () => void, milliseconds: number) => () => void,
+): Promise<ProbeResult> {
   // A probe only reads: what it runs never reaches a version manager's shim. Resolving reads the
-  // filesystem, so it is given up on the caller's abort, a global stop or the probe's timeout,
+  // filesystem, so it is given up on the caller's abort, a global stop or the probe's deadline,
   // even while a read under it hangs; a stop then never waits on a stalled mount.
   const asked = new AbortController();
   const ask = () => asked.abort(new Error("Probe aborted"));
@@ -451,9 +481,7 @@ async function runProbe(
           { ...process.env, ...options.env },
           { signal, cwd: options.cwd },
         ),
-      AbortSignal.any([asked.signal, halt]),
-      options.timeoutMs ?? 30_000,
-      schedule,
+      AbortSignal.any([asked.signal, halt, deadline]),
     );
   } finally {
     options.signal?.removeEventListener("abort", ask);

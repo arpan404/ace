@@ -30,30 +30,24 @@ export async function resolveProbeLaunch(
 }
 
 /**
- * `resolve`, given up the moment `signal` aborts (with its reason) or `timeoutMs` passes, even
- * while a filesystem read under it hangs on a stalled mount: the read is left to finish alone,
- * and nothing is started from what it finds.
+ * `resolve`, given up the moment `signal` aborts (with its reason: the caller's abort, a global
+ * stop or the probe's deadline), even while a filesystem read under it hangs on a stalled mount:
+ * the read is left to finish alone, and nothing is started from what it finds.
  */
 export async function resolveWithin(
   resolve: (signal: AbortSignal) => Promise<ProbeLaunch>,
   signal: AbortSignal,
-  timeoutMs: number,
-  schedule: (callback: () => void, milliseconds: number) => () => void,
 ): Promise<ProbeLaunch> {
-  const deadline = new AbortController();
-  const cancel = schedule(() => deadline.abort(new Error("Probe timed out")), timeoutMs);
-  const bounded = AbortSignal.any([signal, deadline.signal]);
   const given = Promise.withResolvers<never>();
-  const abort = () => given.reject(bounded.reason);
-  if (bounded.aborted) abort();
-  bounded.addEventListener("abort", abort, { once: true });
-  const resolving = resolve(bounded);
+  const abort = () => given.reject(signal.reason);
+  if (signal.aborted) abort();
+  signal.addEventListener("abort", abort, { once: true });
+  const resolving = resolve(signal);
   // Given up, it may still fail later: that failure is no one's.
   resolving.catch(() => {});
   try {
     return await Promise.race([resolving, given.promise]);
   } finally {
-    cancel();
-    bounded.removeEventListener("abort", abort);
+    signal.removeEventListener("abort", abort);
   }
 }
