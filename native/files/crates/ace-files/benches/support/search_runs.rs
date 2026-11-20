@@ -155,6 +155,8 @@ pub fn rg(rg: &Path, root: &Path, query: &Query, scratch: &Path) -> Result<Sampl
     let mut stdout = child.stdout.take().ok_or("rg has no stdout")?;
     let mut sample = Sample::default();
     let mut buffer = vec![0; 256 * 1024];
+    // Set once the bench has read the cap's worth of lines and is about to close the pipe.
+    let mut closed_early = false;
     loop {
         let read = stdout.read(&mut buffer)?;
         if read == 0 {
@@ -163,6 +165,7 @@ pub fn rg(rg: &Path, root: &Path, query: &Query, scratch: &Path) -> Result<Sampl
         sample.first.get_or_insert_with(|| started.elapsed());
         sample.lines += buffer[..read].iter().filter(|&&byte| byte == b'\n').count() as u64;
         if query.cap > 0 && sample.lines >= query.cap {
+            closed_early = true;
             break;
         }
     }
@@ -170,9 +173,10 @@ pub fn rg(rg: &Path, root: &Path, query: &Query, scratch: &Path) -> Result<Sampl
     drop(stdout);
     let status = child.wait()?;
     sample.total = started.elapsed();
-    // rg exits 1 when nothing matched; a closed pipe ends it early on purpose.
-    if !status.success() && status.code() != Some(1) && query.cap == 0 {
-        return Err(format!("rg exited with {status}").into());
+    // rg exits 1 when nothing matched. Any other failure counts, unless the bench itself closed
+    // the pipe after the cap: then a broken-pipe exit is the early stop it asked for.
+    if !status.success() && status.code() != Some(1) && !closed_early {
+        return Err(format!("rg exited with {status} after {} lines", sample.lines).into());
     }
     if timing() {
         let (cpu, peak_rss) = usage(&fs::read_to_string(&report)?)?;
