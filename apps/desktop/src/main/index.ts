@@ -65,6 +65,7 @@ import { appUpdates } from "./os/app-updates.ts";
 import { appPaths } from "./paths.ts";
 import { applyDevCsp, installDaemonNetwork, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { DaemonNetwork } from "./daemon-network.ts";
+import { machineLocalhost } from "./machine-localhost/index.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { desktopLogs, desktopUserData } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
@@ -240,6 +241,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
           : "browser",
   });
 
+  // Device tabs on remote machines' threads, and each machine's localhost proxy (ADR 0194).
+  const localhost = machineLocalhost({ log: (message) => log("info", message) });
   const background = new Background({
     userData: app.getPath("userData"),
     trayIcon: paths.trayIcon,
@@ -460,6 +463,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
       if (details.isMainFrame && !details.isSameDocument) forget();
     });
     renderer.on("render-process-gone", forget);
+    // A device tab outlives a reload of its window's page, never the window.
+    renderer.on("destroyed", () => localhost.tabs.forgetHost(rendererId));
     renderer.on("destroyed", forget);
     // Opening the app (reopening its window, showing or focusing it again) asks for an update
     // once the last check is a while ago.
@@ -686,6 +691,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     app.once("will-quit", spade.close);
     const handlers = createHandlers({
       spade: spade.direct,
+      deviceTabs: localhost.tabs,
       info,
       runtime,
       settings,

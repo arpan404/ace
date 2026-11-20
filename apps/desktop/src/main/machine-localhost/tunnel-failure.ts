@@ -79,3 +79,37 @@ export class TunnelFailures {
     return this.now() - entry.at <= failureMemoryMs ? entry.failure : undefined;
   }
 }
+
+/** The port a URL connects to: its own, else its scheme's. */
+export function urlPort(url: string): number | undefined {
+  try {
+    const parsed = new URL(url);
+    if (parsed.port) return Number(parsed.port);
+    return parsed.protocol === "https:" || parsed.protocol === "wss:" ? 443 : 80;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A device tab's failed load, with the machine's reason when the load went to the machine's
+ * loopback and the tunnel recorded one for that port. A load the person stopped (`ERR_ABORTED`)
+ * is no failure.
+ */
+export function loadFailure(
+  load: { url: string; code: number; description: string; loopback: boolean },
+  recent: (port: number) => TunnelFailure | undefined,
+):
+  | { url: string; code: number; description: string; tunnel?: TunnelFailure; port?: number }
+  | undefined {
+  if (load.code === -3) return undefined;
+  const base = { url: load.url, code: load.code, description: load.description };
+  if (!load.loopback) return base;
+  const port = urlPort(load.url);
+  const tunnel = port === undefined ? undefined : recent(port);
+  return {
+    ...base,
+    ...(port === undefined ? {} : { port }),
+    ...(tunnel ? { tunnel } : {}),
+  };
+}

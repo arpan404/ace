@@ -40,6 +40,14 @@ import {
   WindowState,
 } from "./contract.ts";
 import { DiagnosticReport } from "./diagnostics.ts";
+import {
+  DeviceTabGo,
+  DeviceTabId,
+  DeviceTabOpen,
+  DeviceTabOpenRequest,
+  DeviceTabPlacement,
+  DeviceTabState,
+} from "./device-tabs.ts";
 import { DoctorReport, ProviderSummary, Toolchain } from "./onboarding.ts";
 import {
   SpadeDirectAnswer,
@@ -172,6 +180,18 @@ export const requests = {
   "browser.focus-app": { request: None, result: None },
   /** Print or developer tools for the thread's shown native tab; false: no such view here. */
   "browser.page": { request: BrowserPageAction, result: z.boolean() },
+  /**
+   * A device tab (ADR 0194): a page the person opens on a remote machine's thread, run here in
+   * that machine's partition. Opening a tab that has a view shows it as it is.
+   */
+  "deviceTab.open": { request: DeviceTabOpen, result: None },
+  "deviceTab.place": {
+    request: DeviceTabPlacement,
+    result: z.enum(["shown", "hidden", "unavailable"]),
+  },
+  /** False: no such tab here. */
+  "deviceTab.go": { request: DeviceTabGo, result: z.boolean() },
+  "deviceTab.close": { request: DeviceTabId, result: None },
   /** Whether a terminal runs `ace`; waits for the launch's own install to finish. */
   "cli.status": { request: None, result: TerminalCommand },
   /** Turn the `ace` command on the terminal's PATH on or off, and save the choice. */
@@ -226,6 +246,10 @@ export const events = {
   }),
   "browser.shortcut": BrowserShortcut,
   "browser.context": BrowserContextAction,
+  /** A device tab's address, title, loading and history, and why its last load failed. */
+  "deviceTab.state": DeviceTabState,
+  /** A link in a device tab asked for a new tab. */
+  "deviceTab.openTab": DeviceTabOpenRequest,
   "updates.status": UpdateStatus,
   /** The outcome of the menu's Check for Updates…, for the page to answer with a toast. */
   "updates.checked": UpdateStatus,

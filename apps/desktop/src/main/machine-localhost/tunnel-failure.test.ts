@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { socksReply } from "./socks5.ts";
-import { failureMemoryMs, failureReply, TunnelFailures, tunnelFailure } from "./tunnel-failure.ts";
+import {
+  failureMemoryMs,
+  failureReply,
+  loadFailure,
+  TunnelFailures,
+  tunnelFailure,
+} from "./tunnel-failure.ts";
 
 const coded = (code: string) => Object.assign(new Error(code), { code });
 
@@ -50,5 +56,74 @@ describe("a machine's recent failures", () => {
     failures.record(3000, "offline");
     failures.record(3000, "off");
     expect(failures.recent(3000)).toBe("off");
+  });
+});
+
+const recent = (port: number) => (port === 3000 ? ("closed" as const) : undefined);
+
+describe("a device tab's failed load", () => {
+  it.each([
+    [
+      "names the machine's reason on its port",
+      {
+        url: "http://localhost:3000/",
+        code: -120,
+        description: "ERR_SOCKS_CONNECTION_FAILED",
+        loopback: true,
+      },
+      {
+        url: "http://localhost:3000/",
+        code: -120,
+        description: "ERR_SOCKS_CONNECTION_FAILED",
+        port: 3000,
+        tunnel: "closed",
+      },
+    ],
+    [
+      "names only the port when the tunnel said nothing",
+      {
+        url: "http://127.0.0.1:4000/",
+        code: -101,
+        description: "ERR_CONNECTION_RESET",
+        loopback: true,
+      },
+      {
+        url: "http://127.0.0.1:4000/",
+        code: -101,
+        description: "ERR_CONNECTION_RESET",
+        port: 4000,
+      },
+    ],
+    [
+      "takes the scheme's port",
+      {
+        url: "https://app.localhost/",
+        code: -101,
+        description: "ERR_CONNECTION_RESET",
+        loopback: true,
+      },
+      { url: "https://app.localhost/", code: -101, description: "ERR_CONNECTION_RESET", port: 443 },
+    ],
+    [
+      "never blames the machine for a public page",
+      {
+        url: "http://example.com:3000/",
+        code: -105,
+        description: "ERR_NAME_NOT_RESOLVED",
+        loopback: false,
+      },
+      { url: "http://example.com:3000/", code: -105, description: "ERR_NAME_NOT_RESOLVED" },
+    ],
+  ])("%s", (_name, load, expected) => {
+    expect(loadFailure(load, recent)).toEqual(expected);
+  });
+
+  it("is none when the load was stopped", () => {
+    expect(
+      loadFailure(
+        { url: "http://localhost:3000/", code: -3, description: "ERR_ABORTED", loopback: true },
+        recent,
+      ),
+    ).toBeUndefined();
   });
 });

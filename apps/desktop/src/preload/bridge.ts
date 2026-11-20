@@ -220,6 +220,16 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
      * Spade on this computer, reached directly (ADR 0123). The main process holds Spade's
      * address and token; the page sends requests and opens live streams through it.
      */
+    deviceTabs: {
+      open: (request: RequestOf<"deviceTab.open">) => call("deviceTab.open", request),
+      place: (request: RequestOf<"deviceTab.place">) => call("deviceTab.place", request),
+      go: (request: RequestOf<"deviceTab.go">) => call("deviceTab.go", request),
+      close: (request: RequestOf<"deviceTab.close">) => call("deviceTab.close", request),
+      onState: (listener: (value: EventOf<"deviceTab.state">) => void) =>
+        subscribe("deviceTab.state", listener),
+      onOpenTab: (listener: (value: EventOf<"deviceTab.openTab">) => void) =>
+        subscribe("deviceTab.openTab", listener),
+    },
     spade: {
       endpoint: () => call("spade.endpoint"),
       health: () => call("spade.health"),
