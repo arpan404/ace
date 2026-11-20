@@ -1,4 +1,4 @@
-import { faceForId } from "@ace/ui-core/bot-face";
+import { faceForId, storedBotFace } from "@ace/ui-core/bot-face";
 import { expect, test } from "vitest";
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { until } from "./test-host.ts";
@@ -230,4 +230,86 @@ test("a waiting member's own chat stays one tap away while the bots can't be rea
   await until(() => refused > 0 && patches.state?.list.failed === false);
   await until(() => patches.head?.waiting !== null && patches.head?.waiting !== undefined);
   expect(patches.head?.waiting).toEqual({ name: "Research", conversation: "c-research" });
+});
+
+test("group faces prefer the current roster avatar matched by machine and bot id, keeping remote saved avatars", async () => {
+  const updated = faceForId("research-new-face");
+  const remoteSaved = faceForId("studio-research-face");
+  const { patches, api, spade } = await setUp((fake, daemon) => {
+    const { research } = team(fake);
+    // Replace the group with local Research (matching by hostId) and a remote Research on another machine.
+    fake.teams.groups = [];
+    const group = fake.teams.addGroup({
+      id: "launch",
+      name: "Launch team",
+      members: [
+        fake.teams.member("spade"),
+        { ...fake.teams.member("research"), machine: daemon.hostId },
+        {
+          agent: "research",
+          machine: "studio",
+          name: "Studio Research",
+          avatar: { ...storedBotFace(remoteSaved) },
+          away: false,
+        },
+      ],
+    });
+    // Local Research changes its roster face after joining the group; the membership keeps the old avatar.
+    research.avatar = { ...storedBotFace(updated) };
+    fake.store(group.conversation, {
+      type: "group_message",
+      run: "r1",
+      text: "Local note.",
+      from: { id: "research", name: "Research", machine: null },
+    });
+    fake.store(group.conversation, {
+      type: "group_message",
+      run: "r1",
+      text: "Remote note.",
+      from: { id: "research", name: "Studio Research", machine: "studio" },
+    });
+    fake.store(group.conversation, {
+      type: "group_asked",
+      run: "r1",
+      ask: "a1",
+      by: { id: "spade", name: "Spade" },
+      to: { id: "research", name: "Research", machine: null },
+    });
+  }, quick);
+
+  const row = () => patches.state?.list.rows?.find((each) => each.group === "launch");
+  await until(
+    () =>
+      row()?.faces[1]?.character?.body === updated.body &&
+      row()?.faces[1]?.character?.pair === updated.pair,
+  );
+  expect(row()?.faces).toEqual([
+    { main: true, initial: "S", away: false, character: null },
+    { main: false, initial: "R", away: false, character: updated },
+    { main: false, initial: "S", away: false, character: remoteSaved },
+  ]);
+
+  spade.handle({ type: "spade.open", conversationId: "c-launch", group: "launch" });
+  await until(() => patches.bubbles.length === 3 && patches.head?.answering === true);
+  expect(patches.bubbles).toMatchObject([
+    {
+      kind: "member",
+      text: "Local note.",
+      face: { main: false, initial: "R", away: false, character: updated },
+    },
+    {
+      kind: "member",
+      text: "Remote note.",
+      face: { main: false, initial: "S", away: false, character: remoteSaved },
+    },
+    { kind: "note", text: "Spade asked Research" },
+  ]);
+  expect(patches.head?.working).toMatchObject({
+    label: "Research is answering",
+    moving: true,
+    face: { main: false, initial: "R", away: false, character: updated },
+  });
+  expect(api.agents.find((agent) => agent.id === "research")?.avatar).toEqual(
+    storedBotFace(updated),
+  );
 });
