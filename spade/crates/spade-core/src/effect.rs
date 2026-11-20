@@ -169,6 +169,10 @@ const BUILTIN: &[(&str, Effect)] = &[
     ("app_connect_request", Effect::Read),
     // A card in the bot's own conversation, drawn by ace: the bot's output, like its reply.
     (crate::card::CARD_SHOW, Effect::WriteLocal),
+    // A notice to the person only, under ADR 0195's reach (ADR 0200 §4.2): nothing outward.
+    (crate::reach::notice::NOTIFY, Effect::WriteLocal),
+    // A card suggesting a package; only the person installs, on its review (ADR 0200 §8).
+    (crate::question::suggest::PACKAGE_SUGGEST, Effect::Read),
 ];
 
 /// The typed tools that hold the person's sign-in outside the sandbox (ADR 0171 decision 2).

@@ -195,6 +195,11 @@ pub fn from_recipe(
     input: RecipeInput,
 ) -> Result<Imported, PortableError> {
     let (recipe, package) = checked(engine, &input)?;
+    // A package from the market answers the bots' cards that suggested it (ADR 0200 §8).
+    let from_market = package
+        .as_ref()
+        .filter(|p| p.source == envelope::MARKET)
+        .map(|p| p.name.clone());
     // A version 3 package's link, with its ceiling, is stored with the bot in one transaction,
     // marked installing until everything below is in place (ADR 0200 §3.4).
     let linking = package.map(|package| Linking {
@@ -271,6 +276,9 @@ pub fn from_recipe(
         }
     };
     left_out.truncate(20);
+    if let Some(package) = from_market {
+        engine.package_installed(&package, &agent.agent.id, &agent.agent.name);
+    }
     Ok(Imported { agent, left_out })
 }
 

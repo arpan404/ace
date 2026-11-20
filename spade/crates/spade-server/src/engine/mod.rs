@@ -40,6 +40,7 @@ mod maintenance;
 mod media;
 mod memory;
 mod moves;
+mod notify;
 pub mod onboarding;
 mod outbox;
 mod oversight;
@@ -61,6 +62,7 @@ mod security;
 mod self_edit;
 mod services;
 mod speech;
+mod suggest;
 mod style;
 mod thread_asks;
 mod trim;
@@ -77,6 +79,7 @@ pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
 pub use cards::CardError;
+pub use suggest::{MarketBots, MarketFuture};
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
@@ -239,6 +242,10 @@ pub struct Engine {
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
     /// The person's apps (ADR 0131, `apps`), once the server has set them.
     apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
+    /// The market as suggestions read it (ADR 0200 §8, `suggest`), once the server has set it.
+    market: std::sync::OnceLock<Arc<dyn suggest::MarketBots>>,
+    /// Held while the open package suggestions are read and written.
+    suggest_lock: Mutex<()>,
     /// The scope each call about to run was allowed with, by call key, for the tool to check
     /// again where it runs (a terminal command's folder and variables, ADR 0142).
     allowed_scopes: Mutex<HashMap<String, String>>,
@@ -336,6 +343,11 @@ impl Engine {
         if tools.get(spade_core::card::CARD_SHOW).is_none() {
             tools = tools.with_tool(Arc::new(crate::tools::CardShow::new(handle.clone(), None)));
         }
+        // `notify` and `package_suggest` (ADR 0200 §4.2, §8).
+        let tools = tools
+            .with_tool(Arc::new(crate::tools::Notify(handle.clone())))
+            .with_tool(Arc::new(crate::tools::PackageSuggest));
+        let mut tools = tools;
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -392,6 +404,8 @@ impl Engine {
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             apps: std::sync::OnceLock::new(),
+            market: std::sync::OnceLock::new(),
+            suggest_lock: Mutex::default(),
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             launches: Mutex::default(),

@@ -36,6 +36,14 @@ pub struct MarketFile {
     pub executable: bool,
 }
 
+/// A listed bot package (`MarketSpadeBot`): the market's signed version manifest and the
+/// `bot.json` it covers, unchecked until Spade verifies them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarketBot {
+    pub signed: Value,
+    pub bot_json: String,
+}
+
 /// One market skill file with its content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarketFileBytes {
@@ -91,6 +99,27 @@ impl AceSkills {
             });
         match (file, bytes) {
             (Some(file), Some(bytes)) => Ok(MarketFileBytes { file, bytes }),
+            _ => Err(unexpected(result)),
+        }
+    }
+
+    /// The version of the bot package `name` the market lists now, as a bot's suggestion reads
+    /// it (`spadeBot`): its signed version manifest as served and `bot.json`'s exact text. Spade
+    /// checks the signature itself. `None` when the market lists no such package.
+    pub async fn market_bot(&self, name: &str) -> Result<Option<MarketBot>, SkillsError> {
+        let result = match self.market(json!({ "op": "spadeBot", "name": name })).await {
+            Ok(result) => result,
+            Err(SkillsError::Daemon {
+                code: SkillErrorCode::NotFound,
+                ..
+            }) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        match (result.get("signed"), result.get("botJson").and_then(Value::as_str)) {
+            (Some(signed), Some(bot_json)) => Ok(Some(MarketBot {
+                signed: signed.clone(),
+                bot_json: bot_json.to_owned(),
+            })),
             _ => Err(unexpected(result)),
         }
     }

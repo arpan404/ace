@@ -515,6 +515,10 @@ async fn run() -> Result<(), Failure> {
     }
     // Before work opens: a bot the person had when Spade stopped stays paused.
     engine.set_computers(computers.clone());
+    // Bots suggest packages the market lists, read through ace (ADR 0200 §8).
+    if let Some(link) = &ace {
+        engine.set_market(link.clone());
+    }
     engine.set_services(services.clone());
     if let Some(link) = &ace {
         let agents = engine
