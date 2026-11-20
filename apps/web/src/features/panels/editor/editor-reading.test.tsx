@@ -51,14 +51,19 @@ function readsOf(app: ReturnType<typeof harness>) {
   const reads: string[] = [];
   const held = new Set<string>();
   const request = app.client.request.bind(app.client);
-  app.client.request = ((message: Parameters<typeof request>[0], options) => {
+  app.client.request = ((
+    message: Parameters<typeof request>[0],
+    options: Parameters<typeof request>[1],
+  ) => {
     const operation = message.type === "files.request" ? message.operation : undefined;
     if (operation && operation.op === "read") {
       reads.push(operation.path);
       if (held.has(operation.path)) return new Promise(() => {});
     }
     return request(message, options);
-  }) as typeof request;
+    // Through unknown: comparing this wrapper with the generic `request` overflows TypeScript's
+    // stack depth (TS2321), and the wrapper only forwards to `request` unchanged.
+  }) as unknown as typeof request;
   return { reads, hold: (path: string) => held.add(path) };
 }
 
