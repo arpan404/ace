@@ -217,7 +217,10 @@ fn a_runs_view_holds_its_bots_messages_in_order_and_its_open_asks_only() {
     let view = run_view(&done, "r1");
     assert!(view.open.is_empty());
     assert_eq!(
-        view.replies.iter().map(|(b, _)| b.id.as_str()).collect::<Vec<_>>(),
+        view.replies
+            .iter()
+            .map(|(b, _)| b.id.as_str())
+            .collect::<Vec<_>>(),
         vec!["b", "a"]
     );
 }
@@ -228,7 +231,13 @@ fn a_runs_view_says_it_was_stopped_and_how_unanswered_asks_ended() {
         posted("r1", None, "Go"),
         asked_by("r1", "k1", None, "a"),
         asked_by("r1", "k2", None, "b"),
-        answered("r1", "k1", "a", "failed", Some("a could not answer: no key")),
+        answered(
+            "r1",
+            "k1",
+            "a",
+            "failed",
+            Some("a could not answer: no key"),
+        ),
         answered("r1", "k2", "b", "stopped", Some("b was stopped")),
         Event::Known(Known::GroupStopped {
             run: "r1".to_owned(),

@@ -214,9 +214,7 @@ pub fn recent(events: &[Event], me: &GroupBot, before_run: &str) -> (String, boo
         .filter_map(|event| match event {
             Event::Known(Known::GroupMessage {
                 run, text, from, ..
-            }) if run != before_run => {
-                Some((from, text))
-            }
+            }) if run != before_run => Some((from, text)),
             _ => None,
         })
         .collect();

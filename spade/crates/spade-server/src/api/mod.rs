@@ -24,6 +24,7 @@ mod search;
 mod security;
 mod skills;
 mod teams;
+mod thread_asks;
 mod wakes;
 mod workers;
 mod workspace;
@@ -173,6 +174,7 @@ pub fn router(state: AppState) -> Router {
         .merge(files::routes())
         .merge(media::routes())
         .merge(teams::routes())
+        .merge(thread_asks::routes())
         .merge(moves::routes())
         .merge(wakes::routes())
         .merge(digests::routes())
