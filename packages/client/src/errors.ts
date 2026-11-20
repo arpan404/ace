@@ -35,7 +35,9 @@ export class ClientError extends Error {
     /** Too many tunnel streams open, or opened too fast, for this device. */
     | "tunnel_limit"
     /** The machine reset a tunnel stream before it opened: nothing listens on that port. */
-    | "tunnel_reset";
+    | "tunnel_reset"
+    /** The caller gave up a tunnel open (its `signal`) before the stream was ready. */
+    | "tunnel_cancelled";
   /** With a `machine_code` refusal of `machine_code_locked`: when code entry opens again. */
   declare readonly lockedUntil?: number;
   /**
