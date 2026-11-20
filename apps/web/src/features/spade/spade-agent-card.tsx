@@ -1,15 +1,16 @@
 // oxlint-disable react/no-array-index-key -- a card's blocks, rows and cells have no ids; their place is theirs.
 import {
-  spadeAgentAccent,
+  type SpadeAgentStyle,
   type SpadeAvatar,
   type SpadeCardAction,
   type SpadeCardBlock,
   type SpadeCardRow,
 } from "@ace/ui-core/spade-chat";
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
+import { accentFill, useCardAccent } from "./spade-accent.ts";
 import { Pictures } from "./spade-media.tsx";
 
 /*
@@ -29,14 +30,13 @@ export type SpadeCardChoose = (
 export function SpadeAgentCard(props: {
   item: SpadeCardRow;
   avatar: SpadeAvatar;
+  /** The bot's `style` (§5.3): its accent over its face's colour when it holds. */
+  style?: SpadeAgentStyle | undefined;
   botName: string;
   onChoose: SpadeCardChoose;
 }) {
   const { item } = props;
-  const accent = {
-    "--agent-accent-light": spadeAgentAccent(props.avatar, "light") ?? "var(--border)",
-    "--agent-accent-dark": spadeAgentAccent(props.avatar, "dark") ?? "var(--border)",
-  } as CSSProperties;
+  const accent = useCardAccent(props);
   return (
     <section
       {...part("card", undefined, "spade-agent")}
@@ -48,7 +48,8 @@ export function SpadeAgentCard(props: {
         <h3 className="text-base leading-6 font-medium text-foreground">{item.card.title}</h3>
         <span
           aria-hidden
-          className="h-0.5 w-6 rounded-full bg-(--agent-accent-light) dark:bg-(--agent-accent-dark)"
+          data-agent-accent=""
+          className={cn("h-0.5 w-6 rounded-full", accentFill)}
         />
       </header>
       {item.card.blocks.map((block, index) => (

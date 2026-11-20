@@ -8,6 +8,7 @@ import {
   spadePlainText,
   type SpadeChatRow,
   withProposals,
+  type SpadeAgentStyle,
   type SpadeAvatar,
   type SpadeChatItem,
   type SpadeProposal,
@@ -52,6 +53,8 @@ export interface ChatBot {
   id: string;
   name: string;
   avatar: SpadeAvatar;
+  /** Its accent (ADR 0200 §5.3), for its cards' title rule. */
+  style?: SpadeAgentStyle | undefined;
   /** Other bots by id, for the faces of messages they send here. */
   others: ReadonlyMap<string, SpadeAvatar>;
   /** Every bot's name by id, for a request to message one. */
@@ -515,6 +518,7 @@ function RunItem(props: {
         <SpadeAgentCard
           item={item}
           avatar={bot.avatar}
+          style={bot.style}
           botName={bot.name}
           onChoose={
             handlers.onCardChoice ?? (() => Promise.resolve("Choices work in the bot's own chat."))

@@ -114,6 +114,8 @@ export async function editAgent(
     task_why?: string;
     /** Whether it may make bots for the person (ADR 0161, amendment 1). */
     may_create_bots?: "yes" | "ask" | "no";
+    /** Its accent (ADR 0200 §5.3); `null` for its face's colour. */
+    style?: { accent: string | null };
   },
 ): Promise<SpadeAgent> {
   const body = await spadeHttp(target, "PATCH", `/v1/agents/${segment(id)}`, { body: change });

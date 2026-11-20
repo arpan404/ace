@@ -33,6 +33,7 @@ export function useEditBot(bot: { id: string }) {
     change: Partial<SpadeAgentDraft> & {
       task_why?: string;
       may_create_bots?: "yes" | "ask" | "no";
+      style?: { accent: string | null };
     },
   ): Promise<string | undefined> => {
     try {
