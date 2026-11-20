@@ -1,10 +1,14 @@
 //! A Trip planner calling a packaged Flight watcher's `cheapest_fare` (ADR 0200 §7), for the
 //! contract tests: the package, the scripted steps that call and return, and readers.
 
+use std::sync::Arc;
+
 use serde_json::{Value, json};
+use spade_server::tools::Tool;
 use spade_testkit::{FakeProvider, Script};
 
-use super::{Result, Spade};
+use super::packaged::{secure, text};
+use super::{Options, Result, Spade};
 
 /// Flight watcher as a local package: it reaches its fare host and may publish, and its one
 /// contract may use neither.
@@ -98,5 +102,66 @@ pub fn install() -> Value {
         "from_recipe": { "source": "local", "name": "flight-watcher", "version": "dev" },
         "grants": { "connectors": [], "plugins": [], "skills": [] },
         "switches": { "network:hosts:api.example-fares.com": true, "publish": true },
+    })
+}
+
+/// The two bots, each on a fake of its own, and titles on a third.
+pub struct World {
+    pub spade: Spade,
+    pub planner: String,
+    pub watcher_id: String,
+    pub watcher: String,
+    /// Titles, the planner's and the watcher's.
+    pub fakes: Vec<FakeProvider>,
+}
+
+/// `watcher_scripts` is given the id of the planner's call `p1`, known once the planner exists.
+pub async fn world(
+    planner_scripts: Vec<Script>,
+    watcher_scripts: impl FnOnce(&str) -> Vec<Script>,
+    tools: Vec<Arc<dyn Tool>>,
+) -> Result<World> {
+    let spade = Spade::start_with(Vec::new(), tools, Options::default()).await?;
+    secure(&spade).await?;
+    let titles = own_endpoint(
+        &spade,
+        "Titles",
+        vec![Script::reply("").plain(r#"{"title":"T"}"#); 8],
+    )
+    .await?;
+    spade
+        .put("/v1/settings", json!({ "fast_model": "titles/t" }))
+        .await?;
+    let planner_fake = own_endpoint(&spade, "Planner Net", planner_scripts).await?;
+    let (status, planner) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Trip planner", "model": "planner-net/m" }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{planner}");
+    let planner = text(&planner["agent"]["conversation"]);
+    let watcher_fake = own_endpoint(
+        &spade,
+        "Watcher Net",
+        watcher_scripts(&call_of(&planner, "p1")),
+    )
+    .await?;
+    let (status, made) = spade.post("/v1/agents", install()).await?;
+    assert_eq!(status, 201, "{made}");
+    let watcher_id = text(&made["agent"]["id"]);
+    let (status, body) = spade
+        .patch(
+            &format!("/v1/agents/{watcher_id}"),
+            json!({ "model": "watcher-net/m" }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    Ok(World {
+        planner,
+        watcher: text(&made["agent"]["conversation"]),
+        watcher_id,
+        spade,
+        fakes: vec![titles, planner_fake, watcher_fake],
     })
 }

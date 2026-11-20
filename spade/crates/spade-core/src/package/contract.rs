@@ -58,23 +58,43 @@ impl Contract {
 
     /// Every way `input` doesn't fit, as lines; `None` when it fits.
     pub fn misfit_input(&self, input: &Value) -> Option<Vec<String>> {
-        misfit(&self.input, input, "input", INPUT_BYTES)
+        misfit(&self.input, input, "input", INPUT_BYTES, Schema::check)
     }
 
-    /// Every way `output` doesn't fit, as lines; `None` when it fits.
+    /// Every way `output` doesn't fit, as lines; `None` when it fits. The callee's check: its
+    /// output has only the fields its schema names.
     pub fn misfit_output(&self, output: &Value) -> Option<Vec<String>> {
-        misfit(&self.output, output, "output", OUTPUT_BYTES)
+        misfit(&self.output, output, "output", OUTPUT_BYTES, Schema::check)
+    }
+
+    /// The caller's check of an output it reads: as [`Contract::misfit_output`], except a field
+    /// this schema doesn't name passes. The callee may run a newer version that adds optional
+    /// output fields, a change the market signs as compatible (ADR 0200 §7).
+    pub fn misfit_output_read(&self, output: &Value) -> Option<Vec<String>> {
+        misfit(
+            &self.output,
+            output,
+            "output",
+            OUTPUT_BYTES,
+            Schema::check_reading,
+        )
     }
 }
 
-fn misfit(schema: &Value, value: &Value, at: &str, most: usize) -> Option<Vec<String>> {
+fn misfit(
+    schema: &Value,
+    value: &Value,
+    at: &str,
+    most: usize,
+    check: fn(&Schema, &Value, &str) -> Vec<schema::Misfit>,
+) -> Option<Vec<String>> {
     if value.to_string().len() > most {
         return Some(vec![format!("{at} is longer than {} KiB", most / 1024)]);
     }
     let Ok(schema) = schema::read(schema, at) else {
         return Some(vec![format!("{at}'s schema doesn't read")]);
     };
-    let misfits = schema.check(value, at);
+    let misfits = check(&schema, value, at);
     (!misfits.is_empty()).then(|| misfits.iter().map(ToString::to_string).collect())
 }
 

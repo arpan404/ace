@@ -235,3 +235,89 @@ fn a_caller_reads_working_while_its_call_is_open_and_waiting_while_the_callee_wa
         Some("cc.j1")
     );
 }
+
+fn scoped_calls(events: &[Event]) -> Vec<&str> {
+    scoped(events).iter().map(|r| r.call.as_str()).collect()
+}
+
+fn reply_calls<'a>(events: &'a [Event], reply: &str) -> Vec<&'a str> {
+    scoped_by_reply(events, reply)
+        .iter()
+        .map(|r| r.call.as_str())
+        .collect()
+}
+
+#[test]
+fn a_returned_call_still_holds_the_reply_that_serves_it_until_that_reply_ends() {
+    let mut events = vec![
+        call("c1", vec![Effect::Network]),
+        Event::reply_started("r1", "m"),
+        returned("c1"),
+    ];
+    assert!(open_calls(&events).is_empty(), "returned: no longer open");
+    assert_eq!(scoped_calls(&events), vec!["c1"], "but the reply is held");
+    // A restart's interruption carries the reply on, and the hold with it.
+    events.push(Event::reply_ended(ReplyEnd::Interrupted, "r1", ""));
+    events.push(Event::reply_started("r2", "m"));
+    assert_eq!(scoped_calls(&events), vec!["c1"]);
+    events.push(finished("r2"));
+    assert!(scoped_calls(&events).is_empty());
+    events.push(Event::user_message("Thanks"));
+    events.push(Event::reply_started("r3", "m"));
+    assert!(scoped_calls(&events).is_empty(), "the next turn is free");
+}
+
+#[test]
+fn a_reply_is_held_by_the_calls_it_took_up_and_one_that_steered_it_and_by_no_other() {
+    let events = vec![
+        call("c1", Vec::new()),
+        Event::reply_started("r1", "m"),
+        finished("r1"),
+        call("c2", Vec::new()),
+        Event::reply_started("r2", "m"),
+        call("c3", Vec::new()),
+        returned("c2"),
+        Event::reply_ended(ReplyEnd::Interrupted, "r2", ""),
+        Event::reply_started("r3", "m"),
+        finished("r3"),
+        Event::user_message("Hi"),
+        Event::reply_started("r4", "m"),
+    ];
+    assert_eq!(reply_calls(&events, "r1"), vec!["c1"]);
+    assert_eq!(reply_calls(&events, "r2"), vec!["c2", "c3"]);
+    // The reply that carried on after a restart serves the same calls.
+    assert_eq!(reply_calls(&events, "r3"), vec!["c2", "c3"]);
+    assert!(reply_calls(&events, "r4").is_empty());
+    assert!(reply_calls(&events, "gone").is_empty());
+}
+
+#[test]
+fn a_calls_output_is_untrusted_when_untrusted_content_was_in_view_or_read_since() {
+    let flagged = |event: &Event| matches!(event, Event::Known(Known::UserMessage { text, .. }) if text == "page");
+    let page = Event::user_message("page");
+    let at = |events: &[Event]| delivered_at(events, "c1").unwrap_or_default();
+    let clean = vec![Event::user_message("hi"), call("c1", Vec::new())];
+    assert!(
+        !output_untrusted(&clean, at(&clean), flagged),
+        "its own message isn't counted"
+    );
+    let before = vec![page.clone(), call("c1", Vec::new())];
+    assert!(output_untrusted(&before, at(&before), flagged));
+    let during = vec![call("c1", Vec::new()), page.clone()];
+    assert!(output_untrusted(&during, at(&during), flagged));
+    // Compacted out of view, with a summary drawn from trusted words only: no longer in view.
+    let compacted = vec![
+        page,
+        Event::user_message("hi"),
+        Event::Known(Known::ContextCompacted {
+            summary: "They said hi.".into(),
+            keep_from: 1,
+            tokens_before: 0,
+            images_left_out: None,
+            untrusted: false,
+            carried: None,
+        }),
+        call("c1", Vec::new()),
+    ];
+    assert!(!output_untrusted(&compacted, at(&compacted), flagged));
+}

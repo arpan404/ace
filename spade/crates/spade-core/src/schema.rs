@@ -329,15 +329,34 @@ fn field_name(name: &str) -> bool {
     (1..=64).contains(&name.len()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// What a check makes of a field an object's schema doesn't name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unnamed {
+    /// A misfit: the side that writes a value writes only what its schema names.
+    Refused,
+    /// Passed over: the side that reads a value may meet fields a newer schema added.
+    Passed,
+}
+
 impl Schema {
-    /// Every place `value` doesn't fit, under `at` (`input`); empty when it fits.
+    /// Every place `value` doesn't fit, under `at` (`input`); empty when it fits. A field the
+    /// schema doesn't name is a misfit: this is the check on the side that writes the value.
     pub fn check(&self, value: &Value, at: &str) -> Vec<Misfit> {
         let mut out = Vec::new();
-        self.walk(value, at, &mut out);
+        self.walk(value, at, Unnamed::Refused, &mut out);
         out
     }
 
-    fn walk(&self, value: &Value, at: &str, out: &mut Vec<Misfit>) {
+    /// As [`Schema::check`], for the side that reads the value: a field the schema doesn't name
+    /// passes, since a newer version of the schema may add optional fields (the market signs
+    /// such a change as compatible), and every named field is still checked.
+    pub fn check_reading(&self, value: &Value, at: &str) -> Vec<Misfit> {
+        let mut out = Vec::new();
+        self.walk(value, at, Unnamed::Passed, &mut out);
+        out
+    }
+
+    fn walk(&self, value: &Value, at: &str, unnamed: Unnamed, out: &mut Vec<Misfit>) {
         // Enough to say what to fix; a value that misses everywhere doesn't list it all.
         if out.len() >= 20 {
             return;
@@ -360,7 +379,8 @@ impl Schema {
                 }
                 for (name, item) in given {
                     match fields.get(name) {
-                        Some(schema) => schema.walk(item, &format!("{at}.{name}"), out),
+                        Some(schema) => schema.walk(item, &format!("{at}.{name}"), unnamed, out),
+                        None if unnamed == Unnamed::Passed => {}
                         None => out.push(Misfit {
                             at: format!("{at}.{name}"),
                             why: "isn't a field this takes".to_owned(),
@@ -400,7 +420,7 @@ impl Schema {
                     miss(out, format!("holds at least {min} items"));
                 }
                 for (i, item) in given.iter().enumerate().take(*max as usize) {
-                    items.walk(item, &format!("{at}[{i}]"), out);
+                    items.walk(item, &format!("{at}[{i}]"), unnamed, out);
                 }
             }
             (schema, _) => miss(out, format!("is {}", schema.kind())),
