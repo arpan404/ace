@@ -68,13 +68,15 @@ function emitPieceCall(piece: SwiftPiece, indent: string): string[] {
   ];
 }
 
+function emitPieces(items: SwiftPiece[], pad: string): string[] {
+  return items.flatMap((piece) => emitPieceCall(piece, pad));
+}
+
 function emitTieredPieces(byTier: Record<FaceTier, SwiftPiece[]>, indent: string): string[] {
   const { s, m, l } = byTier;
   const sameAt = (si: number, mi: number, li: number) =>
     JSON.stringify(s[si]) === JSON.stringify(m[mi]) &&
     JSON.stringify(m[mi]) === JSON.stringify(l[li]);
-  const emit = (items: SwiftPiece[], pad: string) =>
-    items.flatMap((piece) => emitPieceCall(piece, pad));
 
   const minLen = Math.min(s.length, m.length, l.length);
   let pre = 0;
@@ -84,7 +86,7 @@ function emitTieredPieces(byTier: Record<FaceTier, SwiftPiece[]>, indent: string
     suf++;
   }
 
-  const out = emit(s.slice(0, pre), indent);
+  const out = emitPieces(s.slice(0, pre), indent);
   const [ms, mm, ml] = [
     s.slice(pre, s.length - suf),
     m.slice(pre, m.length - suf),
@@ -94,22 +96,23 @@ function emitTieredPieces(byTier: Record<FaceTier, SwiftPiece[]>, indent: string
   const inner = `${indent}    `;
 
   if (ks === km && km === kl) {
-    out.push(...emit(ms, indent));
+    out.push(...emitPieces(ms, indent));
   } else if (km === kl) {
-    if (ms.length === 0) out.push(`${indent}if tier != .s {`, ...emit(mm, inner), `${indent}}`);
+    if (ms.length === 0)
+      out.push(`${indent}if tier != .s {`, ...emitPieces(mm, inner), `${indent}}`);
     else if (mm.length === 0)
-      out.push(`${indent}if tier == .s {`, ...emit(ms, inner), `${indent}}`);
+      out.push(`${indent}if tier == .s {`, ...emitPieces(ms, inner), `${indent}}`);
     else {
       out.push(
         `${indent}if tier == .s {`,
-        ...emit(ms, inner),
+        ...emitPieces(ms, inner),
         `${indent}} else {`,
-        ...emit(mm, inner),
+        ...emitPieces(mm, inner),
         `${indent}}`,
       );
     }
   } else if (ks === km && ms.length === 0) {
-    out.push(`${indent}if tier == .l {`, ...emit(ml, inner), `${indent}}`);
+    out.push(`${indent}if tier == .l {`, ...emitPieces(ml, inner), `${indent}}`);
   } else {
     out.push(`${indent}switch tier {`);
     for (const [tier, mid] of [
@@ -118,11 +121,11 @@ function emitTieredPieces(byTier: Record<FaceTier, SwiftPiece[]>, indent: string
       ["l", ml],
     ] as const) {
       if (mid.length === 0) out.push(`${indent}case .${tier}: break`);
-      else out.push(`${indent}case .${tier}:`, ...emit(mid, inner));
+      else out.push(`${indent}case .${tier}:`, ...emitPieces(mid, inner));
     }
     out.push(`${indent}}`);
   }
-  out.push(...emit(s.slice(s.length - suf), indent));
+  out.push(...emitPieces(s.slice(s.length - suf), indent));
   return out;
 }
 

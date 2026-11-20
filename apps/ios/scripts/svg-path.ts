@@ -15,6 +15,13 @@ export const fmtNum = (value: number): string => {
 
 export const fmtPoint = (p: Point): string => `CGPoint(x: ${fmtNum(p.x)}, y: ${fmtNum(p.y)})`;
 
+function angleBetween(ux: number, uy: number, vx: number, vy: number): number {
+  const dot = ux * vx + uy * vy;
+  const len = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+  const ratio = Math.min(1, Math.max(-1, len === 0 ? 1 : dot / len));
+  return (ux * vy - uy * vx < 0 ? -1 : 1) * Math.acos(ratio);
+}
+
 /** Converts an SVG elliptical arc (W3C SVG 1.1 F.6.5/F.6.6) into cubic Bezier curves. */
 export function arcToCubics(
   from: Point,
@@ -58,13 +65,6 @@ export function arcToCubics(
 
   const cx = cosP * cxp - sinP * cyp + (from.x + to.x) / 2;
   const cy = sinP * cxp + cosP * cyp + (from.y + to.y) / 2;
-
-  const angleBetween = (ux: number, uy: number, vx: number, vy: number) => {
-    const dot = ux * vx + uy * vy;
-    const len = Math.hypot(ux, uy) * Math.hypot(vx, vy);
-    const ratio = Math.min(1, Math.max(-1, len === 0 ? 1 : dot / len));
-    return (ux * vy - uy * vx < 0 ? -1 : 1) * Math.acos(ratio);
-  };
 
   const ux = (x1p - cxp) / rx;
   const uy = (y1p - cyp) / ry;
