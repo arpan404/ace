@@ -466,7 +466,11 @@ it freed. Unit tests also cover an opening provider ended and waited for, a gran
 process in the tree's deadline, the durable resume across a restart, a target's setup and start
 given up on and answered, indexing carried on after a restart, and recovery past one batch on
 both sides with every live payload kept.
-Live checks owed, because no real CLI ran: Claude resuming a session
-placed under a new folder name; Codex forking from a copied rollout whose `cwd` changed; the
-interrupt landing between tool calls for each provider; a resume failure reading as `failed` on
-the new thread.
+Live check, 2026-11-20, real Claude Code (Haiku 5.5) and Codex (GPT-6.2 Sol) on one Mac: two
+daemons with empty homes sharing one `~/.claude` and one `~/.codex`, each thread told a codeword,
+then moved while a 90-second shell command ran, and moved back the same way. Both providers, both
+ways: the continue message said the full conversation came, the agent answered the codeword, the
+copy took a fresh id (recorded on the start row), and the original file's SHA-256 was unchanged.
+Claude resumed from a new folder name; Codex forked from a copied rollout whose `cwd` changed, and
+the return trip renamed both rollouts of its lineage, the fork pointing at its parent's copy.
+Still owed: a resume failure reading as `failed` on the new thread.
