@@ -15,7 +15,7 @@ use spade_core::event::Verdict;
 use spade_core::event::{Authorized, Call, Known, since_arrival};
 use spade_core::gate::{self, Decision};
 use spade_core::maintenance::{Pause, Point, halts};
-use spade_core::question;
+use spade_core::question::{self, connect};
 use spade_core::review;
 use spade_core::tools::{CALL_TOOL, Risk, TOOL_SEARCH, describe, unwrap_call_tool};
 use spade_core::turn::{Pending, Status};
@@ -23,6 +23,7 @@ use spade_core::{Event, Transcript};
 use tokio::sync::watch;
 
 use super::Engine;
+use super::apps::Requested;
 use super::autonomy::Reviewed;
 use super::classify::Screened;
 use crate::tools::{ToolOutput, TurnFacts};
@@ -134,6 +135,21 @@ pub(super) async fn handle_calls(
                     }
                 }
             },
+            // A bot asks the person for an app (ADR 0131, amendment 1): a connect card, which
+            // waits like a question unless the bot has the app already or it can't be had yet.
+            Status::New if name == connect::APP_CONNECT_REQUEST => {
+                match engine
+                    .app_connect_request(id, reply, &pending.call, &arguments)
+                    .await
+                {
+                    Ok(Requested::Answered(output)) => {
+                        finish_tool(engine, id, reply, &pending.call, &name, output).await;
+                    }
+                    Ok(Requested::Waiting) => waiting = true,
+                    Ok(Requested::Stopped) => return Handled::Stopped,
+                    Err(error) => return Handled::Failed(error),
+                }
+            }
             // The task's goal and plan (ADR 0159) are answered from the events.
             Status::New if spade_core::goal::is_tool(&name) => {
                 match engine.goal_call(id, reply, &name, &arguments) {
@@ -155,6 +171,18 @@ pub(super) async fn handle_calls(
                 }
             }
             Status::Asked => waiting = true,
+            // A call held on a Reconnect card: run again once the app is back, answered with
+            // why not otherwise.
+            Status::Answered if super::apps::held_for_reconnect(events, &pending.call.id) => {
+                match super::apps::after_reconnect(events, &pending.call.id) {
+                    super::apps::AfterReconnect::RunAgain => {
+                        runnable.push((pending.call, name, arguments));
+                    }
+                    super::apps::AfterReconnect::Answer(output) => {
+                        finish_tool(engine, id, reply, &pending.call, &name, output).await;
+                    }
+                }
+            }
             Status::Answered => {
                 let said = question::call_result(events, &pending.call.id)
                     .unwrap_or_else(|| context::ANSWERED.to_owned());
@@ -1258,6 +1286,22 @@ async fn finish_tool(
     name: &str,
     output: ToolOutput,
 ) {
+    // Its sign-in expired: the call waits on a Reconnect card instead of failing, and runs again
+    // once the person reconnects. A helper can't ask, so it reads the failure.
+    if let Some(connector) = &output.reconnect
+        && engine.helper_of(id).is_none()
+        && let Some(card) = engine.reconnect_card(reply, call, connector)
+    {
+        super::jobs::keep_trying(|| {
+            let _order = engine.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            engine
+                .append_events(id, std::slice::from_ref(&card))
+                .map(|_| ())
+        })
+        .await;
+        engine.announce(id);
+        return;
+    }
     let mut content = super::trim::trim(&output.content, engine.limits.result_chars);
     let mut images = Vec::new();
     for bytes in output.images.iter().take(crate::images::MOST_IMAGES) {

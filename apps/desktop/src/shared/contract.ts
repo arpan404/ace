@@ -121,6 +121,8 @@ export type OpenInEditor = z.infer<typeof OpenInEditor>;
 export const RevealPath = z.object({ path: AbsolutePath });
 /** An installed editor's icon as the OS draws it: a PNG data URL, or null when there is none. */
 export const EditorIconRequest = z.object({ editor: EditorId });
+/** Any installed app's icon by the bundle (macOS) or `.exe` (Windows) the daemon found for it. */
+export const AppIconRequest = z.object({ path: AbsolutePath });
 export const EditorIconImage = z
   .string()
   .startsWith("data:image/png;base64,")
@@ -217,7 +219,15 @@ export const DeepLink = z.discriminatedUnion("kind", [
     itemId: z.string().optional(),
   }),
   z.object({ kind: z.literal("settings"), page: z.string().optional() }),
+  /** A Spade bot's conversation, with the approval or question to bring forward (ADR 0195). */
+  z.object({
+    kind: z.literal("spade"),
+    agent: z.string().min(1),
+    request: z.string().optional(),
+  }),
   z.object({ kind: z.literal("new-thread") }),
+  /** The Usage page (the menu-bar popover's "Open Usage"). */
+  z.object({ kind: z.literal("usage") }),
   z.object({ kind: z.literal("open-folder"), path: AbsolutePath }),
   /** `ace://account/signed-in?status=`: the browser back from ace sign-in, with how it ended. */
   z.object({ kind: z.literal("signed-in"), status: AceSignInReturnStatus }),
@@ -231,8 +241,12 @@ export function deepLinkRoute(link: DeepLink): string {
       return `/t/${encodeURIComponent(link.threadId)}${link.itemId ? `?item=${encodeURIComponent(link.itemId)}` : ""}`;
     case "settings":
       return `/settings/${link.page ?? "general"}`;
+    case "spade":
+      return `/spade/${encodeURIComponent(link.agent)}${link.request ? `?request=${encodeURIComponent(link.request)}` : ""}`;
     case "new-thread":
       return "/new";
+    case "usage":
+      return "/usage";
     case "open-folder":
       return `/new?folder=${encodeURIComponent(link.path)}`;
     // Profile, where the sign-in started; the app's own claim delivers the session.
@@ -244,6 +258,8 @@ export function deepLinkRoute(link: DeepLink): string {
 /** Notification categories; kept in step with the web's Settings › Notifications. */
 export const NotificationCategory = z.enum([
   "agentSays",
+  /** Spade's bots: what needs the person, what stopped, digests, briefs (ADR 0195). */
+  "spade",
   "needsYou",
   "finished",
   "failed",

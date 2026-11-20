@@ -368,7 +368,7 @@ test("a source file offers only installed editors and opens its checkout path", 
     const side = await panel();
     const launch = await within(side).findByRole("button", { name: "Open in Zed" });
     expect(launch.querySelector('[data-app-icon="zed"]')).toBeTruthy();
-    await userEvent.click(within(side).getByRole("button", { name: "Open in another editor" }));
+    await userEvent.click(within(side).getByRole("button", { name: "Open in another app" }));
     expect(await screen.findByRole("menuitem", { name: /^Zed/ })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: /Visual Studio Code/ })).toBeNull();
     await userEvent.keyboard("{Escape}");

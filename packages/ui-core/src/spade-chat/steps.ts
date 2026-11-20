@@ -33,11 +33,12 @@ export interface SpadeSteps {
 }
 
 /**
- * Calls the chat already shows in their own way: a card, a helper's line, a skill's bubble, a
+ * Calls the chat already shows in their own way: a card (a question, or an app to connect), a helper's line, a skill's bubble, a
  * note it saved (ADR 0128), and what it showed the person (ADR 0134).
  */
 const shownElsewhere = new Set([
   "ask_user",
+  "app_connect_request",
   "helper",
   "skill_propose",
   "memory_save",

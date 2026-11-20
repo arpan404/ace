@@ -1,16 +1,8 @@
-import {
-  spadeAgentNameMax,
-  spadeConnectorLine,
-  spadeTaskFirstLine,
-  type SpadeBubble,
-  type SpadeCatalogueEntry,
-} from "@ace/ui-core/spade-chat";
+import { spadeAgentNameMax, spadeTaskFirstLine, type SpadeBubble } from "@ace/ui-core/spade-chat";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { AppMark } from "@/components/ui/app-mark.tsx";
 import { cn } from "@/lib/cn.ts";
-import { AddConnectorDialog } from "./spade-add-connector.tsx";
-import { useSpadeConnectors } from "./spade-connector-api.ts";
+import { SuggestedApps } from "./spade-suggested-apps.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { FaceButton } from "./spade-profile-head.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
@@ -112,7 +104,8 @@ export function TaskDiff(props: { before: string | undefined; after: string }) {
 /**
  * The bot named itself: its face, which opens the face popover, and its name, which turns into
  * its field, each changed with one click where they show. A later rename the person agreed to is
- * a note only. Under its first name, the apps its task names that aren't connected yet.
+ * a note only. Under its first name, the apps that fit its task, each a click to connect and give
+ * to it (`SuggestedApps`).
  */
 export function NamedLine(props: { item: Named; bot: RosterBot }) {
   const { item, bot } = props;
@@ -133,7 +126,7 @@ export function NamedLine(props: { item: Named; bot: RosterBot }) {
         <span className="text-muted-foreground">Named itself</span>
         <InlineName bot={bot} />
       </div>
-      <SuggestedApps task={bot.task} />
+      <SuggestedApps task={bot.task} botId={bot.id} title="Apps it may need" />
     </div>
   );
 }
@@ -199,84 +192,5 @@ function InlineName(props: { bot: RosterBot }) {
         </span>
       )}
     </span>
-  );
-}
-
-/** The most apps the suggestion names. */
-const mostApps = 3;
-
-/**
- * The catalogue apps a task names outright ("Gmail", "Slack", "GitHub"), best first, leaving out
- * the ones already connected. Words only, no model call: Spade's own fit
- * (`spade-connect::fit`) replaces this once it answers.
- */
-export function appsNamedIn(
-  task: string,
-  catalogue: readonly SpadeCatalogueEntry[],
-  connected: ReadonlySet<string>,
-): SpadeCatalogueEntry[] {
-  const words = new Set(
-    task
-      .toLowerCase()
-      .split(/[^\p{L}\p{N}.-]+/u)
-      .filter(Boolean),
-  );
-  return catalogue
-    .filter((entry) => !connected.has(entry.id))
-    .filter((entry) => {
-      const name = entry.name.toLowerCase();
-      if (task.toLowerCase().includes(name) && name.length > 2) return true;
-      return words.has(entry.id.toLowerCase());
-    })
-    .slice(0, mostApps);
-}
-
-/**
- * "It may need Gmail and Slack." with Connect apps, which opens the app list. Nothing when the
- * task names no app that isn't connected. One component, so the bot's own suggestion can take
- * its place.
- */
-export function SuggestedApps(props: { task: string }) {
-  const connectors = useSpadeConnectors();
-  const [adding, setAdding] = useState(false);
-  const data = connectors.data;
-  if (!data) return null;
-  const connected = new Set(
-    data.connectors.flatMap((each) => (each.catalogue ? [each.catalogue] : [])),
-  );
-  const apps = appsNamedIn(props.task, data.catalogue, connected);
-  if (apps.length === 0) return null;
-  const names = apps.map((app) => app.name);
-  const said =
-    names.length === 1
-      ? names[0]
-      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-  return (
-    <div role="note" aria-label={`It may need ${said}`} className={line}>
-      <span className="flex items-center gap-1">
-        {apps.map((app) => (
-          <AppMark key={app.id} catalogue={app.id} name={app.name} size="inline" />
-        ))}
-      </span>
-      <span className="text-muted-foreground">
-        It may need <span className="text-foreground">{said}</span>.
-      </span>
-      <Button variant="ghost" size="sm" className={word} onClick={() => setAdding(true)}>
-        Connect apps
-      </Button>
-      {adding && (
-        <AddConnectorDialog
-          catalogue={data.catalogue}
-          added={
-            new Map(
-              data.connectors.flatMap((each) =>
-                each.catalogue ? [[each.catalogue, spadeConnectorLine(each)] as const] : [],
-              ),
-            )
-          }
-          onClose={() => setAdding(false)}
-        />
-      )}
-    </div>
   );
 }

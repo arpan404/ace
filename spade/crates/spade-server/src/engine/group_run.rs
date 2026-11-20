@@ -48,7 +48,7 @@ impl Engine {
         let names: Vec<&str> = group.members.iter().map(|m| m.name.as_str()).collect();
         let mentioned = group::mentions(text, &names);
         // A big club never runs every member on one message: a few named are asked, more go to
-        // the lead to hand on (ADR 0132, amended by ADR 0194).
+        // the lead to hand on (ADR 0132, amended by ADR 0197).
         let lead = group
             .members
             .iter()

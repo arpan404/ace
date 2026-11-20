@@ -26,6 +26,7 @@ pub mod memory;
 pub mod outward;
 pub mod oversight;
 pub mod question;
+pub mod reach;
 pub mod redact;
 pub mod research;
 pub mod review;

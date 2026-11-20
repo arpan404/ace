@@ -21,6 +21,7 @@ import {
 } from "./probe.ts";
 import { expectedLocalDaemon } from "./expected.ts";
 import { loginService } from "./service.ts";
+import { loadPorts } from "./load-ports.ts";
 import { ownershipPorts } from "./ownership-ports.ts";
 import { runDaemonCommand, spawnDaemon, type DaemonResources, type SpawnOptions } from "./spawn.ts";
 import type { DaemonProcess } from "./supervisor.ts";
@@ -177,6 +178,7 @@ export class DaemonRuntime {
             return found;
           },
           health: daemonHealth,
+          ...loadPorts(home, options.platform ?? process.platform),
           // Only the managed daemon is ever the app's; development's is `bun run daemon`'s.
           ...(this.target.kind === "managed"
             ? ownershipPorts({

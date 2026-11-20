@@ -122,6 +122,15 @@ function detailOf(
       ...(typeof fields.old === "string" ? { before: fields.old } : {}),
       ...(typeof fields.new === "string" ? { after: fields.new } : {}),
     };
+  // A bot it would make (ADR 0161, amendment 1): what it is called and for, not how it's made.
+  if (name === "bot_create") {
+    const made = [
+      ["Name", text(fields.name)],
+      ["Task", text(fields.task)],
+      ["Apps", Array.isArray(fields.apps) ? plain(fields.apps) : undefined],
+    ].flatMap(([label, value]) => (label && value ? [{ label, value }] : []));
+    return made.length ? { kind: "fields", fields: made } : undefined;
+  }
   const task = text(fields.new_task);
   if (name === "task_update" && task) {
     const before = options.task?.();

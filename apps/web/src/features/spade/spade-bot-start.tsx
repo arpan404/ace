@@ -16,6 +16,8 @@ import { cn } from "@/lib/cn.ts";
 import { createAgent } from "./spade-api.ts";
 import type { SpadeMessage } from "./spade-attachments.ts";
 import { SpadeComposer } from "./spade-composer.tsx";
+import { allowApp } from "./spade-connector-api.ts";
+import { SuggestedApps } from "./spade-suggested-apps.tsx";
 import { SpadeMachineScope, useSpadeClient } from "./spade-machine.tsx";
 import { ConversationSkeleton, PageScroller, useSpadeLine } from "./spade-screen-parts.tsx";
 import { RunsWith, StartChips } from "./spade-new-bot-parts.tsx";
@@ -231,6 +233,8 @@ function NewBotConversation(props: {
   const [model, setModel] = useState("");
   const [template, setTemplate] = useState<SpadeTemplate>();
   const [more, setMore] = useState(false);
+  // Apps connected from the template's suggestions, given to the bot once it is made.
+  const [apps, setApps] = useState<readonly string[]>([]);
   const models = useSpadeModels(props.blocked === undefined);
   const send = async (message: SpadeMessage) => {
     if (message.documents?.length)
@@ -251,6 +255,8 @@ function NewBotConversation(props: {
           { task, naming: true, ...(model ? { model } : {}) },
       message,
     );
+    // A bot starts with no apps; these the person connected for it here.
+    for (const connector of apps) await allowApp(client, agent.id, connector).catch(() => {});
     await cache.invalidateQueries({ queryKey: agentsKey });
     void navigate({
       to: "/spade/$agentId",
@@ -287,6 +293,17 @@ function NewBotConversation(props: {
               />
             )}
           </div>
+          {template && (
+            <div className={`${readingColumn} px-1`}>
+              <SuggestedApps
+                task={template.task}
+                title={`Apps ${template.name} could use`}
+                onConnected={(connector) =>
+                  setApps((had) => (had.includes(connector.id) ? had : [...had, connector.id]))
+                }
+              />
+            </div>
+          )}
         </PageScroller>
         <SpadeComposer
           name={name}

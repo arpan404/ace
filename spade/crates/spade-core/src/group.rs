@@ -123,7 +123,7 @@ pub fn open_asks(events: &[Event]) -> Vec<OpenAsk> {
     open
 }
 
-/// The most bots a club holds, the lead counted (ADR 0132, amended by ADR 0194).
+/// The most bots a club holds, the lead counted (ADR 0132, amended by ADR 0197).
 pub const MOST_MEMBERS: usize = 32;
 /// The most members one message of the person's asks at once. Past it, the lead is asked and
 /// hands each named member its part, so a big club never runs every member on one message.

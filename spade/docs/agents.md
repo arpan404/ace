@@ -36,7 +36,7 @@ describe. Agents run on models from the person's own endpoints.
 
 ### New bots
 
-[ADR 0194](../../docs/adr/0194-spade-bots-start-from-one-message.md). `POST /agents` with
+[ADR 0197](../../docs/adr/0197-spade-bots-start-from-one-message.md). `POST /agents` with
 `naming: true` (and no name) makes a bot called `New bot` whose first message is its task. The
 conversation stores `naming_opened` after its first `agent_configured`; while the turn that
 follows started with naming open, the instructions say the bot has no name yet and ask it to

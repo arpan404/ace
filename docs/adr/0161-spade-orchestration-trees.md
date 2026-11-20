@@ -218,7 +218,7 @@ ace:
 
 Decided by the owner (2026-11-19: "a bot can create a new standing bot ... e.g. Spade making a
 'Research' bot for the person, or a manager bot hiring a specialist"). Builds on
-[ADR 0194](0194-spade-bots-start-from-one-message.md).
+[ADR 0197](0197-spade-bots-start-from-one-message.md).
 
 1. **`bot_create {kind: standing}`** makes a bot of the person's own instead of a worker: `name`,
    `task`, `face`, `model` (a role or a model set up for the maker) and `apps`. It has no
@@ -239,5 +239,5 @@ Decided by the owner (2026-11-19: "a bot can create a new standing bot ... e.g. 
    stopped, its routines are paused and it reads `archived`, kept with what it did.
 5. **Clubs.** `club_add {club, bot}` adds a bot of this machine to a club its caller is a member
    of, under the same setting and taint rule, and stores `club_added` in the caller's chat. Clubs
-   hold up to 32 bots (ADR 0132, amended in ADR 0194); a message names at most four members
+   hold up to 32 bots (ADR 0132, amended in ADR 0197); a message names at most four members
    directly, more go to the lead to hand on.

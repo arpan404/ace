@@ -81,7 +81,7 @@ export const WorkspaceActionRequest = z.object({
     z.object({ op: z.literal("editors.list") }),
     /**
      * Open a project's or a thread's folder, or a file in it, on the machine running ace: in an
-     * editor `editors.list` found there, or the machine's file manager. For clients on another
+     * editor or terminal `editors.list` found there, or the machine's file manager. For clients on another
      * device (a phone); the desktop app opens editors on its own machine (ADR 0057). Exactly one
      * of `workspaceId`, `threadId` and `hostPath`. `path` is relative to the project's or
      * thread's folder and never leaves it. `hostPath` is any path on the machine, absolute or
@@ -92,6 +92,8 @@ export const WorkspaceActionRequest = z.object({
       op: z.literal("host.open"),
       app: z.discriminatedUnion("kind", [
         z.object({ kind: z.literal("editor"), editorId: id }),
+        /** A terminal `editors.list` found there, started in the folder (a file's folder). */
+        z.object({ kind: z.literal("terminal"), terminalId: id }),
         z.object({ kind: z.literal("files") }),
       ]),
       workspaceId: WorkspaceId.optional(),
@@ -168,6 +170,8 @@ export const WorkspaceActionResult = z.object({
     z.object({
       kind: z.literal("editors"),
       editors: z.array(InstalledEditor).max(32),
+      /** The terminals installed there, for `host.open`'s terminal app; absent from older hosts. */
+      terminals: z.array(InstalledEditor).max(32).optional(),
       /** The host's file manager by name ("Finder"), for `host.open`'s files app. */
       fileManager: z.string().min(1).max(64).optional(),
     }),

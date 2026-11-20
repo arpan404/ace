@@ -1,4 +1,4 @@
-# 0194: A Spade bot starts from one message and keeps its own task
+# 0197: A Spade bot starts from one message and keeps its own task
 
 Status: accepted. Date: 2026-11-19. Decided by: the owner (2026-11-19: "make the bot creation
 experience better; e.g. the first message would be the bot's main task, and later the bot can also

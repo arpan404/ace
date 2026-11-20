@@ -82,6 +82,8 @@ test("with untrusted content in view, making a bot asks the person first", async
   });
   const card = within(await screen.findByRole("group", { name: "Spade wants to make a bot" }));
   expect(card.getByText("Forwarder")).toBeTruthy();
+  // What it would be called and for; never how it is made.
+  expect(card.queryByText("standing")).toBeNull();
   expect(card.queryByRole("button", { name: "Always allow" })).toBeNull();
 });
 
