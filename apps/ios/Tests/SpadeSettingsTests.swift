@@ -20,24 +20,24 @@ import Testing
 
     @Test func aRefusedChangeSaysWhyAndKeepsThePageAsItWas() throws {
         var reads = SpadeSettingsReads()
-        reads.land(try models(key: "No key yet"), ticket: reads.begin())
+        reads.land(try models(key: "Not set"), ticket: reads.begin())
 
         let ticket = reads.begin()
         reads.changed(.failed("Couldn't keep the key", "The keychain refused the key."), ticket: ticket)
 
         #expect(reads.refusal == "Couldn't keep the key. The keychain refused the key.")
-        #expect(reads.answer?.models?.endpoints.first?.key.words == "No key yet")
+        #expect(reads.answer?.models?.endpoints.first?.key.words == "Not set")
     }
 
     @Test func aReadThatLandsAfterAChangeBeganIsDropped() throws {
         var reads = SpadeSettingsReads()
         let read = reads.begin()
         let change = reads.begin()
-        reads.changed(try models(key: "Key in this machine's keychain"), ticket: change)
+        reads.changed(try models(key: "In keychain"), ticket: change)
         // The read began before the change: what it says is older.
-        reads.land(try models(key: "No key yet"), ticket: read)
+        reads.land(try models(key: "Not set"), ticket: read)
 
-        #expect(reads.answer?.models?.endpoints.first?.key.words == "Key in this machine's keychain")
+        #expect(reads.answer?.models?.endpoints.first?.key.words == "In keychain")
         #expect(reads.refusal == nil)
     }
 
@@ -47,7 +47,7 @@ import Testing
         #expect(empty.problem == "Couldn't read Spade's settings. Spade answered 500.")
 
         var shown = SpadeSettingsReads()
-        shown.land(try models(key: "No key yet"), ticket: shown.begin())
+        shown.land(try models(key: "Not set"), ticket: shown.begin())
         shown.land(.failed("Couldn't read Spade's settings", nil), ticket: shown.begin())
         #expect(shown.problem == nil)
         #expect(shown.answer != nil)

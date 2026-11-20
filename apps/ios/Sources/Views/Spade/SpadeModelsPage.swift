@@ -68,29 +68,51 @@ struct SpadeModelsPage: View {
         .insetRowBackground()
     }
 
+    /// Where the key is, as one row: tapped, it offers what can be done with the key here.
+    /// Then the models, and removing the endpoint.
     @ViewBuilder private func endpointRows(_ endpoint: SpadeSettings.Endpoint) -> some View {
-        SpadeSettingRow(title: "Key", line: endpoint.address, value: endpoint.key.words)
+        if endpoint.key.canSet || endpoint.key.canRemove {
+            Menu {
+                if endpoint.key.canSet {
+                    Button(endpoint.key.set ? "Replace key" : "Add key", systemImage: "key") {
+                        keying = SpadeKeyTarget(id: endpoint.id, name: endpoint.name, replacing: endpoint.key.set)
+                    }
+                }
+                if endpoint.key.canRemove {
+                    Button("Remove key", systemImage: "trash", role: .destructive) {
+                        load.change { await client.spadeSettingsKey(endpoint.id, key: nil) }
+                    }
+                }
+            } label: {
+                keyRow(endpoint, chevron: true)
+            }
+            .buttonStyle(.plain)
+            .disabled(load.busy)
             .accessibilityIdentifier("spade.settings.key.\(endpoint.id)")
+        } else {
+            keyRow(endpoint, chevron: false).accessibilityIdentifier("spade.settings.key.\(endpoint.id)")
+        }
         if !endpoint.models.isEmpty {
             SpadeSettingRow(title: "Models", line: modelLine(endpoint), value: nil)
-        }
-        if endpoint.key.canSet {
-            Button(endpoint.key.set ? "Replace key" : "Add key") {
-                keying = SpadeKeyTarget(id: endpoint.id, name: endpoint.name, replacing: endpoint.key.set)
-            }
-            .disabled(load.busy)
-            .accessibilityIdentifier("spade.settings.setKey.\(endpoint.id)")
-        }
-        if endpoint.key.canRemove {
-            Button("Remove key", role: .destructive) {
-                load.change { await client.spadeSettingsKey(endpoint.id, key: nil) }
-            }
-            .disabled(load.busy)
-            .accessibilityIdentifier("spade.settings.removeKey.\(endpoint.id)")
         }
         Button("Remove \(endpoint.name)", role: .destructive) { removing = endpoint }
             .disabled(load.busy)
             .accessibilityIdentifier("spade.settings.remove.\(endpoint.id)")
+    }
+
+    private func keyRow(_ endpoint: SpadeSettings.Endpoint, chevron: Bool) -> some View {
+        InsetRow(systemImage: nil, title: "Key", subtitle: endpoint.address) {
+            HStack(spacing: AceDesign.Space.tight) {
+                InsetValue(text: endpoint.key.words)
+                if chevron {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AceDesign.Ink.subtle)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private func modelLine(_ endpoint: SpadeSettings.Endpoint) -> String {

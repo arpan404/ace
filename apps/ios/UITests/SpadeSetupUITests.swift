@@ -39,15 +39,16 @@ extension SpadeUITests {
         app.buttons["spade.settings.models"].tap()
         let key = app.descendants(matching: .any)["spade.settings.key.openrouter"]
         XCTAssertTrue(key.waitForExistence(timeout: 15))
-        XCTAssertTrue(key.label.contains("No key yet"), key.label)
+        XCTAssertTrue(key.label.contains("Not set"), key.label)
         screenshot("spade-models-light")
 
-        app.buttons["spade.settings.setKey.openrouter"].tap()
+        key.tap()
+        app.buttons["Add key"].firstMatch.tap()
         let secret = app.secureTextFields["spade.key.field"]
         XCTAssertTrue(secret.waitForExistence(timeout: 10))
         secret.typeText("sk-or-ui-test-secret")
         app.buttons["spade.key.save"].tap()
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "keychain"))
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "In keychain"))
             .matching(identifier: "spade.settings.key.openrouter").firstMatch.waitForExistence(timeout: 15))
         XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@",
                                                                              "sk-or-ui", "sk-or-ui")).firstMatch.exists)

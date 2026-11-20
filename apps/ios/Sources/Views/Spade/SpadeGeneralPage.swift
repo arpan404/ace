@@ -45,7 +45,7 @@ struct SpadeGeneralPage: View {
                             load.change { await client.spadeSettingsModel(setting.role, model: value.isEmpty ? nil : value) }
                         }
                     } label: {
-                        SpadeSettingRow(title: setting.title, line: setting.line, value: setting.words)
+                        SpadeSettingRow(title: setting.title, line: setting.words, value: nil)
                     }
                     .disabled(load.busy)
                     .accessibilityIdentifier("spade.settings.model.\(setting.role)")

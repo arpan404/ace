@@ -176,14 +176,14 @@ const hostOf = (address: string) => {
 
 function keyRow(endpoint: SpadeEndpoint, keychain: boolean): SpadeKeyRow {
   if (!endpoint.needsKey)
-    return { words: "No key needed", set: false, canSet: false, canRemove: false };
+    return { words: "Not needed", set: false, canSet: false, canRemove: false };
   if (endpoint.keySet === undefined)
-    return { words: "Checking the keychain…", set: false, canSet: false, canRemove: false };
+    return { words: "Checking…", set: false, canSet: false, canRemove: false };
   const canSet = keychain;
-  if (!endpoint.keySet) return { words: "No key yet", set: false, canSet, canRemove: false };
+  if (!endpoint.keySet) return { words: "Not set", set: false, canSet, canRemove: false };
   return endpoint.keySource === "environment"
-    ? { words: "Key from the environment", set: true, canSet, canRemove: false }
-    : { words: "Key in this machine's keychain", set: true, canSet, canRemove: true };
+    ? { words: "From environment", set: true, canSet, canRemove: false }
+    : { words: "In keychain", set: true, canSet, canRemove: true };
 }
 
 export function spadeModelsPage(models: SpadeModels): SpadeModelsPageRow {
@@ -218,7 +218,7 @@ export function spadeSearchPage(settings: SpadeSearchSettings): SpadeSearchPageR
     searxng: settings.searxngUrl,
     brave: {
       set: settings.braveKeySet,
-      words: settings.braveKeySet ? "Key in this machine's keychain" : "No key",
+      words: settings.braveKeySet ? "In keychain" : "Not set",
       canSet: settings.keychain,
     },
     keychain: settings.keychain,

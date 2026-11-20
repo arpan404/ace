@@ -121,17 +121,17 @@ test("Models and keys lists each endpoint with where its key is, and never a key
     [
       "Anthropic",
       "api.anthropic.com",
-      { words: "Key in this machine's keychain", set: true, canSet: true, canRemove: true },
+      { words: "In keychain", set: true, canSet: true, canRemove: true },
     ],
     [
       "OpenRouter",
       "openrouter.ai",
-      { words: "No key yet", set: false, canSet: true, canRemove: false },
+      { words: "Not set", set: false, canSet: true, canRemove: false },
     ],
     [
       "Local server",
       "localhost:11434",
-      { words: "No key needed", set: false, canSet: false, canRemove: false },
+      { words: "Not needed", set: false, canSet: false, canRemove: false },
     ],
   ]);
   expect(answer.models.endpoints[0]?.models).toEqual(["Claude Sonnet 4.5", "Claude Haiku 4.5"]);
@@ -153,7 +153,7 @@ test("a key typed on the phone goes to Spade's keychain once, and its value is n
 
   const removed = await ask({ type: "spade.settings.key", endpoint: "openrouter", key: null });
   if (!("models" in removed)) throw new Error(JSON.stringify(removed));
-  expect(removed.models.endpoints[1]?.key).toMatchObject({ set: false, words: "No key yet" });
+  expect(removed.models.endpoints[1]?.key).toMatchObject({ set: false, words: "Not set" });
 });
 
 test("on a machine with no keychain a key can't be set here, and the page says to use the environment", async () => {
@@ -172,7 +172,7 @@ test("on a machine with no keychain a key can't be set here, and the page says t
   expect(answer.models.keychain).toBe(false);
   expect(answer.models.note).toMatch(/environment/);
   expect(answer.models.endpoints[1]?.key).toEqual({
-    words: "Key from the environment",
+    words: "From environment",
     set: true,
     canSet: false,
     canRemove: false,
@@ -231,7 +231,7 @@ test("Web search keeps the person's SearXNG address and a Brave key, which never
   if (!("search" in brave)) throw new Error(JSON.stringify(brave));
   expect(brave.search.brave).toEqual({
     set: true,
-    words: "Key in this machine's keychain",
+    words: "In keychain",
     canSet: true,
   });
   expect(JSON.stringify(brave)).not.toContain("brave-secret-9");
