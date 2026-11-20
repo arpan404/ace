@@ -203,6 +203,9 @@ import QuartzCore
     /// Frames held to apply together on the next flush.
     @ObservationIgnored private let batch = FrameBatch()
     @ObservationIgnored private var flushTask: Task<Void, Never>?
+    /// The current runtime's decoded frames, waiting for the main thread (`FrameIntake`).
+    @ObservationIgnored private var intake = FrameIntake()
+    @ObservationIgnored private var takingFrames = false
     @ObservationIgnored private let frameTiming: FrameTiming
     @ObservationIgnored private var sawFrame = false
     /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
@@ -268,12 +271,15 @@ import QuartzCore
         shutdown = nil
         // Frames are decoded off both the main thread and the script's; the main thread applies them.
         let decoder = FrameDecoder()
+        let intake = FrameIntake()
+        self.intake = intake
+        let answers = FrameAnswers()
         let runtime = makeRuntime(target, database, { [weak self] data in
             decoder.decode(data) { patches in
+                if let accepted = intake.push(patches, bytes: data.count) { answers.acknowledge(accepted) }
                 Task { @MainActor in
                     guard let self, self.runtimeEpoch == epoch else { return }
-                    let accepted = self.hold(patches, bytes: data.count)
-                    self.runtime?.acknowledge(accepted: accepted)
+                    self.takeFrames()
                 }
             }
         }, { [weak self] message in Task { @MainActor in
@@ -281,6 +287,7 @@ import QuartzCore
             self.error = message
         } })
         self.runtime = runtime
+        answers.bind(runtime)
         // The restored inbox's sort, so the live list opens in the order already on screen.
         runtime.start(itemLimit: itemLimit, inboxSort: inboxLayout.sortBy)
         if readAheadAllowed { action(["type": "readAhead", "allowed": true]) }
@@ -320,6 +327,7 @@ import QuartzCore
     /// leaving a thread, ending the runtime) flushes first, so a frame the bridge was told is
     /// shown is never dropped.
     func flushFrames() {
+        takeFrames()
         flushTask?.cancel(); flushTask = nil
         let bytes = batch.bytes
         let patches = batch.take(at: frameTiming.now())
@@ -345,6 +353,18 @@ import QuartzCore
             guard !Task.isCancelled, let self else { return }
             self.flushTask = nil
             self.flushFrames()
+        }
+    }
+    /// Holds the frames decoded since last time, in arrival order, and answers those only the main
+    /// thread could (`FrameIntake`). A frame held here can flush the batch; frames decoded meanwhile
+    /// wait for the next turn, so none is held ahead of one before it.
+    private func takeFrames() {
+        guard !takingFrames else { return }
+        takingFrames = true
+        defer { takingFrames = false }
+        for frame in intake.take() {
+            let accepted = hold(frame.patches, bytes: frame.bytes)
+            if !frame.answered { runtime?.acknowledge(accepted: accepted) }
         }
     }
     /// Patches the person is waiting on, which never wait for the batch.

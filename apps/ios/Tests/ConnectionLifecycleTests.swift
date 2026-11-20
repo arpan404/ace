@@ -43,6 +43,33 @@ import Testing
         await model.disconnectAndWait()
     }
 
+    /// Opening a thread sends its window over several frames, each sent once the one before is
+    /// acknowledged. A busy main thread (laying out the screen being pushed) must not hold that
+    /// back: a frame it can't turn down is acknowledged as soon as it is decoded, and applies in
+    /// arrival order once the main thread is free. A streaming text edit, checked against the
+    /// text on screen, still waits for the main thread.
+    @Test func framesAreAcknowledgedWhileTheMainThreadIsBusyAndApplyInOrder() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("first"), directory: directory)
+        let session = try #require(sessions.values.first)
+        session.emit("connecting")
+        session.emit("ready")
+        session.receive(Data(#"[{"type":"thread.item.text","threadId":"t","epoch":1,"id":"a","base":0,"cut":0,"append":"x"}]"#.utf8))
+        // The main thread stays busy here: nothing it runs can acknowledge a frame meanwhile.
+        busy(until: { session.acks.count >= 2 })
+        #expect(session.acks == [true, true])
+        #expect(model.connection != "ready")
+        // Free again, it applies them in the order they came, then answers the text edit.
+        await settle { model.connection == "ready" && session.acks.count == 3 }
+        #expect(model.connection == "ready")
+        #expect(session.acks == [true, true, true])
+        model.disconnect()
+        await drain()
+        session.finishShutdown()
+        await model.disconnectAndWait()
+    }
+
     @Test func disconnectCancelsAReplacementWaitingForThePreviousRuntime() async throws {
         let sessions = Sessions()
         let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
@@ -189,6 +216,11 @@ import Testing
         return ["type": "thread.item", "threadId": "thread", "epoch": epoch, "id": id, "row": row]
     }
     private func frame(_ values: [[String: Any]]) throws -> Data { try JSONSerialization.data(withJSONObject: values) }
+    /// Keeps the main thread busy, as a long layout does, until `done` or five seconds.
+    private func busy(until done: () -> Bool) {
+        let deadline = Date().addingTimeInterval(5)
+        while !done(), Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+    }
     private func drain() async { for _ in 0..<20 { await Task.yield() } }
     /// Until `done`, for at most a second: what crosses the decoder's queue lands in its own time.
     private func settle(_ done: () -> Bool) async {
@@ -224,7 +256,10 @@ private final class Session: ClientSession, @unchecked Sendable {
         guard let value = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return }
         lock.withLock { sent.append(value) }
     }
-    func acknowledge(accepted: Bool) {}
+    /// Each frame's acknowledgement, in the order the model gave them.
+    var acks: [Bool] { lock.withLock { acknowledged } }
+    private var acknowledged: [Bool] = []
+    func acknowledge(accepted: Bool) { lock.withLock { acknowledged.append(accepted) } }
     func stop(completion: @escaping @Sendable () -> Void) { lock.withLock { stopped = completion } }
     func finishShutdown() {
         let completion = lock.withLock { let result = stopped; stopped = nil; return result }
