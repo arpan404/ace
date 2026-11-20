@@ -207,39 +207,28 @@ pub fn scoped(events: &[Event]) -> Vec<&Request> {
 }
 
 /// The calls that held reply `reply` while it ran: each delivered before it started, with no
-/// reply's end between, or during it. A helper the reply started stays held to them for as long
-/// as it lives.
+/// reply's end between, or during it (a restart's interruption carries it on in a new reply). A
+/// helper the reply started stays held to them for as long as it lives. Read back from the end to
+/// that reply, so it costs the events since the reply began, not history.
 pub fn scoped_by_reply<'a>(events: &'a [Event], reply: &str) -> Vec<&'a Request> {
-    let mut since_end: Vec<&Request> = Vec::new();
+    let started = |event: &Event| matches!(event, Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply);
+    let Some(start) = events.iter().rposition(started) else {
+        return Vec::new();
+    };
+    let from = events[..start]
+        .iter()
+        .rposition(reply_end)
+        .map_or(0, |at| at + 1);
+    let to = events[start..]
+        .iter()
+        .position(reply_end)
+        .map_or(events.len(), |at| start + at);
     let mut held: Vec<&Request> = Vec::new();
-    let mut in_it = false;
-    for event in events {
-        if let Some(request) = request_of(event) {
-            since_end.push(request);
-            if in_it {
-                held.push(request);
-            }
-        }
-        match event {
-            Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply => {
-                in_it = true;
-                held.extend(since_end.iter().copied());
-            }
-            event if reply_end(event) => {
-                if in_it {
-                    break;
-                }
-                since_end.clear();
-            }
-            _ => {}
+    for request in events[from..to].iter().filter_map(request_of) {
+        if !held.iter().any(|h| h.call == request.call) {
+            held.push(request);
         }
     }
-    let mut seen: Vec<&str> = Vec::new();
-    held.retain(|request| {
-        let first = !seen.contains(&request.call.as_str());
-        seen.push(&request.call);
-        first
-    });
     held
 }
 
