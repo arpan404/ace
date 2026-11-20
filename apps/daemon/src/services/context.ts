@@ -8,6 +8,7 @@ import { aceFilesIo } from "../files-tool/io.ts";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { ContextError, ContextService, summarizeThreadReference } from "@ace/context";
+import { deviceContextText } from "../thread-address/device-context.ts";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
@@ -73,6 +74,8 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
       );
     },
     botReplies: (thread, keys) => services.threadAsks?.repliesText(ThreadId.parse(thread), keys),
+    device: async (_thread, item) =>
+      deviceContextText(item, item.machine.here ? [] : ((await services.fleet?.links()) ?? [])),
     threadWorkspaceRoot: async (thread) => {
       const entity = store.getThread(ThreadId.parse(thread));
       const path = entity ? store.getWorkspacePath(entity.workspaceId) : undefined;

@@ -67,9 +67,41 @@ export const BotRepliesContextItem = z.strictObject({
   keys: z.array(z.string().min(1).max(256)).min(1).max(32),
 });
 export type BotRepliesContextItem = z.infer<typeof BotRepliesContextItem>;
+/**
+ * A device the person named with `@` for this work (ADR 0194): a machine of the fleet, or a
+ * phone, simulator or emulator ace knows on one, as the person's app last saw it. The daemon
+ * checks the machine again when the message goes and tells the agent how to use it; a machine
+ * it no longer knows is left out.
+ */
+export const DeviceContextItem = z.strictObject({
+  type: z.literal("device"),
+  id: z.string().min(1).max(256),
+  name: z.string().min(1).max(256),
+  kind: z.enum([
+    "laptop",
+    "desktop",
+    "server",
+    "phone",
+    "tablet",
+    "browser",
+    "simulator",
+    "emulator",
+  ]),
+  machine: z.strictObject({
+    id: z.string().min(1).max(256),
+    name: z.string().min(1).max(256),
+    /** The machine this thread runs on. */
+    here: z.boolean(),
+  }),
+  os: z.string().max(64).optional(),
+  model: z.string().max(256).optional(),
+  online: z.boolean(),
+});
+export type DeviceContextItem = z.infer<typeof DeviceContextItem>;
 export const MessageContextItem = z.discriminatedUnion("type", [
   ThreadRefContextItem,
   BotRepliesContextItem,
+  DeviceContextItem,
   BrowserTabContextItem,
   BrowserAnnotationsContextItem,
 ]);
