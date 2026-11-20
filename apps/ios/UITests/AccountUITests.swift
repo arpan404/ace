@@ -14,13 +14,13 @@ import XCTest
         let support = app.descendants(matching: .any)["settings.support"].firstMatch
         for _ in 0..<8 where !support.isHittable { app.swipeUp() }
         screenshot("settings-legal")
-        for (id, page) in [("settings.legal.terms", "acehq.dev/terms-of-service"),
-                           ("settings.legal.privacy", "acehq.dev/privacy-policy"),
-                           ("settings.support", "acehq.dev/support")] {
+        for (id, page) in [("settings.legal.terms", "https://acehq.dev/terms-of-service/"),
+                           ("settings.legal.privacy", "https://acehq.dev/privacy-policy/"),
+                           ("settings.support", "https://acehq.dev/support/")] {
             let link = app.descendants(matching: .any)[id].firstMatch
             for _ in 0..<8 where !link.isHittable { app.swipeUp() }
             link.tap()
-            XCTAssertTrue(safariShows(page), "\(id) opens https://\(page)")
+            XCTAssertEqual(safariAddress(), page, "\(id) opens \(page)")
             app.activate()
             XCTAssertTrue(link.waitForExistence(timeout: 10), "back on Settings")
         }
@@ -81,10 +81,10 @@ import XCTest
         XCTAssertTrue(terms.exists)
         XCTAssertEqual(terms.label, "Terms of service")
         screenshot("profile-legal")
-        for (link, page) in [(terms, "acehq.dev/terms-of-service"), (privacy, "acehq.dev/privacy-policy")] {
+        for (link, page) in [(terms, "https://acehq.dev/terms-of-service/"), (privacy, "https://acehq.dev/privacy-policy/")] {
             for _ in 0..<8 where !link.isHittable { app.swipeUp() }
             link.tap()
-            XCTAssertTrue(safariShows(page), "\(link.label) opens https://\(page)")
+            XCTAssertEqual(safariAddress(), page, "\(link.label) opens \(page)")
             app.activate()
             XCTAssertTrue(link.waitForExistence(timeout: 10), "back on Profile")
         }
@@ -184,20 +184,22 @@ import XCTest
         return try await URLSession.shared.data(for: request).0
     }
 
-    /// Safari came forward, and its address bar, read without tapping, names `page`. At rest
-    /// the bar may show only the domain; then the domain is checked. When no address can be
-    /// read, coming forward is all this can see.
-    private func safariShows(_ page: String) -> Bool {
+    /// The full address Safari opened, read from its address field: tapping the bar shows the
+    /// whole URL where, at rest, it may show only the domain. `https://` is added when Safari
+    /// leaves the scheme out. Nil when Safari didn't come forward or no address could be read.
+    private func safariAddress() -> String? {
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
-        guard safari.wait(for: .runningForeground, timeout: 15) else { return false }
+        guard safari.wait(for: .runningForeground, timeout: 15) else { return nil }
         let bar = safari.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier IN {'URL', 'Address', 'TabBarItemTitle'}"))
-        let read = bar.allElementsBoundByIndex.compactMap { $0.value as? String }.filter { !$0.isEmpty }
-        guard !read.isEmpty else { return true }
-        let domain = String(page.prefix { $0 != "/" })
-        if read.contains(where: { $0.contains(page) }) { return true }
-        // Only a bare domain is shown: it must be the page's.
-        return read.allSatisfy { !$0.contains("/") } && read.contains { $0.contains(domain) }
+            .matching(NSPredicate(format: "identifier IN {'URL', 'Address', 'TabBarItemTitle'}")).firstMatch
+        guard bar.waitForExistence(timeout: 15) else { return nil }
+        bar.tap()
+        let field = safari.textFields.matching(NSPredicate(format: "identifier IN {'URL', 'Address'}")).firstMatch
+        guard field.waitForExistence(timeout: 10), let value = field.value as? String, !value.isEmpty else { return nil }
+        // Leave the address as it was.
+        let cancel = safari.buttons["Cancel"]
+        if cancel.exists { cancel.tap() }
+        return value.hasPrefix("http") ? value : "https://\(value)"
     }
 
     private func launch(_ extra: [String] = []) -> XCUIApplication {
