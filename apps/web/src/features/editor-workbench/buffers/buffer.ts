@@ -385,6 +385,7 @@ export class Buffer implements TextBuffer {
         this.#base = { text, version: result.version };
         this.#clash = undefined;
         if (doc.version() === at) this.#markClean();
+        else this.#unclean();
         this.#cancelDraft?.();
         this.#cancelDraft = undefined;
         void this.#persist();
@@ -418,11 +419,7 @@ export class Buffer implements TextBuffer {
         this.#base = theirs;
         this.#clash = newer && { kind: "changed", theirs: newer, by };
         if (text === theirs.text && !newer) this.#markClean();
-        else {
-          this.#cleanAt = Number.NaN;
-          this.#dirty = true;
-          this.#emit({ type: "state" });
-        }
+        else this.#unclean();
         void this.#persist();
       },
     };
@@ -474,6 +471,18 @@ export class Buffer implements TextBuffer {
     const doc = this.#doc;
     if (doc) this.#cleanAt = doc.version();
     this.#dirty = false;
+    this.#emit({ type: "state" });
+  }
+
+  /**
+   * The base moved under text typed since: the buffer is unsaved against it, even if an earlier
+   * look marked the text clean against the old base. A draft write marks it clean again when the
+   * text matches the new base after all.
+   */
+  #unclean(): void {
+    this.#cleanAt = Number.NaN;
+    if (this.#dirty) return;
+    this.#dirty = true;
     this.#emit({ type: "state" });
   }
 
