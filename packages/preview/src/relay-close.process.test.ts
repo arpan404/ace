@@ -306,8 +306,10 @@ test.each(["peer reset", "mux close"])(
 );
 
 /** Waits on real I/O: up to five seconds for `condition`. */
+// Generous: these runs move tens of megabytes over real sockets, and a loaded machine stretches
+// them. A condition that holds returns as soon as it does; only a failure waits this long.
 const within = async (condition: () => boolean) => {
-  for (const started = Date.now(); !condition() && Date.now() - started < 5_000;)
+  for (const started = Date.now(); !condition() && Date.now() - started < 15_000;)
     await new Promise((resolve) => setTimeout(resolve, 5));
   if (!condition()) throw new Error("Condition never held");
 };
@@ -399,6 +401,15 @@ async function overRealTcp(serve: (socket: Socket) => void, reads: "at once" | "
     /** Lets a held browser read from now on. */
     read: () => browser.resume(),
     hold: () => browser.pause(),
+    /** Lets a held browser read one chunk, then holds it again, however long that takes. */
+    readOne: () =>
+      new Promise<void>((resolve) => {
+        browser.once("data", () => {
+          browser.pause();
+          resolve();
+        });
+        browser.resume();
+      }),
   };
 }
 
@@ -413,15 +424,15 @@ test.each(["at once", "held"] as const)(
       socket.once("data", () => socket.end(answer));
     }, reads);
     if (reads === "held") {
-      // The browser reads in short bursts, so the machine sends the whole answer and its END,
-      // and its socket closes, while part of the answer still waits on the device's side.
+      // The browser reads one chunk at a time with pauses between, so the machine sends the
+      // whole answer and its END, and its socket closes, while part of the answer still waits on
+      // the device's side. A burst is one chunk, not a span of time, so a loaded machine that
+      // runs late still leaves the rest unread.
       const machineEnded = () =>
         run.frames.some((frame) => frame.from === "machine" && frame.kind === kinds.end);
-      for (let bursts = 0; !machineEnded() && bursts < 500; bursts++) {
-        run.read();
-        await sleep(2);
-        run.hold();
-        await sleep(20);
+      for (let bursts = 0; !machineEnded() && bursts < 2000; bursts++) {
+        await run.readOne();
+        await sleep(5);
       }
       await sleep(50);
       expect(machineEnded()).toBe(true);
