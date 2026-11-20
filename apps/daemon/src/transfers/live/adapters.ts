@@ -192,6 +192,7 @@ export function liveTargetPorts(
     ownership: ThreadOwnership;
     git: TransferGit;
     archive: TransferArchive;
+    newSessionId(): string;
     log(message: string, fields: Record<string, unknown>): void;
   },
 ): LiveTargetPorts {
@@ -201,6 +202,7 @@ export function liveTargetPorts(
     ownership: input.ownership,
     git: input.git,
     archive: input.archive,
+    newSessionId: input.newSessionId,
     account: (provider) => account(context, provider),
     threadCwd(threadId) {
       try {
