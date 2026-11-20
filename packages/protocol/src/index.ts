@@ -1,4 +1,5 @@
 export * from "./extension-catalog.ts";
+export * from "./close-report.ts";
 export * from "./skill-library.ts";
 export * from "./contained-path.ts";
 export * from "./spade.ts";
