@@ -13,7 +13,6 @@ import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { useTellZone } from "./use-spade-zone.ts";
 import { LoadingRows } from "./spade-settings-loading.tsx";
 import { CouldNotRead, fault, Refusal } from "./spade-settings-rows.tsx";
-import { useSpadeRoster } from "./use-spade-roster.ts";
 
 /**
  * Spending and the model review (ADR 0135) as Settings › Spade › General holds them: read once,
@@ -88,16 +87,9 @@ function ReviewDefaultRow(props: {
   );
 }
 
-/**
- * What every bot spent together this month and today, then each bot that spent this month,
- * live: information only (ADR 0166).
- */
+/** What every bot spent together this month and today, read live: information only (ADR 0166). */
 export function SpendingSection(props: { settings: OversightSettings }) {
   const { oversight } = props.settings;
-  const roster = useSpadeRoster(oversight.isSuccess);
-  const spenders = roster.bots
-    .filter((bot) => bot.machine.primary && (bot.spending?.monthMicros ?? 0) > 0)
-    .toSorted((a, b) => (b.spending?.monthMicros ?? 0) - (a.spending?.monthMicros ?? 0));
   const label = "Spending, every bot together";
   if (oversight.isPending)
     return (
@@ -126,19 +118,6 @@ export function SpendingSection(props: { settings: OversightSettings }) {
       >
         <span className="text-ui text-foreground tabular-nums">{spadeMoney(data.monthMicros)}</span>
       </SettingRow>
-      {spenders.map((bot) => (
-        <SettingRow
-          key={bot.id}
-          title={bot.name}
-          description={`${spadeMoney(bot.spending?.todayMicros ?? 0)} today`}
-          density="compact"
-          inline
-        >
-          <span className="text-ui text-muted-foreground tabular-nums">
-            {spadeMoney(bot.spending?.monthMicros ?? 0)}
-          </span>
-        </SettingRow>
-      ))}
     </SettingSection>
   );
 }
