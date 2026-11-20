@@ -118,6 +118,8 @@ describe("coverage", () => {
 });
 
 describe("redirects", () => {
+  const cloudUrl = "https://cloud.acehq.dev";
+
   it("fails on a redirect with the wrong app in its path", () => {
     const entry = broker({
       id: "g",
@@ -127,21 +129,28 @@ describe("redirects", () => {
         "https://cloud.acehq.dev/v1/oauth/callback/google-doc",
       ],
     });
-    expect(checkRedirects(registry(entry))).toEqual([
+    expect(checkRedirects(registry(entry), cloudUrl)).toEqual([
       "g: redirects differ from the cloud callbacks (missing https://cloud.acehq.dev/v1/oauth/callback/google-docs; extra https://cloud.acehq.dev/v1/oauth/callback/google-doc)",
+    ]);
+  });
+
+  it("fails when wrangler.jsonc's production origin changes", () => {
+    const entry = broker({ id: "a", apps: ["a"] });
+    expect(checkRedirects(registry(entry), "https://new-cloud.acehq.dev/")).toEqual([
+      "a: redirects differ from the cloud callbacks (missing https://new-cloud.acehq.dev/v1/oauth/callback/a; extra https://cloud.acehq.dev/v1/oauth/callback/a)",
     ]);
   });
 
   it("fails on a redirect listed twice", () => {
     const callback = "https://cloud.acehq.dev/v1/oauth/callback/a";
     const entry = broker({ id: "a", apps: ["a"], redirects: [callback, callback] });
-    expect(checkRedirects(registry(entry))).toHaveLength(1);
+    expect(checkRedirects(registry(entry), cloudUrl)).toHaveLength(1);
   });
 
   it("passes when the redirects match in another order", () => {
     const entry = broker({ id: "g", apps: ["a", "b"] });
     entry.redirects.reverse();
-    expect(checkRedirects(registry(entry))).toEqual([]);
+    expect(checkRedirects(registry(entry), cloudUrl)).toEqual([]);
   });
 });
 

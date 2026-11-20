@@ -1,11 +1,11 @@
-import {
-  BROKER_CALLBACK,
-  type BrokerEntry,
-  type CloudApp,
-  type Identity,
-  type LegalSite,
-  type PublicConfig,
-  type Registry,
+import { brokerCallback } from "@ace/cloud/apps";
+import type {
+  BrokerEntry,
+  CloudApp,
+  Identity,
+  LegalSite,
+  PublicConfig,
+  Registry,
 } from "./types.ts";
 
 /**
@@ -57,10 +57,10 @@ export function checkCoverage(registry: Registry, apps: readonly CloudApp[]): st
 }
 
 /** Rule 2: a broker registration's redirects are the cloud callbacks for its apps, one each. */
-export function checkRedirects(registry: Registry): string[] {
+export function checkRedirects(registry: Registry, cloudPublicUrl: string): string[] {
   const problems: string[] = [];
   for (const entry of brokers(registry)) {
-    const expected = entry.apps.map((id) => `${BROKER_CALLBACK}${id}`);
+    const expected = entry.apps.map((id) => brokerCallback(cloudPublicUrl, id));
     if (!sameSet(entry.redirects, expected))
       problems.push(
         `${entry.id}: redirects differ from the cloud callbacks (${describe(
@@ -196,6 +196,7 @@ export function checkGenerated(
 
 export type Facts = {
   apps: readonly CloudApp[];
+  cloudPublicUrl: string;
   config: PublicConfig;
   site: LegalSite;
 };
@@ -204,7 +205,7 @@ export type Facts = {
 export function checkRegistry(registry: Registry, facts: Facts): string[] {
   return [
     ...checkCoverage(registry, facts.apps),
-    ...checkRedirects(registry),
+    ...checkRedirects(registry, facts.cloudPublicUrl),
     ...checkScopes(registry, facts.apps),
     ...checkSecrets(registry, facts.apps),
     ...checkPublic(registry, facts.config),

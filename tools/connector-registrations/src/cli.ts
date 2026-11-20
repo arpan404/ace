@@ -35,17 +35,19 @@ try {
   if (command === "render" && rest.length === 0) process.exitCode = await render();
   else if ((command === "check" || command === "--check") && rest.length === 0)
     process.exitCode = await check();
-  else if (command === "slack")
+  else if (command === "slack") {
+    const facts = await loadFacts(repoRoot);
     process.exitCode = await runSlack({
       registry: await loadRegistry(repoRoot),
+      apps: facts.apps,
+      cloudPublicUrl: facts.cloudPublicUrl,
       args: rest,
       token: process.env.SLACK_CONFIG_TOKEN,
-      isTTY: process.stdout.isTTY === true,
       fetch: (url, init) => fetch(url, init),
       out: (line) => console.log(line),
       err: (line) => console.error(line),
     });
-  else {
+  } else {
     console.error(usage);
     process.exitCode = 1;
   }

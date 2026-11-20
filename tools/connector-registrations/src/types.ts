@@ -5,8 +5,6 @@ import { z } from "zod";
  * person types into the maker's console, and how far along each one is. Never a secret.
  */
 
-/** Where every broker app's maker sends the person back to (ace cloud, `apps/cloud`). */
-export const BROKER_CALLBACK = "https://cloud.acehq.dev/v1/oauth/callback/";
 /** Spade's OAuth client ID metadata document (ADR 0136), served by the marketing site. */
 export const CLIENT_DOCUMENT = "https://acehq.dev/oauth/spade.json";
 /** Spade's loopback redirect for approval apps; any port, as RFC 8252 allows. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSlackApp, type Fetch, runSlack, SLACK_CREATE_URL, type SlackRun } from "./slack.ts";
-import type { BrokerEntry, Registry } from "./types.ts";
+import type { BrokerEntry, CloudApp, Registry } from "./types.ts";
 
 const slack: BrokerEntry = {
   id: "slack",
@@ -20,13 +20,20 @@ const slack: BrokerEntry = {
   where: "Your Apps.",
 };
 
+const cloudSlack: CloudApp = {
+  id: "slack",
+  scopes: ["search:read.public", "chat:write"],
+  client_id_env: "SPADE_CLOUD_SLACK_CLIENT_ID",
+  client_secret_env: "SPADE_CLOUD_SLACK_CLIENT_SECRET",
+};
+
 const registry: Registry = {
   about: "test",
   app: {
     name: "Spade",
     homepage: "https://acehq.dev",
-    privacy: "https://acehq.dev/privacy",
-    terms: "https://acehq.dev/terms",
+    privacy: "https://acehq.dev/privacy-policy/",
+    terms: "https://acehq.dev/terms-of-service/",
     description: "Spade, the assistant.",
     logo: "icon.png",
     contact: "team@example.com",
@@ -58,9 +65,10 @@ function run(overrides: Partial<SlackRun> & Pick<SlackRun, "fetch">) {
   const err: string[] = [];
   const options: SlackRun = {
     registry,
+    apps: [cloudSlack],
+    cloudPublicUrl: "https://cloud.acehq.dev",
     args: ["--yes"],
     token: "xoxe.xoxp-config",
-    isTTY: true,
     out: (line) => out.push(line),
     err: (line) => err.push(line),
     ...overrides,
@@ -103,16 +111,44 @@ describe("creating Spade's Slack app", () => {
     });
   });
 
-  it("prints the client ID, both wrangler commands, and the secret exactly once", async () => {
+  it("prints the app ID, client ID, both wrangler commands, and Basic Information, never the secret", async () => {
     const { fetch } = fakeSlack(created);
-    const { done, out } = run({ fetch });
+    const { done, out, err } = run({ fetch });
     expect(await done).toBe(0);
     const text = out.join("\n");
+    expect(text).toContain("Created Slack app A0SPADE.");
     expect(text).toContain("Client ID: 123.456");
     expect(text).toContain("wrangler secret put SPADE_CLOUD_SLACK_CLIENT_ID --env production");
     expect(text).toContain("wrangler secret put SPADE_CLOUD_SLACK_CLIENT_SECRET --env production");
-    expect(text.split("s3cr3t-value")).toHaveLength(2);
+    expect(text).toContain("Basic Information");
+    expect(text).toContain("https://api.slack.com/apps/A0SPADE/general");
+    expect(text).not.toContain("s3cr3t-value");
+    expect(err.join("\n")).not.toContain("s3cr3t-value");
     expect(text).not.toContain("xoxe.xoxp-config");
+  });
+
+  it("refuses before calling Slack when redirect, scopes, or secret names drift from the broker", async () => {
+    const { fetch, calls } = fakeSlack(created);
+    const drifted: Registry = {
+      ...registry,
+      registrations: [
+        {
+          ...slack,
+          redirects: ["https://example.org/wrong"],
+          scopes: ["users:read"],
+          secrets: ["WRONG_ID", "SPADE_CLOUD_SLACK_CLIENT_SECRET"],
+        },
+      ],
+    };
+    const { done, out, err } = run({ fetch, registry: drifted });
+    expect(await done).toBe(1);
+    expect(calls).toEqual([]);
+    expect(out).toEqual([]);
+    expect(err).toEqual([
+      "slack: redirects differ from the cloud callbacks (missing https://cloud.acehq.dev/v1/oauth/callback/slack; extra https://example.org/wrong)",
+      "slack: scopes differ from apps.ts (missing search:read.public, chat:write; extra users:read)",
+      "slack: secrets WRONG_ID, SPADE_CLOUD_SLACK_CLIENT_SECRET but slack reads SPADE_CLOUD_SLACK_CLIENT_ID, SPADE_CLOUD_SLACK_CLIENT_SECRET",
+    ]);
   });
 
   it("refuses without --yes, and asks Slack nothing", async () => {
@@ -121,14 +157,6 @@ describe("creating Spade's Slack app", () => {
     expect(await done).toBe(1);
     expect(calls).toEqual([]);
     expect(err.join("\n")).toContain("--yes");
-  });
-
-  it("refuses when output isn't a terminal, before creating anything", async () => {
-    const { fetch, calls } = fakeSlack(created);
-    const { done, out } = run({ fetch, isTTY: false });
-    expect(await done).toBe(1);
-    expect(calls).toEqual([]);
-    expect(out).toEqual([]);
   });
 
   it("refuses without a configuration token", async () => {

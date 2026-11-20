@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 // The shipped list itself, through @ace/cloud's export, so the check never holds a copy of it.
 import { SHIPPED_APPS } from "@ace/cloud/apps";
+import { parse as parseJsonc, type ParseError } from "jsonc-parser";
+import { z } from "zod";
 import type { Facts } from "./check.ts";
 import { type LegalSite, PublicConfig, Registry } from "./types.ts";
 
@@ -11,6 +13,7 @@ export const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 export const paths = {
   registry: "tools/connector-registrations/registry.json",
+  wrangler: "apps/cloud/wrangler.jsonc",
   publicConfig: "spade/config/connector-apps.json",
   legal: "apps/marketing/src/content/legal.ts",
   redirects: "apps/marketing/public/_redirects",
@@ -44,6 +47,24 @@ export async function loadRegistry(root: string): Promise<Registry> {
   return parsed.data;
 }
 
+const CloudWrangler = z.object({
+  env: z.object({
+    production: z.object({
+      vars: z.object({
+        ACE_ACCOUNT_PUBLIC_URL: z.url(),
+      }),
+    }),
+  }),
+});
+
+/** The production origin in `apps/cloud/wrangler.jsonc`, from which the broker builds callbacks. */
+export function parseCloudPublicUrl(source: string): string {
+  const errors: ParseError[] = [];
+  const raw: unknown = parseJsonc(source, errors, { allowTrailingComma: true });
+  if (errors.length > 0) throw new Error(`${paths.wrangler}: invalid JSONC`);
+  return CloudWrangler.parse(raw).env.production.vars.ACE_ACCOUNT_PUBLIC_URL;
+}
+
 /** `_redirects` rules (Cloudflare Pages): `from to [status]` per line, `#` for comments. */
 export function parseRedirects(text: string): Map<string, string> {
   const rules = new Map<string, string>();
@@ -66,10 +87,11 @@ export function parseLegalPaths(source: string): Pick<LegalSite, "privacyPath" |
 }
 
 export async function loadFacts(root: string): Promise<Facts> {
+  const cloudPublicUrl = parseCloudPublicUrl(await readRequired(root, paths.wrangler));
   const config = PublicConfig.parse(JSON.parse(await readRequired(root, paths.publicConfig)));
   const legal = parseLegalPaths(await readRequired(root, paths.legal));
   const redirects = parseRedirects((await read(root, paths.redirects)) ?? "");
-  return { apps: SHIPPED_APPS, config, site: { ...legal, redirects } };
+  return { apps: SHIPPED_APPS, cloudPublicUrl, config, site: { ...legal, redirects } };
 }
 
 export async function readDoc(root: string): Promise<string | undefined> {

@@ -1,12 +1,13 @@
 import { z } from "zod";
+import { checkRedirects, checkScopes, checkSecrets } from "./check.ts";
 import { secretCommand, slackManifest } from "./render.ts";
-import type { BrokerEntry, Registry } from "./types.ts";
+import type { BrokerEntry, CloudApp, Registry } from "./types.ts";
 
 /**
  * The one registration a command can do: Slack creates an app from a manifest
  * (`apps.manifest.create`, with an app configuration token that has `app_configurations:write`)
- * and answers with its client ID and secret. The secret is printed once, to a terminal, and
- * written nowhere.
+ * and answers with its app ID and client ID. The client secret is never printed: the operator
+ * reads it from Slack's Basic Information page when setting the Worker secret.
  */
 
 export const SLACK_CREATE_URL = "https://slack.com/api/apps.manifest.create";
@@ -24,7 +25,7 @@ const Failed = z.object({
   errors: z.array(z.object({ message: z.string(), pointer: z.string().optional() })).optional(),
 });
 
-export type SlackApp = { appId: string; clientId: string; clientSecret: string };
+export type SlackApp = { appId: string; clientId: string };
 
 /** Posts the manifest. Throws with Slack's own error when it refuses. */
 export async function createSlackApp(
@@ -46,7 +47,6 @@ export async function createSlackApp(
     return {
       appId: created.data.app_id,
       clientId: created.data.credentials.client_id,
-      clientSecret: created.data.credentials.client_secret,
     };
   const failed = Failed.safeParse(body);
   if (!failed.success) throw new Error(`Slack answered HTTP ${response.status} without a result`);
@@ -58,10 +58,10 @@ export async function createSlackApp(
 
 export type SlackRun = {
   registry: Registry;
+  apps: readonly CloudApp[];
+  cloudPublicUrl: string;
   args: readonly string[];
   token: string | undefined;
-  /** Whether standard output is a terminal; the secret is never printed into a pipe or file. */
-  isTTY: boolean;
   fetch: Fetch;
   out: (line: string) => void;
   err: (line: string) => void;
@@ -83,13 +83,6 @@ export async function runSlack(run: SlackRun): Promise<number> {
     );
     return 1;
   }
-  if (!run.isTTY) {
-    run.err(
-      "Standard output isn't a terminal. The client secret is printed once and must not land " +
-        "in a file or log; run this in a terminal.",
-    );
-    return 1;
-  }
   const slack = run.registry.registrations.find(
     (entry): entry is BrokerEntry => entry.kind === "broker" && entry.id === "slack",
   );
@@ -97,17 +90,28 @@ export async function runSlack(run: SlackRun): Promise<number> {
     run.err("registry.json has no slack broker entry");
     return 1;
   }
+  const onlySlack: Registry = { ...run.registry, registrations: [slack] };
+  const problems = [
+    ...checkRedirects(onlySlack, run.cloudPublicUrl),
+    ...checkScopes(onlySlack, run.apps),
+    ...checkSecrets(onlySlack, run.apps),
+  ];
+  if (problems.length) {
+    for (const problem of problems) run.err(problem);
+    return 1;
+  }
   const created = await createSlackApp(slackManifest(run.registry), token, run.fetch);
   const [idName, secretName] = slack.secrets;
   run.out(`Created Slack app ${created.appId}.`);
   run.out(`Client ID: ${created.clientId}`);
+  run.out(
+    `The client secret is in Slack's app settings (Basic Information): https://api.slack.com/apps/${created.appId}/general`,
+  );
   run.out("");
   run.out("From apps/cloud, set the Worker secrets; wrangler asks for each value:");
   run.out(`  ${secretCommand(idName)}    # paste the client ID`);
-  run.out(`  ${secretCommand(secretName)}    # paste the client secret`);
+  run.out(`  ${secretCommand(secretName)}    # paste the client secret from Basic Information`);
   run.out("");
-  run.out(`Client secret, shown this once and saved nowhere by this tool: ${created.clientSecret}`);
-  run.out(`Slack shows it again at https://api.slack.com/apps/${created.appId}/general.`);
   run.out("Then set slack's status in registry.json and run bun run docs:connectors.");
   return 0;
 }
