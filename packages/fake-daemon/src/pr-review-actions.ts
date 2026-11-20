@@ -10,6 +10,7 @@ import type {
 import { validHostedAnchor } from "@ace/forge/review-anchor";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { draftOnFile, moveDrafts } from "./pr-review-moves.ts";
+import { commitSuggestions } from "./pr-review-suggestions.ts";
 
 type Result = Omit<CommandResult, "commandId">;
 type Thread = PullRequestFixture["detail"]["status"]["reviewThreads"][number];
@@ -355,8 +356,9 @@ export function applyHostedReview(
     case "review.dismiss":
       // The catalog's people model answers these before a review action reaches here.
       return fail("forge_unsupported");
-    case "suggestions.apply":
-      // Applying suggestions makes a commit; the sample PRs have no branch to commit to.
-      return fail("forge_unsupported");
+    case "suggestions.apply": {
+      const committed = commitSuggestions(fixture, action);
+      return typeof committed === "string" ? fail(committed) : done(committed);
+    }
   }
 }
