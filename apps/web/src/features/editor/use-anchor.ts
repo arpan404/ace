@@ -44,10 +44,10 @@ function notAfter(a: Position, b: Position): boolean {
  * An edit above the view therefore never pulls different text under the top edge, and an edit
  * inside the anchored line moves the column with the text the reader is looking at.
  */
-export function mapAnchor(
-  anchor: ViewAnchor,
+export function mapAnchor<T extends Position>(
+  anchor: T,
   replacements: readonly TextReplacement[],
-): ViewAnchor {
+): T {
   let line = anchor.line;
   let column = anchor.column;
   for (const change of replacements) {

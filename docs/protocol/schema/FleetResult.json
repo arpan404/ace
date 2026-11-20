@@ -11,6 +11,10 @@
       "oneOf": [
         {
           "properties": {
+            "keep": {
+              "const": true,
+              "type": "boolean"
+            },
             "kind": {
               "const": "links",
               "type": "string"
@@ -185,6 +189,22 @@
           "required": [
             "kind",
             "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "device": {
+              "$ref": "https://ace.local/protocol/v1/Device.json"
+            },
+            "kind": {
+              "const": "scoped",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "device"
           ],
           "type": "object"
         },

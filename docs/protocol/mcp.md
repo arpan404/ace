@@ -486,7 +486,7 @@ Example:
 
 ## data_send
 
-Send a file from your project, or text, to another agent in your tree: a child (from delegate, any machine), your parent ("parent"), or another thread in the same tree here. It is staged, hashed and carried end to end encrypted over the LAN, Tailscale or a relay. Returns parcelId at once; whether it arrived comes as a new turn, so end yours. Never poll.
+Send a file from your project, or text, to another agent in your tree: a child (from delegate, any machine), your parent ("parent"), or another thread in the same tree here, end to end encrypted. Returns parcelId at once; whether it arrived comes as a new turn, so end yours. Never poll.
 
 Required capability: agents. Timeout: 630000 ms.
 

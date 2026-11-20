@@ -196,6 +196,7 @@ fn stored_context_rides_with_its_message_and_messages_in_a_row_join() {
             from_agent: None,
             from_routine: None,
             from_group: None,
+            from_thread: None,
         }),
         Event::user_message("Short please"),
     ];
@@ -598,6 +599,7 @@ fn attached_images_are_shown_when_available_and_described_when_not() {
         from_agent: None,
         from_routine: None,
         from_group: None,
+        from_thread: None,
     })];
     let shown = messages_with(&events, &Shelf);
     let Some(Message::Person { text, images }) = shown.first() else {
@@ -684,6 +686,7 @@ fn older_images_are_left_out_in_steps_so_the_prompt_start_stays_cached() {
                 from_agent: None,
                 from_routine: None,
                 from_group: None,
+                from_thread: None,
             })
         })
         .collect();
@@ -715,6 +718,7 @@ fn image_turn(n: usize) -> [Event; 2] {
             from_agent: None,
             from_routine: None,
             from_group: None,
+            from_thread: None,
         }),
         step(&format!("r{n}"), "seen", &[]),
     ]
@@ -822,6 +826,7 @@ fn a_message_from_another_bot_reads_as_one_not_as_the_person() {
         }),
         from_routine: None,
         from_group: None,
+        from_thread: None,
     })];
     let sent = messages(&events);
     assert!(matches!(
@@ -848,6 +853,7 @@ fn a_turn_a_bot_started_or_steered_is_untrusted() {
             }),
             from_routine: None,
             from_group: None,
+            from_thread: None,
         })
     };
     let registry = Registry::new(Vec::new());
@@ -926,4 +932,48 @@ fn the_persons_activity_reaches_the_model_as_spades_words_with_its_names_as_untr
         data: Vec::new(),
     });
     assert!(untrusted_events_in_view(&[plain], &registry).is_empty());
+}
+
+fn from_thread(untrusted: bool) -> Event {
+    let mut event = Event::user_message("Is the token refreshed?");
+    if let Event::Known(Known::UserMessage {
+        from_thread,
+        context,
+        ..
+    }) = &mut event
+    {
+        *from_thread = Some(Box::new(crate::event::FromThread {
+            id: "t1".into(),
+            title: "Fix login".into(),
+            untrusted,
+        }));
+        if untrusted {
+            *context = Some("agent: I changed auth.ts".into());
+        }
+    }
+    event
+}
+
+#[test]
+fn a_message_from_an_ace_thread_is_untrusted_only_when_the_threads_summary_came_with_it() {
+    let registry = Registry::new([]);
+    let with_summary = vec![from_thread(true), Event::reply_started("r1", "m")];
+    assert!(untrusted_turn(&with_summary, &registry));
+    assert_eq!(
+        untrusted_sources(&with_summary, &registry),
+        vec!["the summary of the ace thread Fix login".to_owned()]
+    );
+    let alone = vec![from_thread(false), Event::reply_started("r1", "m")];
+    assert!(!untrusted_turn(&alone, &registry));
+}
+
+#[test]
+fn a_message_from_an_ace_thread_reads_as_the_persons_after_the_threads_summary() {
+    let read = shape(&messages(&[from_thread(true)]));
+    let [person] = read.as_slice() else {
+        panic!("one message: {read:?}");
+    };
+    assert!(person.starts_with("person:<context>\nagent: I changed auth.ts\n</context>\n\n"));
+    assert!(person.contains("in their ace thread \"Fix login\""));
+    assert!(person.ends_with("Is the token refreshed?\n</ace_thread>"));
 }

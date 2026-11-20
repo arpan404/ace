@@ -176,7 +176,7 @@ async fn an_old_spend_park_is_cancelled_on_start(purpose: Value, condition: Valu
     spade.engine.pause_for_stop(Duration::from_secs(1)).await;
 
     // As an earlier build left it: the task parked at a cap, or a worker waiting for budget.
-    let rewritten = rusqlite::Connection::open(spade.database())?.execute(
+    let rewritten = spade_store::Store::connect(spade.database())?.execute(
         "UPDATE events
             SET body = json_set(body, '$.purpose', json(?1), '$.condition', json(?2),
                                 '$.reason', 'Porter is at its daily cap of $0.00 until midnight.')

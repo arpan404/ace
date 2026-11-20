@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliSpadeMove.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bot": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "state": {
+      "enum": [
+        "done",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "to": {
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "bot",
+    "to",
+    "state"
+  ],
+  "type": "object"
+}

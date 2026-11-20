@@ -194,6 +194,18 @@ export function Workspace(props: {
   const place = room.mode === "closed" ? "beside" : room.mode;
   const bottom = place === "bottom";
   const phone = place === "replace";
+  // Once the kinds load, tabs stored in an older shape take today's (per-file tabs into the
+  // Editor); a no-op after the first time.
+  useEffect(() => {
+    let live = true;
+    void definition.load().then(
+      () => live && store.update(scope, (current) => definition.upgrade(current)),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [store, scope, definition]);
   // Warm the kinds and the panel's code once the screen has painted.
   useEffect(
     () => whenIdle(() => void Promise.all([definition.load(), loadPanel()]).catch(() => {})),

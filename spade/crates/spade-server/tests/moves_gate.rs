@@ -562,7 +562,7 @@ async fn an_abort_or_the_sweep_waits_for_a_commit_in_hand_and_never_removes_what
     tokio::task::spawn_blocking(move || wait.recv_timeout(Duration::from_secs(20))).await??;
     // The commit is in hand. To the sweep the move looks a day old.
     let store = Store::open(&studio.database())?;
-    let backdate = rusqlite::Connection::open(studio.database())?;
+    let backdate = spade_store::Store::connect(studio.database())?;
     backdate.execute("UPDATE moves SET updated_ms = 0 WHERE id = 'mv_1'", [])?;
     tokio::time::sleep(Duration::from_millis(400)).await;
     let staging = studio.dir.path().join("moves/mv_1/in");

@@ -19,11 +19,11 @@ import {
 import { displayName } from "../attachment-format.ts";
 import { LinkedFileOpener } from "../linked-file.tsx";
 import type { LinkClick } from "@/lib/web-links.ts";
-import { fileTab, pullRequestTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
+import { openInEditorPanel, pullRequestTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
 import { watchImageCaptures } from "./image-refresh.ts";
 import { useFileLinks } from "./use-file-links.ts";
 import { keptAnswersFor, keptAnswersOwnedBy, type ProseKeep } from "./kept-answers.ts";
-import { MarkitView, type MarkitCallbacks } from "./markit-view.tsx";
+import { MarkitView, type MarkitCallbacks, type ReferenceOpen } from "./markit-view.tsx";
 
 /**
  * Agent prose rendered by markit (Rust + Wasm): CommonMark, tables, tasks, code fences with
@@ -63,7 +63,7 @@ interface LinkActions {
   openThread: (threadId: string, machine: string | undefined) => void;
   openFile?: ((path: string) => void) | undefined;
   /** A file an answer names (`socket.ts:3`), found in the thread's checkout. */
-  openMention?: ((target: string) => void) | undefined;
+  openMention?: ((target: string, how: ReferenceOpen) => void) | undefined;
   forgeReference?: ForgeReferenceAddress | undefined;
 }
 
@@ -91,8 +91,8 @@ function linkCallbacks(
   return {
     onLink,
     onSystemLink: (url, click) => void actions.openWeb(url, click).catch(() => {}),
-    onReference: (reference) => {
-      if (reference.kind === "file") return actions.openMention?.(reference.target);
+    onReference: (reference, how) => {
+      if (reference.kind === "file") return actions.openMention?.(reference.target, how);
       onLink(actions.forgeReference?.(reference) ?? reference.target);
     },
   };
@@ -242,7 +242,9 @@ function MarkitThreadProse(
     const openFile = (target: string) => {
       const path = localLinkPath(target) ?? target;
       const relative = checkoutLinkPath(path, root, cwd);
-      if (relative && isCheckoutPath(relative)) return actions?.open(fileTab(relative));
+      // A glance: the file shows as the editor's preview and the chat keeps focus.
+      if (relative && isCheckoutPath(relative))
+        return workspace && openInEditorPanel(workspace.editor, relative);
       // Outside the checkout: the host serves the file because this message links it.
       if (itemId)
         downloadLinked?.({ threadId, itemId, reference: target, name: displayName(path) });

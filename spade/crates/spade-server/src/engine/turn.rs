@@ -711,7 +711,7 @@ mod tests {
         engine.record("c1", &Event::user_message("Hi"))?;
         engine.record("c1", &Event::reply_started("r1", "fake/m"))?;
         // Storage fails from the moment the worker is scheduled.
-        let hide = rusqlite::Connection::open(dir.path().join("spade.sqlite"))?;
+        let hide = spade_store::Store::connect(dir.path().join("spade.sqlite"))?;
         hide.execute_batch("ALTER TABLE events RENAME TO events_away;")?;
         let (_stop, stop_rx) = watch::channel(false);
         let pause_rx = engine.pause.subscribe();

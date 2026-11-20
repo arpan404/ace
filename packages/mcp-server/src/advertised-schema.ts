@@ -18,7 +18,9 @@ import { flatUnion } from "./schema-unions.ts";
  *   or one at least as large as the item enum;
  * - `additionalProperties: false` (models send the properties they are shown, and an output open
  *   to extra keys accepts ace's reserved result keys);
- * - a `description` that only restates the field's default or its enum values.
+ * - a `description` that only restates the field's default or its enum values;
+ * - the inner shape of a field only ace's host sets (`hostSet`, such as Spade's `expect`): a
+ *   model is told to leave it out, so it reads the field's name, type and description alone.
  *
  * Unions of string choices and discriminated object unions are spelled flat (`schema-unions.ts`),
  * and a union of one item or a list of them is spelled as the list.
@@ -59,9 +61,24 @@ const droppedKeys = new Set(["$schema", "x-ace-constraint", "maxLength", "minLen
 const keepPatternKey = "x-ace-keep-pattern";
 /** Zod metadata for a string whose pattern is the only place its allowed values are spelled. */
 export const keepPattern = { [keepPatternKey]: true } as const;
+const hostSetKey = "x-ace-host-set";
+/**
+ * Zod metadata for an object field only ace's host sets, never the model: it is advertised as a
+ * described object without its properties. The host finds it by name in the advertised schema.
+ */
+export const hostSet = { [hostSetKey]: true } as const;
+/** What a `hostSet` field drops: everything that spells its inner shape. */
+const hostSetShape = new Set([
+  "properties",
+  "required",
+  "additionalProperties",
+  "patternProperties",
+  "propertyNames",
+]);
 
 function dropped(key: string, value: unknown, node: Json): boolean {
-  if (droppedKeys.has(key) || key === keepPatternKey) return true;
+  if (droppedKeys.has(key) || key === keepPatternKey || key === hostSetKey) return true;
+  if (node[hostSetKey] === true && hostSetShape.has(key)) return true;
   if (key === "pattern") return node[keepPatternKey] !== true;
   if (key === "additionalProperties") return value === false;
   if (typeof value !== "number") return false;

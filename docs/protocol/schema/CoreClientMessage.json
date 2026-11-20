@@ -68,11 +68,6 @@
           "const": 1,
           "type": "number"
         },
-        "standing": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "type": "string"
-        },
         "ticket": {
           "type": "string"
         },
@@ -406,6 +401,76 @@
         "type",
         "requestId",
         "grant"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "grant": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "proof": {
+          "pattern": "^[A-Za-z0-9_-]{86}$",
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "account.standing",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "grant",
+        "proof"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "proof": {
+          "pattern": "^[A-Za-z0-9_-]{86}$",
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "device.standing",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "proof"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "account.owner.release",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId"
       ],
       "type": "object"
     }

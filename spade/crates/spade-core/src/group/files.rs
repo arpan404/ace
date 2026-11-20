@@ -137,6 +137,7 @@ mod tests {
                     untrusted: false,
                 })
             }),
+            from_thread: None,
         })
     }
 

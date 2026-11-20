@@ -174,6 +174,8 @@ export type SpadeEntry =
       fromRoutine?: { id: string; name: string; label: string; heartbeat: boolean };
       /** Sent here from a group the bot is in (ADR 0132). */
       fromGroup?: { id: string; name: string };
+      /** Written by the person in an ace thread (ADR 0198). */
+      fromThread?: { id: string; title: string };
       /** When Spade stored it; a message not stored yet has none. */
       at?: number;
       /** The notes Spade recalled for it, by id: what the reply to it had in mind (ADR 0128). */
@@ -531,6 +533,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ...(event.from_routine ? { fromRoutine: event.from_routine } : {}),
         ...(event.from_group
           ? { fromGroup: { id: event.from_group.id, name: event.from_group.name } }
+          : {}),
+        ...(event.from_thread
+          ? { fromThread: { id: event.from_thread.id, title: event.from_thread.title } }
           : {}),
         ...recalledOf(event.context),
         ...stamp(stored),

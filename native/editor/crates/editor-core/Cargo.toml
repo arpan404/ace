@@ -13,6 +13,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+imara-diff = { version = "0.2", default-features = false }
 regex = "1"
 ropey = { version = "1", default-features = false }
 thiserror = "2"

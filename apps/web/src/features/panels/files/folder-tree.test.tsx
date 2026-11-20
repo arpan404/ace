@@ -20,8 +20,8 @@ async function openFiles(prepare?: (app: ReturnType<typeof harness>) => void) {
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   const tools = await within(panel).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
-  await within(panel).findByRole("tab", { name: "Files", selected: true });
+  await userEvent.click(within(tools).getByRole("button", { name: /^Editor/ }));
+  await within(panel).findByRole("tab", { name: "Editor", selected: true });
   const tree = await within(panel).findByRole("tree", { name: "Checkout files" });
   await within(tree).findByRole("treeitem", { name: "README.md" });
   return { app, panel, folders, tree };

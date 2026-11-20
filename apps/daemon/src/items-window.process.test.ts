@@ -420,10 +420,12 @@ it("a long answer still streaming opens with its newest text, marked so deltas k
     offset: (whole.length - part.text.length) * 2,
   });
   expect(completeMessage(f.store, item)).toMatchObject({ parts: [{ text: whole }] });
-  // A client holding it appends the deltas that follow.
+  // A client holding it appends the deltas that follow. It holds its own copy, decoded from the
+  // wire: the daemon's read cache hands out frozen values.
   const shown = part.text;
-  applyDelta(item, "text", " Next step 50000.");
-  expect(item.parts.at(-1)).toMatchObject({
+  const held = structuredClone(item);
+  applyDelta(held, "text", " Next step 50000.");
+  expect(held.parts.at(-1)).toMatchObject({
     text: shown + " Next step 50000.",
     source: { bytes: (whole.length + 17) * 2 },
   });

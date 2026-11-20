@@ -37,7 +37,7 @@ async function open() {
 test("@ lists the thread's open browser tabs, never a private one, and a picked tab goes with the message", async () => {
   const { sent, pricing, message } = await open();
   await userEvent.type(message, "Why is @");
-  const menu = await screen.findByRole("listbox", { name: "Files and threads" });
+  const menu = await screen.findByRole("listbox", { name: "Mention" });
   const option = await within(menu).findByRole("option", { name: /Pricing example\.com\/pricing/ });
   expect(within(menu).queryByRole("option", { name: /bank\.example\.com/ })).toBeNull();
 

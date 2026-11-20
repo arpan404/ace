@@ -191,6 +191,29 @@ status: "online"|"offline"}]}`: the linked machines this daemon can call.
   `unavailable`.
 - `spade.http` and the desktop's direct path refuse `/v1/inbox` (`invalid_path`).
 
+## Asks from ace threads (ADR 0198)
+
+The person mentions a bot or club in one of their ace threads; ace's daemon delivers their words
+here once, by its key, and reads the answers back. Only the daemon can: every request carries the
+inbox's signature (`x-ace-from-host: ace:thread`, `x-ace-from-name`, `x-ace-inbox-time`,
+`x-ace-inbox-proof`, HMAC with ace's own token), and one without it is refused 403.
+
+- `POST /v1/thread-asks` `{key, to: {kind: "bot" | "club", id}, text, context?, thread: {id, title}}`
+  → `{status: "accepted" | "duplicate"}`. The key is stored with the message it delivers (the inbox
+  table, sender `ace:thread`), so a repeat never delivers twice. A bot gets a `user_message` with
+  `from_thread {id, title, untrusted}`; a club, a `group_message` with `thread`, its asked members
+  the context pack before their own context. `context` (a summary of the thread, at most 16 000
+  characters) makes the turn untrusted; without it the words are the person's own.
+- `GET /v1/thread-asks/{key}?wait_ms=` (at most 25 000) → `{status: "pending" | "answered" |
+"stopped" | "failed" | "unknown", replies: [{bot: {id, name, avatar}, text}], writing:
+[{bot, text}], answering: [{id, name, status?}], waiting: [{id, name}], text?}`. It waits for a
+  change: a reply, a status, a member's turn. A club's `replies` are every member's message in that
+  run, in order.
+- `POST /v1/thread-asks/{key}/stop` → `{status: "stopped" | "not_running" | "unknown"}`.
+
+A person's message to a bot may also carry `devices` (`POST /v1/conversations/{id}/messages`):
+the fleet's machines and devices they named for the work, put first in the turn's context.
+
 ## Templates
 
 `GET /v1/templates` → `{"templates": [Template]}`, shipped in the binary

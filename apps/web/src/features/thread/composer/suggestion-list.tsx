@@ -3,6 +3,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import type { RefObject } from "react";
 import { Popover, PopoverContent } from "@/components/ui/popover.tsx";
 import { MentionIcon } from "@/components/mention-chip.tsx";
+import { MentionMark } from "../mentions/index.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { catalogSourceLabel } from "@/lib/catalog.ts";
@@ -21,14 +22,7 @@ export function SuggestionList(props: {
 }) {
   const { suggestions } = props;
   if (suggestions.state === "closed") return null;
-  const title =
-    suggestions.kind === "mention"
-      ? suggestions.state === "ready" && suggestions.items[0]?.plain
-        ? "Members"
-        : "Files and threads"
-      : props.adding
-        ? "Add"
-        : "Commands";
+  const title = suggestions.kind === "mention" ? "Mention" : props.adding ? "Add" : "Commands";
   return (
     <Popover
       open
@@ -60,16 +54,14 @@ export function SuggestionList(props: {
         {suggestions.state === "ready" ? (
           <ul id={props.id} role="listbox" aria-label={title}>
             {suggestions.items.map((item, index) => (
-              <li
-                key={item.entry?.id ?? item.threadId ?? item.tab?.tabId ?? item.insert}
-                role="presentation"
-              >
+              <li key={`${item.group}:${suggestionKey(item)}`} role="presentation">
                 {(index === 0 || suggestions.items[index - 1]?.group !== item.group) && (
                   <p className="px-2.5 py-1 text-xs text-subtle-foreground">{item.group}</p>
                 )}
                 <div
                   id={`${props.id}-${index}`}
                   role="option"
+                  data-group={item.group}
                   aria-label={[
                     item.label,
                     item.detail,
@@ -96,14 +88,10 @@ export function SuggestionList(props: {
                     index === props.active && "bg-accent",
                   )}
                 >
-                  {item.tab?.favicon ? (
-                    <img
-                      src={item.tab.favicon}
-                      alt=""
-                      aria-hidden
-                      draggable={false}
-                      className="size-4 shrink-0 self-center rounded-xs"
-                    />
+                  {item.picture ? (
+                    <span className="grid size-4 shrink-0 place-items-center self-center">
+                      <MentionMark picture={item.picture} />
+                    </span>
                   ) : (
                     <MentionIcon
                       kind={
@@ -150,6 +138,14 @@ export function SuggestionList(props: {
       </PopoverContent>
     </Popover>
   );
+}
+
+/** What a row names, unique in its section even when two bots share a name. */
+function suggestionKey(item: Suggestion): string {
+  const to = item.addressee;
+  if (to) return to.kind === "agent" ? `agent:${to.threadId}` : `${to.kind}:${to.id}`;
+  if (item.device) return `device:${item.device.machine.id}/${item.device.id}`;
+  return item.entry?.id ?? item.threadId ?? item.tab?.tabId ?? item.insert;
 }
 
 /** Scroll only the suggestion surface; revealing a command must never move the document. */

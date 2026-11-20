@@ -179,6 +179,8 @@ it("the agents and threads guides quote only served tools, their fields and valu
     // Result fields the guides tell the agent to page with; results are advertised as envelopes.
     "itemsBefore",
     "nextOffset",
+    // thread_read's result names who owns the thread: its parent and top-level thread (#2019).
+    "lineage",
   ]);
   const guides = await builtinGuides();
   for (const topic of ["ace-agents", "ace-threads"]) {

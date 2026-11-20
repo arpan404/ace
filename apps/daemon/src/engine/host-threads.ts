@@ -8,6 +8,7 @@ import {
 } from "@ace/protocol";
 import { createEngineThread } from "./create-thread.ts";
 import type { EngineRepository } from "./repository.ts";
+import { ThreadPosts } from "./thread-posts.ts";
 
 export interface HostThreadInput {
   id: ThreadId;
@@ -31,9 +32,12 @@ export interface HostThreadInput {
 export class HostThreads {
   private repo: EngineRepository;
   private now: () => number;
+  /** Messages ace posts in any thread for the person, outside a provider turn (ADR 0198). */
+  readonly posts: ThreadPosts;
   constructor(repo: EngineRepository, now: () => number) {
     this.repo = repo;
     this.now = now;
+    this.posts = new ThreadPosts(repo, now);
   }
   /** Makes the thread unless it exists; returns its root agent, which MCP leases name. */
   create(input: HostThreadInput): AgentId | undefined {

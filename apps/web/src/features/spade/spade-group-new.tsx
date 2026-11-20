@@ -152,7 +152,8 @@ function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string })
           value={name}
           maxLength={spadeGroupNameMax}
           onChange={(event) => setName(event.target.value.replaceAll(/[\r\n]/g, " "))}
-          className="w-full max-w-80 rounded-md bg-(--chat-well) px-2.5 py-0.5 text-center text-[22px] leading-7 font-semibold text-foreground outline-none placeholder:text-subtle-foreground focus-ring"
+          // New bot's title style: borderless, its type scale, and only a hairline while focused.
+          className="field-sizing-content h-9 max-w-full min-w-56 rounded-md bg-transparent px-2 text-center text-2xl font-semibold tracking-title text-foreground transition-colors duration-(--motion-fast) outline-none placeholder:text-subtle-foreground hover:bg-hover focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--focus,var(--ring))_50%,transparent)]"
         />
       </div>
       <h2 className="mt-6 mb-1.5 ml-3 text-ui font-medium text-muted-foreground">

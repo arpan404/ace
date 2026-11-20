@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceClientVersion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "const": "development",
+      "type": "string"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ReleaseVersion.json"
+    }
+  ]
+}

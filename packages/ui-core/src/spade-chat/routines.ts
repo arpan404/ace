@@ -223,3 +223,23 @@ function safeZone(zone: string): string {
     return "UTC";
   }
 }
+
+/**
+ * A routine's line: `Weekdays at 9:00 · next Mon 9:00`; paused reads Paused, and a last run that
+ * failed says so (`failed`, for the failed colour).
+ */
+export function spadeRoutineLine(
+  scheduled: Pick<SpadeRoutine, "paused" | "lastRun" | "nextRun" | "words" | "timeZone">,
+  now: number,
+  locale?: string,
+): { text: string; failed: boolean } {
+  if (scheduled.paused) return { text: "Paused", failed: false };
+  const last = scheduled.lastRun;
+  if (last?.result === "failed")
+    return { text: `Last run ${spadeRunWords(last).toLowerCase()}`, failed: true };
+  const next =
+    scheduled.nextRun === undefined
+      ? undefined
+      : `next ${spadeWhenInSentence(scheduled.nextRun, now, scheduled.timeZone, locale)}`;
+  return { text: [scheduled.words, next].filter(Boolean).join(" · "), failed: false };
+}

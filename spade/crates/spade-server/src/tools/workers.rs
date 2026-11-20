@@ -119,7 +119,7 @@ impl Tool for WorkerTool {
             };
             match name {
                 tree::BOT_CREATE if spade_core::made::standing(&arguments) => {
-                    engine.make_standing(&key, arguments)
+                    engine.make_standing(&key, arguments).await
                 }
                 tree::BOT_CREATE => engine.bot_create(&key, arguments),
                 tree::WORKER_MESSAGE => engine.worker_message(&key, arguments).await,

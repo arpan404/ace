@@ -15,6 +15,10 @@
       "minLength": 1,
       "type": "string"
     },
+    "standingKey": {
+      "pattern": "^[A-Za-z0-9_-]{87}$",
+      "type": "string"
+    },
     "type": {
       "const": "pair.redeem",
       "type": "string"
