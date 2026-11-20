@@ -20,28 +20,34 @@ export interface ThreadCensus {
   own: number;
 }
 
-/**
- * Bun's runtime threads, by name. JavaScriptCore names some differently on Linux
- * (`HeapHelper`, `JITWorker`) and keeps the last 15 characters of a longer name there, so
- * "JSC Heap Collector Thread" reads "ollector Thread".
- */
+/** Bun's runtime threads, by name, on every platform. */
 const runtimeNames = [
   /^Bun Pool/,
-  /^Heap ?Helper/,
+  /^Heap Helper/,
   /^JIT Worklist/,
-  /^JITWorker/,
   /^JSC /,
-  /ollector Thread$/,
   /^JSCWarmUp/,
   /^mi-scavenger/,
 ];
 
-export function classifyThreads(names: readonly string[]): ThreadCensus {
+/**
+ * JavaScriptCore's threads as Linux names them: `HeapHelper` and `JITWorker` there, and only
+ * the last 15 characters of a longer name, so "JSC Heap Collector Thread" reads
+ * "ollector Thread". Exact names, and only on Linux, so no other thread is taken for one.
+ */
+const linuxRuntimeNames = new Set(["HeapHelper", "JITWorker", "ollector Thread"]);
+
+/** A process's threads by owner, from their names as `platform` reports them. */
+export function classifyThreads(names: readonly string[], platform: NodeJS.Platform): ThreadCensus {
   let runtime = 0;
   let workers = 0;
   for (const name of names) {
     if (name === "Worker") workers++;
-    else if (runtimeNames.some((pattern) => pattern.test(name))) runtime++;
+    else if (
+      runtimeNames.some((pattern) => pattern.test(name)) ||
+      (platform === "linux" && linuxRuntimeNames.has(name))
+    )
+      runtime++;
   }
   return { total: names.length, runtime, workers, own: names.length - runtime - workers };
 }
@@ -87,5 +93,5 @@ export async function threadNames(pid: number): Promise<string[]> {
 }
 
 export async function threadCensus(pid: number): Promise<ThreadCensus> {
-  return classifyThreads(await threadNames(pid));
+  return classifyThreads(await threadNames(pid), process.platform);
 }

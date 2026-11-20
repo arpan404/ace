@@ -24,7 +24,7 @@ const report = `Call graph:
 `;
 
 test("a sampled Bun daemon's threads split into the runtime's, its JS workers and its own", () => {
-  expect(classifyThreads(sampledThreadNames(report))).toEqual({
+  expect(classifyThreads(sampledThreadNames(report), "darwin")).toEqual({
     total: 11,
     runtime: 7,
     workers: 1,
@@ -36,17 +36,27 @@ test("a sampled Bun daemon's threads split into the runtime's, its JS workers an
 test("a Bun daemon's threads on Linux classify as the macOS names do", () => {
   // As /proc/<pid>/task/*/comm lists them for Bun 1.4 on Linux.
   expect(
-    classifyThreads([
-      "bun.exe",
-      "Bun Pool 12",
-      "HeapHelper",
-      "JITWorker",
-      "ollector Thread",
-      "JSCWarmUp",
-      "mi-scavenger",
-      "Worker",
-    ]),
+    classifyThreads(
+      [
+        "bun.exe",
+        "Bun Pool 12",
+        "HeapHelper",
+        "JITWorker",
+        "ollector Thread",
+        "JSCWarmUp",
+        "mi-scavenger",
+        "Worker",
+      ],
+      "linux",
+    ),
   ).toEqual({ total: 8, runtime: 6, workers: 1, own: 1 });
+});
+
+test("a native thread named like a collector stays the daemon's own, and Linux's short names count only on Linux", () => {
+  // The daemon's own thread on a Mac, and the same short names JSC uses on Linux.
+  const names = ["bun", "Metrics Collector Thread", "ollector Thread", "HeapHelper", "JITWorker"];
+  expect(classifyThreads(names, "darwin")).toEqual({ total: 5, runtime: 0, workers: 0, own: 5 });
+  expect(classifyThreads(names, "linux")).toEqual({ total: 5, runtime: 3, workers: 0, own: 2 });
 });
 
 const limits: ThreadLimits = {
