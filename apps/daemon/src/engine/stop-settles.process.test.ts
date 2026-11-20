@@ -1,5 +1,7 @@
 import { afterEach, expect, test } from "vitest";
+import type { Fact } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
+import { INTERRUPT_GRACE_MS } from "../liveness/stop.ts";
 import { cleanupRecovery, fixture, restart } from "./recovery-test-support.ts";
 import { end, scriptFrames, start, task } from "./test-support.ts";
 
@@ -128,4 +130,53 @@ test("Stop from the composer settles the thread when a subagent can no longer be
     (item) => item.type === "notice" && item.level === "error",
   );
   expect(notices).toEqual([]);
+});
+
+/** A thread whose turn ended leaving `work` that the provider says it can't stop. */
+async function leftRunning(work: Fact, next: Fact[] = []) {
+  const frames = scriptFrames();
+  const h = await fixture(
+    [
+      { on: "send", frames: [frames.frame(start, work, end)] },
+      { on: "interrupt", frames: [] },
+      { on: "send", frames: [frames.frame(...next)] },
+    ],
+    frames,
+  );
+  const id = await h.create();
+  expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
+  await h.engine.flush();
+  return { h, id };
+}
+const pastGrace = async (h: Awaited<ReturnType<typeof fixture>>) => {
+  h.clock.advance(h.clock.now() + INTERRUPT_GRACE_MS);
+  await h.engine.flush();
+};
+
+test("a message the provider takes within a Stop's grace isn't cut off by the Stop", async () => {
+  // Work that keeps prompts out, from a provider that still takes this one and starts its turn.
+  const { h, id } = await leftRunning({ ...task, stoppable: false, blocksPrompts: true }, [start]);
+  expect(
+    h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "go on" }] }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("working");
+  await pastGrace(h);
+  expect(h.adapter.commands.map((command) => command.type)).toEqual(["send", "interrupt", "send"]);
+  expect(h.store.getThread(id)?.status.state).toBe("working");
+});
+
+test("Claude's placeholder for an unbound subagent never closes a stopped thread's session", async () => {
+  // Unstoppable, but it ends by itself and keeps no prompt out.
+  const placeholder: Fact = {
+    type: "background.started",
+    agent: "root",
+    task: "unbound",
+    kind: "subagent",
+    title: "Subagent",
+    stoppable: false,
+  };
+  const { h } = await leftRunning(placeholder);
+  await pastGrace(h);
+  expect(h.adapter.commands.map((command) => command.type)).toEqual(["send", "interrupt"]);
 });

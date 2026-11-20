@@ -42,9 +42,14 @@ export function tasksToStop(state: ThreadState): string[] {
 }
 
 /**
- * Those of `stoppableTasks` the provider said it can't stop (an ACP shell that outlived its
- * prompt, say): a whole-thread Stop leaves them a bounded time to end (`Sessions.closeAfter`).
+ * Those of `stoppableTasks` the provider said it can't stop and that take the thread's next
+ * prompt away while they run (an ACP shell that outlived its reply): a whole-thread Stop gives
+ * them a bounded time to end (`Sessions.closeAfter`). Other work it can't stop is left to end, as
+ * the person can send meanwhile; Claude's placeholder for an unbound subagent ends by itself.
  */
-export function tasksLeftToEnd(state: ThreadState): string[] {
-  return stoppableTasks(state).filter((key) => state.tasks[key]?.stoppable !== true);
+export function tasksHoldingPrompts(state: ThreadState): string[] {
+  return stoppableTasks(state).filter((key) => {
+    const task = state.tasks[key];
+    return task?.stoppable !== true && task?.blocksPrompts === true;
+  });
 }

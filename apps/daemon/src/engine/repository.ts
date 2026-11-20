@@ -585,6 +585,28 @@ export class EngineRepository {
       ...(stopped ? { stopped } : {}),
     };
   }
+  /** The thread's newest command ace took, by intent id (never reused, never deleted). */
+  latestIntent(id: ThreadId): number {
+    return Number(
+      this.store
+        .statement("SELECT COALESCE(MAX(id),0) AS n FROM intents WHERE thread_id=?")
+        .get(id)?.n,
+    );
+  }
+  /**
+   * Whether a command for the thread newer than `intent` was carried out or handed to the
+   * provider (its input taken, or awaiting the provider's answer). One still queued, or refused,
+   * changed nothing yet.
+   */
+  actedSince(id: ThreadId, intent: number): boolean {
+    return Boolean(
+      this.store
+        .statement(
+          "SELECT 1 FROM intents WHERE thread_id=? AND id>? AND (status IN ('running','done') OR awaiting=1) LIMIT 1",
+        )
+        .get(id, intent),
+    );
+  }
   queuedCount(id: ThreadId): number {
     // Recovery prompts live in Thread.queue; only retained work blocks execution completion.
     // One SELECT over intents and queues, which live output never writes: no transaction.

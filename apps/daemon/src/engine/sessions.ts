@@ -936,18 +936,26 @@ export class Sessions {
     }
   }
   /**
-   * After a whole-thread Stop, the work the provider can't stop (`tasks`) gets the interrupt's
-   * grace to end by itself. Still running then, in the same session, it ends with that session
-   * (`closeForStop`), so a Stop always settles and the thread takes the next message; an ACP
-   * shell that outlived its prompt otherwise blocks prompts for as long as it runs (ADR 0052).
+   * After a whole-thread Stop, the work the provider can't stop that keeps the thread's next
+   * prompt out (`tasks`) gets the interrupt's grace to end by itself. If nothing has happened
+   * since (no new turn, no command for the thread carried out or input taken, the same session)
+   * and it still runs, it ends with that session (`closeForStop`), so a Stop always settles and
+   * the thread takes the next message (ADR 0052). A message still queued behind that work is not
+   * something happening: the close is what lets it in, in the session opened for it. Anything
+   * else since is the person's or the provider's going on, and the Stop no longer decides.
    */
   closeAfter(actor: ThreadActor, tasks: readonly string[]): void {
     if (!tasks.length) return;
+    const { repo, clock } = this.dependencies;
     const session = actor.session;
     const generation = actor.generation;
-    this.dependencies.clock.setTimer(() => {
+    const intent = repo.latestIntent(actor.id);
+    const turn = repo.requireState(actor.id).runSeq ?? 0;
+    clock.setTimer(() => {
       if (!session || actor.session !== session || actor.generation !== generation) return;
-      const state = this.dependencies.repo.requireState(actor.id);
+      if (repo.actedSince(actor.id, intent)) return;
+      const state = repo.requireState(actor.id);
+      if ((state.runSeq ?? 0) !== turn) return;
       if (!tasks.some((key) => state.tasks[key]?.status === "running")) return;
       void this.closeForStop(actor);
     }, INTERRUPT_GRACE_MS);
