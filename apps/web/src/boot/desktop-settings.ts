@@ -28,6 +28,8 @@ export const DesktopPreferences = z.looseObject({
   preventSleep: z.boolean().default(false),
   attention: z.boolean().default(true),
   globalShortcut: z.string().max(64).nullable().default(null),
+  /** Push to talk to the main Spade; absent: the platform's default, null: off. */
+  spadeTalkShortcut: z.string().max(64).nullable().optional(),
   /**
    * This app's shortcut rebindings; null until it first stores them. Ids are checked on use. A
    * damaged value reads as none rebound, so the old shared setting isn't adopted again.
@@ -48,6 +50,7 @@ export interface DesktopPreferencesPatch {
   preventSleep?: boolean;
   attention?: boolean;
   globalShortcut?: string | null;
+  spadeTalkShortcut?: string | null;
   keybindings?: Readonly<Record<string, string>>;
   /** Stored only if this app has no rebindings yet, in turn with other saves. */
   keybindingsIfUnset?: Readonly<Record<string, string>>;
@@ -84,9 +87,12 @@ function bridgeOf(scope: object): Bridge | undefined {
  * What the quick-thread shortcut still needs from the person on this desktop (Hyprland: the
  * hyprland.conf line that gives it keys), or undefined: none, or an app without the call.
  */
-export async function desktopShortcutHint(scope: object = globalThis): Promise<string | undefined> {
+export async function desktopShortcutHint(
+  scope: object = globalThis,
+  which: "shortcutHint" | "talkShortcutHint" = "shortcutHint",
+): Promise<string | undefined> {
   const settings = bridgeOf(scope);
-  const call: unknown = settings ? Reflect.get(settings, "shortcutHint") : undefined;
+  const call: unknown = settings ? Reflect.get(settings, which) : undefined;
   if (!settings || typeof call !== "function") return undefined;
   const hint: unknown = await Promise.resolve()
     .then(() => Reflect.apply(call, settings, []))
