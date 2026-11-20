@@ -14,6 +14,7 @@ import {
 import { imageType } from "@ace/ui-core";
 import { daemonCheckout, mediaOf } from "../files/checkout-source.ts";
 import { fileManagement } from "../files/file-management-source.ts";
+import { takeReadAhead } from "../files/read-ahead.ts";
 import { provideUnsaved } from "./deck-close.ts";
 import { keepDrafts } from "./keep-drafts.ts";
 
@@ -84,7 +85,9 @@ export function deckRegistry(client: ClientApi): BufferRegistry {
           ? Promise.resolve({ kind: "image" })
           : mediaOf(path)
             ? Promise.resolve({ kind: "media" })
-            : source.read(threadId, path, signal),
+            : (takeReadAhead(client, threadId, path)?.catch(() =>
+                source.read(threadId, path, signal),
+              ) ?? source.read(threadId, path, signal)),
       mutate: (operation) => fileManagement(client, threadId).mutate(operation),
     })),
     drafts,

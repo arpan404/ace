@@ -1,11 +1,12 @@
 import type { ClientApi } from "@ace/client";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { fileChanges, type Turn } from "@ace/ui-core";
+import { fileChanges, imageType, type Turn } from "@ace/ui-core";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useTurns } from "@/lib/diffs/use-turns.ts";
-import { daemonCheckout, type CheckoutSource } from "./checkout-source.ts";
+import { daemonCheckout, mediaOf, type CheckoutSource } from "./checkout-source.ts";
+import { readAhead } from "./read-ahead.ts";
 
 const sources = new WeakMap<ClientApi, CheckoutSource>();
 
@@ -78,8 +79,9 @@ const fileKey = (threadId: string, path: string | undefined, edits: number) => [
 const fileGcTime = 60_000;
 
 /**
- * Read a checkout file ahead of its opening (the pointer resting on its row), into the cache
- * `useFileContent` reads, so the click shows it at once. A fresh copy already cached is kept.
+ * Read a checkout file ahead of its opening (the pointer resting on its row), so the click shows
+ * it at once: source for the Deck's buffer to take, a picture or player into the cache
+ * `useFileContent` reads (a fresh copy already cached is kept).
  */
 export function usePrefetchFile(threadId: string): (path: string) => void {
   const client = useClient();
@@ -90,6 +92,7 @@ export function usePrefetchFile(threadId: string): (path: string) => void {
   return useCallback(
     (path: string) => {
       if (!ready) return;
+      if (!imageType(path) && !mediaOf(path)) return readAhead(client, source, threadId, path);
       void cache.prefetchQuery({
         queryKey: fileKey(threadId, path, touches(turns, path)),
         meta: { daemonClient: client },

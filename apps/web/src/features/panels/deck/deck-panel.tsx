@@ -36,6 +36,7 @@ import {
 } from "@/features/editor-workbench/index.ts";
 import { useEditorAnnotations } from "@/features/editor";
 import { cn } from "@/lib/cn.ts";
+import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import {
@@ -49,6 +50,7 @@ import { contentSearchStore } from "../files/content-search-store.ts";
 import { onRevealInExplorer } from "../files/file-tree-deck.ts";
 import { openInDeck, type OpenInDeckOptions } from "../files/open-file.ts";
 import { useRecentFilesStore } from "../files/files-state.ts";
+import { MentionSelection } from "../files/mention-selection.tsx";
 import { useChangeMarks } from "../files/use-change-marks.ts";
 import { quickOpen } from "../files/quick-open-store.ts";
 import { changeNotice, nextChange } from "./agent-changes.ts";
@@ -470,7 +472,13 @@ function RevealedEditor(props: DeckEditorProps & { threadId: string }) {
   // Annotations ride on every group's editor; views of one file map their ranges once per edit.
   const layer = useEditorAnnotations({ threadId, path: editor.path });
   return (
-    <DeckEditor {...editor} reveal={reveal} marks={marks} layer={layer} onRevealed={onRevealed} />
+    <MentionSelection
+      path={editor.path}
+      onMention={(mention) => mentionInComposer(threadId, mention)}
+      className="flex min-h-0 flex-1 flex-col"
+    >
+      <DeckEditor {...editor} reveal={reveal} marks={marks} layer={layer} onRevealed={onRevealed} />
+    </MentionSelection>
   );
 }
 
