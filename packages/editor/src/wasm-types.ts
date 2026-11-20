@@ -93,9 +93,18 @@ export interface WasmDocument {
   free(): void;
 }
 
+/** The `LineChanges` class wasm-bindgen generates. */
+export interface WasmLineChanges {
+  readonly ranges: Uint32Array;
+  readonly texts: string[];
+  free(): void;
+}
+
 /** The generated module: its default export instantiates the Wasm, the rest are bindings. */
 export interface WasmGlue {
   default(input?: unknown): Promise<unknown>;
   EditorDocument: new (text: string) => WasmDocument;
   lineMarks(original: string, current: string): Uint32Array;
+  merge3(base: string, mine: string, theirs: string): string[];
+  lineChanges(before: string, after: string): WasmLineChanges;
 }

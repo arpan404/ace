@@ -1,4 +1,4 @@
-import type { Selection } from "@ace/editor";
+import type { Applied, EditorDocument, Selection } from "@ace/editor";
 import type { LineMark } from "@ace/ui-core";
 import type { Ref } from "react";
 import type { EditorStatus, EditorStatusActions } from "./editor-status.ts";
@@ -17,9 +17,24 @@ export interface EditorHandle {
   statusActions(): EditorStatusActions;
 }
 
+/**
+ * A document its caller owns and shares between views (the Deck's buffer registry). `attach`
+ * lends the owner the mounted view's edit path, so text the owner lands (a reload, a merge)
+ * updates the view's layout, colours and carets as the person's own edits do.
+ */
+export interface SharedDocument {
+  doc: EditorDocument;
+  attach(edit: (run: (doc: EditorDocument) => Applied | undefined) => boolean): () => void;
+}
+
 export interface CodeEditorProps {
-  /** The text when the editor opens; later edits live in the document, not this prop. */
+  /**
+   * The text when the editor opens; later edits live in the document, not this prop. With
+   * `document`, only what the gutter compares against.
+   */
   text: string;
+  /** Show and edit this document instead of making one; the editor never frees it. */
+  document?: SharedDocument | undefined;
   /** The file's path: its language, its comment token and the name the textarea announces. */
   path: string;
   readOnly?: boolean;
