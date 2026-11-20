@@ -279,7 +279,6 @@
       "notes": [
         "Check Enable Device Flow. GitHub requires a callback URL; the device flow doesn't use it.",
         "Don't generate a client secret: Spade never uses one, and the repository refuses one.",
-        "The scopes are asked for at sign-in, not entered in the form.",
         "Copy the Client ID into spade/config/connector-apps.json as the client_id of the github entry and commit it; it is public by design.",
         "If the owner is an organisation that restricts OAuth apps, approve Spade under its third-party access settings."
       ]
