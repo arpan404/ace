@@ -37,10 +37,21 @@ export class DelegationAdmission {
   }
   /** `check`, resolving a stopped delegation it refuses (see `reserve`). */
   validate(caller: McpAttribution, input: DelegationRequest) {
+    this.resolving(caller, input.requestId, () => this.check(caller, input));
+  }
+  /**
+   * A delegation whose child runs on another machine. That machine checks its own providers,
+   * accounts and access, but a call from work a Stop ended here is refused here, before anything
+   * is sent: the same stopped-work rule `check` applies to a local child (ADR 0191).
+   */
+  validateRemote(caller: McpAttribution, requestId: string) {
+    this.resolving(caller, requestId, () => this.refuseStoppedWork(caller, requestId));
+  }
+  private resolving(caller: McpAttribution, requestId: string, run: () => void) {
     try {
-      this.check(caller, input);
+      run();
     } catch (error) {
-      this.resolveRefused(caller, input.requestId, error);
+      this.resolveRefused(caller, requestId, error);
       throw error;
     }
   }
@@ -84,11 +95,7 @@ export class DelegationAdmission {
         this.deps.engine.childPermissionRefusal(caller.threadId, input.provider, input),
       );
     }
-    // A thread being cancelled is refused, and so is the turn a Stop stopped: a delegation from
-    // it, a tool call still on its way included, comes from work the person ended. The fence
-    // lifts when a newer turn runs (the next message actually dispatched), never on acceptance.
-    if (this.journal.fenced(caller.threadId) || this.stoppedTurn(caller, input.requestId))
-      throw new AgentControlError("delegation_cancelled", "cancelled");
+    this.refuseStoppedWork(caller, input.requestId);
     if (input.provider === "acp") {
       const identity = AcpIdentity.parse(input);
       if (input.accountId && input.accountId !== identity.instanceId)
@@ -101,6 +108,15 @@ export class DelegationAdmission {
       )
     )
       throw controlAdmissionError("launch_options_unsupported");
+  }
+  /**
+   * A thread being cancelled is refused, and so is the turn a Stop stopped: a delegation from it,
+   * a tool call still on its way included, comes from work the person ended. The fence lifts
+   * when a newer turn runs (the next message actually dispatched), never on acceptance.
+   */
+  private refuseStoppedWork(caller: McpAttribution, requestId: string) {
+    if (this.journal.fenced(caller.threadId) || this.stoppedTurn(caller, requestId))
+      throw new AgentControlError("delegation_cancelled", "cancelled");
   }
   /**
    * The call comes from work a Stop ended (`turn-fence.ts`): the stopped turn, a run that began
