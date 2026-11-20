@@ -29,6 +29,25 @@ extension PageJourney: @retroactive CustomTestStringConvertible {
         #expect(run.listening.listening == [run.machinePort])
         let reached = await run.run(scenario)
         #expect(reached == scenario.reaches)
+        // A refusal counts only once the page reported it ran and tried.
+        #expect(run.missingAttempts(scenario) == [], "the page never reported trying")
+    }
+
+    /// The tab's frame policy stays on its page while another tab is shown and once it is shown
+    /// again: the web view holds its navigation delegate weakly, so the tab's model keeps it, not
+    /// the view on screen. A localhost frame's loads, the control, arrive at every stage.
+    @Test(arguments: [PageRulesScenario.Origin.publicSite, .loopback])
+    func aDeviceTabsFramePolicyStaysOnItsPageAcrossTabSwitches(_ origin: PageRulesScenario.Origin) async throws {
+        let run = try #require(await PageRulesRun.start(in: Self.window), "no network address to stand for a public site")
+        defer { run.stop() }
+        let (reached, tried) = await run.runInDeviceTab(framing: origin)
+        let stages = PageRulesRun.TabStage.allCases.map(\.rawValue)
+        if origin == .publicSite {
+            #expect(tried == stages, "the public frame never reported trying")
+            #expect(reached == [])
+        } else {
+            #expect(reached == stages)
+        }
     }
 
     /// Reloads, history moves, overlapping loads and new windows, as the person and pages make

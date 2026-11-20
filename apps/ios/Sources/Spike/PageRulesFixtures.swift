@@ -197,6 +197,12 @@ struct PageRulesScenario: Sendable {
     var start: (@Sendable (_ machine: String, _ publicBase: String, _ hit: String) -> String)?
     /// A page the scenario frames, at `/inner/<id>` on both servers, given the same bases.
     var inner: (@Sendable (_ machine: String, _ publicBase: String, _ hit: String) -> String)?
+    /// More pages and scripts, by path, on both servers, given the same bases.
+    var pages: (@Sendable (_ machine: String, _ publicBase: String, _ hit: String) -> [String: String])?
+    /// What the page must report it tried (`ping`, at `/ran/<id>/<attempt>` on the public site)
+    /// before a refusal counts: a request that never reached the machine because the page never
+    /// ran, or never made it, proves nothing.
+    var attempts: [String] = []
     /// The name as a path segment: letters, digits and dashes only, so it sits in any quoted HTML.
     var id: String {
         String(name.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" })
@@ -239,36 +245,6 @@ extension PageRulesScenario {
             "<iframe srcdoc=\"<img src='\(machine)\(hit)'>\"></iframe>"
         }, reaches: nil),
     ]
-
-    /// A frame inside a localhost page asking the machine's localhost, as a public frame and as a
-    /// localhost one: the localhost top page lets nothing through for the public frame.
-    static let framedRequests: [PageRulesScenario] = [PageRulesScenario.Origin.publicSite, .loopback].flatMap { origin in
-        [
-            framed(origin, "fetching localhost", reaches: "GET") { machine, hit in
-                "<script>fetch('\(machine)\(hit)').catch(() => {})</script>"
-            },
-            framed(origin, "loading an image from localhost", reaches: "GET") { machine, hit in
-                "<img src='\(machine)\(hit)'>"
-            },
-            framed(origin, "posting a form to localhost", reaches: "POST") { machine, hit in
-                "<form method='post' action='\(machine)\(hit)'><input name='a' value='1'></form><script>document.forms[0].submit()</script>"
-            },
-            framed(origin, "navigating itself to localhost", reaches: "GET") { machine, hit in
-                "<script>location.href = '\(machine)\(hit)'</script>"
-            },
-        ]
-    }
-
-    /// A localhost page framing a page on `origin` that does `request`; it reaches the machine
-    /// (with `reaches`) only from a localhost frame.
-    private static func framed(_ origin: Origin, _ request: String, reaches: String?,
-                               _ html: @escaping @Sendable (_ machine: String, _ hit: String) -> String) -> PageRulesScenario {
-        let frame = origin == .publicSite ? "a public frame" : "a localhost frame"
-        return PageRulesScenario(name: "\(frame) in a localhost page \(request)", origin: .loopback, html: { machine, publicBase, hit in
-            // The framed page is `/inner/<id>`, beside the hit `/hit/<id>`.
-            "<iframe src='\(origin == .publicSite ? publicBase : machine)\(hit.replacingOccurrences(of: "/hit/", with: "/inner/"))'></iframe>"
-        }, reaches: origin == .publicSite ? nil : reaches, inner: { machine, _, hit in html(machine, hit) })
-    }
 
     /// The person opens a public address that redirects to localhost with `status`.
     private static func personRedirect(_ status: Int) -> PageRulesScenario {
@@ -341,7 +317,9 @@ final class PageBook: @unchecked Sendable {
             response.delay = 1
             return response
         }
-        if let html = lock.withLock({ pages[path] }) { return .html(html) }
+        if let body = lock.withLock({ pages[path] }) {
+            return path.hasSuffix(".js") ? FixtureResponse(headers: ["Content-Type": "text/javascript"], body: body) : .html(body)
+        }
         return path.hasPrefix("/hit/") ? FixtureResponse(body: "<p>reached</p>") : FixtureResponse(status: 404, body: "")
     }
 }
@@ -355,9 +333,9 @@ final class PageBook: @unchecked Sendable {
     /// What the machine's port answered when it was asked for: it must be listening.
     let listening: LoopbackListening
     private let hub: LoopbackHub
-    private let book: PageBook
-    private let publicBase: String
-    private let window: UIView?
+    let book: PageBook
+    let publicBase: String
+    let window: UIView?
 
     /// Nil when the phone has no network address to stand for a public site.
     static func start(in window: UIView?) async -> PageRulesRun? {
@@ -378,6 +356,11 @@ final class PageBook: @unchecked Sendable {
         self.book = book; self.publicBase = publicBase; self.window = window
     }
 
+    /// The attempts the scenario's page should have reported and didn't.
+    func missingAttempts(_ scenario: PageRulesScenario) -> [String] {
+        scenario.attempts.filter { publicSite.seen.first(path: "/ran/\(scenario.id)/\($0)") == nil }
+    }
+
     /// The method the scenario's hit reached the machine with, or nil if it never did.
     func run(_ scenario: PageRulesScenario) async -> String? {
         let rules: WKContentRuleList? = await withCheckedContinuation { continuation in
@@ -388,18 +371,24 @@ final class PageBook: @unchecked Sendable {
         view.configuration.userContentController.add(rules)
         view.frame = CGRect(x: 0, y: 0, width: 320, height: 480)
         window?.addSubview(view)
-        let coordinator = DevicePageCoordinator()
-        coordinator.follow(view, tab: scenario.id, status: DevicePageStatus(), report: { _, _, _ in }, failed: { _, _ in })
+        let coordinator = DevicePageCoordinator(tab: scenario.id, status: DevicePageStatus())
+        coordinator.attach(view)
         defer { view.stopLoading(); view.removeFromSuperview(); _ = coordinator }
         let machineBase = "http://localhost:\(machinePort)"
         let hit = "/hit/\(scenario.id)"
         let page = "/page/\(scenario.id)"
         book.put(page, scenario.html(machineBase, publicBase, hit))
         if let inner = scenario.inner { book.put("/inner/\(scenario.id)", inner(machineBase, publicBase, hit)) }
+        for (path, body) in scenario.pages?(machineBase, publicBase, hit) ?? [:] { book.put(path, body) }
         let base = scenario.origin == .publicSite ? publicBase : machineBase
         let start = URL(string: scenario.start?(machineBase, publicBase, hit) ?? base + page)!
         view.load(URLRequest(url: start))
-        // One that should arrive gets four seconds; one that shouldn't is given two to try.
+        // One that should arrive gets four seconds; one that shouldn't is given two to try, from
+        // when it reported its attempts if it reports them.
+        let started = Date()
+        while !scenario.attempts.isEmpty, !missingAttempts(scenario).isEmpty, Date() < started.addingTimeInterval(4) {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         let deadline = Date().addingTimeInterval(scenario.reaches == nil ? 2 : 4)
         while Date() < deadline {
             if let seen = machine.seen.first(path: hit) { return seen.method }
@@ -419,8 +408,8 @@ final class PageBook: @unchecked Sendable {
         view.configuration.userContentController.add(rules)
         view.frame = CGRect(x: 0, y: 0, width: 320, height: 480)
         window?.addSubview(view)
-        let coordinator = DevicePageCoordinator()
-        coordinator.follow(view, tab: journey.id, status: DevicePageStatus(), report: { _, _, _ in }, failed: { _, _ in })
+        let coordinator = DevicePageCoordinator(tab: journey.id, status: DevicePageStatus())
+        coordinator.attach(view)
         defer { view.stopLoading(); view.removeFromSuperview(); _ = coordinator }
         let bases = PageJourney.Bases(machine: "http://localhost:\(machinePort)", publicSite: publicBase, id: journey.id)
         for (path, html) in journey.pages(bases) { book.put(path, html) }

@@ -1,14 +1,13 @@
 import SwiftUI
 import WebKit
 
-/// A device tab's page in the phone's own web view (ADR 0194). The tab's web view lives in
-/// `DeviceTabsModel`, so switching tabs keeps each page where it was. The bridge says when to
-/// load; the page reports where it went.
+/// A device tab's page in the phone's own web view (ADR 0194). The tab's web view and its
+/// navigation delegate live in `DeviceTabsModel`, so switching tabs keeps each page where it was,
+/// with its frame policy still on it while it is off screen. The bridge says when to load; the
+/// page reports where it went.
 struct DevicePageView: UIViewRepresentable {
     @Bindable var model: ClientModel
     let tab: DeviceTabsPatch.Tab
-
-    func makeCoordinator() -> DevicePageCoordinator { DevicePageCoordinator() }
 
     func makeUIView(context: Context) -> UIView {
         let container = UIView()
@@ -26,7 +25,7 @@ struct DevicePageView: UIViewRepresentable {
             view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             container.addSubview(view)
         }
-        context.coordinator.follow(view, tab: tab.id, status: status, report: { [weak model] id, url, title in
+        model.deviceTabs.watcher(tab.id)?.follow(view, report: { [weak model] id, url, title in
             model?.deviceTabPage(id, url: url, title: title)
         }, failed: { [weak model] id, url in
             model?.deviceTabFailed(id, url: url)
@@ -45,22 +44,33 @@ struct DevicePageView: UIViewRepresentable {
     }
 }
 
-/// Watches one web view for the bar and the bridge, and is its navigation delegate. Key-value
-/// observations may arrive on any thread, so each is `@Sendable` and hops to the main actor itself.
+/// One web view's navigation delegate, which holds its frame policy, and its watcher for the bar
+/// and the bridge. A web view holds its delegate weakly, so whoever keeps the view keeps this
+/// too (`DeviceTabsModel`, for a tab's page), never a SwiftUI coordinator that goes with the view
+/// on screen. Key-value observations may arrive on any thread, so each is `@Sendable` and hops to
+/// the main actor itself.
 @MainActor final class DevicePageCoordinator: NSObject, WKNavigationDelegate {
     private var observations: [NSKeyValueObservation] = []
     private weak var watched: WKWebView?
-    private var tab = ""
-    private var status: DevicePageStatus?
+    private let tab: String
+    private let status: DevicePageStatus
     private var failed: (String, String) -> Void = { _, _ in }
 
-    func follow(_ view: WKWebView, tab: String, status: DevicePageStatus,
+    init(tab: String, status: DevicePageStatus) {
+        self.tab = tab; self.status = status
+    }
+
+    /// Becomes `view`'s navigation delegate, before the view loads anything.
+    func attach(_ view: WKWebView) { view.navigationDelegate = self }
+
+    /// Reports where the page goes and what the bar shows; the policy is on from `attach`.
+    func follow(_ view: WKWebView,
                 report: @escaping @MainActor (String, String, String?) -> Void,
                 failed: @escaping (String, String) -> Void) {
-        self.tab = tab; self.status = status; self.failed = failed
+        self.failed = failed
         guard watched !== view else { return }
         watched = view
-        view.navigationDelegate = self
+        let tab = tab, status = status
         observations.removeAll()
         let refresh: @Sendable (WKWebView) -> Void = { view in
             nonisolated(unsafe) let view = view
@@ -93,7 +103,7 @@ struct DevicePageView: UIViewRepresentable {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        status?.failed = false; status?.refused = false
+        status.failed = false; status.refused = false
     }
 
     /// Main-frame navigations to the machine's loopback follow `allowsMainFrame`, child frames
@@ -110,7 +120,7 @@ struct DevicePageView: UIViewRepresentable {
             ? DevicePageEngine.allowsMainFrame(to: url, method: navigationAction.request.httpMethod,
                                                sourceHost: source?.securityOrigin.host)
             : DevicePageEngine.allowsSubframe(to: url, sourceHost: source?.securityOrigin.host)
-        if !allowed { status?.refused = true }
+        if !allowed { status.refused = true }
         decisionHandler(allowed ? .allow : .cancel)
     }
 
@@ -118,7 +128,7 @@ struct DevicePageView: UIViewRepresentable {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
         let error = error as NSError
         guard error.code != NSURLErrorCancelled else { return }
-        status?.failed = true
+        status.failed = true
         if let url = error.userInfo[NSURLErrorFailingURLStringErrorKey] as? String { failed(tab, url) }
     }
 }

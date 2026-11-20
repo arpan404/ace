@@ -35,6 +35,9 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
     @ObservationIgnored var onScreen = false
     /// Each tab's live page, kept while the tab is open.
     @ObservationIgnored private var views: [String: WKWebView] = [:]
+    /// Each tab's page's navigation delegate (its frame policy) and watcher, kept with the page:
+    /// the web view holds its delegate weakly, and the page runs on while another tab is shown.
+    @ObservationIgnored private var watchers: [String: DevicePageCoordinator] = [:]
     /// The last load each tab's page ran (`Tab.load`).
     @ObservationIgnored private var loaded: [String: Int] = [:]
     /// Each tab's page as the bar shows it.
@@ -52,6 +55,7 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
         refused = patch.refused
         let ids = Set(patch.tabs.map(\.id))
         for id in views.keys where !ids.contains(id) { views.removeValue(forKey: id)?.stopLoading() }
+        watchers = watchers.filter { ids.contains($0.key) }
         loaded = loaded.filter { ids.contains($0.key) }
         statuses = statuses.filter { ids.contains($0.key) }
         if let shown, !ids.contains(shown) { self.shown = nil }
@@ -63,13 +67,20 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
     /// The next tab the bridge opens is shown.
     func showOpened() { showNext = true }
 
-    /// The tab's web view, made once for `hostId`'s data store.
+    /// The tab's web view, made once for `hostId`'s data store, with its navigation delegate on
+    /// before it loads anything.
     func view(for tab: DeviceTabsPatch.Tab, hostId: String) -> WKWebView {
         if let view = views[tab.id] { return view }
         let view = DevicePageEngine.webView(hostId: hostId)
+        let watcher = DevicePageCoordinator(tab: tab.id, status: status(tab.id))
+        watcher.attach(view)
         views[tab.id] = view
+        watchers[tab.id] = watcher
         return view
     }
+
+    /// The navigation delegate and watcher of the tab's web view, once it is made.
+    func watcher(_ id: String) -> DevicePageCoordinator? { watchers[id] }
 
     /// Whether the bridge asked for a load the tab's page hasn't run yet; true once per load.
     func takeLoad(_ tab: DeviceTabsPatch.Tab) -> Bool {
@@ -96,7 +107,7 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
 
     func reset() {
         for view in views.values { view.stopLoading() }
-        views.removeAll(); loaded.removeAll(); statuses.removeAll()
+        views.removeAll(); watchers.removeAll(); loaded.removeAll(); statuses.removeAll()
         tabs = []; holding = false; refused = nil; shown = nil
     }
 }
