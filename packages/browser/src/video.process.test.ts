@@ -37,7 +37,8 @@ function videoViewer(f: Fixture, connectionId = "phone", codecs = ["avc1.42E033"
   const video = () =>
     streamed.flatMap((message) => (message.kind === "browser.video" ? [message.chunk] : []));
   /** The video chunks that arrived before `at`. */
-  const videoBefore = (at: number) => video().filter((_chunk, index) => (arrivals[index] ?? 0) < at);
+  const videoBefore = (at: number) =>
+    video().filter((_chunk, index) => (arrivals[index] ?? 0) < at);
   const until = (done: () => boolean, timeoutMs = 20_000) =>
     new Promise<void>((resolve, reject) => {
       const check = () => {
