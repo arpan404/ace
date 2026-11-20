@@ -20,10 +20,9 @@ export async function launchPluginProcess(
       args: [...(options.args ?? []), ...session.args],
       env: launchEnvironment(options.env, session.env),
     });
-    const exited = process.exited.finally(() => {
-      // Closing the session is cleanup after exit; a failure there cannot change the exit result.
-      void session.close().catch(() => {});
-    });
+    // Exit settles once the session projection is released, so a caller that saw the exit never
+    // finds the projection still on disk. A failed close is cleanup and cannot change the exit result.
+    const exited = process.exited.finally(() => session.close().catch(() => {}));
     return {
       ...process,
       exited,
