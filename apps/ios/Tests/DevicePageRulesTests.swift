@@ -7,6 +7,10 @@ extension PageRulesScenario: @retroactive CustomTestStringConvertible {
     public var testDescription: String { name }
 }
 
+extension PageJourney: @retroactive CustomTestStringConvertible {
+    public var testDescription: String { name }
+}
+
 /// The device tab's rules on real web views (ADR 0194): the rule list keeps a public page's
 /// requests off the machine's localhost, the main-frame policy keeps its form posts off it, and
 /// plain navigations there still load. The machine's localhost is a real HTTP server behind the
@@ -27,6 +31,16 @@ extension PageRulesScenario: @retroactive CustomTestStringConvertible {
         #expect(reached == scenario.reaches)
     }
 
+    /// Reloads, history moves, overlapping loads and new windows, as the person and pages make
+    /// them: only a localhost page's own form is sent to the machine again.
+    @Test(arguments: PageJourney.all)
+    func aJourneyThroughSeveralNavigationsReachesTheMachineOnlyWhereTheRulesAllow(_ journey: PageJourney) async throws {
+        let run = try #require(await PageRulesRun.start(in: Self.window), "no network address to stand for a public site")
+        defer { run.stop() }
+        let reached = await run.run(journey)
+        #expect(reached == journey.reaches, "reached the machine with \(reached)")
+    }
+
     @Test func aPublicPageHasNoServiceWorkerToReachTheMachineFrom() async throws {
         let run = try #require(await PageRulesRun.start(in: Self.window))
         defer { run.stop() }
@@ -41,7 +55,7 @@ extension PageRulesScenario: @retroactive CustomTestStringConvertible {
     @Test(arguments: loopbackNavigationCases)
     func aTopLevelNavigationToLocalhostFollowsTheSameRuleAsEveryOtherApp(_ entry: LoopbackNavigationCase) {
         #expect(DevicePageEngine.loopbackNavigationAllowed(method: entry.method, initiatorIsLoopback: entry.initiatorIsLoopback,
-                                                           byPerson: entry.byPerson, redirectStatus: entry.redirectStatus) == entry.allowed)
+                                                           redirectStatus: entry.redirectStatus) == entry.allowed)
     }
 
     @Test(arguments: [
@@ -53,7 +67,7 @@ extension PageRulesScenario: @retroactive CustomTestStringConvertible {
         ("http://localhost:3000/", "POST", "::1", true),
     ] as [(String, String, String, Bool)])
     func onlyNavigationsToTheMachinesLoopbackAreJudged(url: String, method: String, source: String, allowed: Bool) {
-        #expect(DevicePageEngine.allowsMainFrame(to: URL(string: url), method: method, sourceHost: source, byPerson: false) == allowed)
+        #expect(DevicePageEngine.allowsMainFrame(to: URL(string: url), method: method, sourceHost: source) == allowed)
     }
 }
 
@@ -62,7 +76,6 @@ struct LoopbackNavigationCase: Decodable, Sendable, CustomTestStringConvertible 
     let `case`: String
     let method: String
     let initiatorIsLoopback: Bool
-    let byPerson: Bool
     let redirectStatus: Int?
     let allowed: Bool
     var testDescription: String { self.case }

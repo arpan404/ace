@@ -54,12 +54,13 @@ enum DevicePageEngine {
 
     /// `@ace/ui-core`'s `loopbackNavigationAllowed` (ADR 0194), kept here because WebKit's policy
     /// can't wait on the script: a top-level navigation to loopback goes ahead when a loopback
-    /// document or the person started it, or when it is a GET (links, `location`, a 302 or 303
-    /// back to localhost); any other non-GET is refused. WebKit reports a redirect's request with
-    /// the method it is sent with, so no redirect status is needed here. Tested against the same
-    /// table (`loopback-navigation-cases.json`). Pure.
-    static func loopbackNavigationAllowed(method: String, initiatorIsLoopback: Bool, byPerson: Bool, redirectStatus: Int? = nil) -> Bool {
-        if initiatorIsLoopback || byPerson { return true }
+    /// document started it, or when it is a GET (links, `location`, a 302 or 303 back to
+    /// localhost, and everything the person starts in ace); any other non-GET is refused, a form
+    /// resubmitted for a public page included. No navigation is trusted for who started it.
+    /// WebKit reports a redirect's request with the method it is sent with, so no redirect status
+    /// is needed here. Tested against the same table (`loopback-navigation-cases.json`). Pure.
+    static func loopbackNavigationAllowed(method: String, initiatorIsLoopback: Bool, redirectStatus: Int? = nil) -> Bool {
+        if initiatorIsLoopback { return true }
         var effective = method.uppercased()
         if redirectStatus == 303, effective != "HEAD" { effective = "GET" }
         if redirectStatus == 301 || redirectStatus == 302, effective == "POST" { effective = "GET" }
@@ -67,48 +68,14 @@ enum DevicePageEngine {
     }
 
     /// Whether a main-frame navigation may go ahead: anything not to loopback does; one to
-    /// loopback follows `loopbackNavigationAllowed`. Pure.
-    static func allowsMainFrame(to url: URL?, method: String?, sourceHost: String?, byPerson: Bool) -> Bool {
+    /// loopback follows `loopbackNavigationAllowed`, with the document WebKit names as its source
+    /// (for a form it resubmits, the page on screen). Pure.
+    static func allowsMainFrame(to url: URL?, method: String?, sourceHost: String?) -> Bool {
         guard isLoopbackHost(url?.host(percentEncoded: false)) else { return true }
-        return loopbackNavigationAllowed(method: method ?? "GET", initiatorIsLoopback: isLoopbackHost(sourceHost), byPerson: byPerson)
+        return loopbackNavigationAllowed(method: method ?? "GET", initiatorIsLoopback: isLoopbackHost(sourceHost))
     }
 
     static let ruleListIdentifier = "ace.device-tab.loopback.v1"
-
-    /// Which main-frame navigations the person started, as `loopbackNavigationAllowed` means it
-    /// (ADR 0194) and as the desktop app reads it from a request with no initiator: the browser's
-    /// own navigation that no document started. That is the load the app asked for (a typed
-    /// address, a tab it opened, "Open on this phone") and each redirect of it until it commits
-    /// or fails, a reload, and a move back or forward (a form resubmitted by either included).
-    /// A link, a script, or a form a page submitted, and their redirects, are the page's. Pure.
-    struct PersonNavigation {
-        private var asked: URL?
-        private var underway = false
-
-        /// The app is about to load `url` for the person.
-        mutating func asks(_ url: URL) { asked = url; underway = false }
-
-        /// Whether this main-frame navigation action is the person's. WebKit asks again for each
-        /// redirect, with the action's own type (`.other` for the app's load).
-        mutating func started(_ type: WKNavigationType, url: URL?) -> Bool {
-            switch type {
-            case .reload, .backForward, .formResubmitted:
-                return true
-            case .other:
-                if let url, url == asked {
-                    asked = nil
-                    underway = true
-                    return true
-                }
-                return underway
-            default:
-                return false
-            }
-        }
-
-        /// The navigation under way committed or failed: what follows is the page's.
-        mutating func settled() { underway = false }
-    }
 
     /// The compiled rule list, made once for the app.
     @MainActor private static var compiled: WKContentRuleList?

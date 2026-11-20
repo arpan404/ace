@@ -104,7 +104,8 @@ describe("a device tab's request to the machine's localhost", () => {
 
 describe("a device tab's top-level navigation to the machine's localhost", () => {
   it.each([
-    // The person's: the browser's own navigation, with no initiator, and each redirect of it.
+    // The person's: the browser's own navigation, with no initiator, and each redirect of it:
+    // GETs, which go ahead as any GET does.
     ["the person types a localhost address", "GET", undefined, false],
     [
       "the person's load redirected to localhost with 302, 303, 307 or 308",
@@ -112,7 +113,10 @@ describe("a device tab's top-level navigation to the machine's localhost", () =>
       undefined,
       false,
     ],
-    ["the person reloads a localhost page a localhost form posted to", "POST", undefined, false],
+    // A POST with no initiator is a form the browser resubmits: no navigation is trusted for
+    // who started it, so it needs a localhost initiator like any other POST.
+    ["a form resubmitted with no initiator named", "POST", undefined, true],
+    ["a localhost page's form resubmitted, named as its initiator", "POST", localhost, false],
     // A document's: Chromium names its origin on the navigation and on every redirect of it,
     // with the method that hop sends.
     [

@@ -27,49 +27,21 @@ import WebKit
         // The navigation check and the rule list agree on every host.
         #expect(DevicePageEngine.isLoopbackHost(URL(string: entry.url)?.host(percentEncoded: false)) == entry.loopback)
     }
-    @Test func theLoadTheAppAskedForIsThePersonsThroughItsRedirectsUntilItCommits() {
-        var person = DevicePageEngine.PersonNavigation()
-        let typed = URL(string: "https://accounts.example/login")!
-        person.asks(typed)
-        let first = person.started(.other, url: typed)
-        #expect(first)
-        // Each redirect of it comes back as `.other` with another URL.
-        let redirected = person.started(.other, url: URL(string: "http://localhost:3000/cb"))
-        #expect(redirected)
-        person.settled()
-        // Once the page is up, a script's navigation is the page's, even to the same URL.
-        let later = person.started(.other, url: typed)
-        #expect(!later)
-    }
-
+    /// A public page's navigations to localhost through the main-frame policy, whoever asked
+    /// for them: WebKit reports each redirect with the method it sends (a 301 or 302 POST as a GET)
+    /// and names the page on screen as the source of a load the app asked for or a form it resends.
     @Test(arguments: [
-        (WKNavigationType.linkActivated, false), (.formSubmitted, false), (.other, false),
-        (.reload, true), (.backForward, true), (.formResubmitted, true),
-    ])
-    func whoStartedANavigationTheAppDidNotAskFor(type: WKNavigationType, byPerson: Bool) {
-        var person = DevicePageEngine.PersonNavigation()
-        let started = person.started(type, url: URL(string: "http://localhost:3000/"))
-        #expect(started == byPerson)
-    }
-
-    /// A public page's navigations and the person's, to localhost, through the main-frame policy:
-    /// WebKit reports each redirect with the method it sends (a 301 or 302 POST as a GET).
-    @Test(arguments: [
-        ("person, typed address", WKNavigationType.other, true, "GET", true),
-        ("person, a POST resubmitted by reload", .formResubmitted, false, "POST", true),
-        ("page link", .linkActivated, false, "GET", true),
-        ("page form post", .formSubmitted, false, "POST", false),
-        ("page form post redirected 301 or 302 (now GET)", .formSubmitted, false, "GET", true),
-        ("page form post redirected 303 (now GET)", .formSubmitted, false, "GET", true),
-        ("page form post redirected 307 or 308 (still POST)", .formSubmitted, false, "POST", false),
-    ] as [(String, WKNavigationType, Bool, String, Bool)])
-    func thePolicyJudgesTheMethodOnlyForPageStartedNavigations(name: String, type: WKNavigationType, asked: Bool,
-                                                                method: String, allowed: Bool) {
-        var person = DevicePageEngine.PersonNavigation()
-        let url = URL(string: "http://localhost:3000/cb")!
-        if asked { person.asks(url) }
-        let byPerson = person.started(type, url: url)
-        #expect(DevicePageEngine.allowsMainFrame(to: url, method: method, sourceHost: "attacker.test", byPerson: byPerson) == allowed, "\(name)")
+        ("the person's typed address, from a public page on screen", "GET", "attacker.test", true),
+        ("a public page's link", "GET", "attacker.test", true),
+        ("a public page's form post", "POST", "attacker.test", false),
+        ("a public page's form post redirected 301, 302 or 303 (now GET)", "GET", "attacker.test", true),
+        ("a public page's form post redirected 307 or 308 (still POST)", "POST", "attacker.test", false),
+        ("a public page's form resubmitted by the person's reload", "POST", "attacker.test", false),
+        ("a localhost page's form resubmitted by the person's reload", "POST", "localhost", true),
+    ] as [(String, String, String, Bool)])
+    func thePolicyJudgesEveryNavigationByItsSourceAndMethod(name: String, method: String, source: String, allowed: Bool) {
+        let url = URL(string: "http://localhost:3000/cb")
+        #expect(DevicePageEngine.allowsMainFrame(to: url, method: method, sourceHost: source) == allowed, "\(name)")
     }
 }
 

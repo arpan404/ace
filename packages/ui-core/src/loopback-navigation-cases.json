@@ -3,56 +3,54 @@
     "case": "a public page's link",
     "method": "GET",
     "initiatorIsLoopback": false,
-    "byPerson": false,
     "allowed": true
   },
   {
     "case": "a public page's form post",
     "method": "POST",
     "initiatorIsLoopback": false,
-    "byPerson": false,
     "allowed": false
   },
   {
     "case": "a public page's form post, lower case",
     "method": "post",
     "initiatorIsLoopback": false,
-    "byPerson": false,
     "allowed": false
   },
   {
     "case": "a public page's PUT",
     "method": "PUT",
     "initiatorIsLoopback": false,
-    "byPerson": false,
     "allowed": false
   },
   {
     "case": "a localhost page's form post",
     "method": "POST",
     "initiatorIsLoopback": true,
-    "byPerson": false,
     "allowed": true
   },
   {
-    "case": "a typed address",
+    "case": "the person's typed address, a GET like everything the person starts",
     "method": "GET",
     "initiatorIsLoopback": false,
-    "byPerson": true,
     "allowed": true
   },
   {
-    "case": "a post the person started",
+    "case": "a public page's form post resubmitted by the person's reload",
     "method": "POST",
     "initiatorIsLoopback": false,
-    "byPerson": true,
+    "allowed": false
+  },
+  {
+    "case": "a localhost page's form post resubmitted by the person's reload",
+    "method": "POST",
+    "initiatorIsLoopback": true,
     "allowed": true
   },
   {
     "case": "an OAuth 302 back to localhost",
     "method": "GET",
     "initiatorIsLoopback": false,
-    "byPerson": false,
     "redirectStatus": 302,
     "allowed": true
   },
@@ -60,7 +58,6 @@
     "case": "a public post redirected with 303",
     "method": "POST",
     "initiatorIsLoopback": false,
-    "byPerson": false,
     "redirectStatus": 303,
     "allowed": true
   },
@@ -68,7 +65,6 @@
     "case": "a public post redirected with 302",
     "method": "POST",
     "initiatorIsLoopback": false,
-    "byPerson": false,
     "redirectStatus": 302,
     "allowed": true
   },
@@ -76,7 +72,6 @@
     "case": "a public post redirected with 307",
     "method": "POST",
     "initiatorIsLoopback": false,
-    "byPerson": false,
     "redirectStatus": 307,
     "allowed": false
   },
@@ -84,7 +79,6 @@
     "case": "a public post redirected with 308",
     "method": "POST",
     "initiatorIsLoopback": false,
-    "byPerson": false,
     "redirectStatus": 308,
     "allowed": false
   },
@@ -92,7 +86,6 @@
     "case": "a public link redirected with 307",
     "method": "GET",
     "initiatorIsLoopback": false,
-    "byPerson": false,
     "redirectStatus": 307,
     "allowed": true
   },
@@ -100,7 +93,6 @@
     "case": "a localhost post redirected with 307",
     "method": "POST",
     "initiatorIsLoopback": true,
-    "byPerson": false,
     "redirectStatus": 307,
     "allowed": true
   }

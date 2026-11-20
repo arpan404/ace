@@ -116,9 +116,13 @@ never a host.
   changes) and `tunnel.refused` (with a stream id for one OPEN, before that stream's RESET;
   without one for the whole tunnel, which then closes). Refusals are `tunnel_off`,
   `tunnel_forbidden`, `tunnel_port_refused` and `tunnel_limit`. A port with nothing listening is
-  a plain RESET, which the client reports as `tunnel_reset`. A RESET that follows a stream's END
-  is the machine's socket closing after its answer while the device has not ended (a
-  `Connection: close` server): what came before the END is still delivered whole. The client keeps
+  a plain RESET, which the client reports as `tunnel_reset`. A RESET is always abortive: the side
+  that gets one drops what still waited for its socket. A socket that closes after its END while
+  the other side has not ended (a `Connection: close` server that closes after its answer) leaves
+  the stream half-closed, as TCP does, and sends no RESET: the stream goes without one at the
+  peer's END, is reset if the peer sends data nothing can read now, and is reset after 15 s
+  without a frame from the peer (its credit restarts the wait). Everything sent before the END is
+  delivered whole, and no frame kind is added, so the preview relay and older peers are unchanged. The client keeps
   a stream's refusal only while that stream is opening. Once its hello is read, a tunnel
   connection carries only its stream frames and pings: its other JSON reaches no service,
   command or read, whatever the device's scopes. Its authority is decided before any frame is
@@ -144,7 +148,8 @@ never a host.
   and the connection closes once the refusal is written or after two seconds, so the device
   hears why and backs off instead of retrying the path. A revoked device's tunnel sockets and
   relay channels go through this path too (`tunnel_forbidden`), ahead of the generic close its
-  other sockets get.
+  other sockets get, a relay channel whose welcome is still being sent included: its refusal
+  follows the welcome.
 
 ### The device side
 
@@ -240,23 +245,30 @@ Neither rule can judge a top-level navigation: its own URL is the top-level URL,
 could still submit a form to a service on the machine. Each app's navigation policy therefore
 asks one pure function, `loopbackNavigationAllowed` in `@ace/ui-core`, about every top-level
 navigation to loopback (the desktop app from the same `onBeforeRequest`, which Electron calls for
-every redirect with the method that hop sends, and an initiator absent only when the person
-started the load; the phone from
-`WKNavigationDelegate`'s navigation-action policy, which sees each redirect again with its method):
+every redirect with the method that hop sends and the initiating document's origin; the phone
+from `WKNavigationDelegate`'s navigation-action policy, which sees each redirect again with its
+method and names its source frame):
 
-- it goes ahead when the document that started it is itself on a loopback host;
-- it goes ahead when the person started it in ace. Both apps mean the same by that: the
-  browser's own navigation, which no document started. That is the load the app made for the
-  person (a typed address, a tab it opened, "Open on this phone") and each redirect of it, a
-  reload, and a move back or forward. The desktop app reads it as a request with no initiator
-  (Chromium names the initiating document's origin on a navigation and on each of its redirects);
-  the phone as the load it asked for, with its redirects until it commits or fails, or a
-  navigation of type reload, back-forward or form resubmission. A link, a script or a form a page
-  submitted, and their redirects, are the page's;
-- it goes ahead when it is a GET: a link, a script setting `location`, or a redirect chain whose
-  request to loopback is a GET, so an OAuth provider's 302 or 303 back to `localhost` works;
-- otherwise it is refused: a non-GET started by any other document, such as a public page's form
-  post or a 307 or 308 redirect that keeps its POST.
+- it goes ahead when the document that started it is itself on a loopback host. For a form the
+  browser resubmits (a reload, or a move back or forward to a page a POST made), that is the
+  document the browser names for it: on the phone, the page on screen;
+- it goes ahead when it is a GET: a link, a script setting `location`, a redirect chain whose
+  request to loopback is a GET, so an OAuth provider's 302 or 303 back to `localhost` works, and
+  every navigation the person starts in ace (a typed address, a tab it opened, "Open on this
+  phone", a reload or a move back or forward, and each redirect of them), since each of those
+  is a GET and a redirect keeps a GET a GET;
+- otherwise it is refused: a public page's form post, a 307 or 308 redirect that keeps its POST,
+  and a POST the browser resubmits for a page that isn't on loopback, whoever asked for the reload.
+
+No navigation is trusted for who started it, on either app. The only non-GET a person's action
+makes is a form resubmission, and that replays a page's POST: a public page whose server answers
+its form once and sends the resubmission on to `localhost` with a 307 must not reach the machine
+because the person tapped Reload. Telling the person's navigations apart would not be reliable
+anyway: on the phone (iOS 26.1) WebKit names the page on screen as the source of a load the app
+asked for, just as for a script's, and a script's `history.back()` or `location.reload()` has the
+same navigation type as the person's. The desktop app's reload never resubmits a form at all:
+Electron leaves a repost to a prompt it doesn't show, so it sends nothing (verified in a
+real-Electron run).
 
 A GET from a public page can still reach a loopback page, as it can on the machine itself; a
 service that changes state on a GET is open to that anywhere. The phone's WebKit policy can't

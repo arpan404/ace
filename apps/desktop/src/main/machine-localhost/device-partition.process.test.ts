@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
+import type { Socket } from "node:net";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -148,10 +149,17 @@ const Result = z.object({
 });
 
 async function listen(server: Server): Promise<number> {
+  // A close waits for every connection, an upgraded websocket's included, which nothing ends.
+  const sockets = new Set<Socket>();
+  server.on("connection", (socket: Socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+  });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  onTestFinished(() =>
-    new Promise<void>((resolve) => server.close(() => resolve())).then(() => undefined),
-  );
+  onTestFinished(() => {
+    for (const socket of sockets) socket.destroy();
+    return new Promise<void>((resolve) => server.close(() => resolve())).then(() => undefined);
+  });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("No listener");
   return address.port;

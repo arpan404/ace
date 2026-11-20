@@ -34,14 +34,12 @@ struct DevicePageView: UIViewRepresentable {
         guard model.deviceTabs.takeLoad(tab), let url = URL(string: tab.url) else { return }
         // Nothing loads before the loopback rules are on the page: a public page must never
         // reach the machine's localhost through the phone's listeners, even once.
-        let coordinator = context.coordinator
         DevicePageEngine.loopbackRules { [weak view] rules in
             guard let view else { return }
             guard let rules else { status.unsafe = true; return }
             let content = view.configuration.userContentController
             content.remove(rules)
             content.add(rules)
-            coordinator.personLoads(url)
             view.load(URLRequest(url: url))
         }
     }
@@ -55,11 +53,6 @@ struct DevicePageView: UIViewRepresentable {
     private var tab = ""
     private var status: DevicePageStatus?
     private var failed: (String, String) -> Void = { _, _ in }
-    /// Which navigations the person started (`DevicePageEngine.PersonNavigation`).
-    private var person = DevicePageEngine.PersonNavigation()
-
-    /// The next navigation to `url` that no page started is the person's, with its redirects.
-    func personLoads(_ url: URL) { person.asks(url) }
 
     func follow(_ view: WKWebView, tab: String, status: DevicePageStatus,
                 report: @escaping @MainActor (String, String, String?) -> Void,
@@ -100,31 +93,26 @@ struct DevicePageView: UIViewRepresentable {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        person.settled()
         status?.failed = false; status?.refused = false
     }
-
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) { person.settled() }
 
     /// Main-frame navigations to the machine's loopback follow `allowsMainFrame`; frames and
     /// subresources are the rule list's. Redirects come through here again with their method.
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
         guard navigationAction.targetFrame?.isMainFrame ?? true else { decisionHandler(.allow); return }
-        // WebKit may leave the source frame out (a load the app started) though the header says
-        // it never does: read it so a missing one is nil, not a crash.
+        // The source frame is the page on screen even for a load the app asked for (iOS 26), so
+        // it can't tell the person's navigations from the page's, and nothing here tries to.
+        // Read it so a missing one is nil, not a crash, though the header says it never is.
         let source = navigationAction.value(forKey: "sourceFrame") as? WKFrameInfo
-        let url = navigationAction.request.url
-        let byPerson = person.started(navigationAction.navigationType, url: url)
-        let allowed = DevicePageEngine.allowsMainFrame(to: url, method: navigationAction.request.httpMethod,
-                                                       sourceHost: source?.securityOrigin.host, byPerson: byPerson)
+        let allowed = DevicePageEngine.allowsMainFrame(to: navigationAction.request.url, method: navigationAction.request.httpMethod,
+                                                       sourceHost: source?.securityOrigin.host)
         if !allowed { status?.refused = true }
         decisionHandler(allowed ? .allow : .cancel)
     }
 
     /// The load never reached a page: the bridge words why when it was the machine's localhost.
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-        person.settled()
         let error = error as NSError
         guard error.code != NSURLErrorCancelled else { return }
         status?.failed = true

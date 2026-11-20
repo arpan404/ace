@@ -10,10 +10,12 @@
 export interface LoopbackNavigation {
   /** The request's method as sent, or as the browser reports it before a redirect. */
   method: string;
-  /** The document that started the navigation is itself on a loopback host. */
+  /**
+   * The document that started the navigation is itself on a loopback host. For a form the
+   * browser resubmits (a reload or a move back or forward to a page a POST made), the document
+   * the browser names for it.
+   */
   initiatorIsLoopback: boolean;
-  /** The person started it in ace: a typed address, an app-opened tab, "Open on this phone". */
-  byPerson: boolean;
   /** When this request follows a redirect: its status (301, 302, 303, 307, 308). */
   redirectStatus?: number;
 }
@@ -28,12 +30,15 @@ export function redirectedMethod(method: string, redirectStatus?: number): strin
 
 /**
  * Whether a top-level navigation to the machine's loopback may go ahead. It may when the
- * document that started it is on loopback, when the person started it, or when it is a GET:
- * a link, a script setting `location`, or a redirect chain whose request to loopback is a GET
- * (an OAuth provider's 302 or 303 back to localhost). A non-GET started by any other document is
- * refused, a form posted by a public page and a 307 or 308 that keeps its POST included.
+ * document that started it is on loopback, or when it is a GET: a link, a script setting
+ * `location`, a redirect chain whose request to loopback is a GET (an OAuth provider's 302 or 303
+ * back to localhost), and every navigation the person starts in ace (an address, a tab, a reload,
+ * a move back or forward, and their redirects), which are all GETs. Any other non-GET is refused:
+ * a form posted by a public page, a 307 or 308 that keeps its POST, and a POST the browser
+ * resubmits for a page that isn't on loopback, whoever asked for the reload. No navigation is
+ * trusted for who started it.
  */
 export function loopbackNavigationAllowed(navigation: LoopbackNavigation): boolean {
-  if (navigation.initiatorIsLoopback || navigation.byPerson) return true;
+  if (navigation.initiatorIsLoopback) return true;
   return redirectedMethod(navigation.method, navigation.redirectStatus) === "GET";
 }

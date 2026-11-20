@@ -24,9 +24,10 @@ export function isLoopbackUrl(url: string | undefined): boolean {
  * localhost (Electron runs with Local Network Access checks off). Only requests to loopback are
  * judged; Electron asks again for each redirect, with the method that hop sends.
  *
- * - A top-level navigation follows `loopbackNavigationAllowed`, the rule the phone keeps too: the
- *   person's own, a loopback page's, or any GET (a link, or an OAuth provider's redirect back to
- *   `localhost`) goes; a public page's form post, or a 307 or 308 that keeps it, doesn't.
+ * - A top-level navigation follows `loopbackNavigationAllowed`, the rule the phone keeps too: a
+ *   loopback page's, or any GET (a link, an OAuth provider's redirect back to `localhost`, and
+ *   everything the person starts) goes; a public page's form post, a 307 or 308 that keeps it, or
+ *   a POST resubmitted with no initiator or a public one, doesn't.
  * - Anything else needs a loopback initiator: the origin of the document or worker that sent it,
  *   which Chromium checks against the frame itself. A public frame inside a localhost page is
  *   refused, while a localhost page's own service worker, which has no frame, still works.
@@ -42,10 +43,6 @@ export function blocksLoopbackRequest(request: {
   if (!isLoopbackUrl(request.url)) return false;
   const initiatorIsLoopback = isLoopbackUrl(request.initiator);
   if (request.resourceType === "mainFrame")
-    return !loopbackNavigationAllowed({
-      method: request.method,
-      initiatorIsLoopback,
-      byPerson: request.initiator === undefined,
-    });
+    return !loopbackNavigationAllowed({ method: request.method, initiatorIsLoopback });
   return !initiatorIsLoopback;
 }

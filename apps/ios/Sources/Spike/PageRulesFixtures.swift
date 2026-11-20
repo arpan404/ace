@@ -16,11 +16,12 @@ struct SeenRequest: Equatable, Sendable {
     let path: String
 }
 
-/// An answer: status, extra headers and body.
+/// An answer: status, extra headers and body, sent after `delay` seconds.
 struct FixtureResponse: Sendable {
     var status = 200
     var headers: [String: String] = [:]
     var body = "ok"
+    var delay: Double = 0
     static func html(_ body: String) -> FixtureResponse { FixtureResponse(headers: ["Content-Type": "text/html"], body: body) }
     static func redirect(_ status: Int, to location: String) -> FixtureResponse {
         FixtureResponse(status: status, headers: ["Location": location], body: "")
@@ -139,8 +140,11 @@ final class PublicHTTPServer: @unchecked Sendable {
             var reader = reader
             if let data, let request = reader.push(data) {
                 seen.add(request)
-                connection.send(content: RequestReader.encode(route(request)), contentContext: .finalMessage, isComplete: true,
-                                completion: .contentProcessed { _ in connection.cancel() })
+                let response = route(request)
+                DispatchQueue.global().asyncAfter(deadline: .now() + response.delay) {
+                    connection.send(content: RequestReader.encode(response), contentContext: .finalMessage, isComplete: true,
+                                    completion: .contentProcessed { _ in connection.cancel() })
+                }
                 return
             }
             if complete || error != nil { connection.cancel(); return }
@@ -222,7 +226,8 @@ extension PageRulesScenario {
         image(.publicSite, host: "LOCALHOST", reaches: nil),
         image(.publicSite, host: "app.localhost.", reaches: nil),
         image(.publicSite, host: "[::1]", reaches: nil),
-        // The person's own load is the person's through each redirect, whatever its status.
+        // The person's own load goes through each redirect to localhost, whatever its status: it
+        // is a GET, and so is every redirect of it.
         personRedirect(302), personRedirect(303), personRedirect(307), personRedirect(308),
     ]
 
@@ -276,14 +281,26 @@ extension PageRulesScenario {
 final class PageBook: @unchecked Sendable {
     private let lock = NSLock()
     private var pages: [String: String] = [:]
+    private var posts: [String: Int] = [:]
     func put(_ path: String, _ html: String) { lock.withLock { pages[path] = html } }
-    /// A page, a redirect to where `/redirect/<status>?to=` says, or a hit's plain answer.
+    /// A page; a redirect to where `/redirect/<status>?to=` says; `/resubmit/<id>?to=`, whose first
+    /// POST shows a page and whose later ones (a form sent again) go on with a 307, POST kept;
+    /// `/slow?to=`, a redirect that takes a second; or a hit's plain answer.
     func answer(_ request: SeenRequest) -> FixtureResponse {
         let parts = request.path.split(separator: "?", maxSplits: 1)
         let path = String(parts.first ?? "")
-        if path.hasPrefix("/redirect/"), let status = Int(path.dropFirst("/redirect/".count)),
-           let query = parts.dropFirst().first, query.hasPrefix("to=") {
-            return .redirect(status, to: String(query.dropFirst(3)))
+        let to = parts.dropFirst().first.flatMap { $0.hasPrefix("to=") ? String($0.dropFirst(3)) : nil }
+        if path.hasPrefix("/redirect/"), let status = Int(path.dropFirst("/redirect/".count)), let to {
+            return .redirect(status, to: to)
+        }
+        if path.hasPrefix("/resubmit/"), request.method == "POST", let to {
+            let count = lock.withLock { () -> Int in posts[path, default: 0] += 1; return posts[path] ?? 0 }
+            return count == 1 ? .html("<p>posted</p>") : .redirect(307, to: to)
+        }
+        if path == "/slow", let to {
+            var response = FixtureResponse.redirect(302, to: to)
+            response.delay = 1
+            return response
         }
         if let html = lock.withLock({ pages[path] }) { return .html(html) }
         return path.hasPrefix("/hit/") ? FixtureResponse(body: "<p>reached</p>") : FixtureResponse(status: 404, body: "")
@@ -341,7 +358,6 @@ final class PageBook: @unchecked Sendable {
         book.put(page, scenario.html(machineBase, publicBase, hit))
         let base = scenario.origin == .publicSite ? publicBase : machineBase
         let start = URL(string: scenario.start?(machineBase, publicBase, hit) ?? base + page)!
-        coordinator.personLoads(start)
         view.load(URLRequest(url: start))
         // One that should arrive gets four seconds; one that shouldn't is given two to try.
         let deadline = Date().addingTimeInterval(scenario.reaches == nil ? 2 : 4)
@@ -352,10 +368,118 @@ final class PageBook: @unchecked Sendable {
         return machine.seen.first(path: hit)?.method
     }
 
+    /// Every method the journey's hit reached the machine with, in order, once its steps ran.
+    func run(_ journey: PageJourney) async -> [String] {
+        let rules: WKContentRuleList? = await withCheckedContinuation { continuation in
+            DevicePageEngine.loopbackRules { continuation.resume(returning: $0) }
+        }
+        guard let rules else { return ["no rule list"] }
+        let view = DevicePageEngine.webView(hostId: "page-rules-check")
+        view.configuration.userContentController.add(rules)
+        view.frame = CGRect(x: 0, y: 0, width: 320, height: 480)
+        window?.addSubview(view)
+        let coordinator = DevicePageCoordinator()
+        coordinator.follow(view, tab: journey.id, status: DevicePageStatus(), report: { _, _, _ in }, failed: { _, _ in })
+        defer { view.stopLoading(); view.removeFromSuperview(); _ = coordinator }
+        let bases = PageJourney.Bases(machine: "http://localhost:\(machinePort)", publicSite: publicBase, id: journey.id)
+        for (path, html) in journey.pages(bases) { book.put(path, html) }
+        for step in journey.steps {
+            switch step {
+            case .load(let url): view.load(URLRequest(url: URL(string: url(bases))!))
+            case .reload: view.reload()
+            case .script(let script): view.evaluateJavaScript(script(bases), completionHandler: nil)
+            }
+            try? await Task.sleep(for: .milliseconds(journey.settleMs))
+        }
+        return machine.seen.all.filter { $0.path.hasPrefix(bases.hit) && (journey.counted ?? $0.method) == $0.method }
+            .map(\.method)
+    }
+
     func stop() {
         hub.listen([], for: machine) { _ in }
         publicSite.stop()
     }
+}
+
+/// Several navigations in one tab, each as the person makes it in ace (the app's own load,
+/// reload, or a script the page runs), and every method its hit reaches the machine with.
+struct PageJourney: Sendable {
+    struct Bases: Sendable {
+        let machine: String
+        let publicSite: String
+        let id: String
+        /// The path whose requests the journey counts on the machine.
+        var hit: String { "/hit/\(id)" }
+    }
+    enum Step: Sendable {
+        /// The app loads this address for the person.
+        case load(@Sendable (Bases) -> String)
+        /// The person taps Reload.
+        case reload
+        /// The page on screen runs this.
+        case script(@Sendable (Bases) -> String)
+    }
+    let name: String
+    /// Pages by path, served by both the machine and the public site.
+    let pages: @Sendable (Bases) -> [String: String]
+    let steps: [Step]
+    let reaches: [String]
+    var settleMs = 1200
+    /// Only hits with this method are counted, when given.
+    var counted: String?
+    var id: String { String(name.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }) }
+}
+
+extension PageJourney {
+    private static func form(_ action: String) -> String {
+        "<form method='post' action='\(action)'><input name='a' value='1'></form><script>document.forms[0].submit()</script>"
+    }
+
+    static let all: [PageJourney] = [
+        // A localhost app's form, resubmitted by the person's reload: the page on screen is on
+        // localhost, so it goes again.
+        PageJourney(name: "a localhost form resubmitted by the person's reload reaches again", pages: { b in
+            ["/page/\(b.id)": form("\(b.machine)\(b.hit)")]
+        }, steps: [.load { b in "\(b.machine)/page/\(b.id)" }, .reload], reaches: ["POST", "POST"]),
+        // A public page's form, which its server sends on to localhost only when it is sent
+        // again: the person's reload resends a page's POST, which is never the person's own.
+        PageJourney(name: "a public form the person's reload resubmits through a 307 to localhost is refused", pages: { b in
+            ["/page/\(b.id)": form("\(b.publicSite)/resubmit/\(b.id)?to=\(b.machine)\(b.hit)")]
+        }, steps: [.load { b in "\(b.publicSite)/page/\(b.id)" }, .reload], reaches: []),
+        // The person's load is still under way (its answer takes a second) when the page on
+        // screen posts a form that a 307 sends on to localhost: the post stays the page's.
+        PageJourney(name: "a public form posted while the person's own load is under way is refused", pages: { b in
+            ["/page/\(b.id)": "<form method='post' action='\(b.publicSite)/redirect/307?to=\(b.machine)\(b.hit)'><input name='a' value='1'></form>"]
+        }, steps: [
+            .load { b in "\(b.publicSite)/page/\(b.id)" },
+            .load { b in "\(b.publicSite)/slow?to=\(b.publicSite)/page/\(b.id)" },
+            .script { _ in "document.forms[0].submit()" },
+        ], reaches: [], settleMs: 700),
+        // A script moving through history and then posting: the post is the page's.
+        PageJourney(name: "a public page that pushes history state and then posts to localhost is refused", pages: { b in
+            ["/page/\(b.id)": "<form method='post' action='\(b.machine)\(b.hit)'><input name='a' value='1'></form>"]
+        }, steps: [
+            .load { b in "\(b.publicSite)/page/\(b.id)" },
+            .script { _ in "history.pushState({}, '', '/page/pushed'); document.forms[0].submit()" },
+        ], reaches: []),
+        // A localhost form's result, then a public page whose script goes back to it: whatever
+        // WebKit does to show it again (on iOS 26.1 it fetches it with a GET), it never sends the
+        // POST again for the public page.
+        PageJourney(name: "a public page's history.back to a localhost form's result sends no POST again", pages: { b in
+            ["/page/\(b.id)": form("\(b.machine)\(b.hit)"), "/public/\(b.id)": "<p>public</p>"]
+        }, steps: [
+            .load { b in "\(b.machine)/page/\(b.id)" },
+            .load { b in "\(b.publicSite)/public/\(b.id)" },
+            .script { _ in "history.back()" },
+        ], reaches: ["POST"], counted: "POST"),
+        // A public page opening localhost in a window of its own: the device tab opens none.
+        PageJourney(name: "a public page's window.open and form to a new window reach nothing", pages: { b in
+            ["/page/\(b.id)": "<form method='post' target='_blank' action='\(b.machine)\(b.hit)'><input name='a' value='1'></form>"]
+        }, steps: [
+            .load { b in "\(b.publicSite)/page/\(b.id)" },
+            .script { b in "window.open('\(b.machine)\(b.hit)?open'); document.forms[0].submit()" },
+        ], reaches: []),
+    ]
 }
 
 /// A loopback port nothing listens on now: bound on port 0 and let go.
