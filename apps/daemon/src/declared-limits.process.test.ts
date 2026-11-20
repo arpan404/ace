@@ -416,6 +416,33 @@ test("a missing agy asks for the CLI instead of reporting no usage", async () =>
   ]);
 });
 
+test("a usage command whose working directory is gone fails, and isn't read as a missing CLI", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-usage-cwd-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  // A CLI that is installed and would answer, if it had anywhere to run.
+  const installed = join(root, "installed-agy");
+  await writeFile(installed, `#!${process.execPath}\nprocess.stdout.write("{}");\n`, {
+    mode: 0o700,
+  });
+  // The account's home, removed while the account is still listed.
+  const gone = join(root, "gone");
+  await mkdir(gone);
+  await rm(gone, { recursive: true });
+  const ports = defaultUsagePorts(() => 0);
+  const run = (executable: string, cwd: string) =>
+    ports.run({
+      executable,
+      args: [],
+      env: {},
+      cwd,
+      timeoutMs: 5_000,
+      signal: AbortSignal.timeout(10_000),
+    });
+  // The spawn says ENOENT for either, so only an existing directory makes it a missing CLI.
+  await expect(run(installed, gone)).rejects.toMatchObject({ kind: "failed" });
+  await expect(run(join(root, "not-installed"), root)).rejects.toMatchObject({ kind: "missing" });
+});
+
 /** The Codex account's availability in an accounts list. */
 const codex = (accounts: readonly { provider: string; availability: string }[]) =>
   accounts.find((account) => account.provider === "codex")?.availability;
