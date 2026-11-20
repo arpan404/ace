@@ -1,6 +1,7 @@
 # 0200: Spade is an agent operating system
 
-Status: proposed. Date: 2026-11-20. Decided by: pending the owner. Direction from the owner
+Status: accepted. Date: 2026-11-20. Decided by: the owner (2026-11-20: "go for it", taking every
+recommendation under Decided below). Direction from the owner
 (2026-11-19 and 2026-11-20): "make our spade a true agentic OS: an operating system of
 agents/intelligence so people can buy/sell at 0 or priced money (initially no paid stuff). A
 sophisticated system that can run agents and systems, like a traditional OS handles application
@@ -683,9 +684,9 @@ ace bot stop|pause|resume|update|rollback|uninstall BOT
 - **The install review can grow too long to read.** It has to stay plain sentences, one row per
   ask, with the details behind each row.
 
-## Open for the owner
+## Decided
 
-Each has a recommendation, which this ADR assumes until the owner says otherwise.
+The owner took each recommendation on 2026-11-20.
 
 1. **Is the first slice right** (section 10, phase 1: manifest v3, the ceiling, linked updates
    and rollback, `spade.v1`, cards, the Running page, the dev kit, the templates as packages)?

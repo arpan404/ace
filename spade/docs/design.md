@@ -32,7 +32,7 @@ without spare hardware, may come later.
 | Connectors reuse the app makers' own remote MCP servers first (ADR 0131, [connectors.md](connectors.md))                                                                       | decided  |
 | A hosted Spade would reach daemons through ace's relay with a Spade grant (draft ADR `docs/adr/drafts/spade-daemon-access.md`)                                                 | proposed |
 | Endpoint keys are typed into the app and kept in the OS keychain only, then the endpoint's environment variable (ADR 0119)                                                     | decided  |
-| Spade is an agent operating system: one agent package (the bot recipe at version 3), a versioned runtime API, cards and panels, a task manager (ADR 0200)                      | proposed |
+| Spade is an agent operating system: one agent package (the bot recipe at version 3), a versioned runtime API, cards and panels, a task manager (ADR 0200)                      | decided  |
 
 ## Shared with ace
 
