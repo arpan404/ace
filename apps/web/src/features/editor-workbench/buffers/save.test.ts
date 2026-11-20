@@ -250,3 +250,48 @@ describe("merging", () => {
     });
   });
 });
+
+describe("a mounted view", () => {
+  it("hears a merge through its own edit path, as the changed lines, and stays unsaved", async () => {
+    const context = await setup("a\nb\nc\nd\n");
+    const view = context.buffer.view();
+    if (!view) throw new Error("no view");
+    const heard: { firstLine: number; removedLines: number; insertedLines: number }[] = [];
+    const detach = view.attach((run) => {
+      const applied = run(view.doc);
+      if (applied) heard.push(...applied.spans);
+      // The view's own edit callback, as CodeEditor's onEdit sends it.
+      context.buffer.edited();
+      return applied !== undefined;
+    });
+    replaceLine(context.buffer, 0, "mine");
+    await agentWrites(context, "a\nb\nc\ntheirs\n");
+
+    await context.buffer.merge();
+    detach();
+
+    // Line 3 and the start of line 4, where the replaced line ends.
+    expect(heard).toEqual([{ firstLine: 3, removedLines: 2, insertedLines: 2 }]);
+    expect(view.doc.text()).toBe("mine\nb\nc\ntheirs\n");
+    expect(context.buffer.view()).toBe(view);
+    expect(context.buffer.snapshot()).toMatchObject({ dirty: true, clash: undefined });
+  });
+
+  it("hears a reload of a clean file without the buffer turning unsaved", async () => {
+    const context = await setup("a\nb\n");
+    const view = context.buffer.view();
+    if (!view) throw new Error("no view");
+    view.attach((run) => {
+      const applied = run(view.doc);
+      context.buffer.edited();
+      return applied !== undefined;
+    });
+
+    await agentWrites(context, "a\nB\n");
+    await context.time.advance(400);
+
+    expect(view.doc.text()).toBe("a\nB\n");
+    expect(context.buffer.snapshot()).toMatchObject({ dirty: false, version: "v2" });
+    expect(await context.drafts.store.get(file)).toBeUndefined();
+  });
+});

@@ -2,14 +2,16 @@ import { EditorDocument } from "@ace/editor";
 import type { Author } from "./attribution.ts";
 import { opening } from "./opening.ts";
 import { reconcile, type ReconcileHost } from "./reconcile.ts";
-import { applyLineChanges, utf8Length } from "./text-edits.ts";
+import { landLineChanges, utf8Length } from "./text-edits.ts";
 import type {
   Answer,
   BufferEvent,
   BufferKey,
   BufferSnapshot,
   BufferStatus,
+  BufferView,
   Clash,
+  DocumentEdit,
   DiskFile,
   DraftStore,
   FilePort,
@@ -62,6 +64,11 @@ export class Buffer implements TextBuffer {
 
   readonly #ctx: BufferContext;
   #doc: EditorDocument | undefined;
+  #view: BufferView | undefined;
+  /** Edit paths of the mounted views, newest last. */
+  readonly #editors: DocumentEdit[] = [];
+  /** The registry is landing text: the views' edit callbacks are not the person typing. */
+  #landing = false;
   #status: BufferStatus = { kind: "loading" };
   /** The disk text and version the buffer started from. */
   #base: Theirs | undefined;
@@ -88,6 +95,23 @@ export class Buffer implements TextBuffer {
 
   document(): EditorDocument | undefined {
     return this.#doc;
+  }
+
+  view(): BufferView | undefined {
+    const doc = this.#doc;
+    if (!doc) return undefined;
+    if (this.#view?.doc !== doc)
+      this.#view = {
+        doc,
+        attach: (edit) => {
+          this.#editors.push(edit);
+          return () => {
+            const index = this.#editors.lastIndexOf(edit);
+            if (index >= 0) this.#editors.splice(index, 1);
+          };
+        },
+      };
+    return this.#view;
   }
 
   snapshot(): BufferSnapshot {
@@ -118,7 +142,7 @@ export class Buffer implements TextBuffer {
 
   edited(): void {
     const doc = this.#doc;
-    if (!doc) return;
+    if (!doc || this.#landing) return;
     if (!this.#dirty && doc.version() !== this.#cleanAt) {
       this.#dirty = true;
       this.#emit({ type: "state" });
@@ -365,7 +389,12 @@ export class Buffer implements TextBuffer {
     const at = doc.version();
     const changes = await this.#ctx.merge.lineChanges(doc.text(), next);
     if (this.#doc !== doc || doc.version() !== at) return false;
-    applyLineChanges(doc, changes);
+    this.#landing = true;
+    try {
+      landLineChanges(doc, changes, this.#editors.at(-1));
+    } finally {
+      this.#landing = false;
+    }
     this.bytes = utf8Length(next);
     this.#emit({ type: "replaced", reason });
     return true;
