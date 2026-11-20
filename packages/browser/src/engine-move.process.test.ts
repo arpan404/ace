@@ -312,6 +312,51 @@ it("a move whose setting can't be kept and whose old engine won't reopen keeps i
   expect(m.journal.pending("thread")).toBeUndefined();
 });
 
+// With one page the desktop holds every tab the move carries, so only the setting tells it apart.
+it.each([
+  ["two pages", ["https://one.example/", "https://two.example/"]],
+  ["one page", ["https://one.example/"]],
+])(
+  "retrying a move back while that engine still won't open keeps the original tabs for the next start (%s)",
+  async (_name, urls) => {
+    const m = await machine("headless");
+    await m.load(...urls);
+    // As above: the move reaches the desktop, its setting write fails, Chrome won't reopen.
+    m.refuseWrites("Settings are read-only");
+    m.headless.failOpen("Chrome didn't start");
+    expect(await m.device("phone").move("embedded")).toMatchObject({ ok: false });
+    expect(m.f.service.state("thread").backend).toBe("embedded");
+    expect(m.preferences.get("thread")).toBe("headless");
+
+    // The person asks for ace's Chrome again while it still won't start: the browser stays on
+    // the desktop, which isn't where the setting points, so the move's copy of the tabs stays.
+    m.headless.failOpen("Chrome didn't start");
+    const retry = await m.device("web").move("headless");
+
+    expect(retry).toMatchObject({ ok: false, error: expect.stringMatching(/stayed where it was/) });
+    expect(m.f.service.state("thread").backend).toBe("embedded");
+    expect(m.journal.pending("thread")?.map((tab) => tab.url)).toEqual(urls);
+
+    const home = await mkdtemp(join(tmpdir(), "ace-engine-retry-"));
+    const restarted = new BrowserService({
+      dataDir: home,
+      headlessBackend: new TabbedHeadless(),
+      backendPreference: m.backendPreference,
+      tabStore: m.tabs,
+      moveJournal: m.journal,
+    });
+    onTestFinished(async () => {
+      await restarted.close();
+      await rm(home, { recursive: true, force: true });
+    });
+    await restarted.open({ threadId: "thread", workspaceId: "workspace-thread" });
+
+    expect(restarted.state("thread")).toMatchObject({ backend: "headless", closed: false });
+    expect(m.pages(restarted).map((page) => page.replace(" (shown)", ""))).toEqual(urls);
+    expect(m.journal.pending("thread")).toBeUndefined();
+  },
+);
+
 it("a move queued behind one that failed still moves the browser, its page loaded there once", async () => {
   const m = await machine(undefined);
   await m.load("https://one.example/");

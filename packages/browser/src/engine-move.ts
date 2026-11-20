@@ -37,8 +37,12 @@ export interface EngineMoveHost {
   hasActiveSession(threadId: string): boolean;
   /** The thread's browser, live and untouched when it is open. */
   open(options: { threadId: string; workspaceId: string }): Promise<BrowserState>;
-  /** The move is over: its own copy of the tabs can go. */
-  settleMove(threadId: string): void;
+  /**
+   * Drops the move's own copy of the tabs, but only when the browser runs on the engine the
+   * thread's setting names now (read fresh) with every one of those tabs; true when it went or
+   * there was none. Otherwise the copy stays for the next start.
+   */
+  settleIfHome(options: { threadId: string; workspaceId: string }): Promise<boolean>;
   /** Closes the open browser and opens it on `engine` with its tabs, or back where it was. */
   rehost(
     options: { threadId: string; workspaceId: string },
@@ -57,6 +61,18 @@ export function carriedTabs(
 ): BrowserTabRecord[] {
   if (records.length || state.tabs || !/^https?:\/\//i.test(state.url)) return records;
   return [{ tabId: newId(), position: 0, url: state.url, title: "", lastActiveAt: 0 }];
+}
+
+/**
+ * Whether a browser holds every one of `tabs`: by id where it has tabs, or, for an engine with
+ * one page and no tabs, the one page at its address.
+ */
+export function holdsTabs(tabs: readonly BrowserTabRecord[], state: BrowserState): boolean {
+  if (state.tabs) {
+    const ids = new Set(state.tabs.map((tab) => tab.tabId));
+    return tabs.every((tab) => ids.has(tab.tabId));
+  }
+  return tabs.length <= 1 && tabs.every((tab) => tab.url === state.url);
 }
 
 /** The daemon says the desktop app's engine can't open now (no desktop app registered). */
@@ -101,9 +117,7 @@ export async function moveEngine(
   if (engine === "embedded" && desktopMissing(snapshot))
     throw new Error("The desktop app isn't running on this machine, so its browser can't open.");
   const moved = await host.rehost(at, engine);
-  // Back on the engine its setting names, the browser's own tabs are what a restart restores;
-  // anywhere else, or with no browser open at all, the move's copy stays for the next start.
-  if (!moved.ok && moved.restored?.backend === snapshot.backend) host.settleMove(threadId);
+  if (!moved.ok) await host.settleIfHome(at);
   if (!moved.ok)
     throw new Error(
       moved.restored
@@ -115,22 +129,16 @@ export async function moveEngine(
     await preference.write(threadId, engine);
   } catch (error) {
     // The choice wasn't kept: the browser goes back, with the move's own copy of the tabs, to
-    // the engine its setting still names. Only once it is there does that copy go; if it can't
-    // get back, the copy stays, so the next start opens every tab where the setting says.
-    const back =
-      snapshot.backend === "embedded" || snapshot.backend === "headless"
-        ? await host.rehost(at, snapshot.backend)
-        : undefined;
-    if (back?.ok) {
-      host.settleMove(threadId);
-      throw error;
-    }
+    // where it was. That copy goes only if the browser then stands where the setting says.
+    if (snapshot.backend === "embedded" || snapshot.backend === "headless")
+      await host.rehost(at, snapshot.backend);
+    if (await host.settleIfHome(at)) throw error;
     throw new Error(
       `${message(error).replace(/\.?$/, ".")} The browser couldn't go back to where it was either, so it stays here for now; its tabs open there again when ace next starts.`,
       { cause: error },
     );
   }
-  host.settleMove(threadId);
+  await host.settleIfHome(at);
   return { state: moved.state, failed: missing(snapshot, moved.state) };
 }
 

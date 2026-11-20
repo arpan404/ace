@@ -43,10 +43,13 @@ other was restoring, or load its pages twice (#2013, found in the Codex review o
 4. **A failed open leaves the browser where it was.** When the new engine won't open, the tabs
    open again on the engine the browser was on and the request fails with the reason; the
    setting was never changed. If writing the setting fails after the move, the browser goes
-   back too. The journal entry goes only once the browser is back on the engine the setting
-   names: if it can't get back there, the browser stays where it is, the request says so, and
-   the entry stays for the next start to open every tab on the setting's engine. A person
-   closing the browser drops the entry, as a closed browser starts fresh.
+   back too. The journal entry goes only when the browser runs on the engine the thread's
+   setting names, read fresh from settings at that moment (`auto` naming the engine a fresh open
+   would take), holding every journaled tab; never by comparing with where the browser was. A
+   move that begins while an entry exists carries the entry's tabs, not a new and possibly
+   shorter snapshot. Otherwise the browser stays where it is, the request says so, and the entry
+   stays for the next start to open every tab on the setting's engine. A person closing the
+   browser drops the entry, as a closed browser starts fresh.
 5. **The setting is written as a person's write would be.** The daemon writes the thread layer's
    `browser.backend` and asks the same refusal as a settings write (ADR 0190), so an agent's
    device can't move engines.
@@ -71,7 +74,8 @@ other was restoring, or load its pages twice (#2013, found in the Codex review o
   browser on the engine and its page loaded once; a failed open brings every tab back with the
   shown and private ones as they were; a daemon that stops mid-move, or after the new engine
   saved fewer tabs but before the setting, or after both the setting write and the old engine's
-  reopen failed, reopens every tab on the old engine; a move queued
+  reopen failed, even after a retry that fell back again, reopens every tab on the old engine; a
+  move queued
   behind a failed one still moves.
 - `apps/daemon/src/browser-engine-moves.test.ts`: the journal's tabs outlive the daemon until
   the move settles.

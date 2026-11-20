@@ -40,6 +40,7 @@ import {
   type EngineMove,
   type EnginePreferencePort,
   carriedTabs,
+  holdsTabs,
   type RehostResult,
 } from "./engine-move.ts";
 
@@ -225,7 +226,7 @@ export class BrowserService {
     try {
       const { state } = await task;
       // The tabs of a move that never settled are open again: the session keeps them now.
-      if (this.recovered.delete(options.threadId)) this.settleMove(options.threadId);
+      if (this.recovered.delete(options.threadId)) await this.settleIfHome(options);
       return state;
     } finally {
       this.recovered.delete(options.threadId);
@@ -1054,6 +1055,33 @@ export class BrowserService {
     } catch (error) {
       this.options.onError?.(error);
     }
+  }
+  /**
+   * Drops an engine move's journal entry only once the thread's browser runs on the engine its
+   * setting names now, read fresh, with every journaled tab (ADR 0199). True when the entry went
+   * or there was none; otherwise it stays for the next start.
+   */
+  async settleIfHome(options: { threadId: string; workspaceId: string }): Promise<boolean> {
+    const { threadId } = options;
+    const pending = this.journaled(threadId);
+    if (!pending) return true;
+    const session = this.sessions.get(threadId);
+    if (!session || session.state.closed) return false;
+    let named: "auto" | BrowserEngine;
+    try {
+      named = (await this.options.backendPreference?.(BrowserOpen.parse(options))) ?? "auto";
+    } catch (error) {
+      this.options.onError?.(error);
+      return false;
+    }
+    // `auto` names the engine a fresh open would take first.
+    const engine =
+      named === "auto" ? (this.embedded && this.desktopCanDraw ? "embedded" : "headless") : named;
+    const live = this.sessions.get(threadId);
+    if (live !== session || live.state.backend !== engine || !holdsTabs(pending, live.state))
+      return false;
+    this.settleMove(threadId);
+    return true;
   }
   /** The tabs of this thread's unsettled move; undefined when none or unreadable. */
   private journaled(threadId: string): BrowserTabRecord[] | undefined {

@@ -118,7 +118,7 @@ export function fakeBrowserSession(
                 return view !== undefined && !view.closed;
               },
               open,
-              settleMove: () => {},
+              settleIfHome: async () => true,
               // As the daemon: the tabs move with the browser, or stay where they were.
               rehost: async (at, engine) => {
                 if (engine === "embedded" && !browser.desktop)
