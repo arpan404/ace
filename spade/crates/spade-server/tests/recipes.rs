@@ -183,8 +183,7 @@ async fn only_connectors_the_person_granted_and_has_connected_are_on() -> Result
                 source: "https://example.com/docs".into(),
                 via: None,
                 local: true,
-                effects: Default::default(),
-                every_tool: None,
+                ..Default::default()
             }],
             ..Options::default()
         },

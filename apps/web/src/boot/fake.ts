@@ -1,5 +1,6 @@
 import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
+import { fakeMarket } from "./fake-market.ts";
 import { seedFakeSpade } from "./fake-spade.ts";
 import {
   FakeDaemon,
@@ -94,6 +95,10 @@ export function bootFake(): {
     worktreeCreationSlow:
       (globalThis as { aceFakeWorktree?: string }).aceFakeWorktree === "slow" ||
       new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorktree") === "slow",
+    // `?fakeLine=beta`: a daemon on the beta release line, so the rail shows the beta mark.
+    ...(new URLSearchParams(globalThis.location?.search ?? "").get("fakeLine") === "beta" && {
+      releaseLine: "beta",
+    }),
   });
   // `aceFakeWorld = "empty"` (set before boot, as the screens do) starts on a daemon with no
   // threads and no projects: the first run. `?fakeWorld=showcase` is the small, tidy world the
@@ -158,6 +163,8 @@ export function bootFake(): {
       Intl.DateTimeFormat().resolvedOptions().timeZone,
     );
     daemon.seedServices(longLists > 0 ? withLongAutomations(services, longLists) : services);
+    // The marketplace's listings, account and drafts, so its every page can be walked.
+    daemon.marketplace.seed(fakeMarket(Date.now()));
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());

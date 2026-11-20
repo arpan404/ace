@@ -37,5 +37,11 @@ export function machineCodeAdminSource(client: Pick<ClientApi, "request">): Mach
     signOut: elsewhere,
     setCode: (code) => changed(admin.set(code)),
     clearCode: () => changed(admin.clear()),
+    releaseOwner: () => releaseOwnerOver(client),
   };
+}
+
+/** Lets a machine go from its owner's proven connection (`account.owner.release`, ADR 0190). */
+export async function releaseOwnerOver(client: Pick<ClientApi, "request">): Promise<boolean> {
+  return (await client.request({ type: "account.owner.release" })).ok;
 }

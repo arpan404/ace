@@ -4,6 +4,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { PanelTitleRow, panelTitleText } from "@/components/ui/panel.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /** One move for the title and the field: they trade places together, and never under reduced motion. */
 const motion = "duration-(--motion-base) ease-(--ease-out) motion-reduce:transition-none";
@@ -85,6 +86,7 @@ export function PanelTitleSearch(props: {
               ref={toggle}
               type="button"
               aria-label={props.label}
+              {...part("icon-button")}
               onClick={() => setOpen(true)}
               className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit touch-hit-lg hover:bg-hover hover:text-foreground"
             >
@@ -118,6 +120,7 @@ export function PanelTitleSearch(props: {
           <button
             type="button"
             aria-label="Close search"
+            {...part("icon-button")}
             onClick={close}
             className="mr-0.5 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground fx-fade-in"
           >

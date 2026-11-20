@@ -64,6 +64,11 @@ export const Run = z.object({
    * Runs recorded before turns were numbered omit it; their turn is their `ordinal`.
    */
   turn: z.number().int().positive().optional(),
+  /**
+   * The order it started in among every run of its thread, subagents' included: later runs have
+   * larger numbers, whatever the clock says. Runs recorded before it existed omit it.
+   */
+  seq: z.number().int().positive().optional(),
   checkpoints: RunCheckpoints.optional(),
   executionSource: ExecutionSource.optional(),
   state: z.enum(["active", "completed", "interrupted", "failed"]),

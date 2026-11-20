@@ -36,10 +36,16 @@ export async function signInThroughWorker(
   http: string,
   workos: Awaited<ReturnType<typeof fakeWorkos>>,
   person: WorkosUser,
+  /**
+   * Who holds the session (ADR 0190): an app (`person`, the default), or a daemon's `ace login`
+   * (`machine`). `legacy`: a sign-in as older apps and daemons start one, with no body.
+   */
+  holder: "person" | "machine" | "legacy" = "person",
 ): Promise<AceAccountGrant> {
   const started = await fetch(`${http}/v1/account/login`, {
     method: "POST",
-    headers: { Origin: allowedOrigin },
+    headers: { Origin: allowedOrigin, "Content-Type": "application/json" },
+    ...(holder === "legacy" ? {} : { body: JSON.stringify({ holder }) }),
   });
   if (started.status !== 201) throw new Error(`Sign-in start failed: ${started.status}`);
   const flow = AceLogin.parse(await started.json());

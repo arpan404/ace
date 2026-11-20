@@ -81,19 +81,28 @@ test("a background job's end reads in words, agents' work as the agents'", () =>
 });
 
 describe("a failed reply's sentence", () => {
-  test("names the endpoint as the person named it, in plain words by kind", () => {
-    expect(spadeFailureSentence("unreachable", "OpenCode Go")).toBe("Couldn't reach OpenCode Go.");
-    expect(spadeFailureSentence("key", "OpenCode Go")).toBe("OpenCode Go refused the key.");
+  test("says what failed, naming the endpoint as the person named it, and what to do", () => {
+    expect(spadeFailureSentence("unreachable", "OpenCode Go")).toBe(
+      "Couldn't reach OpenCode Go. Check it's running and online, then try again.",
+    );
+    expect(spadeFailureSentence("key", "OpenCode Go")).toBe(
+      "OpenCode Go refused the key. Replace it in Settings › Models, then try again.",
+    );
     expect(spadeFailureSentence("rate_limited", "OpenCode Go")).toBe(
-      "OpenCode Go is limiting requests right now.",
+      "OpenCode Go is limiting requests right now. Wait a moment, then try again.",
     );
     expect(spadeFailureSentence("model", "OpenCode Go")).toBe(
       "The model on OpenCode Go failed to answer.",
     );
+    expect(spadeFailureSentence("no_model", undefined)).toBe(
+      "There's no model set up to answer. Set one up, then try again.",
+    );
   });
 
   test("an endpoint this app doesn't know reads as the endpoint", () => {
-    expect(spadeFailureSentence("key", undefined)).toBe("The endpoint refused the key.");
-    expect(spadeFailureSentence("unreachable", undefined)).toBe("Couldn't reach the endpoint.");
+    expect(spadeFailureSentence("key", undefined)).toMatch(/^The endpoint refused the key\./);
+    expect(spadeFailureSentence("unreachable", undefined)).toMatch(
+      /^Couldn't reach the endpoint\./,
+    );
   });
 });

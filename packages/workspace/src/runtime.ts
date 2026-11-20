@@ -1,9 +1,7 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
-import { watch, type Stats, type FSWatcher } from "node:fs";
+import { type Stats } from "node:fs";
 import { lstat, open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { win32 } from "node:path";
-import type { Worker } from "node:worker_threads";
-import { startWorker } from "@ace/provider-kit/worker";
 import { openMetadataAt, openRoot } from "./descriptor.ts";
 import { canonicalPath } from "./realpath.ts";
 
@@ -52,24 +50,12 @@ async function windowsLstat(path: string): Promise<Stats> {
   if (leaf === "" || leaf === "." || leaf === "..") return windowsPinned(await realpath(path));
   return windowsObserve(await realpath(win32.dirname(path)), leaf);
 }
-export type CancelTimer = () => void;
-export interface WorkspaceClock {
-  after(callback: () => void | Promise<void>, milliseconds: number): CancelTimer;
-  every(callback: () => void, milliseconds: number): CancelTimer;
-}
 export interface WorkspaceRuntime {
   environment: NodeJS.ProcessEnv;
-  /** Selects the native watch strategy (Linux watches each visible directory) and path rules. */
+  /** Selects the path rules (Windows' reserved names, case, separators). */
   platform: NodeJS.Platform;
   filesystem: WorkspaceFileSystem;
   spawn: (binary: string, args: string[], options: SpawnOptions) => ChildProcess;
-  worker: (url: URL) => Worker;
-  watch: (
-    root: string,
-    options: { recursive: boolean },
-    listener: (event: "rename" | "change", filename: string | null) => void,
-  ) => FSWatcher;
-  clock: WorkspaceClock;
 }
 /** Defaults are assembled at the I/O boundary, with no state shared by services. */
 export function workspaceRuntime(): WorkspaceRuntime {
@@ -78,20 +64,5 @@ export function workspaceRuntime(): WorkspaceRuntime {
     platform: process.platform,
     filesystem,
     spawn,
-    watch,
-    worker: (url) => startWorker(url, { execArgv: [] }),
-    clock: {
-      after(callback, milliseconds) {
-        const timer = setTimeout(() => {
-          // The timed work reports its own failure through whatever scheduled it.
-          void Promise.resolve(callback()).catch(() => {});
-        }, milliseconds);
-        return () => clearTimeout(timer);
-      },
-      every(callback, milliseconds) {
-        const timer = setInterval(callback, milliseconds);
-        return () => clearInterval(timer);
-      },
-    },
   };
 }

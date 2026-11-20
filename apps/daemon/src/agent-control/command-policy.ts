@@ -1,4 +1,5 @@
 import type { Command, CommandResult, ThreadId } from "@ace/protocol";
+import { stopsWholeThread, targetsRoot } from "../engine/stop-scope.ts";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
 import { threadGone } from "../thread-gone.ts";
@@ -35,18 +36,29 @@ export function delegationCommandPolicy(deps: {
     if (p.type === "thread.interrupt") {
       const accepted = accept();
       // Stopping one of the thread's own agents stops what it and its subagents delegated, and
-      // leaves the rest of the thread's delegated work alone.
-      const oneAgent =
-        p.agentId !== undefined && deps.store.getThread(p.threadId)?.rootAgentId !== p.agentId;
+      // leaves the rest of the thread's delegated work alone. Whole-thread is one rule, the
+      // engine's own (`stop-scope.ts`), so the cascade and the shell stop always agree.
+      const root = deps.store.getThread(p.threadId)?.rootAgentId;
+      const whole = stopsWholeThread(p, root);
+      if (accepted.ok && targetsRoot(p, root))
+        // The turn it stops can't delegate any more; a newer turn can (see admission).
+        deps.journal.fenceTurn(
+          p.threadId,
+          (root && deps.engine.activeRun(p.threadId, root)) || "",
+          {
+            stopSeq: root ? deps.engine.turnOrigin(p.threadId, root).latest : 0,
+            inFlight: deps.engine.delegationsInFlight(p.threadId),
+          },
+        );
       if (
         accepted.ok &&
         p.cascade &&
         !deps.suspending?.(p.threadId) &&
         deps.journal.get(p.threadId)?.phase !== "cancelling"
       ) {
-        if (oneAgent && p.agentId !== undefined)
+        if (!whole && p.agentId !== undefined)
           deps.cancelAgent?.(p.threadId, p.agentId, command.id);
-        else if (!oneAgent) deps.cancel(p.threadId, command.id);
+        else if (whole) deps.cancel(p.threadId, command.id);
       }
       return accepted;
     }

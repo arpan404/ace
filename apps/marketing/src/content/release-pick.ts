@@ -24,11 +24,36 @@ export const platformInfo: Record<Platform, { name: string; builds: Record<Arch,
   },
 };
 
-/* The release's file names (apps/desktop/scripts/package.ts): one per system and chip. */
-const installer: Record<Platform, (arch: Arch) => string> = {
-  mac: (arch) => `-${arch}.dmg`,
-  windows: (arch) => `-${arch}-setup.exe`,
-  linux: (arch) => `-${arch}.AppImage`,
+/** A chip, as each system's own users name it. */
+export const chipName: Record<Platform, Record<Arch, string>> = {
+  mac: { arm64: "Apple silicon", x64: "Intel" },
+  windows: { x64: "x64", arm64: "Arm64" },
+  linux: { x64: "x64", arm64: "Arm64" },
+};
+
+/** A kind of file a release carries for a desktop system. */
+export type FileKind = "dmg" | "zip" | "exe" | "appimage" | "deb" | "tar";
+
+/*
+ * The release's file names after "ace-<version>-": one per system, kind and chip
+ * (apps/desktop/scripts/package.ts). The Linux packages name the x64 chip their own way:
+ * x86_64 for an AppImage, amd64 for a Debian package.
+ */
+const fileName: Record<Platform, Partial<Record<FileKind, (arch: Arch) => string>>> = {
+  mac: { dmg: (arch) => `${arch}.dmg`, zip: (arch) => `${arch}-mac.zip` },
+  windows: { exe: (arch) => `${arch}-setup.exe` },
+  linux: {
+    appimage: (arch) => `${arch === "x64" ? "x86_64" : arch}.AppImage`,
+    deb: (arch) => `${arch === "x64" ? "amd64" : arch}.deb`,
+    tar: (arch) => `${arch}.tar.gz`,
+  },
+};
+
+/** The kinds each system has, the one its download button gives first. */
+export const fileKinds: Record<Platform, readonly FileKind[]> = {
+  mac: ["dmg", "zip"],
+  windows: ["exe"],
+  linux: ["appimage", "deb", "tar"],
 };
 
 const releaseSchema = z.object({
@@ -63,15 +88,43 @@ export interface Pick {
 }
 
 /**
- * The installer for one system and chip. Never a different chip's build, which wouldn't run:
- * without a match, the release page, where every build is listed.
+ * One file of a release, by system, kind and chip. The name must match in full, so the desktop
+ * archive is never mistaken for the daemon's (ace-1.0.0-linux-x64.tar.gz). Never a different
+ * chip's build, which wouldn't run: without a match, the release page, where every build is
+ * listed.
  */
-export function pickInstaller(release: Release, platform: Platform, arch: Arch): Pick {
-  const suffix = installer[platform](arch);
-  const asset = release.assets.find((candidate) => candidate.name.endsWith(suffix));
+export function pickFile(release: Release, platform: Platform, kind: FileKind, arch: Arch): Pick {
+  const name = fileName[platform][kind]?.(arch);
+  const wanted = name && `ace-${versionOf(release)}-${name}`;
+  const asset = release.assets.find((candidate) => candidate.name === wanted);
   return asset
     ? { url: asset.browser_download_url, bytes: asset.size }
     : { url: release.html_url, bytes: undefined };
+}
+
+/** The installer the download button gives for one system and chip. */
+export function pickInstaller(release: Release, platform: Platform, arch: Arch): Pick {
+  const [kind = "dmg"] = fileKinds[platform];
+  return pickFile(release, platform, kind, arch);
+}
+
+export interface ReleaseFile {
+  kind: FileKind;
+  arch: Arch;
+  url: string;
+  bytes: number;
+}
+
+/** Every file a release has for one system: by kind, the system's usual chip first. */
+export function filesFor(release: Release, platform: Platform): ReleaseFile[] {
+  const usual = defaultArch[platform];
+  const archs: Arch[] = [usual, usual === "x64" ? "arm64" : "x64"];
+  return fileKinds[platform].flatMap((kind) =>
+    archs.flatMap((arch) => {
+      const { url, bytes } = pickFile(release, platform, kind, arch);
+      return bytes ? [{ kind, arch, url, bytes }] : [];
+    }),
+  );
 }
 
 export function versionOf(release: Release): string {
@@ -109,6 +162,16 @@ export function labelText(
   const { name, builds } = platformInfo[platform];
   if (!bytes) return `Download for ${name} (latest release page)`;
   return `Download for ${name} (ace ${version}, ${builds[arch]}, ${formatSize(bytes)})`;
+}
+
+/** Narrows a data attribute to a kind of file. */
+export function isFileKind(value: string | undefined): value is FileKind {
+  return ["dmg", "zip", "exe", "appimage", "deb", "tar"].includes(value ?? "");
+}
+
+/** Narrows a data attribute to a chip. */
+export function isArch(value: string | undefined): value is Arch {
+  return value === "arm64" || value === "x64";
 }
 
 /** Narrows a data attribute to a platform name. */

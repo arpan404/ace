@@ -51,8 +51,51 @@ export const TrashRecord = z.object({
     .optional(),
   path: z.string(),
   version: z.string(),
+  /**
+   * True between writing this receipt and knowing whether its move landed.
+   *
+   * A delete writes the receipt before it dispatches the move, because an answer that never comes
+   * back may still have parked the entry in the trash. A pending receipt is restorable and exempt
+   * from retention until it is reconciled, so the bytes it names are never swept as garbage.
+   */
+  pending: z.boolean().default(false),
+  /**
+   * True when a delete located its entry but could not prove the tree it holds is the version
+   * the delete was guarded by.
+   *
+   * A stranded entry is restorable and never expires: nothing has verified what it holds, so
+   * retention would eventually destroy a version nobody has seen. Only a recorded successful
+   * verification settles it into an ordinary trash entry, and a restore removes it.
+   */
+  stranded: z.boolean().default(false),
+  /**
+   * The entry's own version before its delete, so a later reconciliation can prove that the
+   * entry at the trash endpoint is the one this receipt moved.
+   *
+   * Absent on receipts written before the daemon recorded it; an identity it cannot prove keeps
+   * the receipt pending rather than guessing.
+   */
+  identity: z.string().nullable().optional(),
 });
 export type TrashRecord = z.infer<typeof TrashRecord>;
+/**
+ * A case-only rename, journaled before its first step.
+ *
+ * Such a rename is two renames: the entry parks at `staging`, then takes its new spelling. A
+ * crash between them leaves the entry under the daemon's private name, so the staging name is
+ * written down first and a later start finishes the move from it.
+ */
+export const MoveRecord = z.object({
+  ...common,
+  kind: z.literal("move"),
+  path: z.string(),
+  destination: z.string(),
+  staging: z.string().regex(/^(?:[^/]+\/)*\.ace-upload-move-[a-zA-Z0-9_-]{1,160}$/),
+  /** The entry's own version before the move, so a name is only trusted while it holds it. */
+  identity: z.string().nullable(),
+  pending: z.boolean().default(true),
+});
+export type MoveRecord = z.infer<typeof MoveRecord>;
 export const ArtifactRecord = z.object({
   ...common,
   kind: z.literal("artifact"),
@@ -67,6 +110,7 @@ const Record = z.discriminatedUnion("kind", [
   UploadRecord,
   UploadReceipt,
   TrashRecord,
+  MoveRecord,
   ArtifactRecord,
 ]);
 type Record = z.infer<typeof Record>;
@@ -136,6 +180,12 @@ export class Catalog {
   }
   put(record: Record): void {
     this.insert.run(record.id, record.kind, record.expires, record.bytes, JSON.stringify(record));
+  }
+  /** Rewrites a trash row in place, which is how a delete's receipt is settled. */
+  settleTrash(record: TrashRecord): void {
+    this.db
+      .prepare("UPDATE resources SET expires=?, bytes=?, body=? WHERE id=? AND kind='trash'")
+      .run(record.expires, record.bytes, JSON.stringify(record), record.id);
   }
   publishUpload(record: UploadRecord): void {
     this.db

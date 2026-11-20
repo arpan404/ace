@@ -34,6 +34,9 @@ for (const file of ["worker.js", "render-core.js"]) {
   if (existsSync(join(web, file))) cpSync(join(web, file), join(out, file));
 }
 cpSync(join(web, "pkg"), join(out, "pkg"), { recursive: true });
+// LineHighlighter's grammars are a second Wasm beside the core one; the shared worker loads it
+// from /markit/pkg-grammars on first use, so chat code blocks never fetch it.
+cpSync(join(web, "pkg-grammars"), join(out, "pkg-grammars"), { recursive: true });
 // The license tree is hundreds of files; installed updaters refuse archives over
 // their entry budget (`releaseArchiveLimits` in `@ace/service`), and nothing loads
 // these files at runtime, so they ship as one consolidated notice.

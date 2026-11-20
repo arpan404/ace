@@ -54,12 +54,14 @@ export function MarketBar(props: {
   const installedTab = (className: string) => (
     <button
       type="button"
+      {...part("tab", current("installed") && "selected", "installed")}
       className={`mk-tab ${className}`}
       aria-current={current("installed")}
       onClick={() => nav.go("installed")}
     >
       Installed
-      {installed && <span className="mk-count">{updates || installed.length}</span>}
+      {/* Only what the marketplace installed: no count at zero, as built-in Suits aren't counted. */}
+      {installed?.length ? <span className="mk-count">{updates || installed.length}</span> : null}
     </button>
   );
   const placeholder =
@@ -70,7 +72,7 @@ export function MarketBar(props: {
       className="mk-bar"
       data-edge={props.edge ? "" : undefined}
     >
-      <h2 className="mk-bar-title" id="market-title">
+      <h2 {...part("page-title", undefined, "market")} className="mk-bar-title" id="market-title">
         Marketplace
       </h2>
       <nav className="mk-tabs" aria-label="Marketplace">
@@ -124,7 +126,12 @@ export function MarketBar(props: {
               margin: "0 4px",
             }}
           >
-            <Avatar name={me.profile.displayName} size={30} picture={avatar} />
+            <Avatar
+              name={me.profile.displayName}
+              size={30}
+              ace={me.profile.official}
+              picture={avatar}
+            />
           </button>
         ) : signedOut ? (
           <Button variant="secondary" onClick={() => nav.push({ kind: "profile" })}>

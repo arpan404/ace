@@ -22,7 +22,7 @@ import type { LinkClick } from "@/lib/web-links.ts";
 import { fileTab, pullRequestTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
 import { watchImageCaptures } from "./image-refresh.ts";
 import { useFileLinks } from "./use-file-links.ts";
-import { keptAnswersFor } from "./kept-answers.ts";
+import { keptAnswersFor, keptAnswersOwnedBy, type ProseKeep } from "./kept-answers.ts";
 import { MarkitView, type MarkitCallbacks } from "./markit-view.tsx";
 
 /**
@@ -49,6 +49,8 @@ interface ProseProps {
    * (markit's GitHub flavour), and gives the address each one opens.
    */
   forgeReference?: ForgeReferenceAddress | undefined;
+  /** Prose outside a thread kept drawn across remounts once finished (`keptAnswersOwnedBy`). */
+  keep?: ProseKeep | undefined;
 }
 
 type ForgeReferenceAddress = (reference: { kind: string; target: string }) => string | undefined;
@@ -139,6 +141,21 @@ function MarkitPlainProse(props: ProseProps) {
   const openThread = useThreadNavigation();
   const { forgeReference } = props;
   const stream = useStreamName(props);
+  const owner = props.keep?.owner;
+  const threadId = props.keep?.scope.threadId;
+  const itemId = props.keep?.scope.itemId;
+  const keep = useMemo(
+    () =>
+      owner && threadId !== undefined && itemId !== undefined
+        ? {
+            answers: keptAnswersOwnedBy(owner),
+            scope: { threadId, itemId },
+            cwd: undefined,
+            root: undefined,
+          }
+        : undefined,
+    [owner, threadId, itemId],
+  );
   const callbacks = useMemo(
     () => ({
       ...linkCallbacks({ openWeb, openPullRequest, openIssue, openThread, forgeReference }),
@@ -154,6 +171,7 @@ function MarkitPlainProse(props: ProseProps) {
       className={props.className}
       callbacks={callbacks}
       flavor={forgeReference ? "github" : proseFlavor}
+      keep={keep}
     />
   );
 }

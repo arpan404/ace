@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { Device, HostId, maxTransferBytes, transferChunkBytes } from "@ace/protocol";
 import { transferMachines } from "./transfer-test-support.ts";
+import { incomingPath } from "./incoming-files.ts";
 
 it("a target refuses bytes past the 20 GiB cap, counting the code and the ignored files together", async () => {
   const m = await transferMachines();
@@ -27,7 +28,7 @@ it("a target refuses bytes past the 20 GiB cap, counting the code and the ignore
   const directory = join(m.target.h.home, "daemon", "transfers", "incoming");
   const code = maxTransferBytes - 16;
   await incoming.chunk(device, transferId, 0, Buffer.from("x"));
-  await truncate(join(directory, `${transferId}.part`), code);
+  await truncate(incomingPath(directory, transferId, "code"), code);
 
   const data = Buffer.alloc(Math.min(transferChunkBytes, 1024));
   await expect(incoming.chunk(device, transferId, 0, data, "ignored")).rejects.toMatchObject({
@@ -36,8 +37,10 @@ it("a target refuses bytes past the 20 GiB cap, counting the code and the ignore
   await expect(incoming.chunk(device, transferId, code, data)).rejects.toMatchObject({
     code: "invalid",
   });
-  await expect(stat(join(directory, `${transferId}.ignored.part`))).rejects.toThrow();
-  expect((await stat(join(directory, `${transferId}.part`))).size).toBe(code);
+  await expect(stat(incomingPath(directory, transferId, "ignored"))).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+  expect((await stat(incomingPath(directory, transferId, "code"))).size).toBe(code);
   // Up to the cap is still taken.
   expect(await incoming.chunk(device, transferId, 0, Buffer.alloc(16), "ignored")).toEqual({
     offset: 16,

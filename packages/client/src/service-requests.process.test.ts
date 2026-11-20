@@ -224,11 +224,25 @@ test("mention completion uses the authoritative workspace rather than a projecte
     ]);
     const { client } = f.make();
     await ready(client);
-    const reply = await client.request({
-      type: "context.request",
-      operation: { op: "mention.complete", threadId: f.thread.id, query: "authorized-", limit: 50 },
-    });
-    expect(reply.result).toMatchObject({ kind: "completion", paths: ["authorized-mention.txt"] });
+    // ace-files builds the checkout's index after the first query: ready false until it can
+    // answer, and the client asks again (ADR 0178).
+    await expect
+      .poll(
+        async () => {
+          const reply = await client.request({
+            type: "context.request",
+            operation: {
+              op: "mention.complete",
+              threadId: f.thread.id,
+              query: "authorized-",
+              limit: 50,
+            },
+          });
+          return reply.result.kind === "completion" ? reply.result.paths : [];
+        },
+        { timeout: 15_000 },
+      )
+      .toContain("authorized-mention.txt");
     const denied = await client.request({
       type: "context.request",
       operation: { op: "mention.complete", threadId: f.thread.id, query: "outside-", limit: 50 },

@@ -1,6 +1,12 @@
 import { readFile, type ClientCore } from "@ace/client";
 import { downloadFile } from "@ace/client/files";
-import { GitStatusFile, ThreadId, WorkspaceFileChange, type FileOperation } from "@ace/protocol";
+import {
+  FolderPage,
+  GitStatusFile,
+  ThreadId,
+  WorkspaceFileChange,
+  type FileOperation,
+} from "@ace/protocol";
 import {
   ArchivePreview,
   CheckoutError,
@@ -25,14 +31,13 @@ import { z } from "zod";
 import { base64, gather } from "./bytes.ts";
 import { changedLines, highlightLanguage } from "./checkout-marks.ts";
 import {
-  Listing,
   Stat,
   Trash,
   type FilesOperation,
   type FilesScope,
   type NativeFilesRequest,
 } from "./checkout-request.ts";
-import { checkoutTree, searchRows } from "./checkout-tree.ts";
+import { searchRows } from "./checkout-tree.ts";
 import { readPage } from "./checkout-pages.ts";
 import { partFileLimit, writePart } from "./checkout-part-write.ts";
 
@@ -53,7 +58,7 @@ export type ProjectSearch = (
   workspaceId: string,
   query: string,
   limit: number,
-) => Promise<string[]>;
+) => Promise<{ paths: string[]; ready: boolean }>;
 
 /** A scope's recent files, newest first (`CheckoutMemory.recent`). */
 export type RecentFiles = (scope: FilesScope) => Promise<readonly string[]>;
@@ -93,7 +98,6 @@ export class CheckoutFiles {
   }
 
   async #run(scope: Scope, op: Operation, signal: AbortSignal): Promise<Record<string, unknown>> {
-    if (op.op === "tree") return this.#tree(scope, signal);
     if (op.op === "search") return this.#search(scope, op.query, signal);
     if (op.op === "quick") return this.#quick(scope, op.text, signal);
     if (op.op === "read") return this.#read(scope, op.path, signal);
@@ -209,26 +213,42 @@ export class CheckoutFiles {
     return reply.result;
   }
 
-  async #tree(scope: Scope, signal: AbortSignal) {
-    const [listing, status] = await Promise.all([
-      this.#files(scope, { op: "list", path: "", limit: 1000 }, signal).then((value) =>
-        Listing.parse(value),
+  /** One folder's page for the live tree (`checkout-tree-live.ts`): `""` is the checkout's root. */
+  async listFolder(
+    scope: Scope,
+    folder: string,
+    cursor: string | undefined,
+    limit: number,
+    signal: AbortSignal,
+  ): Promise<FolderPage> {
+    return FolderPage.parse(
+      await this.#files(
+        scope,
+        {
+          op: "list.folder",
+          path: folder,
+          limit,
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        signal,
       ),
-      // The marks are extra: a checkout git can't read still lists its files.
-      "threadId" in scope
-        ? this.#workspace(scope.threadId, "git.status", signal).catch(() => undefined)
-        : Promise.resolve(undefined),
-    ]);
-    const changes =
-      status?.kind === "gitStatus" ? z.array(GitStatusFile).catch([]).parse(status.files) : [];
-    return { ...checkoutTree(listing.paths, changes), truncated: listing.truncated };
+    );
+  }
+
+  /** The checkout's uncommitted files and the marks the tree letters them with. */
+  async status(threadId: string, signal: AbortSignal): Promise<readonly GitStatusFile[]> {
+    const status = await this.#workspace(threadId, "git.status", signal);
+    return status.kind === "gitStatus" ? z.array(GitStatusFile).catch([]).parse(status.files) : [];
   }
 
   async #search(scope: Scope, query: string, signal: AbortSignal) {
     let paths: string[];
-    if ("workspaceId" in scope)
-      paths = await this.#projectSearch(scope.workspaceId, query, searchLimit);
-    else {
+    let ready = true;
+    if ("workspaceId" in scope) {
+      const found = await this.#projectSearch(scope.workspaceId, query, searchLimit);
+      paths = found.paths;
+      ready = found.ready;
+    } else {
       const reply = await this.#owner
         .request(
           {
@@ -249,8 +269,13 @@ export class CheckoutFiles {
       if (reply.result.kind !== "completion")
         throw new CheckoutError("protocol", "Couldn't read the reply. Try again.");
       paths = reply.result.paths;
+      ready = reply.result.ready;
     }
-    return { query, rows: searchRows(query, paths.filter(isCheckoutPath).slice(0, searchLimit)) };
+    return {
+      query,
+      rows: searchRows(query, paths.filter(isCheckoutPath).slice(0, searchLimit)),
+      ready,
+    };
   }
 
   /**
@@ -259,11 +284,12 @@ export class CheckoutFiles {
    */
   async #quick(scope: Scope, text: string, signal: AbortSignal) {
     const { query, line } = parseQuickOpen(text);
-    const [found, recent, changed] = await Promise.all([
-      query ? this.#search(scope, query, signal).then((result) => result.rows) : [],
+    const [search, recent, changed] = await Promise.all([
+      query ? this.#search(scope, query, signal) : undefined,
       query ? [] : this.#recent(scope),
       query || !("threadId" in scope) ? [] : this.#changed(scope.threadId, signal),
     ]);
+    const found = search?.rows ?? [];
     const paths = found.map((row) => row.path);
     const rows = quickOpenRows(query, paths, recent, changed, "Changed in this checkout");
     const named = new Map(found.map((row) => [row.path, row]));
@@ -271,6 +297,7 @@ export class CheckoutFiles {
       text,
       query,
       ...(line ? { line } : {}),
+      ready: search?.ready ?? true,
       rows: rows.map(({ path, group }) =>
         Object.assign({}, named.get(path) ?? searchRows("", [path])[0], { group }),
       ),

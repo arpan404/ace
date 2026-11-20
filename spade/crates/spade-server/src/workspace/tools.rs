@@ -420,6 +420,7 @@ impl Tool for WorkspaceEdit {
     }
 }
 
+#[derive(Clone)]
 pub struct ShellTool {
     place: Place,
     shell: Commands,
@@ -433,7 +434,7 @@ struct ShellArgs {
 }
 
 /// Whether a `shell` call asks to run outside the sandbox (ADR 0171).
-fn asks_outside(arguments: &Value) -> bool {
+pub fn asks_outside(arguments: &Value) -> bool {
     arguments.get(OUTSIDE_SANDBOX).and_then(Value::as_bool) == Some(true)
 }
 
@@ -490,20 +491,57 @@ impl Tool for ShellTool {
         if asks && !asks_outside(arguments) {
             return Classed::sandboxed();
         }
-        let start = match &self.shell {
-            Commands::Terminal(terminals) => self
-                .place
-                .bots
-                .agent_for_key(key)
-                .and_then(|bot| terminals.of(&bot).ok())
-                .map(|terminal| terminal.start_dir(&self.place.bots.session_for_key(key)))
-                .filter(|dir| !dir.as_os_str().is_empty()),
-            Commands::OneShot(_) => None,
-        }
-        .unwrap_or_else(|| workspace.clone());
-        let classed = match super::place::FsPlace::new(start, &workspace) {
-            Some(place) => classify_shell(arguments, &place),
-            None => classify_shell(arguments, &Lexical),
+        // Where the command starts, and the environment it starts with.
+        let (start, env) = match &self.shell {
+            Commands::Terminal(terminals) => {
+                let terminal = self
+                    .place
+                    .bots
+                    .agent_for_key(key)
+                    .and_then(|bot| terminals.of(&bot).ok());
+                let session = self.place.bots.session_for_key(key);
+                let start = terminal
+                    .as_ref()
+                    .map(|t| t.start_dir(&session))
+                    .filter(|dir| !dir.as_os_str().is_empty());
+                let env = terminal.map(|t| t.start_environment(&session));
+                (start, env)
+            }
+            Commands::OneShot(shell) => (None, Some(shell.environment(&workspace))),
+        };
+        let start = start.unwrap_or_else(|| workspace.clone());
+        // The folder the classifier places paths against, when the command starts in it.
+        // As Spade names it to the bot, so the paths the bot writes match it.
+        let folder = std::fs::canonicalize(&workspace)
+            .ok()
+            .filter(|root| std::fs::canonicalize(&start).is_ok_and(|start| start.starts_with(root)))
+            .map(|_| workspace.clone());
+        // What it runs, read as its start outside the sandbox will read it again
+        // (`outside::admit`): the scripts, the programs its `PATH` finds and the configuration
+        // of the tools it runs (ADR 0172, amendment 2). Without the command's environment
+        // nothing is found, and the reading is incomplete.
+        let read = super::outside::read(&workspace, &start, &env.unwrap_or_default(), arguments);
+        // The classifier settles only from the folder the command starts in, inside the bot's.
+        let config_clean = match &folder {
+            Some(_) => read.config_clean,
+            None => spade_core::autonomy::ConfigTools::default(),
+        };
+        let classed = read;
+        // A command settles only if a read-only sandbox is available and every program it runs
+        // resolves on the clean PATH (ADR 0172, amendment 7); otherwise it goes to the reviewer.
+        let command = arguments
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let sandboxable = match &self.shell {
+            Commands::OneShot(shell) => shell.read_only_settles(command),
+            Commands::Terminal(terminals) => terminals.read_only_settles(command),
+        };
+        let classed = spade_core::autonomy::Classed {
+            workspace: folder.map(|root| root.to_string_lossy().into_owned()),
+            config_clean,
+            sandboxable,
+            ..classed
         };
         // Asking to run outside: what it would run there is read now, so the request is bound
         // to those files and a script it reads secrets in is refused.
@@ -571,24 +609,47 @@ impl Tool for ShellTool {
             // only contained, and is refused if the sandbox no longer holds it. With no engine
             // (no gate), a command runs as the sandbox finds it.
             let contains_now = shell.contains(&dir);
-            let launch = match place.bots.get() {
+            // With it, the warrant of the verdict that let it run, which a start outside the
+            // sandbox must pass at its spawn (ADR 0171, amendment 5): under the terminal's lock for
+            // a terminal command, so no earlier command can rewrite what it runs in between. With
+            // no gate there is no warrant, and nothing starts plainly.
+            let (launch, warrant) = match place.bots.get() {
                 Some(engine) => engine.take_launch(&key),
-                None if contains_now => Launch::Contained,
-                None => Launch::Reviewed,
+                None if contains_now => (Launch::Contained, None),
+                None => (Launch::Reviewed, None),
             };
+            let by = crate::workspace::shell::By::Bot(warrant);
             let plan = match launch.plan(contains_now) {
                 Ok(plan) => plan,
                 Err(refused) => return ToolOutput::error(refused),
             };
             let (outside, sandboxed) = (plan.outside, plan.sandboxed);
+            // A call Spade's classifier settled runs only in the form it was settled for, with
+            // the overrides that make it ignore configuration that could run a program, whatever
+            // the files say now (ADR 0172, amendment 3). Checked again from the command itself.
+            let form = place
+                .bots
+                .get()
+                .and_then(|engine| engine.take_hardening(&key));
+            if let Some(form) = &form
+                && spade_classify::hardening(&args.command).as_ref() != Some(form)
+            {
+                return ToolOutput::error(
+                    "Not run: it can't run with Spade's configuration overrides now. Call it \
+                     again to have it reviewed."
+                        .to_owned(),
+                );
+            }
+            let overrides: &[(String, String)] = form.as_ref().map_or(&[], |f| f.env.as_slice());
             let ran = match &shell {
                 Commands::OneShot(shell) => {
                     shell
                         .run_job(crate::workspace::shell::Job {
                             dir: &dir,
                             script: &args.command,
+                            asked: None,
                             timeout,
-                            env: &[],
+                            env: overrides,
                             tee: None,
                             cleanup: None,
                             stdin: None,
@@ -597,11 +658,22 @@ impl Tool for ShellTool {
                             // Only a call reviewed or approved without relying on the sandbox
                             // may run uncontained; one cleared as contained must not.
                             may_run_uncontained: plan.may_run_uncontained,
+                            contained_only: plan.contained_only(),
+                            by,
+                            clean: form.is_some(),
+                            read_only: form.is_some(),
                         })
                         .await
                 }
                 Commands::Terminal(terminals) => {
-                    in_terminal(&place, &key, terminals, &args.command, timeout, outside).await
+                    let run = TerminalRun {
+                        command: &args.command,
+                        timeout,
+                        plan,
+                        overrides,
+                        by,
+                    };
+                    in_terminal(&place, &key, terminals, run).await
                 }
             };
             // Whatever the command did to the folder, the app looks again.
@@ -625,10 +697,16 @@ impl Tool for ShellTool {
             let shown = tokio::task::spawn_blocking(move || workspace.keep_large(&name, &text))
                 .await
                 .unwrap_or_else(|_| "The output could not be read.".to_owned());
-            if failed {
+            let output = if failed {
                 ToolOutput::error(shown)
             } else {
                 ToolOutput::ok(shown)
+            };
+            ToolOutput {
+                // Where it ran and what the sandbox did with it, for the reply's steps; a
+                // command that never started has nothing to say there beyond its result.
+                command: ran.ok().map(|ran| Box::new(command_run(ran))),
+                ..output
             }
         })
     }
@@ -637,15 +715,25 @@ impl Tool for ShellTool {
 /// How a terminal command's scope names the state it was allowed in.
 const STATE: &str = "\n[terminal state ";
 
+/// A command for the bot's terminal, as the gate cleared it.
+struct TerminalRun<'a> {
+    command: &'a str,
+    timeout: Duration,
+    plan: crate::workspace::shell::LaunchPlan,
+    /// The classifier's configuration overrides it runs with, if any.
+    overrides: &'a [(String, String)],
+    /// A bot's, with the warrant its start outside the sandbox must pass, read again under the
+    /// terminal's lock right before it starts.
+    by: crate::workspace::shell::By,
+}
+
 /// Runs the bot's command in its terminal; refused while the person has its computer, and when
 /// the terminal is no longer in the state the command was allowed in.
 async fn in_terminal(
     place: &Place,
     key: &str,
     terminals: &crate::computer::Terminals,
-    command: &str,
-    timeout: Duration,
-    outside: bool,
+    run: TerminalRun<'_>,
 ) -> Result<Ran, String> {
     let bot = place
         .bots
@@ -674,8 +762,37 @@ async fn in_terminal(
     let session = place.bots.session_for_key(key);
     terminals
         .of(&bot)?
-        .run_in_state(&session, command, timeout, expected.as_deref(), outside)
+        .run_in_state(
+            &session,
+            run.command,
+            run.timeout,
+            expected.as_deref(),
+            run.plan,
+            run.overrides,
+            !run.overrides.is_empty(),
+            run.by,
+        )
         .await
+}
+
+/// Where a command ran and how it went, as its step shows it (`command_ran`).
+fn command_run(ran: Ran) -> crate::tools::CommandRun {
+    crate::tools::CommandRun {
+        contained: ran.contained,
+        exit_code: ran.code,
+        timed_out: ran.timed_out,
+        reached: ran.network.reached,
+        refused: ran
+            .network
+            .refused
+            .into_iter()
+            .map(|r| spade_core::event::RefusedHost {
+                host: r.host,
+                port: r.port,
+                reason: r.reason,
+            })
+            .collect(),
+    }
 }
 
 /// A run as the model reads it: how it ended, then its output.

@@ -105,7 +105,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "panel.moveTab",
     ],
   },
-  { label: "File tree", ids: ["files.rename", "files.delete", "files.move"] },
+  { label: "File tree", ids: ["files.rename", "files.delete", "files.move", "files.search"] },
   { label: "Tools", ids: ["changes", "agents", "files", "preview", "devices", "logs"] },
   {
     label: "Terminal & browser",

@@ -15,6 +15,8 @@ export const DelegationReservation = z.object({
   accountId: z.string().max(128).optional(),
 });
 export type DelegationReservation = z.infer<typeof DelegationReservation>;
+/** How many stopped delegations a thread keeps refusing, newest first. */
+export const stoppedCallsKept = 256;
 const treeRow = z.object({
   root_id: ThreadId,
   tokens: z.number(),
@@ -74,6 +76,13 @@ export class DelegationJournal {
       CREATE INDEX IF NOT EXISTS delegation_reserved_parent ON delegation_reservations(parent_id);
       CREATE INDEX IF NOT EXISTS delegated_results ON delegated_threads(parent_id, result_pending, child_id);
       CREATE TABLE IF NOT EXISTS delegation_subtree_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
+      CREATE TABLE IF NOT EXISTS delegation_turn_fences (thread_id TEXT PRIMARY KEY, run TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS delegation_turn_bounds (
+        thread_id TEXT PRIMARY KEY, stop_seq INTEGER NOT NULL, lifted_seq INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS delegation_refused_calls (
+        thread_id TEXT NOT NULL, request_id TEXT NOT NULL, PRIMARY KEY(thread_id, request_id)
+      );
       CREATE TABLE IF NOT EXISTS delegation_member_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
       CREATE TABLE IF NOT EXISTS delegation_wakes (
         parent_id TEXT PRIMARY KEY REFERENCES threads(id), due INTEGER NOT NULL
@@ -503,6 +512,67 @@ export class DelegationJournal {
   }
   stop(thread: ThreadId) {
     this.sql("INSERT OR IGNORE INTO delegation_subtree_stops VALUES (?)").run(thread);
+  }
+  /**
+   * A Stop of the thread's turn (`turn-fence.ts`): that turn (`run`, "" when none ran) and every
+   * run up to `stopSeq` delegate nothing more. The delegation calls it had on their way
+   * (`inFlight`, by request id) join those earlier Stops recorded and are refused until each is
+   * resolved; the newest `stoppedCallsKept` are kept.
+   */
+  fenceTurn(thread: ThreadId, run: string, stop: { stopSeq: number; inFlight: readonly string[] }) {
+    this.store.atomic(() => {
+      this.sql(
+        "INSERT INTO delegation_turn_fences VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET run=excluded.run",
+      ).run(thread, run);
+      this.sql(
+        "INSERT INTO delegation_turn_bounds VALUES (?,?,NULL) ON CONFLICT(thread_id) DO UPDATE SET stop_seq=excluded.stop_seq, lifted_seq=NULL",
+      ).run(thread, stop.stopSeq);
+      const add = this.sql("INSERT OR IGNORE INTO delegation_refused_calls VALUES (?,?)");
+      for (const requestId of stop.inFlight.slice(0, stoppedCallsKept)) add.run(thread, requestId);
+      // Bounded per thread: the oldest go first, by when they were recorded.
+      this.sql(
+        `DELETE FROM delegation_refused_calls WHERE thread_id=? AND rowid NOT IN (
+          SELECT rowid FROM delegation_refused_calls WHERE thread_id=? ORDER BY rowid DESC LIMIT ${stoppedCallsKept})`,
+      ).run(thread, thread);
+    });
+  }
+  /** What the thread's last Stop recorded, or none. A fence from before bounds existed reads 0. */
+  turnFence(thread: ThreadId): import("./turn-fence.ts").TurnFence | undefined {
+    const fence = this.sql("SELECT run FROM delegation_turn_fences WHERE thread_id=?").get(thread);
+    const bounds = this.sql(
+      "SELECT stop_seq, lifted_seq FROM delegation_turn_bounds WHERE thread_id=?",
+    ).get(thread);
+    if (!fence && !bounds) return undefined;
+    return {
+      ...(fence ? { run: String(fence.run) } : {}),
+      stopSeq: Number(bounds?.stop_seq ?? 0),
+      ...(!fence && bounds?.lifted_seq != null ? { liftedSeq: Number(bounds.lifted_seq) } : {}),
+    };
+  }
+  /** A delegation a Stop caught on its way, not yet resolved: it is refused. */
+  stoppedCall(thread: ThreadId, requestId: string): boolean {
+    return (
+      this.sql("SELECT 1 FROM delegation_refused_calls WHERE thread_id=? AND request_id=?").get(
+        thread,
+        requestId,
+      ) !== undefined
+    );
+  }
+  /** The stopped delegation arrived and was refused: resolved, it is no longer kept. */
+  resolveStoppedCall(thread: ThreadId, requestId: string): void {
+    this.sql("DELETE FROM delegation_refused_calls WHERE thread_id=? AND request_id=?").run(
+      thread,
+      requestId,
+    );
+  }
+  /** The first call of a newer turn (`seq`) lifted the fence; the stopped work stays refused. */
+  liftTurnFence(thread: ThreadId, seq: number) {
+    this.store.atomic(() => {
+      this.sql("DELETE FROM delegation_turn_fences WHERE thread_id=?").run(thread);
+      this.sql(
+        "INSERT INTO delegation_turn_bounds VALUES (?,0,?) ON CONFLICT(thread_id) DO UPDATE SET lifted_seq=excluded.lifted_seq",
+      ).run(thread, seq);
+    });
   }
   suppressWake(child: ThreadId) {
     this.sql(

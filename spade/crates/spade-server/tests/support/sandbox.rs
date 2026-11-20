@@ -47,6 +47,10 @@ impl Confine for Late {
     ) -> Option<Box<dyn FnOnce() -> std::result::Result<(), String> + Send>> {
         self.0.get()?.before(home, kind)
     }
+
+    fn review(&self, home: &Path, kind: &Kind) -> Option<String> {
+        self.0.get()?.review(home, kind)
+    }
 }
 
 pub struct World {
@@ -62,6 +66,107 @@ pub struct World {
     pub workspaces: Workspaces,
     /// The engine, for tools a test builds itself.
     pub bots: EngineHandle,
+    /// The key ace's daemon would share with Spade to stamp the person's own changes.
+    pub person_key: Vec<u8>,
+}
+
+impl World {
+    /// Spade's security service as a restarted Spade starts it: over the same database and key,
+    /// with nothing of the running one's memory.
+    pub async fn restarted_security(&self) -> Result<Arc<Security>> {
+        let root = self.home.parent().ok_or("no root")?.to_path_buf();
+        let data = root.join("data");
+        Ok(Security::start(Setup {
+            runner: spade_sandbox::Runner::unavailable("a second service in this test"),
+            store: Store::open(&self.spade.database())?,
+            home: self.home.clone(),
+            spade_data: data.clone(),
+            ace_data: None,
+            workspaces: data.join("workspace"),
+            log_dir: data.join("egress-restarted"),
+            clock: Arc::new(SystemClock),
+            ids: Arc::new(CountingIds::default()),
+            bots: EngineHandle::default(),
+            person_key: Some(root.join(spade_server::security::attest::KEY_FILE)),
+        })
+        .await)
+    }
+
+    /// This world (one without the sandbox) stopped, `sql` run on its database, and started again
+    /// over it reading `scripts`, its security service set up again before any paused turn
+    /// resumes, as a restarted Spade has it.
+    pub async fn restart_paused(
+        self,
+        sql: &str,
+        scripts: Vec<Script>,
+        options: super::Options,
+    ) -> Result<Self> {
+        let root = self.home.parent().ok_or("no root")?.to_path_buf();
+        let data = root.join("data");
+        let bots = EngineHandle::default();
+        let late = Arc::new(Late::default());
+        let shell = Shell::system().confined(late.clone());
+        let tools = workspace_tools(self.workspaces.clone(), bots.clone(), shell.clone());
+        let security = Security::start(Setup {
+            runner: spade_sandbox::Runner::unavailable("no sandbox in this test"),
+            store: Store::open(&self.spade.database())?,
+            home: self.home.clone(),
+            spade_data: data.clone(),
+            ace_data: None,
+            workspaces: data.join("workspace"),
+            log_dir: data.join("egress-restarted"),
+            clock: Arc::new(SystemClock),
+            ids: Arc::new(CountingIds::default()),
+            bots: bots.clone(),
+            person_key: Some(root.join(spade_server::security::attest::KEY_FILE)),
+        })
+        .await;
+        let _ = late.0.set(security.clone());
+        let ready = (security.clone(), bots.clone());
+        let options = super::Options {
+            before_work: Some(Arc::new(move |engine| {
+                ready.1.set(engine);
+                engine.set_security(ready.0.clone());
+            })),
+            ..options
+        };
+        let World {
+            spade,
+            _dir,
+            home,
+            conversation,
+            bot,
+            workspaces,
+            person_key,
+            ..
+        } = self;
+        let spade = spade
+            .restart_paused_with(sql, tools, scripts, options)
+            .await?;
+        Ok(World {
+            spade,
+            security,
+            _dir,
+            home,
+            conversation,
+            bot,
+            shell,
+            workspaces,
+            bots,
+            person_key,
+        })
+    }
+
+    /// The daemon's stamp of the person's say on changing `target` to `value`, made now.
+    pub fn stamp(&self, target: &str, value: &str) -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| {
+                i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+            });
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        spade_server::security::attest::sign(&self.person_key, target, value, now, &nonce)
+    }
 }
 
 /// Where a world's files are, for the scripts that name them.
@@ -104,11 +209,21 @@ pub async fn reviewed_world(
     extra: Vec<Arc<dyn Tool>>,
     scripts: impl FnOnce(&Places) -> Vec<Script>,
 ) -> Result<World> {
+    reviewed_world_in(false, sandboxed, extra, scripts).await
+}
+
+/// [`reviewed_world`], its commands run in the bot's terminal when `terminal`.
+pub async fn reviewed_world_in(
+    terminal: bool,
+    sandboxed: bool,
+    extra: Vec<Arc<dyn Tool>>,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
     let options = super::Options {
         reviewer: None,
         ..super::Options::default()
     };
-    world_with(options, false, sandboxed, extra, scripts).await
+    world_with(options, terminal, sandboxed, extra, scripts).await
 }
 
 /// [`world`] (sandboxed) whose bots' shell goes through `wrap` around the security service, so a
@@ -126,6 +241,15 @@ pub async fn wrapped_world(
         wrap,
     )
     .await
+}
+
+/// [`world`] built with `options`: plugins and their sandbox, say.
+pub async fn world_with_options(
+    options: super::Options,
+    sandboxed: bool,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
+    world_with(options, false, sandboxed, Vec::new(), scripts).await
 }
 
 async fn world_with(
@@ -154,7 +278,23 @@ async fn world_built(
     std::fs::create_dir_all(home.join("code/app"))?;
     std::fs::write(home.join("Documents/tax.txt"), "TAX-SECRET")?;
     let workspaces = Workspaces::new(data.join("workspace"));
+    // As ace's daemon writes it: hex, beside its own token, never in Spade's data.
+    let key: Vec<u8> = (0u8..32)
+        .map(|i| i.wrapping_mul(37).wrapping_add(11))
+        .collect();
+    let person_key = root.join(spade_server::security::attest::KEY_FILE);
+    std::fs::write(
+        &person_key,
+        key.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+    )?;
     let late = Arc::new(Late::default());
+    // Plugins with no sandbox of the test's own go through this world's security service, as in
+    // Spade: the real sandbox, over the same workspaces.
+    let mut options = options;
+    if options.plugins.is_some() && options.plugin_confine.is_none() {
+        options.plugin_confine = Some(late.clone());
+        options.workspaces.get_or_insert_with(|| workspaces.clone());
+    }
     let bots = EngineHandle::default();
     let shell = Shell::system().confined(wrap(late.clone()));
     let kept = (shell.clone(), workspaces.clone(), bots.clone());
@@ -194,6 +334,7 @@ async fn world_built(
         clock: Arc::new(SystemClock),
         ids: Arc::new(CountingIds::default()),
         bots,
+        person_key: Some(person_key.clone()),
     })
     .await;
     let _ = late.0.set(security.clone());
@@ -210,6 +351,7 @@ async fn world_built(
         shell: kept.0,
         workspaces: kept.1,
         bots: kept.2,
+        person_key: key,
     })
 }
 
@@ -231,6 +373,16 @@ pub fn output<'a>(events: &'a [Value], call: &str) -> &'a str {
         .find(|e| e["type"] == "tool_finished" && e["call_id"] == call)
         .and_then(|e| e["content"].as_str())
         .unwrap_or_default()
+}
+
+/// The `command_ran` stored for call `call`: where it ran and what the sandbox did; null when
+/// none was stored.
+pub fn command_ran(events: &[Value], call: &str) -> Value {
+    events
+        .iter()
+        .find(|e| e["type"] == "command_ran" && e["call_id"] == call)
+        .cloned()
+        .unwrap_or(Value::Null)
 }
 
 pub fn shell(id: &str, command: String) -> Script {

@@ -68,6 +68,7 @@ async function accountMachine(direct = false) {
     },
     (store) => {
       account = machineAccount({
+        relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
         dataDir: root,
         codes: store.machineCodes,
         fetch: globalThis.fetch,
@@ -84,7 +85,7 @@ async function accountMachine(direct = false) {
   cleanup.push(() => f.close());
   if (!account) throw new Error("Machine account missing");
   cleanup.push(() => account?.close());
-  await account.handover(backend.origin, backend.token);
+  await account.handover(backend.origin, { token: backend.token });
   const hostId = f.server.relayHostId;
   if (!hostId) throw new Error("Relay host missing");
   const accounts = aceAccountClient({ origin: backend.origin, fetch: globalThis.fetch });
@@ -164,6 +165,7 @@ async function accountMachine(direct = false) {
       account: {
         ...(extra.directRoute ? { directRoute: extra.directRoute } : {}),
         ...(extra.watchNetwork ? { watchNetwork: extra.watchNetwork } : {}),
+        ...(extra.clock ? { clock: extra.clock } : {}),
         relayUrl: relay.url,
         deviceId: id,
         grant: async () =>
@@ -193,7 +195,7 @@ async function accountMachine(direct = false) {
   return { f, backend, device, pool, hostId, relay };
 }
 type PoolExtras = Partial<
-  Pick<AccountMachineOptions, "directRoute" | "watchNetwork"> & {
+  Pick<AccountMachineOptions, "directRoute" | "watchNetwork" | "clock"> & {
     now: () => number;
     off: OffMachines;
     /** Another pool's directory: the same app starting again. */
@@ -433,8 +435,11 @@ it("a machine paired directly and found through the account is one machine on th
       },
     };
   };
+  // Holds after a switch are measured on the monotonic clock (ADR 0150), so that is the clock
+  // this test moves past one.
   const machines = machine.pool("phone", {
     now: () => Date.now() + skew,
+    clock: () => performance.now() + skew,
     watchNetwork: (changed) => {
       networkChanged = changed;
       return () => {};

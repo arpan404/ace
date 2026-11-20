@@ -170,7 +170,7 @@ async function connect(
   );
   const files = new CheckoutFiles(
     owner,
-    async () => [],
+    async () => ({ paths: [], ready: true }),
     (each) => memory.recent(each),
   );
   const ask = (operation: unknown) =>

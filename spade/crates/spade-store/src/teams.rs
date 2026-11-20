@@ -6,6 +6,7 @@
 use rusqlite::{OptionalExtension, Row, params};
 use spade_core::Event;
 
+use crate::gate::{ARRIVING_CONVERSATIONS, ARRIVING_GROUPS};
 use crate::{Result, Store, StoreError, StoredEvent};
 
 pub(crate) const SCHEMA: &str = "
@@ -52,6 +53,10 @@ pub(crate) const SCHEMA: &str = "
         PRIMARY KEY (from_host, key)
     ) WITHOUT ROWID;
 ";
+
+/// A club still arriving from another machine (ADR 0187) is no club here yet.
+const LIVE_GROUP: &str =
+    "id NOT IN (SELECT id FROM move_claims WHERE kind = 'group' AND hidden = 1)";
 
 /// A group member: a bot of this machine (`machine` empty) or of another, by host id.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -238,7 +243,7 @@ impl Store {
     pub fn groups(&self) -> Result<Vec<StoredGroup>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
-            "SELECT {GROUP_COLUMNS} FROM groups ORDER BY created_ms"
+            "SELECT {GROUP_COLUMNS} FROM groups WHERE {LIVE_GROUP} ORDER BY created_ms"
         ))?;
         let mut groups = statement
             .query_map([], group_row)?
@@ -253,7 +258,7 @@ impl Store {
         let connection = self.lock()?;
         let group = connection
             .query_row(
-                &format!("SELECT {GROUP_COLUMNS} FROM groups WHERE id = ?1"),
+                &format!("SELECT {GROUP_COLUMNS} FROM groups WHERE id = ?1 AND {LIVE_GROUP}"),
                 params![id],
                 group_row,
             )
@@ -270,7 +275,7 @@ impl Store {
         Ok(self
             .lock()?
             .query_row(
-                "SELECT id FROM groups WHERE conversation_id = ?1",
+                &format!("SELECT id FROM groups WHERE conversation_id = ?1 AND {LIVE_GROUP}"),
                 params![conversation],
                 |row| row.get(0),
             )
@@ -282,8 +287,10 @@ impl Store {
     pub fn set_group_pinned(&self, id: &str, pinned: bool, now_ms: i64) -> Result<bool> {
         let connection = self.lock()?;
         let changed = connection.execute(
-            "UPDATE groups SET pinned_ms = CASE WHEN ?2 THEN COALESCE(pinned_ms, ?3) END
-             WHERE id = ?1",
+            &format!(
+                "UPDATE groups SET pinned_ms = CASE WHEN ?2 THEN COALESCE(pinned_ms, ?3) END
+                 WHERE id = ?1 AND {LIVE_GROUP}"
+            ),
             params![id, pinned, now_ms],
         )?;
         Ok(changed > 0)
@@ -294,7 +301,10 @@ impl Store {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         let changed = tx.execute(
-            "UPDATE groups SET name = ?2, lead_id = ?3, updated_ms = ?4 WHERE id = ?1",
+            &format!(
+                "UPDATE groups SET name = ?2, lead_id = ?3, updated_ms = ?4
+                 WHERE id = ?1 AND {LIVE_GROUP}"
+            ),
             params![group.id, group.name, group.lead_id, now_ms],
         )?;
         if changed == 0 {
@@ -318,7 +328,10 @@ impl Store {
         avatar: Option<&str>,
     ) -> Result<()> {
         self.lock()?.execute(
-            "UPDATE group_members SET name = ?3, avatar = ?4 WHERE machine = ?1 AND agent_id = ?2",
+            &format!(
+                "UPDATE group_members SET name = ?3, avatar = ?4 WHERE machine = ?1 AND agent_id = ?2
+                 AND group_id NOT IN {ARRIVING_GROUPS}"
+            ),
             params![machine, agent, name, avatar],
         )?;
         Ok(())
@@ -330,7 +343,7 @@ impl Store {
         let tx = connection.transaction()?;
         let conversation: Option<String> = tx
             .query_row(
-                "SELECT conversation_id FROM groups WHERE id = ?1",
+                &format!("SELECT conversation_id FROM groups WHERE id = ?1 AND {LIVE_GROUP}"),
                 params![id],
                 |row| row.get(0),
             )
@@ -354,7 +367,10 @@ impl Store {
     /// Takes a deleted bot of this machine out of every group.
     pub fn leave_groups(&self, agent: &str) -> Result<()> {
         self.lock()?.execute(
-            "DELETE FROM group_members WHERE machine = '' AND agent_id = ?1",
+            &format!(
+                "DELETE FROM group_members WHERE machine = '' AND agent_id = ?1
+                 AND group_id NOT IN {ARRIVING_GROUPS}"
+            ),
             params![agent],
         )?;
         Ok(())
@@ -425,6 +441,36 @@ impl Store {
     }
 
     /// Marks an entry to be stopped; its worker withdraws or stops it.
+    /// Sends a queued ask to `machine` instead: its bot moved there (ADR 0187). Clubs here
+    /// that list that bot on the old machine list it on the new one.
+    pub fn retarget_outbox(
+        &self,
+        key: &str,
+        agent: &str,
+        machine: &str,
+        machine_name: &str,
+        now_ms: i64,
+    ) -> Result<()> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        // A club still arriving keeps its members as they came: its rows are the move's.
+        tx.execute(
+            &format!(
+                "UPDATE group_members SET machine = ?2 WHERE agent_id = ?1
+                 AND machine = (SELECT machine FROM outbox WHERE key = ?3)
+                 AND group_id NOT IN {ARRIVING_GROUPS}"
+            ),
+            params![agent, machine, key],
+        )?;
+        tx.execute(
+            "UPDATE outbox SET machine = ?2, machine_name = ?3, state = 'queued', next_ms = ?4,
+             updated_ms = ?4 WHERE key = ?1",
+            params![key, machine, machine_name, now_ms],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn stop_outbox(&self, key: &str, now_ms: i64) -> Result<()> {
         self.lock()?.execute(
             "UPDATE outbox SET stop = 1, next_ms = ?2, updated_ms = ?2
@@ -455,7 +501,10 @@ impl Store {
     /// Forgets asks delivered before `before_ms`; a retry of one that old is no longer expected.
     pub fn prune_inbox(&self, before_ms: i64) -> Result<usize> {
         Ok(self.lock()?.execute(
-            "DELETE FROM inbox WHERE created_ms < ?1",
+            &format!(
+                "DELETE FROM inbox WHERE created_ms < ?1
+                 AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+            ),
             params![before_ms],
         )?)
     }
@@ -464,8 +513,11 @@ impl Store {
         Ok(self
             .lock()?
             .query_row(
-                "SELECT from_host, key, from_name, agent_id, conversation_id, seq FROM inbox
-                 WHERE from_host = ?1 AND key = ?2",
+                &format!(
+                    "SELECT from_host, key, from_name, agent_id, conversation_id, seq FROM inbox
+                     WHERE from_host = ?1 AND key = ?2
+                     AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+                ),
                 params![from_host, key],
                 |row| {
                     Ok(InboxEntry {
@@ -495,7 +547,10 @@ impl Store {
         let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let known: bool = tx
             .query_row(
-                "SELECT 1 FROM inbox WHERE from_host = ?1 AND key = ?2",
+                &format!(
+                    "SELECT 1 FROM inbox WHERE from_host = ?1 AND key = ?2
+                     AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+                ),
                 params![ask.from_host, ask.key],
                 |_| Ok(true),
             )
@@ -505,7 +560,10 @@ impl Store {
             return Ok(Delivered::Duplicate);
         }
         let sent: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM inbox WHERE from_host = ?1 AND created_ms >= ?2",
+            &format!(
+                "SELECT COUNT(*) FROM inbox WHERE from_host = ?1 AND created_ms >= ?2
+                 AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+            ),
             params![ask.from_host, delivery.since_ms],
             |row| row.get(0),
         )?;

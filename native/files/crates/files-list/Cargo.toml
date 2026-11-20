@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "files-list"
+description = "Lists one folder of a checkout: paged, git-ignore aware, in VS Code order"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cap-std = "4"
+files-safe = { path = "../files-safe" }
+ignore = "0.4"
+unicode-normalization = "0.1"
+thiserror = "2"
+
+[target.'cfg(unix)'.dependencies]
+uzers = { version = "0.12", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"

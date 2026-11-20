@@ -29,25 +29,29 @@ struct PublishRepositoryView: View {
     @State private var published = 0
 
     var body: some View {
-        QuietPage {
+        List {
+            if let problem {
+                Section { ProblemRow(problem, id: "publish.problem") { Task { await read() } } }
+            }
             if let status {
                 if status.ready == false {
-                    QuietGroup { ServiceProblem(message: status.instructions ?? "Sign in to GitHub with gh on the machine."); Button("Retry") { Task { await read() } }.buttonStyle(.textAction()) }
-
+                    Section {
+                        ProblemRow("GitHub isn't signed in on this computer.", detail: status.instructions ?? "Sign in with gh on the computer, then check again.",
+                                   id: "publish.signin", retryLabel: "Check again") { Task { await read() } }
+                    }
                 }
                 if let publication = status.publication { record(publication) }
                 // Once published, the record says it all; the form only starts or resumes one.
                 if draft != nil, status.publication?.phase != "pushed" { form(status) }
             } else if problem == nil {
-                QuietGroup {
+                Section {
                     ForEach(["Owner", "Name", "Description", "Visibility"], id: \.self) { LabeledContent($0) { Text("placeholder") }.redacted(reason: .placeholder) }
                         .accessibilityHidden(true)
                 }
-
+                .insetRowBackground()
             }
-            if let problem { QuietGroup { ServiceProblem(message: problem); Button("Retry") { Task { await read() } }.buttonStyle(.textAction()) } }
         }
-
+        .insetGroupedList()
         .smoothChange(status?.publication)
         .smoothChange(status == nil)
         .smoothChange(problem)
@@ -76,22 +80,25 @@ struct PublishRepositoryView: View {
     }
 
     @ViewBuilder private func record(_ publication: PublishStatus.Publication) -> some View {
-        QuietGroup {
-            Text(publication.words).font(AceDesign.Typeface.body).accessibilityIdentifier("publish.phase")
+        Section {
+            Text(publication.words).aceFont(AceDesign.TextRole.rowTitle).accessibilityIdentifier("publish.phase")
             if let url = publication.url.flatMap(URL.init(string:)) {
                 Link(publication.fullName ?? url.absoluteString, destination: url)
             }
-            if let problem = publication.problem { ServiceProblem(message: problem) }
+            if let problem = publication.problem {
+                Text(problem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
+                    .accessibilityIdentifier("publish.failure")
+            }
             if status?.canStop == true {
-                Button("Stop publication", role: .destructive) { Task { await stop() } }
+                Button("Stop publication", role: .destructive) { Task { await stop() } }.buttonStyle(.rowAction)
             }
         } header: { InsetHeader("Publication") }
-
+        .insetRowBackground()
     }
 
     @ViewBuilder private func form(_ status: PublishStatus) -> some View {
         let locked = status.locked == true
-        QuietGroup {
+        Section {
             if let hosts = status.hosts, hosts.count > 1 {
                 Picker("Host", selection: binding(\.host)) { ForEach(hosts, id: \.self) { Text($0).tag($0) } }
             }
@@ -108,11 +115,11 @@ struct PublishRepositoryView: View {
             }
             .pickerStyle(.segmented)
         } header: { InsetHeader("New repository") } footer: {
-            Text(locked ? "Creation already began, so these stay as they were. Resume to finish." : "Creates the repository with the machine's gh account, adds it as origin and pushes the current branch. ace never rewrites history.")
+            Text(locked ? "Creation already began, so these stay as they were. Resume to finish." : "Creates the repository with the computer's gh account, adds it as origin and pushes the current branch.")
         }
         .textInputAutocapitalization(.never).autocorrectionDisabled()
         .disabled(locked || busy || status.running == true)
-
+        .insetRowBackground()
     }
 
     private func binding(_ key: WritableKeyPath<PublishStatus.Draft, String>) -> Binding<String> {
@@ -130,7 +137,7 @@ struct PublishRepositoryView: View {
         busy = true; problem = nil
         defer { busy = false }
         guard let reply = try? await model.service(["type": "native.project", "request": ["op": "publish", "workspaceId": project.id, "input": input]], as: PublishStatus.self, timeout: .seconds(120)) else {
-            problem = "The answer was lost. Retry to read saved progress, then Resume."; return
+            problem = "Couldn't confirm the publication. Try again to read its progress, then Resume."; return
         }
         if reply.draft != nil { status = reply; self.draft = reply.draft }
         if reply.ok { published += 1 } else { problem = reply.message }
@@ -140,6 +147,6 @@ struct PublishRepositoryView: View {
         defer { busy = false }
         let answer = await model.projectWrite(["op": "publish.cancel", "workspaceId": project.id])
         await read()
-        if !answer.ok { problem = answer.message ?? "Couldn’t stop publication. Try again." }
+        if !answer.ok { problem = answer.message ?? "Couldn't stop publication. Try again." }
     }
 }

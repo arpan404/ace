@@ -63,12 +63,15 @@ test("Windows and Linux point at the x64 installer and AppImage, not the deb, ar
     asset("ace-0.0.7-arm64-setup.exe", 180000000),
     asset("ace-0.0.7-x64-setup.exe.blockmap", 190000),
     asset("ace-0.0.7-x64-setup.exe", 190000000),
-    asset("ace-0.0.7-x64.deb", 150000000),
-    asset("ace-0.0.7-x64.AppImage", 200000000),
+    asset("ace-0.0.7-amd64.deb", 150000000),
+    asset("ace-0.0.7-x86_64.AppImage", 200000000),
   ];
   const { byPlatform } = downloadsFromRelease(release({ assets }));
   expect(byPlatform.windows).toEqual({ url: `${base}/ace-0.0.7-x64-setup.exe`, bytes: 190000000 });
-  expect(byPlatform.linux).toEqual({ url: `${base}/ace-0.0.7-x64.AppImage`, bytes: 200000000 });
+  expect(byPlatform.linux).toEqual({
+    url: `${base}/ace-0.0.7-x86_64.AppImage`,
+    bytes: 200000000,
+  });
 });
 
 test("a platform the release has no installer for opens the release page instead", () => {
@@ -90,4 +93,14 @@ test("an answer that isn't a release, such as a rate-limit error, is refused", (
       documentation_url: "https://docs.github.com",
     }),
   ).toThrow();
+});
+
+test("every file the release has is listed for its system, and none for a system it skips", () => {
+  const { files } = downloadsFromRelease(release());
+  expect(files.mac.map((file) => file.url)).toEqual([
+    `${base}/ace-0.0.7-arm64.dmg`,
+    `${base}/ace-0.0.7-arm64-mac.zip`,
+  ]);
+  expect(files.windows).toEqual([]);
+  expect(files.linux).toEqual([]);
 });

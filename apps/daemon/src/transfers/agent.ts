@@ -174,11 +174,14 @@ export class AgentTransfers {
       return;
     }
     try {
-      this.deps.deliver(
-        agent.threadId,
-        `transfer-result:${transfer.transferId}`,
-        transferResultText(transfer),
-      );
+      // A thread that moved itself runs nothing more here, and one whose move failed was told to
+      // carry on by the move itself (ADR 0191): no result turn either way.
+      if (!transfer.live)
+        this.deps.deliver(
+          agent.threadId,
+          `transfer-result:${transfer.transferId}`,
+          transferResultText(transfer),
+        );
       this.deps.hold(agent.threadId, agent.agentId, transfer.transferId, {
         status:
           transfer.phase === "completed"

@@ -7,11 +7,12 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use serde_json::Value;
-use spade_core::autonomy::{self, Class, Runs, Sensitive};
+use spade_core::autonomy::escalate::{self, Stopped};
+use spade_core::autonomy::{self, Class, Mode, Runs, Sensitive};
 use spade_core::context;
 use spade_core::effect::{self, Place, Route};
 use spade_core::event::Verdict;
-use spade_core::event::{Call, Known};
+use spade_core::event::{Authorized, Call, Known, since_arrival};
 use spade_core::gate::{self, Decision};
 use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::question;
@@ -25,7 +26,9 @@ use super::Engine;
 use super::autonomy::Reviewed;
 use super::classify::Screened;
 use crate::tools::{ToolOutput, TurnFacts};
+use crate::workspace::outside::{self, Bound, Warrant};
 use crate::workspace::shell::Launch;
+use again::{Again, Held, ask_again, asked_stopped};
 
 const DECLINED: &str = "The person declined this action.";
 
@@ -76,10 +79,12 @@ pub(super) async fn handle_calls(
         untrusted: (!in_view.is_empty()).then(|| in_view.join(", ")),
         memory_suggests: summary_only,
     };
+    // How the bot decides (ADR 0163, amendment 2), read once for the step's calls.
+    let mode = engine.autonomy(id);
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
-    // Calls approved by the reviewer with the files they run, by call id: the hash of those
-    // files as it read them (ADR 0144).
-    let mut bound: HashMap<String, Option<String>> = HashMap::new();
+    // Calls let run outside the sandbox, by call id, with what the verdict that let each run was
+    // given on (ADR 0144): checked again right before it starts.
+    let mut bound: HashMap<String, Held> = HashMap::new();
     let mut waiting = false;
     // Started with no stored result. This worker runs every call it starts to its stored end, so
     // such a call ran in an earlier worker that was cut off: its outcome is unknown.
@@ -172,25 +177,86 @@ pub(super) async fn handle_calls(
                 }
                 Some(def) => {
                     let key = format!("{id}.{}", pending.call.id);
+                    // Where the call runs and, for a command with no sandbox, what it runs and
+                    // the files the reviewer must read (ADR 0171).
+                    let Some(classified) =
+                        classify(engine, id, &name, &key, &arguments, stop).await
+                    else {
+                        return Handled::Stopped;
+                    };
+                    // Spade couldn't read what it would run outside the sandbox at all: there is
+                    // nothing to show the person or hold an answer to.
+                    if matches!(&classified, Classified::Failed(fallback) if fallback.runs == Runs::AsksOutside)
+                    {
+                        match rule_verdict(
+                            engine,
+                            id,
+                            reply,
+                            events,
+                            &pending.call,
+                            &name,
+                            Verdict::Refuse,
+                            UNREAD_OUTSIDE,
+                            None,
+                            Authorized::Contained,
+                        ) {
+                            Ok(true) => {}
+                            Ok(false) => return Handled::Stopped,
+                            Err(error) => return Handled::Failed(error.to_string()),
+                        }
+                        let refused = ToolOutput::ok(autonomy::refused(UNREAD_OUTSIDE));
+                        finish_tool(engine, id, reply, &pending.call, &name, refused).await;
+                        continue;
+                    }
+                    // Part of what it would run outside the sandbox couldn't be read whole:
+                    // nothing that runs it there on the rules, a grant or a reviewer can be held to
+                    // it, so the person decides (ADR 0163, amendment 3).
+                    let incomplete = matches!(&classified, Classified::Done(classed)
+                        if classed.incomplete
+                            && matches!(classed.runs, Runs::AsksOutside | Runs::Outside));
+                    let classed = classified.classed();
+                    // How far this call would launch: every verdict reused for it (an Always allow,
+                    // a stored review, a grant) must have been given for that or wider.
+                    let limit = authorized(classed.runs);
+                    // What it runs as read now, which every verdict given on this reading binds:
+                    // its start outside the sandbox must find it still so.
+                    let read_bound = outside::binding(&classed);
+                    // The binding of the verdict that decides it: this reading's, or a stored
+                    // review's.
+                    let mut verdict_bound = read_bound.clone();
                     let scope = engine
                         .tools
                         .get_for(id, &name)
                         .and_then(|tool| tool.always_scope_in(&key, &arguments));
-                    let always_in = |owner: &str, owned: &[Event]| match &scope {
-                        Some(scope) => allowed_always_for(engine, owner, owned, &name, scope),
-                        None => Transcript::fold(owned)
-                            .always_allowed
-                            .iter()
-                            .any(|t| t == &name),
+                    // An Always allow holds only for the launch it was given for, or narrower; a
+                    // whole-tool one records none, so it holds for a contained launch only.
+                    // Only answers given on this machine count: a bot that moved here brought its
+                    // history, not the person's consent (ADR 0187).
+                    let always_in = |owner: &str, owned: &[Event], folded: &Transcript| {
+                        let here = since_arrival(owned);
+                        match &scope {
+                            Some(scope) => {
+                                allowed_always_for(engine, owner, here, &name, scope, limit)
+                            }
+                            None if here.len() == owned.len() => {
+                                limit == Authorized::Contained
+                                    && folded.always_allowed.iter().any(|t| t == &name)
+                            }
+                            None => {
+                                limit == Authorized::Contained
+                                    && Transcript::fold(here)
+                                        .always_allowed
+                                        .iter()
+                                        .any(|t| t == &name)
+                            }
+                        }
                     };
                     let always = match (&helper, &bot_events) {
                         (Some(h), Some(owned)) => {
-                            always_in(id, events) || always_in(&h.parent, owned)
+                            always_in(id, events, &transcript)
+                                || always_in(&h.parent, owned, &Transcript::fold(owned.as_slice()))
                         }
-                        _ => match &scope {
-                            Some(scope) => allowed_always_for(engine, id, events, &name, scope),
-                            None => transcript.always_allowed.iter().any(|t| t == &name),
-                        },
+                        _ => always_in(id, events, &transcript),
                     };
                     let tainted = match def.risk {
                         // Only saving and rewriting can wait as a suggestion; any other change to
@@ -199,12 +265,6 @@ pub(super) async fn handle_calls(
                         _ => untrusted,
                     };
                     let rule = gate::decide(def.risk, always, tainted);
-                    // Where the call runs and, for a command with no sandbox, what it runs and
-                    // the files the reviewer must read (ADR 0171).
-                    let Some(classed) = classify(engine, id, &name, &key, &arguments, stop).await
-                    else {
-                        return Handled::Stopped;
-                    };
                     // What it does, as the tool declares it once.
                     let declared = engine
                         .tools
@@ -232,13 +292,53 @@ pub(super) async fn handle_calls(
                             .map(|tool| engine.tool_key(id, tool.identity())),
                     };
                     let remembered = tool_key.as_deref().and_then(|key| {
-                        effect::remembered(events, key).or_else(|| {
+                        effect::remembered(since_arrival(events), key).or_else(|| {
                             bot_events
                                 .as_deref()
-                                .and_then(|owned| effect::remembered(owned, key))
+                                .and_then(|owned| effect::remembered(since_arrival(owned), key))
                         })
                     });
                     let target = spade_core::outward::target(&name, &arguments);
+                    // A driving step: where it acts, asked of ace now, whether that place is the
+                    // person's alone, and whether they allowed it for the bot (ADR 0171,
+                    // amendment 3).
+                    let driven = match declared {
+                        Some(effect::Effect::Drive) => {
+                            Some(engine.drive_step(id, &key, &name, &arguments).await)
+                        }
+                        _ => None,
+                    };
+                    let drive =
+                        driven
+                            .as_ref()
+                            .map_or_else(effect::Drive::default, |step| effect::Drive {
+                                target: step
+                                    .place
+                                    .as_ref()
+                                    .map(effect::drive::Place::shown)
+                                    .map_err(|why| *why),
+                                sensitive: step.sensitive,
+                                granted: step
+                                    .place
+                                    .as_ref()
+                                    .is_ok_and(|place| engine.drive_granted(id, place)),
+                                // An ace from before `expect` can't hold the step to its place.
+                                bound: step.place.as_ref().is_ok_and(|place| {
+                                    !effect::drive::needs_binding(&name, &arguments, place)
+                                        || engine.takes_expect(id, &name)
+                                }),
+                            });
+                    let acts_in = driven
+                        .as_ref()
+                        .and_then(|step| step.place.as_ref().ok().cloned());
+                    // A connector's or plugin's tool that can reach anyone: its server says what
+                    // it is, and only one sealed offline with no credentials can't.
+                    let remote = engine
+                        .tools
+                        .get_for(id, &name)
+                        .is_some_and(|tool| tool.hints().is_some() && !tool.sealed());
+                    // One reading of the classifier for this call, for routing and screening.
+                    let classifier = engine.classifier_ready();
                     let route = effect::route(effect::Call {
                         tool: &name,
                         rule,
@@ -252,14 +352,84 @@ pub(super) async fn handle_calls(
                         // The sandbox's deny-list holds a sandboxed call; anything else that
                         // names a credential place, or a script it runs that reads one, is
                         // refused on every level.
-                        credentials: place != Place::Sandbox
+                        credentials: (place != Place::Sandbox || remote)
                             && (classed.credentials || autonomy::reaches_credentials(&arguments)),
                         standing: autonomy::STANDING.contains(&name.as_str()),
                         fits: autonomy::fits_review(&arguments, &classed.shown),
-                        granted: engine.granted(id, &name, &arguments, declared),
+                        // A grant records no launch: it holds for a contained launch only.
+                        granted: if limit == Authorized::Contained {
+                            engine.granted(id, &name, &arguments, declared)
+                        } else {
+                            effect::Granted::No
+                        },
                         checkpointed: held && classed.runs == Runs::Host,
                         target: target.as_deref(),
+                        drive,
+                        mode,
+                        remote,
+                        classifier,
                     });
+                    // An app's write in Full access runs counting on the screening.
+                    let required = remote && declared != Some(effect::Effect::Read);
+                    let screening = |concern: bool| super::classify::Screening {
+                        launch: limit,
+                        ready: classifier,
+                        required,
+                        call: &pending.call,
+                        name: &name,
+                        arguments: &arguments,
+                        classed: &classed,
+                        hints: engine.tools.get_for(id, &name).and_then(|t| t.hints()),
+                        reviewing: spade_classify::Reviewing {
+                            plain_command: classed.runs == Runs::Outside
+                                && classed.class == Class::Inside
+                                && !classed.credentials,
+                            tainted: !in_view.is_empty(),
+                            runs_files: !classed.shown.is_empty(),
+                            standing: autonomy::STANDING.contains(&name.as_str()),
+                            concern,
+                        },
+                    };
+                    // Which of Spade's judges put the call to the person, when one did.
+                    let mut stopped = None;
+                    // In Full access nothing is reviewed, but Spade's classifier may still raise a
+                    // command outside the sandbox or an app's tool it reads as a hard stop.
+                    let route = match route {
+                        route if incomplete => {
+                            let route = escalate::incomplete(route);
+                            if matches!(route, Route::Ask { .. }) {
+                                stopped = Some(Stopped::Incomplete);
+                            }
+                            route
+                        }
+                        Route::Run
+                            if mode == Mode::FullAccess && (place != Place::Sandbox || remote) =>
+                        {
+                            engine.screening_now();
+                            match engine.raise_only(id, reply, events, &screening(false)) {
+                                Ok(Screened::Ask(line)) => {
+                                    stopped = Some(Stopped::Classifier);
+                                    Route::Ask { line, ask: None }
+                                }
+                                Ok(Screened::Stopped) => return Handled::Stopped,
+                                Ok(Screened::Run) => Route::Run,
+                                // Refused before (by the reviewer or the rules, then stored):
+                                // still refused, never run because the bot is in Full access now.
+                                Ok(Screened::Refuse(reason)) => {
+                                    let refused = ToolOutput::ok(autonomy::refused(&reason));
+                                    finish_tool(engine, id, reply, &pending.call, &name, refused)
+                                        .await;
+                                    continue;
+                                }
+                                // It couldn't be screened after all: the reviewer decides.
+                                Ok(Screened::Review) => {
+                                    Route::Review(Some(effect::NO_CLASSIFIER.to_owned()))
+                                }
+                                Err(error) => return Handled::Failed(error.to_string()),
+                            }
+                        }
+                        route => route,
+                    };
                     let mut ask = None;
                     let mut reviewer_reason = None;
                     let rule_ran = route == Route::Run;
@@ -281,7 +451,8 @@ pub(super) async fn handle_calls(
                                 &reason,
                                 // Bound to the files it runs as they are now: a command the
                                 // person allows outside the sandbox runs only if they still are.
-                                super::autonomy::binding(&classed.shown),
+                                read_bound.stored(),
+                                limit,
                             ) {
                                 Ok(true) => {}
                                 Ok(false) => return Handled::Stopped,
@@ -302,6 +473,7 @@ pub(super) async fn handle_calls(
                                 Verdict::Refuse,
                                 &reason,
                                 None,
+                                limit,
                             ) {
                                 Ok(true) => {}
                                 Ok(false) => return Handled::Stopped,
@@ -315,22 +487,8 @@ pub(super) async fn handle_calls(
                             // Spade's classifier first (ADR 0172): it may settle a plain command
                             // as low-risk or raise a person-only effect; otherwise it abstains
                             // and the reviewer decides as before.
-                            let screening = super::classify::Screening {
-                                call: &pending.call,
-                                name: &name,
-                                arguments: &arguments,
-                                classed: &classed,
-                                hints: engine.tools.get_for(id, &name).and_then(|t| t.hints()),
-                                reviewing: spade_classify::Reviewing {
-                                    plain_command: classed.runs == Runs::Outside
-                                        && classed.class == Class::Inside
-                                        && !classed.credentials,
-                                    tainted: !in_view.is_empty(),
-                                    runs_files: !classed.shown.is_empty(),
-                                    standing: autonomy::STANDING.contains(&name.as_str()),
-                                    concern: concern.is_some(),
-                                },
-                            };
+                            let screening = screening(concern.is_some());
+                            engine.screening_now();
                             let screened = match engine.screen(id, reply, events, &screening) {
                                 Ok(screened) => screened,
                                 Err(error) => return Handled::Failed(error.to_string()),
@@ -339,9 +497,17 @@ pub(super) async fn handle_calls(
                                 Screened::Run => Decision::Run,
                                 Screened::Ask(line) => {
                                     reviewer_reason = Some(line);
+                                    stopped = Some(Stopped::Classifier);
                                     Decision::Ask
                                 }
                                 Screened::Stopped => return Handled::Stopped,
+                                // `screen` leaves a stored refusal to the reviewer's path.
+                                Screened::Refuse(reason) => {
+                                    let refused = ToolOutput::ok(autonomy::refused(&reason));
+                                    finish_tool(engine, id, reply, &pending.call, &name, refused)
+                                        .await;
+                                    continue;
+                                }
                                 Screened::Review => {
                                     let def = def.clone();
                                     let under = super::autonomy::Under {
@@ -350,16 +516,18 @@ pub(super) async fn handle_calls(
                                         arguments: &arguments,
                                         def: &def,
                                         shown: &classed.shown,
+                                        bound: read_bound.stored(),
                                         concern: concern.as_deref(),
+                                        acts_in: acts_in.as_ref(),
+                                        launch: limit,
                                     };
                                     // An approval is bound to the files as the reviewer read them: the
                                     // stored one's, or these when this review is the first.
-                                    let expected = match review::stored(events, &pending.call.id) {
-                                        Some(_) => review::bound(events, &pending.call.id),
-                                        None => super::autonomy::binding(&classed.shown),
-                                    };
-                                    if expected.is_some() || !classed.shown.is_empty() {
-                                        bound.insert(pending.call.id.clone(), expected);
+                                    if review::stored(events, &pending.call.id, limit).is_some() {
+                                        verdict_bound = Bound::from_stored(review::bound(
+                                            events,
+                                            &pending.call.id,
+                                        ));
                                     }
                                     match super::autonomy::review(
                                         engine, id, reply, events, &registry, under, stop,
@@ -367,23 +535,12 @@ pub(super) async fn handle_calls(
                                     .await
                                     {
                                         Reviewed::Run => Decision::Run,
+                                        // Refused or undecided: the person decides, told why,
+                                        // never the bot told no (ADR 0163, amendment 3).
                                         Reviewed::Escalate(reason) => {
                                             reviewer_reason = Some(reason);
+                                            stopped = Some(Stopped::Reviewer);
                                             Decision::Ask
-                                        }
-                                        Reviewed::Refuse(reason) => {
-                                            let refused =
-                                                ToolOutput::ok(autonomy::refused(&reason));
-                                            finish_tool(
-                                                engine,
-                                                id,
-                                                reply,
-                                                &pending.call,
-                                                &name,
-                                                refused,
-                                            )
-                                            .await;
-                                            continue;
                                         }
                                         Reviewed::Stopped => return Handled::Stopped,
                                     }
@@ -394,8 +551,10 @@ pub(super) async fn handle_calls(
                     // The model review (ADR 0135) may turn a run into a question, never the
                     // other way round; a call the auto-review approved was reviewed already.
                     // A sandboxed call is the OS's to decide: no review of any kind (ADR 0171).
+                    // In Full access the person chose no reviewer (ADR 0163, amendment 2).
                     if rule_ran
-                        && place != Place::Sandbox
+                        && mode == Mode::AutoReview
+                        && (place != Place::Sandbox || remote)
                         && review::reviewed(def.risk, decision)
                         && engine.review_on(id)
                     {
@@ -410,12 +569,17 @@ pub(super) async fn handle_calls(
                             &name,
                             &arguments,
                             &def,
+                            limit,
                             stop,
                         )
                         .await
                         {
                             super::review::Reviewed::Allow => {}
-                            super::review::Reviewed::Escalate => decision = Decision::Ask,
+                            super::review::Reviewed::Escalate(reason) => {
+                                reviewer_reason = Some(reason);
+                                stopped = Some(Stopped::SecondReview);
+                                decision = Decision::Ask;
+                            }
                             super::review::Reviewed::Stopped => return Handled::Stopped,
                         }
                     }
@@ -426,12 +590,59 @@ pub(super) async fn handle_calls(
                                 engine.allow_scope(&key, scope);
                             }
                             // What the gate decided, carried to the launch unchanged: a call it
-                            // decided in the sandbox's light may only launch contained.
-                            engine.mark_launch(&key, launch_for(classed.runs));
+                            // decided in the sandbox's light may only launch contained. With it
+                            // the warrant of whichever verdict let it run (the rules, an Always
+                            // allow, a grant, the classifier, the reviewer, one stored): its
+                            // launch limit and what it ran, which its start outside the sandbox
+                            // must pass.
+                            let launch = launch_for(classed.runs);
+                            if launch == Launch::Outside {
+                                let held = Held {
+                                    bound: verdict_bound.stored(),
+                                    limit,
+                                    incomplete: false,
+                                    recheck: true,
+                                    scope: scope.clone(),
+                                    ask: None,
+                                };
+                                bound.insert(pending.call.id.clone(), held);
+                            }
+                            let warrant = Warrant {
+                                limit,
+                                bound: verdict_bound,
+                                incomplete: false,
+                            };
+                            engine.authorize(&key, launch, warrant);
+                            // A driving step runs only where it was decided on.
+                            if let Some(place) = acts_in {
+                                // Run by the reviewer's word alone, unless an Always allow of
+                                // the person's let it through; in Full access by no one's, so
+                                // held to its place as strictly.
+                                engine.decide_place(
+                                    &key,
+                                    place,
+                                    !rule_ran || mode == Mode::FullAccess,
+                                );
+                            }
                             runnable.push((pending.call, name, arguments));
                         }
                         Decision::Ask => {
                             waiting = true;
+                            // A driving step asked for any reason (its place, the reviewer, the
+                            // classifier) offers to allow its app or site, where that may be.
+                            if driven.is_some() {
+                                ask = Some(effect::Ask::Drive);
+                            }
+                            // Allowing the app is offered only where it would stop the asking.
+                            let app = acts_in
+                                .as_ref()
+                                .filter(|_| drive.sensitive.is_none() && drive.bound)
+                                .filter(|place| {
+                                    place.grant().is_some_and(|scope| {
+                                        spade_core::grant::check(&scope, &|_| None).is_ok()
+                                    })
+                                })
+                                .map(|place| place.shown().to_owned());
                             let asked = Event::Known(Known::ApprovalRequested {
                                 reply: reply.to_owned(),
                                 call_id: pending.call.id.clone(),
@@ -443,7 +654,13 @@ pub(super) async fn handle_calls(
                                 tool_key: (ask == Some(effect::Ask::Undeclared))
                                     .then_some(tool_key)
                                     .flatten(),
+                                app,
+                                acts_in: acts_in.map(Box::new),
                                 helper: None,
+                                // The most the person's answer lets it run. What it ran is
+                                // the binding of the verdict stored just before, which asked.
+                                launch: Some(limit),
+                                stopped,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
                             let recorded = match &helper {
@@ -468,23 +685,54 @@ pub(super) async fn handle_calls(
                 }
                 // The person allowed it outside the sandbox: asked so, or asked while the bot's
                 // commands ran outside it and still do.
-                let launch = if asked_outside(events, &pending.call.id) {
-                    Launch::Outside
+                let outside = asked_outside(events, &pending.call.id);
+                let (launch, now) = if outside {
+                    (Launch::Outside, Authorized::Outside)
                 } else {
                     let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await
                     else {
                         return Handled::Stopped;
                     };
-                    launch_for(now.runs)
+                    let runs = now.classed().runs;
+                    (launch_for(runs), authorized(runs))
                 };
-                engine.mark_launch(&key, launch);
-                // A command allowed outside the sandbox runs only while the files it runs are
-                // as they were when the person was asked.
-                if asked_outside(events, &pending.call.id) {
-                    bound.insert(
-                        pending.call.id.clone(),
-                        review::bound(events, &pending.call.id),
-                    );
+                // Never wider than where it was decided to run when the person was asked (a
+                // bot's commands moved outside meanwhile): it needs a fresh decision.
+                // An answer with no recorded launch (an older build's, even one asked to run
+                // outside) is ambiguous: it holds for a contained launch only.
+                let allowed_to = Authorized::stored(asked_launch(events, &pending.call.id));
+                if now > allowed_to {
+                    let wider = ToolOutput::ok(autonomy::refused(WIDER_THAN_ALLOWED));
+                    finish_tool(engine, id, reply, &pending.call, &name, wider).await;
+                    continue;
+                }
+                // The person's answer's warrant: the launch they were asked about, and what the
+                // command ran then, as the verdict that asked them recorded it (every ask stores
+                // one first; none recorded: nothing). Asked because part of it couldn't be read
+                // whole, their Allow lets it start so, if what could be read is unchanged.
+                let stopped = asked_stopped(events, &pending.call.id);
+                let warrant = Warrant {
+                    limit: allowed_to,
+                    bound: Bound::from_stored(review::bound(events, &pending.call.id)),
+                    incomplete: stopped == Some(Stopped::Incomplete),
+                };
+                if launch == Launch::Outside {
+                    let held = Held {
+                        bound: warrant.bound.stored(),
+                        limit: allowed_to,
+                        incomplete: warrant.incomplete,
+                        // Asked again because it couldn't be read before it started: the check
+                        // at the spawn reads it, and holds it to what it was allowed on.
+                        recheck: stopped != Some(Stopped::Unread),
+                        scope: asked_scope(events, &pending.call.id),
+                        ask: outside.then_some(effect::Ask::OutsideSandbox),
+                    };
+                    bound.insert(pending.call.id.clone(), held);
+                }
+                engine.authorize(&key, launch, warrant);
+                // A driving step runs only where the person was told it acts.
+                if let Some(place) = asked_place(events, &pending.call.id) {
+                    engine.decide_place(&key, place, false);
                 }
                 runnable.push((pending.call, name, arguments));
             }
@@ -552,11 +800,14 @@ fn rule_verdict(
     verdict: Verdict,
     reason: &str,
     bound: Option<String>,
+    launch: Authorized,
 ) -> Result<bool, spade_store::StoreError> {
-    if review::stored(events, &call.id).is_some() {
+    if review::stored(events, &call.id, launch).is_some() {
         return Ok(true);
     }
-    super::autonomy::record_rule(engine, id, reply, call, name, verdict, reason, bound)
+    super::autonomy::record_rule(
+        engine, id, reply, call, name, verdict, reason, bound, launch,
+    )
 }
 
 /// Whether the person answered "always" to an earlier call of `name` with the same scope (for
@@ -568,6 +819,7 @@ fn allowed_always_for(
     events: &[Event],
     name: &str,
     scope: &str,
+    launch: Authorized,
 ) -> bool {
     let Some(tool) = engine.tools.get_for(id, name) else {
         return false;
@@ -579,9 +831,11 @@ fn allowed_always_for(
             always: true,
             ..
         }) => events.iter().any(|asked| {
-            matches!(asked, Event::Known(Known::ApprovalRequested { call_id: c, name: n, arguments, scope: asked_scope, .. })
+            matches!(asked, Event::Known(Known::ApprovalRequested { call_id: c, name: n, arguments, scope: asked_scope, launch: given, .. })
                 if c == call_id && n == name
-                    && asked_scope.clone().or_else(|| tool.always_scope(arguments)).as_deref() == Some(scope))
+                    && asked_scope.clone().or_else(|| tool.always_scope(arguments)).as_deref() == Some(scope)
+                    // Given for this launch or a wider one; none recorded is contained only.
+                    && Authorized::stored(*given).covers(launch))
         }),
         _ => false,
     })
@@ -597,7 +851,44 @@ fn asked_scope(events: &[Event], call_id: &str) -> Option<String> {
     })
 }
 
+/// Where the person was told the driving step `call_id` acts, when Spade could tell.
+fn asked_place(events: &[Event], call_id: &str) -> Option<effect::drive::Place> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ApprovalRequested {
+            call_id: c,
+            acts_in,
+            ..
+        }) if c == call_id => acts_in.as_deref().cloned(),
+        _ => None,
+    })
+}
+
 /// Whether the call `call_id` was asked about as a command to run outside the sandbox.
+/// Where a call may run on the person's answer, as it was decided when they were asked.
+fn asked_launch(events: &[Event], call_id: &str) -> Option<Authorized> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ApprovalRequested {
+            call_id: c, launch, ..
+        }) if c == call_id => *launch,
+        _ => None,
+    })
+}
+
+/// Where a call that runs where `runs` says may run on an answer to it.
+fn authorized(runs: Runs) -> Authorized {
+    match runs {
+        // Spade, ace or an app runs it: no command is launched, so nothing wider than a
+        // contained one.
+        Runs::Sandbox | Runs::Host => Authorized::Contained,
+        Runs::AsksOutside | Runs::Outside => Authorized::Outside,
+    }
+}
+
+/// Why an allowed call didn't start: it would run somewhere wider now.
+const WIDER_THAN_ALLOWED: &str = "Where it would run now is wider than when the person allowed \
+     it (the bot's commands may have moved outside the sandbox), so that answer doesn't cover it. \
+     Call it again to have it decided afresh.";
+
 fn asked_outside(events: &[Event], call_id: &str) -> bool {
     events.iter().any(|event| {
         matches!(event, Event::Known(Known::ApprovalRequested {
@@ -622,7 +913,7 @@ async fn run_tools(
     id: &str,
     reply: &str,
     calls: Vec<(Call, String, Value)>,
-    bound: &HashMap<String, Option<String>>,
+    bound: &HashMap<String, Held>,
     facts: &TurnFacts,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
@@ -649,18 +940,38 @@ async fn run_tools(
             let Some((call, name, arguments)) = queue.next() else {
                 break;
             };
-            // A file the reviewer read changed since: not run, and the bot asks again.
-            if let Some(expected) = bound.get(&call.id) {
+            // What it runs is read again: if it can't be, or a file changed since its verdict,
+            // it doesn't start, and the person decides on it as it is now (ADR 0163, amendment 3).
+            if let Some(held) = bound.get(&call.id).filter(|held| held.recheck) {
                 let key = format!("{id}.{}", call.id);
                 let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await else {
                     return Handled::Stopped;
                 };
-                if &super::autonomy::binding(&now.shown) != expected {
-                    let changed = ToolOutput::ok(autonomy::refused(SCRIPT_CHANGED));
-                    finished.push_back((call, name, changed));
-                    continue;
+                if let Some((stop, read)) = again::stop_at_launch(now, held) {
+                    let again = Again {
+                        call: &call,
+                        name: &name,
+                        arguments: &arguments,
+                        held,
+                        read,
+                    };
+                    match ask_again(engine, id, reply, again, stop) {
+                        Ok(true) => continue,
+                        Ok(false) => return Handled::Stopped,
+                        Err(error) => return Handled::Failed(error.to_string()),
+                    }
                 }
             }
+            // A driving step whose page or app changed since it was decided on doesn't run: the
+            // bot looks again and the gate decides on where it acts then (ADR 0171, amendment 3).
+            let key = format!("{id}.{}", call.id);
+            let arguments = match engine.bind_place(id, &key, &name, arguments).await {
+                Ok(arguments) => arguments,
+                Err(why) => {
+                    finished.push_back((call, name, ToolOutput::ok(why.to_owned())));
+                    continue;
+                }
+            };
             // A tool runs only once its start is stored, so a restart can never mistake a call
             // that ran for one that did not.
             // What the tool is now is stored with its start, so compaction reads a write as one
@@ -770,8 +1081,29 @@ async fn run_tools(
 }
 
 /// The longest a call's classification may take (reading the scripts and makefiles it runs)
-/// before it goes to the person as unclear.
-const CLASSIFY_TIME: std::time::Duration = std::time::Duration::from_secs(10);
+/// before it is given up ([`Engine::classify_time`]).
+pub(crate) const CLASSIFY_TIME: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What classifying a call came to.
+enum Classified {
+    Done(autonomy::Classed),
+    /// It ran out of time or failed: where the call may run without widening it (in the
+    /// sandbox, or asking to run outside). Never enough to approve or start a call outside.
+    Failed(autonomy::Classed),
+}
+
+impl Classified {
+    fn classed(self) -> autonomy::Classed {
+        match self {
+            Self::Done(classed) | Self::Failed(classed) => classed,
+        }
+    }
+}
+
+/// Why a call asking to run outside the sandbox isn't asked about: Spade couldn't read what it
+/// would run there.
+const UNREAD_OUTSIDE: &str = "Spade couldn't read what this command would run, so it can't be \
+     run outside the sandbox now.";
 
 /// What a call reaches (ADR 0144), worked out off the turn's thread: reading a command's files is
 /// blocking work, bounded by the classifier's budget and here by [`CLASSIFY_TIME`]. Stop is
@@ -783,17 +1115,31 @@ async fn classify(
     key: &str,
     arguments: &Value,
     stop: &mut watch::Receiver<bool>,
-) -> Option<autonomy::Classed> {
+) -> Option<Classified> {
     let Some(tool) = engine.tools.get_for(id, name) else {
-        return Some(Class::Sensitive(Sensitive::Unknown).into());
+        return Some(Classified::Done(
+            Class::Sensitive(Sensitive::Unknown).into(),
+        ));
     };
+    // A classification that fails never widens where the call runs: one asking to leave the
+    // sandbox goes to the person, anything else stays in it (and a launch held to the sandbox is
+    // refused where there is none).
+    let failed = if crate::workspace::asks_outside(arguments) {
+        autonomy::Classed::asks_outside()
+    } else {
+        autonomy::Classed::sandboxed()
+    };
+    // No time for it at all: failed, as when it runs out.
+    if engine.classify_time().is_zero() {
+        return Some(Classified::Failed(failed));
+    }
     let (key, arguments) = (key.to_owned(), arguments.clone());
     let work = tokio::task::spawn_blocking(move || tool.classed(&key, &arguments));
     tokio::select! {
-        done = tokio::time::timeout(CLASSIFY_TIME, work) => Some(match done {
-            Ok(Ok(classed)) => classed,
-            // Took too long, or panicked: the person decides.
-            _ => Class::Sensitive(Sensitive::Unclear).into(),
+        done = tokio::time::timeout(engine.classify_time(), work) => Some(match done {
+            Ok(Ok(classed)) => Classified::Done(classed),
+            // Took too long, or panicked.
+            _ => Classified::Failed(failed),
         }),
         _ = stop.wait_for(|stopped| *stopped) => None,
     }
@@ -809,9 +1155,6 @@ fn launch_for(runs: Runs) -> Launch {
         Runs::Host | Runs::AsksOutside => Launch::Reviewed,
     }
 }
-
-/// Why a reviewed call whose files changed before it started didn't run.
-const SCRIPT_CHANGED: &str = "A file it runs changed after it was reviewed.";
 
 /// A result being stored (see `finish_tool`).
 type Storing<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
@@ -897,7 +1240,7 @@ async fn finish_tool(
     let mut content = super::trim::trim(&output.content, engine.limits.result_chars);
     let mut images = Vec::new();
     for bytes in output.images.iter().take(crate::images::MOST_IMAGES) {
-        match engine.images.put(bytes) {
+        match engine.put_image(bytes) {
             Ok(image) => images.push(image),
             Err(error) => {
                 content.push_str(&format!("\n[An image it returned was not kept: {error}]"))
@@ -924,9 +1267,15 @@ async fn finish_tool(
             documents: output.shared.documents,
         }));
     }
+    // Where a command ran and what the sandbox did with it, for the reply's steps.
+    if let Some(command) = output.command {
+        events.push(command.event(reply, &call.id));
+    }
     super::jobs::keep_trying(|| {
         let _order = engine.record_lock.lock().unwrap_or_else(|p| p.into_inner());
         engine.append_events(id, &events).map(|_| ())
     })
     .await;
 }
+
+mod again;

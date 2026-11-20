@@ -68,10 +68,12 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
   used.sort((a, b) => computerViews.indexOf(a) - computerViews.indexOf(b));
   const waking = computer?.state === "starting";
   const views: ComputerView[] = [...used, "activity"];
-  const live = (kind: ComputerView) =>
+  // Used lately, as Spade says: what the tab opens on. In use now only while the bot is at work.
+  const recent = (kind: ComputerView) =>
     computer?.surfaces.some((each) => each.kind === kind && each.live) === true;
+  const live = (kind: ComputerView) => state.atWork && recent(kind);
   const fallback =
-    used.find((kind) => live(kind)) ?? used.find((kind) => kind !== "services") ?? "activity";
+    used.find((kind) => recent(kind)) ?? used.find((kind) => kind !== "services") ?? "activity";
   const view = place.view && views.includes(place.view) ? place.view : fallback;
   if (used.length === 0)
     return (

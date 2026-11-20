@@ -17,7 +17,7 @@ export { CheckoutError, checkoutError, fromCode };
 
 /*
  * A thread's checkout as the Files tool reads it: search through `context.request`
- * `mention.complete` (the daemon's path index), and file bytes through the files channel
+ * `mention.complete` (ace-files' path index), and file bytes through the files channel
  * (`files.request` stat, download and upload, ADR 0037 and 0058), scoped to the thread so the
  * daemon resolves its worktree. Management requests use the same thread scope and version checks.
  */
@@ -57,8 +57,15 @@ export interface Stat {
 }
 
 export interface CheckoutSource {
-  /** Paths matching `query` (folders end in "/"), best first, at most 50. */
-  search(threadId: string, query: string, signal?: AbortSignal): Promise<string[]>;
+  /**
+   * Paths matching `query` (folders end in "/"), best first, at most 50. `ready` is false while
+   * ace-files builds the checkout's index: the caller keeps its loading state.
+   */
+  search(
+    threadId: string,
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<{ paths: string[]; ready: boolean }>;
   stat(threadId: string, path: string, signal?: AbortSignal): Promise<Stat>;
   /** A file to show: text, an image, a PDF or media, or why it can't be shown. */
   read(threadId: string, path: string, signal?: AbortSignal): Promise<FileContent>;
@@ -133,15 +140,18 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
       const result = reply.result;
       if (result.kind === "error") throw fromCode(result.code);
       if (result.kind !== "completion") throw new CheckoutError("protocol", "Unexpected reply.");
-      return result.paths.filter(isCheckoutPath);
+      return { paths: result.paths.filter(isCheckoutPath), ready: result.ready };
     },
     stat,
     async read(threadId, path, signal) {
       guard(path);
       const media = mediaOf(path);
+      const image = imageType(path);
+      // Pictures and players read whole, to the media budget; the text limit is for source.
+      const maxSize = media || image ? mediaViewLimit : viewLimit;
       const read = await readFile(
         client,
-        { threadId: ThreadId.parse(threadId), path, maxSize: media ? mediaViewLimit : viewLimit },
+        { threadId: ThreadId.parse(threadId), path, maxSize },
         options(signal),
       ).catch((error: unknown) => {
         throw checkoutError(error);
@@ -153,7 +163,6 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
       if (read.kind === "large") return { kind: "large", size: read.size, version };
       const bytes = read.bytes;
       const size = bytes.length;
-      const image = imageType(path);
       if (image) return { kind: "image", blob: new Blob([bytes], { type: image }), size, version };
       if (media) {
         const type = mediaType(media);

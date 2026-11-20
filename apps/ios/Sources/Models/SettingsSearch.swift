@@ -37,15 +37,17 @@ enum SettingsSearch {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
         guard !words.isEmpty else { return [] }
-        let found = items.enumerated().filter { _, item in
-            let haystack = ([item.title, item.place ?? ""] + item.keywords).joined(separator: "\n").lowercased()
-            return words.allSatisfy { haystack.contains($0) }
-        }
+        let found = items.enumerated().filter { _, item in finds(words, in: [item.title, item.place ?? ""] + item.keywords) }
         return found.sorted { a, b in
             let (first, second) = (a.element.title.lowercased().hasPrefix(text), b.element.title.lowercased().hasPrefix(text))
             return first != second ? first : a.offset < b.offset
         }
         .map(\.element)
+    }
+
+    private static func finds(_ words: [String], in fields: [String]) -> Bool {
+        let haystack = fields.joined(separator: "\n").lowercased()
+        return words.allSatisfy { haystack.contains($0) }
     }
 
     /// One machine's settings as results, its pages first. `fleet` is shown only while the
@@ -63,6 +65,26 @@ enum SettingsSearch {
                            target: .machine(machine: machine, page: entry.page, pageTitle: entry.pageTitle, row: entry.row))
         }
         return pages + rows
+    }
+
+    /// This phone's pages that `query` finds, as Search's commands (`settings:<page>`, as
+    /// `bridge/palette.ts` names them), for when no machine answers: a setting finds its page,
+    /// listed once, best match first. Settings itself opens with no machine too, so it leads when
+    /// the words the palette finds it by match.
+    static func phoneCommands(_ items: [SettingsResult], query: String) -> [PaletteAnswer.Command] {
+        let pages = items.filter { $0.place == nil }
+        var commands: [PaletteAnswer.Command] = []
+        let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+        if !words.isEmpty, finds(words, in: ["Settings", "preferences", "options"]) {
+            commands.append(PaletteAnswer.Command(id: "settings", label: "Settings", detail: "Go to", score: 0))
+        }
+        for found in matches(items, query: query) {
+            guard let page = pages.first(where: { $0.target == found.target }) else { continue }
+            let id = "settings:" + page.id.replacingOccurrences(of: "phone/", with: "")
+            guard !commands.contains(where: { $0.id == id }) else { continue }
+            commands.append(PaletteAnswer.Command(id: id, label: page.title, detail: "Settings", score: 0))
+        }
+        return commands
     }
 
     /// This phone's own settings pages and the settings on them that people look for by name.

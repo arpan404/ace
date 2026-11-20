@@ -2,12 +2,18 @@ import { mkdtemp, mkdir, writeFile, rm, readFile, symlink } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import type { InstallEnvironment } from "./planner.ts";
 import { ProviderInstalls } from "./sessions.ts";
 import { ProviderStatuses } from "../provider-status.ts";
 import type { ProviderInstallProgress, ProviderInstallRequest } from "@ace/protocol";
 
 export async function installFixture(
-  options: { writable?: boolean; managers?: readonly string[]; nodeVersion?: string | null } = {},
+  options: {
+    writable?: boolean;
+    managers?: readonly string[];
+    nodeVersion?: string | null;
+    probe?: InstallEnvironment["probe"];
+  } = {},
 ) {
   const node = process.execPath;
   const home = await mkdtemp(join(tmpdir(), "ace-install-"));
@@ -125,6 +131,7 @@ else if (args[0] === 'view' || args[0] === 'info') {
       env,
       home,
       host: { platform: "darwin", arch: "arm64" },
+      ...(options.probe ? { probe: options.probe } : {}),
       claudeManagedSettings: join(home, "managed-settings.json"),
       ...(options.writable === undefined
         ? {}

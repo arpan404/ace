@@ -101,6 +101,11 @@ export interface MessageChannel<Incoming extends WireMessage, Outgoing extends W
 export interface HostChannel extends MessageChannel<ClientMessage, ServerMessage> {
   /** Call only after the daemon verifies the device token in the first hello. */
   authorize(): void;
+  /**
+   * The stream's Noise handshake hash: what both ends of this secure channel derived, and the
+   * binding a proof made on it names (ADR 0190).
+   */
+  readonly channelBinding: Uint8Array;
 }
 export type ClientChannel = MessageChannel<ServerMessage, ClientMessage>;
 export function clientMessageChannel(
@@ -119,7 +124,7 @@ export function hostMessageChannel(
 ): HostChannel {
   return Object.assign(
     createChannel(socket, reader, transport, ClientMessage, ServerMessage, onReceive),
-    { authorize },
+    { authorize, channelBinding: transport.handshakeHash.slice() },
   );
 }
 function createChannel<Incoming extends WireMessage, Outgoing extends WireMessage>(

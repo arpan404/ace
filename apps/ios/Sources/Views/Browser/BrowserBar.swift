@@ -156,7 +156,7 @@ struct BrowserAddressEditor: View {
                 .aceGlass(in: AceDesign.Shape.control)
                 Button("Cancel") { editing = false }
                     .buttonStyle(.textAction())
-                    .tint(AceDesign.Ink.accent)
+                    .tint(AceDesign.Ink.action)
             }
             .padding(.horizontal, AceDesign.Space.row)
             .padding(.vertical, AceDesign.Space.related)
@@ -216,7 +216,7 @@ struct BrowserFindBar: View {
             Button("Done") { finish() }
                 .buttonStyle(.textAction(.prominent))
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .padding(.horizontal, AceDesign.Space.row)
         .padding(.vertical, AceDesign.Space.related)
         .onAppear { focused = true }

@@ -1,6 +1,6 @@
 import { workbench } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { openSearchSheet } from "@/test/open-search.ts";
@@ -52,6 +52,29 @@ test("History pages older settled threads as its end comes into view, and retrie
     expect(new Set(lease.store.ids).size).toBe(46);
     expect(within(main).queryByRole("button", { name: /Retry|Couldn’t/ })).toBeNull();
     expect(within(main).queryByText("Loading older threads…")).toBeNull();
+  } finally {
+    fail.mockRestore();
+    lease.release();
+  }
+});
+
+test("History's failed page clears once another view of the same list loads it", async () => {
+  const app = await history();
+  const fail = vi.spyOn(app.client, "threadsMore").mockRejectedValue(new Error("offline"));
+  await app.open("/history");
+  const lease = app.client.threads();
+  try {
+    const main = await screen.findByRole("main");
+    await within(main).findByRole("button", { name: "Couldn’t load older threads. Retry" });
+    fail.mockRestore();
+    // The Threads panel's Settled, paging the same list, gets the page History couldn't.
+    await act(() => app.client.threadsMore());
+    expect(lease.store.ids.length).toBeGreaterThan(20);
+    await waitFor(() =>
+      expect(within(main).queryByRole("button", { name: /Retry|Couldn’t/ })).toBeNull(),
+    );
+    // Nothing failed any more, so History pages the rest as its end shows.
+    await waitFor(() => expect(historyRows(main)).toHaveLength(46));
   } finally {
     fail.mockRestore();
     lease.release();

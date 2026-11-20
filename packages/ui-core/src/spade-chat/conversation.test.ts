@@ -539,7 +539,7 @@ test("a job's end reads above the words that answer it", () => {
 });
 
 describe("the conversation as a chat", () => {
-  test("bubbles show both sides' words, each step's words its own bubble, nothing of tools, jobs or compaction", () => {
+  test("bubbles show both sides' words, each step's words its own bubble, its tools folded into one line, nothing of jobs or compaction", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Find me a flight" });
     c.stored({ type: "reply_started", reply: "r1" });
@@ -584,12 +584,14 @@ describe("the conversation as a chat", () => {
     ).toEqual([
       "person: Find me a flight",
       "bot: Looking.",
+      // Its search, under the words it said with it; the job's result carries the reply on.
+      "steps",
       "bot: The 9:40 is cheapest.",
       "Travel: Booked it for you.",
     ]);
   });
 
-  test("each step's words is its own bubble, in order, and no steps line stays once the reply ends", () => {
+  test("each step's words is its own bubble, in order, with its steps folded under the last", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     for (const [index, text] of ["First.", "Second.", "Third."].entries()) {
@@ -604,13 +606,13 @@ describe("the conversation as a chat", () => {
     }
     c.stored({ type: "reply_finished", reply: "r1", text: "Third." });
     const bubbles = spadeBubbles(c.view());
-    expect(bubbles.map((bubble) => bubble.kind)).toEqual(["bot", "bot", "bot"]);
-    expect(bubbles.map((bubble) => (bubble.kind === "bot" ? bubble.text : ""))).toEqual([
-      "First.",
-      "Second.",
-      "Third.",
-    ]);
-    expect(new Set(bubbles.map((bubble) => bubble.key)).size).toBe(3);
+    expect(bubbles.map((bubble) => bubble.kind)).toEqual(["bot", "bot", "bot", "steps"]);
+    expect(
+      bubbles.map((bubble) =>
+        bubble.kind === "bot" ? bubble.text : bubble.kind === "steps" ? bubble.summary : "",
+      ),
+    ).toEqual(["First.", "Second.", "Third.", "Ran 3 commands"]);
+    expect(new Set(bubbles.map((bubble) => bubble.key)).size).toBe(4);
   });
 
   test("streaming words grow a bubble of their own after the finished ones", () => {
@@ -638,7 +640,7 @@ describe("the conversation as a chat", () => {
     ]);
   });
 
-  test("an approval is the bot's bubble after the words that asked, and leaves the chat once answered", () => {
+  test("an approval is the bot's bubble after the words that asked, and once answered is one of the reply's steps", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({
@@ -650,14 +652,22 @@ describe("the conversation as a chat", () => {
     c.stored({ type: "approval_requested", reply: "r1", call_id: "k9", name: "send_email" });
     const asked = () =>
       spadeBubbles(c.view()).map((bubble) =>
-        bubble.kind === "ask" ? `ask ${bubble.state}` : bubble.kind === "bot" ? bubble.text : "",
+        bubble.kind === "ask"
+          ? `ask ${bubble.state}`
+          : bubble.kind === "bot"
+            ? bubble.text
+            : bubble.kind === "steps"
+              ? bubble.steps.map((step) => `${step.line}: ${step.meta.join(", ")}`).join("; ")
+              : "",
       );
     expect(asked()).toEqual(["Drafted it.", "ask open"]);
     c.stored({ type: "approval_answered", reply: "r1", call_id: "k9", allowed: true });
+    c.stored({ type: "tool_started", reply: "r1", call_id: "k9", name: "send_email" });
+    c.stored({ type: "tool_finished", reply: "r1", call_id: "k9", name: "send_email" });
     c.stored({ type: "step_finished", reply: "r1", text: "Sent." });
-    expect(asked()).toEqual(["Drafted it.", "Sent."]);
+    expect(asked()).toEqual(["Drafted it.", "Sent.", "Sent an email: You allowed it"]);
     c.stored({ type: "reply_finished", reply: "r1", text: "Sent." });
-    expect(asked()).toEqual(["Drafted it.", "Sent."]);
+    expect(asked()).toEqual(["Drafted it.", "Sent.", "Sent an email: You allowed it"]);
   });
 
   test("a request its reply ended before the person answered leaves nothing", () => {
@@ -709,12 +719,12 @@ const retryOf = (c: ReturnType<typeof conversation>) => {
 };
 
 describe("Try again on a failed reply", () => {
-  test("sends the person's last message again", () => {
+  test("is offered on the last reply when it failed, naming that reply", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Plan my week" });
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored(retryFailed());
-    expect(retryOf(c)).toBe("Plan my week");
+    expect(retryOf(c)).toBe("r1");
   });
 
   test("isn't offered once the conversation moved on", () => {
@@ -733,26 +743,63 @@ describe("Try again on a failed reply", () => {
     capped.stored({ type: "user_message", text: "Plan my week" });
     capped.stored({ type: "reply_started", reply: "r1" });
     capped.stored(retryFailed("cap"));
-    expect(retryOf(capped)).toBe("Plan my week");
+    expect(retryOf(capped)).toBe("r1");
   });
 
-  test("isn't offered for a message with a picture, which sending the words again would lose", () => {
-    const c = conversation();
-    c.stored({ type: "user_message", text: "What is this?", images: [{ sha256: "a".repeat(64) }] });
-    c.stored({ type: "reply_started", reply: "r1" });
-    c.stored(retryFailed());
-    expect(retryOf(c)).toBeUndefined();
+  test("is offered after a message with a picture or from a routine: nothing is sent again", () => {
+    for (const asked of [
+      { type: "user_message", text: "What is this?", images: [{ sha256: "a".repeat(64) }] },
+      {
+        type: "user_message",
+        text: "Morning briefing",
+        from_routine: { id: "t1", name: "Briefing", label: "8:00" },
+      },
+    ]) {
+      const c = conversation();
+      c.stored(asked);
+      c.stored({ type: "reply_started", reply: "r1" });
+      c.stored(retryFailed());
+      expect(retryOf(c)).toBe("r1");
+    }
   });
 
-  test("isn't offered for a message a routine sent", () => {
+  test("the reply tried again takes the failure's place: no failure left, the message once", () => {
     const c = conversation();
-    c.stored({
-      type: "user_message",
-      text: "Morning briefing",
-      from_routine: { id: "t1", name: "Briefing", label: "8:00" },
-    });
+    c.stored({ type: "user_message", text: "Plan my week" });
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored(retryFailed());
-    expect(retryOf(c)).toBeUndefined();
+    c.stored({ type: "reply_retried", reply: "r1" });
+    c.stored({ type: "reply_started", reply: "r2" });
+    c.stored({ type: "reply_finished", reply: "r2", text: "Here is your week." });
+    const bubbles = spadeBubbles(c.view());
+    expect(bubbles.filter((b) => b.kind === "bot" && b.failure)).toEqual([]);
+    expect(bubbles.map((b) => (b.kind === "person" || b.kind === "bot" ? b.text : b.kind))).toEqual(
+      ["Plan my week", "Here is your week."],
+    );
+  });
+
+  test("tried again, a failed reply's unfinished words give way to the new reply: never twice", () => {
+    const c = conversation();
+    c.stored({ type: "user_message", text: "Plan my week" });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "reply_failed", reply: "r1", text: "Monday:", error: "boom", kind: "model" });
+    c.stored({ type: "reply_retried", reply: "r1" });
+    c.stored({ type: "reply_started", reply: "r2" });
+    c.stored({ type: "reply_finished", reply: "r2", text: "Monday: gym. Tuesday: rest." });
+    const bot = spadeBubbles(c.view()).filter((b) => b.kind === "bot");
+    expect(bot.map((b) => [b.text, b.failure])).toEqual([
+      ["Monday: gym. Tuesday: rest.", undefined],
+    ]);
+  });
+
+  test("tried again, what a failed reply's finished steps said stays", () => {
+    const c = conversation();
+    c.stored({ type: "user_message", text: "Plan my week" });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "step_finished", reply: "r1", text: "Checking your calendar.", calls: [] });
+    c.stored({ type: "reply_failed", reply: "r1", text: "Monday:", error: "boom", kind: "model" });
+    c.stored({ type: "reply_retried", reply: "r1" });
+    const bot = spadeBubbles(c.view()).filter((b) => b.kind === "bot");
+    expect(bot.map((b) => [b.text, b.failure])).toEqual([["Checking your calendar.", undefined]]);
   });
 });

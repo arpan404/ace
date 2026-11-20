@@ -5,11 +5,35 @@ import { spadeCapabilityEvents } from "./wire-capabilities.ts";
 
 /**
  * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
- * is rate limiting, the model failed, or anything else. Spade has no spending caps (ADR 0166): a
- * `cap` an older Spade stored reads as `other`.
+ * is rate limiting, the model failed, the bot has no model it can use (none chosen yet, or its
+ * model is gone from the person's endpoints), or anything else. Spade has no spending caps (ADR
+ * 0166): a `cap` an older Spade stored reads as `other`.
  */
-export const spadeFailureKinds = ["unreachable", "key", "rate_limited", "model", "other"] as const;
+export const spadeFailureKinds = [
+  "unreachable",
+  "key",
+  "rate_limited",
+  "model",
+  "no_model",
+  "other",
+] as const;
 export type SpadeFailureKind = (typeof spadeFailureKinds)[number];
+
+/**
+ * Which of Spade's judges stopped a call and put it to the person rather than refuse it (ADR 0163,
+ * amendment 3): the reviewer, the second review, Spade's classifier, or a check that couldn't
+ * vouch for what a command outside the sandbox runs (part of it unreadable, unreadable again
+ * before it started, or a file changed while it waited).
+ */
+export const spadeStoppedKinds = [
+  "reviewer",
+  "second_review",
+  "classifier",
+  "incomplete",
+  "unread",
+  "changed",
+] as const;
+export type SpadeStoppedKind = (typeof spadeStoppedKinds)[number];
 
 /*
  * Spade's own bodies, as its local API writes them (spade/docs/chat-core.md, harness.md). The
@@ -29,6 +53,14 @@ const files = z
   );
 
 export type { SpadeImageRef } from "./media.ts";
+
+/** A host Spade's network policy refused a command (`command_ran`), with why. */
+const refusedHost = z.object({
+  host: z.string().min(1),
+  port: z.number().int().nonnegative().catch(0),
+  reason: z.string().catch(""),
+});
+export type SpadeRefusedHost = z.infer<typeof refusedHost>;
 
 /** The stored event types the person's view reads. Anything else is kept as `unknown`. */
 const known = z.discriminatedUnion("type", [
@@ -84,6 +116,8 @@ const known = z.discriminatedUnion("type", [
     endpoint: z.string().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("reply_interrupted"), reply, text: text.default("") }),
+  /** Try again on `reply`, which failed: the reply stored next takes its place. */
+  z.object({ type: z.literal("reply_retried"), reply }),
   z.object({
     type: z.literal("approval_requested"),
     reply,
@@ -93,7 +127,14 @@ const known = z.discriminatedUnion("type", [
     /** Why the auto-review asked the person rather than approve it itself. */
     reviewer_reason: z.string().nullish().catch(undefined),
     /** Why Spade asked (ADR 0171); missing on older events, or a reason this client doesn't know. */
-    ask: z.enum(["undeclared", "outside_sandbox"]).nullish().catch(undefined),
+    ask: z.enum(["undeclared", "outside_sandbox", "drive"]).nullish().catch(undefined),
+    /**
+     * Which of Spade's judges stopped the call and put it to the person (ADR 0163, amendment 3);
+     * missing on older events and other requests, or a word this client doesn't know.
+     */
+    stopped: z.enum(spadeStoppedKinds).nullish().catch(undefined),
+    /** A driving step's app or site its "always" allows for the bot, when it may be allowed. */
+    app: z.string().min(1).max(200).nullish().catch(undefined),
     /** A helper's call (ADR 0152), asked here in its bot's conversation. */
     helper: z
       .object({ job: z.string(), conversation: z.string(), call_id: z.string() })
@@ -125,7 +166,14 @@ const known = z.discriminatedUnion("type", [
     allowed: z.boolean(),
     always: z.boolean().optional(),
   }),
-  z.object({ type: z.literal("tool_started"), reply, call_id: z.string(), name: z.string() }),
+  z.object({
+    type: z.literal("tool_started"),
+    reply,
+    call_id: z.string(),
+    name: z.string(),
+    /** How much the call could change (`read`, `write`, `memory`, `destructive`); missing from older events. */
+    risk: z.string().nullish().catch(undefined),
+  }),
   z.object({
     type: z.literal("tool_finished"),
     reply,
@@ -146,6 +194,36 @@ const known = z.discriminatedUnion("type", [
     call_id: z.string().optional(),
     images: spadeImageList,
     documents: spadeDocumentList,
+  }),
+  /**
+   * Where a command ran and how, stored right after its `tool_finished` (harness.md): whether
+   * Spade's sandbox held it, its exit, and the hosts it reached and its network policy refused.
+   * A host this client can't read is left out; the step still shows.
+   */
+  z.object({
+    type: z.literal("command_ran"),
+    reply,
+    call_id: z.string(),
+    contained: z.boolean().optional().catch(undefined),
+    exit_code: z.number().int().nullish().catch(undefined),
+    timed_out: z.boolean().catch(false).default(false),
+    reached: z
+      .array(z.unknown())
+      .nullish()
+      .catch(undefined)
+      .transform((list) =>
+        (list ?? []).filter((host): host is string => typeof host === "string" && host !== ""),
+      ),
+    refused: z
+      .array(z.unknown())
+      .nullish()
+      .catch(undefined)
+      .transform((list) =>
+        (list ?? []).flatMap((each) => {
+          const parsed = refusedHost.safeParse(each);
+          return parsed.success ? [parsed.data] : [];
+        }),
+      ),
   }),
   /**
    * The bot asked the person a card of questions (ADR 0128, 0154). `question` is the prompts,

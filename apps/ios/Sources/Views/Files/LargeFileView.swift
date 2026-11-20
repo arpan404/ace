@@ -194,8 +194,7 @@ struct LargeFileView: View {
 
     @ViewBuilder private var footer: some View {
         if let failure {
-            Text(failure).foregroundStyle(AceTheme.StatusText.failed).padding(AceTheme.Spacing.lg)
-            Button("Retry") { Task { await more() } }.buttonStyle(.textAction()).disabled(loading)
+            ProblemRow(failure, id: "file.large.problem", disabled: loading) { Task { await more() } }
         } else if loading {
             ProgressView().frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine)
         } else if !reading.done {

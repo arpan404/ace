@@ -10,13 +10,14 @@ import type {
 import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeView } from "./view.ts";
-import type { SpadeFailureKind } from "./wire.ts";
+import type { SpadeFailureKind, SpadeStoppedKind } from "./wire.ts";
 import { spadeHelperLine } from "./helper-words.ts";
 import type { SpadeQuiet } from "./quiet.ts";
+import { spadeReplySteps, type SpadeStep } from "./steps.ts";
 
 /*
- * A conversation as a chat (ADR 0127): the person's messages and the bot's, nothing of how the
- * bot works. Tool calls, background jobs and compaction stay with the bot; an approval arrives
+ * A conversation as a chat (ADR 0127): the person's messages and the bot's, and under each reply
+ * its steps folded into one quiet line. Background jobs and compaction stay with the bot; an approval arrives
  * as a bubble of the bot's that the person answers, in place after the step that asked, and
  * stays once answered; a question as the bot's bubble (ADR 0128), and a note the bot saved as
  * one quiet line between its bubbles. Each carries when it was said, where that is known: a
@@ -40,17 +41,6 @@ type SpadeBubbleOf =
     }
   /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
   | { kind: "routine"; key: string; name: string; label: string }
-  /**
-   * A message a group the bot is in sent here (ADR 0132): a small `In <group>` label, never the
-   * person's bubble; `agent` when a member asked, not the person.
-   */
-  | {
-      kind: "group";
-      key: string;
-      group: string;
-      text: string;
-      agent: { id: string; name: string } | undefined;
-    }
   /** A message another bot sent into this conversation, labelled with the name it had. */
   | { kind: "other"; key: string; agent: { id: string; name: string }; text: string }
   | {
@@ -69,6 +59,11 @@ type SpadeBubbleOf =
       images: readonly SpadeImageRef[];
       documents: readonly SpadeDocumentRef[];
     }
+  /**
+   * The steps a reply took, as one quiet line under it that opens to each (`spadeReplySteps`);
+   * the ones the person must see stand under it unopened.
+   */
+  | { kind: "steps"; key: string; summary: string; steps: readonly SpadeStep[] }
   /** Files a tool kept with no reply after them yet: chips on the bot's side. */
   | { kind: "files"; key: string; paths: readonly string[] }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
@@ -112,6 +107,10 @@ type SpadeBubbleOf =
       reason: string | undefined;
       /** Why Spade asked (ADR 0171); the choices on the card follow it. */
       ask?: SpadeAskKind;
+      /** Which of Spade's judges stopped it and put it to the person (ADR 0163, amendment 3). */
+      stopped?: SpadeStoppedKind;
+      /** For a driving step, the app or site the card offers to allow for the bot. */
+      app?: string;
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;
       state: "open";
@@ -130,8 +129,8 @@ export interface SpadeBubbleFailure {
   /** The endpoint's or Spade's own words, for Details and the activity log. */
   error: string;
   /**
-   * The person's last message, to send again with Try again: only on the conversation's last
-   * reply, when the person's text-only message started it and a cap didn't stop it.
+   * The failed reply's id, for Try again (`POST …/retry`), which answers the same turn again in
+   * its place: only on the conversation's last reply.
    */
   retry: string | undefined;
 }
@@ -153,6 +152,10 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   // `silent_replies` in spade-core); one that also answers anything else always shows.
   let inputs = false;
   let onlyBeats = true;
+  // And whether all of it came from a group the bot is in: a group's message and the reply to it
+  // live in the group (ADR 0132; `answering_replies` in spade-core), so the bot's own chat shows
+  // only the cards of such a reply still waiting on the person here.
+  let onlyGroups = true;
   const open = new Map(view.approvals.map((approval) => [approval.callId, approval]));
   const shown = new Set<string>();
   const ask = (request: SpadeRequest, key: string, at: number | undefined) => {
@@ -173,6 +176,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     if (entry.kind === "job") {
       inputs = true;
       onlyBeats = false;
+      onlyGroups = false;
       hold(held, entry.key, entry.files);
     }
     if (entry.kind === "task-paused") {
@@ -187,6 +191,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       continue;
     }
     if (entry.kind === "quiet") {
+      onlyGroups = false;
       bubbles.push({ kind: "quiet", key: entry.key, quiet: entry.quiet, ...stamp(entry.at) });
       continue;
     }
@@ -199,6 +204,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       if (entry.outcome) {
         inputs = true;
         onlyBeats = false;
+        onlyGroups = false;
       }
       const waiting = view.approvals.some((approval) => approval.helper?.job === entry.job);
       bubbles.push({
@@ -214,6 +220,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     if (entry.kind === "user") {
       inputs = true;
       onlyBeats &&= entry.fromRoutine?.heartbeat === true;
+      onlyGroups &&= entry.fromGroup !== undefined;
       if (entry.fromRoutine) {
         if (!entry.fromRoutine.heartbeat)
           bubbles.push({
@@ -225,17 +232,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
           });
         continue;
       }
-      if (entry.fromGroup) {
-        bubbles.push({
-          kind: "group",
-          key: entry.key,
-          group: entry.fromGroup.name,
-          text: entry.text,
-          agent: entry.fromAgent,
-          ...stamp(entry.at),
-        });
-        continue;
-      }
+      if (entry.fromGroup) continue;
       bubbles.push(
         entry.fromAgent
           ? {
@@ -274,11 +271,14 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       (entry.end === undefined
         ? spadeQuiet.startsWith(whole.toLowerCase())
         : entry.end.kind === "finished" && isSpadeQuiet(whole));
+    const grouped = inputs && onlyGroups;
     if (entry.end !== undefined) {
       inputs = false;
       onlyBeats = true;
+      onlyGroups = true;
     }
-    if (!quiet) replyBubbles(entry, bubbles, held, ask);
+    if (grouped) cardBubbles(entry, bubbles, ask);
+    else if (!quiet) replyBubbles(entry, bubbles, held, ask);
     else
       for (const part of entry.parts) if (part.kind === "files") hold(held, part.key, part.paths);
   }
@@ -312,6 +312,10 @@ function askBubble(
     arguments: request.arguments,
     reason: waiting.reason ?? request.reason,
     ...((waiting.ask ?? request.ask) ? { ask: waiting.ask ?? request.ask } : {}),
+    ...((waiting.stopped ?? request.stopped)
+      ? { stopped: waiting.stopped ?? request.stopped }
+      : {}),
+    ...((waiting.app ?? request.app) ? { app: waiting.app ?? request.app } : {}),
     helper: waiting.helper ?? request.helper,
     state: "open",
   };
@@ -321,8 +325,8 @@ function askBubble(
  * A reply's bubbles: each step's words is a bubble of its own, as a messenger shows several
  * messages in a row; a note it remembered or a question it asked splits the words too. The images
  * and documents its tools showed ride on the bubble before them (ADR 0134). The steps it took
- * leave no line: while it works they are the working line's, after, the profile's Activity. A
- * request the person answered once the reply has ended goes with them. The first bubble keeps the
+ * fold into one line under its words (`spadeReplySteps`): a step still running is the working
+ * line's, and a request the person answered is one of the steps. The first bubble keeps the
  * reply's key, so a bubble keeps its place as the reply grows.
  */
 function replyBubbles(
@@ -417,9 +421,24 @@ function replyBubbles(
     if (tail()) attach();
     else say("", false);
   }
+  // What it did, under what it said.
+  const steps = spadeReplySteps(entry);
+  if (steps) bubbles.push({ kind: "steps", key: `${entry.key}:steps`, ...steps });
   // Under the finished reply, so it sits below the bot's own words about it.
   const setup = entry.parts.find((part) => part.kind === "search-setup");
   if (setup && entry.end) bubbles.push({ kind: "search-setup", key: `${entry.key}:${setup.key}` });
+}
+
+/** A group's reply in the bot's own chat: only its cards, where the person answers them. */
+function cardBubbles(
+  entry: SpadeReplyEntry,
+  bubbles: SpadeBubble[],
+  ask: (request: SpadeRequest, key: string, at: number | undefined) => void,
+) {
+  for (const part of entry.parts)
+    if (part.kind === "question")
+      bubbles.push({ ...part, key: `${entry.key}:${part.key}`, ...stamp(entry.startedAt) });
+    else if (part.kind === "request") ask(part, `${entry.key}:${part.key}`, entry.startedAt);
 }
 
 interface Held {
@@ -447,28 +466,14 @@ function pushBot(
 }
 
 /**
- * Try again on the last bubble when the conversation's last reply failed after a message the
- * person typed: that message's words, sent again. A message with pictures, files or a recording
- * isn't offered (they would be lost), nor one a routine, group or bot sent.
+ * Try again on the last bubble when the conversation's last reply failed: Spade answers that turn
+ * again in place, so nothing the person sent (words, pictures, files) is posted twice.
  */
 function offerRetry(bubbles: SpadeBubble[], entries: readonly SpadeEntry[]) {
   const at = bubbles.length - 1;
   const last = bubbles[at];
   if (last?.kind !== "bot" || !last.failure) return;
-  const reply = entries.findLastIndex((entry) => entry.kind === "reply");
-  if (reply !== entries.length - 1) return;
-  const asked = entries.slice(0, reply).findLast((entry) => entry.kind === "user");
-  if (
-    asked?.kind !== "user" ||
-    asked.pending ||
-    asked.fromAgent ||
-    asked.fromRoutine ||
-    asked.fromGroup ||
-    asked.voice ||
-    asked.images.length ||
-    asked.documents?.length ||
-    !asked.text.trim()
-  )
-    return;
-  bubbles[at] = { ...last, failure: { ...last.failure, retry: asked.text } };
+  const reply = entries.at(-1);
+  if (reply?.kind !== "reply" || reply.end?.kind !== "failed") return;
+  bubbles[at] = { ...last, failure: { ...last.failure, retry: reply.reply } };
 }

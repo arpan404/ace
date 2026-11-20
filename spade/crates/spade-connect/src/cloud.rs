@@ -4,6 +4,7 @@
 //! tokens are then kept as every connector's are, in the keychain. This module is the cloud's
 //! client; [`crate::Connectors`] drives the sign-in and renewals with it.
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -12,8 +13,8 @@ use std::time::Duration;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use spade_cloud_wire::{
-    ErrorAnswer, FinishAnswer, FinishRequest, RefreshAnswer, RefreshRequest, StartAnswer,
-    StartRequest,
+    AppsAnswer, ErrorAnswer, FinishAnswer, FinishRequest, RefreshAnswer, RefreshRequest,
+    StartAnswer, StartRequest,
 };
 
 /// Spade Cloud's address in Spade.
@@ -42,7 +43,13 @@ pub struct Cloud {
     /// The cloud's address ([`CLOUD_URL`] in Spade).
     pub url: String,
     pub credential: Arc<dyn AccountCredential>,
+    /// How Spade names itself to the cloud (`ace-client: spade/<version>`, ADR 0189), sent on
+    /// every request. None sends nothing: the cloud serves it as an unknown client.
+    pub ace_client: Option<String>,
 }
+
+/// The header that names the calling app and its version to ace cloud (ADR 0189).
+pub const ACE_CLIENT_HEADER: &str = "ace-client";
 
 /// Why the cloud gave no answer Spade can use.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +67,7 @@ pub(crate) enum CloudError {
 pub(crate) struct CloudClient {
     url: String,
     credential: Arc<dyn AccountCredential>,
+    ace_client: Option<String>,
     http: reqwest::Client,
 }
 
@@ -73,6 +81,7 @@ impl CloudClient {
         Self {
             url: cloud.url.trim_end_matches('/').to_owned(),
             credential: cloud.credential.clone(),
+            ace_client: cloud.ace_client.clone(),
             http,
         }
     }
@@ -107,6 +116,27 @@ impl CloudClient {
             .map(|(_, answer)| answer)
     }
 
+    /// The apps the cloud holds a client for. Open, so no credential: asking needs no ace account.
+    /// Bounded by `wait`, since the app's list of apps waits for it.
+    pub(crate) async fn apps(&self, wait: Duration) -> Result<HashSet<String>, CloudError> {
+        if !secure_cloud_url(&self.url) {
+            return Err(CloudError::Unreachable);
+        }
+        let mut request = self
+            .http
+            .get(format!("{}/v1/oauth/apps", self.url))
+            .timeout(wait);
+        if let Some(name) = &self.ace_client {
+            request = request.header(ACE_CLIENT_HEADER, name);
+        }
+        let response = request.send().await.map_err(|_| CloudError::Unreachable)?;
+        if !response.status().is_success() {
+            return Err(CloudError::Unreachable);
+        }
+        let answer: AppsAnswer = response.json().await.map_err(|_| CloudError::Unreachable)?;
+        Ok(answer.apps.into_iter().collect())
+    }
+
     async fn post<B: Serialize, A: DeserializeOwned>(
         &self,
         app: &str,
@@ -124,10 +154,14 @@ impl CloudClient {
                 AccountProblem::SignedOut => CloudError::SignedOut,
                 AccountProblem::Unreachable(why) => CloudError::AceAway(why),
             })?;
-        let response = self
+        let mut request = self
             .http
             .post(format!("{}/v1/oauth/{app}/{step}", self.url))
-            .bearer_auth(&grant)
+            .bearer_auth(&grant);
+        if let Some(name) = &self.ace_client {
+            request = request.header(ACE_CLIENT_HEADER, name);
+        }
+        let response = request
             .json(body)
             .send()
             .await
@@ -185,6 +219,7 @@ mod tests {
                 &Cloud {
                     url: address.into(),
                     credential: Arc::new(NeverCredential),
+                    ace_client: None,
                 },
                 Duration::from_secs(1),
             );

@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "editor-core"
+description = "Text buffer, transactions, undo, selections and find for the ace editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+regex = "1"
+ropey = { version = "1", default-features = false }
+thiserror = "2"
+unicode-segmentation = "1"
+
+[[bench]]
+name = "document"
+harness = false

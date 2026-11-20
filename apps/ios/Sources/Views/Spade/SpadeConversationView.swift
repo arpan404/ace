@@ -11,6 +11,8 @@ struct SpadeConversationView: View {
     @State private var problem: String?
     @State private var sends = 0
     @State private var stops = 0
+    /// Cards for later opened from their line or the top bar's count.
+    @State private var unfolded: Set<String> = []
     @FocusState private var typing: Bool
 
     private var spade: SpadeModel { client.spade }
@@ -20,13 +22,47 @@ struct SpadeConversationView: View {
     private var bot: SpadeModel.Bot? { spade.bots?.first { $0.conversation == conversation } }
 
     var body: some View {
+        ScrollViewReader { reader in
+            transcript
+                .toolbar {
+                    if let later = head?.later {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(later.words) { reach(later.callId, with: reader) }
+                                .accessibilityIdentifier("spade.forLater")
+                        }
+                    }
+                }
+        }
+    }
+
+    /// The top bar's "questions for later" goes to the oldest such card, open.
+    private func reach(_ callId: String, with reader: ScrollViewProxy) {
+        unfolded.insert(callId)
+        let key = spade.order.first { key in
+            if case let .question(card) = spade.bubbles[key] { card.callId == callId } else { false }
+        }
+        if let key { withAnimation { reader.scrollTo(key, anchor: .center) } }
+    }
+
+    private var transcript: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: AceDesign.Space.related) {
                 ForEach(spade.order, id: \.self) { key in
                     if let bubble = spade.bubbles[key] {
-                        SpadeBubbleView(bubble: bubble) { callId, allowed, always in
+                        SpadeBubbleView(bubble: bubble, answer: { callId, allowed, always in
                             await answer(callId, allowed: allowed, always: always)
-                        }
+                        }, unfolded: unfolded, fold: { callId, open in
+                            if open { unfolded.insert(callId) } else { unfolded.remove(callId) }
+                        }, reply: { callId, body in
+                            await spade.cards.send(conversation, callId: callId, readBack: {
+                                await client.spadeQuestionRead(conversation, callId: callId)
+                            }) {
+                                await client.spadeQuestion(conversation, callId: callId, reply: body)
+                            }
+                        }, sending: { spade.cards.isSending(conversation, callId: $0) }, drafts: { callId in
+                            Binding(get: { spade.cards.drafts(conversation, callId: callId) ?? [] },
+                                    set: { spade.cards.keep($0, conversation: conversation, callId: callId) })
+                        })
                         .id(key)
                     }
                 }
@@ -53,11 +89,10 @@ struct SpadeConversationView: View {
     }
 
     private func problemLine(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            Text(text).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
-            Button("Try again") { client.spadeRetry() }.buttonStyle(.textAction(.prominent))
-        }
-        .padding(.top, AceDesign.Space.related)
+        // ProblemRow keeps a list's margin; the transcript already has it.
+        ProblemRow(text, id: "spade.conversationProblem") { client.spadeRetry() }
+            .padding(.horizontal, -AceDesign.Space.margin)
+            .padding(.top, AceDesign.Space.related)
     }
 
     private var typed: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

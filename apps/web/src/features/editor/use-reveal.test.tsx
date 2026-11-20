@@ -1,0 +1,148 @@
+import { renderHook } from "@testing-library/react";
+import { expect, test } from "vitest";
+import type { Position } from "@ace/editor";
+import { useRevealJump } from "./use-reveal.ts";
+
+/*
+ * A jump is a request, not a render. The line or find hit a tab asked for is revealed once when
+ * it changes; a callback that comes back with a new identity (as the view's reveal does when a
+ * caret's side or the layout moves) must not scroll the reader back to a jump already taken.
+ */
+
+/** A probe whose callbacks are new functions on every render, as the view's are. */
+function probing() {
+  const reveals: Position[] = [];
+  const announced: Position[] = [];
+  const view = renderHook(
+    (props: { line?: number; hit?: { line: number; column: number } }) =>
+      useRevealJump({
+        line: props.line,
+        hit: props.hit,
+        reveal: (position: Position) => {
+          reveals.push(position);
+          return true;
+        },
+        announce: (position: Position) => {
+          announced.push(position);
+        },
+      }),
+    { initialProps: {} as { line?: number; hit?: { line: number; column: number } } },
+  );
+  return { view, reveals, announced };
+}
+
+test("a go-to-line reveals once until the tab asks for another line", () => {
+  const { view, reveals, announced } = probing();
+  view.rerender({ line: 12 });
+
+  expect(reveals).toEqual([{ line: 11, column: 0 }]);
+  expect(announced).toEqual([{ line: 11, column: 0 }]);
+
+  // The same request through another render, with fresh callbacks, is not a new jump.
+  view.rerender({ line: 12 });
+  expect(reveals).toHaveLength(1);
+
+  // Another line is another jump.
+  view.rerender({ line: 20 });
+  expect(reveals).toEqual([
+    { line: 11, column: 0 },
+    { line: 19, column: 0 },
+  ]);
+  expect(announced).toHaveLength(2);
+});
+
+test("a find hit reveals once until the current hit moves", () => {
+  const { view, reveals } = probing();
+  view.rerender({ hit: { line: 3, column: 4 } });
+
+  expect(reveals).toEqual([{ line: 3, column: 4 }]);
+
+  // The same hit in a new object is the same request.
+  view.rerender({ hit: { line: 3, column: 4 } });
+  expect(reveals).toHaveLength(1);
+
+  view.rerender({ hit: { line: 3, column: 9 } });
+  expect(reveals).toEqual([
+    { line: 3, column: 4 },
+    { line: 3, column: 9 },
+  ]);
+});
+
+test("a jump to a search match reveals its column, and the same line at another column again", () => {
+  const reveals: Position[] = [];
+  const view = renderHook(
+    (props: { line?: number; column?: number }) =>
+      useRevealJump({
+        line: props.line,
+        column: props.column,
+        hit: undefined,
+        reveal: (position: Position) => {
+          reveals.push(position);
+          return true;
+        },
+        announce: () => {},
+      }),
+    { initialProps: {} as { line?: number; column?: number } },
+  );
+  view.rerender({ line: 3, column: 14 });
+  view.rerender({ line: 3, column: 14 });
+  view.rerender({ line: 3, column: 2 });
+  expect(reveals).toEqual([
+    { line: 2, column: 14 },
+    { line: 2, column: 2 },
+  ]);
+});
+
+test("a jump asked for before the document loaded runs once it has loaded", () => {
+  const reveals: Position[] = [];
+  const announced: Position[] = [];
+  const view = renderHook(
+    (props: { loaded: boolean; line?: number; column?: number }) =>
+      useRevealJump({
+        line: props.line,
+        column: props.column,
+        hit: undefined,
+        // Nothing to scroll yet: the view says the jump did not land.
+        reveal: (position: Position) => {
+          if (!props.loaded) return false;
+          reveals.push(position);
+          return true;
+        },
+        announce: (position: Position) => {
+          announced.push(position);
+        },
+      }),
+    { initialProps: { loaded: false, line: 500, column: 7 } },
+  );
+  expect(reveals).toEqual([]);
+  expect(announced).toEqual([]);
+
+  view.rerender({ loaded: true, line: 500, column: 7 });
+  expect(reveals).toEqual([{ line: 499, column: 7 }]);
+  expect(announced).toHaveLength(1);
+
+  // Landed: a later render does not take the reader back.
+  view.rerender({ loaded: true, line: 500, column: 7 });
+  expect(reveals).toHaveLength(1);
+});
+
+test("a find hit that arrived before the view could scroll is revealed once it can", () => {
+  const reveals: Position[] = [];
+  const view = renderHook(
+    (props: { loaded: boolean }) =>
+      useRevealJump({
+        line: undefined,
+        hit: { line: 40, column: 3 },
+        reveal: (position: Position) => {
+          if (!props.loaded) return false;
+          reveals.push(position);
+          return true;
+        },
+        announce: () => {},
+      }),
+    { initialProps: { loaded: false } },
+  );
+  view.rerender({ loaded: true });
+  view.rerender({ loaded: true });
+  expect(reveals).toEqual([{ line: 40, column: 3 }]);
+});

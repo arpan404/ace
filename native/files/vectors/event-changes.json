@@ -1,0 +1,28 @@
+{
+  "json": {
+    "payload": {
+      "changes": [
+        {
+          "directory": false,
+          "kind": "modified",
+          "path": "src/main.rs"
+        },
+        {
+          "directory": true,
+          "kind": "created",
+          "path": "src/new"
+        },
+        {
+          "directory": false,
+          "kind": "deleted",
+          "path": "src/old.rs"
+        }
+      ],
+      "type": "changes"
+    },
+    "subscription": 2,
+    "type": "event"
+  },
+  "text": "{\"type\":\"event\",\"subscription\":2,\"payload\":{\"type\":\"changes\",\"changes\":[{\"path\":\"src/main.rs\",\"kind\":\"modified\",\"directory\":false},{\"path\":\"src/new\",\"kind\":\"created\",\"directory\":true},{\"path\":\"src/old.rs\",\"kind\":\"deleted\",\"directory\":false}]}}",
+  "frame": "f4000000017b2274797065223a226576656e74222c22737562736372697074696f6e223a322c227061796c6f6164223a7b2274797065223a226368616e676573222c226368616e676573223a5b7b2270617468223a227372632f6d61696e2e7273222c226b696e64223a226d6f646966696564222c226469726563746f7279223a66616c73657d2c7b2270617468223a227372632f6e6577222c226b696e64223a2263726561746564222c226469726563746f7279223a747275657d2c7b2270617468223a227372632f6f6c642e7273222c226b696e64223a2264656c65746564222c226469726563746f7279223a66616c73657d5d7d7d"
+}

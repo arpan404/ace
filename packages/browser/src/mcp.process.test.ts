@@ -106,6 +106,82 @@ it("refuses an act whose fields do not fit its action before touching the page",
   }
 });
 
+it("an act carries the place its caller's gate checked through to the tab's command", async () => {
+  const executed: unknown[] = [];
+  const tab = { tabId: "t1", url: "https://docs.example/", title: "" };
+  const f = agent({
+    open: async () => tab,
+    tab: async () => tab,
+    state: () => BrowserState.parse({ threadId: "thread", status: "open" }),
+    execute: async (_caller, command) => {
+      executed.push(command);
+      return { ok: true };
+    },
+    screenshot: unused,
+    close: unused,
+  });
+  try {
+    const expected = { tabId: "t1", url: "https://docs.example/" };
+    const result = await f.call("browser_act", { action: "press", key: "Enter", expect: expected });
+    expect(textOf(result)).not.toContain("invalid_arguments");
+    expect(executed).toEqual([expect.objectContaining({ action: "press", expect: expected })]);
+    // Closing a tab carries it too, to the tab command.
+    executed.length = 0;
+    await f.call("browser_tabs", { action: "close", tabId: "t1", expect: expected });
+    expect(executed).toEqual([
+      expect.objectContaining({ action: "tabs", operation: "close", expect: expected }),
+    ]);
+  } finally {
+    f.close();
+  }
+});
+
+it("every browser tool that takes expect carries it to the command it runs", async () => {
+  const executed: Record<string, unknown>[] = [];
+  const tab = { tabId: "t1", url: "https://docs.example/", title: "" };
+  const f = agent({
+    open: async () => tab,
+    tab: async () => tab,
+    state: () => BrowserState.parse({ threadId: "thread", status: "open" }),
+    execute: async (_caller, command) => {
+      executed.push(command);
+      return { ok: true };
+    },
+    screenshot: unused,
+    close: unused,
+  });
+  // The smallest valid call of each tool that takes `expect`; a new one must be added here.
+  const minimal: Record<string, Record<string, unknown>> = {
+    browser_act: { action: "press", key: "Enter" },
+    browser_evaluate: { expression: "1" },
+    browser_history: { direction: "back" },
+    browser_measure: { observeMs: 1, filmstrip: false },
+    browser_tabs: { action: "close", tabId: "t1" },
+  };
+  const expected = { tabId: "t1", url: "https://docs.example/" };
+  const taking: string[] = [];
+  try {
+    for (const name of f.registry.names()) {
+      const schema = z
+        .object({ properties: z.record(z.string(), z.unknown()).optional() })
+        .parse(f.registry.inputSchema(name, f.lease.principal) ?? {});
+      if (schema.properties?.["expect"] === undefined) continue;
+      taking.push(name);
+      const args = minimal[name];
+      if (!args) throw new Error(`${name} takes expect: add its smallest call to this test`);
+      executed.length = 0;
+      await f.call(name, { ...args, expect: expected });
+      expect(
+        executed.map((command) => command["expect"]),
+        `${name} drops expect before it runs`,
+      ).toContainEqual(expected);
+    }
+    expect(taking.toSorted()).toEqual(Object.keys(minimal).toSorted());
+  } finally {
+    f.close();
+  }
+});
+
 it("tells agents the tab works at a person's phone viewport, in tab lists and screenshots", async () => {
   const phone = {
     tabId: "t1",

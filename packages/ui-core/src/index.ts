@@ -204,6 +204,7 @@ export * from "./browser-settings.ts";
 export * from "./browser-connection.ts";
 export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
+export * from "./folder-tree.ts";
 export * from "./script-choices.ts";
 export * from "./checkout-errors.ts";
 export * from "./checkout-quick-open.ts";

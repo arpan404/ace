@@ -2,11 +2,21 @@ import SwiftUI
 
 /// One bubble of a Spade conversation as the bridge put it (`bridge/spade-rows.ts`): the
 /// person's on the right in the accent, the bot's on the left on the page's fill with its words
-/// as markdown, an approval as a raised card with its answers, a quiet line for the rest.
+/// as markdown, an approval as a raised card with its answers, a card of questions, a quiet line
+/// for the rest.
 struct SpadeBubbleView: View {
     let bubble: SpadeModel.Bubble
     /// An approval's answer: its call, allowed or not, and whether always; true once it went.
     let answer: (String, Bool, Bool) async -> Bool
+    /// Cards for later the person opened, by call.
+    var unfolded: Set<String> = []
+    var fold: (String, Bool) -> Void = { _, _ in }
+    /// A card's reply: its call and what it sends.
+    var reply: (String, [String: Any]) async -> SpadeOutcome = { _, _ in SpadeOutcome(ok: false) }
+    /// Whether a card's reply is out and not yet settled, by call.
+    var sending: (String) -> Bool = { _ in false }
+    /// What a card's inputs hold, by call, kept beyond the card's view.
+    var drafts: (String) -> Binding<[SpadeQuestionCard.Draft]> = { _ in .constant([]) }
 
     var body: some View {
         switch bubble {
@@ -48,6 +58,9 @@ struct SpadeBubbleView: View {
             SpadeApprovalCard(sentence: sentence, detail: detail, reason: reason, always: always) { allowed, forever in
                 await answer(callId, allowed, forever)
             }
+        case let .question(card):
+            SpadeQuestionCardView(card: card, unfolded: unfolded.contains(card.callId), sending: sending(card.callId),
+                                  drafts: drafts(card.callId), fold: { fold(card.callId, $0) }, reply: { await reply(card.callId, $0) })
         case let .note(text):
             Text(text)
                 .aceFont(AceDesign.TextRole.meta)
@@ -60,7 +73,7 @@ struct SpadeBubbleView: View {
 
 /// A request waiting on the person, raised above the chat: its sentence after the needs-you
 /// glyph, the detail that matters (a command, a path), why it asks when the review said, then
-/// Deny and Always allow as quiet words and Allow as the one primary.
+/// Deny, Always allow and Allow as the thread's own approval buttons, Allow the prominent one.
 private struct SpadeApprovalCard: View {
     let sentence: String
     let detail: String?
@@ -77,15 +90,14 @@ private struct SpadeApprovalCard: View {
                 RequestHeader(title: sentence, detail: reason ?? "")
             }
             if let detail { CommandBlock(command: detail) }
-            HStack(spacing: AceTheme.Spacing.xxs) {
-                Button("Deny") { reply(false, false) }.buttonStyle(RequestButtonStyle())
+            RequestActions {
+                CardButton(title: "Deny") { reply(false, false) }
                     .accessibilityIdentifier("spade.deny")
                 if always {
-                    Button("Always allow") { reply(true, true) }.buttonStyle(RequestButtonStyle())
+                    CardButton(title: "Always allow") { reply(true, true) }
                         .accessibilityIdentifier("spade.alwaysAllow")
                 }
-                Spacer(minLength: AceTheme.Spacing.none)
-                Button("Allow") { reply(true, false) }.buttonStyle(RequestButtonStyle(primary: true))
+                CardButton(title: "Allow", primary: true) { reply(true, false) }
                     .accessibilityIdentifier("spade.allow")
             }
             .disabled(answered)

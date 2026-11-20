@@ -52,7 +52,7 @@ export interface ServerOptions {
   /** Projects and threads this machine sends to other machines (ADR 0101). */
   transfers?: import("./transfers/service.ts").DaemonTransfers;
   /** Projects and threads other machines send here (ADR 0101). */
-  transferTarget?: import("./transfers/http.ts").TransferTarget;
+  transferTarget?: import("./transfers/serve.ts").TransferTarget;
   /** This machine's links to other machines (`fleet.request`). */
   fleet?: import("./machines/fleet-links.ts").FleetLinks;
   providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;
@@ -112,6 +112,8 @@ export interface ServerOptions {
   commands?: CommandService | undefined;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;
+  /** The daemon's ace-files and its folder watches (ADR 0178). */
+  filesNative?: import("./files-tool/wiring.ts").FilesNative;
   relay?: { url: string; keys: KeyPair } | undefined;
   /** Set by `startServer`: serves a relayed main channel with the main-socket handler. */
   relayMain?: ((entry: import("./relay-socket.ts").RelayedMain) => void) | undefined;
@@ -196,6 +198,8 @@ export interface ServerOptions {
   log?: (error: unknown) => void;
   /** A warn-level line in the daemon's redacting log: a request refused for a reason worth fixing. */
   warn?: (message: string, fields: object) => void;
+  /** An info-level line in the daemon's log: how long a start took, network by network. */
+  info?: (message: string, fields: object) => void;
   health?: () => Promise<DiagnosticsHealth>;
   doctor?: () => Promise<import("@ace/protocol").DiagnosticReport>;
   toolchains?: () => Promise<import("@ace/protocol").Toolchain[]>;

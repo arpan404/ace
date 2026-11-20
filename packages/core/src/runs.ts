@@ -4,7 +4,7 @@ import type { AgentRecord, ApplyContext, ThreadState } from "./state.ts";
 import { dictionary } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
 import { ensureAgent, announceAgentBranch } from "./tree.ts";
-import { cancelOpenWork } from "./cleanup.ts";
+import { cancelOpenWork, outlivingTurn } from "./cleanup.ts";
 
 type Started = Extract<Fact, { type: "turn.started" }>;
 type Ended = Extract<Fact, { type: "turn.ended" }>;
@@ -12,6 +12,12 @@ type Ended = Extract<Fact, { type: "turn.ended" }>;
 function matchingRun(state: ThreadState, record: AgentRecord, nativeId: string): Run | undefined {
   const id = record.nativeRuns && get(record.nativeRuns, nativeId);
   return id === undefined ? undefined : get(state.runs, id);
+}
+
+/** The next run's place among the thread's runs (`Run.seq`). */
+function nextRunSeq(state: ThreadState): number {
+  state.runSeq = (state.runSeq ?? 0) + 1;
+  return state.runSeq;
 }
 
 function storeRun(state: ThreadState, record: AgentRecord, run: Run): void {
@@ -48,6 +54,7 @@ export function startTurn(
   }
   const run: Run = {
     id: RunId.parse(ctx.ids.next("run")),
+    seq: nextRunSeq(state),
     threadId: state.threadId,
     agentId: record.agent.id,
     trigger: fact.trigger,
@@ -98,6 +105,7 @@ export function endTurn(
     // A partial stream can contain the end boundary without the start.
     run = {
       id: RunId.parse(ctx.ids.next("run")),
+      seq: nextRunSeq(state),
       threadId: state.threadId,
       agentId: record.agent.id,
       trigger: fact.trigger ?? "unknown",
@@ -143,6 +151,6 @@ export function endTurn(
     record.agent.id,
     ctx.now,
     events,
-    fact.outcome === "interrupted" ? undefined : ctx.resolvingInteractions,
+    fact.outcome === "interrupted" ? undefined : outlivingTurn(state, ctx.resolvingInteractions),
   );
 }

@@ -1,12 +1,13 @@
 //! The auto-review (ADR 0144, amended by ADR 0163; spade/docs/autonomy.md): the reviewer that
-//! approves or refuses a call on the person's behalf, and the move of levels Spade no longer has
-//! to it. What the rules decide is `spade_core::autonomy`; this is the I/O around it.
+//! approves a call on the person's behalf or puts it to them, and the move of levels Spade no
+//! longer has to it. What the rules decide is `spade_core::autonomy`; this is the I/O around it.
 
 use std::sync::Arc;
 
 use serde_json::Value;
 use spade_core::Event;
-use spade_core::autonomy::{self, Access, Case, Judgment, Outcome, refusals};
+use spade_core::autonomy::escalate::{self, Settled, Stop};
+use spade_core::autonomy::{self, Access, Case, Judgment, Outcome};
 
 use super::judge::Judged;
 use spade_core::context;
@@ -64,7 +65,7 @@ impl Engine {
 /// What the auto-review came to.
 pub(super) enum Reviewed {
     Run,
-    Refuse(String),
+    /// The person decides, with the request's line: the reviewer refused it or couldn't decide.
     Escalate(String),
     Stopped,
 }
@@ -81,6 +82,7 @@ pub(super) fn record_rule(
     verdict: Verdict,
     reason: &str,
     bound: Option<String>,
+    launch: spade_core::event::Authorized,
 ) -> Result<bool, spade_store::StoreError> {
     let event = Event::Known(Known::CallReviewed {
         reply: reply.to_owned(),
@@ -91,6 +93,8 @@ pub(super) fn record_rule(
         model: String::new(),
         cost_micros: 0,
         bound,
+        acts_in: None,
+        launch: Some(launch),
     });
     engine.record_unless_stopped(id, reply, &event)
 }
@@ -103,30 +107,24 @@ pub(super) struct Under<'a> {
     pub def: &'a ToolDef,
     /// Files the call runs, shown to the reviewer; an approval is bound to them.
     pub shown: &'a [spade_core::autonomy::shell::Shown],
+    /// What the call runs as the reviewer is shown it, stored with the verdict
+    /// (`workspace::outside::binding`).
+    pub bound: Option<String>,
     /// Why the rules singled the call out, told to the reviewer.
     pub concern: Option<&'a str>,
-}
-
-/// The hash a call's shown files are bound by; `None` when it runs none.
-pub(super) fn binding(shown: &[spade_core::autonomy::shell::Shown]) -> Option<String> {
-    if shown.is_empty() {
-        return None;
-    }
-    let mut text = Vec::new();
-    for file in shown {
-        text.extend_from_slice(file.path.as_bytes());
-        text.push(0);
-        text.extend_from_slice(file.content.as_bytes());
-        text.push(0);
-    }
-    Some(crate::workspace::trust::hash(&text))
+    /// For a driving step, where it acts as the gate just found: the verdict is stored with it
+    /// and reused only there.
+    pub acts_in: Option<&'a spade_core::effect::drive::Place>,
+    /// How far it would launch: the verdict is stored with it and reused only for that launch
+    /// or a narrower one.
+    pub launch: spade_core::event::Authorized,
 }
 
 /// Has the reviewer judge one call, storing its verdict first. A verdict already stored for the
-/// call is used again, so a restart never reviews (or pays for) a call twice. A refusal goes back
-/// to the bot unless it retries a refused step (`refusals`); anything but a clear answer (a
-/// failure, a timeout, an answer that doesn't parse twice) goes to the person: an unreviewed
-/// call never runs.
+/// call is used again, so a restart never reviews (or pays for) a call twice. A refusal, and
+/// anything but a clear answer (a failure, a timeout, an answer that doesn't parse twice), goes to
+/// the person with the reviewer's reason (ADR 0163, amendment 3): an unreviewed call never runs,
+/// and the bot is never told no for a reviewer's sake.
 pub(super) async fn review(
     engine: &Arc<Engine>,
     id: &str,
@@ -136,7 +134,10 @@ pub(super) async fn review(
     under: Under<'_>,
     stop: &mut watch::Receiver<bool>,
 ) -> Reviewed {
-    if let Some((verdict, reason)) = review::stored(events, &under.call.id) {
+    // Stored before a restart: reused only where it was given (ADR 0171, amendment 3).
+    if let Some((verdict, reason)) =
+        review::stored_at(events, &under.call.id, under.acts_in, under.launch)
+    {
         return of(verdict, reason);
     }
     let model = engine.review_model(id);
@@ -150,7 +151,6 @@ pub(super) async fn review(
     // Everything untrusted the prompt still shows, from any turn since compaction: the same view
     // the memory gate answers to, so a page read before the person's latest message still counts.
     let untrusted = context::untrusted_in_view(events, registry);
-    let refused = refusals::Run::of(events);
     let case = Case {
         bot,
         task,
@@ -162,7 +162,6 @@ pub(super) async fn review(
         arguments: under.arguments,
         shown: under.shown,
         concern: under.concern,
-        refused: refused.shown(),
     };
     let prompt = autonomy::prompt(&case).session(id);
     let (outcome, cost) = match super::judge::judge::<Judgment>(
@@ -175,12 +174,9 @@ pub(super) async fn review(
     )
     .await
     {
-        Judged::Answer(judgment, cost) => (autonomy::judged(&judgment, &refused, under.call), cost),
-        Judged::Failed(why, cost) => (Outcome::Escalate(why.to_owned()), cost),
-        Judged::TimedOut(cost) => (
-            Outcome::Escalate("The review took too long, so you decide.".to_owned()),
-            cost,
-        ),
+        Judged::Answer(judgment, cost) => (autonomy::judged(&judgment), cost),
+        Judged::Failed(why, cost) => (undecided(why), cost),
+        Judged::TimedOut(cost) => (undecided(TOOK_TOO_LONG), cost),
         Judged::Stopped => return Reviewed::Stopped,
     };
     // The check is over: until the call starts or the person is asked, the bot is thinking, not
@@ -188,7 +184,6 @@ pub(super) async fn review(
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     let (verdict, reason) = match &outcome {
         Outcome::Run => (Verdict::Allow, String::new()),
-        Outcome::Refuse(reason) => (Verdict::Refuse, reason.clone()),
         Outcome::Escalate(reason) => (Verdict::Escalate, reason.clone()),
     };
     let reviewed = Event::Known(Known::CallReviewed {
@@ -199,7 +194,9 @@ pub(super) async fn review(
         reason: reason.clone(),
         model,
         cost_micros: cost,
-        bound: binding(under.shown),
+        bound: under.bound.clone(),
+        acts_in: under.acts_in.cloned().map(Box::new),
+        launch: Some(under.launch),
     });
     match engine.record_unless_stopped(id, reply, &reviewed) {
         Ok(true) => of(verdict, reason),
@@ -209,10 +206,26 @@ pub(super) async fn review(
     }
 }
 
+/// What the person is told when the review didn't come to an answer.
+pub(super) const TOOK_TOO_LONG: &str = "The review took too long, so you decide.";
+
+fn undecided(why: &str) -> Outcome {
+    Outcome::Escalate(line(Stop::ReviewerUndecided(why)))
+}
+
+/// The request's line for a stopped call; a hard refusal's reason when it is one.
+pub(super) fn line(stop: Stop<'_>) -> String {
+    match escalate::settle(stop) {
+        Settled::Ask { line, .. } | Settled::Refuse(line) => line,
+    }
+}
+
+/// A verdict stored before: an approval runs; a refusal (the reviewer's, from a build that sent
+/// refusals back to the bot) is put to the person like a fresh one, never run.
 fn of(verdict: Verdict, reason: String) -> Reviewed {
     match verdict {
         Verdict::Allow => Reviewed::Run,
-        Verdict::Refuse => Reviewed::Refuse(reason),
+        Verdict::Refuse => Reviewed::Escalate(line(Stop::Reviewer(&reason))),
         Verdict::Escalate => Reviewed::Escalate(reason),
     }
 }

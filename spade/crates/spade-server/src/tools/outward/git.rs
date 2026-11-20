@@ -272,6 +272,7 @@ impl Stage for SandboxStage {
                     crate::workspace::shell::Job {
                         dir: &dir,
                         script: STAGE,
+                        asked: None,
                         timeout: super::host::HOST_TIME,
                         env: &env,
                         tee: None,
@@ -284,6 +285,11 @@ impl Stage for SandboxStage {
                         outside: false,
                         // Spade's own internal command: always expected to be containable.
                         may_run_uncontained: false,
+                        contained_only: false,
+                        // Spade's own fixed script: no bot chose its words.
+                        by: crate::workspace::shell::By::Spade,
+                        clean: false,
+                        read_only: false,
                     },
                 )
                 .await?;

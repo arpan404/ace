@@ -5,11 +5,21 @@
 //! pipe into a shell, escapes, look-alike letters) and character n-grams of the whole text, so an
 //! obfuscated command still lands near what it hides.
 
+use spade_core::autonomy::ConfigTools;
 use spade_core::autonomy::shell::{self, Simple};
 
 use crate::hash::Bag;
+
+mod hiding;
+mod lists;
+
 use crate::shape;
 use crate::text;
+pub(crate) use hiding::carries_credential;
+use hiding::{configured, runs_with_secrets, sets_loader, union};
+use lists::{
+    DECODERS, GIT_NETWORK, NESTED, NETWORK, RUNS_ANOTHER, SHELLS, SUBCOMMANDS, TWO_LEVELS,
+};
 
 /// The most of a command read; past it the rest is cut, and that is a feature.
 const LONGEST: usize = 8 * 1024;
@@ -20,30 +30,6 @@ const MOST_COMMANDS: usize = 32;
 /// The most words read from one simple command, and tokens taken from its words.
 const MOST_WORDS: usize = 64;
 const MOST_TOKENS: usize = 96;
-
-/// Programs that run text they are given as code or as a command.
-const SHELLS: &[&str] = &[
-    "sh",
-    "bash",
-    "zsh",
-    "dash",
-    "ksh",
-    "fish",
-    "python",
-    "python3",
-    "node",
-    "perl",
-    "ruby",
-    "php",
-    "osascript",
-    "deno",
-    "bun",
-    "pwsh",
-    "powershell",
-    "lua",
-    "tclsh",
-    "awk",
-];
 
 /// What reading a command found besides its features, for whether it may ever be settled.
 #[derive(Debug, Default, Clone, Copy)]
@@ -57,102 +43,13 @@ pub(crate) struct Found {
     /// part of it was not examined: it is never settled, since what was dropped could be an
     /// outside path or an unknown program.
     pub dropped: bool,
+    /// It may reach another machine: a program that can, or an argument naming a place on the
+    /// network (a URL, a host, an address). Never settled while untrusted content is in view.
+    pub network: bool,
+    /// The tools it runs that read configuration around the folder which can name a program for
+    /// them to run: never settled unless the gate inspected that and found none.
+    pub config: ConfigTools,
 }
-
-/// Programs whose first word is a subcommand (`git push`, `npm publish`): for them the
-/// subcommand is a key part of what the command is, so one never seen in a low-risk command
-/// is never settled. For any other program the first argument is data (a file, a pattern).
-/// This list only ever makes the model more careful; it routes nothing.
-const SUBCOMMANDS: &[&str] = &[
-    "git",
-    "gh",
-    "npm",
-    "pnpm",
-    "yarn",
-    "bun",
-    "deno",
-    "cargo",
-    "go",
-    "rustup",
-    "uv",
-    "pip",
-    "pip3",
-    "poetry",
-    "gem",
-    "bundle",
-    "brew",
-    "apt",
-    "apt-get",
-    "dnf",
-    "docker",
-    "podman",
-    "kubectl",
-    "helm",
-    "terraform",
-    "aws",
-    "gcloud",
-    "gsutil",
-    "az",
-    "doctl",
-    "heroku",
-    "vercel",
-    "netlify",
-    "fly",
-    "flyctl",
-    "firebase",
-    "wrangler",
-    "serverless",
-    "stripe",
-    "op",
-    "pass",
-    "vault",
-    "security",
-    "systemctl",
-    "launchctl",
-    "defaults",
-    "diskutil",
-    "dscl",
-    "xcrun",
-    "shortcuts",
-    "dotnet",
-    "swift",
-    "mvn",
-    "gradle",
-    "rclone",
-    "twine",
-    "flutter",
-    "dart",
-    "composer",
-    "conda",
-    "mamba",
-    "nix",
-    "jj",
-    "hg",
-    "svn",
-    "glab",
-    "tea",
-    "kubectx",
-    "minikube",
-    "colima",
-    "lima",
-    "multipass",
-    "ollama",
-    "supabase",
-    "railway",
-    "render",
-    "pulumi",
-];
-
-/// Of those, the ones whose second word is a subcommand too (`gh pr create`, `aws s3 cp`).
-const TWO_LEVELS: &[&str] = &[
-    "gh", "aws", "gcloud", "az", "kubectl", "docker", "podman", "stripe", "op", "glab", "doctl",
-    "heroku", "firebase", "supabase",
-];
-
-/// Programs that decode text.
-const DECODERS: &[&str] = &[
-    "base64", "xxd", "openssl", "uudecode", "rev", "printf", "gunzip", "zcat",
-];
 
 /// The features of `command`, run from `workspace`, and what reading it found.
 pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) -> Found {
@@ -201,9 +98,35 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
             );
         }
     }
+    if runs_with_secrets(&lower) {
+        bag.add("M", &["secret_runner"]);
+        found.hides = true;
+        found.network = true;
+    }
+    // `xargs` and `parallel` run a program on operands read at run time: what it touches can't be
+    // placed against the folder.
+    if lower
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '('))
+        .any(|w| w == "xargs" || w == "parallel")
+    {
+        bag.add("M", &["xargs"]);
+        found.hides = true;
+    }
+    if sets_loader(&lower) {
+        bag.add("M", &["sets_loader"]);
+        found.hides = true;
+    }
+    // A credential in the command: it acts with the person's sign-in.
+    if carries_credential(&folded.text) {
+        bag.add("M", &["carries_credential"]);
+        found.hides = true;
+        found.network = true;
+    }
     // Every word as written, wrappers included: the parser takes `sudo`, `env` or `nohup` off
     // what it reads, and the model should still see them.
     text::tokens(&lower, MOST_TOKENS, |t| bag.add("T", &[t]));
+    // A device that is a network socket (`/dev/tcp/host/port`).
+    found.network |= lower.contains("/dev/tcp") || lower.contains("/dev/udp");
     match shell::read(&folded.text) {
         Some(commands) => {
             let count = commands.len();
@@ -220,8 +143,32 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
             // More commands than Spade examines: what is past the window is unseen.
             found.dropped |= commands.len() > MOST_COMMANDS;
             let mut previous: Option<String> = None;
+            // Whether an earlier command moved to a folder other than the bot's own, where the
+            // configuration the gate inspected may not be the one that applies.
+            let mut moved = false;
             for simple in commands.iter().take(MOST_COMMANDS) {
                 let program = one(simple, previous.as_deref(), workspace, bag, &mut found);
+                let tools = configured(&program);
+                if tools.any() {
+                    if moved || simple.dir.is_some() {
+                        found.hides = true;
+                    }
+                    // `rg --no-config` reads no configuration.
+                    let ripgrep_plain =
+                        program == "rg" && simple.words.iter().any(|w| w == "--no-config");
+                    found.config = union(
+                        found.config,
+                        ConfigTools {
+                            ripgrep: tools.ripgrep && !ripgrep_plain,
+                            ..tools
+                        },
+                    );
+                }
+                if matches!(program.as_str(), "cd" | "pushd" | "popd" | "chdir") {
+                    let target = simple.words.get(1).map(|t| t.trim_end_matches('/'));
+                    let home = workspace.map(|w| w.trim_end_matches('/'));
+                    moved |= !(target == Some(".") || target.is_some() && target == home);
+                }
                 previous = Some(program);
             }
         }
@@ -237,6 +184,7 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
                 if shape::is_path(word) && shape::place(word, workspace).outside() {
                     found.outside = true;
                 }
+                found.network = true;
                 text::tokens(word, 8, |t| bag.add("W", &[t]));
             }
         }
@@ -291,6 +239,23 @@ fn one(
     let program = program_name(first);
     let p = program.as_str();
     bag.key("P", &[p]);
+    if NETWORK.contains(&p) || p == "$var" {
+        found.network = true;
+    }
+    if let Some((_, options)) = RUNS_ANOTHER.iter().find(|(name, _)| *name == p) {
+        let runs = simple.words[1..].iter().any(|w| {
+            options.iter().any(|o| {
+                w == o
+                    || w.starts_with(&format!("{o}="))
+                    || (o.len() == 2
+                        && w.starts_with(o)
+                        && !o.starts_with("--")
+                        && !w.starts_with("--"))
+            })
+        });
+        // `entr` runs whatever it is given; `mise` only through the subcommands listed.
+        found.hides |= runs || options.is_empty();
+    }
     // Names that run other text: what runs isn't the word the command shows.
     if matches!(
         p,
@@ -327,6 +292,9 @@ fn one(
     let mut positional = rest.iter().filter(|w| !w.starts_with('-'));
     if let Some(sub) = positional.next().filter(|w| wordish(w)) {
         let sub = sub.to_ascii_lowercase();
+        if p == "git" && GIT_NETWORK.contains(&sub.as_str()) {
+            found.network = true;
+        }
         if SUBCOMMANDS.contains(&p) {
             bag.key("PS", &[p, &sub]);
         } else {
@@ -344,7 +312,7 @@ fn one(
         }
         if let Some(next) = positional.next().filter(|w| wordish(w)) {
             let next = next.to_ascii_lowercase();
-            if TWO_LEVELS.contains(&p) {
+            if TWO_LEVELS.contains(&p) || NESTED.contains(&(p, sub.as_str())) {
                 bag.key("PSS", &[p, &sub, &next]);
             } else {
                 bag.add("PSS", &[p, &sub, &next]);
@@ -358,18 +326,24 @@ fn one(
             bag.key("PF", &[p, &format!("--{name}")]);
             bag.add("F", &[&format!("--{name}")]);
             if !value.is_empty() {
-                argument(value, p, workspace, bag, &mut found.outside);
+                argument(value, p, workspace, bag, found);
             }
         } else if word.len() > 1 && word.starts_with('-') && word.parse::<f64>().is_err() {
             let cluster: String = word.chars().take(12).collect();
             bag.add("PF", &[p, &cluster]);
             // Every option character is a key, so an unknown flag anywhere in a cluster is
-            // caught by the known-parts check, not only the first few.
+            // caught by the known-parts check, not only the first few. A digit after an option
+            // letter starts that option's value (`-A5`, `-j8`, `-n20`), as getopt reads it.
+            let mut letters = false;
             for c in word.chars().skip(1) {
+                if letters && c.is_ascii_digit() {
+                    break;
+                }
+                letters |= c.is_ascii_alphabetic();
                 bag.key("PF", &[p, &format!("-{c}")]);
             }
         } else {
-            argument(word, p, workspace, bag, &mut found.outside);
+            argument(word, p, workspace, bag, found);
         }
         let room = MOST_TOKENS.saturating_sub(tokens);
         text::tokens(word, room, |t| {
@@ -404,12 +378,14 @@ fn one(
 }
 
 /// An argument's shape, under its program too.
-fn argument(word: &str, program: &str, workspace: Option<&str>, bag: &mut Bag, outside: &mut bool) {
+fn argument(word: &str, program: &str, workspace: Option<&str>, bag: &mut Bag, found: &mut Found) {
     let shape = shape::of(word, workspace, "PA", bag);
     if shape.starts_with("path_") {
-        *outside |= shape::place(word, workspace).outside();
+        found.outside |= shape::place(word, workspace).outside();
     }
-    *outside |= shape::elsewhere(word, shape);
+    found.outside |= shape::elsewhere(word, shape);
+    // A place on the network, or something that may name one (`host:port`, an address).
+    found.network |= matches!(shape, "url" | "remote" | "email") || shape::names_host(word);
     bag.add("A", &[shape]);
     bag.add("PA", &[program, shape]);
     if let Some((key, _)) = word.split_once('=')

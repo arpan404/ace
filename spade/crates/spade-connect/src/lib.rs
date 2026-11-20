@@ -28,7 +28,7 @@ use spade_store::Store;
 use tokio::sync::Notify;
 
 pub use apps::{App, Grant};
-pub use catalogue::{Entry, SignIn, Via};
+pub use catalogue::{Category, Entry, Listed, Ready, SignIn, Via, WaitsFor};
 pub use cloud::{AccountCredential, AccountProblem, CLOUD_URL, Cloud, Credential};
 pub use device_sign_in::DeviceView;
 pub use hub::{Callback, ConnectError, ConnectRequest, FinishError, Started};
@@ -46,6 +46,13 @@ use records::Record;
 /// comes back to `CALLBACK_PATH` itself, the one address the document lists, and must carry `iss`
 /// ([`oauth::cimd`]).
 pub const CALLBACK_PATH: &str = "/v1/connectors/callback";
+
+/// How long Spade trusts Spade Cloud's list of the apps it can sign in to, and how long it waits
+/// before asking again after the cloud didn't answer.
+pub const CLOUD_APPS_FOR_MS: i64 = 10 * 60 * 1000;
+pub const CLOUD_APPS_RETRY_MS: i64 = 60 * 1000;
+/// How long the app's list of apps waits for the cloud's answer.
+const CLOUD_APPS_WAIT: Duration = Duration::from_secs(3);
 
 /// How long a sign-in may take from start to callback.
 pub const SIGN_IN_WINDOW_MS: i64 = 10 * 60 * 1000;
@@ -76,6 +83,14 @@ pub struct Setup {
     /// Spade Cloud, for catalogue entries marked `via: "cloud"` (ADR 0140). `None`: those entries
     /// take the person's own client ID only.
     pub cloud: Option<Cloud>,
+}
+
+/// What Spade Cloud last said about the apps it can sign in to.
+#[derive(Default)]
+struct CloudApps {
+    /// None until the cloud first answers.
+    apps: Option<std::collections::HashSet<String>>,
+    asked_ms: Option<i64>,
 }
 
 /// What the app is shown about one connector. Never a secret.
@@ -136,6 +151,8 @@ pub struct Connectors {
     tick: Duration,
     /// Spade Cloud's client, when Spade signs in through it.
     cloud: Option<cloud::CloudClient>,
+    /// The apps Spade Cloud last said it can sign in to, and when Spade last asked.
+    cloud_apps: tokio::sync::Mutex<CloudApps>,
     /// Sign-ins through the cloud waiting for the person, by connector.
     cloud_sign_ins: Mutex<HashMap<String, cloud_sign_in::CloudSignIn>>,
     cloud_serial: std::sync::atomic::AtomicU64,
@@ -183,6 +200,7 @@ impl Connectors {
                 .cloud
                 .as_ref()
                 .map(|cloud| cloud::CloudClient::new(cloud, setup.timeout)),
+            cloud_apps: tokio::sync::Mutex::default(),
             cloud_sign_ins: Mutex::default(),
             cloud_serial: std::sync::atomic::AtomicU64::new(0),
             cloud_notices: Mutex::default(),
@@ -229,6 +247,30 @@ impl Connectors {
 
     pub fn catalogue(&self) -> &[Entry] {
         &self.catalogue
+    }
+
+    /// The catalogue as the app is shown it, each entry with whether it can be connected now.
+    /// Asks Spade Cloud which apps it holds a client for, at most every [`CLOUD_APPS_FOR_MS`]
+    /// (every [`CLOUD_APPS_RETRY_MS`] while it doesn't answer); until it first answers, apps
+    /// through the cloud are not ready.
+    pub async fn listed(&self) -> Vec<Listed<'_>> {
+        let Some(cloud) = &self.cloud else {
+            return catalogue::listed(&self.catalogue, None);
+        };
+        let mut known = self.cloud_apps.lock().await;
+        let now = self.now();
+        let due = match (&known.apps, known.asked_ms) {
+            (_, None) => true,
+            (Some(_), Some(at)) => now - at >= CLOUD_APPS_FOR_MS,
+            (None, Some(at)) => now - at >= CLOUD_APPS_RETRY_MS,
+        };
+        if due {
+            known.asked_ms = Some(now);
+            if let Ok(apps) = cloud.apps(CLOUD_APPS_WAIT).await {
+                known.apps = Some(apps);
+            }
+        }
+        catalogue::listed(&self.catalogue, known.apps.as_ref())
     }
 
     /// Every connector, connected or signing in, by name.

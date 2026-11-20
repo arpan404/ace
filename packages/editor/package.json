@@ -1,0 +1,17 @@
+{
+  "name": "@ace/editor",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./pkg/*": "./pkg/*"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "bench:keystroke": "node scripts/keystroke-bench.mjs",
+    "test": "vitest run",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
+  }
+}

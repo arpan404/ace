@@ -1,4 +1,5 @@
 import { hasNextTurnSelection } from "./input-delivery.ts";
+import { fencedOwnership } from "../thread-ownership-table.ts";
 import { z } from "zod";
 import type { StatementSync } from "node:sqlite";
 import { Command, CommandId, ThreadId, RunTrigger, InteractionId } from "@ace/protocol";
@@ -274,7 +275,8 @@ export class IntentStore {
     return this.sql(`SELECT DISTINCT i.thread_id FROM intents i JOIN engine_queue q ON q.thread_id=i.thread_id
       WHERE i.status IN ('pending','queued') AND (i.kind IN (${recoveryKinds},'thread.switch','thread.merge') OR (q.paused=0 AND q.limited=0))
       AND NOT EXISTS(SELECT 1 FROM engine_transition_guards g WHERE g.thread_id=i.thread_id AND g.command_id<>i.command_id)
-      AND NOT EXISTS(SELECT 1 FROM engine_slots s WHERE s.thread_id=i.thread_id) LIMIT ?`)
+      AND NOT EXISTS(SELECT 1 FROM engine_slots s WHERE s.thread_id=i.thread_id)
+      AND NOT EXISTS(SELECT 1 FROM thread_ownership o WHERE o.thread_id=i.thread_id AND o.state IN (${fencedOwnership})) LIMIT ?`)
       .all(limit)
       .map((row) => ThreadId.parse(row.thread_id));
   }

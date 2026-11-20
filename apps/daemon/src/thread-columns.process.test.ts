@@ -409,6 +409,7 @@ function runSeed(seed: number) {
     DROP TRIGGER thread_cold_owner_delete;
     DROP TRIGGER thread_cold_owner_rekey;
     DROP TABLE thread_cold;
+    DROP TABLE thread_cold_moved;
     -- The schema before thread_cold had no machine_children columns from later steps; those
     -- steps add them again.
     DROP TABLE IF EXISTS machine_children;

@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub mod fleet;
 pub mod gated;
 pub mod plugins;
 #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
@@ -45,6 +46,15 @@ pub struct FakeTool {
     pub app: Option<bool>,
     /// What it declares it does (ADR 0171), over what its name or annotations would say.
     pub declared: Option<spade_core::effect::Effect>,
+    /// A fake `shell` whose command starts outside the bot's folder, or in one Spade can't
+    /// resolve: the classifier can't place its paths.
+    pub unplaced: bool,
+    /// A fake `shell` on a machine with no read-only sandbox: the classifier settles nothing.
+    pub no_sandbox: bool,
+    /// Answers given in turn before `answer`, the last of them again and again.
+    pub answers: Arc<Mutex<Vec<String>>>,
+    /// Scopes an Always allow to the call's `command`, as Spade's shell does.
+    pub scoped: bool,
 }
 
 impl FakeTool {
@@ -67,7 +77,43 @@ impl FakeTool {
             calls: Arc::default(),
             app: None,
             declared: None,
+            unplaced: false,
+            no_sandbox: false,
+            answers: Arc::default(),
+            scoped: false,
         }
+    }
+
+    /// Scopes an Always allow to the call's `command`, as Spade's shell does.
+    pub fn scoped(mut self) -> Self {
+        self.scoped = true;
+        self
+    }
+
+    /// A fake `shell` on a machine with no read-only sandbox.
+    pub fn no_sandbox(mut self) -> Self {
+        self.no_sandbox = true;
+        self
+    }
+
+    /// A fake `shell` whose command starts where Spade can't place it against the bot's folder.
+    pub fn unplaced(mut self) -> Self {
+        self.unplaced = true;
+        self
+    }
+
+    /// Takes arguments shaped by `schema`, as its server says.
+    pub fn schema(mut self, schema: Value) -> Self {
+        self.def.spec.schema = schema;
+        self
+    }
+
+    /// Answers `answers` in turn, then the last of them on every later call.
+    pub fn then_answers(mut self, answers: &[&str]) -> Self {
+        // Kept last first, so each call pops the next and the last stays.
+        let queued: Vec<String> = answers.iter().rev().map(|a| (*a).to_owned()).collect();
+        self.answers = Arc::new(Mutex::new(queued));
+        self
     }
 
     /// Declares what it does, as a catalogue entry or manifest would.
@@ -127,13 +173,33 @@ impl Tool for FakeTool {
     }
 
     /// A fake `shell` is a command with no sandbox, as on a machine without one: classed by
-    /// what it runs, for the review.
+    /// what it runs, for the review, starting in the bot's folder (`Lexical`'s `/workspace`)
+    /// unless it is [`FakeTool::unplaced`].
     fn classed(&self, _key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
         if self.def.spec.name == spade_core::autonomy::SHELL {
-            spade_core::autonomy::classify_shell(arguments, &spade_core::autonomy::shell::Lexical)
+            let classed = spade_core::autonomy::classify_shell(
+                arguments,
+                &spade_core::autonomy::shell::Lexical,
+            );
+            spade_core::autonomy::Classed {
+                workspace: (!self.unplaced).then(|| "/workspace".to_owned()),
+                // As if the folder's configuration had been inspected and runs nothing.
+                config_clean: spade_core::autonomy::ConfigTools::ALL,
+                // As if the machine could hold a settled read in a read-only sandbox: the fake
+                // shell doesn't launch through one, so this only exercises the gate.
+                sandboxable: !self.no_sandbox,
+                ..classed
+            }
         } else {
             spade_core::autonomy::Classed::default()
         }
+    }
+
+    fn always_scope(&self, arguments: &Value) -> Option<String> {
+        self.scoped
+            .then(|| arguments.get("command").and_then(Value::as_str))
+            .flatten()
+            .map(str::to_owned)
     }
 
     /// An app tool's server facts: its catalogue entry declares it (as a write outside the box
@@ -163,7 +229,18 @@ impl Tool for FakeTool {
 
     fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
         let calls = self.calls.clone();
-        let answer = self.answer.clone();
+        let answer = self
+            .answers
+            .lock()
+            .ok()
+            .and_then(|mut queued| {
+                if queued.len() > 1 {
+                    queued.pop()
+                } else {
+                    queued.last().cloned()
+                }
+            })
+            .unwrap_or_else(|| self.answer.clone());
         let images = self.images.clone();
         let delay = self.delay;
         Box::pin(async move {
@@ -199,8 +276,14 @@ pub struct Spade {
     task: tokio::task::JoinHandle<std::io::Result<()>>,
 }
 
+/// What [`Options::before_work`] calls.
+pub type BeforeWork = Arc<dyn Fn(&Arc<Engine>) + Send + Sync>;
+
 pub struct Options {
     pub limits: Limits,
+    /// The fake endpoints' key variables are unset: no preset is imported, as on a first run
+    /// with nothing set up.
+    pub no_env_keys: bool,
     pub skills: Option<Arc<dyn SkillLibrary>>,
     /// Finds ace from this folder's files, retrying quickly.
     pub ace_home: Option<PathBuf>,
@@ -253,6 +336,9 @@ pub struct Options {
     pub ids: Option<Arc<dyn Ids>>,
     /// Where bots on subscriptions reach ace (ADR 0133), set before work opens.
     pub brains: Option<spade_server::engine::BrainSource>,
+    /// Called with the engine before it opens for work: what a restarted Spade sets up before a
+    /// paused turn resumes (its security service, say).
+    pub before_work: Option<BeforeWork>,
     /// Sending a model step again; quick waits when absent, so a failing endpoint is not slow.
     pub model_retry: Option<spade_server::engine::Retry>,
     /// The real `web_search` over these backends, with Brave's key from the mock keychain.
@@ -341,6 +427,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             limits: Limits::default(),
+            no_env_keys: false,
             skills: None,
             ace_home: None,
             ace_retry: None,
@@ -368,6 +455,7 @@ impl Default for Options {
             clock: None,
             ids: None,
             brains: None,
+            before_work: None,
             model_retry: None,
             search: None,
             reviewer: Some(UNREACHABLE_REVIEWER.to_owned()),
@@ -508,6 +596,7 @@ impl Spade {
         let delay = options.keychain_delay;
         let gate = options.keychain_gate.clone();
         let gate_for = options.keychain_gate_for;
+        let env_keys = !options.no_env_keys;
         let models = Models::new(
             catalog(&fake.root)?,
             Keys::keychain_then_env(
@@ -522,7 +611,10 @@ impl Spade {
                     }
                     keychain.get(endpoint).ok().flatten()
                 },
-                |var| matches!(var, "FAKE_KEY" | "UNREACHED_KEY").then(|| "fake-key".to_owned()),
+                move |var| {
+                    (env_keys && matches!(var, "FAKE_KEY" | "UNREACHED_KEY"))
+                        .then(|| "fake-key".to_owned())
+                },
             ),
             spade_server::home::VERSION,
         )?;
@@ -655,7 +747,14 @@ impl Spade {
         if let Some(brains) = options.brains.clone() {
             engine.set_brains(brains);
         }
+        if let Some(before) = &options.before_work {
+            before(&engine);
+        }
         bots.set(&engine);
+        // As Spade wires it: workers and arrivals set apps through the hub.
+        if let Some(hub) = &connectors {
+            engine.set_connector_grants(hub.clone());
+        }
         if let Some(plugins) = plugins {
             engine.set_profile_source(plugins.clone());
             engine.set_plugins(plugins);
@@ -743,6 +842,24 @@ impl Spade {
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
     }
 
+    /// Stops this server, runs `sql` on its database (to leave its events as a stop at a chosen
+    /// point would), and opens a new engine and server on it with `options`.
+    pub async fn restart_paused_with(
+        mut self,
+        sql: &str,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+        options: Options,
+    ) -> Result<Self> {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        let _ = (&mut self.task).await;
+        rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        Self::serve(fake, self.dir.clone(), tools, options).await
+    }
+
     /// Like `restart`, with `options` for the new server.
     pub async fn restart_with(
         mut self,
@@ -813,6 +930,26 @@ impl Spade {
             .json(&body)
             .send()
             .await?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
+    /// `PUT` with extra headers, as ace's daemon sends a stamped change.
+    pub async fn put_with(
+        &self,
+        path: &str,
+        body: Value,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Value)> {
+        let mut request = self
+            .http
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(TOKEN)
+            .json(&body);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.send().await?;
         let status = response.status().as_u16();
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
@@ -930,6 +1067,26 @@ impl Spade {
     /// Waits until some event has type `kind`, and returns all events at that point.
     pub async fn wait_for(&self, id: &str, kind: &str) -> Result<Vec<Value>> {
         self.wait_for_count(id, kind, 1).await
+    }
+
+    /// Waits until some event has one of the types `kinds`, and returns all events at that point.
+    pub async fn wait_for_any(&self, id: &str, kinds: &[&str]) -> Result<Vec<Value>> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let events = self.events(id).await?;
+            if events
+                .iter()
+                .any(|e| kinds.iter().any(|kind| e["type"] == *kind))
+            {
+                return Ok(events);
+            }
+            if Instant::now() > deadline {
+                return Err(
+                    format!("no {kinds:?} event; got {}", types(&events).join(", ")).into(),
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
 
     /// Waits until `count` events have type `kind`, and returns all events at that point.

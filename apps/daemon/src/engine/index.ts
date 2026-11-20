@@ -1,10 +1,12 @@
 import { switchReady } from "./switch-recovery.ts";
 import { adoptMachineHandoff, captureMachineHandoff } from "./machine-handoff.ts";
+import * as liveMove from "./live-move.ts";
 import {
   PermissionPolicyIdentity as importPermissionPolicyIdentity,
   AcpIdentity as importAcpIdentity,
 } from "@ace/protocol";
-import { liveAceCall } from "./ace-approvals.ts";
+import { aceCaller, liveAceCall, withinAgent } from "./ace-approvals.ts";
+import { activeRun, delegationsInFlight, turnOrigin } from "./turn-origin.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { GuestThreads } from "./guest-threads.ts";
 import { HostThreads } from "./host-threads.ts";
@@ -64,7 +66,7 @@ import { SettledTrees } from "./settled-trees.ts";
 import { backgroundPortsHost, type BackgroundPortsHost } from "./background-ports.ts";
 import {
   defaultProviderIdleMs,
-  providerProcessState,
+  listProviderProcesses,
   releaseRequest,
   releasedThread,
   type ProviderProcess,
@@ -152,6 +154,7 @@ export class Engine {
           repo: this.repo,
           actors: () => this.actors.entries(),
           closing: (id) => this.sessions.isClosing(id),
+          held: (id) => this.fenced(id),
           retire: (id) => this.controls.wake(id),
         },
         retiring,
@@ -196,6 +199,7 @@ export class Engine {
       registry: this.registry,
       clock: this.clock,
       closing: () => this.closing,
+      fenced: (id) => this.fenced(id),
       wake: (id) => this.wake(id),
       released: (id) => {
         this.releaseDormant(id);
@@ -363,6 +367,7 @@ export class Engine {
             ? { commandId: command.id, ok: false, error: "engine_starting" }
             : store.atomic(
                 () =>
+                  (this.fence && liveMove.fenceCommand(command, this.fence)) ??
                   this.hostInteractionHandler?.(command) ??
                   (this.commandPolicy
                     ? this.commandPolicy(command, () => handler.handle(command, context))
@@ -433,6 +438,27 @@ export class Engine {
     if (this.liveness.tree(id).some((owner) => this.hasSession(owner)))
       await this.settledTrees.stop(id, this.settleFailed);
   }
+  private fence?: Parameters<typeof liveMove.fenceCommand>[1];
+  /** Moving or moved (ADR 0191): nothing runs here, at admission, dispatch or session open. */
+  private fenced = (id: ThreadId) => this.fence?.(id) !== undefined;
+  bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
+    this.fence = fence;
+  }
+  /** Why the thread takes no new work here while it moves (ADR 0191); none while it may. */
+  ownershipRefusal(id: ThreadId) {
+    return this.fence?.(id);
+  }
+  readonly liveMove = liveMove.api(
+    () => this.repo,
+    () => this.clock.now(),
+    {
+      // The fence lifted: what it held dispatches, given a slot first.
+      released: (id) => {
+        this.wakeQueued();
+        this.wake(id);
+      },
+    },
+  );
   /** One trusted host policy for accepted commands, inside the receipt transaction. */
   bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
     this.commandPolicy = policy;
@@ -763,26 +789,11 @@ export class Engine {
   }
   /** Live provider processes per thread, for `ace status`; bounded by live actors. */
   providerProcesses(): ProviderProcess[] {
-    const processes: ProviderProcess[] = [];
-    for (const actor of this.actors.values()) {
-      const state = providerProcessState({
-        session: Boolean(actor.session),
-        closing: this.sessions.isClosing(actor.id),
-        idleSince: actor.idleSince,
-        idleDue: actor.idleDue,
-      });
-      const provider = this.repo.state(actor.id)?.config.provider;
-      if (!state || !provider) continue;
-      const releaseAt = actor.releaseAt();
-      processes.push({
-        threadId: actor.id,
-        provider,
-        state,
-        ...(actor.idleSince === undefined ? {} : { idleSince: actor.idleSince }),
-        ...(state === "idle-warm" && releaseAt !== undefined ? { releaseAt } : {}),
-      });
-    }
-    return processes;
+    return listProviderProcesses(
+      this.actors.values(),
+      (id) => this.sessions.isClosing(id),
+      (id) => this.repo.state(id)?.config.provider,
+    );
   }
   private requestRelease(id: ThreadId, request: "release" | "withdraw"): void {
     const actor = this.actors.get(id);
@@ -833,18 +844,22 @@ export class Engine {
     if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
     return rootOf();
   }
-  /**
-   * The run (turn) an agent's tool call belongs to now: its own active run, else the root's.
-   * Undefined when nothing is running, so no turn-scoped work can be approved.
-   */
+  /** The run an agent's tool call belongs to now, never an ended one (`turn-origin.ts`). */
   activeRun(threadId: ThreadId, agentId: string): string | undefined {
+    return activeRun(this.repo.state(threadId), agentId);
+  }
+  /** The delegation fence's reads (`turn-origin.ts`). */
+  turnOrigin = (id: ThreadId, agentId: string) => turnOrigin(this.repo.state(id), agentId);
+  delegationsInFlight = (id: ThreadId) => delegationsInFlight(this.repo.state(id));
+  /** The agent making a live call to ace's `tool` with matching arguments (`aceCaller`). */
+  aceCaller(threadId: ThreadId, tool: string, matches: (args: unknown) => boolean) {
     const state = this.repo.state(threadId);
-    if (!state) return undefined;
-    const key = state.indexes.agentKeysById[agentId];
-    const own = key === undefined ? undefined : state.agents[key]?.activeRun;
-    return (
-      own ?? (state.rootKey === undefined ? undefined : state.agents[state.rootKey]?.activeRun)
-    );
+    return state ? aceCaller(state, tool, matches) : undefined;
+  }
+  /** Whether `agentId` is `ancestorId` or under it in the thread's agent tree. */
+  withinAgent(threadId: ThreadId, agentId: string, ancestorId: string): boolean {
+    const state = this.repo.state(threadId);
+    return state ? withinAgent(state, agentId, ancestorId) : false;
   }
   openHostApproval(
     threadId: ThreadId,
@@ -1236,7 +1251,7 @@ export class Engine {
   private wakeQueued(): void {
     if (this.closing) return;
     for (const id of this.repo.pending.runnableThreads(this.limits.maxActiveThreads))
-      if (this.repo.reserve(id)) this.wake(id);
+      if (!this.fenced(id) && this.repo.reserve(id)) this.wake(id);
   }
   private releaseDormant(id: ThreadId): void {
     const actor = this.actors.get(id);
@@ -1248,11 +1263,13 @@ export class Engine {
     )
       return;
     const queue = this.repo.queue.get(id);
+    // A fenced thread holds no slot for work it won't run here (ADR 0191).
     if (
-      this.repo.pending.recovery(id) ||
-      this.repo.pending.transition(id) ||
-      this.repo.pending.controls(id).length ||
-      (!queue.paused && !queue.limited && this.repo.pending.message(id))
+      !this.fenced(id) &&
+      (this.repo.pending.recovery(id) ||
+        this.repo.pending.transition(id) ||
+        this.repo.pending.controls(id).length ||
+        (!queue.paused && !queue.limited && this.repo.pending.message(id)))
     )
       return;
     if (actor && !actor.poisoned && !actor.backlog().frames) {
@@ -1298,7 +1315,7 @@ export class Engine {
       !actor.session &&
       (this.repo.pending.message(actor.id) || this.repo.pending.recovery(actor.id))
         ? pendingControls.filter((intent) => intent.kind === "thread.interrupt")
-        : pendingControls;
+        : liveMove.admittedControls(pendingControls, this.fenced(actor.id));
     for (const intent of controls) {
       if (this.closing) return;
       const guard = this.repo.transitions.guardOwner(actor.id);
@@ -1335,6 +1352,7 @@ export class Engine {
       return;
     }
     if (this.repo.store.workspaceReservations.reserved(this.repo.session(actor.id).cwd)) return;
+    if (this.fenced(actor.id)) return this.releaseDormant(actor.id);
     // Controls own idle retirement; sends must remain free to open a replacement.
     if (this.closing || (actor.idleDue && actor.session)) return;
     const guard = this.repo.transitions.guardOwner(actor.id);
@@ -1404,6 +1422,7 @@ export class Engine {
   private async steer(actor: ThreadActor): Promise<void> {
     await actor.flush();
     if (actor.poisoned || this.closing || this.repo.cleaning(actor.id) || !actor.session) return;
+    if (this.fenced(actor.id)) return;
     const queue = this.repo.queue.get(actor.id);
     if (queue.paused || queue.limited) return;
     await this.steerLane.run(actor);

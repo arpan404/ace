@@ -148,9 +148,16 @@ export function spadeListEntries(
   return rows;
 }
 
-/** When the person pinned the conversation (ms); undefined when it isn't pinned. */
+/**
+ * When the person pinned the conversation (ms); undefined when it isn't pinned. Spade, the main
+ * bot, is never pinned: it is the list's first row wherever it was pinned before.
+ */
 export const pinnedAt = (entry: SpadeListEntry): number | undefined =>
-  entry.kind === "bot" ? entry.bot.pinnedAt : entry.group.pinnedAt;
+  entry.kind === "group"
+    ? entry.group.pinnedAt
+    : entry.bot.kind === "main"
+      ? undefined
+      : entry.bot.pinnedAt;
 
 /**
  * The pinned conversations, oldest pin first, which show as a strip under the list's buttons,
@@ -205,6 +212,29 @@ export function searchSpadeList(
   return entries.filter((entry) =>
     words(entry).some((text) => text.toLocaleLowerCase().includes(needle)),
   );
+}
+
+/** A row's key in the list: its machine and its bot's or group's id. */
+export const spadeEntryKey = (entry: SpadeListEntry) =>
+  entry.kind === "bot"
+    ? `${entry.bot.machine.key}/${entry.bot.id}`
+    : `group:${entry.group.machine.key}/${entry.group.id}`;
+
+/**
+ * The rows in the order they had when the pointer came over the list (`held`, by key), so a row
+ * never moves out from under it to put another in its place; a row new since then comes first.
+ * Each row's state and words stay current.
+ */
+export function holdSpadeOrder(
+  entries: readonly SpadeListEntry[],
+  held: readonly string[],
+): SpadeListEntry[] {
+  const at = new Map(held.map((key, index) => [key, index]));
+  const fresh = entries.filter((entry) => !at.has(spadeEntryKey(entry)));
+  const kept = entries
+    .filter((entry) => at.has(spadeEntryKey(entry)))
+    .toSorted((a, b) => (at.get(spadeEntryKey(a)) ?? 0) - (at.get(spadeEntryKey(b)) ?? 0));
+  return [...fresh, ...kept];
 }
 
 /** How many conversations wait on the person: the rail's needs-you dot while they're elsewhere. */

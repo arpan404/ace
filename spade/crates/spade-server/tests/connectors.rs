@@ -330,8 +330,7 @@ async fn a_device_sign_in_with_spades_own_app_shows_its_code_then_connects_witho
                 source: "https://example.com/docs".into(),
                 via: None,
                 local: true,
-                effects: Default::default(),
-                every_tool: None,
+                ..Default::default()
             }],
             apps: vec![spade_connect::App {
                 connector: "fake".into(),
@@ -400,12 +399,12 @@ async fn spade_with_cloud(
                 source: "https://example.com/docs".into(),
                 via: Some(spade_connect::Via::Cloud),
                 local: true,
-                effects: Default::default(),
-                every_tool: None,
+                ..Default::default()
             }],
             cloud: Some(spade_connect::Cloud {
                 url: cloud.url(),
                 credential: std::sync::Arc::new(Account(signed_in)),
+                ace_client: None,
             }),
             ..Options::default()
         },
@@ -426,6 +425,8 @@ async fn an_app_through_spade_cloud_signs_in_in_the_browser_and_its_row_says_so(
         .unwrap_or_default();
     assert_eq!(entry["sign_in"][0], "oauth", "{entry}");
     assert_eq!(entry["via"], "cloud");
+    // The cloud hasn't said it holds this app's client, so the app is told it isn't ready.
+    assert_eq!(entry["ready"], "later", "{entry}");
     let (status, started) = spade
         .post("/v1/connectors", json!({ "catalogue": "fake" }))
         .await?;

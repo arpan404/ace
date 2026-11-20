@@ -3,7 +3,7 @@ import { RegionScene } from "@/features/suits/index.ts";
 import { Activity, createElement, Suspense, useRef } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
-import { controlDivider, toolbarEdge } from "@/components/ui/rules.ts";
+import { controlDivider, panelReveal, toolbarEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import {
   bottomOf,
@@ -19,7 +19,6 @@ import { useBottomFocus } from "./bottom-focus.ts";
 import { BottomTabs } from "./bottom-tabs.tsx";
 import { clampToBounds, type Bounds } from "./bounds.ts";
 import { TabContent } from "./tab-content.tsx";
-import { panelReveal } from "./panel-reveal.ts";
 
 /**
  * The bottom panel under the main column: the thread's terminals as tabs, the showing one's own

@@ -41,6 +41,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "files",
     "supportFiles",
     "threadFiles",
+    "filesNative",
     "handler",
     "plugins",
     "suits",
@@ -161,22 +162,30 @@ export function daemonHandle({
   close: (reason?: StopReason) => Promise<void>;
 }) {
   return {
-    ...(server.relayHostId && services.relay
-      ? {
-          relayHostId: server.relayHostId,
-          relayFingerprint: relayFingerprint(services.relay.keys.publicKey),
-        }
-      : {}),
+    // Read live: remote access starts after the daemon listens (`remoteStarted`).
+    get relayHostId(): string | undefined {
+      return services.relay ? server.relayHostId : undefined;
+    },
+    get relayFingerprint(): string | undefined {
+      return server.relayHostId && services.relay
+        ? relayFingerprint(services.relay.keys.publicKey)
+        : undefined;
+    },
+    remoteStarted: server.remoteStarted,
     ...(services.files ? { files: services.files } : {}),
+    ...(services.filesNative ? { filesNative: services.filesNative } : {}),
     serviceStatus: startup.status,
     eventLoop,
     maintenance: server.maintenance,
     url: server.url,
     tokenPath,
     store,
-    ...(server.remoteUrl && server.fingerprint
-      ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
-      : {}),
+    get remoteUrl(): string | undefined {
+      return server.fingerprint ? server.remoteUrl : undefined;
+    },
+    get fingerprint(): string | undefined {
+      return server.remoteUrl ? server.fingerprint : undefined;
+    },
     ...(server.preview ? { preview: server.preview } : {}),
     get preparePlugins() {
       return requireService(services.preparePlugins, "preparePlugins");

@@ -1,10 +1,14 @@
 /*
- * Logical projects across the person's machines (ADR 0180): one group per project, holding each
- * machine's checkouts (registrations) of it. Registrations group as connected components of the
- * identity ids and alias edges every machine reports, so a machine that was offline during a
- * merge, still reporting the old id, joins through an alias another machine keeps. Chains
- * across machines (A: Q→P, B: P→R) join the same way; nothing is flattened. A registration
- * without an identity, or on an older daemon, is a group of its own.
+ * Logical projects across the person's machines (ADR 0180, ADR 0189): one group per project,
+ * holding each machine's checkouts (registrations) of it. Registrations group as connected
+ * components of three kinds of edge every machine reports: identity ids, alias edges, and
+ * remote keys (the same remotes at the same folder inside the repository). So a machine that
+ * was offline during a merge, still reporting the old id, joins through an alias another
+ * machine keeps, and clones of one repository group with no setup. Forks (another remote set)
+ * and other folders of a monorepo don't share a key. A daemon reports no key for a checkout the
+ * person unlinked, so that one groups only through its identity. Chains across machines
+ * (A: Q→P, B: P→R) join the same way; nothing is flattened. A registration with neither, or on
+ * an older daemon, is a group of its own.
  *
  * The one grouping web and iOS use. Pure: the caller passes every machine's last list.
  */
@@ -16,6 +20,8 @@ export interface GroupableProject {
   path: string;
   kind?: string | undefined;
   identity?: { id: string; aliases: readonly string[] } | undefined;
+  /** Its remotes' normalized keys and folder inside the repository (ADR 0189). */
+  remoteKey?: { remotes: readonly string[]; subpath: string } | undefined;
   openedAt?: number | undefined;
 }
 
@@ -54,7 +60,10 @@ export function groupMachines(group: ProjectGroup): string[] {
 }
 
 export interface ProjectGroup {
-  /** Stable while the group's membership is: its smallest identity id, else its checkout. */
+  /**
+   * Stable while the group's membership is: its smallest identity id, else its smallest remote
+   * key, else its checkout.
+   */
   key: string;
   label: string;
   /** The names its checkouts go by, when they differ: shown on a second line. */
@@ -100,17 +109,44 @@ const recency = (a: ProjectCheckout, b: ProjectCheckout) =>
 export const checkoutOrder = (a: ProjectCheckout, b: ProjectCheckout) =>
   Number(b.online) - Number(a.online) || recency(a, b);
 
+/**
+ * The node two checkouts of the same remotes at the same folder share; none without a remote.
+ * A client that sees one machine's list at a time (the iPhone's per-machine runtime) matches
+ * checkouts across machines by these and the identity ids.
+ */
+export function remoteNode(key: GroupableProject["remoteKey"]): string | undefined {
+  if (!key?.remotes.length) return undefined;
+  // Sorted and without repeats, so two daemons listing them in another order still agree.
+  return `remote:${key.subpath}\n${[...new Set(key.remotes)].toSorted().join("\n")}`;
+}
+
 /** Every machine's registrations as logical projects, by label. Chats are never projects. */
 export function groupProjects(lists: readonly MachineProjectList[]): ProjectGroup[] {
   const components = new Components();
   const checkouts: ProjectCheckout[] = [];
+  const identityNodes = new Set<string>();
+  const remoteNodes = new Set<string>();
   for (const list of lists)
     for (const project of list.projects) {
       if (project.kind !== undefined) continue;
+      const key = `${list.machineId}/${project.id}`;
+      const node = `@${key}`;
+      components.find(node);
       const identity = project.identity;
-      if (identity) for (const alias of identity.aliases) components.join(identity.id, alias);
+      if (identity) {
+        components.join(node, identity.id);
+        for (const id of [identity.id, ...identity.aliases]) {
+          components.join(identity.id, id);
+          identityNodes.add(id);
+        }
+      }
+      const remote = remoteNode(project.remoteKey);
+      if (remote) {
+        components.join(node, remote);
+        remoteNodes.add(remote);
+      }
       checkouts.push({
-        key: `${list.machineId}/${project.id}`,
+        key,
         machineId: list.machineId,
         machineName: list.machineName,
         workspaceId: project.id,
@@ -122,26 +158,29 @@ export function groupProjects(lists: readonly MachineProjectList[]): ProjectGrou
         ...(identity ? { identityId: identity.id } : {}),
       });
     }
-  const groups = new Map<string, { checkouts: ProjectCheckout[]; ids: Set<string> }>();
-  const ids = new Map<string, Set<string>>();
-  for (const list of lists)
-    for (const project of list.projects) {
-      if (project.kind !== undefined || !project.identity) continue;
-      for (const id of [project.identity.id, ...project.identity.aliases]) {
-        const root = components.find(id);
-        const known = ids.get(root) ?? new Set<string>();
-        known.add(id);
-        ids.set(root, known);
-      }
-    }
-  for (const checkout of checkouts) {
-    const root = checkout.identityId ? components.find(checkout.identityId) : `@${checkout.key}`;
-    const group = groups.get(root) ?? { checkouts: [], ids: ids.get(root) ?? new Set() };
-    group.checkouts.push(checkout);
+  const groups = new Map<
+    string,
+    { checkouts: ProjectCheckout[]; ids: Set<string>; remotes: string[] }
+  >();
+  const groupAt = (root: string) => {
+    const group = groups.get(root) ?? { checkouts: [], ids: new Set<string>(), remotes: [] };
     groups.set(root, group);
-  }
-  return [...groups]
-    .map(([root, group]) => describe(root, group.checkouts, [...group.ids].toSorted()))
+    return group;
+  };
+  for (const checkout of checkouts)
+    groupAt(components.find(`@${checkout.key}`)).checkouts.push(checkout);
+  for (const id of identityNodes) groups.get(components.find(id))?.ids.add(id);
+  for (const remote of remoteNodes) groups.get(components.find(remote))?.remotes.push(remote);
+  return [...groups.values()]
+    .map((group) => {
+      const ids = [...group.ids].toSorted();
+      const key =
+        ids[0] ??
+        group.remotes.toSorted()[0] ??
+        group.checkouts.map((each) => each.key).toSorted()[0] ??
+        "";
+      return describe(key, group.checkouts, ids);
+    })
     .toSorted(
       (a, b) =>
         a.label.localeCompare(b.label) ||
@@ -151,7 +190,7 @@ export function groupProjects(lists: readonly MachineProjectList[]): ProjectGrou
     );
 }
 
-function describe(root: string, members: ProjectCheckout[], identityIds: string[]): ProjectGroup {
+function describe(key: string, members: ProjectCheckout[], identityIds: string[]): ProjectGroup {
   const checkouts = members.toSorted(checkoutOrder);
   // This machine's own name for it first, else the most recently used checkout's.
   const named = checkouts.filter((each) => each.here).toSorted(recency)[0] ??
@@ -160,7 +199,7 @@ function describe(root: string, members: ProjectCheckout[], identityIds: string[
     (name) => name !== named.name,
   );
   return {
-    key: root.startsWith("@") ? root.slice(1) : root,
+    key,
     label: named.name,
     otherNames,
     checkouts,

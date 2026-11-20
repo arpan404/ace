@@ -8,6 +8,8 @@ typealias StorageSave = @MainActor ([String: Any]) async throws -> Void
 struct StorageWorktreeSection: View {
     let settings: StoragePage.Settings
     let busy: Bool
+    /// Why the last Delete all settled worktrees preview failed.
+    var previewProblem: String? = nil
     let save: StorageSave
     let previewAll: () -> Void
     @State private var problem: String?
@@ -28,8 +30,11 @@ struct StorageWorktreeSection: View {
                 get: { settings.backupWorktrees },
                 set: { on in write(["key": "backupWorktrees", "on": on]) }))
             Button("Delete all settled worktrees", role: .destructive, action: previewAll)
+                .buttonStyle(.rowAction)
                 .disabled(busy).accessibilityIdentifier("storage.worktrees.deleteAll")
+            // A setting's refusal and the preview's failure are separate; neither hides the other.
             ServiceProblem(message: problem)
+            ServiceProblem(message: previewProblem)
         } header: { InsetHeader("Worktrees") } footer: {
             Text("Automatic deletion only removes clean worktrees merged into origin/main. Back up commits everything not in .gitignore, .env included, and pushes it to origin.")
         }
@@ -87,7 +92,7 @@ struct StorageKindsSection: View {
                 .accessibilityIdentifier("storage.daily")
             ServiceProblem(message: problem)
         } header: { InsetHeader("Retention") } footer: {
-            Text("Days to keep archived threads and unused data, by kind. Empty keeps it; pins and live work always stay. Daily cleanup runs every day; worktrees have their own setting.")
+            Text("Leave a limit blank to keep that data. Cleanup skips pinned and active work. Set worktree retention separately.")
         }
         .sensoryFeedback(.selection, trigger: settings.scheduledCleanup)
     }

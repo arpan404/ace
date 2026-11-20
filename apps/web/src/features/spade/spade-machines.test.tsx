@@ -44,41 +44,91 @@ test("a bot whose Spade stops while its machine stays online reads as unavailabl
   );
 });
 
-test("two machines showing Spade switch one off, the same one in every window", async () => {
-  const { spade, others } = await spadeApp("/spade", (api) => spadeHere(api, 7), {
-    machines: [{ hostId: "studio", name: "Studio Mac", seed: (api) => spadeHere(api, 7) }],
-  });
-  // Made at the same moment: the lower host id ("studio" < "this-mac") keeps Spade.
-  await waitFor(() => expect(spade.sent("PUT", "/v1/main")).toEqual([{ enabled: false }]));
-  expect(others.get("studio")?.sent("PUT", "/v1/main")).toEqual([]);
-});
+const chosen = (host: string, version = 1) => ({ host, version, at: 5, by: "person" });
 
-test("with no machine showing Spade, the chosen one switches it back on", async () => {
-  const { spade, others } = await spadeApp("/spade", withEndpoint, {
-    machines: [{ hostId: "studio", name: "Studio Mac", seed: withEndpoint }],
+test("no window switches a Spade off: two showing Spade get one first choice, the oldest", async () => {
+  const { spade, others } = await spadeApp("/spade", (api) => spadeHere(api, 9), {
+    machines: [{ hostId: "studio", name: "Studio Mac", seed: (api) => spadeHere(api, 3) }],
   });
+  const studio = others.get("studio");
   await waitFor(() =>
-    expect(others.get("studio")?.sent("PUT", "/v1/main")).toEqual([{ enabled: true }]),
+    expect(spade.sent("PUT", "/v1/main/host")).toEqual([
+      expect.objectContaining({ host: "studio", version: 1, by: "seed" }),
+    ]),
+  );
+  await waitFor(() =>
+    expect(studio?.sent("PUT", "/v1/main/host")).toEqual([
+      expect.objectContaining({ host: "studio", version: 1, by: "seed" }),
+    ]),
+  );
+  await waitFor(async () =>
+    expect((await botRow("Spade")).getAttribute("href")).toContain("on=studio"),
   );
   expect(spade.sent("PUT", "/v1/main")).toEqual([]);
+  expect(studio?.sent("PUT", "/v1/main")).toEqual([]);
 });
 
-test("when the machine keeping Spade goes offline, Spade is the one switched on here, not the away one", async () => {
-  const { app, spade } = await spadeApp("/spade", (api) => spadeHere(api, 5), {
-    machines: [{ hostId: "studio", name: "Studio Mac", seed: (api) => spadeHere(api, 1) }],
-  });
-  // The studio's Spade is older: this machine's is switched off and Spade lists from the studio.
-  await waitFor(() => expect(spade.sent("PUT", "/v1/main")).toEqual([{ enabled: false }]));
+test("the main Spade stays on the chosen machine when that machine goes offline and comes back", async () => {
+  const { app, spade, others } = await spadeApp(
+    "/spade",
+    (api) => {
+      spadeHere(api, 1);
+      api.hostRecord = chosen("studio");
+    },
+    {
+      machines: [
+        {
+          hostId: "studio",
+          name: "Studio Mac",
+          seed: (api) => {
+            spadeHere(api, 5);
+            api.hostRecord = chosen("studio");
+            api.addAgent({ id: "research", name: "Research" });
+          },
+        },
+      ],
+    },
+  );
   await waitFor(async () =>
     expect((await botRow("Spade")).getAttribute("href")).toContain("on=studio"),
   );
   app.crashMachine("studio");
-  await waitFor(() =>
-    expect(spade.sent("PUT", "/v1/main")).toEqual([{ enabled: false }, { enabled: true }]),
+  await waitFor(async () =>
+    expect((await botRow("Research")).textContent).toContain("Studio Mac is offline"),
   );
-  await waitFor(async () => {
-    const row = await botRow("Spade");
-    expect(row.getAttribute("href")).toBe("/spade/main");
-    expect(row.textContent).not.toContain("Away");
-  });
+  expect((await botRow("Spade")).getAttribute("href")).toContain("on=studio");
+  app.pool().reconnect("studio");
+  await waitFor(async () =>
+    expect((await botRow("Research")).textContent).not.toContain("offline"),
+  );
+  expect((await botRow("Spade")).getAttribute("href")).toContain("on=studio");
+  expect(spade.sent("PUT", "/v1/main")).toEqual([]);
+  expect(spade.sent("PUT", "/v1/main/host")).toEqual([]);
+  expect(others.get("studio")?.sent("PUT", "/v1/main/host")).toEqual([]);
+});
+
+test("a machine holding an older choice is given the newer one", async () => {
+  const { spade } = await spadeApp(
+    "/spade",
+    (api) => {
+      spadeHere(api, 1);
+      api.hostRecord = chosen("this-mac", 1);
+    },
+    {
+      machines: [
+        {
+          hostId: "studio",
+          name: "Studio Mac",
+          seed: (api) => {
+            spadeHere(api, 5);
+            api.hostRecord = chosen("studio", 2);
+          },
+        },
+      ],
+    },
+  );
+  await waitFor(() => expect(spade.sent("PUT", "/v1/main/host")).toEqual([chosen("studio", 2)]));
+  await waitFor(async () =>
+    expect((await botRow("Spade")).getAttribute("href")).toContain("on=studio"),
+  );
 });

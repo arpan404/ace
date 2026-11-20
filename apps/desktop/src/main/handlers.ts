@@ -1,4 +1,6 @@
 import { writableFolder } from "./browser/download-folder.ts";
+import { aceClientName, namedFetch } from "@ace/client/ace-client";
+import { ACE_CLIENT_DEVELOPMENT } from "@ace/protocol/ace-client";
 import { accountSecrets } from "./account-secrets.ts";
 import { followDaemonAccount } from "./account-follow.ts";
 import { accountSync } from "./account-sync.ts";
@@ -16,9 +18,11 @@ import {
   type OpenDialogOptions,
 } from "electron";
 import { shell } from "electron";
+import type { WebContents } from "electron";
 import type {
   AppInfo,
   DaemonConnection,
+  DeepLink,
   NativeAppearance,
   VisualizationWindow,
   WindowBackground,
@@ -34,7 +38,7 @@ import type { SandboxNotice } from "../shared/contract.ts";
 import { writeClipboardImage } from "./os/clipboard.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
 import { appIdentities, systemApplication, systemApplicationIcon } from "./os/app-identity.ts";
-import { editorIcons } from "./os/editor-icon.ts";
+import { appIcons, appOnDisk, editorIcons } from "./os/editor-icon.ts";
 import { openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
 import type { SpadeDirect } from "./spade/direct.ts";
@@ -50,10 +54,20 @@ export function appearance(): NativeAppearance {
   };
 }
 
-/** The account id an app session belongs to, from the account backend. */
-async function accountOf(origin: string, token: string): Promise<string> {
-  return (await aceAccountClient({ origin, fetch }).session(token, AbortSignal.timeout(10_000)))
-    .account.id;
+/**
+ * How the app names itself to ace cloud (`ace-client`, ADR 0189): its release version, or a
+ * development build when it isn't packaged.
+ */
+function desktopClient(info: AppInfo) {
+  return aceClientName("desktop", info.packaged ? info.version : ACE_CLIENT_DEVELOPMENT);
+}
+
+/** Reads which account an app session belongs to, from the account backend. */
+function accountReader(info: AppInfo) {
+  const named = namedFetch(fetch, desktopClient(info));
+  return async (origin: string, token: string): Promise<string> =>
+    (await aceAccountClient({ origin, fetch: named }).session(token, AbortSignal.timeout(10_000)))
+      .account.id;
 }
 
 /** Every `window.ace` request, already parsed by `registerHandlers`. */
@@ -95,9 +109,17 @@ export function createHandlers(options: {
   };
   /** The direct path to Spade on this computer (ADR 0123). */
   spade: SpadeDirect;
+  /** The menu-bar popover (os/tray-popover.ts); each call is refused from any other page. */
+  tray: {
+    open(link: DeepLink | undefined, sender: WebContents | undefined): void;
+    fit(height: number, sender: WebContents | undefined): void;
+    hide(sender: WebContents | undefined): void;
+    quit(completely: boolean, sender: WebContents | undefined): void;
+  };
 }): Handlers {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
+  const accountOf = accountReader(options.info);
   // A daemon that starts or restarts signed out follows the app's account (never switching one
   // that is signed in); the app's sign-in and sign-out follow `account-write.ts`. One queue for
   // both, so an older change never lands after a newer one.
@@ -107,13 +129,12 @@ export function createHandlers(options: {
     accountOf,
   });
   followDaemonAccount(runtime, daemonAccount.resume);
-  const editorIcon = editorIcons(
-    {
-      forProtocol: async (url) => (await app.getApplicationInfoForProtocol(url)).icon,
-      forFile: (path) => app.getFileIcon(path, { size: "normal" }),
-    },
-    process.platform,
-  );
+  const iconLookup = {
+    forProtocol: async (url: string) => (await app.getApplicationInfoForProtocol(url)).icon,
+    forFile: (path: string) => app.getFileIcon(path, { size: "normal" }),
+  };
+  const editorIcon = editorIcons(iconLookup, process.platform);
+  const appIcon = appIcons(iconLookup, process.platform, appOnDisk);
   const appIdentity = appIdentities({
     application: (bundleId) => systemApplication(bundleId, process.platform),
     icon: (path) => systemApplicationIcon(path, process.platform),
@@ -147,6 +168,22 @@ export function createHandlers(options: {
       options.reload();
       return undefined;
     },
+    "tray.open": (link, sender) => {
+      options.tray.open(link ?? undefined, sender);
+      return undefined;
+    },
+    "tray.fit": (height, sender) => {
+      options.tray.fit(height, sender);
+      return undefined;
+    },
+    "tray.hide": (_request, sender) => {
+      options.tray.hide(sender);
+      return undefined;
+    },
+    "tray.quit": ({ completely }, sender) => {
+      options.tray.quit(completely, sender);
+      return undefined;
+    },
     "daemon.connection": () => options.connection(),
     "daemon.expected": (remembered) => runtime.expected(remembered ?? undefined),
     "daemon.authorize": (url) => {
@@ -167,6 +204,7 @@ export function createHandlers(options: {
     "shell.reveal": (request) => reveal(request.path),
     "shell.appIdentity": (request) => appIdentity(request.bundleId),
     "shell.editorIcon": (request) => editorIcon(request.editor),
+    "shell.appIcon": (request) => appIcon(request.path),
     "shell.openExternal": async (url) => {
       await shell.openExternal(url);
       return true;

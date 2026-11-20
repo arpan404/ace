@@ -7,6 +7,7 @@
 //! Writes go to a temporary file beside the target and are renamed over it, never truncated in
 //! place, and a file with more than one hard link is never written.
 
+mod ambient;
 mod files;
 mod identity;
 mod installed;
@@ -16,6 +17,7 @@ pub mod place;
 mod reap;
 #[cfg(unix)]
 pub use reap::adopt_orphans;
+pub mod outside;
 pub mod shell;
 mod tools;
 pub mod trust;
@@ -34,7 +36,7 @@ pub use files::{Entry, EntryKind, FileView, Listing};
 pub use person::{Seen, Snapshot, changes};
 pub use tools::{
     Commands, ShellTool, WorkspaceEdit, WorkspaceList, WorkspaceRead, WorkspaceSearch,
-    WorkspaceWrite, tools as workspace_tools,
+    WorkspaceWrite, asks_outside, tools as workspace_tools,
 };
 pub use trust::Trust;
 

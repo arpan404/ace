@@ -1,6 +1,8 @@
 # 0101: Work on another machine
 
-Status: accepted. Date: 2026-10-23.
+Status: accepted. Date: 2026-10-23. Amended by [ADR 0192](0192-transfers-over-every-machine-route.md):
+transfers reach the other machine by every route parcels use, relays included, not only the pinned
+TLS address.
 
 ## Context
 
@@ -37,8 +39,50 @@ target is refused with `machine_not_linked`; the app offers Settings › Fleet t
 The person starts transfers from the app, and agents start them with the `transfer` tool (below).
 The target requires the calling device to hold both `operate` and `projects` (ADR 0063: remote
 admin does not imply projects). A device without them gets `machine_forbidden` with a next step:
-link again with "Projects" allowed. The target's `remote.agentAccess` does not apply to
+allow projects for that link (see "Changing what a link allows" below). The target's `remote.agentAccess` does not apply to
 transfers; they are governed by the setting below.
+
+#### Changing what a link allows (amended 2026-11-18)
+
+Linking two machines in Settings › Fleet now grants `projects` with `operate`, so a new link
+takes the person's work both ways. Links made before this, and links someone narrowed, can
+change without pairing again:
+
+- `fleet.request` `scope` allows or stops allowing one scope (`read`, `operate`, `admin`,
+  `projects`, `accounts`) for a paired device on that machine. It needs `admin` there, like every
+  fleet request. Allowing a scope also needs the caller to hold it, the same ceiling as issuing a
+  pairing link, so an administrator without Projects can't hand Projects out. Local credentials
+  (`desktop`, `user-browser`) never change, and a device keeps at least one scope, since taking
+  away the last one is Remove.
+- The device keeps its id, credential and expiry. Every authority check reads the stored record,
+  so the next transfer call, socket message or lease check sees the new scopes; nothing reconnects.
+  A transfer call already admitted reads the device again (active, `operate` and `projects`) after
+  every wait and right before each state claim or write: a commit that was hashing its upload,
+  a chunk whose write was queued, or a begin that was reading origins, never claims, writes or
+  starts an import once the scope is gone. TLS and relay calls go through the same check.
+- The command is durable (ADR 0057): it carries a `commandId`, and the change and its receipt
+  commit in one transaction. A retry after a lost reply returns the first outcome. Only a receipt
+  of that exact change answers it: a command id used before for anything else (another device,
+  scope or direction, or another kind of command) is refused as `invalid` and changes nothing.
+- Link all and a machine's Link only fill missing links. The `link` request carries `keep`, and
+  the linking machine refuses it as `exists`, right before redeeming, while it holds a link to that
+  machine or is making one: redeeming replaces the link's device there, so a link made meanwhile
+  in another window, perhaps with Projects, is never replaced by one granting less. The unused
+  pairing link is cancelled, and the toast names only links this action made. A machine's `links`
+  answer says whether it honours `keep` (`keep: true`); older daemons drop the field unread. Link
+  all reads the source machine's links again before each fill and skips a gap already linked. A
+  source that doesn't advertise `keep` is never asked to link at all: the toast says that machine
+  needs ace updated before Link all can link it. Every link, gap fill or not, holds its machine from right before
+  redeeming until it is saved or fails: a second link to the same machine meanwhile is refused
+  (`busy`, or `exists` for a gap fill), and links being made count toward the 64-link limit, so
+  nothing is redeemed that couldn't be saved.
+- A machine's page in Settings › Fleet lists each machine linked to it with "Allow projects" or
+  "Don't allow projects".
+- In "Continue on…" and "Open on…", a machine that doesn't allow projects can be chosen. The step
+  says in one sentence that it doesn't take projects from this machine yet. When the window manages
+  that machine and holds Projects there (or is that machine's own app), it offers "Allow projects
+  on <machine>", sends `scope` through the window's client of that machine, then goes on to the
+  options. Otherwise it offers "Open Settings › Fleet" at that machine's page.
 
 ### Agents
 
@@ -196,6 +240,9 @@ So the git methods (1 and 2) send them too, unless the transfer says not to.
 
 ### Continuing a thread
 
+Amended by [ADR 0191](0191-continue-a-working-thread-on-another-machine.md): a working thread
+is no longer refused. It takes ADR 0191's live path; what follows is the path of an idle thread.
+
 Refused while the source thread's tree is still working, waiting on the person, or has live
 terminals, with the same checks as `thread.move`. The source captures the portable history
 handoff it already builds for account and provider moves (`@ace/handoff`), bounded and with
@@ -223,7 +270,9 @@ would refuse; for it the check is skipped and the handoff is captured when the u
   device, so Settings › Fleet and `machines` show which links take transfers even when that
   machine keeps agents out.
 - The target verifies the SHA-256 of the whole file before importing; a damaged file fails the
-  transfer with `transfer_corrupt`. A failed or cancelled import leaves no project registered
+  transfer with `transfer_corrupt`. Each digest failure is claimed only for the upload it checked:
+  a commit of an upload reopened since (sent again as a whole bundle) decides nothing and never
+  removes the new upload's files. A failed or cancelled import leaves no project registered
   (one it registered on the way is removed again) and removes only folders it created.
 - Cancel works until the import's cutoff: the moment the new thread is made, or, for a project
   without a thread, once everything has landed. The cutoff and a cancel are decided in one
@@ -244,8 +293,22 @@ would refuse; for it the check is skipped and the handoff is captured when the u
   import stopped before its cutoff is undone and runs again on the next start.
 - A cancel or a shutdown stops waiting on a call to the target the moment it aborts, whatever the
   connection does; what the target made of that call is learnt again through status.
+- The target names a transfer's files by the lowercase hex SHA-256 of its id, so no id's files
+  can be another transfer's, even ids that differ only in dots or case on a case-insensitive
+  volume. Files an earlier build named after the id are never renamed or read: an old name can be
+  another transfer's (`x.ignored.part`, or an id that is another's hash). On recovery, a
+  transfer still receiving or importing with a part only under its old name, and none under its
+  hashed name, is cancelled with a reason and its sender starts it again; a name any live
+  transfer owns now is never taken for an old one. Stray removal keeps every name a live
+  transfer owns, worked out from the rows in pages (ADR 0170) and decided per file by exact
+  name, so old files go and live ones stay. No transfer begins while either step runs, so a
+  transfer begun meanwhile never loses its upload. Closing
+  stops the retention sweep and waits for all of it, and a begin that waited on it then refuses.
+  A chunk refused after its file was opened removes the file it made.
 - Finished transfer files and refs (the capture ref and a detached HEAD's pin) are deleted on
-  both machines before the transfer reads settled; rows are kept 24 hours for the list. An
+  both machines before the transfer reads settled; rows are kept 24 hours for the list. While the
+  target's sweep removes an expired transfer's files, its id is held: a begin of the same id waits
+  for the removal, so the sweep never removes files of the transfer that begin starts. An
   agent's row whose result its thread hasn't been given yet is never deleted: retention skips it
   until the result is delivered and the background hold settled.
 - Transfers above 20 GiB are refused before sending, with the size in the message. The target

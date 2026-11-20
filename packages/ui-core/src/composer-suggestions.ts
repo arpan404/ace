@@ -168,12 +168,18 @@ export function mentionSuggestions<Tab extends MentionTab>(
 ): ComposerSuggestion<Tab>[] {
   const q = scope.query.toLowerCase();
   const lately = scope.query ? [] : scope.recent;
-  const files = [...new Set([...lately, ...scope.paths])].map((path) => ({
-    group: "Files",
-    label: path.slice(path.lastIndexOf("/") + 1),
-    detail: path.includes("/") ? path : undefined,
-    path,
-  }));
+  const files = [...new Set([...lately, ...scope.paths])].map((path) => {
+    // A folder in the index ends in `/`: the menu offers it as a folder, and picking it writes a
+    // folder mention.
+    const folder = path.endsWith("/");
+    const shown = folder ? path.slice(0, -1) : path;
+    return {
+      group: "Files",
+      label: shown.slice(shown.lastIndexOf("/") + 1) + (folder ? "/" : ""),
+      detail: shown.includes("/") ? path : undefined,
+      path,
+    };
+  });
   const tabs = scope.tabs
     .filter((tab) => tab.title.toLowerCase().includes(q) || tab.url.toLowerCase().includes(q))
     .slice(0, 8)

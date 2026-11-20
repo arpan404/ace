@@ -107,6 +107,27 @@ fn ran(calls: &Arc<std::sync::Mutex<Vec<Value>>>) -> usize {
     calls.lock().map(|c| c.len()).unwrap_or(0)
 }
 
+/// Whether the conversation list says the conversation waits on the person.
+async fn waiting_on_you(spade: &Spade, conversation: &str) -> Result<bool> {
+    let (_, list) = spade.get("/v1/conversations").await?;
+    Ok(list.as_array().is_some_and(|list| {
+        list.iter()
+            .any(|c| c["id"] == conversation && c["waiting_on_you"] == true)
+    }))
+}
+
+/// The commands a fake shell ran, in order.
+fn calls_of_command(calls: &Arc<std::sync::Mutex<Vec<Value>>>) -> Vec<String> {
+    calls
+        .lock()
+        .map(|c| {
+            c.iter()
+                .filter_map(|call| call["command"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// A Spade whose reviewer is the fake model, answering in script order like the bot.
 async fn reviewed_by_fake(scripts: Vec<Script>, tools: Vec<Arc<dyn Tool>>) -> Result<Spade> {
     let options = Options {
@@ -152,17 +173,16 @@ async fn the_reviewer_approves_a_workspace_command_and_it_runs_without_asking_th
     Ok(())
 }
 
-#[tokio::test]
-async fn a_refusal_reaches_the_bot_as_a_result_with_the_reason_and_nothing_runs() -> Result {
-    let tool = shell();
-    let commands = calls_of(&tool);
+const DELETES_TESTS: &str =
+    r#"{"verdict":"refuse","reason":"That deletes the tests the person wants kept."}"#;
+
+/// A bot whose reviewer refuses `rm -rf tests`, asked to tidy up, waiting on the person.
+async fn stopped_by_the_reviewer(tool: FakeTool) -> Result<(Spade, String, Vec<Value>)> {
     let spade = reviewed_by_fake(
         vec![
             Script::reply("").call("c1", "shell", json!({ "command": "rm -rf tests" })),
-            Script::reply("").plain(
-                r#"{"verdict":"refuse","reason":"That deletes the tests the person wants kept."}"#,
-            ),
-            Script::reply("Understood, I'll leave the tests."),
+            Script::reply("").plain(DELETES_TESTS),
+            Script::reply("Done."),
             Script::reply("").plain(TITLE),
         ],
         vec![Arc::new(tool) as Arc<dyn Tool>],
@@ -170,74 +190,84 @@ async fn a_refusal_reaches_the_bot_as_a_result_with_the_reason_and_nothing_runs(
     .await?;
     let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Tidy up").await?;
-    let events = settled(&spade, &conversation).await?;
-    assert_eq!(ran(&commands), 0);
-    assert_eq!(count(&events, "approval_requested"), 0);
-    let result = first(&events, "tool_finished").ok_or("no result")?;
-    assert_eq!(result["is_error"], false, "a refusal is no failure");
-    let content = result["content"].as_str().unwrap_or("");
-    assert!(
-        content.starts_with("Not run: That deletes the tests"),
-        "{content}"
-    );
-    // The model's next step read it.
-    assert!(
-        spade.fake.seen()[2]
-            .body
-            .to_string()
-            .contains("Not run: That deletes the tests")
-    );
-    Ok(())
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    Ok((spade, conversation, events))
 }
 
 #[tokio::test]
-async fn the_bot_trying_a_refused_step_again_asks_the_person_who_can_allow_it() -> Result {
+async fn a_call_the_reviewer_refuses_waits_on_the_person_and_runs_exactly_once_when_they_allow_it()
+-> Result {
     let tool = shell();
     let commands = calls_of(&tool);
-    let refuse = r#"{"verdict":"refuse","reason":"It deletes the person's build."}"#;
-    let spade = reviewed_by_fake(
-        vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "rm -rf build" })),
-            Script::reply("").plain(refuse),
-            Script::reply("").call("c2", "shell", json!({ "command": "rm -rf build" })),
-            Script::reply("").plain(refuse),
-            Script::reply("Cleaned."),
-            Script::reply("").plain(TITLE),
-        ],
-        vec![Arc::new(tool) as Arc<dyn Tool>],
-    )
-    .await?;
-    let (_, conversation) = bot(&spade).await?;
-    spade.say(&conversation, "Clean the build").await?;
-    let events = spade.wait_for(&conversation, "approval_requested").await?;
-    // The first refusal went back to the bot; the retry came to the person, with the reason.
-    let first_result = first(&events, "tool_finished").ok_or("no result")?;
-    assert_eq!(first_result["call_id"], "c1");
-    assert!(
-        first_result["content"]
-            .as_str()
-            .is_some_and(|c| c.starts_with("Not run: It deletes the person's build."))
-    );
+    let (spade, conversation, events) = stopped_by_the_reviewer(tool).await?;
+    // Put to the person with the reviewer's reason; nothing ran and the bot was told nothing.
     let asked = first(&events, "approval_requested").ok_or("not asked")?;
-    assert_eq!(asked["call_id"], "c2");
+    assert_eq!(asked["call_id"], "c1");
     assert_eq!(
         asked["reviewer_reason"],
-        "Refused again: It deletes the person's build."
+        "The reviewer stopped this: That deletes the tests the person wants kept."
     );
-    // The reviewer was shown what it refused before.
-    let second_review = spade.fake.seen()[3].body.to_string();
-    assert!(second_review.contains("refused_before"), "{second_review}");
+    assert_eq!(asked["stopped"], "reviewer");
+    assert_eq!(count(&events, "tool_finished"), 0, "{events:?}");
     assert_eq!(ran(&commands), 0);
-    // The person has the last word.
+    let verdict = first(&events, "call_reviewed").ok_or("no verdict")?;
+    assert_eq!(verdict["verdict"], "escalate");
+    // The list says it waits on the person.
+    let waiting = Instant::now() + Duration::from_secs(5);
+    while !waiting_on_you(&spade, &conversation).await? {
+        if Instant::now() > waiting {
+            return Err("never waiting on the person".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     let (status, _) = spade
         .post(
-            &format!("/v1/conversations/{conversation}/approvals/c2"),
+            &format!("/v1/conversations/{conversation}/approvals/c1"),
             json!({ "allowed": true }),
         )
         .await?;
     assert_eq!(status, 202);
-    settled(&spade, &conversation).await?;
-    assert_eq!(ran(&commands), 1);
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(ran(&commands), 1, "the reviewed call runs once");
+    assert_eq!(
+        calls_of_command(&commands),
+        vec!["rm -rf tests".to_owned()],
+        "exactly the call that was reviewed"
+    );
+    let result = first(&events, "tool_finished").ok_or("no result")?;
+    assert_eq!(result["call_id"], "c1");
+    assert!(
+        !result["content"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("Not run")
+    );
+    // Allow once is no Always allow: the reviewer is asked again next time.
+    assert_eq!(count(&events, "approval_requested"), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_call_the_reviewer_refuses_and_the_person_denies_never_runs_and_the_bot_hears_their_no()
+-> Result {
+    let tool = shell();
+    let commands = calls_of(&tool);
+    let (spade, conversation, _) = stopped_by_the_reviewer(tool).await?;
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/c1"),
+            json!({ "allowed": false }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(ran(&commands), 0);
+    let result = first(&events, "tool_finished").ok_or("no result")?;
+    assert_eq!(result["content"], "The person declined this action.");
+    // What the bot read next is the person's no, not the reviewer's.
+    let next = spade.fake.seen()[2].body.to_string();
+    assert!(next.contains("The person declined this action."), "{next}");
+    assert!(!next.contains("That deletes the tests"), "{next}");
     Ok(())
 }
 
@@ -880,10 +910,12 @@ async fn an_outward_call_after_a_page_read_in_an_earlier_turn_is_reviewed_with_t
     settled(&spade, &conversation).await?;
     // The person's next message doesn't wash the page out of the model's view.
     spade.say(&conversation, "Now file the ticket").await?;
-    let events = spade
-        .wait_for_count(&conversation, "reply_finished", 2)
-        .await?;
-    assert_eq!(count(&events, "approval_requested"), 0);
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    let asked = first(&events, "approval_requested").ok_or("not asked")?;
+    assert_eq!(
+        asked["reviewer_reason"],
+        "The reviewer stopped this: The page asked for it, not the person."
+    );
     let review = spade.fake.seen()[4].body.to_string();
     assert!(review.contains("fetch_page"), "{review}");
     assert!(

@@ -79,7 +79,8 @@ export interface ThreadState {
   rootKey?: Key;
   /** Consumed on first apply, so initialization needs neither time nor ids. */
   initialRoot?: RootAgentInit;
-  processExit?: { deliberate: boolean; message?: string; unsettled?: Key[] };
+  /** `unconfirmed`: the provider never confirmed its close; its process may still run. */
+  processExit?: { deliberate: boolean; message?: string; unsettled?: Key[]; unconfirmed?: true };
   lastTransportSignalAt?: number;
   /** Last clock at which derived statuses were observed, including ticks and control facts. */
   statusObservedAt?: number;
@@ -94,6 +95,8 @@ export interface ThreadState {
   taskHistory: Record<string, BackgroundTask>;
   indexes: LiveIndexes;
   outcomeOrder: number;
+  /** The last run's `seq`; absent until the thread's first run since it existed. */
+  runSeq?: number;
   /** Rejected facts wait for a real fact to establish their root owner. */
   pendingNotices: { createdAt: number; text: string; raw: RawPayload[] }[];
   /**
@@ -109,6 +112,8 @@ export interface ThreadState {
   /** The engine queue is paused by a Stop: its input waits for the person's Resume. */
   queueStopped?: true;
   hasRun: boolean;
+  /** Its work moved to another machine and goes on there (ADR 0191). */
+  movedTo?: Extract<ThreadStatus, { state: "moved" }>["to"];
   status: ThreadStatus;
 }
 

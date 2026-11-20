@@ -16,6 +16,7 @@ import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
 import { Route as SpadeRouteImport } from "./routes/spade"
+import { Route as TrayRouteImport } from "./routes/tray"
 import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
@@ -105,6 +106,11 @@ const SkillsRoute = SkillsRouteImport.update({
 const SpadeRoute = SpadeRouteImport.update({
   id: "/spade",
   path: "/spade",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrayRoute = TrayRouteImport.update({
+  id: "/tray",
+  path: "/tray",
   getParentRoute: () => rootRouteImport,
 } as any)
 const UsageRoute = UsageRouteImport.update({
@@ -402,6 +408,7 @@ export interface FileRoutesByFullPath {
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/spade": typeof SpadeRouteWithChildren
+  "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
   "/chats": typeof HomeChatsRoute
@@ -461,6 +468,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/pair": typeof PairRoute
   "/setup": typeof SetupRoute
+  "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
   "/chats": typeof HomeChatsRoute
@@ -527,6 +535,7 @@ export interface FileRoutesById {
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/spade": typeof SpadeRouteWithChildren
+  "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
   "/_home/chats": typeof HomeChatsRoute
@@ -594,6 +603,7 @@ export interface FileRouteTypes {
     | "/setup"
     | "/skills"
     | "/spade"
+    | "/tray"
     | "/usage"
     | "/archived"
     | "/chats"
@@ -653,6 +663,7 @@ export interface FileRouteTypes {
   to:
     | "/pair"
     | "/setup"
+    | "/tray"
     | "/usage"
     | "/archived"
     | "/chats"
@@ -718,6 +729,7 @@ export interface FileRouteTypes {
     | "/setup"
     | "/skills"
     | "/spade"
+    | "/tray"
     | "/usage"
     | "/_home/archived"
     | "/_home/chats"
@@ -784,6 +796,7 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
   SpadeRoute: typeof SpadeRouteWithChildren
+  TrayRoute: typeof TrayRoute
   UsageRoute: typeof UsageRoute
 }
 
@@ -836,6 +849,13 @@ declare module "@tanstack/react-router" {
       path: "/spade"
       fullPath: "/spade"
       preLoaderRoute: typeof SpadeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/tray": {
+      id: "/tray"
+      path: "/tray"
+      fullPath: "/tray"
+      preLoaderRoute: typeof TrayRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/usage": {
@@ -1396,6 +1416,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,
   SpadeRoute: SpadeRouteWithChildren,
+  TrayRoute: TrayRoute,
   UsageRoute: UsageRoute,
 }
 export const routeTree = rootRouteImport

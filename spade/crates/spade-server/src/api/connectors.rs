@@ -54,7 +54,7 @@ async fn list(State(state): State<AppState>) -> Response {
         Ok(connectors) => connectors,
         Err(response) => return *response,
     };
-    Json(json!({ "catalogue": hub.catalogue(), "connectors": connectors })).into_response()
+    Json(json!({ "catalogue": hub.listed().await, "connectors": connectors })).into_response()
 }
 
 /// Each connector with `bots`: the ids of the bots allowed to use it, in roster order. Spade,

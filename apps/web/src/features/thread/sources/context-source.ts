@@ -11,8 +11,15 @@ import { ContextError, expect, uploadContextFile } from "@/lib/context-requests.
 export { ContextError } from "@/lib/context-requests.ts";
 
 export interface ContextSource {
-  /** Paths in the thread's checkout matching `query`, best first. */
-  complete(thread: ThreadRef, query: string, signal: AbortSignal): Promise<readonly string[]>;
+  /**
+   * Paths in the thread's checkout matching `query`, best first. `ready` is false while
+   * ace-files builds the index; the menu keeps its loading state and asks again.
+   */
+  complete(
+    thread: ThreadRef,
+    query: string,
+    signal: AbortSignal,
+  ): Promise<{ paths: readonly string[]; ready: boolean }>;
   onReleased(listener: (thread: ThreadRef, hash: string) => void): () => void;
   /** Every file the thread stores, newest first, across as many pages as it takes. */
   list(thread: ThreadRef, signal?: AbortSignal): Promise<readonly Attachment[]>;
@@ -55,14 +62,15 @@ export function daemonContextSource(client: ClientApi): ContextSource {
     },
     async complete(thread, query, signal) {
       // A draft whose scope the daemon hasn't granted yet has nothing to complete against.
-      if (thread.draft && !thread.id) return [];
+      if (thread.draft && !thread.id) return { paths: [], ready: true };
       const result = await ask(
         thread.draft
           ? { op: "draft.mention.complete", draftId: thread.id, query, limit: 8 }
           : { op: "mention.complete", threadId: ThreadId.parse(thread.id), query, limit: 8 },
         signal,
       );
-      return expect(result, "completion").paths;
+      const completion = expect(result, "completion");
+      return { paths: completion.paths, ready: completion.ready };
     },
     async upload(thread, file, progress) {
       if (thread.draft && !thread.id)

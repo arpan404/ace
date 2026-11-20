@@ -73,19 +73,18 @@ describe("waiting for a starting daemon", () => {
     expect(h.now()).toBe(950);
   });
 
-  it("polls every 200 ms once the endpoint is published, for a daemon not ready yet", async () => {
+  it("sees a published daemon turn ready within 25 ms, though readiness changes no file", async () => {
     const h = home({ watched: true });
     let found: unknown;
     void waitForDaemon(h.ports, 60_000, () => true).then((daemon) => (found = daemon));
     await h.advance(500);
-    // Published but still starting: its status does not count yet, and readiness changes no file.
+    // Published but still starting: its status does not count yet.
     h.notReady();
     await h.publish();
-    const after = h.lookups();
     await h.advance(600);
-    expect(h.lookups()).toBe(after + 3);
+    expect(found).toBeUndefined();
     h.ready();
-    await h.advance(200);
+    await h.advance(25);
     expect(found).toEqual(local);
   });
 

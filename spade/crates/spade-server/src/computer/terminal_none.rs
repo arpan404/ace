@@ -58,6 +58,14 @@ impl Terminals {
         false
     }
 
+    pub fn read_only_available(&self) -> bool {
+        false
+    }
+
+    pub fn read_only_settles(&self, _command: &str) -> bool {
+        false
+    }
+
     pub fn of(&self, _bot: &str) -> Result<Arc<Terminal>, String> {
         Err(NONE.to_owned())
     }
@@ -93,6 +101,10 @@ impl Terminal {
         std::path::PathBuf::new()
     }
 
+    pub fn start_environment(&self, _session: &str) -> Vec<(String, String)> {
+        Vec::new()
+    }
+
     pub fn attach(
         self: &Arc<Self>,
         _after: u64,
@@ -118,7 +130,10 @@ impl Terminal {
         _command: &str,
         _timeout: Duration,
         _expected: Option<&str>,
-        _outside: bool,
+        _plan: crate::workspace::shell::LaunchPlan,
+        _overrides: &[(String, String)],
+        _settled: bool,
+        _by: crate::workspace::shell::By,
     ) -> Result<Ran, String> {
         Err(NONE.to_owned())
     }

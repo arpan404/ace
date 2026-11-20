@@ -5,6 +5,7 @@
  * schema.org nodes; the site, page and breadcrumb nodes are added here.
  */
 import Breadcrumbs from "../components/site/Breadcrumbs.astro";
+import Backdrop from "../components/site/Backdrop.astro";
 import Footer from "../components/Footer.astro";
 import Nav from "../components/Nav.astro";
 import {
@@ -16,6 +17,7 @@ import {
   website,
   type Node,
 } from "../seo/schema.ts";
+import { cardFor } from "../seo/cards.ts";
 import { markdownPath } from "../seo/markdown.ts";
 import Base from "./Base.astro";
 
@@ -46,7 +48,9 @@ const data = graph([
   structuredData={data}
   ogType={path === "/" ? "website" : "article"}
   markdown={markdownPath(path)}
+  ogImage={cardFor(path)}
 >
+  <Backdrop />
   <Nav />
   {path !== "/" && <Breadcrumbs path={path} />}
   <main>

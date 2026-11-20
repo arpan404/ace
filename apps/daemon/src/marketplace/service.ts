@@ -15,6 +15,7 @@ import type { MarketplaceOptions, MarketRequestPorts } from "./options.ts";
 import { botRecipe, listPublishables, type PickPorts } from "./pick.ts";
 import { withMarketInstalls } from "./pick-ports.ts";
 import { MarketPictures } from "./pictures.ts";
+import { markOwnProfile } from "./own-profile.ts";
 import { publishRequest } from "./publish-request.ts";
 import { saveGitSource, sourcesOf } from "./sources.ts";
 import { spadeSkillFiles, spadeSkills } from "./spade-skills.ts";
@@ -188,6 +189,15 @@ export class MarketplaceService {
     for (const listener of this.#listeners) listener(counts);
   }
 
+  /**
+   * Whether installing the open review `id` for the bytes `hash` lands content only: a Suit or
+   * a Spade skill carrying nothing runnable (ADR 0178 §12.8). Read from the review this daemon
+   * built, never from the request.
+   */
+  installIsContentOnly(id: string, hash: string): boolean {
+    return this.#reviews.contentOnly(id, hash);
+  }
+
   async request(operation: MarketOperation, ports: MarketRequestPorts = {}): Promise<MarketResult> {
     try {
       await this.#gate();
@@ -251,13 +261,29 @@ export class MarketplaceService {
         return this.#reviews.read(operation.id, operation.offset);
       case "install":
         return this.#serial(() =>
-          this.#reviews.install(operation.id, operation.hash, operation.choices),
+          this.#reviews.install(
+            operation.id,
+            operation.hash,
+            operation.choices,
+            ports.withoutPerson === true ? "without-person" : "person",
+          ),
         );
       case "cancel":
         await this.#reviews.cancel(operation.id);
         return { op: "done" };
       case "installed":
         return { op: "installed", installed: this.#installed() };
+      case "turnOnForBots":
+        return this.#serial(async () => {
+          const install = this.#store.install("spade-skill", operation.name);
+          if (!install) return error("not_found", "That skill isn't installed");
+          // Exactly the version the person looked at: one installed since is turned on anew.
+          if (install.hash !== operation.hash)
+            return error("conflict", "A newer version of this skill was installed. Look again.");
+          this.#store.saveInstall({ ...install, approvedHash: install.hash });
+          this.#emit();
+          return { op: "done" };
+        });
       case "prepareUpdate": {
         const install = this.#store.install(operation.type, operation.name);
         if (!install) return error("not_found", "That entry isn't installed");
@@ -296,14 +322,18 @@ export class MarketplaceService {
           operation.handle,
         );
       case "publish":
-        return publishRequest(
-          {
-            http: this.#http(),
-            grant: ports.grant,
-            pick: () => this.#pick(ports.names),
-            suits: () => this.#options.suits(),
-          },
-          operation.request,
+        return markOwnProfile(
+          await publishRequest(
+            {
+              http: this.#http(),
+              grant: ports.grant,
+              personGrant: ports.personGrant,
+              pick: () => this.#pick(ports.names),
+              suits: () => this.#options.suits(),
+            },
+            operation.request,
+          ),
+          this.#marks().badges,
         );
       case "publishables": {
         const pick = this.#pick();

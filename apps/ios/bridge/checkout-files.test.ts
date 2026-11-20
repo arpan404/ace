@@ -86,7 +86,7 @@ async function connect(fake = daemon()) {
   await until(() => owner.state === "ready");
   const lease = owner.thread(thread);
   await until(() => lease.store.thread !== undefined && lease.store.order.length > 0);
-  const files = new CheckoutFiles(owner, async () => ["docs/runbook.md"]);
+  const files = new CheckoutFiles(owner, async () => ({ paths: ["docs/runbook.md"], ready: true }));
   const ask = (operation: unknown, scope: unknown = { threadId: thread }) =>
     files.request(
       NativeFilesRequest.parse({ type: "native.files", scope, operation }),
@@ -94,18 +94,6 @@ async function connect(fake = daemon()) {
     );
   return { fake, ask };
 }
-
-test("the tree lists the checkout with each uncommitted change lettered, deleted files too", async () => {
-  const { ask } = await connect();
-  const tree = await ask({ op: "tree" });
-  const rows = tree.rows as { path: string; depth: number; folder: boolean; mark?: string }[];
-  expect(rows.find((row) => row.path === outbox)).toMatchObject({ depth: 4, mark: "M" });
-  expect(rows.find((row) => row.path === "apps/web/src/relay/legacy.ts")?.mark).toBe("D");
-  expect(rows.find((row) => row.path === "README.md")?.mark).toBeUndefined();
-  // Folders come before files, and the folders holding a change start open.
-  expect(rows[0]).toMatchObject({ path: "apps/", folder: true });
-  expect(tree.open).toEqual(["apps/", "apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
-});
 
 test("a source file reads with the language the phone colours it in and its changed lines marked", async () => {
   const { ask } = await connect();

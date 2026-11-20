@@ -324,6 +324,24 @@ export async function evalWorld(options: {
     /** The scripted model starts a new turn, or ends the one it is in. */
     startTurn: (thread: ThreadId) => emit(thread, start),
     endTurn: (thread: ThreadId) => emit(thread, end),
+    /** A subagent of the scripted model starts a turn of its own. */
+    subagentTurn: (thread: ThreadId, agent: string) =>
+      emit(
+        thread,
+        {
+          type: "agent.seen",
+          agent,
+          parent: "root",
+          spawnedBy: "root",
+          origin: "provider_subagent",
+          fidelity: "full",
+          native: { provider: "claude", nativeId: agent },
+          cwd: "/repo",
+        },
+        { type: "turn.started", agent, nativeTurnId: `${agent}-turn`, trigger: "spawn" },
+      ),
+    /** The person stops the scripted model's turn. */
+    interruptTurn: (thread: ThreadId) => emit(thread, { ...end, outcome: "interrupted" }),
     flush: () => engine.flush(),
     async close() {
       for (const agent of agents) await agent.close().catch(() => {});

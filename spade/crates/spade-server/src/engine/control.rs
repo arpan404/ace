@@ -173,7 +173,7 @@ impl Engine {
         allowed: bool,
         always: bool,
     ) -> Result<(), AnswerError> {
-        if self.store.conversation(id)?.is_none() {
+        if !self.reachable(id)? {
             return Err(AnswerError::NotFound);
         }
         // Check and answer under one lock, so two answers to one approval cannot both land.
@@ -182,10 +182,23 @@ impl Engine {
         let transcript = Transcript::fold(events.iter());
         let awaited = transcript.awaiting.iter().any(|c| c == call_id)
             || transcript.helper_awaiting.iter().any(|(c, _)| c == call_id);
+        // A request a check asked because it couldn't vouch for what a command runs (ADR 0163,
+        // amendment 3) is answered for this call only: never an Always allow, nor the bot's
+        // setting to run its commands outside.
+        let always = always && !answered_once(&events, call_id);
         // "Always for this bot" on a request to run outside the sandbox: the bot's commands run
         // outside it from now on, each reviewed (ADR 0171).
         if awaited && allowed && always && asks_outside(&events, call_id) {
             self.run_commands_outside(id);
+        }
+        // "Allow <app> for this bot" on a driving step: a drive grant for that app or site, so
+        // its next steps are reviewed without asking (ADR 0171, amendment 3).
+        if awaited
+            && allowed
+            && always
+            && let Some(place) = offered_place(&events, call_id)
+        {
+            self.allow_driving(id, &place);
         }
         // A request Spade asked for a reason of its own (outside the sandbox, a tool that
         // declares nothing) is answered for this call only: its "always" is kept elsewhere (the
@@ -220,12 +233,39 @@ impl Engine {
     }
 }
 
+/// Whether the latest request `call_id` was asked by a check whose answer holds once.
+fn answered_once(events: &[Event], call_id: &str) -> bool {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ApprovalRequested {
+            call_id: c,
+            stopped,
+            ..
+        }) if c == call_id => Some(stopped.is_some_and(|stopped| stopped.once())),
+        _ => None,
+    }) == Some(true)
+}
+
 /// Whether the request `call_id` was asked for a reason of Spade's own (`ask`).
 fn asked_for_a_reason(events: &[Event], call_id: &str) -> bool {
     events.iter().any(|event| {
         matches!(event, Event::Known(Known::ApprovalRequested {
             call_id: c, ask: Some(_), ..
         }) if c == call_id)
+    })
+}
+
+/// The app or site a driving step's request offered to allow for the bot: only one it named
+/// (`app`), as it found the step acts.
+fn offered_place(events: &[Event], call_id: &str) -> Option<spade_core::effect::drive::Place> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ApprovalRequested {
+            call_id: c,
+            ask: Some(spade_core::effect::Ask::Drive),
+            app: Some(_),
+            acts_in: Some(place),
+            ..
+        }) if c == call_id => Some((**place).clone()),
+        _ => None,
     })
 }
 

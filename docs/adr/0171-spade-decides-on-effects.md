@@ -185,6 +185,428 @@ denied" joins the sandbox-failure markers. On a kernel without Landlock, or wher
 can't run, Linux keeps the review path with a one-line reason in the sandbox status. Windows is
 unchanged.
 
+## Amendment 3: driving a page or app is reviewed, and asks where it matters (2026-11-17)
+
+Replaces amendment 1's "Driving a page or app is the person's" and removes `drive` from its
+"Person-only effects come first". Decided by the owner (2026-11-17: Spade asked them to approve
+every click, keystroke and scroll of a computer-use session, so a session in an ordinary app was
+a stream of requests). A request for each step taught the person to press Allow without reading,
+which is worse than no request.
+
+- **A step goes to the reviewer.** A `browser_*`, `screen_*` or `sim_*` call ace doesn't mark
+  read-only is still `drive`, and still never runs unreviewed on a grant. Its review is told
+  where it acts and that it acts there as the person, and to escalate a step that sends, pays,
+  buys, changes access or enters a password, or that the person's request doesn't explain. With
+  untrusted content in view the review is the strict one, as for other effects: it checks the
+  step serves the person's request, not that content.
+- **Where it acts, resolved right before the step.** The place is never inferred from earlier
+  answers. Right before the gate decides, Spade asks ace, as the bot and with the call's
+  `machine` and `browser`: for a page, `browser_tabs list`, and the step acts in its `tabId`,
+  else in the tab ace marks `current`; for an app, `screen_apps` with the name given, and the
+  step may act in every app whose name or id holds it (ace opens an app by part of its name).
+  A step that opens an address (`url`) acts where it opens. A `sim_*` step that opens an app or
+  an address acts there, and the device's own operations (start, stop, install, record,
+  posture) act on the device.
+- **Anything Spade can't place goes to the person.** A tab ace doesn't list, a tab still
+  loading (a redirect in flight), a private tab, a page that isn't a web address, a name that
+  matches several apps and none exactly, an answer ace couldn't give within 15 seconds, and
+  input on a simulator or device (a tap, typing, a key, the clipboard: ace reports no app in a
+  device's foreground) are asked, with a line that says which. No grant and no Always allow
+  places them.
+- **The place is checked again right before the step runs.** The gate keeps where it found the
+  step acts, and the request the person answers keeps where they were told it acts (its
+  `acts_in`). Right before the step starts, Spade asks ace again; if the page or app is no
+  longer the same, the step doesn't run (`Not run: the page or app it acts in changed since
+Spade checked it.`) and the bot looks again, so the gate decides on where it acts then. A
+  click that navigates, Back, a redirect or another tab becoming current therefore never
+  carries the place of the page before it.
+- **And inside ace, right before each input.** A page's place is its tab and its whole address
+  (scheme, host, port, path, query and fragment). Spade hands the step to ace with
+  `expect {tabId, url}` (an app with `expect {app}`, its id), where ace's tool takes it. ace
+  checks it when the step's turn comes in the tab's queue (an agent's input can wait there for
+  the person) and again right before every input it sends; on `screen_*` the name must still
+  find that app, and the helper sends every step of the batch, conditions included, to its id.
+  A mismatch fails the step with `place_changed` and nothing more is done. The field is
+  optional: ace's other callers leave it out. The reviewer alone may let a step that sends input
+  to a tab or an app (`browser_act`, `_evaluate`, `_history`, `_measure`, `screen_act`,
+  `_state`) run only where ace's tool takes it: against an older ace the step goes to the person,
+  with a line saying an update lets Spade act there with only its review, and right before it
+  runs a step the reviewer alone let run doesn't run if ace can't hold it after all.
+- **One table of tools and operations.** Where each operation of ace's driving tools acts is
+  one table (`spade_core::effect::drive::table`, shown in spade/docs/autonomy.md): what it acts
+  on in ace, the only fields the gate reads to find it, and whether ace must hold it there. A
+  field an operation ignores (a `url` on a tab's `close`) never moves the place; a tool or
+  operation missing from the table has none. Closing the whole browser (`browser_settings
+close`) has no place either, so the person decides it.
+- **Checked where input leaves, and a script is the person's.** The place is checked in each
+  backend's transport, for every input command of every session it holds, inside the held
+  command's own async context, so the person's input and other commands are never held to it.
+  The check runs with the transport's command slot in hand, right before the write, and asks the
+  page itself where it is first: a real Chromium reports a route a mousedown handler changed only
+  after the press is acknowledged, so the browser's own report alone let a release through. A
+  gesture's end whose press moved the page isn't sent. `browser_evaluate` runs any script the page
+  allows, which no check on its calls confines: unrestricted, it always goes to the person; only
+  ace's side-effect-free mode (`mode: read-only`) may be left to the reviewer.
+- **A dialog's answer acts where the dialog is.** ace sends an answer to the tab that raised
+  the dialog, whichever tab the call names, so Spade places it in that tab (the one whose
+  `pending_dialog` has the call's `dialogId`); a dialog no tab shows asks.
+- **A stored review holds only where it was given.** `call_reviewed` keeps where the step acted
+  when it was reviewed (`acts_in`). A turn resumed after a restart reuses the verdict only if the
+  step acts there now; otherwise, or with no place stored, the step is reviewed again.
+- **The person decides in the places that matter.** A step goes to the person (`ask: drive`)
+  when it acts in mail, messages or chat; a bank, wallet, payment, checkout or cart; a password
+  manager or Keychain; the system's settings; a sign-in, account, security, settings, keys or
+  members page; a social site; a web browser driven through the screen (Spade can't see the
+  site); or a place Spade can't name. The list is `spade_core::effect::drive`: app words and
+  names, hosts and their parent domains, parts of a host (`bank`, `pay`, `login`) and of a path
+  (`/checkout`, `/settings`), of a `#/route` or of a route in the query (`?view=settings`; a search key's plain text, `?q=cheap flights`, doesn't count, but a value there that reads as a route, `?q=/settings` or `?s=checkout`, does). An address is read as a browser reads it (WHATWG
+  parsing with IDNA mapping, so `%70aypal.com` and full-width letters are `paypal.com`, and
+  escapes in a path are decoded). The apps are one table: each word comes with the full names it
+  is found in, and a part of any of them (`cord` for Discord, `ail` for Mail) counts as that
+  app, as does any app ace lists for the name that the table finds. The person's own dev server (a loopback address, `localhost`,
+  `*.localhost`, `*.local`, `*.test`; `127.example.com` is a site like any other) is no one's
+  account. Their Always allow for a driving tool still runs it elsewhere, but not
+  here: in these places each step is theirs.
+- **The reviewer can still ask.** A step it escalates, or one too long for it to read whole,
+  goes to the person, as any reviewed call does.
+- **Allow one app or site for a bot.** A request for a step in a place that isn't sensitive
+  offers "Allow \<app\> for this bot". It answers always and makes a typed grant (ADR 0167
+  decision 5) for the place the request kept: `drive_app {app}` for the app's id as ace lists
+  it, or `drive_site {host}` for the site. An app grant never covers a site and a site grant
+  never an app, whatever their words, and a device or simulator is never granted: a page a
+  simulator opens (`sim_act open_url`) is the device's, so no site grant covers it or is made
+  from it, though it is still read for where it is. Every step on a simulator or device goes to
+  the person, whatever the operation and whatever a grant or an Always allow says: a device place
+  is the person's alone by its kind, so an operation added later can't reach the reviewer. A step
+  ace can't hold to its place asks too, even under an Always allow. An app on this computer whose window
+  shows another device or computer (simulators, emulators, device mirrors, remote desktops and VM
+  apps, and Xcode, Android Studio and QuickTime Player as a whole, since a window can't be told apart) is in the
+  sensitive-app table, so input through the screen tools reaches the person the same way. A step a drive grant covers is still reviewed, told the person allowed the app, and the
+  review escalates only a send, a payment, a purchase, an access change or a password, so the
+  rest of the session there runs without asking. A drive grant is refused at creation for a
+  sensitive place, and one stored by hand covers nothing. The request's always never stores an
+  Always allow for the tool. A `tool` grant still never covers a driving tool: it would cover
+  every page.
+- **ace's own list is ace's.** An app under ace's Apps agents can't use, and the apps ace always
+  refuses (terminals, Keychain Access, Passwords, sign-in prompts), are refused by ace before a
+  step reaches them, whatever Spade decided, so Spade doesn't keep a copy.
+- **Stored events still fold.** `approval_requested` gains `ask: drive`, an optional `app` (the
+  name the card offers to allow) and an optional `acts_in` (the place); a client that doesn't
+  know them shows the usual request, with no always.
+- **What is left.** ace checks the place before each input it sends, not inside the browser's
+  own dispatch of it, so a navigation that starts in the same instant can still take an input.
+  A step the person allows, or allows always, against an ace whose tools don't take `expect`
+  runs with Spade's own check right before handing it over as the last one. Device input asks each step until ace reports which app is in a
+  device's foreground.
+
+Tested in `spade_core::effect` (each place to its route, a granted app, a sensitive one, an
+unplaced step and a tainted one), `spade_core::effect::drive` (the current tab against another
+tab, Back and a redirect, device input, parts of app names, addresses as a browser reads them,
+what may be granted), `spade_core::grant` (an app and a site with the same words) and, through
+the API, in `spade-server/tests/effects.rs` (a click in TextEdit is reviewed, typing in Mail
+asks, allowing TextEdit stops the asking, and a step whose page changed after its review doesn't
+run).
+
+## Amendment 4: the sandbox holds files, not authenticated remote effects (2026-11-18)
+
+Decided by the owner (2026-11-18), after a security review of Full access found it and named the
+same hole on the auto-review. Decision 1 and amendment 1 let a plugin MCP call whose server runs in
+a working sandbox run with no classifier and no reviewer, and a tool there that declares nothing
+run without the first-call ask: the OS boundary was to decide. But a plugin's server starts with
+the environment its entry configures (an API token, say) and, under the default plugin network
+policy, reaches public hosts. Holding its files doesn't hold what it does with that token: it can
+send, post or pay as the person, and nothing looked.
+
+- **An app's tool that can reach the network is decided as on the host, sandboxed or not.** A
+  connector's or plugin's tool whose server isn't sealed (`Call::remote`, from `Tool::hints` and
+  `Tool::sealed`) is routed as if it ran on the host, in every mode: one that declares nothing
+  asks the person on its first call (their answer is kept, as before); one declared as writing
+  (anything not read-only) goes to the reviewer, and Spade's classifier may raise it to the person
+  as usual; one declared read-only runs. The person's Always allow and a `tool` grant still apply
+  as on the host, and sends, payments, access changes and secrets keep their rules. Its arguments
+  are checked for credential places like any call outside the sandbox.
+- **Sealed is contained, held offline and without credentials of its own.** A plugin server is
+  sealed when the sandbox holds it (`contained`), it launches under the sandbox's enforced
+  offline policy, and its entry injects no environment of its own (where tokens go). `sealed`
+  comes from the policy its launch applies (`Confined::offline`), never from a network setting
+  or the absence of a proxy ticket: a run whose policy only lacks the proxy can still connect to
+  a Unix socket in the workspace, and a socket there can forward to any network service. A
+  plugin server whose network is off launches offline wherever the machine holds every boundary
+  (`Runner::holds_offline`):
+  - **Linux:** the launcher's plan is offline (`linux::plan_offline`): Landlock at ABI 3 or
+    later, the seccomp filter refusing `socket` (so nothing is connected, bound or listened on,
+    a workspace Unix socket and loopback included) and the supervisor refusing every address; it
+    may still make connected `socketpair(AF_UNIX)` pairs, which reach nothing outside the run and
+    which runtimes need (Python's asyncio, libuv). The launcher refuses to start an offline plan
+    it can't apply, and descendants inherit the filter.
+  - **macOS:** the normal Seatbelt profile with no network rule at all (`profile_offline`), and
+    none of the Mach services that can reach the network on the run's behalf: no `trustd` or
+    `trustd.agent` (certificate checks fetch issuers, OCSP and CRLs) and no `opendirectoryd`
+    lookups (a Mac bound to a directory sends them to its LDAP or Active Directory servers), as a
+    read-only run has none. It keeps only the system log (`com.apple.system.logger`) and
+    `notifyd` (`com.apple.system.notification_center`), which stay on the machine and which the
+    runtimes a server uses expect at start.
+  - **Windows**, and any machine whose sandbox is partial: no offline launch, so no plugin
+    server is sealed there.
+
+  Spade's own program never runs with a plugin's environment. The Linux launcher, and on macOS
+  the program in front of `sandbox-exec`, start outside the sandbox, and a plugin's entry can
+  name what the system's loader runs before any of Spade's code (`LD_PRELOAD`,
+  `DYLD_INSERT_LIBRARIES`). So such a launch (`Launch::seals_env`) starts that program with the
+  run's variables renamed under a marker (`spade_sandbox::run_env`), which no loader reads, and
+  they are restored only once the sandbox holds the run: on Linux on the command the launcher
+  starts in its confined thread; on macOS by Spade's program run a second time, by `sandbox-exec`,
+  inside Seatbelt (the profile lets it read that one file), so neither `sandbox-exec` nor the
+  outer program ever runs with them. A name that can't be carried exactly (empty, holding `=`, or
+  not UTF-8) stops the launch rather than being dropped. The release's `spade` is also
+  signed with the hardened runtime and no `allow-dyld-environment-variables` entitlement, so
+  dyld ignores `DYLD_*` for it anyway; the carrying doesn't rely on that.
+
+  An offline run, like a read-only one, starts with its stdio alone: every descriptor the
+  process starting it holds above stdio is marked close-on-exec first (`spade_sandbox::fds`), on
+  Linux by the launcher, on macOS by Spade's own program run in front of `sandbox-exec`, so no
+  socket or pipe Spade happened to leave open can carry a sealed server's calls out. The sweep
+  fails closed: if the descriptors can't all be listed and marked, the run doesn't start. Where Spade's
+  own program isn't known, macOS holds nothing offline.
+
+  Only a sealed server's tools keep decision 1's rule: the sandbox decides, with no classifier
+  and no reviewer. Connectors are never sealed: they are remote.
+
+- **Outside the sealing guarantee: local channels.** A sealed server can still write in the
+  bot's workspace, so a process outside it that can reach the network and reads that folder
+  (polling a file, a FIFO) could relay for it. On macOS it can also post and read `notifyd`
+  notifications (kept for the runtimes, above), whose names and states a cooperating local
+  process can watch, so they can carry data too. Sealing doesn't cover that: it takes a
+  cooperating process that isn't sealed and that the bot already controls (its own command, its
+  terminal, a service, another plugin's server), and that process is decided by the gate on its
+  own terms, its network calls by its sandbox and policy, and its outward effects by this ADR's
+  rules. Sealing promises that the sealed server's own calls reach nothing outside the machine,
+  not that nothing else on the machine does.
+- **A classification that fails never widens where a call runs.** A call whose classification
+  runs out of time or fails stays in the sandbox, and one that asked to run outside is refused:
+  an approval to run outside is held to what Spade read the command would run, so it is created,
+  and checked again right before the launch, only from a classification that succeeded; one that
+  fails at the launch refuses the call.
+- **An approval binds an exact, fully read decision; anything incomplete or changed refuses.**
+  - What a command runs is read whole or marked incomplete. Incomplete is anything Spade
+    couldn't read or resolve: a script past the read limit, outside its folder or unreadable; a
+    command that doesn't parse (`$((...))` among it, since arithmetic can run commands); a folder
+    `cd` goes to or a program it can't place; a command name built at run time (`$RUN`, `eval`);
+    a script piped in, or written and then run; a sourced file it can't find; git or make
+    configuration or options that run what it can't read; the reading's budget spent. A call
+    that would run outside the sandbox with an incomplete reading is refused, never asked about,
+    reviewed or run unreviewed. This replaces ADR 0163's rule that a script the reviewer can't be
+    shown goes to the person, for every command that would run outside the sandbox.
+  - A call allowed outside is read again twice before it starts, and doesn't start if any of it
+    is incomplete or differs from what was allowed: once before it waits for its turn, and last
+    by the run itself, after everything it waits on: for a terminal command under the terminal's
+    lock, from the folder and with the variables it starts with, so an earlier command in the
+    same terminal can't rewrite what it runs in between; for a one-shot command right before the
+    spawn.
+  - **Every stored verdict carries the launch it was given for**, and is reused only for that
+    launch or a narrower one (contained only, then as the sandbox finds it, then outside): the
+    person's answer (the approval request's `launch`), a reviewer's or a rule's verdict and the
+    classifier's screening (`call_reviewed.launch`), an Always allow (the request it answered,
+    whether scoped to one command or the whole tool), and a helper's mirror of its bot's. A
+    verdict with no launch recorded (an older build's, even one asked to run outside) and a grant
+    (which records none) hold for a contained launch only. A tool that launches no command (a
+    connector, Spade's own) is a contained launch, so its grants and Always allows hold as
+    before. So a call that would now run anywhere wider than its verdict (the bot's commands
+    moved outside meanwhile, before or across a restart) doesn't run on it: it is reviewed or
+    asked afresh. A word this build doesn't know reads as the narrowest.
+  - Spade's classifier is read once per call, and that one reading routes the call and screens
+    it, so switching the classifier off in between never lets an app's write skip both the
+    screening and the reviewer; one routed counting on a screening that then can't happen goes to
+    the reviewer.
+- **Every launch keeps the gate's decision.** What the gate authorized (outside, only contained,
+  or as the sandbox finds it) is carried to the launch of a one-shot command, a terminal command
+  and an owned service (recorded with the service, so a kept one started again after a restart is
+  held the same way); a run the gate let start only contained is refused wherever nothing holds
+  it (no sandbox, or one that doesn't apply), never run plainly. Helpers and routines run through
+  the same tools; plugin servers and hooks have no gate decision, and a server nothing holds is
+  never sealed.
+- **An app's tool can't write the bot's folder.** An unsealed connector's or plugin's tool
+  declared `write_local` (with a read-only hint or not) is decided as a write outside the bot:
+  reviewed after the person's own checks, never the local-write shortcut.
+- **A person's "no" holds wherever the tool runs.** An undeclared tool the person declined for
+  the bot is refused before any sandbox shortcut, so a plugin server that becomes sealed later
+  doesn't bring a declined tool back.
+
+- **Full access** ([ADR 0163](0163-spade-auto-review-only.md), amendment 2) applies the same
+  rule, then its own: the classifier required for an app's write, the reviewer under untrusted
+  content.
+- **What changes for the person.** A plugin whose server holds a token or reaches the network now
+  has its writes reviewed and its undeclared tools asked about once, as a connector's are. To
+  have a plugin's tools run unreviewed in the sandbox, turn its network off for the bot and give
+  it no token. A command outside the sandbox that Spade can't read whole is refused rather than
+  asked about: the bot writes it plainly or runs it in the sandbox. An Always allow or an answer
+  an older build stored, or one given while the bot's commands ran in the sandbox, asks once
+  more before a command runs outside on it.
+
+Tested in `spade_core::effect` (on the auto-review a sandboxed app tool that can reach the network
+never runs unreviewed; a sealed plugin server's tools keep the sandbox's decision),
+`spade_core::effect::full_access` (the same in Full access), and through the API in
+`spade-server/tests/sandboxed_plugin_tools.rs` (a contained stdio server with an injected token
+and its network on asks on an undeclared tool's first call and has its declared write reviewed,
+in both modes; one sealed offline with no token runs, in both modes), and in the real Linux
+sandbox in `spade-server/tests/sealed_plugin_offline.rs` (a sealed server can't reach a workspace
+Unix socket that forwards to a TCP listener; a server with its network on reaches it and isn't
+sealed). `spade-sandbox` tests the offline plan and profile (the offline profile looks up no
+service that can reach the network), and, with real processes, that a descriptor left open in
+the parent reaches neither an offline nor a read-only run (`inherited_fds.rs` on Linux,
+`seatbelt.rs` on macOS, which also checks `trustd` fetches nothing for an offline run).
+The approval binding is tested in `spade_core::review` (a stored verdict holds only for its
+launch or a narrower one) and `spade_core::autonomy` (a reading that doesn't parse or resolve
+what runs is incomplete), and through the API: a reviewer's allow stored for a contained launch,
+or with none, is reviewed afresh after a restart once the command runs outside
+(`effects.rs`); an approval stored without its launch, and an Always allow given for a contained
+launch or with none, never let a command run outside (`effects.rs`); an outside request Spade
+can't parse is refused and never asked about, and a script an earlier terminal command rewrites
+after the first check doesn't start outside (`security.rs`). `classify-train`'s replay counts an
+incomplete reading as refused, as the server does.
+
+## Amendment 5: one way out of the sandbox (2026-11-18)
+
+Decided after a further security review of Full access, which found four more ways a verdict and
+the launch it let through could come apart: a redirect or an unknown program hid what a command
+ran; a call run on an Always allow carried no binding; a service started where nothing held it
+with nothing checked, and one an older build recorded started again as reviewed; a reviewer's
+refusal stored before a restart ran once the bot was in Full access. Each was a separate path, so
+the fix is one place every path goes through.
+
+- **One check at the spawn.** Every shell run says whose it is (`workspace::shell::By`): a bot's
+  command (one-shot, in its terminal, a service, a helper's or a routine's, which go through the
+  same tools), Spade's own fixed script, or a plugin's hook. A bot's command that nothing holds
+  (asked to run outside, a bot whose commands run outside, a machine with no sandbox, a sandbox
+  that can't hold this run) starts only through `workspace::outside::admit`, called in
+  `Shell::run_from` after everything the run awaits and right before the spawn: for a terminal
+  command under the terminal's lock. It reads what the command runs again from the exact folder
+  and environment it starts with (the bot's own command, not the wrapper the terminal adds),
+  refuses a reading that is incomplete, refuses unless that reading is the one the verdict that
+  let it run was given on, and refuses a launch wider than that verdict's limit (outside, or as
+  found where nothing holds it). A run with no verdict's warrant never starts plainly.
+- **Every verdict carries a warrant**: the launch it was given for and what the command ran then
+  (`Warrant`). A run on the rules, an Always allow, a grant or Spade's classifier carries the
+  reading it was decided on; a reviewer's verdict, fresh or stored, the binding it recorded; the
+  person's answer the binding of the verdict that asked them (each ask stores one first); a
+  service the launch and binding it started on, recorded with it (`service_started.launch`,
+  `bound`). An empty binding is explicit, and holds only while the reading finds nothing of the
+  command's own to run.
+- **What runs is found apart from what it does.** The shell classifier finds every executable
+  whatever the command's effect: a redirect outside the folder is a write outside, and the script
+  the command runs is still read and shown. A bare program name is looked up on the `PATH` the
+  command starts with: one of the system's folders is nothing more to read; a file in the bot's
+  folder is a script it runs, read and shown; anywhere else (the person's toolchain) it is bound
+  by where it is, its size and when it changed. A name `PATH` can't find, a `PATH` with an empty
+  or relative entry, and a command that sets its own `PATH` make the reading incomplete. The tools
+  that read configuration that can name a program for them to run (git, the Node package
+  managers, cargo, ripgrep) have that configuration inspected in each folder they run in, and one
+  that names a program makes the reading incomplete: outside the sandbox it is refused.
+- **Services are read where they start.** A service's command is read from its own folder with
+  the environment a service starts with, at the gate and at the spawn. One started again after a
+  restart is held to the verdict that started it; one an older build recorded no launch for starts
+  only contained, so where nothing holds it, it doesn't start.
+- **A stored refusal stays one.** A verdict stored before a restart or a mode switch decides as it
+  did: in Full access a stored refusal is still a refusal, and a stored question still asks;
+  Spade's classifier's own verdicts stay apart from the reviewer's and the rules'.
+- **Nothing else starts a process unlisted.** A test enumerates every process start in Spade's
+  server and every shell run that isn't a bot's, each with why no verdict applies (Spade's own
+  `cp` and `kill`, the typed outward tools' fixed `git` and `gh`, a plugin's server and hooks, and
+  the shell itself, whose one spawn comes after `admit`); a new one fails it until it goes through
+  the shell or is listed with its reason.
+- **What changes for the person.** Outside the sandbox, a command that runs git in a repository
+  whose configuration runs a program (hooks, an fsmonitor), a program not on its `PATH`, or one
+  that sets its own `PATH` is refused rather than asked about. A kept service from an older build
+  starts again only in the sandbox.
+
+Tested in `spade_core::autonomy::shell` (a script is found and shown though its output goes
+outside; a bare program is found on `PATH` apart from what it does; the tools that read
+configuration are kept with the folder they run in), in `workspace::outside` (a start needs a
+warrant as wide as its launch; a changed script, an empty binding with a script now, an
+incomplete reading, git configuration that runs a program and a replaced toolchain program each
+refuse; a program in the bot's folder is read as a script; and the enumeration of every process
+start), in `confinement.rs` (every way a bot's command starts with nothing holding it refuses
+without a warrant), `outside_launch.rs` (an outside request for git whose configuration runs a
+program is refused, not asked; a script whose output goes outside is still bound; an Always
+allowed command doesn't start once an earlier terminal command rewrote its script; a refusal
+stored before a restart still refuses in Full access) and `services.rs` (a kept service starts
+again only as it was allowed, and one an older build recorded only held).
+
+## Amendment 6: a binding holds content, and Windows resolves only without doubt (2026-11-18)
+
+A further review found the binding of amendment 5 weaker than it read.
+
+- **A program is bound by its content.** A program a command runs from outside the system's
+  protected folders is bound by its real (symlink-resolved) path and the SHA-256 of its content,
+  read whole, at most 512 MiB; one larger, unreadable or gone makes the reading incomplete, so
+  nothing is bound to a placeholder. Size and time stamps no longer stand for content: a rewrite
+  of the same size with the time put back is caught.
+- **Only the operating system's own programs are exempt**, by where their real path is, never by
+  the `PATH` folder they were found through: macOS's `/usr/bin`, `/bin`, `/usr/sbin`, `/sbin` and
+  `/System`; Linux's `/usr/bin`, `/bin`, `/usr/sbin` and `/sbin` where the program and its folder
+  are root's and writable by no one else; Windows' `%SystemRoot%\System32`. Everything else
+  (Homebrew's, `/usr/local`, `/opt`, `/nix`, `/snap`, the person's toolchain, a link from any of
+  them into a folder of the person's) is hashed. A program named by a system-looking path is
+  looked up the same way.
+- **Windows resolves a program only where cmd.exe can't choose otherwise.** cmd.exe looks in the
+  folder the command starts in before `PATH`, and tries `PATHEXT`'s endings. Rather than emulate it
+  wholly, Spade refuses (the reading is incomplete) when a file cmd.exe could take for the name is
+  in that folder, when `PATHEXT` is empty or `PATH` has an empty or relative entry, or when nothing
+  matches; otherwise it binds the first `PATH` folder's match in `PATHEXT`'s order.
+
+Tested in `workspace::place` (cmd.exe's lookup refuses a same-named program in the starting
+folder and follows `PATHEXT`'s order otherwise; only a real path in a protected folder is exempt)
+and `workspace::outside` (a program rewritten to the same size with its time put back is refused;
+one linked from a folder on `PATH` into a folder of the person's is bound by its target's
+content; one too large to read whole is incomplete).
+
+### Outside the sandbox: what the binding can't promise
+
+Accepted with the owner (2026-11-18), in the order of ace's priorities: the control for a command
+outside the sandbox is the decision, the person's or the reviewer's, on what it shows them; the
+content binding is defence in depth behind it, and it has two limits this ADR doesn't close.
+
+- **It isn't race-free.** A concurrent writer (another of the bot's own processes, one of its
+  services, another app on the machine) can change a checked file between `admit` reading it and
+  the moment the shell or interpreter opens it. What ships against that: the terminal's lock (no
+  other command of the bot's runs in that terminal in between), the check at the spawn after
+  every await, and the decision itself. Closing it fully would mean launching from immutable
+  copies of everything a command runs; that is out of scope.
+- **It covers bots' commands only.** A plugin's MCP server and its hooks are a separate trust
+  decision, made when the person installs or enables the plugin (ADR 0151); they run contained
+  wherever the machine has a sandbox, and on a machine without one they start plainly, with no
+  verdict and no binding. The enumeration tests (`workspace::outside`) cover Spade's server
+  crate only: they list every process start and every shell run that isn't a bot's in
+  `spade-server/src`, not in the crates it uses (`spade-sandbox`'s launcher, `spade-connect`'s
+  connectors) or in the daemon.
+
+## Note: Full access (2026-11-18)
+
+This ADR's routes are the auto-review's. [ADR 0163](0163-spade-auto-review-only.md) amendment 2
+adds Full access, opt-in per bot: the same effects and places, the person-only effects first, then
+no reviewer. What amendment 3 sends to the person (sensitive places, simulators and devices, a
+place Spade can't name or ace can't hold) still asks there; what it sends to the reviewer runs.
+
+## Note: what Spade can't vouch for asks the person (2026-11-19)
+
+[ADR 0163](0163-spade-auto-review-only.md) amendment 3 (the owner, 2026-11-19) changes what this
+ADR's checks do when they can't vouch for a command outside the sandbox. Amendments 4 to 6
+refused it; now the person decides, told why in one sentence, and the call waits for them:
+
+- an incomplete reading at the gate (amendment 4's "refused, never asked about", amendment 5's
+  configuration that runs a program, a program `PATH` can't find, a `PATH` the command sets,
+  amendment 6's program too large to read) asks, whatever the route and in both modes;
+- right before the launch, a reading that fails, isn't whole, or no longer matches the verdict's
+  binding doesn't start the call: the person is asked again, on what it runs now, and only their
+  new answer counts.
+
+The binding is unchanged: Allow once is held to the verdict that asked, at the launch and at the
+spawn. A person's Allow on an incomplete reading (`Warrant::incomplete`, theirs alone) lets the
+spawn start a reading still incomplete if what could be read is unchanged; it can't bind what
+couldn't be read, which the request says. A command Spade couldn't read at all when it was decided,
+a race the spawn's own check catches, a declined tool and a secret are still refused; a driving
+step whose place changed is still looked at again by the bot.
+
 ## Options considered
 
 - **Better word lists.** Each fix moved a miss somewhere else, and two lists that disagree still

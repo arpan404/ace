@@ -55,7 +55,7 @@ function setup() {
     async admitDeviceCached() {
       grantChecks++;
       return keyCached
-        ? { admitted: true as const, account: "user_a", expiresAt: now + 300_000 }
+        ? { admitted: true as const, account: "user_a", expiresAt: now + 300_000, person: false }
         : { admitted: false as const, code: "unauthorized" as const, message: "" };
     },
     stillAdmitted: () => true,

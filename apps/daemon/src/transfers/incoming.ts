@@ -1,4 +1,5 @@
 import { GitError, validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
+import { rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
   WorkspaceId,
@@ -21,6 +22,7 @@ import {
   removeIfOwned,
   removeQuietly,
   removeStray,
+  pathExists,
 } from "./files.ts";
 import { neverPlaced } from "./ignored-files.ts";
 import {
@@ -32,6 +34,9 @@ import {
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
 import type { Store } from "../store.ts";
 import type { TransferIdentities } from "./identity.ts";
+import type { LiveTarget } from "./live/target.ts";
+import { incomingParts, incomingPath, legacyIncomingName } from "./incoming-files.ts";
+import { persist } from "./retry.ts";
 
 export interface IncomingDeps {
   store: Store;
@@ -44,14 +49,39 @@ export interface IncomingDeps {
   threads: TargetThreadStarter;
   /** Logical project identity (ADR 0180); without it, this target says it keeps none. */
   identities?: TransferIdentities | undefined;
+  /** Threads moved while working (ADR 0191); without it, this target takes none. */
+  live?: LiveTarget | undefined;
   now(): number;
+  /** Waits between retries of a setup or a start that failed; real time by default. */
+  sleep?(ms: number): Promise<void>;
   log(message: string, fields: Record<string, unknown>): void;
 }
 
 const retentionMs = 24 * 60 * 60 * 1000;
+/**
+ * The asking device as its credential stands right now (`deviceNow` in `serve.ts`): it throws
+ * once the device is revoked or lost `operate` or `projects`. Every write and every state claim
+ * reads it again right before it happens, never across an await (ADR 0101).
+ */
+export type DeviceCheck = () => Device;
 /** The most registrations, most recently used first, a begin reads origins of. */
 const originBudget = 256;
 const settled = new Set(["completed", "failed", "cancelled"]);
+
+/** Runs `each` over every row `page` returns, page after page by transfer id, to the end. */
+async function batches(
+  page: (after: string) => IncomingRecord[],
+  each: (record: IncomingRecord) => Promise<void>,
+): Promise<void> {
+  for (let after = ""; ;) {
+    const batch = page(after);
+    for (const record of batch) await each(record);
+    const last = batch.at(-1);
+    if (!last || batch.length < 64) return;
+    after = last.transferId;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
 
 /** Git failures a person can act on, in their words; the rest are `import_failed`. */
 const gitFailures: Partial<Record<string, { code: string; message: string }>> = {
@@ -107,7 +137,19 @@ export class IncomingTransfers {
   private past = new Set<string>();
   private closed = false;
   private writes = new Map<string, Promise<unknown>>();
+  /** Uploads begun again per transfer since this start (`reopen`); none is the first. */
+  private uploads = new Map<string, number>();
+  /** Cancels still undoing their transfer, so a copy of one answers when it is done. */
+  private cancels = new Map<string, Promise<IncomingTransfer>>();
   private held = new Set<string>();
+  /** Setups and starts being tried again, by key, so each runs once at a time. */
+  private retries = new Set<string>();
+  /** Swept transfers whose files are still being removed: a begin of the same id waits. */
+  private sweeping = new Map<string, Promise<void>>();
+  /** Sweeps running now, whole, so closing waits for each to stop rather than for one removal. */
+  private sweeps = new Set<Promise<void>>();
+  /** Recovery removing files no live transfer owns: a begin waits for it to end. */
+  private strays: Promise<void> | undefined;
   /** Origins and remotes read for begins, kept briefly so repeated begins don't ask Git again. */
   private origins: OriginCache;
   constructor(deps: IncomingDeps) {
@@ -118,51 +160,170 @@ export class IncomingTransfers {
   /** After a restart: imports that were running start again from the file that is still here. */
   async recover(): Promise<void> {
     await ensureDirectory(this.deps.directory);
-    for (const record of this.rows.unsettled()) {
-      // Past the cutoff the result stands: finish setting it up instead of undoing it.
-      if (record.result) {
-        // Left importing when it fails: the next start tries the setup again.
-        await this.complete(record, record.result);
-        continue;
-      }
-      await this.rollback(record);
-      this.import(this.rows.get(record.transferId) ?? record);
-    }
-    // Rows a cancel or failure settled before their rollback finished.
-    for (const record of this.rows.leftovers()) await this.rollback(record);
-    // Files a crash left behind for transfers that are settled or gone.
-    const live = this.rows.live().map((transferId) => `${transferId}.`);
-    await removeStray(this.deps.directory, (name) => live.some((id) => name.startsWith(id)));
+    // Rows from before the side tables are indexed first, in pages (ADR 0170).
+    await this.rows.ready();
+    // A transfer whose upload an earlier build stored under the id itself can't go on here: it
+    // is cancelled before imports start, and the sender starts it again.
+    await this.holdingBegins(() => this.cancelStranded());
+    // Every import a restart left, in batches until none are left.
+    await batches(
+      (after) => this.rows.unsettled(after),
+      async (record) => {
+        // Past the cutoff the result stands: finish setting it up instead of undoing it.
+        if (record.result) {
+          await this.complete(record, record.result);
+          return;
+        }
+        await this.rollback(record);
+        this.import(this.rows.get(record.transferId) ?? record);
+      },
+    );
+    // Moved threads whose first turn a restart interrupted, every one of them.
+    if (this.deps.live)
+      for await (const start of this.deps.live.unfinished()) this.startLive(start.transferId);
+    // Rows a cancel or failure settled before their rollback finished, every one of them.
+    await batches(
+      (after) => this.rows.leftovers(after),
+      (record) => this.rollback(record),
+    );
+    // Files a crash left behind, and the old-named files of transfers cancelled above.
+    await this.holdingBegins(() => this.removeStrays());
     await this.sweep();
+  }
+  /**
+   * Runs `run` with no transfer beginning meanwhile (`strays`), so the live rows it reads are all
+   * there are until it ends, and a chunk only ever writes for one of them. It reads only live
+   * rows, a page at a time, and one directory listing, so begins wait briefly.
+   */
+  private async holdingBegins(run: () => Promise<void>): Promise<void> {
+    const running = run();
+    this.strays = running;
+    try {
+      await running;
+    } finally {
+      this.strays = undefined;
+    }
+  }
+  /** Every name a transfer still receiving or importing owns here, from all of those rows. */
+  private async liveNames(): Promise<Set<string>> {
+    const names = new Set<string>();
+    await batches(
+      (after) => this.rows.live(after),
+      async (record) => {
+        for (const part of incomingParts)
+          names.add(basename(incomingPath(this.deps.directory, record.transferId, part)));
+      },
+    );
+    return names;
+  }
+  /**
+   * Cancels each live transfer with a part only under the name an earlier build gave it (the id
+   * with the suffix) and none under its hashed name. Such a file is never renamed or read: an old
+   * name can be another transfer's (`x.ignored.part`, or an id that is another's hash), so a name
+   * any live transfer owns now is never taken for an old one. The old files go with the strays.
+   */
+  private async cancelStranded(): Promise<void> {
+    const owned = await this.liveNames();
+    const stranded: string[] = [];
+    await batches(
+      (after) => this.rows.live(after),
+      async (record) => {
+        for (const part of incomingParts) {
+          const name = legacyIncomingName(record.transferId, part);
+          if (owned.has(name)) continue;
+          if (!(await pathExists(join(this.deps.directory, name)))) continue;
+          if (await pathExists(incomingPath(this.deps.directory, record.transferId, part)))
+            continue;
+          stranded.push(record.transferId);
+          return;
+        }
+      },
+    );
+    for (const transferId of stranded) {
+      const cancelled = this.rows.claim(
+        transferId,
+        ["receiving", "cloning", "importing"],
+        {
+          state: "cancelled",
+          error: {
+            code: "transfer_cancelled",
+            message:
+              "This machine's ace was updated while the transfer waited, and its upload can't be used. Start the transfer again.",
+          },
+        },
+        this.deps.now(),
+      );
+      if (cancelled)
+        this.deps.log("Transfer cancelled: its upload is under an old name", { transferId });
+    }
+  }
+  /**
+   * Every name a transfer still receiving or importing owns, worked out from all of those rows,
+   * is kept; anything else (a settled or unknown transfer's, or an old name) goes. Each file is
+   * decided by its exact name against that set; names are never parsed back to an id.
+   */
+  private async removeStrays(): Promise<void> {
+    const kept = await this.liveNames();
+    await removeStray(this.deps.directory, (name) => kept.has(name));
   }
   /** Stops importing; a restart rolls back what an import made and runs it again. */
   async close(): Promise<void> {
     this.closed = true;
+    this.deps.live?.close();
     for (const controller of this.running.values()) controller.abort();
-    await Promise.allSettled([...this.imports.values(), ...this.writes.values()]);
+    await Promise.allSettled([
+      ...this.imports.values(),
+      ...this.writes.values(),
+      ...this.cancels.values(),
+      ...this.sweeps,
+    ]);
   }
   private file(transferId: string) {
-    return join(this.deps.directory, `${transferId}.part`);
+    return incomingPath(this.deps.directory, transferId, "code");
   }
   /** The archive of files Git ignores, uploaded beside the code (`part=ignored`). */
   private ignoredFile(transferId: string) {
-    return join(this.deps.directory, `${transferId}.ignored.part`);
+    return incomingPath(this.deps.directory, transferId, "ignored");
+  }
+  /** A live move's final payload: what changed after the bulk, and the session (ADR 0191). */
+  private finalFile(transferId: string) {
+    return incomingPath(this.deps.directory, transferId, "final");
   }
   private async removeFiles(transferId: string) {
     await removeQuietly(this.file(transferId));
     await removeQuietly(this.ignoredFile(transferId));
+    await removeQuietly(this.finalFile(transferId));
+    await rm(this.finalFolder(transferId), { recursive: true, force: true });
+  }
+  /** Where a live move's final payload is unpacked (ADR 0191), under the transfer's stem. */
+  private finalFolder(transferId: string) {
+    return incomingPath(this.deps.directory, transferId, "finalFolder");
   }
   async view(record: IncomingRecord): Promise<IncomingTransfer> {
     const receiving = record.state === "receiving";
+    const live =
+      record.begin.live && this.deps.live ? this.deps.live.state(record.transferId) : undefined;
+    // A moved thread is answered completed only once its first turn's start is known.
+    const starting =
+      record.commit?.live && record.state === "completed" && live?.running === undefined;
     return {
       transferId: record.transferId,
-      state: record.state,
+      state: starting ? "importing" : record.state,
       method: record.method,
       offset: receiving ? await fileBytes(this.file(record.transferId)) : 0,
       // Always present: this machine takes ignored files.
       ignoredOffset: receiving ? await fileBytes(this.ignoredFile(record.transferId)) : 0,
       ...(record.hasOrigin === undefined ? {} : { hasOrigin: record.hasOrigin }),
       ...(this.deps.identities ? { identity: true as const } : {}),
+      ...(record.begin.live && this.deps.live
+        ? {
+            live: {
+              finalOffset: receiving ? await fileBytes(this.finalFile(record.transferId)) : 0,
+              ...(live?.running === undefined ? {} : { running: live.running }),
+              ...(live ? { session: live.session } : {}),
+            },
+          }
+        : {}),
       ...(record.result ? { result: record.result } : {}),
       ...(record.error ? { error: record.error } : {}),
     };
@@ -174,22 +335,43 @@ export class IncomingTransfers {
       throw new TargetRefusal("not_found", "This machine has no such transfer.");
     return record;
   }
+  /** The device `check` reads now, refused unless it is still the one that asked. */
+  private still(device: Device, check: DeviceCheck): void {
+    if (check().id !== device.id)
+      throw new TargetRefusal(
+        "machine_forbidden",
+        "This machine's link isn't paired here anymore.",
+      );
+  }
   async call(
     device: Device,
     call: Exclude<MachineTransferCall, { op: "probe" }>,
+    check: DeviceCheck = () => device,
   ): Promise<IncomingTransfer> {
+    // A moved thread's transfer whose row retention dropped is answered from its receipt, so a
+    // lost answer and a repeat never land it twice (ADR 0191).
+    const receipt = this.rows.get(call.transferId)
+      ? undefined
+      : this.deps.live?.receipt(call.transferId, device.id);
+    if (receipt) return receipt;
     switch (call.op) {
       case "begin":
-        return this.begin(device, call);
+        return this.begin(device, call, check);
       case "status":
         return this.view(this.owned(device, call.transferId));
       case "commit":
-        return this.commit(device, call);
+        return this.commit(device, call, check);
       case "cancel":
         return this.cancel(device, call.transferId);
     }
   }
-  private async begin(device: Device, call: TransferBegin): Promise<IncomingTransfer> {
+  private async begin(
+    device: Device,
+    call: TransferBegin,
+    check: DeviceCheck,
+  ): Promise<IncomingTransfer> {
+    if (call.live && !this.deps.live)
+      throw new TargetRefusal("invalid", "This machine can't take a working thread.");
     if (call.remote) (this.deps.gitPolicy?.validateUrl ?? validateCloneUrl)(call.remote.url);
     const existing = this.rows.get(call.transferId);
     if (existing) return this.view(this.owned(device, call.transferId));
@@ -199,6 +381,22 @@ export class IncomingTransfers {
       call.method === "remote" && call.remote
         ? await this.sameOrigin(call.remote.normalized)
         : this.earlierCopy(device, call);
+    // A sweep still removing the files of an expired transfer with this id finishes first, so
+    // it never removes the files of the transfer this begin starts.
+    // So does recovery's removal of strays, which decides from the live rows as they stand: a
+    // row this begin made meanwhile would not be among them, and its upload would go.
+    for (
+      let waiting = this.sweeping.get(call.transferId) ?? this.strays;
+      waiting;
+      waiting = this.sweeping.get(call.transferId) ?? this.strays
+    )
+      await waiting.catch(() => undefined);
+    const again = this.rows.get(call.transferId);
+    if (again) return this.view(this.owned(device, call.transferId));
+    // Awaited above: this machine may be shutting down, or the device may have lost the scopes
+    // a transfer needs, meanwhile. Nothing starts once closing began.
+    if (this.closed) throw new TargetRefusal("unavailable", "This machine is shutting down.");
+    this.still(device, check);
     const record: IncomingRecord = {
       transferId: call.transferId,
       deviceId: device.id,
@@ -209,7 +407,13 @@ export class IncomingTransfers {
       ...(reused ? { workspaceId: reused } : {}),
       updatedAt: this.deps.now(),
     };
-    this.rows.insert(record, this.deps.now());
+    try {
+      this.rows.insert(record, this.deps.now());
+    } catch (error) {
+      // Another copy of this begin, sent on another route, inserted it first: that row stands.
+      if (this.rows.get(call.transferId)) return this.view(this.owned(device, call.transferId));
+      throw error;
+    }
     this.deps.log("Transfer from another machine", {
       transferId: call.transferId,
       device: device.name,
@@ -282,25 +486,41 @@ export class IncomingTransfers {
     transferId: string,
     offset: number,
     data: Buffer,
-    part: "code" | "ignored" = "code",
+    part: "code" | "ignored" | "final" = "code",
+    check: DeviceCheck = () => device,
   ) {
     const record = this.owned(device, transferId);
     if (data.length > transferChunkBytes) throw new TargetRefusal("invalid", "Chunk too large.");
     if (record.state !== "receiving")
       throw new TargetRefusal("invalid", "This transfer isn't receiving bytes.");
     if (this.closed) throw new TargetRefusal("unavailable", "This machine is shutting down.");
-    const file = part === "ignored" ? this.ignoredFile(transferId) : this.file(transferId);
-    const other = part === "ignored" ? this.file(transferId) : this.ignoredFile(transferId);
+    const files = {
+      code: this.file(transferId),
+      ignored: this.ignoredFile(transferId),
+      final: this.finalFile(transferId),
+    };
+    if (part === "final" && !record.begin.live)
+      throw new TargetRefusal("invalid", "This transfer has no final payload.");
+    const file = files[part];
+    const others = Object.values(files).filter((path) => path !== file);
     const previous = this.writes.get(transferId) ?? Promise.resolve();
     // Serialised per transfer, so the cap counts both payloads as they stand before this write.
     const write = previous.then(async () => {
       const held = await fileBytes(file);
-      if (held === offset && held + data.length + (await fileBytes(other)) > maxTransferBytes)
+      let rest = 0;
+      for (const path of others) rest += await fileBytes(path);
+      if (held === offset && held + data.length + rest > maxTransferBytes)
         throw new TargetRefusal(
           "invalid",
           "The transfer is larger than a transfer may be (20 GiB with the files Git ignores).",
         );
-      return appendAt(file, offset, data);
+      // Read again right before the bytes go in: a write queued behind others, or waiting on
+      // the disk, may run after the device lost its scopes, and then never appends.
+      return appendAt(file, offset, data, () => {
+        this.still(device, check);
+        if (this.rows.get(transferId)?.state !== "receiving")
+          throw new TargetRefusal("invalid", "This transfer isn't receiving bytes.");
+      });
     });
     this.writes.set(
       transferId,
@@ -308,20 +528,23 @@ export class IncomingTransfers {
     );
     return { offset: await write };
   }
-  private async commit(device: Device, call: TransferCommit): Promise<IncomingTransfer> {
+  private async commit(
+    device: Device,
+    call: TransferCommit,
+    check: DeviceCheck,
+  ): Promise<IncomingTransfer> {
     const record = this.owned(device, call.transferId);
     if (record.state !== "receiving") return this.view(record);
+    // What it checks below is this upload's; one reopened meanwhile is another (`reopen`).
+    const upload = this.upload(call.transferId);
     const file = this.file(call.transferId);
     if (call.file) {
       const bytes = await fileBytes(file);
       if (bytes !== call.file.bytes)
         throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.file.bytes} bytes.`);
       if ((await fileDigest(file)) !== call.file.sha256) {
-        await this.removeFiles(call.transferId);
-        this.settle(record.transferId, "failed", {
-          code: "transfer_corrupt",
-          message: "The file arrived damaged. Start the transfer again.",
-        });
+        if (this.claimCorrupt(device, check, call.transferId, upload))
+          await this.removeFiles(call.transferId);
         return this.view(this.owned(device, call.transferId));
       }
     } else if (record.method !== "remote")
@@ -335,11 +558,19 @@ export class IncomingTransfers {
         throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.ignored.bytes} bytes.`);
       // Checked before anything is written; the names inside are never read until it matches.
       if ((await fileDigest(ignored)) !== call.ignored.sha256) {
-        await this.removeFiles(call.transferId);
-        this.settle(record.transferId, "failed", {
-          code: "transfer_corrupt",
-          message: "The file arrived damaged. Start the transfer again.",
-        });
+        if (this.claimCorrupt(device, check, call.transferId, upload))
+          await this.removeFiles(call.transferId);
+        return this.view(this.owned(device, call.transferId));
+      }
+    }
+    if (call.final) {
+      const final = this.finalFile(call.transferId);
+      const bytes = await fileBytes(final);
+      if (bytes !== call.final.bytes)
+        throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.final.bytes} bytes.`);
+      if ((await fileDigest(final)) !== call.final.sha256) {
+        if (this.claimCorrupt(device, check, call.transferId, upload))
+          await this.removeFiles(call.transferId);
         return this.view(this.owned(device, call.transferId));
       }
     }
@@ -347,33 +578,77 @@ export class IncomingTransfers {
     const byIdentity = call.identity
       ? await this.identityLanding(record, call.identity)
       : undefined;
-    this.rows.update(
-      call.transferId,
-      { state: "importing", commit: call, ...(byIdentity ? { workspaceId: byIdentity } : {}) },
-      this.deps.now(),
-    );
+    // Awaited above: a cancel, or another copy of this commit, may have moved it on meanwhile,
+    // and the device may have lost its scopes. Only a transfer still receiving the upload it
+    // checked is claimed, for a device that may still send it, so only one copy ever claims it.
+    // Nothing is awaited between these checks and the claim.
+    if (this.upload(call.transferId) === upload) this.still(device, check);
+    const claimed =
+      this.upload(call.transferId) === upload &&
+      this.rows.claim(
+        call.transferId,
+        ["receiving"],
+        { state: "importing", commit: call, ...(byIdentity ? { workspaceId: byIdentity } : {}) },
+        this.deps.now(),
+      );
+    if (!claimed) return this.view(this.owned(device, call.transferId));
     const importing = this.owned(device, call.transferId);
     this.import(importing);
     return this.view(importing);
   }
   private import(record: IncomingRecord): void {
-    if (this.running.has(record.transferId) || this.closed) return;
+    const { transferId } = record;
+    if (this.running.has(transferId) || this.closed) return;
     const controller = new AbortController();
-    this.running.set(record.transferId, controller);
-    const flight = this.run(record, controller.signal).finally(() => {
-      this.running.delete(record.transferId);
-      this.imports.delete(record.transferId);
-      this.past.delete(record.transferId);
+    this.running.set(transferId, controller);
+    const flight: Promise<void> = (async () => {
+      let again = false;
+      try {
+        again = await this.run(record, controller.signal);
+      } finally {
+        this.running.delete(transferId);
+        this.past.delete(transferId);
+      }
+      // Reopened only once this import has left: the next commit's import can start.
+      if (again) await this.reopen(transferId);
+    })().finally(() => {
+      if (this.imports.get(transferId) === flight) this.imports.delete(transferId);
     });
-    this.imports.set(record.transferId, flight);
+    this.imports.set(transferId, flight);
   }
-  private async run(record: IncomingRecord, signal: AbortSignal): Promise<void> {
+  /**
+   * Origin's history isn't usable here: the sender sends the whole repository instead. The old
+   * upload goes first; then a new upload starts (`uploads`), so a commit validated against the
+   * old one never claims it.
+   */
+  private async reopen(transferId: string): Promise<void> {
+    await removeQuietly(this.file(transferId));
+    if (this.closed) return;
+    this.uploads.set(transferId, this.upload(transferId) + 1);
+    this.rows.claim(
+      transferId,
+      ["importing"],
+      { state: "receiving", method: "bundle", hasOrigin: false, commit: undefined },
+      this.deps.now(),
+    );
+  }
+  /** Which upload of the transfer a commit validates; a reopened transfer starts the next. */
+  private upload(transferId: string): number {
+    return this.uploads.get(transferId) ?? 0;
+  }
+  /** Lands the work; true when it must be sent again as a full bundle (`reopen`). */
+  private async run(record: IncomingRecord, signal: AbortSignal): Promise<boolean> {
     const file = this.file(record.transferId);
     const hasFile = Boolean(record.commit?.file);
     const ignored = record.commit?.ignored ? this.ignoredFile(record.transferId) : undefined;
     let ignoredSkipped = 0;
     const mine: string[] = [];
+    const commit = record.commit;
+    const live = commit?.live && this.deps.live ? this.deps.live : undefined;
+    const folder = this.finalFolder(record.transferId);
     try {
+      if (live && commit?.final)
+        await live.unpack(this.finalFile(record.transferId), folder, signal);
       const landed = await landTransfer(
         {
           git: this.deps.git,
@@ -387,6 +662,12 @@ export class IncomingTransfers {
             this.rows.update(record.transferId, change, this.deps.now());
           },
           attempt: String(this.deps.now()),
+          ...(live && commit
+            ? {
+                delta: (path: string, held: { directoryFd: number } | undefined) =>
+                  live.delta(folder, record.transferId, commit, path, held),
+              }
+            : {}),
           // Ignored files go in once the checkout is there, never over a file it already has.
           ...(ignored
             ? {
@@ -405,22 +686,33 @@ export class IncomingTransfers {
               throw new TransferError("transfer_cancelled", "The transfer was cancelled.");
             this.past.add(record.transferId);
           },
-          created: (result) =>
+          created: (result) => {
             this.rows.update(
               record.transferId,
               { result: { ...result, ...(ignored ? { ignoredSkipped } : {}) } },
               this.deps.now(),
-            ),
+            );
+            // Past the cutoff, in the thread's own transaction: this machine owns it now.
+            if (live && commit?.live && result.threadId)
+              live.own({
+                transferId: record.transferId,
+                threadId: result.threadId,
+                live: commit.live,
+                from: { hostId: record.begin.origin.hostId, name: record.begin.origin.hostName },
+              });
+          },
         },
         record,
         hasFile ? file : undefined,
         signal,
       );
+      await this.prepareLive(record, landed);
       this.finish(this.rows.get(record.transferId) ?? record, {
         ...landed,
         ...(ignored ? { ignoredSkipped } : {}),
       });
       await this.removeFiles(record.transferId);
+      this.startLive(record.transferId);
     } catch (error) {
       const current = this.rows.get(record.transferId) ?? record;
       // Past the cutoff, the result stands and is never rolled back: what failed came after it
@@ -428,43 +720,127 @@ export class IncomingTransfers {
       // otherwise the row stays importing and the next start finishes it.
       if (current.result) {
         await this.complete(current, current.result);
-        return;
+        return false;
       }
       // Landing undid what it made; a crash mid-way is undone by the next start.
       await this.rollback(current);
       // Shutting down: the row stays importing, and the next start runs it again.
-      if (this.closed) return;
-      if (current.state !== "importing") return;
-      if (error instanceof NeedsFullBundle && current.method === "remote") {
-        // Origin's history isn't usable here: the sender sends the whole repository instead.
-        await removeQuietly(file);
-        this.rows.update(
-          record.transferId,
-          { state: "receiving", method: "bundle", hasOrigin: false, commit: undefined },
-          this.deps.now(),
-        );
-        return;
-      }
-      await this.removeFiles(record.transferId);
-      this.settle(record.transferId, "failed", failure(error));
+      if (this.closed) return false;
+      // Each outcome is claimed from the row as it is now, not as it was before the rollback: a
+      // cancel that came meanwhile stands.
+      if (error instanceof NeedsFullBundle && current.method === "remote") return true;
+      const failed = this.rows.claim(
+        record.transferId,
+        ["importing"],
+        { state: "failed", error: failure(error) },
+        this.deps.now(),
+      );
+      if (failed) await this.removeFiles(record.transferId);
     } finally {
       for (const path of mine) this.held.delete(path);
     }
+    return false;
   }
   /** `finish`, keeping the row importing (for the next start) when the setup fails again. */
   private async complete(
     record: IncomingRecord,
     result: NonNullable<IncomingRecord["result"]>,
   ): Promise<void> {
-    try {
-      this.finish(record, result);
+    const setUp = async () => {
+      await this.prepareLive(record, result);
+      this.finish(this.rows.get(record.transferId) ?? record, result);
       await this.removeFiles(record.transferId);
+      this.startLive(record.transferId);
+    };
+    try {
+      await setUp();
     } catch (error) {
       this.deps.log("Transfer setup not finished", {
         transferId: record.transferId,
         error: String(error),
       });
+      // Tried again without a restart until it goes: the transfer never completes without its
+      // handoff and its link back, and the sender waits for it (ADR 0191).
+      void this.retrying(`setup:${record.transferId}`, setUp, Number.POSITIVE_INFINITY);
     }
+  }
+  /** Retries `run` in the background, once per key at a time; see `persist`. */
+  private retrying(
+    key: string,
+    run: () => Promise<void>,
+    attempts: number,
+    giveUp: (error: unknown) => Promise<void> | void = () => undefined,
+  ): Promise<void> {
+    if (this.retries.has(key)) return Promise.resolve();
+    this.retries.add(key);
+    return persist({
+      attempts,
+      run,
+      giveUp,
+      sleep: this.deps.sleep ?? realSleep,
+      closed: () => this.closed,
+      log: this.deps.log,
+      label: key,
+    })
+      .catch((error: unknown) => this.deps.log("Retry ended", { key, error: String(error) }))
+      .finally(() => this.retries.delete(key));
+  }
+  /**
+   * A moved thread (ADR 0191): its carried session placed, or the summary chosen, before its
+   * setup; the bulk's own capture ref removed. A restart repeats it with the same outcome.
+   */
+  private async prepareLive(record: IncomingRecord, landed: NonNullable<IncomingRecord["result"]>) {
+    const live = this.deps.live;
+    const carried = record.commit?.live;
+    if (!live || !carried || !landed.threadId) return;
+    await live.prepare({
+      transferId: record.transferId,
+      deviceId: record.deviceId,
+      method: record.method,
+      threadId: landed.threadId,
+      result: landed,
+      live: carried,
+      folder: this.finalFolder(record.transferId),
+    });
+    await live.tidy(carried, landed.path);
+  }
+  /** Sends a moved thread's first turn and watches it start; the status answer waits for it. */
+  private startLive(transferId: string): void {
+    const record = this.rows.get(transferId);
+    const live = this.deps.live;
+    const commit = record?.commit;
+    if (!record || !live || !commit?.live || !commit.thread || !record.result?.threadId) return;
+    // Only a thread whose setup finished starts: its handoff and its link back are in place.
+    // An unfinished setup starts it itself once done, or records why it never did.
+    if (record.state !== "completed") return;
+    const threadId = record.result.threadId;
+    const result = record.result;
+    const thread = commit.thread;
+    const carried = commit.live;
+    // Tried again without a restart; when it keeps failing the start is recorded as not
+    // started, so the sender is answered and never waits on it (ADR 0191).
+    void this.retrying(
+      `start:${transferId}`,
+      () =>
+        live.start({
+          transferId,
+          live: carried,
+          from: record.begin.origin.hostName,
+          path: result.path,
+          handoff: thread.handoff,
+        }),
+      8,
+      (error) =>
+        live.giveUp({
+          transferId,
+          deviceId: record.deviceId,
+          method: record.method,
+          threadId,
+          result,
+          from: record.begin.origin.hostName,
+          reason: `its first turn couldn't be started here (${String(error).slice(0, 120)})`,
+        }),
+    );
   }
   /** Completes an import past its cutoff: the thread's setup and the row in one transaction. */
   private finish(record: IncomingRecord, landed: NonNullable<IncomingRecord["result"]>): void {
@@ -483,8 +859,9 @@ export class IncomingTransfers {
     // The row and the record of where the project landed commit together.
     const complete = () =>
       this.deps.store.atomic(() => {
-        this.rows.update(
+        this.rows.claim(
           record.transferId,
+          ["importing"],
           {
             state: "completed",
             result,
@@ -506,6 +883,8 @@ export class IncomingTransfers {
       this.deps.threads.setUp(
         {
           threadId: result.threadId,
+          // A carried session holds the whole conversation: no summary in front of it.
+          handoff: this.deps.live?.state(record.transferId)?.session.kind !== "native",
           thread,
           machine: { hostId: record.begin.origin.hostId, name: record.begin.origin.hostName },
         },
@@ -552,12 +931,32 @@ export class IncomingTransfers {
       this.deps.now(),
     );
   }
-  private settle(
+  /**
+   * A damaged upload fails the transfer, unless something else claimed it first or the upload
+   * checked is no longer the transfer's: a commit of an upload reopened since (`reopen`) never
+   * fails the new one or removes its files. Claimed before its files go, so a commit or cancel
+   * that came meanwhile keeps its own.
+   */
+  private claimCorrupt(
+    device: Device,
+    check: DeviceCheck,
     transferId: string,
-    state: "failed" | "cancelled",
-    error?: { code: string; message: string },
-  ) {
-    this.rows.update(transferId, { state, ...(error ? { error } : {}) }, this.deps.now());
+    upload: number,
+  ): boolean {
+    if (this.upload(transferId) !== upload) return false;
+    this.still(device, check);
+    return this.rows.claim(
+      transferId,
+      ["receiving"],
+      {
+        state: "failed",
+        error: {
+          code: "transfer_corrupt",
+          message: "The file arrived damaged. Start the transfer again.",
+        },
+      },
+      this.deps.now(),
+    );
   }
   /**
    * Cancel works until the import's cutoff: the thread being made or, without one, everything
@@ -566,6 +965,9 @@ export class IncomingTransfers {
    */
   async cancel(device: Device, transferId: string): Promise<IncomingTransfer> {
     const record = this.owned(device, transferId);
+    // A copy of a cancel still undoing the transfer answers once that is done.
+    const undoing = this.cancels.get(transferId);
+    if (undoing) return undoing;
     if (settled.has(record.state)) return this.view(record);
     const flight = this.imports.get(transferId);
     if (this.past.has(transferId) || record.result) {
@@ -579,19 +981,58 @@ export class IncomingTransfers {
         "The transfer can no longer be cancelled: the work is landing on this machine.",
       );
     }
-    this.rows.update(transferId, { state: "cancelled" }, this.deps.now());
-    this.running.get(transferId)?.abort();
-    await flight;
-    await this.writes.get(transferId);
-    await this.rollback(this.owned(device, transferId));
-    await this.removeFiles(transferId);
-    return this.view(this.owned(device, transferId));
-  }
-  /** Settled rows and their files go after 24 hours. */
-  private async sweep(): Promise<void> {
-    for (const record of this.rows.expired(this.deps.now() - retentionMs)) {
-      await this.removeFiles(record.transferId);
-      this.rows.delete(record.transferId);
+    // Claimed from the row as it is: a transfer another call settled meanwhile keeps that.
+    if (
+      !this.rows.claim(
+        transferId,
+        ["receiving", "cloning", "importing"],
+        { state: "cancelled" },
+        this.deps.now(),
+      )
+    )
+      return this.view(this.owned(device, transferId));
+    const undo = (async () => {
+      this.running.get(transferId)?.abort();
+      await flight;
+      await this.writes.get(transferId);
+      await this.rollback(this.owned(device, transferId));
+      await this.removeFiles(transferId);
+      return this.view(this.owned(device, transferId));
+    })();
+    this.cancels.set(transferId, undo);
+    try {
+      return await undo;
+    } finally {
+      this.cancels.delete(transferId);
     }
   }
+  /** Settled rows and their files go after 24 hours. */
+  private sweep(): Promise<void> {
+    const run = this.sweepExpired().finally(() => this.sweeps.delete(run));
+    this.sweeps.add(run);
+    return run;
+  }
+  /** The sweep itself; it starts no removal once closing began (`close` waits for the rest). */
+  private async sweepExpired(): Promise<void> {
+    for (const record of this.rows.expired(this.deps.now() - retentionMs)) {
+      if (this.closed) return;
+      const { transferId } = record;
+      if (this.sweeping.has(transferId)) continue;
+      // Claimed before its files go: a row a commit or cancel moved on meanwhile stays. Until
+      // they are gone the id is held (`sweeping`): a begin of it waits instead of making a row
+      // whose files this would remove.
+      if (!this.rows.expire(transferId, record.state, record.updatedAt)) continue;
+      const removing = this.removeFiles(transferId).finally(() => this.sweeping.delete(transferId));
+      this.sweeping.set(transferId, removing);
+      await removing;
+    }
+  }
+}
+
+/** Real time between retries; nothing waits on it at exit. */
+function realSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref();
+  });
 }

@@ -14,7 +14,7 @@ rule that a worker never has more than its parent and
 
 ## Context
 
-Every Spade bot runs on the auto-review (ADR 0163). Today the shell classifier, a word list for
+Every Spade bot runs on the auto-review (ADR 0163; since its amendment 2 a person may put one bot in Full access, which skips the reviewer but keeps every boundary here and the hard stops). Today the shell classifier, a word list for
 credentials and the reviewer are the only things between a bot and the person's machine, and ADR
 0144 says so plainly: the classifier is a guard rail, not a sandbox. So every shell command goes
 to the reviewer, a turn that read untrusted content is held for every write after it, and shell
@@ -134,7 +134,12 @@ filesystem and network isolation are both required.
    - `pr_comment {repo, own_only}`: comment on pull requests in a repo, or only on ones the bot
      opened;
    - `folder {path, write}`: a consented project folder, read-only or read-write in the sandbox;
-   - `tool {tool, arguments}`: one tool, with each named argument matching a pattern.
+   - `tool {tool, arguments}`: one tool, with each named argument matching a pattern;
+   - `drive_app {app}` and `drive_site {host}`: steps in one app (by its id) or on one site,
+     still reviewed but without asking the person
+     ([ADR 0171](0171-spade-decides-on-effects.md) amendment 3). One kind never covers the
+     other, a device is never granted, a sensitive place (mail, chat, money, passwords,
+     settings, sign-in pages) can't be, and no `tool` grant covers a driving tool.
 
    Patterns are globs: `*` matches within a segment, `**` across `/`. A call a grant covers runs
    without a review while no untrusted content is in view. Under taint it's still reviewed, with

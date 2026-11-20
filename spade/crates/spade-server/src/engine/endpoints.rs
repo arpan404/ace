@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use spade_models::base_url::{self, same_origin};
-use spade_models::{Capability, Endpoint, Format, Listed, Model, ModelError, Role};
+use spade_models::{Capability, Endpoint, Format, Listed, Model, ModelError};
 use spade_store::{StoreError, StoredEndpoint, StoredModel};
 
 use super::Engine;
@@ -69,7 +69,19 @@ pub struct ModelInput {
 #[derive(Debug, Clone)]
 pub struct EndpointView {
     pub stored: StoredEndpoint,
-    pub models: Vec<(Model, String)>,
+    pub models: Vec<ShownModel>,
+}
+
+/// A model as the person's settings show it: where it came from, and only the facts someone
+/// stated (the person, the endpoint's own list or a preset). Spade's guesses for a model it
+/// knows nothing about (a context size, tools) run calls but are never shown as facts.
+#[derive(Debug, Clone)]
+pub struct ShownModel {
+    pub model: Model,
+    pub source: String,
+    pub context: Option<u64>,
+    /// `None` when nobody said what it can do.
+    pub capabilities: Option<Vec<Capability>>,
 }
 
 fn invalid(text: impl Into<String>) -> EndpointError {
@@ -158,19 +170,41 @@ impl Engine {
 
     /// The endpoint's models: what the person saved, then its preset's models they did not
     /// save, each with its facts resolved and where it came from.
-    fn models_of(&self, stored: &StoredEndpoint) -> Vec<(Model, String)> {
+    fn models_of(&self, stored: &StoredEndpoint) -> Vec<ShownModel> {
         let preset = self.preset_of(stored);
-        let mut models: Vec<(Model, String)> = stored
+        let mut models: Vec<ShownModel> = stored
             .models
             .iter()
-            .map(|m| (self.model_of(preset, m), m.source.clone()))
+            .map(|m| self.shown_of(preset, m))
             .collect();
         for shipped in preset.map(|p| p.models.as_slice()).unwrap_or_default() {
             if !stored.models.iter().any(|m| m.id == shipped.id) {
-                models.push((shipped.clone(), "preset".to_owned()));
+                models.push(ShownModel {
+                    context: shipped.context,
+                    capabilities: Some(shipped.capabilities.clone()),
+                    model: shipped.clone(),
+                    source: "preset".to_owned(),
+                });
             }
         }
         models
+    }
+
+    /// A saved model with the facts someone stated about it, apart from Spade's guesses.
+    fn shown_of(&self, own: Option<&Endpoint>, saved: &StoredModel) -> ShownModel {
+        let model = self.model_of(own, saved);
+        let preset = own
+            .and_then(|p| p.models.iter().find(|m| m.id == saved.id))
+            .or_else(|| self.models.catalog().facts(&saved.id));
+        let context = saved.context.or_else(|| preset.and_then(|p| p.context));
+        let capabilities =
+            (saved.capabilities.is_some() || preset.is_some()).then(|| model.capabilities.clone());
+        ShownModel {
+            context,
+            capabilities,
+            source: saved.source.clone(),
+            model,
+        }
     }
 
     fn endpoint_of(&self, stored: &StoredEndpoint) -> Option<Endpoint> {
@@ -184,7 +218,11 @@ impl Engine {
             key_env: stored.key_env.clone(),
             headers: stored.headers.clone(),
             session_header: stored.session_header.clone(),
-            models: self.models_of(stored).into_iter().map(|(m, _)| m).collect(),
+            models: self
+                .models_of(stored)
+                .into_iter()
+                .map(|m| m.model)
+                .collect(),
         })
     }
 
@@ -215,26 +253,25 @@ impl Engine {
         }
     }
 
-    /// The model a new agent gets when none is chosen: the person's first usable model, else the
-    /// presets' main role.
-    /// A default chosen without reading any key: the first saved model, else the presets'
-    /// main role.
+    /// A default chosen without reading any key: the first model of the person's endpoints, or
+    /// "" when they have none. Never a preset's model: a model the person hasn't set up can't
+    /// answer, so with none the bot waits for them to choose one.
     pub(super) fn keyless_default_model(&self) -> String {
         self.models
             .endpoints()
             .iter()
             .find_map(|e| e.models.first().map(|m| format!("{}/{}", e.id, m.id)))
-            .or_else(|| self.models.for_role(Role::Main).map(str::to_owned))
             .unwrap_or_default()
     }
 
+    /// The model a new agent gets when none is chosen: the person's first usable model (an
+    /// endpoint with its key), or "" when they have none yet.
     pub fn default_model(&self) -> String {
         let endpoints = self.models.endpoints();
         endpoints
             .iter()
             .filter(|e| self.models.has_key(e))
             .find_map(|e| e.models.first().map(|m| format!("{}/{}", e.id, m.id)))
-            .or_else(|| self.models.for_role(Role::Main).map(str::to_owned))
             .unwrap_or_default()
     }
 

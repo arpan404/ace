@@ -42,6 +42,11 @@ import Observation
         let label: String
         let moving: Bool
     }
+    /// "2 questions for later" in the top bar, and the oldest such card it goes to.
+    struct Later: Decodable, Equatable, Sendable {
+        let words: String
+        let callId: String
+    }
     struct Conversation: Decodable, Equatable, Sendable {
         let id: String
         let loaded: Bool
@@ -49,6 +54,7 @@ import Observation
         /// A reply is open: Stop is offered, and a message steers it.
         let answering: Bool
         let working: Working?
+        let later: Later?
     }
     struct End: Decodable, Equatable, Sendable {
         let text: String
@@ -59,6 +65,7 @@ import Observation
         case person(text: String, sending: Bool, attached: String?)
         case bot(text: String, live: Bool, end: End?)
         case ask(callId: String, sentence: String, detail: String?, reason: String?, always: Bool)
+        case question(SpadeQuestionCard)
         case note(text: String)
 
         private enum Keys: String, CodingKey { case kind, text, sending, attached, live, end, callId, sentence, detail, reason, always }
@@ -77,6 +84,8 @@ import Observation
                             detail: try box.decodeIfPresent(String.self, forKey: .detail),
                             reason: try box.decodeIfPresent(String.self, forKey: .reason),
                             always: try box.decodeIfPresent(Bool.self, forKey: .always) ?? false)
+            case "question":
+                self = .question(try SpadeQuestionCard(from: decoder))
             default:
                 self = .note(text: text)
             }
@@ -120,9 +129,14 @@ import Observation
     /// The conversation `order` and `bubbles` belong to.
     private var bubblesOf: String?
 
+    /// The cards of questions sent from the phone, kept beyond any one view.
+    let cards = SpadeCards()
+
     /// Whether the Spade tab shows, and the conversation it follows: sent again to a new
     /// runtime (`ClientModel.spadeResume`).
     var watching = false
+    /// The app's scene is active, as the bridge was last told (`spadeActive`).
+    var active = true
     var opened: String?
 
     func apply(_ patch: Patch) {
@@ -141,6 +155,7 @@ import Observation
         case .row(let id, let key, let bubble):
             belong(to: id)
             if bubbles[key] != bubble { bubbles[key] = bubble }
+            if case let .question(card) = bubble { cards.saw(card, in: id) }
         }
     }
 
@@ -153,7 +168,8 @@ import Observation
         if conversation?.id != id { conversation = nil }
     }
 
-    /// Another machine's runtime: nothing of this one's Spade applies.
+    /// A new runtime: its Spade is read again. Cards (their drafts and locks) are kept here: only
+    /// another machine resets them (`SpadeCards.reset`).
     func reset() {
         shown = nil; line = nil; bots = nil; listFailed = false
         belong(to: nil)
@@ -166,8 +182,10 @@ struct SpadeOutcome: Decodable, Sendable {
     let ok: Bool
     let title: String?
     let message: String?
-    init(ok: Bool, title: String? = nil, message: String? = nil) {
-        self.ok = ok; self.title = title; self.message = message
+    /// A card of questions: the question that needs more, by its place in the card.
+    let at: Int?
+    init(ok: Bool, title: String? = nil, message: String? = nil, at: Int? = nil) {
+        self.ok = ok; self.title = title; self.message = message; self.at = at
     }
     /// Why it failed, in one line; nil when it went.
     var problem: String? {

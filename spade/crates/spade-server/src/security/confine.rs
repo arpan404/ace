@@ -129,20 +129,35 @@ impl Confine for Security {
                     .clone()
                     .ok_or_else(|| "Spade's own program is unknown".to_owned())?;
                 spade_sandbox::windows::run::wrap(&launcher, &plan, program, args)
+                    .map(|(program, args)| spade_sandbox::Launch {
+                        program,
+                        args,
+                        seals_env: false,
+                    })
                     .map_err(|error| format!("the sandbox could not start: {error}"))
             })
         };
+        // A plugin's server with its network off is held offline where the machine can enforce
+        // it fully (ADR 0171, amendment 4): what the launch applies is what makes it sealed.
+        #[cfg(not(windows))]
+        let offline =
+            ticket.is_none() && matches!(kind, Kind::Plugin { .. }) && self.runner.holds_offline();
+        #[cfg(windows)]
+        let offline = false;
         #[cfg(not(windows))]
         let launch: crate::workspace::shell::Launcher = Box::new(move |program, args| {
-            runner
-                .wrap(&policy, program, args)
-                .map(|launch| (launch.program, launch.args))
-                .map_err(|error| format!("the sandbox could not start: {error}"))
+            let launched = if offline {
+                runner.wrap_offline(&policy, program, args)
+            } else {
+                runner.wrap(&policy, program, args)
+            };
+            launched.map_err(|error| format!("the sandbox could not start: {error}"))
         });
 
         // Windows: when the run ends (its processes gone, so no open handle survives revocation),
         // the hold stops the bridge and takes back the run's ACL grants and its profile. The
         // rollback guard made above now becomes that run-end cleanup.
+        let watch = ticket.as_ref().map(spade_sandbox::egress::Ticket::watch);
         #[cfg(windows)]
         let hold: Box<dyn std::any::Any + Send + Sync> = Box::new((ticket, bridge_hold, run_hold));
         #[cfg(not(windows))]
@@ -153,6 +168,8 @@ impl Confine for Security {
             env,
             path_first,
             hold,
+            watch,
+            offline,
         })))
     }
 
@@ -161,6 +178,94 @@ impl Confine for Security {
             return false;
         };
         self.bot_containment(&bot).0
+    }
+
+    fn read_only_available(&self) -> bool {
+        // A read-only settled command runs only where every boundary holds (ADR 0172, amendment
+        // 7), never half-confined. Windows has no read-only profile yet, so it never advertises one.
+        #[cfg(windows)]
+        {
+            false
+        }
+        #[cfg(not(windows))]
+        {
+            self.runner.status().contains()
+        }
+    }
+
+    fn read_only_settles(&self, command: &str) -> bool {
+        // The command settles only if every program it runs resolves on the clean PATH (ADR 0172,
+        // amendment 7): otherwise it would fail "command not found" inside the sandbox, so it goes
+        // to the reviewer instead.
+        super::read_only::resolve(command, &self.home).is_some()
+    }
+
+    fn read_only(&self, home: &Path, command: &str) -> Result<Confined, String> {
+        if self.bot_of(home).is_none() {
+            return Err("this conversation has no bot".to_owned());
+        }
+        if !self.runner.status().contains() {
+            return Err("this machine can't fully confine a read-only command".to_owned());
+        }
+        // The extra read roots and PATH folders the command's own programs need, resolved outside
+        // the sandbox (Homebrew/Cargo prefixes; on macOS the active developer dir). `None` means a
+        // program couldn't be resolved, so the command must not run here.
+        let Some(reads) = super::read_only::resolve(command, &self.home) else {
+            return Err(
+                "a program this command runs could not be resolved on the clean PATH".to_owned(),
+            );
+        };
+        // A read-only policy: the workspace and the system paths readable, nothing writable, no
+        // network (ADR 0172, amendment 7). No consented folders, no proxy ticket, no scratch; the
+        // resolved program roots go in `also_read`, read-only.
+        let policy = Policy::build(&Facts {
+            home: self.home.clone(),
+            spade_data: self.spade_data.clone(),
+            ace_data: self.ace_data.clone(),
+            workspace: home.to_path_buf(),
+            folders: Vec::new(),
+            toolchains: Vec::new(),
+            also_read: reads.reads,
+            scratch: Vec::new(),
+            proxy_port: None,
+        });
+        // A read-only run writes nowhere, so Spade makes no temporary folder for it. Creating one
+        // before the sandbox applies would follow a symlinked `.spade` out of the folder (finding
+        // 5). `TMPDIR` points at the bot's folder: it exists and is readable, so a program that
+        // queries it (git, which otherwise warns about `DARWIN_USER_TEMP_DIR` and falls back to
+        // `/tmp`) resolves cleanly, and the sandbox still makes it unwritable, so a program that
+        // tries to write scratch fails closed rather than writing outside.
+        // Read-only sandboxing of a settled command is Unix-only for now; Windows reviews it.
+        #[cfg(windows)]
+        {
+            let _ = (policy, reads.path_first, home);
+            return Err("Spade has no read-only sandbox for Windows yet".to_owned());
+        }
+        #[cfg(not(windows))]
+        {
+            let env = vec![("TMPDIR".to_owned(), home.to_string_lossy().into_owned())];
+            let path_first = reads
+                .path_first
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
+            let runner = self.runner.clone();
+            let launch: crate::workspace::shell::Launcher = Box::new(move |program, args| {
+                runner
+                    .wrap_read_only(&policy, program, args)
+                    .map_err(|error| format!("the sandbox could not start: {error}"))
+            });
+            Ok(Confined {
+                launch,
+                env,
+                path_first,
+                hold: Box::new(()),
+                // No network, so nothing goes through the proxy to watch.
+                watch: None,
+                // A settled read-only command, not a plugin's server.
+                offline: false,
+            })
+        }
     }
 
     fn review(&self, home: &Path, kind: &Kind) -> Option<String> {

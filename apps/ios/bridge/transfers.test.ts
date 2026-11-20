@@ -1,5 +1,5 @@
 import { facts } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
+import { HostId, ThreadId } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { until } from "./sheet-fixture.ts";
 import { forecast, linkedMac, said, workspace } from "./transfer-fixture.ts";
@@ -84,14 +84,20 @@ test("Continue on carries the thread there: sending with Cancel, then done with 
   });
 });
 
-test("Continue on can't be offered while the thread is working, and comes back once it stops", async () => {
+test("Continue on is offered while the thread works, and not once its work moved", async () => {
   const app = await mac();
   app.openThread();
   await until(() => app.thread()?.canContinue === true, "settled");
   app.daemon.apply("thread-forecast", [facts.rootAgent("claude"), facts.turn("root")]);
-  await until(() => app.thread()?.canContinue === false, "working");
-  app.daemon.apply("thread-forecast", [facts.endTurn("root")]);
-  await until(() => app.thread()?.canContinue === true, "done");
+  await until(() => app.thread()?.canContinue === true, "offered while working");
+  app.daemon.apply("thread-forecast", [
+    facts.endTurn("root"),
+    {
+      type: "thread.moved",
+      to: { hostId: HostId.parse("studio"), name: "Studio", threadId: ThreadId.parse("there") },
+    },
+  ]);
+  await until(() => app.thread()?.canContinue === false, "moved");
 });
 
 test("Cancel stops the transfer, and the line says so with Try again", async () => {

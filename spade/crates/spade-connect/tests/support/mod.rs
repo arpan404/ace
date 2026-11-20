@@ -65,14 +65,16 @@ pub fn spade_shipping(url: &str, apps: Vec<spade_connect::App>) -> Result<Spade>
         source: "https://example.com/docs".into(),
         via: None,
         local: true,
-        effects: Default::default(),
-        every_tool: None,
+        ..Default::default()
     });
     spade_with_apps(Duration::from_secs(600), None, apps, catalogue, None)
 }
 
 /// Spade with Spade Cloud at `cloud`, and a catalogue entry [`FAKE_ENTRY`] for the fake app at
 /// `url` marked `via: "cloud"`. `signed_in`: whether this machine is signed in to ace.
+/// The `ace-client` name the Spade under test sends its cloud.
+pub const SPADE_CLIENT: &str = "spade/0.0.24-beta.1";
+
 pub fn spade_with_cloud(url: &str, cloud: &str, signed_in: bool) -> Result<Spade> {
     let mut catalogue = spade_connect::catalogue::shipped();
     catalogue.push(spade_connect::Entry {
@@ -84,12 +86,12 @@ pub fn spade_with_cloud(url: &str, cloud: &str, signed_in: bool) -> Result<Spade
         source: "https://example.com/docs".into(),
         via: Some(spade_connect::Via::Cloud),
         local: true,
-        effects: Default::default(),
-        every_tool: None,
+        ..Default::default()
     });
     let cloud = spade_connect::Cloud {
         url: cloud.to_owned(),
         credential: Arc::new(FakeAccount(signed_in)),
+        ace_client: Some(SPADE_CLIENT.into()),
     };
     spade_with_apps(
         Duration::from_secs(600),

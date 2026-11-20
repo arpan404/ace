@@ -1,18 +1,20 @@
-import type { SafeRoot } from "@ace/workspace";
 import type { FileOperation } from "@ace/protocol";
 import { archiveDownload, previewArchive, type Preview } from "./archive.ts";
 import { newId } from "./filesystem.ts";
+import type { FilesIo } from "./io.ts";
 import { FileError, type FilesOptions } from "./types.ts";
 import type { FileRequestLifetime } from "./request-lifetime.ts";
 
 export class ArchivePreviews {
   private readonly entries = new Map<string, Preview>();
   private scanning = 0;
-  private readonly safe: SafeRoot;
+  private readonly io: FilesIo;
+  private readonly root: string;
   private readonly options: FilesOptions;
   private readonly lifetime: FileRequestLifetime;
-  constructor(safe: SafeRoot, options: FilesOptions, lifetime: FileRequestLifetime) {
-    this.safe = safe;
+  constructor(io: FilesIo, root: string, options: FilesOptions, lifetime: FileRequestLifetime) {
+    this.io = io;
+    this.root = root;
     this.options = options;
     this.lifetime = lifetime;
   }
@@ -25,7 +27,8 @@ export class ArchivePreviews {
     try {
       preview = await this.lifetime.walk((signal) =>
         previewArchive(
-          this.safe,
+          this.io,
+          this.root,
           operation.path,
           operation.includeIgnored,
           newId(this.options.id),
@@ -49,7 +52,7 @@ export class ArchivePreviews {
     const preview = this.entries.get(id);
     if (!preview || preview.expires <= this.options.now())
       throw new FileError("EXPIRED", "Archive preview expired");
-    return archiveDownload(this.safe, preview);
+    return archiveDownload(this.io, this.root, preview);
   }
   sweep(): void {
     for (const [id, preview] of this.entries)

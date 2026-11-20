@@ -104,15 +104,37 @@ pub fn bound(events: &[Event], call_id: &str) -> Option<String> {
     })
 }
 
-/// A verdict already stored for the call, so a call is reviewed once even across a restart.
-pub fn stored(events: &[Event], call_id: &str) -> Option<(Verdict, String)> {
+/// A verdict already stored for the call, so a call is reviewed once even across a restart:
+/// only one given for a launch at least as wide as `launch` (a verdict for a contained run never
+/// stands for one outside the sandbox; one with no recorded launch is contained only).
+pub fn stored(
+    events: &[Event],
+    call_id: &str,
+    launch: crate::event::Authorized,
+) -> Option<(Verdict, String)> {
+    stored_at(events, call_id, None, launch)
+}
+
+/// A verdict already stored for the call, reused only where it was given: for a driving step,
+/// the place it acts in now must be the one it was reviewed at; a verdict with no place, or
+/// another, is no verdict for it. Any other call has no place, as when it was reviewed.
+pub fn stored_at(
+    events: &[Event],
+    call_id: &str,
+    acts_in: Option<&crate::effect::drive::Place>,
+    launch: crate::event::Authorized,
+) -> Option<(Verdict, String)> {
     events.iter().rev().find_map(|event| match event {
         Event::Known(Known::CallReviewed {
             call_id: c,
             verdict,
             reason,
+            acts_in: reviewed,
+            launch: given,
             ..
-        }) if c == call_id => Some((*verdict, reason.clone())),
+        }) if c == call_id => (reviewed.as_deref() == acts_in
+            && crate::event::Authorized::stored(*given).covers(launch))
+        .then(|| (*verdict, reason.clone())),
         _ => None,
     })
 }
@@ -168,7 +190,7 @@ fn cut(text: &str, longest: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{FromAgent, Known};
+    use crate::event::{Authorized, FromAgent, Known};
 
     #[test]
     fn only_writes_the_gate_would_run_are_reviewed() {
@@ -240,5 +262,84 @@ mod tests {
             vec!["Don't pay for anything", "a", "b"],
             "the latest few, across the tree"
         );
+    }
+
+    #[test]
+    fn a_stored_verdict_holds_only_where_the_step_was_reviewed() {
+        use crate::effect::drive::{Place, site};
+        let page = |url: &str| site(url).place.ok();
+        let (docs, gmail) = (
+            page("https://docs.rs/serde"),
+            page("https://mail.google.com/"),
+        );
+        let reviewed = |acts_in: Option<Place>| {
+            vec![Event::Known(Known::CallReviewed {
+                reply: "r".into(),
+                call_id: "c1".into(),
+                name: "browser_act".into(),
+                verdict: Verdict::Allow,
+                reason: String::new(),
+                model: "m".into(),
+                cost_micros: 0,
+                bound: None,
+                acts_in: acts_in.map(Box::new),
+                launch: None,
+            })]
+        };
+        let allowed = Some((Verdict::Allow, String::new()));
+        let at_docs = reviewed(docs.clone());
+        assert_eq!(
+            stored_at(&at_docs, "c1", docs.as_ref(), Authorized::Contained),
+            allowed
+        );
+        // The page changed between the review and the start, as across a restart: no verdict.
+        assert_eq!(
+            stored_at(&at_docs, "c1", gmail.as_ref(), Authorized::Contained),
+            None
+        );
+        // A verdict stored with no place (an older build) is none for a driving step.
+        assert_eq!(
+            stored_at(&reviewed(None), "c1", docs.as_ref(), Authorized::Contained),
+            None
+        );
+        // Any other call has no place, as when it was reviewed.
+        assert_eq!(
+            stored_at(&reviewed(None), "c1", None, Authorized::Contained),
+            allowed
+        );
+    }
+
+    #[test]
+    fn a_stored_verdict_holds_only_for_its_launch_or_a_narrower_one() {
+        let reviewed = |launch: Option<Authorized>| {
+            vec![Event::Known(Known::CallReviewed {
+                reply: "r".into(),
+                call_id: "c1".into(),
+                name: "shell".into(),
+                verdict: Verdict::Allow,
+                reason: String::new(),
+                model: "m".into(),
+                cost_micros: 0,
+                bound: None,
+                acts_in: None,
+                launch,
+            })]
+        };
+        let allowed = Some((Verdict::Allow, String::new()));
+        use Authorized::{AsFound, Contained, Outside};
+        // Given for a contained run: never for one outside, as after the bot's commands moved.
+        let contained = reviewed(Some(Contained));
+        assert_eq!(stored(&contained, "c1", Contained), allowed);
+        assert_eq!(stored(&contained, "c1", AsFound), None);
+        assert_eq!(stored(&contained, "c1", Outside), None);
+        // Given for one outside: it holds for anything narrower too.
+        let outside = reviewed(Some(Outside));
+        for launch in [Contained, AsFound, Outside] {
+            assert_eq!(stored(&outside, "c1", launch), allowed, "{launch:?}");
+        }
+        // No launch recorded (an older build): contained only.
+        let older = reviewed(None);
+        assert_eq!(stored(&older, "c1", Contained), allowed);
+        assert_eq!(stored(&older, "c1", Outside), None);
     }
 }

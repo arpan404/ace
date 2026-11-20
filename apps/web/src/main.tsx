@@ -1,4 +1,5 @@
 import { nextFrame } from "./lib/next-frame.ts";
+import { windowSessionStorage } from "./boot/window-session.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
@@ -57,7 +58,8 @@ import "./styles/index.css";
 // A browser that denies site data throws on the first touch of storage; ace then starts with
 // storage that lasts for this window instead of failing before it can say anything.
 const local = webStorage(() => localStorage);
-const session = webStorage(() => sessionStorage);
+// The ace account session in it stays in this window's memory (ADR 0190, `window-session.ts`).
+const session = windowSessionStorage();
 const environment = {
   storage: local,
   matchMedia: (query: string) => matchMedia(query),
@@ -72,6 +74,12 @@ const environment = {
   windowBackground: (value: { mode: string; light: string; dark: string }) =>
     setDesktopWindowBackground(value),
   suitsOff: suitsOffForSession(location.search, session),
+  // Another window's change to this origin's saved settings (its look among them).
+  onStorage: (listener: (key: string | null) => void) => {
+    const changed = (event: StorageEvent) => listener(event.key);
+    addEventListener("storage", changed);
+    return () => removeEventListener("storage", changed);
+  },
 };
 // Windows desktop app: the OS light/dark mode comes from the app (`desktop-color-scheme.ts`),
 // asked before the first render so a reload after a Windows switch starts in the right scheme.

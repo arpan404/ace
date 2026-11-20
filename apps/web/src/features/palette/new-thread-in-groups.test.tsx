@@ -139,6 +139,23 @@ test("a project only an offline machine has stays listed, marked offline, and ca
   expect(screen.getByRole("dialog", { name: "New thread in" })).toBeTruthy();
 });
 
+test("a machine's list is read again when it reconnects, so a change made meanwhile shows", async () => {
+  const { made, there } = world({ linked: true });
+  let step = await openStep(made);
+  await waitFor(async () =>
+    expect(await projectRows(step)).toEqual(["weatherThis Mac · Build server"]),
+  );
+  await userEvent.keyboard("{Escape}");
+  // The build server drops off; its checkout is unlinked there while this window can't hear.
+  made.crashMachine("build");
+  made.machines.get("build")?.projects.identities.unlink(there);
+  await made.pool().reconnect("build");
+  step = await reopenStep();
+  await waitFor(async () =>
+    expect(await projectRows(step)).toEqual(["weatherThis Mac", "weatherBuild server"]),
+  );
+});
+
 test("an offline checkout of a linked project is listed but is never the default or chosen", async () => {
   const { made } = world({ linked: true });
   const second = add(made.daemon, "/Users/dev", "/Users/dev/work/weather-2");

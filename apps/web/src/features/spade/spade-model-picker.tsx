@@ -241,18 +241,26 @@ function ModelOption(props: {
 }
 
 /**
- * A model from one endpoint, for first-run setup where the endpoint is already chosen: its live
- * list merged with saved ones, searchable, or a typed id.
+ * A model from one endpoint, where the endpoint is already chosen (first-run setup, Add a model):
+ * its live list merged with saved ones, from the same read the chat's picker makes, searchable,
+ * or a typed id. `omit` leaves out ids already there (the endpoint's saved models).
  */
 export function SpadeModelChoice(props: {
   endpoint: SpadeEndpoint;
   model: string;
   id?: string | undefined;
   label?: string | undefined;
+  omit?: readonly string[] | undefined;
+  /** Open at once, when the person asked for the list. */
+  opened?: boolean | undefined;
   onChange(model: string): void;
 }) {
-  const [open, setOpen] = useState(false);
-  const { models, live } = useEndpointModels(props.endpoint);
+  const [open, setOpen] = useState(props.opened === true);
+  const listed = useEndpointModels(props.endpoint);
+  const { live } = listed;
+  const models = props.omit
+    ? listed.models.filter((model) => !props.omit?.includes(model.id))
+    : listed.models;
   const sources: SpadeModelSources = {
     endpoints: [{ endpoint: props.endpoint, models }],
     subscriptions: [],

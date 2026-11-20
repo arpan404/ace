@@ -2,7 +2,9 @@
 
 Status: accepted. Date: 2026-11-15. Decided by: the owner (2026-11-15: Spade has only one access
 mode, auto-review; Ask and Full access go). Amends [ADR 0144](0144-spade-autonomous-bots.md)
-decisions 1–5, 7 and 8; amended by its own amendment 1 (payments and sends go to the person).
+decisions 1–5, 7 and 8; amended by its own amendment 1 (payments and sends go to the person),
+amendment 2 (Full access comes back as an opt-in mode, with the hard stops first) and amendment 3
+(what Spade's judges stop goes to the person, never back to the bot as a no).
 Follows the research behind the Spade harness audit (a reviewer that
 never sees the bot's own text; refusals go back to the bot; repeated refusals go to the person).
 
@@ -99,6 +101,221 @@ publish can still run on the reviewer's approval alone. Tests: the routing table
 `spade_core::autonomy`; through the API, a payment and a send never run on a reviewer's approval
 and reach the person (the send's Always allow then holds), a worker's payment reaches the
 person, and a publish is still reviewed.
+
+## Amendment 2: Full access, opt-in per bot, with the hard stops first (2026-11-18)
+
+Decided by the owner (2026-11-18). Decision 1 made the auto-review the only way a bot decides.
+Since then ADR 0167 and ADR 0171 built the containment the auto-review was standing in for (the OS
+sandbox, typed tools that hold the person's sign-ins, effects declared once, places for driving),
+so a bot whose person wants it to work without a reviewer can do that without the risks that made
+`full_access` go: what Spade can't let a model or a guess decide stays the person's.
+
+1. **A second mode.** A bot decides by the **auto-review** (every bot's default, new and existing)
+   or by **Full access**. It is a security setting (`autonomy`, beside `commands` in
+   `security:<bot>`), not the retired `access` level: stored `access_changed` words still read as
+   `auto_review` (decision 7), and `access` on the agents API is still refused for anything else
+   (decision 1). A word this build doesn't know reads as the auto-review and drops nothing else
+   in the bot's settings.
+2. **Where it is set.** `PUT /v1/agents/{id}/security/autonomy {"autonomy": "full_access" |
+"auto_review" | null}` (null follows the bot above it, or the machine), and the machine's
+   default `PUT /v1/security/autonomy` (Settings › Spade › Security, "How they decide"). The bot's
+   security view shows the effective `autonomy`, `own.autonomy` and `full_access_confirmed`
+   (set the first time Full access is turned on, so the client confirms once); the agents list
+   shows `autonomy`. A worker without its own setting follows its parent, and a bot is **never
+   freer than any bot above it**: a worker of a bot on the auto-review is on the auto-review,
+   whatever its own setting or the machine's say. A helper decides as its bot.
+3. **A pure input to the gate.** `spade_core::effect::Call` carries `mode`. `effect::route`
+   applies the hard stops first, exactly as before, then, in Full access, decides in
+   `effect::full_access` before anything could reach the reviewer:
+   - **Refused:** a secret (`credential`, or arguments or scripts that reach sign-ins). Unchanged.
+   - **Asks the person:** `pay`; `send_as_person` (messages, mail, comments, pushes, a connector
+     tool declared as a send), including a push or comment a grant covers while untrusted content
+     is in view (the auto-review reviews that; with no reviewer the person decides);
+     `change_access`; `unknown`; a command outside the sandbox the shell classifier reads as a
+     payment, a send or an access change; a driving step in a sensitive place (mail and chat,
+     money, passwords, sign-in and account pages, the system's settings, social sites, a browser
+     driven through the screen), on a simulator or device or an app that shows one (amendment 3
+     of ADR 0171's device rule: every step there is the person's), in a place Spade can't name,
+     or one ace can't hold the step to; a command asking to leave the sandbox this once; and a
+     tool that declares nothing, outside the sandbox or able to reach the network, on its first
+     call (ADR 0171: the person's
+     answer is kept for the bot; a "yes" lets later calls run as a declared write does below,
+     never past the classifier, and untrusted content in view brings it back to the person).
+   - **Stays refused:** an undeclared tool the person declined for the bot.
+   - **Goes to the reviewer:** a connector's or plugin's tool that writes (anything not
+     read-only) and can reach the network, sandboxed or not, while untrusted content is in view,
+     or while Spade's classifier is off or can't be loaded. Containing a server's files doesn't
+     contain what it does over the network with a token from its configuration ([ADR
+     0171](0171-spade-decides-on-effects.md), amendment 4, which applies on the auto-review too):
+     only a plugin server held in the sandbox with its network off and no environment of its own
+     (where tokens go) is exempt, and its tools run as the sandbox decides. The same holds for a tool that
+     declares nothing: it asks on its first call unless its server is sealed that way.
+   - **Runs, with no reviewer and no request:** everything else: reads, local writes, file writes
+     with or without a checkpoint, commands in the sandbox, commands outside it when the bot's
+     `commands` is `outside` (or the machine has no sandbox), `network` and `publish` effects of
+     Spade's and ace's own tools (other bots, ace's threads, releases), an app's declared write
+     when the classifier is on and doesn't raise it and nothing untrusted is in view, routines,
+     tools that declare nothing inside the sandbox, and driving steps in any other app or site,
+     granted or not.
+   - **Untrusted content in view adds no ask** in Full access, except for an app's write (above),
+     and every hard stop is decided before taint is read, so taint never turns one into a run.
+4. **The classifier only raises.** ADR 0172's classifier settles nothing in Full access. On a
+   call the gate let run outside the sandbox (a command with no sandbox, an app's tool), it may
+   still raise to the person a call it reads as a payment, a send, an access change, a secret or
+   a step in an app it can't place; the raise is stored as the call's verdict, as today. For an
+   app's write it is required: with it off, those calls go to the reviewer (above). An abstain
+   lets the call run. The ADR 0135 model review is skipped.
+5. **The sandbox is unchanged.** Full access widens nothing: sandboxed commands stay in the
+   sandbox, a per-call request to run outside still asks, and a driving step the gate let run is
+   held to its place right before it runs as strictly as one the reviewer alone let run.
+6. **Only the person turns it on.** Spade's bearer token is held by anything ace lets talk to
+   Spade, so it can't tell the person from another process. A change that raises a bot to Full
+   access (to `full_access`, or `null` when following its parent or the machine would raise it)
+   and turning the machine's default on need the person's stamp: `x-ace-person:
+v1.<ms>.<nonce>.<HMAC-SHA256>`, keyed with `<ACE_HOME>/spade-person.key` (written by ace's
+   daemon, read by Spade from `SPADE_ACE_HOME`, never the bearer token), over the bot (or
+   `machine`), the value, the time (within a minute) and a nonce Spade takes once: claimed in
+   its store (`settings`, `person_stamp:<nonce>`) before the change is made, so a restart doesn't
+   forget it, and pruned once older than two minutes. Without it
+   Spade answers `403`; `full_access_confirmed` is set only by a stamped raise. Going back to the
+   auto-review never needs one. The daemon's `spade.http` proxy stamps a raise only from a socket
+   that proved the person's standing, as every person-only action needs (ADR 0190): the app
+   signed in as the machine's owner, or a device paired from their link proving with its own
+   key. A credential alone never does, the host token's or a paired device's, nor does a recent
+   sign-in; an agent's device (`ace-agent`, `ace-reviewer`) never does; a raise in parts is
+   refused. A bot's change is decided under the same lock as its write, against its parents
+   and the machine as they are then: a parent raised meanwhile is what it is decided on. Nothing in Spade calls the setter but its person API: no tool, routine, note or
+   skill. The key and Spade's token are in the credential places a bot's arguments are refused
+   for, and the sandbox denies ace's data. What is left: a process outside any sandbox running
+   as the person can read the key file, as it can the daemon's own token.
+7. **Shown.** The bot's profile has "How it decides": Auto-review or Full access, with one
+   sentence under Full access listing what still asks. Turning it on asks first, in words, the
+   first time for a bot (and each time for the machine's default). The conversation's pill and
+   the profile's head say "Full access" quietly while it is on. Every step still shows in the
+   chat's step lines.
+
+Consequences: a Full access bot's ordinary work outside the sandbox (a publish, a command run
+outside, an app's write the classifier doesn't raise) is not looked at by a reviewer before it
+runs; the person chose that for that bot. The hard stops are deterministic and come first. A command outside the sandbox is held
+to them only by the shell classifier's lists and Spade's classifier, which are guard rails: a
+command written to pay or send without words they know runs. Keep commands sandboxed (the
+default) where that matters.
+
+Outside the sandbox: what the binding can't promise (accepted with the owner, 2026-11-18; ADR 0171,
+amendment 6). The decision on what a command shows, the person's or the reviewer's, is the
+control; in Full access there is no reviewer, so for a command outside the sandbox it is the rules
+and the classifier's lists. The content binding behind it (ADR 0171, amendments 5 and 6) is
+defence in depth with two limits:
+
+- It isn't race-free: another of the bot's own processes, one of its services or another app can
+  change a checked file between the check at the spawn and the moment the shell opens it. The
+  terminal's lock, the check after every await, and the decision are what ship against it;
+  launching from immutable copies would close it and is out of scope.
+- It covers bots' commands only: a plugin's MCP server and hooks are trusted when the person
+  installs or enables the plugin, run contained wherever there is a sandbox, and start plainly on
+  a machine without one. The enumeration tests are scoped to Spade's server crate.
+
+Tests: `spade_core::effect::full_access` (a write outside the sandbox runs without review; a
+payment, a send as the person, an access change and an unknown effect still ask; a secret is
+still refused; a step on a simulator, in Mail, in a password manager or on a bank's checkout still
+asks; a step Spade can't place or hold still asks; the sandbox is never widened), `security::
+settings` (auto-review stays the default for new bots and bots stored before; per bot over the
+machine; never freer than the bot above), `security::attest` (a stamp counts only for its bot,
+value and time, once, with the shared key, and stays used after a restart), `spade-server/tests/full_access.rs` through the API
+(a raise with Spade's token alone is refused, a person's stamp is taken, lowering always works, a
+Full access bot holding Spade's token can't raise another bot; an undeclared sending app tool asks
+first and a `network`-declared one is reviewed with the classifier off or under untrusted
+content; a stamp taken before a restart is refused after it), `spade-server/tests/
+sandboxed_plugin_tools.rs` (a contained plugin server with a token and its network on keeps the
+app-tool rules; one sealed offline with no token runs), the daemon's `person-stamp.test.ts` and `spade-person-only.test.ts` (a raise from a socket
+that hasn't proved the person's standing, host token or paired, and an agent's raise are
+refused, a proven socket's is stamped, lowering is never held), and the web's `spade-full-access.test.tsx`.
+
+## Amendment 3: what Spade's judges stop goes to the person (2026-11-19)
+
+Decided by the owner (2026-11-19). Decisions 3 and 4 sent a reviewer's refusal back to the bot as
+the call's result and asked the person only when the bot tried the step again; ADR 0171's
+amendments 4 to 6 refused a command outside the sandbox that Spade couldn't vouch for. A bot told
+no for a judge's sake works around it or gives up, and the person, who could have said yes, never
+sees it. Now, when one of Spade's automated judges says a call is unsafe, the call isn't refused:
+it becomes a request in the chat, with the judge's reason in one plain sentence and what the call
+would do, and it waits for the person's answer like any other request. The bot is told nothing
+until they answer; it is waiting on the person, not refused. The pure rule is
+`spade_core::autonomy::escalate`.
+
+1. **Put to the person** (`approval_requested.stopped` names the judge):
+   - **The reviewer refuses** (`stopped: reviewer`): "The reviewer stopped this: \<its reason\>".
+     Stored as `call_reviewed` `verdict: escalate` with the reviewer's model, so the activity log
+     shows it as escalated. A refusal an older build stored before a restart is put to the person
+     the same way, never run.
+   - **The reviewer can't decide** (failure, a 60 s timeout, two answers Spade can't read, the bot
+     at its cap): asked as before, now tagged `stopped: reviewer`.
+   - **Spade's classifier raises it** (ADR 0172): asked as before (`stopped: classifier`).
+   - **The second review objects or can't decide** (ADR 0135, `stopped: second_review`): it
+     asked before, now with "The second review stopped this: \<its reason\>" on the request,
+     stored as the verdict's reason so a restart asks with the same words.
+   - **Part of a command outside the sandbox couldn't be read whole** (a script too long,
+     outside its folder or unreadable, configuration that runs a program, a program `PATH` can't
+     find; `stopped: incomplete`): whatever the route (the rules, a grant, an Always allow, the
+     reviewer, Full access), the person decides, told so; a route that already asks keeps its line
+     and adds this one. No reviewer is paid for: it couldn't read the call whole either.
+   - **Right before the launch** (`workspace::outside`'s reading, in `engine::calls::again`): what
+     it runs couldn't be read again (`unread`), couldn't be read whole again (`incomplete`), or a
+     file it runs changed after its verdict (`changed`). The verdict it had never runs: Spade stores
+     a verdict bound to what it runs now and asks the person again on that. Only the latest
+     request's answer counts (`turn::next_step`), so an earlier Allow can't start it.
+2. **Still refused, never asked:** a call that hands back a secret (decision 5), and a tool the
+   person declined for the bot (their remembered "no", ADR 0171 amendment 1). A command outside the
+   sandbox Spade couldn't read at all when it was decided (`UNREAD_OUTSIDE`: the classification
+   failed or ran out of time) is still refused: there is nothing to show the person or bind an
+   answer to.
+3. **Not judgments, so not decided here:** what the OS sandbox blocks is a fact, shown as the
+   command's result (a host its network policy refused reads "Blocked \<host\>" in the chat's
+   step line); a driving step whose place changed
+   after it was decided on isn't run and the bot looks again (ADR 0171, amendment 3); a step on a
+   device or in a sensitive place keeps its own request. The check at the spawn (`admit`) still
+   refuses a race in the moment between the last check and the spawn; the bot is told to call
+   again, which gets a fresh decision.
+4. **The person's answer.** Allow once runs exactly the call that was stopped, held to the same
+   warrant as every other answer: the launch it was asked about and the binding the stopped verdict
+   recorded, checked again right before it starts and at the spawn. On an incomplete reading, the
+   person's Allow (and only theirs, `Warrant::incomplete`) lets the spawn start a reading that is
+   still incomplete, as long as what could be read is what they were asked on; it binds nothing
+   it couldn't read. Deny refuses it and the bot reads "The person declined this action." An answer
+   never widens: a judge's request keeps the Always allow the card already offered for that tool
+   (decision 6), and a check that couldn't vouch for a command (`incomplete`, `unread`, `changed`)
+   is answered for this call only: no Always allow, and not the bot's setting to run its commands
+   outside.
+5. **Waiting.** The turn waits on the person (the list shows it waiting on them); a routine's or a
+   background run's request waits in the inbox like every other request. A helper's is asked in its
+   bot's conversation as before.
+6. **Full access** is unchanged: no reviewer and no second review, and its hard stops still ask.
+   An incomplete reading outside the sandbox now asks there too, where it was refused.
+7. **Gone:** the retry rule of decision 4 (`refusals`, `retries_refused`, `<refused_before>`, "Refused
+   again: …"): with every refusal put to the person, nothing is left for it to catch. The reviewer
+   is told a refused step goes to the person. A reviewer that still writes `retries_refused` is
+   read the same; a stored "Refused again" request still shows as before.
+8. **Clients.** The request card shows the judge's line under its sentence, its main button reads
+   Allow once, and `incomplete`, `unread` and `changed` requests offer no Always. A request asked
+   again after an answer opens its card again with the new line.
+
+Consequences: the person sees more requests where the reviewer is strict, and a bot no longer
+learns from a refusal on its own; it learns from the person's answer. Nothing a judge stopped runs
+without the person, and an Allow given on an incomplete reading runs what couldn't be read on the
+person's word alone, which the request says.
+
+Tests: `spade_core::autonomy::escalate` (every judge's stop to its request, a secret and a declined
+tool refused, by the routing itself too; an incomplete reading asks on every route and mode),
+`spade_core::autonomy` (a refusal goes to the person with the reviewer's reason), `spade_core::turn`
+(a call asked again waits on the new answer), `workspace::outside` (a person's Allow on an
+incomplete reading starts only while what was read is unchanged, and no one else's does); through
+the API, `autonomy.rs` (the reviewer refuses, the person allows and the call runs exactly once; the
+person denies and the bot reads their no), `autonomy_scripts.rs` (a script changed after its review
+is asked about again as it is now and runs as allowed; one that can't be read whole asks and runs
+once), `oversight.rs` (the second review's reason is on the request), `security.rs`,
+`outside_launch.rs`, `effects.rs`, `full_access.rs`, `worker_guards.rs` and `classifier_git.rs`
+(each former refusal now asks); the web's `spade-autonomy.test.tsx` (the card shows the reviewer's
+reason, Allow once; a changed command offers no Always) and ui-core's `autonomy.test.ts`.
 
 ## Options considered
 

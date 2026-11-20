@@ -38,6 +38,7 @@ export const CallMethod = z.enum([
   "readInteraction",
   "networkOnline",
   "reconnectNow",
+  "wake",
   "request",
 ]);
 export type CallMethod = z.infer<typeof CallMethod>;
@@ -133,6 +134,18 @@ export const WorkerMessage = z.discriminatedUnion("t", [
     path: z.optional(z.string()),
     /** The daemon socket the worker's connection speaks over (`connectionGeneration`). */
     generation: z.optional(z.number()),
+    /**
+     * What a proof of the person's standing on that socket names (ADR 0190): the tab holding the
+     * person's key proves it, since the worker holds no key or session.
+     */
+    standing: z.optional(
+      z.object({
+        host: z.string(),
+        nonce: z.string(),
+        binding: z.optional(z.string()),
+        device: z.string(),
+      }),
+    ),
   }),
   z.object({
     t: z.literal("pendingSends"),

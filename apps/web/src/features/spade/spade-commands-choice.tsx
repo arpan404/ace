@@ -7,7 +7,7 @@ import { Refusal } from "./spade-settings-rows.tsx";
 
 /** What running outside the sandbox means, in one line (ADR 0171). */
 export const outsideSentence =
-  "Commands outside the sandbox can reach your files and sign-ins, so each one is reviewed.";
+  "Commands run with your own access and nothing contains them, so each one is reviewed.";
 
 type Choice = SpadeCommandsMode | "inherit";
 
@@ -16,18 +16,18 @@ const modes = [
   { value: "outside", label: "Outside the sandbox" },
 ] as const;
 
-const withInherit = [{ value: "inherit", label: "Same as this Mac" }, ...modes] as const;
-
 /**
- * Where commands run: in the sandbox or outside it. A bot's also offers Same as this Mac
- * (`inherit`); `value` is then "inherit" until it sets its own. Saved as chosen; a refusal says
- * why in the row.
+ * Where commands run: in the sandbox or outside it, under `title`. A bot's also offers the
+ * machine's setting, named by `inherit` ("Same as this Mac"); `value` is then "inherit" until it
+ * sets its own. Saved as chosen; a refusal says why in the row.
  */
 export function CommandsChoice(props: {
+  title: string;
   value: Choice;
   /** The machine's setting, which a bot that inherits runs by. */
   effective: SpadeCommandsMode;
-  inheritable: boolean;
+  /** The words for the machine's setting, on a bot's choice only. */
+  inherit?: string;
   save(choice: Choice): Promise<unknown>;
 }) {
   const [saving, setSaving] = useState(false);
@@ -43,9 +43,12 @@ export function CommandsChoice(props: {
       setSaving(false);
     }
   };
+  const options = props.inherit
+    ? [{ value: "inherit" as const, label: props.inherit }, ...modes]
+    : modes;
   return (
     <SettingRow
-      title="Commands"
+      title={props.title}
       description={
         refusal ? <Refusal>{refusal}</Refusal> : props.effective === "outside" && outsideSentence
       }
@@ -55,7 +58,7 @@ export function CommandsChoice(props: {
       <Select<Choice>
         label="Where commands run"
         value={props.value}
-        options={props.inheritable ? withInherit : modes}
+        options={options}
         disabled={saving}
         onValueChange={(choice) => void choose(choice)}
       />

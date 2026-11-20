@@ -29,6 +29,7 @@ export { Notifications } from "./observable.ts";
 export type {
   ClientApi,
   ClientCoreApi,
+  StandingChallenge,
   ConnectionControl,
   ThreadSource,
   SidebarSource,

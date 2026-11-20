@@ -1,8 +1,5 @@
-import type { SpadeCatalogueEntry } from "@ace/ui-core/spade-chat";
-import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { spadeAppCategories, type SpadeCatalogueEntry } from "@ace/ui-core/spade-chat";
 import { useId, useState } from "react";
-import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
   DialogBody,
@@ -12,43 +9,93 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { connectHere, connectInBrowser, type ConnectOutcome } from "./spade-connect-flow.ts";
-import { connect, connectorsKey, type SpadeConnectDraft } from "./spade-connector-api.ts";
-import { useSpadeClient } from "./spade-machine.tsx";
-
-/** How the person is connecting one server: signing in, a token, or their own client ID. */
-type Way = "sign_in" | "token" | "client";
+import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
+import { appSections, type AppFilter } from "./spade-app-list.ts";
+import { ServerChoice, waysOf } from "./spade-app-row.tsx";
+import { useRecentApps } from "./spade-recent-apps.ts";
 
 /**
- * Connect an app: the catalogue of apps' own servers, each with the ways it takes (sign in, a
- * token, a client ID registered with its maker), and any other server by its address. Signing
- * in opens the app's page in the person's browser; the dialog closes and the app's row in
- * Settings follows the sign-in.
+ * Connect an app: the catalogue of apps' own servers, searchable and by category, with the apps
+ * already added and the ones reached for lately first; then any other server by its address.
+ * Each app says in words whether it signs in with a click, needs a key, or is coming. Signing in
+ * opens the app's page in the person's browser; the dialog closes and the app's row in Settings
+ * follows the sign-in.
  */
 export function AddConnectorDialog(props: {
   catalogue: readonly SpadeCatalogueEntry[];
+  /** The apps already added, by catalogue id, with their state in words. */
+  added: ReadonlyMap<string, string>;
   onClose(): void;
 }) {
+  const searchId = useId();
+  const [text, setText] = useState("");
+  const [filter, setFilter] = useState<AppFilter>("all");
+  const [recent, remember] = useRecentApps();
+  const sections = appSections(props.catalogue, {
+    text,
+    filter,
+    added: new Set(props.added.keys()),
+    recent,
+  });
+  const empty = sections.every((section) => section.entries.length === 0);
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent size="lg">
-        <DialogHeader>
+        <DialogHeader className="gap-3">
           <DialogTitle>Connect an app</DialogTitle>
+          <label htmlFor={searchId} className="sr-only">
+            Search apps
+          </label>
+          <Input
+            id={searchId}
+            type="search"
+            // The dialog opens for this: the search takes the typing.
+            autoFocus
+            spellCheck={false}
+            autoComplete="off"
+            placeholder={`Search ${props.catalogue.length} apps`}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+          />
+          {!text.trim() && <Categories filter={filter} onFilter={setFilter} />}
         </DialogHeader>
         <DialogBody>
-          <ul className="flex flex-col divide-y divide-border">
-            {props.catalogue.map((entry) => (
-              <li key={entry.id} className="py-2.5 first:pt-0">
-                <ServerChoice
-                  name={entry.name}
-                  notes={entry.notes}
-                  ways={waysOf(entry)}
-                  draft={{ catalogue: entry.id }}
-                  onDone={props.onClose}
-                />
-              </li>
-            ))}
-          </ul>
+          {empty ? (
+            <p className="py-2 text-ui text-muted-foreground">
+              {`No app matches “${text.trim()}”. Add its server by address below.`}
+            </p>
+          ) : (
+            sections.map((section) => (
+              <section
+                key={section.key}
+                aria-label={section.title ?? "Apps found"}
+                className="flex flex-col gap-1"
+              >
+                {section.title && (
+                  <h3 className="text-xs font-medium text-subtle-foreground">{section.title}</h3>
+                )}
+                <ul className="flex flex-col divide-y divide-border">
+                  {section.entries.map((entry) => (
+                    <li key={entry.id} className="py-2.5">
+                      <ServerChoice
+                        name={entry.name}
+                        catalogue={entry.id}
+                        notes={entry.notes}
+                        keyUrl={entry.keyUrl}
+                        ready={entry.ready}
+                        ways={waysOf(entry)}
+                        added={props.added.get(entry.id)}
+                        draft={{ catalogue: entry.id }}
+                        onDone={props.onClose}
+                        onStart={() => remember(entry.id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))
+          )}
           <ByAddress onDone={props.onClose} />
         </DialogBody>
       </DialogContent>
@@ -56,182 +103,39 @@ export function AddConnectorDialog(props: {
   );
 }
 
-/** The ways a catalogue entry takes, the one-click sign-in first. */
-function waysOf(entry: SpadeCatalogueEntry): Way[] {
-  return entry.signIn.map((kind) =>
-    kind === "oauth" ? "sign_in" : kind === "token" ? "token" : "client",
-  );
-}
-
-const firstLabel: Record<Way, string> = {
-  sign_in: "Sign in",
-  token: "Use a token",
-  client: "Use a client ID",
-};
-
-/** One server: its name and notes, a button per way in, and the fields the chosen way needs. */
-function ServerChoice(props: {
-  name: string;
-  notes?: string;
-  ways: Way[];
-  draft: SpadeConnectDraft;
-  onDone(): void;
-}) {
-  const client = useSpadeClient();
-  const cache = useQueryClient();
-  const ids = { token: useId(), clientId: useId(), secret: useId() };
-  const [open, setOpen] = useState<Way>();
-  const [token, setToken] = useState("");
-  const [clientId, setClientId] = useState("");
-  const [secret, setSecret] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string>();
-  // Spade Cloud signs this app in with the machine's ace account, which it isn't signed in to.
-  const [needsAce, setNeedsAce] = useState(false);
-  const navigate = useNavigate();
-  const finish = async (outcome: ConnectOutcome) => {
-    setBusy(false);
-    await cache.invalidateQueries({ queryKey: connectorsKey });
-    if (outcome.kind === "done") return props.onDone();
-    if (outcome.kind === "needs_ace_account") {
-      setNeedsAce(true);
-      return setProblem(undefined);
-    }
-    // The server takes no automatic registration: offer the person's own client ID.
-    if (outcome.kind === "needs_client") setOpen("client");
-    setProblem(outcome.message);
-  };
-  const signIn = async (extra: SpadeConnectDraft = {}) => {
-    setBusy(true);
-    setProblem(undefined);
-    setNeedsAce(false);
-    await finish(await connectInBrowser(() => connect(client, { ...props.draft, ...extra })));
-  };
-  const useToken = async () => {
-    const typed = token.trim();
-    // The field empties before the request goes, so the token lives only in this call.
-    setToken("");
-    setBusy(true);
-    setProblem(undefined);
-    await finish(await connectHere(() => connect(client, { ...props.draft, token: typed })));
-  };
+/** The categories as words: the chosen one in the text colour, the rest quieter. */
+function Categories(props: { filter: AppFilter; onFilter(filter: AppFilter): void }) {
+  const choices: { id: AppFilter; label: string }[] = [
+    { id: "all", label: "All" },
+    ...spadeAppCategories,
+  ];
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col">
-          <span className="text-ui font-medium text-foreground">{props.name}</span>
-          {props.notes && <span className="text-xs text-muted-foreground">{props.notes}</span>}
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {props.ways.map((way, index) => (
-            <Button
-              key={way}
-              size="sm"
-              variant={index === 0 ? "secondary" : "ghost"}
-              aria-label={`${firstLabel[way]} for ${props.name}`}
-              disabled={busy}
-              onClick={() => (way === "sign_in" ? void signIn() : setOpen(way))}
-            >
-              {firstLabel[way]}
-            </Button>
-          ))}
-        </div>
-      </div>
-      {open === "token" && (
-        <form
-          className="flex items-center gap-1.5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (token.trim()) void useToken();
-          }}
-        >
-          <label htmlFor={ids.token} className="sr-only">{`Token for ${props.name}`}</label>
-          <Input
-            id={ids.token}
-            // Opened by the person's click, so the field they asked for takes the typing.
-            autoFocus
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Paste token"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            disabled={busy}
-            className="w-64"
-          />
-          <Button size="sm" type="submit" disabled={busy || !token.trim()}>
-            Connect
-          </Button>
-        </form>
-      )}
-      {open === "client" && (
-        <form
-          className="flex flex-wrap items-center gap-1.5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!clientId.trim()) return;
-            const extra = {
-              client_id: clientId.trim(),
-              ...(secret.trim() ? { client_secret: secret.trim() } : {}),
-            };
-            setSecret("");
-            void signIn(extra);
-          }}
-        >
-          <label htmlFor={ids.clientId} className="sr-only">{`Client ID for ${props.name}`}</label>
-          <Input
-            id={ids.clientId}
-            autoFocus
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Client ID"
-            value={clientId}
-            onChange={(event) => setClientId(event.target.value)}
-            disabled={busy}
-            className="w-48"
-          />
-          <label
-            htmlFor={ids.secret}
-            className="sr-only"
-          >{`Client secret for ${props.name}`}</label>
-          <Input
-            id={ids.secret}
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Client secret, if any"
-            value={secret}
-            onChange={(event) => setSecret(event.target.value)}
-            disabled={busy}
-            className="w-48"
-          />
-          <Button size="sm" type="submit" disabled={busy || !clientId.trim()}>
-            Sign in
-          </Button>
-        </form>
-      )}
-      {needsAce && (
-        <div role="alert" className="flex items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">
-            {`Sign in to your ace account on this machine to connect ${props.name} through Spade Cloud.`}
-          </p>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              props.onDone();
-              void navigate({ to: "/settings/profile" });
-            }}
+    <div
+      role="group"
+      aria-label="Categories"
+      {...part("segmented", undefined, "app-categories")}
+      className="flex flex-wrap gap-x-3 gap-y-1"
+    >
+      {choices.map((choice) => {
+        const chosen = choice.id === props.filter;
+        return (
+          <button
+            key={choice.id}
+            type="button"
+            aria-pressed={chosen}
+            {...part("segment", chosen && "selected", choice.id)}
+            onClick={() => props.onFilter(choice.id)}
+            className={cn(
+              "rounded-sm text-ui transition-colors duration-(--motion-fast) focus-ring",
+              chosen
+                ? "font-medium text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
           >
-            Sign in to ace
-          </Button>
-        </div>
-      )}
-      {problem && (
-        <p role="alert" className="text-xs text-destructive">
-          {problem}
-        </p>
-      )}
+            {choice.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -268,6 +172,7 @@ function ByAddress(props: { onDone(): void }) {
       {/^https?:\/\/\S+/i.test(typed) && (
         <ServerChoice
           name={hostOf(typed)}
+          ready="sign_in"
           ways={["sign_in", "token"]}
           draft={{ url: typed, ...(local ? { local: true } : {}) }}
           onDone={props.onDone}

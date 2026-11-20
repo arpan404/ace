@@ -28,19 +28,24 @@ struct ProjectFoldersView: View {
 
     var body: some View {
         List {
+            if let problem {
+                Section { ProblemRow(problem, id: "folders.problem") { Task { await read() } } }
+            }
             Section {
-                if loaded && folders.isEmpty { Text("Any folder in the machine's home.").foregroundStyle(AceDesign.Ink.muted) }
+                if loaded && folders.isEmpty {
+                    Text("Any folder in the computer's home").aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.muted)
+                }
                 ForEach(folders) { folder in
                     HStack(spacing: AceDesign.Space.related) {
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                            Text(folder.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
-                            Text(folder.path).font(AceDesign.Typeface.code)
+                            Text(folder.name).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
+                            Text(verbatim: folder.path).aceMonospace(AceDesign.TextRole.code)
                                 .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
                         }
                         Spacer(minLength: AceDesign.Space.related)
                         if model.canOperate {
                             Button("Remove", role: .destructive) { removing = folder }
-                                .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed).rowButtonTarget()
+                                .buttonStyle(.secondaryAction).controlSize(.small)
                                 .accessibilityIdentifier("folders.remove.\(folder.name)")
                         }
                     }
@@ -57,9 +62,11 @@ struct ProjectFoldersView: View {
                         .accessibilityIdentifier("folders.path")
                     if let missing, missing.typed == typed {
                         Button("Create \(missing.name) and add") { Task { await allow(create: true) } }
+                            .buttonStyle(.rowAction)
                             .accessibilityIdentifier("folders.create")
                     } else {
                         Button("Add folder") { Task { await allow(create: false) } }
+                            .buttonStyle(.rowAction)
                             .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
                             .accessibilityIdentifier("folders.add")
                     }
@@ -68,7 +75,6 @@ struct ProjectFoldersView: View {
                 }
                 .insetRowBackground()
             }
-            if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
         }
         .insetGroupedList()
         .smoothChange(folders.map(\.path))
@@ -99,7 +105,7 @@ struct ProjectFoldersView: View {
         defer { busy = false }
         let target = create ? (missing?.path ?? path) : path
         guard let reply = try? await model.service(["type": "native.project", "request": ["op": "allowFolder", "path": target, "create": create]], as: AllowReply.self) else {
-            problem = "Couldn't reach the machine. Try again."; return
+            problem = "Your computer didn't answer. Try again."; return
         }
         if reply.ok { typed = ""; missing = nil; changes += 1; await read() }
         else if reply.canCreate == true, let resolved = reply.path { missing = (path, resolved, reply.name ?? resolved) }

@@ -1,0 +1,108 @@
+---
+/*
+ * Spade in 3D (public/spade.glb), looking toward the pointer and blinking now and then. The flat
+ * face (components/mac/SpadeFace.astro) shows until the 3D one is ready, and stays where WebGL is
+ * missing or the visitor asked to save data. The home page's Spade section and /spade/ share it.
+ */
+import SpadeFace from "../mac/SpadeFace.astro";
+
+interface Props {
+  /** The box's side in px; the flat face is drawn at 55% of it. */
+  size?: number;
+  class?: string;
+}
+
+const { size = 240, class: className } = Astro.props;
+---
+
+<div class:list={["spade-3d", className]} data-spade-3d style={`--spade-size: ${size}px`}>
+  <SpadeFace size={Math.round(size * 0.55)} />
+  <canvas aria-hidden="true"></canvas>
+</div>
+
+<style>
+  .spade-3d {
+    position: relative;
+    display: grid;
+    place-items: center;
+    /* A parent may set --spade-box to resize it, as a narrow screen does. */
+    width: var(--spade-box, var(--spade-size));
+    height: var(--spade-box, var(--spade-size));
+    color: var(--foreground);
+  }
+
+  canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transition: opacity 0.6s var(--ease-out);
+  }
+
+  .spade-3d :global(.spade-face) {
+    transition: opacity 0.3s;
+  }
+
+  .spade-3d[data-ready] canvas {
+    opacity: 1;
+  }
+
+  .spade-3d[data-ready] :global(.spade-face) {
+    opacity: 0;
+  }
+
+  .spade-3d :global(.eye) {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: blink 5.2s infinite;
+  }
+
+  .spade-3d :global(.eye[data-eye="1"]) {
+    animation-delay: 30ms;
+  }
+
+  @keyframes blink {
+    0%,
+    94% {
+      transform: scaleY(1);
+    }
+
+    95.5% {
+      transform: scaleY(0.08);
+    }
+
+    97% {
+      transform: scaleY(1);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spade-3d :global(.eye) {
+      animation: none;
+    }
+  }
+</style>
+
+<script>
+  import { spadeLook } from "../../scripts/spade-look.ts";
+
+  for (const host of document.querySelectorAll<HTMLElement>("[data-spade-3d]")) {
+    spadeLook(host);
+    // The 3D Spade loads only as it comes near, and not at all when the visitor asked to save
+    // data; the flat face stays then.
+    const { connection } = navigator as Navigator & { connection?: { saveData?: boolean } };
+    if (connection?.saveData) continue;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        void import("../../scripts/spade-3d.ts").then(({ startSpade3d }) =>
+          startSpade3d(host, "/spade.glb"),
+        );
+      },
+      { rootMargin: "300px" },
+    );
+    observer.observe(host);
+  }
+</script>

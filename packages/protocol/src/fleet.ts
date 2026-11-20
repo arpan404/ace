@@ -1,6 +1,12 @@
 import { z } from "zod";
-import { DeviceId, HostId } from "./ids.ts";
-import { Device, PairingRequest, PendingPairing, RemoteAccessStatus } from "./remote.ts";
+import { CommandId, DeviceId, HostId } from "./ids.ts";
+import {
+  Device,
+  DeviceScope,
+  PairingRequest,
+  PendingPairing,
+  RemoteAccessStatus,
+} from "./remote.ts";
 import { MachineAgentAccess } from "./machine-calls.ts";
 import { MachineCapability, MachineDeviceGrants, MachineGrantLevel } from "./machine-grants.ts";
 
@@ -42,6 +48,12 @@ const FleetOperation = z.discriminatedUnion("op", [
     pairingUrl: z.string().min(1).max(4096),
     hostId: HostId,
     name: z.string().min(1).max(256),
+    /**
+     * Only fill a missing link: refused as `exists`, before the pairing is redeemed, while this
+     * machine holds a link to that one or is making one. Redeeming replaces the link's device
+     * there, so a link made meanwhile, perhaps granting more, is never replaced by this one.
+     */
+    keep: z.literal(true).optional(),
   }),
   z.object({ op: z.literal("unlink"), hostId: HostId }),
   /** Issue a one-time pairing link on this machine. */
@@ -52,6 +64,19 @@ const FleetOperation = z.discriminatedUnion("op", [
   /** This machine's paired devices, as `GET /v1/devices` lists them. */
   z.object({ op: z.literal("devices") }),
   z.object({ op: z.literal("revoke"), deviceId: DeviceId }),
+  /**
+   * Allow or stop allowing one scope for a paired device, keeping its credential (ADR 0101,
+   * "Changing what a link allows"). Durable: `commandId` names its receipt, so a retry after a
+   * lost reply answers the first outcome. The caller grants only scopes it holds; local
+   * credentials and the scopes only they hold never change here.
+   */
+  z.object({
+    op: z.literal("scope"),
+    commandId: CommandId,
+    deviceId: DeviceId,
+    scope: DeviceScope.exclude(["desktop", "user-browser"]),
+    allowed: z.boolean(),
+  }),
   /** Revoke every paired device except the caller's own and local credentials. */
   z.object({ op: z.literal("revokeOthers") }),
   /** This machine's remote access listeners, relay route and ace account, as `GET /v1/status`. */
@@ -80,7 +105,15 @@ export const FleetRequest = z.object({
 export type FleetRequest = z.infer<typeof FleetRequest>;
 
 const FleetOutcome = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("links"), links: z.array(FleetLink).max(64) }),
+  z.object({
+    kind: z.literal("links"),
+    links: z.array(FleetLink).max(64),
+    /**
+     * This machine honours `keep` on `link`. Older daemons drop the field unread, so a client
+     * sends it only to a machine that says this, and skips a gap that is already linked.
+     */
+    keep: z.literal(true).optional(),
+  }),
   z.object({ kind: z.literal("linked"), link: FleetLink }),
   z.object({ kind: z.literal("unlinked") }),
   z.object({
@@ -105,6 +138,8 @@ const FleetOutcome = z.discriminatedUnion("kind", [
     devices: z.array(MachineDeviceGrants).max(1000),
   }),
   z.object({ kind: z.literal("remoteStatus"), status: RemoteAccessStatus }),
+  /** The device as `scope` left it. */
+  z.object({ kind: z.literal("scoped"), device: Device }),
   /** `count`: how many devices `revokeOthers` revoked. */
   z.object({ kind: z.literal("revoked"), count: z.number().int().nonnegative().optional() }),
 ]);

@@ -80,8 +80,7 @@ private struct ArchiveRows: View {
             }
         }
         if let restoreProblem {
-            ServiceProblem(message: restoreProblem)
-            Button("Retry") { if let failedRestore { Task { await restore(failedRestore) } } }.buttonStyle(.textAction())
+            ProblemRow(restoreProblem, id: "archive.restore.problem") { if let failedRestore { Task { await restore(failedRestore) } } }
         }
         footer(empty: ids.isEmpty).listRowSeparator(.hidden)
     }
@@ -91,25 +90,27 @@ private struct ArchiveRows: View {
     }
     private func restore(_ id: String) async {
         if await client.unarchive(id) { restoreProblem = nil; failedRestore = nil }
-        else { restoreProblem = "Couldn’t restore this thread."; failedRestore = id }
+        else { restoreProblem = "Couldn't restore this thread."; failedRestore = id }
     }
     @ViewBuilder private func footer(empty: Bool) -> some View {
         if archive.list.failed {
-            ServiceProblem(message: "Couldn’t load archived threads.")
-            Button("Retry") { retry() }.buttonStyle(.textAction())
-                .accessibilityIdentifier("archive.retry")
+            ProblemRow("Couldn't load archived threads.", id: "archive.problem", retryId: "archive.retry") { retry() }
         } else if archive.loading || (!archive.list.loaded && client.connection == "ready") {
             if empty { SkeletonRows(label: "Loading archived threads") }
             else { HStack { Spacer(); ProgressView().accessibilityLabel("Loading older threads"); Spacer() } }
 
         } else if !archive.list.loaded {
-            EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.") { Button("Retry") { client.retry(); retry() }.buttonStyle(.textAction()) }
+            EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.", failed: true) {
+                Button("Try again") { client.retry(); retry() }
+            }
+            .padding(.vertical, AceDesign.Space.group)
         } else if empty {
-            EmptyState(systemImage: "archivebox", title: "Nothing archived", line: "Threads you archive on this machine wait here.")
+            EmptyState(systemImage: "archivebox", title: "Nothing archived")
+                .padding(.vertical, AceDesign.Space.group)
         } else if archive.canLoadMore {
             Button("Show older archived threads") { client.loadMoreArchived() }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                .frame(minHeight: AceDesign.Size.tap).accessibilityIdentifier("archive.more")
+                .buttonStyle(.rowAction)
+                .accessibilityIdentifier("archive.more")
         }
     }
 }
@@ -124,12 +125,11 @@ struct ArchivedNote: View {
         HStack(spacing: AceTheme.Spacing.md) {
             Label("Archived", systemImage: "archivebox")
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            if failed { Text("Couldn’t restore").font(AceDesign.Typeface.meta).foregroundStyle(AceTheme.StatusText.failed) }
+            if failed { Text("Couldn't restore").font(AceDesign.Typeface.meta).foregroundStyle(AceTheme.StatusText.failed) }
             Spacer(minLength: AceTheme.Spacing.sm)
             if canOperate {
-                Button(failed ? "Retry" : "Restore") { working = true; Task { failed = !(await unarchive()); working = false } }
-                    .buttonStyle(.textAction()).disabled(working)
-                    .frame(minHeight: AceDesign.Size.tap)
+                Button(failed ? "Try again" : "Restore") { working = true; Task { failed = !(await unarchive()); working = false } }
+                    .buttonStyle(.secondaryAction).controlSize(.small).disabled(working)
                     .accessibilityIdentifier("thread.unarchive")
             }
         }

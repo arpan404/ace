@@ -126,21 +126,19 @@ extension XCUIApplication {
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button showed")
         back.tap()
     }
-    /// The list's compose button: the round header button (`inbox.compose`) or, on an iOS 27
-    /// iPhone, the tab bar's prominent one. That one has no identifier of ours, and iOS 27 puts its
-    /// symbol's name on the button in some launches and only on its image in others, so it's found
-    /// as the tab bar's button labelled New thread or New chat. The empty states' text-only New
-    /// chat buttons sit outside the tab bar. Waits up to 25 s for either to show, then returns the
-    /// header's, so a caller's own wait still fails with its message when neither came.
+    /// One of the home bar's buttons, by its place's id: `threads`, `chats`, `spade`, `search` or
+    /// `compose` on a phone. A regular window has the sidebar's foot (`sidebar.<id>`) instead.
+    func homeTab(_ id: String) -> XCUIElement { buttons["tab.\(id)"] }
+    /// The list's compose button: the header's (`inbox.compose`) in a regular window, the home
+    /// bar's on a phone. Waits up to 25 s for either to show, then returns the header's, so a
+    /// caller's own wait still fails with its message when neither came.
     var newThreadButton: XCUIElement {
         let header = buttons["inbox.compose"]
-        let tab = tabBars.buttons.matching(NSPredicate(format: "label IN {'New thread', 'New chat'}")).firstMatch
-        let symbol = buttons.matching(NSPredicate(format: "identifier == 'square.and.pencil'")).firstMatch
+        let tab = homeTab("compose")
         let deadline = Date().addingTimeInterval(25)
         while Date() < deadline {
             if header.exists { return header }
             if tab.exists { return tab }
-            if symbol.exists { return symbol }
             Thread.sleep(forTimeInterval: 0.25)
         }
         return header

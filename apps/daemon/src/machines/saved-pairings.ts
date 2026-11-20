@@ -59,6 +59,14 @@ export class SavedPairings {
   list(): RemoteProfile[] | undefined {
     return this.refresh() ? this.profiles : undefined;
   }
+  /** Whether this pairing (its device and token there) is saved now; unreadable reads as not. */
+  holds(profile: Pick<RemoteProfile, "deviceId" | "token">): boolean {
+    return (
+      this.list()?.some(
+        (entry) => entry.deviceId === profile.deviceId && entry.token === profile.token,
+      ) ?? false
+    );
+  }
   /** The connection keys (origin, pin and token) saved now, or undefined when unreadable. */
   keys(): ReadonlySet<string> | undefined {
     return this.refresh() ? this.known : undefined;

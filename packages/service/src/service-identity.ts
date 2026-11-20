@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ServicePlan } from "./plan.ts";
+import { unquote, unxml, type ServicePlan } from "./plan.ts";
 import type { TaskPlan } from "./plan.ts";
 
 const variables = new Set([
@@ -14,22 +14,25 @@ const variables = new Set([
   "ACE_WEB_ORIGINS",
 ]);
 const entries = z.array(z.tuple([z.string(), z.string()])).max(10);
-function environment(plan: ServicePlan, content: string): { program: string; home: string } {
+function environment(
+  platform: ServicePlan["platform"],
+  content: string,
+): { program: string; home: string } {
   const found =
-    plan.platform === "darwin"
+    platform === "darwin"
       ? /<key>EnvironmentVariables<\/key><dict>(.*?)<\/dict>/s.exec(content)
       : /^Environment=(.*)$/m.exec(content);
   if (!found?.[0] || found[1] === undefined) throw new Error("Missing environment");
   const body = found[1];
   const pattern =
-    plan.platform === "darwin"
+    platform === "darwin"
       ? /<key>([^<]+)<\/key><string>([^<]*)<\/string>/g
       : /"((?:[^"\\]|\\.)*)"/g;
   const decoded: [string, string][] = [];
   let consumed = "";
   for (const match of body.matchAll(pattern)) {
-    consumed += (plan.platform === "linux" && consumed ? " " : "") + match[0];
-    if (plan.platform === "darwin") decoded.push([match[1] ?? "", match[2] ?? ""]);
+    consumed += (platform === "linux" && consumed ? " " : "") + match[0];
+    if (platform === "darwin") decoded.push([match[1] ?? "", match[2] ?? ""]);
     else {
       const token = match[1] ?? "",
         at = token.indexOf("=");
@@ -54,16 +57,53 @@ export function incompatibleService(plan: ServicePlan, cause?: unknown): Error {
     { cause },
   );
 }
+/**
+ * The ace home a daemon registration (plist or unit) runs: its `ACE_HOME`, decoded from the
+ * plist's XML or the unit's quoting and `%` specifiers; undefined when the content isn't one
+ * ace could have written.
+ */
+export function registeredServiceHome(
+  platform: ServicePlan["platform"],
+  content: string,
+): string | undefined {
+  let home: string;
+  try {
+    home = environment(platform, content).home;
+  } catch {
+    return undefined;
+  }
+  return platform === "darwin" ? unxml(home) : unquote(home);
+}
+
+/** The service under this home's name runs a different home (ADR 0185). */
+function serviceOfAnotherHome(plan: ServicePlan, other: string, home: string): Error {
+  const removal =
+    plan.platform === "linux"
+      ? `systemctl --user disable --now ${plan.domain}, then delete ${plan.file} and run systemctl --user daemon-reload`
+      : `launchctl bootout ${plan.domain}, then delete ${plan.file}`;
+  return new Error(
+    `ace's service ${plan.domain} runs another ace home, ${other}, not ${home}. Refusing to replace, start or remove it. If that home is no longer used, run \`ace service uninstall\` with ACE_HOME=${other}, or remove the service yourself (${removal}).`,
+  );
+}
+
 /** Only the complete generated program is accepted. Reinstall may change supported environment values. */
 export function assertRegistration(plan: ServicePlan, content: string): void {
+  let actual: { program: string; home: string };
+  let expected: { program: string; home: string };
   try {
-    const actual = environment(plan, content),
-      expected = environment(plan, plan.content);
-    if (actual.program !== expected.program || actual.home !== expected.home)
-      throw new Error("Unrecognized service program or home");
+    actual = environment(plan.platform, content);
+    expected = environment(plan.platform, plan.content);
   } catch (cause) {
     throw incompatibleService(plan, cause);
   }
+  if (actual.home !== expected.home)
+    throw serviceOfAnotherHome(
+      plan,
+      registeredServiceHome(plan.platform, content) ?? actual.home,
+      registeredServiceHome(plan.platform, plan.content) ?? expected.home,
+    );
+  if (actual.program !== expected.program)
+    throw incompatibleService(plan, new Error("Unrecognized service program"));
 }
 
 const properties = [
@@ -169,19 +209,26 @@ export function incompatibleTask(plan: Pick<TaskPlan, "name">, cause?: unknown):
   );
 }
 
+/**
+ * The ace home whose `bin\\ace.cmd` a loaded daemon task (`schtasks /Query /XML`) runs;
+ * undefined when it runs something else.
+ */
+export function taskServiceHome(output: string): string | undefined {
+  try {
+    const args = unxml(only(only(only(output, "Actions"), "Exec"), "Arguments").trim());
+    const launcher = /@ "([^"]+)" supervise$/.exec(args)?.[1];
+    const suffix = "\\bin\\ace.cmd";
+    return launcher?.toLowerCase().endsWith(suffix) ? launcher.slice(0, -suffix.length) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** ace's own record of the task must be exactly what this build generates for the home. */
 export function assertTaskRegistration(plan: TaskPlan, content: string): void {
   if (content !== plan.content)
     throw incompatibleTask(plan, new Error("Unrecognized task registration"));
 }
-
-const decode = (value: string) =>
-  value
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&apos;", "'")
-    .replaceAll("&amp;", "&");
 
 function only(xml: string, tag: string): string {
   const found = [...xml.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>(.*?)</${tag}>`, "gs"))];
@@ -203,8 +250,8 @@ export function assertLoadedTask(plan: LoadedTaskPlan, output: string): void {
     const exec = only(actions, "Exec");
     if (/<WorkingDirectory\b/.test(exec)) throw new Error("Unrecognized task working directory");
     if (
-      decode(only(exec, "Command").trim()).toLowerCase() !== plan.program.toLowerCase() ||
-      decode(only(exec, "Arguments").trim()) !== plan.arguments
+      unxml(only(exec, "Command").trim()).toLowerCase() !== plan.program.toLowerCase() ||
+      unxml(only(exec, "Arguments").trim()) !== plan.arguments
     )
       throw new Error("Loaded task program mismatch");
     const triggers = only(output, "Triggers");
@@ -212,7 +259,7 @@ export function assertLoadedTask(plan: LoadedTaskPlan, output: string): void {
       throw new Error("Unrecognized task triggers");
     const principal = only(only(output, "Principals"), "Principal");
     if (
-      decode(only(principal, "UserId").trim()).toLowerCase() !== plan.user.toLowerCase() ||
+      unxml(only(principal, "UserId").trim()).toLowerCase() !== plan.user.toLowerCase() ||
       only(principal, "LogonType").trim() !== "InteractiveToken"
     )
       throw new Error("Loaded task principal mismatch");

@@ -10,6 +10,7 @@ import {
   type MarketSigningKey,
 } from "@ace/marketplace";
 import type { SignerIo } from "@ace/marketplace/signer";
+import { aceClientName, namedFetch } from "@ace/client/ace-client";
 import { option, type Args } from "../args.ts";
 import { CliFailure, usageFailure } from "../output.ts";
 
@@ -89,9 +90,22 @@ export function signerToken(): string {
   return token;
 }
 
+/** `fetch` naming this CLI to the market (`ace-client`, ADR 0189), once its version is read. */
+function cliFetch(): (url: URL, init?: RequestInit) => Promise<Response> {
+  // Read as `ace --version` reads it, and only when a maintainer tool runs.
+  const name = import("../../doctor/install.ts")
+    .then(({ cliVersion }) => cliVersion(process.env, process.argv[1]))
+    .then(
+      (version) => aceClientName("cli", version),
+      () => undefined,
+    );
+  return async (url, init) => namedFetch(fetch, await name)(url, init);
+}
+
 export function signerIo(base: URL): SignerIo {
   const token = signerToken();
   const headers = { authorization: `Bearer ${token}` };
+  const fetch = cliFetch();
   return {
     get: async (path) => (await answered(await fetch(new URL(path, base), { headers }))).json(),
     object: async (hash) =>

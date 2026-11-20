@@ -1,3 +1,4 @@
+import { keyPair as fixedKeyPair } from "@ace/secure-channel";
 import { expect, it } from "vitest";
 import { DeviceCredential, PairingResponse, SocketTicket } from "@ace/protocol";
 import { SettingsService } from "@ace/settings";
@@ -139,10 +140,10 @@ it("the desktop renderer can redeem a link, request a ticket and read remote sta
   }
 });
 
-it("the desktop app and the hosted web app are allowed without configuration; other origins are not", async () => {
+it("the desktop app and the hosted web app, stable and beta, are allowed without configuration; other origins are not", async () => {
   const f = await setup();
 
-  for (const origin of ["app://ace", "https://app.acehq.dev"]) {
+  for (const origin of ["app://ace", "https://app.acehq.dev", "https://beta.app.acehq.dev"]) {
     const allowed = await preflight(`${f.server.httpUrl}/v1/pair`, origin, "POST");
     expect(allowed.status).toBe(204);
     expect(allowed.headers.get("access-control-allow-origin")).toBe(origin);
@@ -152,6 +153,10 @@ it("the desktop app and the hosted web app are allowed without configuration; ot
     page,
     "http://app.acehq.dev",
     "https://evil.acehq.dev",
+    "http://beta.app.acehq.dev",
+    "https://beta.app.acehq.dev.evil.example",
+    "https://beta.app.acehq.dev:8443",
+    "https://beta.ace-web.pages.dev",
     "ace://thread",
     "null",
   ]) {
@@ -210,6 +215,7 @@ it("an allowed web app can set and clear this machine's code with an admin token
   let account: ReturnType<typeof machineAccount> | undefined;
   const f = await setup({ webOrigins: [page] }, (store, home) => {
     account = machineAccount({
+      relayKeys: async () => fixedKeyPair(new Uint8Array(32).fill(3)),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,

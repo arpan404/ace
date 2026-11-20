@@ -38,7 +38,7 @@ function setup() {
     });
     return db;
   };
-  return { store: first, open, raw };
+  return { store: first, open, raw, path };
 }
 
 /** Threads in three projects, created through the writer, with activity that often ties. */
@@ -252,4 +252,159 @@ it("a thread whose JSON the sidebar can't read never blocks a write, and lists o
   const read = allPages(db, projects);
   expect(read).toEqual(fromJson(db, () => allPages(db, projects)));
   expect(read[0]?.pages[0]?.ids[0]).toBe("t-001");
+});
+
+it("a home from before the facts table lists, orders and counts every thread on its first open", () => {
+  const { store, raw, open } = setup();
+  const projects = seed(store, 20);
+  const db = raw();
+  db.exec(`
+    DROP TRIGGER sidebar_columns_insert;
+    DROP TRIGGER sidebar_columns_delete;
+    DROP TABLE sidebar_thread_columns;
+    DROP TABLE sidebar_columns_shape;
+    DROP TABLE sidebar_columns_complete;
+  `);
+  db.close();
+  open().close();
+  const check = raw();
+  const read = allPages(check, projects);
+  expect(read).toEqual(fromJson(check, () => allPages(check, projects)));
+  const inbox = read.find((each) => each.scope.project === undefined && !each.scope.archived);
+  expect(inbox?.live.total).toBe(20);
+});
+
+/** Every SQL statement a store opened on `path` runs while it opens. */
+function statementsAtOpen(path: string): string[] {
+  const ran: string[] = [];
+  const db = new DatabaseSync(path);
+  const watched = new Proxy(db, {
+    get(target, key) {
+      if (key === "prepare" || key === "exec")
+        return (sql: string) => {
+          ran.push(sql);
+          return key === "prepare" ? target.prepare(sql) : target.exec(sql);
+        };
+      const value: unknown = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  new Store(path, console.error, { database: watched }).close();
+  return ran;
+}
+
+/**
+ * Split SQL text into its statements: semicolons inside quotes, comments and a trigger's
+ * BEGIN ... END body don't end one. Comments are dropped.
+ */
+function splitStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let index = 0;
+  const flush = () => {
+    const statement = current.trim();
+    current = "";
+    if (statement) statements.push(statement);
+  };
+  while (index < sql.length) {
+    const char = sql.charAt(index);
+    if (char === "-" && sql.charAt(index + 1) === "-") {
+      const end = sql.indexOf("\n", index);
+      index = end < 0 ? sql.length : end;
+      continue;
+    }
+    if (char === "/" && sql.charAt(index + 1) === "*") {
+      const end = sql.indexOf("*/", index + 2);
+      index = end < 0 ? sql.length : end + 2;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      const end = sql.indexOf(char, index + 1);
+      const stop = end < 0 ? sql.length : end + 1;
+      current += sql.slice(index, stop);
+      index = stop;
+      continue;
+    }
+    index++;
+    if (char !== ";") {
+      current += char;
+      continue;
+    }
+    // A trigger body's statements end in semicolons too; the trigger ends at END.
+    if (
+      /^\s*CREATE\s+(TEMP\s+|TEMPORARY\s+)?TRIGGER\b/i.test(current) &&
+      !/\bEND\s*$/i.test(current)
+    )
+      current += char;
+    else flush();
+  }
+  flush();
+  return statements;
+}
+
+/** Statements that read or write rows, as opposed to schema, pragmas and transaction control. */
+const dataStatement = /^(SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH)\b/i;
+
+/**
+ * Data statements among `ran` whose query plan reads all of `threads` or
+ * `sidebar_thread_columns`. Throws on any data statement it can't plan, so none goes unchecked.
+ */
+function fullScans(path: string, ran: string[]): string[] {
+  const db = new DatabaseSync(path);
+  try {
+    const statements = ran.flatMap(splitStatements).filter((sql) => dataStatement.test(sql));
+    expect(statements.length).toBeGreaterThan(0);
+    return statements.filter((sql) => {
+      let plan: string[];
+      try {
+        plan = db
+          .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+          .all()
+          .map((row) => String(row.detail));
+      } catch (error) {
+        throw new Error(`No query plan for a statement the open ran: ${sql}`, { cause: error });
+      }
+      return plan.some((step) => /^SCAN (threads|sidebar_thread_columns)\b/.test(step));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+it("a later open lists every thread correctly without reading every thread", () => {
+  const { store, raw, open, path } = setup();
+  const projects = seed(store, 30);
+  open().close();
+  const statements = statementsAtOpen(path);
+  const check = raw();
+  const read = allPages(check, projects);
+  expect(read).toEqual(fromJson(check, () => allPages(check, projects)));
+  const inbox = read.find((each) => each.scope.project === undefined && !each.scope.archived);
+  expect(inbox?.live.total).toBe(30);
+  expect(fullScans(path, statements)).toEqual([]);
+});
+
+// Recovery coverage: an open that fails part way leaves nothing a later open would trust.
+// (The Store opens the facts table inside its own transaction, so a failure here rolls back.)
+it("an open that fails while clearing the repair marker still repairs at the next open", () => {
+  const { store, raw, open } = setup();
+  const projects = seed(store, 6);
+  const db = raw();
+  db.exec("DROP TRIGGER sidebar_columns_insert");
+  db.exec("UPDATE threads SET archived_at = 5000 WHERE id = 't-001'");
+  // The open stops at the point where it would clear the marker.
+  db.exec(
+    "CREATE TRIGGER stop_open BEFORE DELETE ON sidebar_columns_complete BEGIN SELECT RAISE(ABORT, 'stopped'); END",
+  );
+  db.close();
+  expect(() => open()).toThrow();
+  const unstop = raw();
+  unstop.exec("DROP TRIGGER stop_open");
+  unstop.close();
+  open().close();
+  const check = raw();
+  const read = allPages(check, projects);
+  expect(read).toEqual(fromJson(check, () => allPages(check, projects)));
+  const archive = read.find((each) => each.scope.project === undefined && each.scope.archived);
+  expect(archive?.live.page).toEqual(["t-001"]);
 });

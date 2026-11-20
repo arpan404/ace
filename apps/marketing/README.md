@@ -12,7 +12,10 @@ SITE_URL=https://your.domain bun run --filter @ace/marketing build   # output in
 
 ## Deploy
 
-Cloudflare Pages builds and deploys both public sites from `main`; there is no deploy script.
+Cloudflare Pages builds and deploys the marketing site from `main`; there is no deploy script. The
+web app (`ace-web`, app.acehq.dev) follows releases instead: the release pipeline builds and deploys
+it from each release tag ([docs/release/web.md](../../docs/release/web.md)), and Pages' automatic
+production deploys for it are off. The table lists the build each runs.
 
 | Pages project   | Domains                  | Build command (repo root)                                                                                   | Output                |
 | --------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- | --------------------- |
@@ -38,7 +41,8 @@ release, looked up from GitHub at build time (`src/content/release.ts`): the App
 for Mac, the x64 `-setup.exe` for Windows and the x64 `.AppImage` for Linux. The page shows the
 button for the visitor's system (Base.astro tags `<html data-os>` before paint; anything else sees
 Mac). A platform the release has no installer for, or a build that can't reach GitHub, links the
-release page instead. Rebuild after each release so the site links the new version.
+release page instead. After each stable release the release pipeline asks Pages to rebuild the
+site through a deploy hook, so it links the new version ([docs/release/web.md](../../docs/release/web.md)).
 
 ## Content
 

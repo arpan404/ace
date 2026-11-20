@@ -11,12 +11,9 @@
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
-    "bench": "node bench/workspace.ts",
-    "build:native": "node build.ts",
-    "bench:search": "node bench/search.ts"
+    "build:native": "node build.ts"
   },
   "dependencies": {
-    "@ace/provider-kit": "workspace:*",
     "node-api-headers": "^1.9.0",
     "zod": "^4.6.5"
   }

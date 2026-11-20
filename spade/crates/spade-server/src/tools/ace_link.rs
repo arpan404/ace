@@ -580,6 +580,17 @@ impl crate::computer::daemon::Daemon for AceLink {
 
 /// Other machines through the daemon (ADR 0132, docs/teams.md "What ace adds").
 impl crate::teams::Remote for AceLink {
+    /// `<ace home>/host-id`, read each time: the daemon writes it once, at its first start.
+    fn host(&self) -> Option<String> {
+        match &self.target {
+            AceTarget::Discover(home) => std::fs::read_to_string(home.join("host-id"))
+                .ok()
+                .map(|id| id.trim().to_owned())
+                .filter(|id| !id.is_empty() && id.len() <= 128),
+            AceTarget::Fixed(_) => None,
+        }
+    }
+
     fn machines(
         &self,
     ) -> crate::teams::BoxFuture<'_, Result<Vec<crate::teams::Machine>, crate::teams::RemoteError>>

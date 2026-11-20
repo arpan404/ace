@@ -53,7 +53,7 @@ test("the Spade switch on Settings › Beta saves the setting and swaps Spade's 
   await userEvent.click(toggle);
 
   await waitFor(() => expect(app.daemon.services.settings.get("beta.spade")).toBe(false));
-  expect(await within(rail()).findByRole("img", { name: "Spade, coming soon" })).toBeTruthy();
+  expect(await within(rail()).findByRole("button", { name: "Spade, coming soon" })).toBeTruthy();
   expect(within(rail()).queryByRole("link", { name: "Spade" })).toBeNull();
 
   await userEvent.click(toggle);
@@ -108,18 +108,13 @@ test("the Skills Add menu offers the marketplace only while it is on", async () 
 
 const appsButton = async () => {
   const search = await screen.findByRole("button", { name: "Search conversations" });
-  const head = search.parentElement;
-  if (!head) throw new Error("Spade's list head is missing");
-  return within(head).queryByRole("button", { name: "Apps, plugins and skills" });
+  const toolbar = search.parentElement;
+  if (!toolbar) throw new Error("Spade's list toolbar is missing");
+  return within(toolbar).queryByRole("button", { name: "Apps, plugins and skills" });
 };
 
-test("Spade's apps button leads to the marketplace while it is on", async () => {
+test("Spade's list has no apps button: the marketplace opens from the rail", async () => {
   await spadeApp("/spade", () => {});
-  expect(await appsButton()).not.toBeNull();
-});
-
-test("Spade has no apps button while the marketplace is off", async () => {
-  await spadeApp("/spade", () => {}, { daemon: marketplaceOff });
   expect(await appsButton()).toBeNull();
 });
 

@@ -7,6 +7,7 @@ import {
   assertSpadeRegistration,
   incompatibleSpadeService,
   readOwnFile,
+  refuseSpadeRegistration,
   type SpadeServicePorts,
   type SpadeServiceState,
 } from "./spade-registration.ts";
@@ -22,7 +23,7 @@ async function registered(plan: WindowsSpadePlan, ports: SpadeServicePorts): Pro
     try {
       assertLoadedTask(plan, query.stdout);
     } catch (cause) {
-      throw incompatibleSpadeService(plan.name, cause);
+      throw refuseSpadeRegistration(plan, plan.name, query.stdout, cause);
     }
     if (readOwnFile(plan.file) === undefined) throw incompatibleSpadeService(plan.file);
     return true;

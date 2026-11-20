@@ -3,6 +3,8 @@ import { readServerQueue } from "@ace/client";
 import { ThreadId, type QueuedMessage, type ThreadStatus } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useUpdateClosing } from "@/boot/desktop-updates.ts";
+import { useDaemonStartWords } from "@/boot/desktop-daemon-start.ts";
 import { useClaimConnectionNotice } from "@/features/shell/index.ts";
 import {
   ThreadAutomationStrip,
@@ -98,10 +100,15 @@ export function ComposerStrip(props: {
   const goal = thread?.goal;
   const queued = queuedCount(queue, pending);
 
-  const offline = connection === "offline";
+  // Closing to update: the header says so, and the daemon stopping is no trouble to show here.
+  const closing = useUpdateClosing();
+  const offline = !closing && connection === "offline";
+  const reconnecting = !closing && connection === "reconnecting";
+  // A cold start opened on what the window kept: the desktop's step, not "Reconnecting".
+  const starting = useDaemonStartWords();
   // Reconnecting and offline are said here, so the header stays quiet; anything else (a
   // fatal error) is the header's.
-  useClaimConnectionNotice(offline || connection === "reconnecting");
+  useClaimConnectionNotice(offline || reconnecting);
   const stopped = useStoppedCommands(props.threadId);
   // The agent does nothing itself while what it started runs: the strip says so, with a Stop.
   const activity = useTurnActivity(props.threadId);
@@ -152,7 +159,7 @@ export function ComposerStrip(props: {
     requests,
     target: props.requestTarget,
     sending: sending.length > 0,
-    connection: offline || connection === "reconnecting",
+    connection: offline || reconnecting,
     // A limit hold and commands left running are the copy's facts: only a current one says them.
     held: fresh && !!heldTurn,
     stopped: fresh && stopped.length > 0,
@@ -208,7 +215,9 @@ export function ComposerStrip(props: {
         ? transfer.state.transfer.target.name
         : transfer.state?.kind === "on"
           ? transfer.state.on.name
-          : transfer.state?.from.name,
+          : transfer.state?.kind === "moved"
+            ? transfer.state.to.name
+            : transfer.state?.from.name,
   };
   const indicators = (
     <StripIndicators
@@ -264,6 +273,7 @@ export function ComposerStrip(props: {
           <ConnectionStrip
             offline={offline}
             mismatch={client.error?.code === "version_mismatch"}
+            starting={starting}
             onRetry={() => (offline ? daemon.retry() : client.reconnectNow())}
             indicators={indicators}
           />

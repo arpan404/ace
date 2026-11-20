@@ -55,7 +55,7 @@ export async function startAccounts(context: ServiceContext) {
     })
     .catch(() => {});
   services.accountRegistry = registry;
-  services.accounts = new AccountService({
+  const accounts = new AccountService({
     registry,
     now,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -76,6 +76,9 @@ export async function startAccounts(context: ServiceContext) {
     freshen: (signal) =>
       services.accountManagement?.limits.fresh(freshLimitsWaitMs, signal) ?? Promise.resolve(),
   });
+  // Copied above; a daemon started on a saved PATH gets the login shell's before any session.
+  options.loginPath?.onChange((path) => accounts.usePath(path));
+  services.accounts = accounts;
 }
 export function startAccountManagement(context: ServiceContext): void {
   const { services, resources, config, now, id, options } = context;
@@ -133,7 +136,14 @@ export function startAccountManagement(context: ServiceContext): void {
     },
   });
   services.accountManagement = management;
-  const initialized = repeatableWarmup(context, "accountManagement", () => management.initialize());
+  // Restoring accounts registers model catalogs with an environment and probes CLIs for limits:
+  // only on the login shell's PATH (`login-path-handoff.ts`); "starting" until then.
+  const initialized = repeatableWarmup(context, "accountManagement", async () => {
+    await options.loginPath?.final;
+    // A stopping daemon's PATH is settled unchanged, never confirmed.
+    context.signal.throwIfAborted();
+    await management.initialize();
+  });
   // Re-read limits well within the staleness window while they matter (a held thread, working
   // agents, a client reading them), so an account that reset or bought more lets its held
   // threads go without anyone asking; otherwise only once a known reset has passed.

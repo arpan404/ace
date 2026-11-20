@@ -23,14 +23,25 @@ import { lostChild } from "./sheet-fixture.ts";
 
 afterEach(reset);
 
-function asking(id: string, raw: Record<string, unknown>) {
+function asking(
+  id: string,
+  raw: Record<string, unknown>,
+  parts: { type: string; data: Record<string, unknown> }[] = [],
+) {
   const request = InteractionRequest.parse(raw);
   const fake = fixture();
   fake.createThread({ id, workspaceId: "ace", title: id, provider: "claude" });
   fake.apply(id, [
     facts.rootAgent("claude"),
     facts.turn("root"),
-    { type: "interaction.opened", agent: "root", interaction: "ask", blocking: true, request },
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "ask",
+      blocking: true,
+      request,
+      ...(parts.length ? { raw: parts } : {}),
+    },
   ]);
   return fake;
 }
@@ -228,6 +239,7 @@ test("a browser request says Done for the tab the agent waits on", async () => {
   expect(row.help).toEqual({
     title: "Sign in to github.com in the Browser",
     detail: "Sign in with the team account",
+    elsewhere: false,
   });
   thread.handle({
     type: "resolve",
@@ -248,6 +260,49 @@ test("a browser request says Done for the tab the agent waits on", async () => {
     kind: "browser_help",
     outcome: "done",
   });
+});
+
+test("browser help mirrored from another machine says so, since its tab isn't this thread's browser", async () => {
+  open(
+    connect(
+      asking(
+        "help-elsewhere",
+        {
+          kind: "browser_help",
+          tabId: "tab-1",
+          reason: "login",
+          message: "Studio: Sign in with the team account",
+          url: "https://github.com/login",
+        },
+        [
+          {
+            type: "ace.machine.request",
+            data: { machine: "studio", threadId: "child-1", interactionId: "ask-9" },
+          },
+        ],
+      ),
+    ),
+    "help-elsewhere",
+  );
+  const row = await card("browser_help");
+  expect(row.help).toMatchObject({ elsewhere: true });
+});
+
+test("browser help asked in this thread opens its own browser", async () => {
+  open(
+    connect(
+      asking("help-here", {
+        kind: "browser_help",
+        tabId: "tab-1",
+        reason: "login",
+        message: "Sign in",
+        url: "https://github.com/login",
+      }),
+    ),
+    "help-here",
+  );
+  const row = await card("browser_help");
+  expect(row.help).toMatchObject({ elsewhere: false });
 });
 
 test("each request carries its strip line: who asks, by provider mark, and the one line under it", async () => {

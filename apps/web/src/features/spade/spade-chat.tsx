@@ -13,14 +13,17 @@ import {
   type SpadeView,
   spadeQuietLine,
   spadeRestLine,
+  spadeRunningDetail,
+  type SpadeEntry,
   withSpadeDigests,
   type SpadeDigest,
   type SpadeRestAction,
 } from "@ace/ui-core/spade-chat";
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
+import { whenIdle } from "@/lib/idle.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
@@ -34,6 +37,8 @@ import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
+import { useSpadeClient } from "./spade-machine.tsx";
+import { SpadeStepsLine } from "./spade-steps-line.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -53,8 +58,9 @@ export interface ChatBot {
  * on a new day, a routine's run named in its line; messages other bots sent here under their
  * face and name. Each bubble offers its exact time, Copy and Read aloud on hover or a long
  * press. Each thing the bot says is a bubble of its own, stacked as a messenger shows several
- * messages; nothing of how it works shows once it is done:
- * no steps, tool arguments, jobs, compaction or the notes it saves (ADR 0128). A request
+ * messages; under a reply, the steps it took fold into one quiet line that opens to each, with
+ * what was blocked, refused, hard to undo or done outside its box shown unopened
+ * (`SpadeStepsLine`). Jobs, compaction and the notes it saves don't show (ADR 0128). A request
  * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
  * given (`SpadeRequestBubble`); a card of questions likewise, answered in it or left for later
  * (`SpadeQuestionBubble`, ADR 0154); a search with nothing set up shows nothing (Settings ›
@@ -89,8 +95,10 @@ export function SpadeChat(props: {
   onProposal?(id: string, save: boolean): Promise<boolean>;
   /** An endpoint's name by its id, for a failed reply's sentence; undefined when unknown. */
   endpointName?(id: string): string | undefined;
-  /** Try again on a failed reply: sends the person's last message again. */
-  onRetry?(text: string): Promise<boolean>;
+  /** Try again on a failed reply, by its id: Spade answers that turn again in its place. */
+  onRetry?(reply: string): Promise<boolean>;
+  /** Set up a model, offered where a reply failed for want of one. */
+  onSetUpModel?(): void;
   /** Its digests (ADR 0165), oldest first: messages of its own where each was made. */
   digests?: readonly SpadeDigest[] | undefined;
   /** The resting line's actions on its wake; resolves false when it didn't go through. */
@@ -99,10 +107,15 @@ export function SpadeChat(props: {
   onOpenBot?(id: string): void;
   /** Open its profile's Work tab: a goal's and a check's quiet lines open it. */
   onOpenWork?(): void;
+  /** What shows before anything is said: who the bot is. */
+  start?: ReactNode;
 }) {
   const { view, bot } = props;
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
   const now = useSeconds(false);
+  const client = useSpadeClient();
+  // The same object while the conversation is: bubbles skip drawing again as others stream.
+  const keep = useMemo(() => ({ owner: client, conversation: bot.id }), [client, bot.id]);
   const proposals = props.proposals;
   const digests = props.digests;
   const rows = useMemo(
@@ -119,6 +132,7 @@ export function SpadeChat(props: {
       ),
     [view, proposals, digests, now],
   );
+  const from = useNewestFirst(rows.length);
   // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
   const rest =
     view.resting &&
@@ -144,6 +158,8 @@ export function SpadeChat(props: {
   // The working line shows while the bot works itself, not while it waits on the person; a
   // task that carries on or waits on the person keeps its line between replies too.
   const working = busy && !waiting;
+  // The open reply's step running now: the working line names what it touches.
+  const running = working ? spadeRunningDetail(openReply(view.entries)) : undefined;
   const task = props.task;
   const lined = working || task !== undefined;
   const handlers: Handlers = {
@@ -154,9 +170,11 @@ export function SpadeChat(props: {
     onQuestion: props.onQuestion,
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
+    onSetUpModel: props.onSetUpModel,
     onOpenBot: props.onOpenBot,
     onOpenWork: props.onOpenWork,
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
+    keep,
   };
   return (
     <div
@@ -165,8 +183,15 @@ export function SpadeChat(props: {
       aria-busy={view.busy}
       className="flex flex-col"
     >
-      {rows.map((row, index) => (
-        <Row key={row.key} row={row} previous={rows[index - 1]} bot={bot} handlers={handlers} />
+      {rows.length === 0 && !lined && !rest && props.start}
+      {rows.slice(from).map((row, index) => (
+        <Row
+          key={row.key}
+          row={row}
+          previous={rows[from + index - 1]}
+          bot={bot}
+          handlers={handlers}
+        />
       ))}
       {rest && !props.paused && onWake ? (
         <RestingLine
@@ -211,6 +236,7 @@ export function SpadeChat(props: {
                 ? [task.sentence, task.step].filter(Boolean).join(" · ")
                 : (view.status ?? "Working")
             }
+            detail={working ? running : undefined}
             since={working ? view.working?.since : undefined}
             onWatch={props.onWatch}
           />
@@ -218,6 +244,32 @@ export function SpadeChat(props: {
       )}
     </div>
   );
+}
+
+/** Rows a conversation draws at once when it opens; older ones join a batch at a time. */
+const openingRows = 40;
+
+/**
+ * Where the drawn rows start: a long conversation opens with its newest rows, the ones in view
+ * at its end, and the older ones join above them a batch at a time while the page is idle, so
+ * opening never waits on drawing all of its history. Rows arriving later always draw.
+ */
+function useNewestFirst(count: number): number {
+  const [from, setFrom] = useState(() => Math.max(0, count - openingRows));
+  useEffect(() => {
+    if (from === 0) return;
+    return whenIdle(() => setFrom((start) => Math.max(0, start - openingRows)), 250);
+  }, [from]);
+  return Math.min(from, count);
+}
+
+/** The reply still open, the last one in the conversation. */
+function openReply(entries: readonly SpadeEntry[]) {
+  for (let at = entries.length - 1; at >= 0; at--) {
+    const entry = entries[at];
+    if (entry?.kind === "reply") return entry.end ? undefined : entry;
+  }
+  return undefined;
 }
 
 interface Handlers {
@@ -228,11 +280,14 @@ interface Handlers {
   /** Reply to a card of questions; resolves with what to say under it when refused. */
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   onOpenFile(path: string): void;
-  onRetry: ((text: string) => Promise<boolean>) | undefined;
+  onRetry: ((reply: string) => Promise<boolean>) | undefined;
+  onSetUpModel: (() => void) | undefined;
   onOpenBot: ((id: string) => void) | undefined;
   onOpenWork: (() => void) | undefined;
   /** A bot's face by its id: a worker's, in its quiet line and a digest. */
   face(id: string): SpadeAvatar;
+  /** Where its finished bubbles stay drawn: this Spade connection and conversation. */
+  keep: { owner: object; conversation: string };
 }
 
 /**
@@ -355,7 +410,14 @@ function RunItem(props: {
                 )}
                 className={cn(chatBubble, framed)}
               >
-                {item.text && <SpadeBubbleText text={item.text} />}
+                {item.text && (
+                  <SpadeBubbleText
+                    text={item.text}
+                    stream={item.key}
+                    streaming={item.live}
+                    keep={handlers.keep}
+                  />
+                )}
                 {item.end === "failed" && item.failure ? (
                   <Failure
                     failure={item.failure}
@@ -364,6 +426,7 @@ function RunItem(props: {
                     }
                     spaced={Boolean(item.text)}
                     onRetry={handlers.onRetry}
+                    onSetUpModel={handlers.onSetUpModel}
                   />
                 ) : (
                   item.end && (
@@ -400,6 +463,8 @@ function RunItem(props: {
           </div>
         </BubbleFrame>
       );
+    case "steps":
+      return <SpadeStepsLine summary={item.summary} steps={item.steps} />;
     case "files":
       return (
         <div {...part("spade-message", undefined, sender(bot))} className={chatBubble}>
@@ -493,24 +558,6 @@ function Single(props: {
         <p role="note" className={cn("text-xs text-muted-foreground", space)}>
           {item.text}
         </p>
-      );
-    case "group":
-      // A group the bot is in sent it (ADR 0132): a small label, then what was asked, quietly.
-      return (
-        <div
-          role="note"
-          aria-label={`In ${item.group}`}
-          className={cn("flex flex-col items-center gap-1", space)}
-        >
-          <span className="rounded-full bg-chat-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
-            {item.agent ? `In ${item.group} · ${item.agent.name}` : `In ${item.group}`}
-          </span>
-          {item.text && (
-            <p className="max-w-[80%] text-center text-xs text-muted-foreground wrap-anywhere line-clamp-3">
-              {item.text}
-            </p>
-          )}
-        </div>
       );
     case "handback":
       // The person handed the computer back: Spade's narration as one quiet line, and the names

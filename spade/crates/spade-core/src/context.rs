@@ -470,6 +470,14 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
         None => 0,
     };
     let all = events;
+    // Failed replies the person tried again (`reply_retried`), by id.
+    let tried_again: std::collections::HashSet<&str> = events[from..]
+        .iter()
+        .filter_map(|event| match event {
+            Event::Known(Known::ReplyRetried { reply }) => Some(reply.as_str()),
+            _ => None,
+        })
+        .collect();
     let events = reading_order(events, from);
     // Calls of the last Spade step still waiting for results, and messages held until they come.
     let mut pending: Vec<ToolCall> = Vec::new();
@@ -638,8 +646,12 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
             | Known::ReplyFailed { text, .. }
             | Known::ReplyInterrupted { text, .. } => {
                 close(&mut out, &mut pending, &mut held, &mut returned, &started);
+                // A failed reply the person tried again gives way to the reply that took its
+                // place: its unfinished words are gone from the chat, and from what the model
+                // reads (docs/chat-core.md, Try again).
+                let retried = matches!(event, Known::ReplyFailed { reply, .. } if tried_again.contains(reply.as_str()));
                 // Text that arrived before the turn ended, not yet part of a finished step.
-                if !text.is_empty() && !ends_with_spade_text(&out, text) {
+                if !retried && !text.is_empty() && !ends_with_spade_text(&out, text) {
                     out.push(Message::Spade {
                         text: text.clone(),
                         calls: Vec::new(),

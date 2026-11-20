@@ -3,7 +3,8 @@
 ace cloud is ace's hosted service at `https://cloud.acehq.dev`: the relay, the account API and,
 for Spade, this broker, all in one Cloudflare Worker ([ADR 0141](../../docs/adr/0141-ace-cloud.md);
 the broker itself is [ADR 0140](../../docs/adr/0140-spade-cloud.md)). The broker's job is signing people in to apps whose
-OAuth needs a client secret, which Spade can't ship: Asana, Box, Canva and HubSpot. It uses the
+OAuth needs a client secret, which Spade can't ship: Asana, Box, Canva, Front, HubSpot, Slack,
+Zoom and Google's seven Workspace servers (Gmail, Calendar, Chat, Docs, Drive, Sheets, Slides). It uses the
 person's ace account; there is no separate Spade login. It stores no tokens.
 
 Code: `apps/cloud/src/broker` (TypeScript, in the Worker) and `spade/crates/spade-cloud-wire`
@@ -30,7 +31,7 @@ cloud refreshes with its secret and answers sealed.
 
 ## API
 
-Every `/v1/oauth/*` request except the callback carries `Authorization: Bearer <cloud credential>`,
+Every `/v1/oauth/*` request except the callback and the apps list carries `Authorization: Bearer <cloud credential>`,
 a credential signed by ace's account backend using ADR 0111 signing, with kind `machine`,
 `aud: "cloud.acehq.dev"` and `purpose: "spade-cloud"`. General machine grants are refused;
 the relay rejects cloud credentials through its strict claims parser. Bodies are JSON, at most
@@ -38,6 +39,7 @@ the relay rejects cloud credentials through its strict claims parser. Bodies are
 
 | Request                        | Body                                  | Answers                                                                              |
 | ------------------------------ | ------------------------------------- | ------------------------------------------------------------------------------------ |
+| `GET /v1/oauth/apps`           | none; open, no credential             | `200 {apps: [id]}`: the apps whose client ID and secret are both set (cached 5 min)  |
 | `POST /v1/oauth/{app}/start`   | `{code_challenge, public_key}`        | `200 {sign_in, authorization_url, expires_in, issuer, client_id}`                    |
 | `GET /v1/oauth/callback/{app}` | query `state`, `code`, `iss`, `error` | an HTML page: signed in (200), cancelled (200) or not found (400)                    |
 | `POST /v1/oauth/{app}/finish`  | `{sign_in, code_verifier}`            | `202 {"status": "waiting"}` or `200 {"status": "done", "sealed": {epk, ciphertext}}` |
@@ -121,20 +123,23 @@ expires and its row says why it can't renew.
 
 All in `apps/cloud`: `wrangler.jsonc` (bindings, routes) and Worker secrets.
 
-| Setting                                   | Kind       | Meaning                                                                          |
-| ----------------------------------------- | ---------- | -------------------------------------------------------------------------------- |
-| `ACE_ACCOUNT_PUBLIC_URL`                  | var        | ace cloud's address (`https://cloud.acehq.dev`); makers redirect to its callback |
-| `ACE_GRANT_KEY`, `ACE_GRANT_PREVIOUS_KEY` | secret     | The account API's grant keys, which also verify cloud credentials                |
-| `SPADE_CLOUD_<APP>_CLIENT_ID` / `_SECRET` | secret     | Each app's client, named in the app list; an app missing either answers 503      |
-| `SPADE_CLOUD_APPS`                        | var        | Another app list as JSON in place of the shipped one (tests, staging)            |
-| `SIGN_INS`                                | DO binding | `SignInObject`, sign-ins in progress per account                                 |
-| `BROKER_ADDRESS_REQUESTS`, `_ACCOUNT_`    | rate limit | The budgets above                                                                |
+| Setting                                   | Kind       | Meaning                                                                                                                                                    |
+| ----------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACE_ACCOUNT_PUBLIC_URL`                  | var        | ace cloud's address (`https://cloud.acehq.dev`); makers redirect to its callback                                                                           |
+| `ACE_GRANT_KEY`, `ACE_GRANT_PREVIOUS_KEY` | secret     | The account API's grant keys, which also verify cloud credentials                                                                                          |
+| `SPADE_CLOUD_<APP>_CLIENT_ID` / `_SECRET` | secret     | Each app's client, named in the app list; an app missing either answers 503 and isn't in `GET /v1/oauth/apps`. Google's seven share `SPADE_CLOUD_GOOGLE_*` |
+| `SPADE_CLOUD_APPS`                        | var        | Another app list as JSON in place of the shipped one (tests, staging)                                                                                      |
+| `SIGN_INS`                                | DO binding | `SignInObject`, sign-ins in progress per account                                                                                                           |
+| `BROKER_ADDRESS_REQUESTS`, `_ACCOUNT_`    | rate limit | The budgets above                                                                                                                                          |
 
 In Spade, `SPADE_CLOUD_URL` points at another cloud (development), or `off` leaves these apps on
 the person's own client ID.
 
 The app list (`apps/cloud/src/broker/apps.ts`) gives each app's issuer, authorization and token
-endpoints, client authentication, scopes, MCP resource and secret names. Endpoints were read from
+endpoints, client authentication, scopes, extra authorization parameters (Google's
+`access_type=offline` and `prompt=consent`, without which it gives no refresh token), MCP resource
+and secret names. Spade asks `GET /v1/oauth/apps` at most every ten minutes and offers Sign in only
+for the apps listed; the rest say "Coming soon" ([ADR 0193](../../docs/adr/0193-spade-catalogue-says-what-connects.md)). Endpoints were read from
 each maker's live metadata on the date it records. Every catalogue entry marked `via: "cloud"`
 must have an app there for the same server; a test checks.
 
@@ -145,7 +150,9 @@ The broker ships with ace cloud: `wrangler deploy --env production` from `apps/c
 Then, for each app:
 
 1. **Register Spade's app with the maker**, with its own redirect URI
-   `https://cloud.acehq.dev/v1/oauth/callback/{app}` (URLs listed below):
+   `https://cloud.acehq.dev/v1/oauth/callback/{app}`. The full per-app list (where, redirects,
+   scopes, secret names) is the owner checklist in [connector-apps.md](connector-apps.md#owner-checklist);
+   the first four:
    - Asana: an MCP app in the developer console.
    - Box: an MCP client in the Admin Console (Box may limit it to your enterprise; see
      [connector-apps.md](connector-apps.md)).
@@ -158,7 +165,7 @@ Then, for each app:
    export XDG_CONFIG_HOME=~/.ace-cloudflare
    bunx wrangler secret put SPADE_CLOUD_ASANA_CLIENT_ID --env production
    bunx wrangler secret put SPADE_CLOUD_ASANA_CLIENT_SECRET --env production
-   # likewise BOX, CANVA, HUBSPOT
+   # likewise BOX, CANVA, FRONT, GOOGLE, HUBSPOT, SLACK, ZOOM
    ```
 
    Secrets apply at once, without a deploy.
@@ -185,6 +192,10 @@ Each vendor registration must use its own callback URL:
 - Box: `https://cloud.acehq.dev/v1/oauth/callback/box`
 - Canva: `https://cloud.acehq.dev/v1/oauth/callback/canva`
 - HubSpot: `https://cloud.acehq.dev/v1/oauth/callback/hubspot`
+- Front, Slack, Zoom: `…/callback/front`, `…/callback/slack`, `…/callback/zoom`
+- Google, one client with all seven: `…/callback/gmail`, `…/callback/google-calendar`,
+  `…/callback/google-chat`, `…/callback/google-docs`, `…/callback/google-drive`,
+  `…/callback/google-sheets`, `…/callback/google-slides`
 
 The app list records `authorization_response_iss_parameter_supported` from vendor metadata.
 When true, missing `iss` declines the sign-in; when supplied, it is always compared exactly,

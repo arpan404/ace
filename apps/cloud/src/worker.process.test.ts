@@ -28,7 +28,12 @@ const hostGrant = (account: string, keys: KeyPair) => async () =>
   mint("machine", account, hostId(keys.publicKey));
 
 async function host(
-  options: { account?: string; limits?: Parameters<typeof connectHostToRelay>[0]["limits"] } = {},
+  options: {
+    account?: string;
+    limits?: Parameters<typeof connectHostToRelay>[0]["limits"];
+    /** The `ace-client` name both ends send (ADR 0189). */
+    aceClient?: string;
+  } = {},
 ) {
   const account = options.account ?? "user_a";
   const hostKeys = keyPair();
@@ -39,6 +44,7 @@ async function host(
     limits: options.limits ?? {},
     account: { grant: hostGrant(account, hostKeys), name: "Studio Mac", platform: "darwin" },
     onClientChannel: (channel) => next.resolve(channel),
+    ...(options.aceClient ? { aceClient: options.aceClient } : {}),
   });
   cleanups.push(() => connection.close());
   const client = (grant = mint("device", account, "phone")) =>
@@ -47,6 +53,7 @@ async function host(
       hostId: connection.hostId,
       pinnedFingerprint: connection.hostId,
       grant,
+      ...(options.aceClient ? { aceClient: options.aceClient } : {}),
     });
   async function connect() {
     next = deferred<HostChannel>();
@@ -82,6 +89,15 @@ it("a daemon and a device on the same account exchange encrypted messages in bot
   await first.server.closed;
   await second.client.send({ type: "ping" });
   expect(await second.server.receive()).toEqual({ type: "ping" });
+});
+
+it("a daemon and a device that name their versions, or garble them, connect as before", async () => {
+  for (const aceClient of ["daemon/0.0.24-beta.1", "not a client"]) {
+    const { connect } = await host({ aceClient });
+    const { client, server } = await connect();
+    await client.send({ type: "ping" });
+    expect(await server.receive()).toEqual({ type: "ping" });
+  }
 });
 
 it("a registered machine is listed under the account its grant names", async () => {

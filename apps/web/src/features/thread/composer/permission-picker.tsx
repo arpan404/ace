@@ -8,6 +8,7 @@ import { chipControl } from "./composer-styles.ts";
 import { DeferredPermissionMenu, MenuPending } from "./deferred-menus.tsx";
 import { accessIcons, agentDefaultIcon, customIcon } from "./permission-icons.ts";
 import type { PermissionMenuView } from "./permission-view.ts";
+import { part } from "@/lib/suit-part.ts";
 
 export type { PermissionMenuView } from "./permission-view.ts";
 
@@ -57,6 +58,7 @@ export function PermissionPicker(props: PermissionPickerProps) {
       <Tip label={menu.unavailable ?? tip} side="top">
         <MenuTrigger
           aria-label={`Access: ${label}${waits ? `, ${waits}` : ""}`}
+          {...part("select", undefined, "access")}
           // Full access gates nothing; it reads in the attention colour.
           className={cn(
             chipControl,

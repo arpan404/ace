@@ -18,11 +18,16 @@ export interface Route {
 }
 
 export const routes: Route[] = [
-  { path: "/", name: "Home", summary: "What ace is and what it does." },
+  {
+    path: "/",
+    name: "Home",
+    summary: "What ace is: a free, open-source app that runs your coding agents as one team.",
+  },
   {
     path: "/download/",
     name: "Download",
-    summary: "ace for Mac, Windows and Linux, and ace for iPhone, iPad and Android.",
+    summary:
+      "ace for Mac, Windows and Linux, with apps for iPhone and iPad; Android is coming soon.",
     parent: "/",
   },
   {
@@ -49,6 +54,13 @@ export const routes: Route[] = [
     summary: `Run ${guide.label} in ace: ${guide.what}`,
     parent: "/agents/",
   })),
+  {
+    path: "/spade/",
+    name: "Spade",
+    summary:
+      "Spade, ace's own assistant in beta: bots with memory, routines and a computer, on your models.",
+    parent: "/",
+  },
   {
     path: "/mcp/",
     name: "MCP tools",

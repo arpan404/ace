@@ -4,12 +4,14 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { SpadeListSearch, SpadeListTop } from "./spade-list-head.tsx";
+import { SpadeListSearch, SpadeListTop } from "./spade-list-top.tsx";
 import { BotListRow, GroupListRow, ListSkeletonRows } from "./spade-list-parts.tsx";
 import { SpadePinStrip } from "./spade-pin-strip.tsx";
 import { SpadeRowMenu } from "./spade-row-menu.tsx";
 import {
+  holdSpadeOrder,
   searchSpadeList,
+  spadeEntryKey,
   spadeFlatEntries,
   spadeListEntries,
   splitPinned,
@@ -17,21 +19,22 @@ import {
 import { Problem } from "./spade-screen-parts.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
-import { useOneSpade, useSpadeRoster } from "./use-spade-roster.ts";
+import { useSpadeRoster } from "./use-spade-roster.ts";
+import { useSpadeHost } from "./use-spade-host.ts";
 import { useGoalMissing } from "./use-goal-missing.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 import { useTellZone } from "./use-spade-zone.ts";
 import { useSpadeGroups } from "./use-spade-groups.ts";
 
 /**
- * Spade's panel, a messenger's list (ADR 0127, docs/design/spade.md §2). Three buttons on top:
+ * Spade's panel, a messenger's list (ADR 0127, docs/design/spade.md §2). A slim toolbar on top:
  * Search, which opens in place over the rows and finds conversations by their words, Plugins &
- * marketplace, and + (New bot, New group, Import bot). Then one row per bot or group on every
- * machine this window reaches: Spade, the main bot, first as an ordinary row, then what needs
- * the person, what works, what failed and what they haven't seen, then the rest by latest
- * activity. While Spade runs but waits on the person (a keychain prompt), what to look for, under
- * the top. The panel sees every machine, so it keeps Spade, the main
- * bot, on one (`useOneSpade`).
+ * marketplace, and + (New bot, New club, Import bot). Then one row per bot or club on every
+ * machine this window reaches: Spade, the main bot, first as an ordinary row, then what needs the
+ * person, what works, what failed and what they haven't seen, then the rest by latest activity.
+ * Nothing sits below the rows: the profile and settings are the rail's. While Spade runs but waits
+ * on the person (a keychain prompt), what to look for, under the toolbar. The panel sees every
+ * machine, so it keeps the fleet's choice of where Spade lives in step (`useSpadeHost`).
  */
 export function SpadeSidebar() {
   const status = useSpadeStatus();
@@ -39,7 +42,7 @@ export function SpadeSidebar() {
   const line = spadeStateLine(status, enabled);
   const setup = spadeSetupSentence(status);
   const roster = useSpadeRoster(line.ready);
-  useOneSpade(roster.hosting);
+  useSpadeHost(roster.hosting);
   useTellZone(useMemo(() => roster.hosts.map((host) => host.machine.client), [roster.hosts]));
   const { groups } = useSpadeGroups(roster);
   const [searching, setSearching] = useState(false);
@@ -56,10 +59,12 @@ export function SpadeSidebar() {
   const nested = spadeListEntries(roster.bots, groups, open, missing);
   const searched = query.trim() !== "";
   // Searching looks through everything, pinned too; otherwise the strip holds what's pinned.
-  const { pinned, rest } = searched
+  const { pinned, rest: listed } = searched
     ? { pinned: [], rest: searchSpadeList(all, query) }
     : splitPinned(nested, all);
-  const entries = rest;
+  // While the pointer is over the list its order holds, so a row never moves out from under it.
+  const [held, setHeld] = useState<readonly string[]>();
+  const entries = held && !searched ? holdSpadeOrder(listed, held) : listed;
   const closeSearch = () => {
     setQuery("");
     setSearching(false);
@@ -77,9 +82,21 @@ export function SpadeSidebar() {
         {setup && line.ready && <SpadeStateStrip line={{ ...line, sentence: setup }} />}
         {searching && <SpadeListSearch query={query} onQuery={setQuery} onClose={closeSearch} />}
         {pinned.length > 0 && <SpadePinStrip entries={pinned} bots={roster.bots} open={open} />}
-        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        <div
+          className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse") setHeld(listed.map(spadeEntryKey));
+          }}
+          onPointerLeave={() => setHeld(undefined)}
+        >
           {/* The last list stays while Spade restarts or a read fails; it reads again on its own. */}
-          {!roster.bots.length && !line.ready ? null : !roster.bots.length && roster.error ? (
+          {!roster.bots.length && !line.ready ? (
+            // Spade off or not answering: one quiet sentence in the middle; Turn on is in the
+            // conversation column, where Spade's chat would be.
+            <p className="px-4 pt-[30%] text-center text-ui text-muted-foreground">
+              {line.sentence}
+            </p>
+          ) : !roster.bots.length && roster.error ? (
             <div className="px-2.5 pt-3">
               <Problem text="Couldn't read Spade's bots." onRetry={roster.refetch} />
             </div>
@@ -89,7 +106,7 @@ export function SpadeSidebar() {
             <p className="px-2.5 pt-3 text-ui text-muted-foreground">
               Nothing matches “{query.trim()}”.
             </p>
-          ) : all.length === 0 ? (
+          ) : entries.length === 0 ? (
             <div className="flex flex-col items-center gap-3 px-4 pt-8 text-center">
               <p className="text-ui text-muted-foreground">Your bots show here.</p>
               {roster.hosts.length > 0 && (
@@ -107,10 +124,7 @@ export function SpadeSidebar() {
             <ul className="flex flex-col">
               {entries.map((entry) =>
                 entry.kind === "bot" ? (
-                  <li
-                    key={`${entry.bot.machine.key}/${entry.bot.id}`}
-                    className={entry.depth ? "pl-6" : undefined}
-                  >
+                  <li key={spadeEntryKey(entry)} className={entry.depth ? "pl-6" : undefined}>
                     <SpadeRowMenu entry={entry}>
                       <BotListRow
                         bot={entry.bot}
@@ -121,7 +135,7 @@ export function SpadeSidebar() {
                     </SpadeRowMenu>
                   </li>
                 ) : (
-                  <li key={`group:${entry.group.machine.key}/${entry.group.id}`}>
+                  <li key={spadeEntryKey(entry)}>
                     <SpadeRowMenu entry={entry}>
                       <GroupListRow
                         group={entry.group}

@@ -426,7 +426,16 @@ async fn a_helpers_commands_run_beside_the_bots_each_session_with_its_own_folder
     // A helper's session runs meanwhile, from the workspace, not the bot's folder.
     let started = std::time::Instant::now();
     let helper = terminal
-        .run_in_state("c_helper", "pwd", long, None, false)
+        .run_in_state(
+            "c_helper",
+            "pwd",
+            long,
+            None,
+            spade_server::workspace::shell::LaunchPlan::AS_FOUND,
+            &[],
+            false,
+            spade_server::workspace::shell::By::Spade,
+        )
         .await?;
     assert!(
         started.elapsed() < Duration::from_millis(700),
@@ -689,10 +698,10 @@ async fn the_bots_terminal_commands_still_ask_and_always_allows_only_that_comman
     let spade = start(
         &machine,
         vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "echo first-$((1+1))" })),
+            Script::reply("").call("c1", "shell", json!({ "command": "echo first-$(echo 2)" })),
             Script::reply("Ran it."),
             Script::reply("").plain(r#"{"title":"Shell"}"#),
-            Script::reply("").call("c2", "shell", json!({ "command": "echo first-$((1+1))" })),
+            Script::reply("").call("c2", "shell", json!({ "command": "echo first-$(echo 2)" })),
             Script::reply("Again."),
             Script::reply("").call("c3", "shell", json!({ "command": "echo other" })),
             Script::reply("Okay."),
@@ -725,7 +734,7 @@ async fn the_bots_terminal_commands_still_ask_and_always_allows_only_that_comman
         .cloned()
         .unwrap_or_default();
     assert_eq!(terminal["live"], true);
-    assert_eq!(terminal["title"], "echo first-$((1+1))");
+    assert_eq!(terminal["title"], "echo first-$(echo 2)");
 
     spade.say(&conversation, "Again").await?;
     spade
@@ -1395,5 +1404,68 @@ async fn an_end_past_its_deadline_quarantines_the_terminal_until_it_is_done() ->
     let ran = terminal.run("echo hi", Duration::from_secs(5)).await?;
     assert_eq!(ran.stdout, "hi\n");
     terminals.end_all();
+    Ok(())
+}
+
+/// A settled command in a terminal runs with a clean, fixed environment: variables an earlier
+/// command exported into the terminal never reach it (ADR 0172, amendment 4).
+#[tokio::test]
+async fn a_settled_command_never_sees_variables_an_earlier_terminal_command_exported() -> Result {
+    let machine = Machine::new()?;
+    let terminal = machine.terminals.of("a_1")?;
+    let long = Duration::from_secs(10);
+    // An ordinary command exports the kind of variables that steer other programs.
+    let set = terminal
+        .run(
+            "export GAWK_PERSIST_FILE=/tmp/evil TAR_OPTIONS=--checkpoint-action=exec LESSOPEN='|evil' EVIL=1 PATH=/evil:$PATH",
+            long,
+        )
+        .await?;
+    assert_eq!(set.code, Some(0), "{set:?}");
+    // A later settled command (a form, so overrides, so clean env) prints its environment.
+    let Some(form) = spade_classify::hardening("printenv") else {
+        panic!("printenv has no hardened form");
+    };
+    let ran = terminal
+        .run_in_state(
+            "",
+            "printenv",
+            long,
+            None,
+            spade_server::workspace::shell::LaunchPlan::AS_FOUND,
+            &form.env,
+            true,
+            spade_server::workspace::shell::By::Spade,
+        )
+        .await?;
+    assert_eq!(ran.code, Some(0), "{ran:?}");
+    let env = ran.stdout;
+    for leaked in ["GAWK_PERSIST_FILE", "TAR_OPTIONS", "LESSOPEN", "EVIL=1"] {
+        assert!(
+            !env.contains(leaked),
+            "a settled command saw {leaked}:\n{env}"
+        );
+    }
+    // PATH is Spade's system folders, not the one the earlier command set.
+    assert!(
+        !env.contains("/evil"),
+        "a settled command saw the earlier PATH:\n{env}"
+    );
+    let path = env
+        .lines()
+        .find_map(|l| l.strip_prefix("PATH="))
+        .unwrap_or_default();
+    assert!(
+        path.contains("/usr/bin") && !path.contains("/evil"),
+        "PATH is {path}"
+    );
+    // A command after it still has the variables, so only the settled one is isolated.
+    let after = terminal.run("printenv EVIL", long).await?;
+    assert_eq!(
+        after.stdout.trim(),
+        "1",
+        "the terminal kept the bot's own variables"
+    );
+    machine.terminals.end_all();
     Ok(())
 }

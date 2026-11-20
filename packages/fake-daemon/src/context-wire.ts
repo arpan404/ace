@@ -349,6 +349,7 @@ export class FakeContextWire {
                         : this.checkoutPaths?.(scope),
                     )
                   : [],
+                ready: true,
               };
       }
     } catch (error) {

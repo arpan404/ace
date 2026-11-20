@@ -66,6 +66,7 @@ struct ChatsList: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollsToTop(on: .chats, first: sections.first?.rows.first.map(AnyHashable.init))
                 .scrollContentBackground(.hidden)
             }
         }

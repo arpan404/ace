@@ -224,8 +224,13 @@ export class ServiceStartup {
     this.definitions = definitions;
     this.critical = criticalServices(definitions);
     this.deferred = definitions.filter((definition) => definition.phase === "listener");
-    for (const definition of definitions.filter((entry) => entry.phase === "core"))
+    const timings = this.timings();
+    for (const definition of definitions.filter((entry) => entry.phase === "core")) {
+      const began = this.context.now();
       this.listeners.push(...(await this.startOne(definition)));
+      timings.add(definition.name, began);
+    }
+    timings.log("Core services started");
     for (const definition of definitions) {
       if (failurePolicy(definition, this.critical) !== "stop-daemon") continue;
       const status = this.statuses.get(definition.name);
@@ -396,8 +401,11 @@ export class ServiceStartup {
    */
   async listening(server: Server): Promise<void> {
     this.server = server;
+    const timings = this.timings();
     // Core services' listeners first: a listener-phase dependency must find them ready.
+    const coreListeners = this.context.now();
     await this.runListeners(this.listeners.splice(0), server);
+    timings.add("core listeners", coreListeners);
     const settled = new Map<string, Promise<void>>();
     for (const definition of this.deferred) {
       const dependencies = [...definition.requires, ...definition.after].flatMap(
@@ -406,11 +414,14 @@ export class ServiceStartup {
       settled.set(
         definition.name,
         Promise.all(dependencies).then(async () => {
+          const began = this.context.now();
           await this.runListeners(await this.startOne(definition), server);
+          timings.add(definition.name, began);
         }),
       );
     }
     await Promise.all(settled.values());
+    timings.log("Listener services started");
     for (const definition of this.definitions)
       if (this.retriable(definition)) this.retryLater(definition);
   }
@@ -516,6 +527,29 @@ export class ServiceStartup {
     this.retriesUsed.delete(name);
     for (const dependent of this.definitions)
       if (dependent.requires.includes(name)) await this.retry(dependent);
+  }
+  /**
+   * One log line for a startup phase: its length, and each service's own start in the order they
+   * ended (`engine 120ms, browser 4ms (degraded)`), so a slow start names its slow service.
+   */
+  private timings() {
+    const began = this.context.now();
+    const parts: string[] = [];
+    return {
+      add: (name: string, from: number) => {
+        const degraded = this.statuses.get(name)?.state === "degraded" ? " (degraded)" : "";
+        parts.push(`${name} ${Math.round(this.context.now() - from)}ms${degraded}`);
+      },
+      log: (message: string) =>
+        this.context.log.log(
+          "info",
+          message,
+          logFields([
+            ["durationMs", Math.round(this.context.now() - began)],
+            ["services", parts.join(", ")],
+          ]),
+        ),
+    };
   }
   /** The shutdown budget, started by the first service to close. */
   private shutdownBudget(): Promise<void> {

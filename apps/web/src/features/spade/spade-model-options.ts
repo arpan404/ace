@@ -111,3 +111,10 @@ export function spadeModelLabel(
   const info = found?.models.find((each) => each.id === model);
   return { name: info?.name ?? model, source: found?.endpoint.name ?? (id || undefined) };
 }
+
+/**
+ * The words of a new bot's empty model choice: the first usable model (the picker names it
+ * beside), or that none is set up yet.
+ */
+export const firstUsableWords = (model: string | undefined) =>
+  model ? "First usable model" : "No model set up yet";

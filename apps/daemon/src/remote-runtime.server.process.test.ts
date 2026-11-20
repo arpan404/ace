@@ -1,3 +1,4 @@
+import { keyPair as fixedKeyPair } from "@ace/secure-channel";
 import { FilesService } from "@ace/files";
 import { startRelay, connectClientViaRelay } from "@ace/relay";
 import { fingerprint } from "@ace/secure-channel";
@@ -6,7 +7,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { createServer } from "node:net";
+import { connect as tcpConnect, createServer, type Socket } from "node:net";
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { SettingsService } from "@ace/settings";
@@ -16,7 +17,12 @@ import { readConfig } from "./config.ts";
 import { loadIdentity } from "./tls-identity.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { accessRequest } from "./client-access.ts";
-import { addressCheckMs, remoteCloseWaitMs } from "./remote-runtime.ts";
+import {
+  addressCheckMs,
+  remoteCloseWaitMs,
+  settingsChangeUnreadable,
+  settingsUnreadable,
+} from "./remote-runtime.ts";
 import { Store } from "./store.ts";
 import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
@@ -48,6 +54,15 @@ async function runtime(
     home?: string;
     /** The daemon's lifetime (`ServerOptions.lifetime`). */
     lifetime?: AbortSignal;
+    /**
+     * Return once the daemon listens, with remote access still starting. By default the helper
+     * waits for every network's first start, as most tests here assert on a settled state.
+     */
+    listeningOnly?: boolean;
+    /** While `failing` is true, reading the remote settings fails, as a broken store would. */
+    settingsReads?: { failing: boolean };
+    /** Reads of this machine's Tailscale state wait for this. */
+    holdTailscale?: Promise<void>;
   } = {},
 ) {
   const home = overrides.home ?? (await mkdtemp(join(tmpdir(), "ace-remote-runtime-")));
@@ -62,6 +77,15 @@ async function runtime(
       }
       return read(...args);
     }) as typeof settings.get;
+  }
+  const reads = overrides.settingsReads;
+  if (reads) {
+    const read = settings.read.bind(settings);
+    settings.read = (async (...args: Parameters<typeof read>) => {
+      if (reads.failing && args[0].keys?.includes("remote.enabled"))
+        throw new Error("SQLITE_IOERR: disk I/O error");
+      return read(...args);
+    }) as typeof settings.read;
   }
   const workspace = join(home, "repository");
   await mkdir(workspace, { recursive: true });
@@ -111,6 +135,7 @@ async function runtime(
         identity: () => identity,
         interfaces: () => ({}),
         status: async () => {
+          await overrides.holdTailscale;
           if (!networkAvailable) throw new Error("No Tailscale");
           if (!overrides.transport) throw new Error("No Tailscale");
           const tailnet = overrides.tailnet ? overrides.tailnet.ips : ["127.0.0.1"];
@@ -124,6 +149,7 @@ async function runtime(
     },
     makeAccount ? (store, root) => ({ machineAccount: makeAccount(store, root) }) : undefined,
   );
+  if (!overrides.listeningOnly) await f.server.remoteStarted.networks;
   const client = await f.connect();
   await client.next();
   let id = 0;
@@ -658,6 +684,7 @@ test("ace's relay waits for this machine to sign in, registers with a machine gr
     },
     account: (store, home) => {
       account = machineAccount({
+        relayKeys: async () => fixedKeyPair(new Uint8Array(32).fill(3)),
         dataDir: home,
         codes: store.machineCodes,
         fetch: globalThis.fetch,
@@ -685,7 +712,7 @@ test("ace's relay waits for this machine to sign in, registers with a machine gr
     expect(retries).not.toContain(1000);
     expect(backend.grantRequests).toEqual([]);
 
-    await account.handover(backend.origin, backend.token);
+    await account.handover(backend.origin, { token: backend.token });
     await expect.poll(async () => (await status()).relay).toMatchObject({ url: relay.url });
     expect((await status()).error).toBeUndefined();
     expect(backend.grantRequests).toMatchObject([{ kind: "machine" }]);
@@ -705,6 +732,7 @@ test("ace's relay waits for this machine to sign in, registers with a machine gr
 function accountOn(holder: { account?: MachineAccount }) {
   return (store: Store, home: string) => {
     holder.account = machineAccount({
+      relayKeys: async () => fixedKeyPair(new Uint8Array(32).fill(3)),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -743,7 +771,7 @@ test("turning the relay on with no address of its own saves, and puts a signed-i
       relay: { state: "waiting", error: expect.stringContaining("Sign in") },
     });
 
-    await holder.account?.handover(backend.origin, backend.token);
+    await holder.account?.handover(backend.origin, { token: backend.token });
     await expect.poll(async () => (await networks()).relay?.state).toBe("on");
     expect(await networks()).toMatchObject({
       lan: { state: "on" },
@@ -780,7 +808,7 @@ test("ace's relay refusing a signed-in machine leaves the LAN serving and waits 
     },
   });
   try {
-    await holder.account?.handover(backend.origin, backend.token);
+    await holder.account?.handover(backend.origin, { token: backend.token });
     await expect
       .poll(async () => RemoteStatus.parse(await f.local("/v1/status")).remoteAccess.networks)
       .toMatchObject({
@@ -925,6 +953,7 @@ async function lastingAccount() {
   return {
     open: () => {
       const account = machineAccount({
+        relayKeys: async () => fixedKeyPair(new Uint8Array(32).fill(3)),
         dataDir: home,
         codes: store.machineCodes,
         fetch: globalThis.fetch,
@@ -959,7 +988,7 @@ test("a signed-in daemon whose relay never answers its registration stops within
     });
     let closed = false;
     try {
-      await first.handover(backend.origin, backend.token);
+      await first.handover(backend.origin, { token: backend.token });
       // The relay took the connection and the machine grant; it never confirms the registration.
       await expect.poll(() => silent.connections()).toBeGreaterThan(0);
       expect(backend.grantRequests).toMatchObject([{ kind: "machine" }]);
@@ -1011,37 +1040,239 @@ test("a signed-in daemon whose relay never answers its registration stops within
   }
 });
 
-test("a stop while a signed-in daemon starts on a relay that never answers ends the wait at once", async () => {
+test("a signed-in daemon listens and pairs over the LAN while ace's relay never answers, and a stop then ends the wait at once", async () => {
   const silent = await silentRelay();
   const backend = await startFakeAccountBackend(Date.now);
   const accounts = await lastingAccount();
   try {
     // Signed in before the daemon starts, as a restart finds it.
-    await accounts.open().handover(backend.origin, backend.token);
+    await accounts.open().handover(backend.origin, { token: backend.token });
     const signedIn = accounts.open();
     await signedIn.load();
     const lifetime = new AbortController();
-    const starting = runtime({
+    const f = await runtime({
       enabled: true,
       hostedRelayUrl: silent.url,
       account: () => signedIn,
       lifetime: lifetime.signal,
+      listeningOnly: true,
     });
-    // Startup waits on ace's relay, which took the connection and never confirms it.
-    await expect.poll(() => silent.connections()).toBeGreaterThan(0);
-
-    const stopped = performance.now();
-    lifetime.abort();
-    const f = await starting;
+    let closed = false;
     try {
+      // The daemon answers while ace's relay took the connection and never confirms it.
+      await f.server.remoteStarted.direct;
+      await expect.poll(() => silent.connections()).toBeGreaterThan(0);
+      expect(RemoteStatus.parse(await f.local("/v1/status")).remoteAccess.networks).toMatchObject({
+        lan: { state: "on" },
+        account: { state: "waiting", address: silent.url },
+      });
+      // A pairing link names the LAN address without waiting on the relay.
+      const asked = performance.now();
+      const pairing = PairingResponse.parse(await f.local("/v1/pairings", {}));
+      expect(new URL(pairing.url).hostname).toBe("127.0.0.1");
+      expect(performance.now() - asked).toBeLessThan(remoteCloseWaitMs);
+
+      const stopped = performance.now();
+      lifetime.abort();
+      await f.close();
+      closed = true;
       expect(performance.now() - stopped).toBeLessThan(remoteCloseWaitMs);
       await expect.poll(() => silent.open()).toBe(0);
+      const logged = f.logs.map(String).join("\n");
+      expect(logged).not.toContain("shutdown deadline exceeded");
+      expect(logged).not.toContain("Couldn't reach the relay");
     } finally {
-      await f.close();
+      if (!closed) await f.close();
     }
   } finally {
     await accounts.close();
     await backend.close();
     await silent.close();
+  }
+});
+
+/** A TCP proxy in front of a relay, counting the connections made and still open through it. */
+async function countingProxy(port: number) {
+  const open = new Set<Socket>();
+  let connections = 0;
+  const server = createServer((inbound) => {
+    connections++;
+    open.add(inbound);
+    const outbound = tcpConnect(port, "127.0.0.1");
+    inbound.pipe(outbound).pipe(inbound);
+    const end = () => {
+      open.delete(inbound);
+      inbound.destroy();
+      outbound.destroy();
+    };
+    inbound.on("close", end).on("error", end);
+    outbound.on("close", end).on("error", end);
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const { port: own } = z.object({ port: z.number() }).parse(server.address());
+  return {
+    url: `ws://127.0.0.1:${own}`,
+    connections: () => connections,
+    open: () => open.size,
+    close: async () => {
+      for (const socket of open) socket.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    },
+  };
+}
+
+test("signing out while ace's relay is still registering leaves no registration once it lands", async () => {
+  const relay = await startRelay();
+  const proxy = await countingProxy(relay.port);
+  const grants = Promise.withResolvers<void>();
+  const backend = await startFakeAccountBackend(Date.now, { grantGate: () => grants.promise });
+  const accounts = await lastingAccount();
+  try {
+    await accounts.open().handover(backend.origin, { token: backend.token });
+    const signedIn = accounts.open();
+    await signedIn.load();
+    const f = await runtime({
+      enabled: true,
+      hostedRelayUrl: proxy.url,
+      account: () => signedIn,
+      listeningOnly: true,
+    });
+    try {
+      // The registration waits on its machine grant; the person signs out meanwhile.
+      await expect.poll(() => backend.grantRequests.length).toBeGreaterThan(0);
+      await signedIn.signOut();
+      grants.resolve();
+      // The registration for the signed-out account lands, then the sign-out takes it down.
+      await f.server.remoteStarted.networks;
+      expect(proxy.connections()).toBeGreaterThan(0);
+      await expect
+        .poll(async () => RemoteStatus.parse(await f.local("/v1/status")).remoteAccess.networks)
+        .toMatchObject({ lan: { state: "on" }, account: { state: "off" } });
+      await expect.poll(() => proxy.open()).toBe(0);
+      expect(f.server.relayHostId).toBeUndefined();
+    } finally {
+      await f.close();
+    }
+  } finally {
+    grants.resolve();
+    await accounts.close();
+    await backend.close();
+    await proxy.close();
+    await relay.close();
+  }
+});
+
+test("saved settings that can't be read keep remote access off and say so, and it comes up once they read again", async () => {
+  const reads = { failing: true };
+  const f = await runtime({ enabled: true, settingsReads: reads });
+  try {
+    const status = async () => RemoteStatus.parse(await f.local("/v1/status")).remoteAccess;
+    expect(await status()).toMatchObject({
+      error: settingsUnreadable,
+      networks: { lan: { state: "off" } },
+    });
+    reads.failing = false;
+    // Read again on its own, on the retry timer.
+    await expect
+      .poll(async () => (await status()).networks, { timeout: 5_000 })
+      .toMatchObject({
+        lan: { state: "on" },
+      });
+    expect((await status()).error).toBeUndefined();
+  } finally {
+    await f.close();
+  }
+});
+
+test("saved settings that couldn't be read come into force when they change", async () => {
+  const reads = { failing: true };
+  const retries: number[] = [];
+  const f = await runtime({
+    enabled: true,
+    settingsReads: reads,
+    // Retries are scheduled but never fire: only the settings change can bring access up.
+    runtime: {
+      delay(_run, ms) {
+        retries.push(ms);
+        return () => {};
+      },
+    },
+  });
+  try {
+    const status = async () => RemoteStatus.parse(await f.local("/v1/status")).remoteAccess;
+    expect((await status()).error).toBe(settingsUnreadable);
+    expect(retries).toContain(1000);
+    reads.failing = false;
+    await f.settings.set("remote.lan", true, { kind: "global" });
+    await expect
+      .poll(async () => (await status()).networks)
+      .toMatchObject({ lan: { state: "on" } });
+    expect((await status()).error).toBeUndefined();
+  } finally {
+    await f.close();
+  }
+});
+
+test("a write while saved settings can't be read is refused and leaves recovery running", async () => {
+  const reads = { failing: true };
+  const f = await runtime({ enabled: true, settingsReads: reads });
+  try {
+    const status = async () => RemoteStatus.parse(await f.local("/v1/status")).remoteAccess;
+    expect((await status()).error).toBe(settingsUnreadable);
+    // The write needs the saved choice under it, which can't be read: refused, nothing applied.
+    expect(await f.set("remote.tailscale", false)).toMatchObject({ ok: false });
+    reads.failing = false;
+    // No further write or change: the retry the refused write left reads and brings access up.
+    await expect
+      .poll(async () => (await status()).networks, { timeout: 8_000 })
+      .toMatchObject({
+        lan: { state: "on" },
+      });
+    expect((await status()).error).toBeUndefined();
+  } finally {
+    await f.close();
+  }
+});
+
+test("turning remote access off while the change can't be read turns it off once it reads", async () => {
+  const reads = { failing: false };
+  const f = await runtime({ enabled: true, settingsReads: reads });
+  try {
+    const status = async () => RemoteStatus.parse(await f.local("/v1/status")).remoteAccess;
+    expect((await status()).networks).toMatchObject({ lan: { state: "on" } });
+    reads.failing = true;
+    // Saved where the daemon reads it; the change notification's read fails.
+    await f.settings.set("remote.enabled", false, { kind: "global" });
+    await expect.poll(async () => (await status()).error).toBe(settingsChangeUnreadable);
+    reads.failing = false;
+    // The retry reads the saved change, never re-applies the choice it replaced.
+    await expect
+      .poll(async () => (await status()).networks, { timeout: 8_000 })
+      .toMatchObject({ lan: { state: "off" } });
+    expect(await status()).toMatchObject({ enabled: false });
+    expect((await status()).error).toBeUndefined();
+  } finally {
+    await f.close();
+  }
+});
+
+test("a selected network reads waiting while its start is pending, then on", async () => {
+  const tailscale = Promise.withResolvers<void>();
+  const f = await runtime({
+    enabled: true,
+    transport: "tailscale",
+    holdTailscale: tailscale.promise,
+    listeningOnly: true,
+  });
+  try {
+    const networks = async () =>
+      RemoteStatus.parse(await f.local("/v1/status")).remoteAccess.networks;
+    await expect.poll(networks).toMatchObject({ tailscale: { state: "waiting" } });
+    tailscale.resolve();
+    await expect.poll(networks).toMatchObject({ tailscale: { state: "on" } });
+  } finally {
+    tailscale.resolve();
+    await f.close();
   }
 });

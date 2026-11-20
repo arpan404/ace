@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { MarkitRenderer } from "@ace/markit-web/react";
+import { describe, expect, it, vi } from "vitest";
 import { markitCodeLines } from "./markit-highlight.ts";
+
+// A chat code block must never pull the grammar Wasm; importing it would run this factory.
+const grammarImported = vi.hoisted(() => vi.fn());
+vi.mock("@markit/web/pkg-grammars/markit_wasm.js", () => {
+  grammarImported();
+  return { default: async () => undefined, initSync: () => undefined };
+});
 
 describe("markit highlight tokens become ace code lines", () => {
   it("splits tokens at newlines keeping both theme colors", () => {
@@ -38,5 +46,17 @@ describe("markit highlight tokens become ace code lines", () => {
       hash: "hash",
       plain: true,
     });
+  });
+});
+
+describe("chat code highlighting stays on the core engine", () => {
+  it("never loads the grammar Wasm when grammar is off", async () => {
+    const renderer = new MarkitRenderer(document.createElement("div"), { worker: "inline" });
+    const result = await renderer.highlight("const answer = 42;", "tsx", { grammar: false });
+    renderer.destroy();
+
+    expect(result.plain).toBe(false);
+    expect(result.tokens.length).toBeGreaterThan(0);
+    expect(grammarImported).not.toHaveBeenCalled();
   });
 });

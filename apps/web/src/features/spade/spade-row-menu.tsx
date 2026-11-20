@@ -93,16 +93,19 @@ function BotMenu(props: { bot: RosterBot; children: ReactNode }) {
         label={`Actions for ${bot.name}`}
         items={
           <>
-            <MenuItem
-              onClick={() =>
-                void run(
-                  () => pinAgent(client, bot.id, !pinned),
-                  `Couldn't ${pinned ? "unpin" : "pin"} ${bot.name}`,
-                )
-              }
-            >
-              {pinned ? "Unpin" : "Pin"}
-            </MenuItem>
+            {/* Spade, the main bot, is the list's first row: always first, so nothing to pin. */}
+            {bot.kind !== "main" && (
+              <MenuItem
+                onClick={() =>
+                  void run(
+                    () => pinAgent(client, bot.id, !pinned),
+                    `Couldn't ${pinned ? "unpin" : "pin"} ${bot.name}`,
+                  )
+                }
+              >
+                {pinned ? "Unpin" : "Pin"}
+              </MenuItem>
+            )}
             {bot.unseen && (
               <MenuItem
                 onClick={() =>
@@ -224,7 +227,7 @@ function GroupMenu(props: { group: RosterGroup; children: ReactNode }) {
                 setConfirming({
                   title: `Delete ${group.name}?`,
                   body: `This deletes ${group.name} and its conversation. Its bots stay.`,
-                  confirm: "Delete group",
+                  confirm: "Delete club",
                   run: () =>
                     void run(
                       () => deleteGroup(client, group.id),

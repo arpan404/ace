@@ -17,7 +17,6 @@ export const FilesScope = z.union([
 ]);
 export type FilesScope = z.infer<typeof FilesScope>;
 export const FilesOperation = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("tree") }),
   z.object({ op: z.literal("search"), query: z.string().max(128) }),
   /** Quick open: what was typed ("app.ts:12"), or nothing for recent and changed files. */
   z.object({ op: z.literal("quick"), text: z.string().max(256) }),
@@ -64,7 +63,6 @@ export const NativeFilesRequest = z.object({
 });
 export type NativeFilesRequest = z.infer<typeof NativeFilesRequest>;
 
-export const Listing = z.object({ paths: z.array(z.string()), truncated: z.boolean() });
 export const Stat = z.object({
   version: z.string().nullable().optional(),
   size: z.number().optional(),

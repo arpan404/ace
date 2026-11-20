@@ -14,6 +14,8 @@ export type WorkosUser = {
   first_name: string;
   last_name: string | null;
   profile_picture_url?: string | null;
+  /** WorkOS verified the email: the backend mints market grants only then. */
+  email_verified?: boolean;
 };
 
 /** A one-pixel PNG: what the fake serves as a profile picture. */

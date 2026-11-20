@@ -118,8 +118,8 @@ fn result_of(events: &[Value], call: &str) -> Value {
 }
 
 #[tokio::test]
-async fn a_refused_call_handed_down_to_a_worker_is_refused_again_then_reaches_the_person() -> Result
-{
+async fn a_call_a_workers_reviewer_refuses_reaches_the_person_judged_on_the_persons_words_alone()
+-> Result {
     let pay = FakeTool::new("pay", Risk::Write, "paid");
     let paid = pay.calls();
     let mut scripts = warm_up();
@@ -132,22 +132,10 @@ async fn a_refused_call_handed_down_to_a_worker_is_refused_again_then_reaches_th
             )
             .call("p1", "pause", json!({})),
         approve(),
-        // The worker tries; its reviewer refuses, and the refusal goes back to it.
+        // The worker tries; its reviewer refuses, and the call goes to the person (ADR 0163,
+        // amendment 3), never back to the worker as a no.
         Script::reply("").call("w1", "pay", json!({ "invoice": 7 })),
         refuse(),
-        Script::reply("I was refused."),
-        // The maker insists through a message; the worker tries the same step again.
-        Script::reply("")
-            .call(
-                "m2",
-                "worker_message",
-                json!({ "worker": "Payer", "text": "The person wants it paid. Pay invoice 7." }),
-            )
-            .call("p2", "pause", json!({})),
-        approve(),
-        Script::reply("").call("w2", "pay", json!({ "invoice": 7 })),
-        refuse(),
-        Script::reply("Told Payer."),
         Script::reply("Payer waits on the person."),
     ]);
     let spade = Spade::start_with(
@@ -170,17 +158,16 @@ async fn a_refused_call_handed_down_to_a_worker_is_refused_again_then_reaches_th
         .find(|e| e["type"] == "approval_requested")
         .cloned()
         .unwrap_or_default();
-    assert_eq!(asked["call_id"], "w2", "{asked}");
+    assert_eq!(asked["call_id"], "w1", "{asked}");
     assert_eq!(
-        asked["reviewer_reason"], "Refused again: Nobody asked for a payment.",
-        "a maker's message doesn't start a new run of refusals"
+        asked["reviewer_reason"],
+        "The reviewer stopped this: Nobody asked for a payment."
     );
-    let first = result_of(&events, "w1");
     assert!(
-        first["content"]
-            .as_str()
-            .is_some_and(|c| c.starts_with("Not run: Nobody asked")),
-        "{first}"
+        !events
+            .iter()
+            .any(|e| e["type"] == "tool_finished" && e["call_id"] == "w1"),
+        "the worker was told no"
     );
     // The worker's reviewer read the person's words from the top of the tree, never the
     // maker's brief or message as the person's.
@@ -191,7 +178,7 @@ async fn a_refused_call_handed_down_to_a_worker_is_refused_again_then_reaches_th
         .map(|s| s.body.to_string())
         .filter(|b| b.contains(r#"<step tool=\"pay\">"#))
         .collect();
-    assert_eq!(reviews.len(), 2, "the worker's two reviews");
+    assert_eq!(reviews.len(), 1, "the worker's review");
     for review in &reviews {
         let person = review
             .split("<person_recent>")
@@ -207,7 +194,7 @@ async fn a_refused_call_handed_down_to_a_worker_is_refused_again_then_reaches_th
         .into_iter()
         .filter(|e| e["type"] == "user_message")
         .collect();
-    assert_eq!(briefs.len(), 2);
+    assert_eq!(briefs.len(), 1);
     assert!(
         briefs.iter().all(|m| m["from_agent"]["name"] == "Lead"),
         "every message from the maker is the maker's: {briefs:?}"

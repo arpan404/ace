@@ -30,7 +30,13 @@ struct Cloud {
     refresh_down: bool,
     refreshes: Vec<String>,
     starts: usize,
+    /// The `ace-client` header of each start (ADR 0189), in order; None when absent.
+    clients: Vec<Option<String>>,
     start_gate: Option<Arc<tokio::sync::Notify>>,
+    /// The apps it says it holds a client for.
+    holds: Vec<String>,
+    /// How many times it was asked which.
+    apps_asked: usize,
 }
 
 #[derive(Clone)]
@@ -53,6 +59,15 @@ fn authorized(headers: &HeaderMap) -> bool {
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v == format!("Bearer {GRANT}"))
+}
+
+async fn apps(State(state): State<Arc<Mutex<Cloud>>>) -> Response {
+    let mut cloud = lock(&state);
+    cloud.apps_asked += 1;
+    axum::Json(spade_cloud_wire::AppsAnswer {
+        apps: cloud.holds.clone(),
+    })
+    .into_response()
 }
 
 fn sealed_tokens(public_key: &str, app: &str, purpose: Purpose, tokens: &Value) -> Response {
@@ -80,6 +95,11 @@ async fn start(
     let gate = {
         let mut cloud = lock(&state);
         cloud.starts += 1;
+        let client = headers
+            .get("ace-client")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        cloud.clients.push(client);
         cloud.start_gate.clone()
     };
     if let Some(gate) = gate {
@@ -176,6 +196,7 @@ impl FakeCloud {
             ..Cloud::default()
         }));
         let router = Router::new()
+            .route("/v1/oauth/apps", axum::routing::get(apps))
             .route("/v1/oauth/{app}/start", post(start))
             .route("/v1/oauth/{app}/finish", post(finish))
             .route("/v1/oauth/{app}/refresh", post(refresh))
@@ -220,5 +241,20 @@ impl FakeCloud {
 
     pub fn starts(&self) -> usize {
         lock(&self.state).starts
+    }
+
+    /// Says it holds a client for `apps` (the owner set their secrets).
+    pub fn holds(&self, apps: &[&str]) {
+        lock(&self.state).holds = apps.iter().map(|app| (*app).to_owned()).collect();
+    }
+
+    /// How many times Spade asked which apps it holds.
+    pub fn apps_asked(&self) -> usize {
+        lock(&self.state).apps_asked
+    }
+
+    /// How each start named its caller (`ace-client`, ADR 0189), in order.
+    pub fn clients(&self) -> Vec<Option<String>> {
+        lock(&self.state).clients.clone()
     }
 }

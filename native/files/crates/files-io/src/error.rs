@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: Apache-2.0
+
+use std::io::ErrorKind;
+
+/// Every failure a file operation can report.
+///
+/// `code` is the stable value the daemon sends on the wire; the variants carry the detail only
+/// logs and error messages read.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// The path is malformed or leaves the checkout root; `files-safe` decided which.
+    #[error(transparent)]
+    Path(#[from] files_safe::Error),
+    #[error("not a regular file: {0}")]
+    NotFile(String),
+    /// A guarded operation saw a different file than the caller was working from.
+    #[error("file changed on disk: {path}")]
+    Conflict {
+        path: String,
+        /// The version that was found, or `None` when nothing was there.
+        current: Option<String>,
+    },
+    /// Another program holds an entry in a way that refuses the access this change needs, so
+    /// nothing was changed and the caller can try again.
+    #[error("busy: {0}")]
+    Busy(String),
+    #[error("too much to walk: {0}")]
+    LimitExceeded(String),
+    #[error("invalid argument: {0}")]
+    InvalidArgument(String),
+    /// The operating system or filesystem cannot make this change atomically.
+    #[error("unsupported: {0}")]
+    Unsupported(String),
+    /// The caller's cancel flag went up before the walk finished.
+    #[error("aborted")]
+    Aborted,
+    /// The save did not land and a file it displaced could not be put back. That file is whole
+    /// under `at`, beside the target, and nothing else was overwritten to get here.
+    #[error(
+        "the save at {path} could not be completed; the file it displaced is preserved at {at}"
+    )]
+    Preserved {
+        path: String,
+        /// The version of whatever holds the path now, when it could be read.
+        current: Option<String>,
+        /// The preserved file's name, relative to the target's folder.
+        at: String,
+    },
+    /// An entry moved but could not be put back where a refused change belongs, and could not be
+    /// put back under its own name either. It is whole at `at`, which a caller reports as a
+    /// distinct outcome rather than as a plain failure or a plain success.
+    #[error("the change at {path} could not be completed; the entry is preserved at {at}")]
+    Stranded {
+        path: String,
+        /// The name that holds the entry now, relative to the root.
+        at: String,
+    },
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
+impl Error {
+    /// The stable wire code for this failure.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Error::Path(error) => error.code(),
+            Error::NotFile(_) => "NOT_FILE",
+            Error::Conflict { .. } => "CONFLICT",
+            Error::Busy(_) => "BUSY",
+            // A preserved file is reported as a conflict: the save did not land, and the caller's
+            // next attempt is guarded by what the path holds now.
+            Error::Preserved { .. } => "CONFLICT",
+            // An entry that could not be put back is neither a plain success nor a plain
+            // conflict: the caller can still find and restore it under the reported name.
+            Error::Stranded { .. } => "STRANDED",
+            Error::LimitExceeded(_) => "LIMIT_EXCEEDED",
+            Error::InvalidArgument(_) => "INVALID_ARGUMENT",
+            Error::Unsupported(_) => "UNSUPPORTED",
+            Error::Aborted => "ABORTED",
+            Error::Io(error) => io_code(error),
+        }
+    }
+
+    /// Where an entry that could not be put back is preserved, when this failure names one.
+    pub fn recovery(&self) -> Option<String> {
+        match self {
+            Error::Preserved { at, .. } | Error::Stranded { at, .. } => Some(at.clone()),
+            _ => None,
+        }
+    }
+}
+
+/// `io::ErrorKind` in wire terms.
+fn io_code(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        ErrorKind::NotFound => "NOT_FOUND",
+        ErrorKind::PermissionDenied => "PERMISSION_DENIED",
+        ErrorKind::AlreadyExists | ErrorKind::DirectoryNotEmpty => "CONFLICT",
+        ErrorKind::IsADirectory => "NOT_FILE",
+        ErrorKind::NotADirectory => "NOT_DIRECTORY",
+        ErrorKind::InvalidInput => "INVALID_ARGUMENT",
+        _ => "IO_ERROR",
+    }
+}

@@ -64,6 +64,15 @@ impl Engine {
             Some("ask") => self.inbox_ask(sender, body),
             Some("answer") => self.inbox_answer(sender, body).await,
             Some("stop") => self.inbox_stop(sender, body),
+            Some("move") => self.inbox_move(sender, body).await,
+            // How this machine's daemon knows the caller (ADR 0187): the device a move from it
+            // is bound to once the person accepts it.
+            Some("whoami") => (200, json!({ "sender": sender.host })),
+            // The host choice this machine holds, for one that checks a record naming it.
+            Some("host") => (
+                200,
+                json!({ "host": self.host_record().ok().flatten().map(|r| r.to_json()) }),
+            ),
             _ => refuse(400, "unknown op"),
         }
     }
@@ -108,7 +117,7 @@ impl Engine {
         // Words from another machine are never the person's own here: an ask names the bot that
         // sent it or the group it came through.
         if !body["from"].is_object() && !body["group"].is_object() {
-            return refuse(400, "an ask names the bot or the group it comes from");
+            return refuse(400, "an ask names the bot or the club it comes from");
         }
         let depth = body["depth"]
             .as_u64()
@@ -126,6 +135,13 @@ impl Engine {
             Err(error) => return refuse(500, &error),
         };
         let Some(agent) = agent else {
+            // A bot that moved away says where it went, so the asker sends it there (ADR 0187).
+            if let Some((host, name)) = self.moved_away(to) {
+                return (
+                    410,
+                    json!({ "error": format!("That bot moved to {name}."), "moved_to": host, "name": name }),
+                );
+            }
             return refuse(404, "no such bot on this machine");
         };
         let from_agent = body["from"].as_object().map(|from| FromAgent {
@@ -140,11 +156,7 @@ impl Engine {
         let from_group = body["group"].as_object().map(|group| {
             Box::new(FromGroup {
                 id: short(group.get("id"), 128, "group"),
-                name: short(
-                    group.get("name"),
-                    crate::engine::GROUP_NAME_CHARS,
-                    "a group",
-                ),
+                name: short(group.get("name"), crate::engine::GROUP_NAME_CHARS, "a club"),
                 run: short(group.get("run"), 128, "run"),
                 ask: key.to_owned(),
                 machine: Some(sender.name.clone()),

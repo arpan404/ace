@@ -259,10 +259,20 @@ export class SpadeLiveConversation<S, V> {
   }
 
   /**
-   * The history so far, a page at a time, each shown as it arrives; then the live stream picks
-   * up after the last one. A page that fails leaves the rest to the live stream's backlog.
+   * The history so far, a page at a time, shown once it is all folded (or a page fails): a page
+   * from partway through would show its moment as now (an old reply still "writing", Stop) and the
+   * conversation would open at its start, then jump. Then the live stream picks up after the last
+   * page. A page that fails leaves the rest to the live stream's backlog.
    */
   private async page() {
+    try {
+      await this.pages();
+    } finally {
+      if (!this.stopped) this.publish();
+    }
+  }
+
+  private async pages() {
     for (;;) {
       const after = this.lastSeq;
       let body: string;
@@ -280,7 +290,6 @@ export class SpadeLiveConversation<S, V> {
       const page = parseSpadeEvents(body);
       if (!page) return;
       for (const stored of page) this.folder.fold(this.state, { kind: "stored", stored });
-      this.publish();
       if (page.length < pageSize || this.lastSeq === after) return;
     }
   }

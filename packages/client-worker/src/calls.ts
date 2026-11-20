@@ -90,6 +90,7 @@ const schemas = {
   readInteraction: z.tuple([WholeRequest, Options]),
   networkOnline: z.tuple([z.boolean()]),
   reconnectNow: z.tuple([]),
+  wake: z.tuple([]),
   request: z.tuple([ServiceInput, Options]),
 };
 
@@ -203,6 +204,10 @@ export async function callArgs(
     case "reconnectNow":
       decode(schemas.reconnectNow, args);
       client.reconnectNow();
+      return;
+    case "wake":
+      decode(schemas.wake, args);
+      client.wake();
       return;
     case "networkOnline": {
       const [online] = decode(schemas.networkOnline, args);

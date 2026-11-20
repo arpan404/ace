@@ -112,6 +112,11 @@ fn main() -> std::process::ExitCode {
     {
         return check_migrations(args.get(1));
     }
+    // The server takes no arguments (it is configured by environment). Anything left over is a
+    // help request or a mistake, and neither may start a server against the data folder.
+    if let Some(flag) = args.first() {
+        return usage(flag);
+    }
     match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -122,6 +127,27 @@ fn main() -> std::process::ExitCode {
             std::process::ExitCode::FAILURE
         }
     }
+}
+
+const USAGE: &str = "\
+usage: spade                              run the server (configured by SPADE_* environment)
+       spade --version                    print the version
+       spade --schema-version             print the database schema version
+       spade --check-migrations <path>    check that a copy of spade.sqlite can be migrated
+       spade --help                       print this help";
+
+/// `--help` and `-h` print the usage and exit 0; any other argument prints it on stderr and exits
+/// 2. Neither opens the data folder, a database or a socket.
+fn usage(flag: &std::ffi::OsStr) -> std::process::ExitCode {
+    if flag == "--help" || flag == "-h" {
+        println!("{USAGE}");
+        return std::process::ExitCode::SUCCESS;
+    }
+    eprintln!(
+        "spade: unknown argument {}\n{USAGE}",
+        flag.to_string_lossy()
+    );
+    std::process::ExitCode::from(2)
 }
 
 /// The server: logging, then `run` on the runtime `main` built.
@@ -294,6 +320,10 @@ async fn run() -> Result<(), Failure> {
         home: person_home,
         spade_data: home.dir.clone(),
         ace_data: env("SPADE_ACE_HOME").map(std::path::PathBuf::from),
+        // Written by ace's daemon beside its own token; Spade only reads it.
+        person_key: env("SPADE_ACE_HOME").map(|home| {
+            std::path::PathBuf::from(home).join(spade_server::security::attest::KEY_FILE)
+        }),
         workspaces: home.dir.join("workspace"),
         log_dir: home.dir.join("egress"),
         clock: Arc::new(SystemClock),
@@ -418,6 +448,7 @@ async fn run() -> Result<(), Failure> {
                     .filter(|v| !v.is_empty())
                     .unwrap_or_else(|| spade_connect::CLOUD_URL.to_owned()),
                 credential: Arc::new(spade_server::tools::CloudAccount::new(ace.clone())),
+                ace_client: Some(spade_server::home::ace_client()),
             }),
         },
     })

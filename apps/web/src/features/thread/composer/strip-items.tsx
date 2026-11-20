@@ -158,6 +158,8 @@ export function ConnectionStrip(props: {
   offline: boolean;
   /** Reconnecting because the daemon is another version than this app. */
   mismatch?: boolean;
+  /** The desktop is still starting its daemon: its step, said instead of "Reconnecting…". */
+  starting?: string | undefined;
   onRetry(): void;
   indicators: ReactNode;
 }) {
@@ -186,7 +188,7 @@ export function ConnectionStrip(props: {
             {versionMismatchWords}
           </span>
         ) : (
-          <span className="text-foreground">Reconnecting…</span>
+          <span className="text-foreground">{props.starting ?? "Reconnecting"}…</span>
         )}
       </span>
       <IconButton icon={ArrowClockwiseIcon} label="Retry now" size="sm" onClick={props.onRetry} />

@@ -13,6 +13,7 @@ import {
 import { isMarkdownPath, pathParts } from "@ace/ui-core";
 import { Fragment, type ReactNode } from "react";
 import { EditorIcon } from "@/components/editor-icon.tsx";
+import { OpenInAppItems } from "./open-with-menu.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
@@ -109,11 +110,14 @@ export function FileToolbar(props: {
   preview: boolean;
   /** The file is markdown shown as its source. */
   source: boolean;
+  /** Long lines wrap at the editor's width. */
   wrap: boolean;
   finding: boolean;
   treeOpen: boolean;
-  /** The file can be read (shown as text); find and wrap need it. */
+  /** The file can be read (shown as text); find needs it. */
   readable: boolean;
+  /** The file is open in the editor, which wraps its own text. */
+  editing: boolean;
   online: boolean;
   actions: ReturnType<typeof useFileActions>;
   /** The line in view (a find hit, a quick-open `:line`), for opening the editor there. */
@@ -128,7 +132,8 @@ export function FileToolbar(props: {
 }) {
   const { path, actions } = props;
   const markdown = path !== undefined && isMarkdownPath(path);
-  const editor = actions.editor;
+  const apps = actions.apps;
+  const editor = apps.editor;
   const offline = props.online ? undefined : "ace is offline";
   const saving = actions.saving?.path === path ? actions.saving : undefined;
   return (
@@ -169,8 +174,9 @@ export function FileToolbar(props: {
           <IconButton
             icon={TextAlignLeftIcon}
             label={props.wrap ? "Don't wrap lines" : "Wrap lines"}
+            keys="alt+z"
             pressed={props.wrap}
-            disabled={!props.readable}
+            disabled={!props.readable && !props.editing}
             className={tool}
             onClick={props.onWrap}
           />
@@ -193,30 +199,15 @@ export function FileToolbar(props: {
           <SplitButton
             variant="ghost"
             className="ml-1 h-7"
-            icon={<EditorIcon id={editor?.id} />}
+            icon={<EditorIcon id={editor?.id} app={editor?.command} />}
             actionLabel={
               offline ??
-              (editor
-                ? `Open in ${editor.name}`
-                : (actions.editorUnavailable ?? "No editors installed"))
+              (editor ? `Open in ${editor.name}` : (apps.unavailable ?? "No editors installed"))
             }
-            menuLabel="Open in another editor"
-            disabled={!props.online || !actions.editors?.length}
-            onAction={() => void actions.openInEditor(path, props.line)}
-            menu={actions.editors?.map((each) => {
-              return (
-                <MenuItem
-                  key={each.id}
-                  icon={<EditorIcon id={each.id} />}
-                  onClick={() => void actions.openInEditor(path, props.line, each.id)}
-                >
-                  {each.name}
-                  {each.id === editor?.id && (
-                    <span className="ml-3 text-xs text-subtle-foreground">default</span>
-                  )}
-                </MenuItem>
-              );
-            })}
+            menuLabel="Open in another app"
+            disabled={!props.online || !apps.editors?.length}
+            onAction={() => void apps.openInEditor(path, props.line)}
+            menu={<OpenInAppItems apps={apps} path={path} kind="file" line={props.line} />}
           />
         </div>
       )}

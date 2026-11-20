@@ -1,17 +1,20 @@
 import SwiftUI
 
-/// The home screen's tabs. `compose` is the detached compose button on iOS 27, never a page.
+/// The home screen's tabs. `compose` is New thread at the home bar's end, never a page.
 enum InboxTab: Hashable { case threads, chats, spade, review, search, compose }
 
 /// The home tabs in their order (Projects · Chats · Spade · Code review · Search, then compose) and
-/// what each is called, in the web rail's words: the thread list is Projects there. Code review
-/// is the web rail's place for pull requests and issues. Spade, ace's assistant, has its tab only
-/// while a paired machine shows it (Settings › Beta's Spade, ADR 0139), as the web rail shows its
-/// place: in its slot after Chats, and its glyph in the iPad sidebar, with nothing else to lay
-/// out again.
+/// what each is called, in the web rail's words: the thread list is Projects there. Code review is
+/// the web rail's place for pull requests and issues: a tab in a regular window, opened from the
+/// Projects list's top bar on every device, so neither the phone's tab bar nor the iPad sidebar's
+/// foot holds it and the lists keep their room. Spade, ace's
+/// assistant, has its tab only while a paired machine shows it (Settings › Beta's Spade, ADR
+/// 0139), as the web rail shows its place: in its slot after Chats, and its glyph in the iPad
+/// sidebar, with nothing else to lay out again.
 enum HomeTabs {
-    /// The places the tab bar (and the iPad sidebar's foot) switches between, in order.
-    static func switchable(spade: Bool) -> [InboxTab] { [.threads, .chats] + (spade ? [.spade] : []) + [.review, .search] }
+    /// The places the iPad sidebar's foot switches between, in order, as a phone's tab bar holds
+    /// them: Code review opens from the Projects list's top bar instead.
+    static func footPlaces(spade: Bool) -> [InboxTab] { [.threads, .chats] + (spade ? [.spade] : []) + [.search] }
 
     static func title(_ tab: InboxTab) -> String {
         switch tab {
@@ -24,16 +27,14 @@ enum HomeTabs {
         }
     }
 
-    /// Spade's tab glyph; the iPad sidebar draws its own mark (`SpadeMark`).
-    static let spadeSymbol = "suit.spade"
-
-    /// The tab bar's glyph: ace's own icon (the one the iPad sidebar draws) at the bar's glyph
-    /// size, filled while its tab is chosen, as the system's tabs fill theirs.
+    /// The home bar's glyph, on the phone and the iPad sidebar's foot alike: ace's own icon at
+    /// the bar's size, filled while its tab is chosen. Spade's is its face (`SpadeMark`), drawn
+    /// rather than an image.
     static func tabImage(_ tab: InboxTab, chosen: Bool) -> String {
         "tab-\(icon(tab).rawValue)\(chosen ? "-fill" : "")"
     }
 
-    /// The iPad sidebar's glyph, the web rail's own.
+    /// The web rail's glyph for each place.
     static func icon(_ tab: InboxTab) -> AceIcon.Name {
         switch tab {
         case .threads: .folderSimple
@@ -55,16 +56,6 @@ enum HomeTabs {
         case .search: "search"
         case .compose: "compose"
         }
-    }
-
-    /// iOS 27 draws the prominent tab as its own round button at the bar's end: compose lives
-    /// there. Before it the detached button is the search tab's, so Search takes it and compose is
-    /// a round glass button in the Threads and Chats headers.
-    static var composeTab: Bool {
-        #if canImport(SwiftUI, _version: 8.0)
-        if #available(iOS 27, *) { return true }
-        #endif
-        return false
     }
 }
 

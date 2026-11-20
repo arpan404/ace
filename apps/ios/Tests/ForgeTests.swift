@@ -195,4 +195,59 @@ import Foundation
         let current = revisions(head: String(repeating: "3", count: 40), prHead: String(repeating: "3", count: 40))
         #expect(ForgeViewedVersion.head(patchHead: current.prHead, current: current, drawsSides: false, shown: nil) == current.prHead)
     }
+
+    @Test func aListNeverReadWaitsOnASkeletonOnlyWhileTheMachineIsStillConnecting() {
+        let state = { (connection: String) in
+            ForgeListState.of(loaded: false, failure: nil, empty: true, connection: connection)
+        }
+        #expect(state("connecting") == .reading)
+        #expect(state("starting") == .reading)
+        #expect(state("ready") == .reading)
+        #expect(state("reconnecting") == .unreachable)
+        #expect(state("offline") == .unreachable)
+        // A refused connection (a revoked pairing) won't come back by retrying: it asks for the person.
+        #expect(state("fatal") == .attention)
+    }
+
+    @Test func aMachineThatIsOutWinsOverAReadThatFailedWhileItWent() {
+        let failed = { (connection: String) in
+            ForgeListState.of(loaded: false, failure: "The request timed out", empty: true, connection: connection)
+        }
+        // The read failed because the machine went: say the machine is out, not that GitHub failed.
+        #expect(failed("offline") == .unreachable)
+        #expect(failed("reconnecting") == .unreachable)
+        #expect(failed("fatal") == .attention)
+        // Still connecting: the list reads again once it's ready, so the skeleton stays.
+        #expect(failed("connecting") == .reading)
+        #expect(failed("starting") == .reading)
+        // Only a ready machine's failure is GitHub's to explain.
+        #expect(failed("ready") == .failed("The request timed out"))
+        // Rows already read stay shown while the machine is out.
+        #expect(ForgeListState.of(loaded: true, failure: nil, empty: false, connection: "offline") == .rows)
+        #expect(ForgeListState.of(loaded: true, failure: nil, empty: true, connection: "offline") == .empty)
+    }
+
+    @Test func aMergeDraftKeptWhenTheHeadMovedOpensAgainForThatPullRequestAndMethodOnly() {
+        let repo = ForgeRepository(forge: "github", host: "github.com", owner: "acme", name: "ace")
+        let other = ForgeRepository(forge: "github", host: "github.com", owner: "acme", name: "web")
+        let prefill = ForgePullPage.MergeCommit(title: "Cap the replay window (#233)", message: "* first")
+        let newPrefill = ForgePullPage.MergeCommit(title: "Cap the replay window (#233)", message: "* first\n* second")
+        let edited = ForgePullPage.MergeCommit(title: "Cap replays at 200 events", message: "Keeps cold starts fast.")
+        var drafts = ForgeMergeDrafts()
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: prefill) == prefill)
+
+        drafts.keep(edited, number: 233, repository: repo, method: "squash", prefill: prefill)
+        // Reopened at the new head: the person's words, not GitHub's new prefill.
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: newPrefill) == edited)
+        // Another method, pull request or repository starts from GitHub's own.
+        #expect(drafts.opening(number: 233, repository: repo, method: "merge", prefill: newPrefill) == newPrefill)
+        #expect(drafts.opening(number: 234, repository: repo, method: "squash", prefill: newPrefill) == newPrefill)
+        #expect(drafts.opening(number: 233, repository: other, method: "squash", prefill: newPrefill) == newPrefill)
+
+        // Discarding (or merging) drops it; so does keeping words that are GitHub's own again.
+        drafts.keep(nil, number: 233, repository: repo, method: "squash", prefill: newPrefill)
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: newPrefill) == newPrefill)
+        drafts.keep(prefill, number: 233, repository: repo, method: "squash", prefill: prefill)
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: newPrefill) == newPrefill)
+    }
 }

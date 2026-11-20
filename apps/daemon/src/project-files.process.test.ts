@@ -82,6 +82,8 @@ async function setup(transport: "websocket" | "relay") {
     },
   });
   cleanup.push(() => daemon.close());
+  // Remote access starts after the daemon listens.
+  await daemon.remoteStarted.networks;
   const workspaceId = daemon.store.createWorkspace(project, "Project");
   const paired = daemon.store.devices.create("Phone", ["read"], 1);
   let wire: Wire;

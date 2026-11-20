@@ -28,6 +28,10 @@
         "beforeunload"
       ],
       "type": "string"
+    },
+    "url": {
+      "maxLength": 8192,
+      "type": "string"
     }
   },
   "required": [

@@ -25,6 +25,8 @@ struct TerminalView: View {
     @State private var terminals: [TerminalRow] = []
     @State private var selected: String?
     @State private var loaded = false
+    /// Why the list of terminals couldn't be read; the page shows it in place of "No terminals".
+    @State private var listFailure: String?
     @State private var modifiers = TerminalModifiers()
     @State private var queue = TerminalSendQueue()
     /// Moves when the terminal changes, so a reply for the old one can't release the queue.
@@ -55,10 +57,16 @@ struct TerminalView: View {
                     .padding(.vertical, AceTheme.Spacing.xs)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            ServiceProblem(message: problem ?? output.problem)
-                .padding(.horizontal, AceTheme.Spacing.lg)
+            // A failed re-read under an open terminal shows here; with none open it takes the page.
+            if let shown = problem ?? output.problem ?? (selected != nil ? listFailure : nil) { ProblemRow(shown) }
             if selected != nil {
                 surface
+            } else if let listFailure {
+                Spacer()
+                EmptyState(icon: nil, title: "Couldn't read the terminals", line: listFailure, failed: true) {
+                    Button("Try again") { Task { await read() } }
+                }
+                Spacer()
             } else if loaded {
                 Spacer()
                 EmptyState(icon: .terminal, title: "No terminals", line: "Open one in this thread's checkout.") {
@@ -74,7 +82,7 @@ struct TerminalView: View {
                         .foregroundStyle(AceDesign.Ink.muted)
                     Spacer()
                     Button("New terminal") { Task { await create() } }
-                        .buttonStyle(.textAction(.prominent)).disabled(!model.canOperate || busy)
+                        .buttonStyle(.secondaryAction).disabled(!model.canOperate || busy)
                 }
                 .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.rowLine)
                 .transition(.opacity)
@@ -268,11 +276,12 @@ struct TerminalView: View {
             let reply = try await model.service(["type": "terminal.request", "operation": ["op": "list", "threadId": threadId]], as: TerminalReply.self)
             guard reply.ok else { throw ServiceFailure(message: reply.error ?? "Terminal unavailable") }
             terminals = reply.terminals ?? []
+            listFailure = nil
             loaded = true
             if let selected, !terminals.contains(where: { $0.id == selected }) { self.selected = nil }
             if selected == nil, let initial, terminals.contains(where: { $0.id == initial }) { select(initial) }
             else if selected == nil, let first = terminals.first(where: { !$0.exited }) ?? terminals.first { select(first.id) }
-        } catch { problem = error.localizedDescription; loaded = true }
+        } catch { listFailure = error.localizedDescription; loaded = true }
     }
     private func create() async {
         busy = true; defer { busy = false }

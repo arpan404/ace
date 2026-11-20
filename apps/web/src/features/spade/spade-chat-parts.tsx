@@ -19,15 +19,17 @@ import { canReadAloud, readAloud, stopReading, stopReadingOf, useReading } from 
  * Read aloud), file chips, a reply's steps and a speaker's name; and the working line. */
 
 /**
- * A failed reply: one plain sentence by its kind, naming the endpoint; Try again, which sends the
- * person's last message again; and Details, the endpoint's own words, which also stay in the
- * activity log.
+ * A failed reply: what failed and what to do, by its kind, naming the endpoint; Set up a model
+ * when it failed for want of one; Try again, which answers the same turn again in its place (the
+ * new reply replaces this one, nothing is posted twice); and Details, the endpoint's own words,
+ * which also stay in the activity log.
  */
 export function Failure(props: {
   failure: SpadeBubbleFailure;
   endpoint: string | undefined;
   spaced: boolean;
-  onRetry: ((text: string) => Promise<boolean>) | undefined;
+  onRetry: ((reply: string) => Promise<boolean>) | undefined;
+  onSetUpModel: (() => void) | undefined;
 }) {
   const { failure, onRetry } = props;
   const [open, setOpen] = useState(false);
@@ -47,6 +49,11 @@ export function Failure(props: {
         </pre>
       )}
       <div className="-mx-2 mt-1 -mb-1 flex flex-wrap gap-1">
+        {failure.kind === "no_model" && props.onSetUpModel && (
+          <Button size="xs" variant="ghost" onClick={props.onSetUpModel}>
+            Set up a model
+          </Button>
+        )}
         {retry !== undefined && onRetry && (
           <Button
             size="xs"
@@ -57,7 +64,7 @@ export function Failure(props: {
               void onRetry(retry).then(() => setSending(false));
             }}
           >
-            {sending ? "Sending…" : "Try again"}
+            {sending ? "Trying again…" : "Try again"}
           </Button>
         )}
         {failure.error && (
@@ -77,12 +84,15 @@ export function Failure(props: {
 
 /**
  * While the bot works, where its next bubble will appear: its 32px face moving, one line of what
- * it is doing, and how long it has been at it; Watch opens the right panel on what it uses.
+ * it is doing and what that touches (the command it runs, in mono), and how long it has been at
+ * it; Watch opens the right panel on what it uses.
  */
 export function WorkingLine(props: {
   avatar: SpadeAvatar;
   state: BotFaceState;
   label: string;
+  /** What the step running now touches: its command, a path, an address. */
+  detail?: string | undefined;
   since: number | undefined;
   onWatch: (() => void) | undefined;
 }) {
@@ -93,7 +103,19 @@ export function WorkingLine(props: {
       className="mt-(--chat-turn-gap) flex min-w-0 items-center gap-2.5 first:mt-0"
     >
       <SpadeFace avatar={props.avatar} size={32} state={props.state} />
-      <span className="min-w-0 truncate text-ui text-muted-foreground">{props.label}</span>
+      <span
+        className={cn(
+          "min-w-0 truncate text-ui text-muted-foreground",
+          props.detail && "max-w-1/2 shrink-0",
+        )}
+      >
+        {props.label}
+      </span>
+      {props.detail && (
+        <code className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
+          {props.detail}
+        </code>
+      )}
       {props.since !== undefined && (
         <span className="shrink-0 text-ui text-subtle-foreground tabular-nums">
           {formatElapsed(now - props.since)}

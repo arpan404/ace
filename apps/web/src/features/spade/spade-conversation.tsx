@@ -1,6 +1,8 @@
 import {
   spadeForLaterWords,
   spadeLiveSurfaces,
+  spadeModelState,
+  spadeSentText,
   spadeStateLine,
   spadeTaskLine,
 } from "@ace/ui-core/spade-chat";
@@ -21,7 +23,7 @@ import {
 } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
-import { SpadeKeySetup } from "./spade-key-setup.tsx";
+import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
 import { ConversationPill } from "./spade-pill.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import type { FilesAt } from "./computer/profile-computer.tsx";
@@ -34,7 +36,13 @@ import {
 } from "./computer/panel-place.ts";
 import { ProfileStripActions, SpadeProfile } from "./spade-profile.tsx";
 import { useBotComputer } from "./computer/use-bot-computer.ts";
-import { ConversationSkeleton, message, Problem, Scroller } from "./spade-screen-parts.tsx";
+import {
+  ConversationSkeleton,
+  ConversationStart,
+  message,
+  Problem,
+  Scroller,
+} from "./spade-screen-parts.tsx";
 import { questionAnchor } from "./spade-question-bubble.tsx";
 import { SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
@@ -45,6 +53,7 @@ import { useSpadeStatus } from "./use-spade-status.ts";
 import { spadeWorks } from "./spade-works.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { actOnWake, useSpadeDigests } from "./spade-wakes-api.ts";
+import { panelReveal } from "@/components/ui/rules.ts";
 
 /** Below 680px the profile takes the window (docs/design/spade.md §1). */
 const coverQuery = "(max-width: 42.49rem)";
@@ -83,12 +92,20 @@ export function Conversation(props: {
   const skills = useSkillProposals(bot.id, view);
   const navigate = useNavigate();
   const openProfile = useOpenProfile(bot);
-  const computer = useBotComputer(bot, conversation.side);
   const endpoints = useSpadeModels(true).data?.endpoints;
   const client = useSpadeClient();
   const digests = useSpadeDigests(bot.id);
   const endpointName = (id: string) => endpoints?.find((endpoint) => endpoint.id === id)?.name;
+  // Until the bot has a model it can use, sending waits; setting one up is one step away: Spade's
+  // own card above its conversation, another bot's endpoints in Settings.
+  const needsModel = endpoints !== undefined && spadeModelState(bot.model, endpoints) === "none";
+  const setUpModel = () => {
+    if (bot.kind === "main" && showModelSetup()) return;
+    void navigate({ to: "/settings/spade/models" });
+  };
   const [stopping, setStopping] = useState(false);
+  // Messages sent from here: each one takes the conversation to its end.
+  const [sent, setSent] = useState(0);
   // A decision the person is changing: quoted on their next message (Work's Change).
   const [quote, setQuote] = useState<string>();
   const covering = useMediaQuery(coverQuery, false);
@@ -146,6 +163,8 @@ export function Conversation(props: {
   // A task it carries on by itself: its line stays between replies, and Stop with it.
   const task = spadeTaskLine(bot.name, bot.progress, view.status ?? bot.status);
   const open = spadeWorks(view, task, bot.progress?.continuing === true);
+  // It drives its computer only while it is at work.
+  const computer = useBotComputer(bot, conversation.side, open);
   // Stopping lasts until nothing is open: the reply, its background jobs and the task's next step.
   if (stopping && !open) setStopping(false);
   const stop = () => {
@@ -183,6 +202,7 @@ export function Conversation(props: {
       <ConversationPill bot={bot} onOpen={() => openProfile()} />
       <Scroller
         top="pill"
+        sent={sent}
         seen={
           view.loaded
             ? { conversation: bot.conversation, unseen: bot.unseen, seq: bot.lastMessage?.seq }
@@ -201,6 +221,7 @@ export function Conversation(props: {
         ) : (
           <SpadeChat
             bot={chatBot}
+            start={<ConversationStart avatar={bot.avatar} name={bot.name} task={bot.task} />}
             view={view}
             // While it uses its computer and Computer isn't showing, Watch opens it there.
             onWatch={
@@ -265,10 +286,9 @@ export function Conversation(props: {
                 });
             }}
             onOpenWork={() => go({ profile: "work" })}
-            onRetry={(text) =>
-              conversation
-                .send({ text, images: [] })
-                .then(() => true, failed(`Couldn't send to ${bot.name}`))
+            onSetUpModel={setUpModel}
+            onRetry={(reply) =>
+              conversation.tryAgain(reply).then(() => true, failed(`Couldn't try again`))
             }
             proposals={skills.proposals}
             onProposal={(id, save) =>
@@ -290,11 +310,16 @@ export function Conversation(props: {
         onStop={computer.paused ? undefined : stop}
         stopping={stopping}
         blocked={line.ready ? undefined : line.sentence}
+        needsModel={needsModel ? { onSetUp: setUpModel } : undefined}
         placeholder={`Message ${bot.name}`}
+        recall={(older) => spadeSentText(view.entries, older)}
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
         }
-        send={conversation.send}
+        send={(outgoing) => {
+          setSent((count) => count + 1);
+          return conversation.send(outgoing);
+        }}
       />
     </div>
   );
@@ -370,6 +395,7 @@ export function Conversation(props: {
             style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
             className={cn(
               "bg-panel",
+              panelReveal,
               covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
             )}
           >

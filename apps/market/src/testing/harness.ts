@@ -87,6 +87,24 @@ export const marketGrant = (account: string) =>
     },
     grantKey,
   );
+/**
+ * The person's market grant for one sensitive request, `METHOD /path` (ADR 0190): what an ace app
+ * gets with its own session for a withdrawal, a transfer or a handle change.
+ */
+export const personMarketGrant = (account: string, action: string) =>
+  signMarketGrant(
+    {
+      kind: "device",
+      account,
+      subject: "phone",
+      iss: "cloud.acehq.dev",
+      emailVerified: true,
+      authAt: Date.now(),
+      action,
+      ...lifetime(),
+    },
+    grantKey,
+  );
 export const relayGrant = (account: string, kind: "machine" | "device" = "machine") =>
   signGrant({ kind, account, subject: "host-a", ...lifetime() }, grantKey);
 export const cloudGrant = (account: string) =>

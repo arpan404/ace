@@ -12,6 +12,7 @@ import {
   type BrowserTabActor,
   type BrowserTabLifecycle,
   type BrowserPageState,
+  type BrowserExpectedPlace,
 } from "@ace/protocol";
 import { BrowserActionError } from "./action-error.ts";
 import { AnnotationSession } from "./annotation-session.ts";
@@ -23,6 +24,7 @@ import { screenshotRegion } from "./page-capture.ts";
 import { BrowserOriginError } from "./policy.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
 import { SnapshotRefs } from "./refs.ts";
+import { holdTo } from "./place-guard.ts";
 import { executeBrowserCommand, type TabCommand } from "./session-commands.ts";
 import type { TabView } from "./page-tools.ts";
 import { agentScreenshot, type AgentScreenshot } from "./session-images.ts";
@@ -341,6 +343,10 @@ export class TabRuntime {
       epoch,
     );
   }
+  /** Whether this tab is the place a caller's gate expected: this tab, at that address. */
+  isAt(expected: BrowserExpectedPlace): boolean {
+    return atPlace(expected, this.id, this.page.url());
+  }
   readCheck(actor: Actor, epoch = this.access.epoch): void {
     this.access.read(actor, epoch);
   }
@@ -503,6 +509,16 @@ export class TabRuntime {
     const checkTarget = () => {
       if (target && !target.current()) throw new BrowserActionError("backend_changed");
     };
+    // The place the caller's gate decided on: this tab, at this address, at every input.
+    const expected = "expect" in command ? command.expect : undefined;
+    const checkPlace = () => {
+      if (expected && !atPlace(expected, this.id, this.page.url()))
+        throw new BrowserActionError("place_changed");
+    };
+    const beforeInput = () => {
+      checkTarget();
+      checkPlace();
+    };
     const submittedGeneration = this.access.generation;
     const privateEpoch = this.access.epoch;
     // Dialog answers cannot wait behind a renderer command paused by that dialog.
@@ -514,7 +530,16 @@ export class TabRuntime {
         this.readCheck(actor, privateEpoch);
         this.check(actor, signal, submittedGeneration);
         if (command.action === "dialog") this.leaveCheck(command, actor);
-        return this.run(command, actor, signal, submittedGeneration);
+        checkPlace();
+        return this.run(
+          command,
+          actor,
+          signal,
+          submittedGeneration,
+          checkPlace,
+          undefined,
+          expected,
+        );
       })();
     // The person's Back and Forward land at once, as in any browser: never behind an agent's
     // slow command or a page dialog in this tab (the engine decides what the dialog does).
@@ -562,10 +587,20 @@ export class TabRuntime {
       this.readCheck(actor, privateEpoch);
       if (mutatesBrowser(part)) this.check(actor, signal, submittedGeneration, privateEpoch);
       this.crashCheck(part);
+      // Its turn came: the page may have moved on while it waited in the queue.
+      checkPlace();
       let result: unknown;
       try {
         result = await this.queue.untilDialog(() =>
-          this.run(part, actor, signal, submittedGeneration, checkTarget, target?.navigate),
+          this.run(
+            part,
+            actor,
+            signal,
+            submittedGeneration,
+            beforeInput,
+            target?.navigate,
+            expected,
+          ),
         );
       } catch (error) {
         if (error instanceof BrowserOriginError) this.host.blockedNavigation(error.blocked);
@@ -749,46 +784,91 @@ export class TabRuntime {
     generation: number,
     beforeInput?: () => void,
     navigate?: () => Promise<void>,
+    /** The place the caller's gate held the command to: checked at every input it sends. */
+    expected?: BrowserExpectedPlace,
   ): Promise<unknown> {
     const epoch = this.access.epoch;
     const host = this.host;
-    return executeBrowserCommand(command, actor, signal, generation, {
-      options: host.options,
-      tabId: this.id,
-      page: this.page,
-      answer: (dialogId, accept, promptText) => host.answer(dialogId, accept, promptText),
-      beforeInput,
-      navigate,
-      refs: this.refs,
-      annotation: this.annotation,
-      view: this.view,
-      logs: host.logs,
-      policies: host.policies,
-      state: () => host.state(),
-      read: () => this.readCheck(actor, epoch),
-      blocked: () => host.blocked(),
-      clearBlocked: () => host.clearBlocked(),
-      check: (who, checkSignal, checkGeneration) =>
-        this.check(who, checkSignal, checkGeneration, epoch),
-      refDispatch: (ref) =>
-        this.refs.dispatch(ref, () => this.check(actor, signal, generation, epoch)),
-      personPresent: () => this.humanWithin(host.timing.presentMs),
-      personBusy: () => actor.kind === "agent" && !this.lane.quiet(),
-      point: (point, kind) => this.point(actor, point, kind),
-      cursor:
-        actor.kind === "agent" && this.cursor.visible
-          ? {
-              point: (at, click) => this.cursor.point(actor.agentId, at, click),
-              drag: (from, to) => this.cursor.drag(actor.agentId, from, to),
-              typing: (field) => this.cursor.typing(actor.agentId, field),
-              scroll: (dx, dy) => this.cursor.scroll(actor.agentId, dx, dy),
-            }
-          : undefined,
-      capture: (work) => this.cursor.capture(work),
-      emit: () => host.emit(),
-      run: (...args) => this.run(...args),
-      beginRecording: (check, by) => host.beginRecording(this.id, check, by),
-      finishRecording: () => host.finishRecording(),
-    });
+    const held = expected;
+    // The page's own report of where it is when the transport has one, else the backend's.
+    const place = held
+      ? (url?: string) => {
+          if (!atPlace(held, this.id, url ?? this.page.url()))
+            throw new BrowserActionError("place_changed");
+        }
+      : () => {};
+    // Held to a place, the command runs inside its hold: every input any session sends for it,
+    // whichever helper sends it, checks the place where it leaves (place-guard.ts).
+    const execute = () =>
+      executeBrowserCommand(command, actor, signal, generation, {
+        options: host.options,
+        tabId: this.id,
+        page: this.page,
+        answer: (dialogId, accept, promptText) => {
+          if (held) {
+            // The page's script waits while its dialog is open, so the place is what the
+            // browser reported: the dialog must be this tab's, raised at the checked address.
+            const dialog = host.dialog(this.id);
+            if (
+              dialog?.dialogId !== dialogId ||
+              !atPlace(held, this.id, dialog.url ?? this.page.url())
+            )
+              throw new BrowserActionError("place_changed");
+          }
+          return host.answer(dialogId, accept, promptText);
+        },
+        beforeInput,
+        navigate: navigate && (() => (place(), navigate())),
+        refs: this.refs,
+        annotation: this.annotation,
+        view: this.view,
+        logs: host.logs,
+        policies: host.policies,
+        state: () => host.state(),
+        read: () => this.readCheck(actor, epoch),
+        blocked: () => host.blocked(),
+        clearBlocked: () => host.clearBlocked(),
+        check: (who, checkSignal, checkGeneration) =>
+          this.check(who, checkSignal, checkGeneration, epoch),
+        // Input to an element goes through its ref, whose own CDP the guarded page doesn't hold.
+        refDispatch: (ref) =>
+          this.refs.dispatch(ref, () => {
+            this.check(actor, signal, generation, epoch);
+            place();
+          }),
+        personPresent: () => this.humanWithin(host.timing.presentMs),
+        personBusy: () => actor.kind === "agent" && !this.lane.quiet(),
+        point: (point, kind) => this.point(actor, point, kind),
+        cursor:
+          actor.kind === "agent" && this.cursor.visible
+            ? {
+                point: (at, click) => this.cursor.point(actor.agentId, at, click),
+                drag: (from, to) => this.cursor.drag(actor.agentId, from, to),
+                typing: (field) => this.cursor.typing(actor.agentId, field),
+                scroll: (dx, dy) => this.cursor.scroll(actor.agentId, dx, dy),
+              }
+            : undefined,
+        capture: (work) => this.cursor.capture(work),
+        emit: () => host.emit(),
+        // A command run inside this one (a measured interaction's) is held to the same place.
+        run: (inner, who, innerSignal, innerGeneration, before) =>
+          this.run(inner, who, innerSignal, innerGeneration, before, undefined, held),
+        beginRecording: (check, by) => host.beginRecording(this.id, check, by),
+        finishRecording: () => host.finishRecording(),
+      });
+    return held ? holdTo(place, execute) : execute();
+  }
+}
+
+/** Whether a tab is the place a caller expected: the same tab, at the same address. */
+export function atPlace(expected: BrowserExpectedPlace, tabId: string, url: string): boolean {
+  return expected.tabId === tabId && sameAddress(expected.url, url);
+}
+
+function sameAddress(a: string, b: string): boolean {
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return a === b;
   }
 }

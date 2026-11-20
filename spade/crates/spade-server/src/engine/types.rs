@@ -44,6 +44,11 @@ pub struct Limits {
     /// Most of a running turn's events kept in memory, by stored size in bytes. A turn past it
     /// reads its events from the database instead, so its memory stays bounded (ADR 0158).
     pub turn_log_bytes: usize,
+    /// How often moved-away bots' archives past their time are removed, a few at a time
+    /// (ADR 0187).
+    pub archive_sweep: Duration,
+    /// How long a move may take before its commit, retries included (ADR 0187).
+    pub move_pre_commit: Duration,
     /// One orchestrator's worker bots that work at once (`SPADE_WORKERS_AT_ONCE`, ADR 0161);
     /// the rest wait queued.
     pub workers_at_once: usize,
@@ -68,6 +73,8 @@ impl Default for Limits {
             task: spade_core::task::Policy::default(),
             review_timeout: Duration::from_secs(60),
             turn_log_bytes: 64 << 20,
+            archive_sweep: Duration::from_secs(60 * 60),
+            move_pre_commit: Duration::from_secs(2 * 60 * 60),
             workers_at_once: 32,
             knowledge_bytes: spade_core::knowledge::DEFAULT_BYTES,
         }
@@ -210,12 +217,18 @@ pub enum SendError {
     NotFound,
     #[error("Spade is switched off on this machine; it runs on another one")]
     Disabled,
-    #[error("this is a group's transcript; post with /v1/groups/{{id}}/messages")]
+    /// Frozen while it moves to another machine (ADR 0187).
+    #[error("{0} is moving to {1}; send this once it has arrived there")]
+    Moving(String, String),
+    #[error("this is a club's transcript; post with /v1/groups/{{id}}/messages")]
     Group,
     #[error("this is a helper's conversation; it takes no messages")]
     Helper,
     #[error("the message is empty")]
     Empty,
+    /// The bot has no model yet: nothing could answer, so nothing is posted.
+    #[error("this bot has no model yet: choose one in Spade's settings, under Models")]
+    NoModel,
     #[error("the message is too long")]
     TooLong,
     #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]

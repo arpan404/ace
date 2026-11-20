@@ -67,7 +67,7 @@ struct BrowserTabsSheet: View {
                     .accessibilityIdentifier("browser.tab.\(tab.id)")
                 }
                 if let more = state?.moreTabs, more > 0 {
-                    Button("Show \(more) more tabs") { model.action(["type": "browser", "action": ["kind": "tabs.more"]]) }.buttonStyle(.textAction())
+                    Button("Show \(more) more tabs") { model.action(["type": "browser", "action": ["kind": "tabs.more"]]) }.buttonStyle(.rowAction)
                         .browserRow()
                 }
             }
@@ -92,7 +92,7 @@ struct BrowserTabsSheet: View {
                 }
             }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
 
@@ -149,7 +149,7 @@ struct BrowserDownloadsSheet: View {
             .navigationTitle("Downloads").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
     private func saving(_ download: BrowserViewInfo.Download) -> BrowserSaving? {
@@ -177,7 +177,7 @@ struct BrowserDownloadsSheet: View {
             .accessibilityValue("\(Int((saving?.progress ?? 0) * 100)) percent")
             .transition(.opacity)
         } else if download.saveable == true {
-            Button(saving?.phase == "failed" ? "Retry" : "Save") { model.browserSave(download.id) }
+            Button(saving?.phase == "failed" ? "Try again" : "Save") { model.browserSave(download.id) }
                 .buttonStyle(.textAction())
                 .frame(minHeight: AceDesign.Size.tap)
                 .transition(.opacity)
@@ -238,7 +238,7 @@ struct BrowserHistorySheet: View {
             .navigationTitle("History").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .onChange(of: query, initial: true) { model.browserVisits(open: true, query: query) }
         .onDisappear { model.browserVisits(open: false) }

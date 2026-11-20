@@ -90,7 +90,7 @@ export interface Services {
     | ((deviceId: string, url: string, signal: AbortSignal) => Promise<string | undefined>)
     | undefined;
   /** Projects and threads other machines send here (ADR 0101). */
-  transferTarget?: import("../transfers/http.ts").TransferTarget;
+  transferTarget?: import("../transfers/serve.ts").TransferTarget;
   /** This machine's links to the person's other machines, made from Settings. */
   fleet?: import("../machines/fleet-links.ts").FleetLinks;
   /** Agents here using other paired machines (ADR 0078). */
@@ -146,6 +146,8 @@ export interface Services {
   files?: FilesService;
   supportFiles?: FilesService;
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
+  /** The daemon's ace-files and its folder watches (ADR 0178); present without a binary too. */
+  filesNative?: import("../files-tool/wiring.ts").FilesNative;
   relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;
   agentRegistry?: import("@ace/agent-registry").AgentRegistry;

@@ -106,8 +106,9 @@ const allowed: Record<Fact["type"], string[]> = {
     "usageScope",
   ],
   signal: ["agent"],
-  "process.exited": ["deliberate", "message"],
+  "process.exited": ["deliberate", "message", "unconfirmed"],
   "process.started": [],
+  "thread.moved": ["to"],
   "queue.changed": ["count", "source", "held", "stopped"],
   tick: [],
 };
@@ -359,7 +360,11 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
     case "usage":
       return EventPayload.safeParse({ ...fact, type: "usage.updated", agentId }).success;
     case "process.exited":
-      return typeof fact.deliberate === "boolean" && optionalString(fact.message);
+      return (
+        typeof fact.deliberate === "boolean" &&
+        optionalString(fact.message) &&
+        optionalBoolean(fact.unconfirmed)
+      );
     case "queue.changed":
       return (
         typeof fact.count === "number" &&
@@ -371,6 +376,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         optionalBoolean(fact.stopped) &&
         (fact.stopped === undefined || fact.source !== "provider")
       );
+    case "thread.moved":
+      return fact.to === null || ThreadStatus.safeParse({ state: "moved", to: fact.to }).success;
     case "agent.disconnected":
     case "agent.reconnected":
     case "retry.cleared":

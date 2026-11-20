@@ -48,6 +48,17 @@ struct UsageView: View {
         }
         .background(AceDesign.Surface.background)
         .nativeTitle("Usage")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { Task { await refresh() } } label: {
+                    if refreshing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                }
+                .disabled(refreshing)
+                .accessibilityLabel(refreshing ? "Refreshing" : "Refresh")
+                .accessibilityHint("Asks each machine for current limits and reads usage again")
+                .accessibilityIdentifier("usage.refresh")
+            }
+        }
         .task(id: readKey) { await read(fresh: false) }
         // Pull to refresh does what the Refresh button does.
         .refreshable { await refresh() }
@@ -88,21 +99,14 @@ struct UsageView: View {
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("usage.range")
             }
-            HStack(spacing: AceDesign.Space.related) {
-                if inbox.sessions.count > 1 { machineMenu }
-                if tab != .limits, let providers = report?.providers, providers.count > 1 || provider != nil {
-                    providerMenu(providers)
+            if inbox.sessions.count > 1 || (tab != .limits && (report?.providers.count ?? 0) > 1) || provider != nil {
+                HStack(spacing: AceDesign.Space.related) {
+                    if inbox.sessions.count > 1 { machineMenu }
+                    if tab != .limits, let providers = report?.providers, providers.count > 1 || provider != nil {
+                        providerMenu(providers)
+                    }
+                    Spacer(minLength: AceDesign.Space.related)
                 }
-                Spacer(minLength: AceDesign.Space.related)
-                Button { Task { await refresh() } } label: {
-                    Text(refreshing ? "Refreshing…" : "Refresh")
-                        .font(AceDesign.Typeface.body)
-                        .padding(.horizontal, AceDesign.Space.tight)
-                        .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
-                }
-                .disabled(refreshing)
-                .accessibilityHint("Asks each machine for current limits and reads usage again")
-                .accessibilityIdentifier("usage.refresh")
             }
             if inbox.sessions.count > 1 { coverageLine }
             if tab != .limits, let filling = report?.filling {
@@ -167,7 +171,10 @@ struct UsageView: View {
     }
 
     @ViewBuilder private var spendPage: some View {
-        ServiceProblem(message: reportProblem)
+        if let reportProblem {
+            ProblemRow("Couldn't read usage.", detail: reportProblem, id: "usage.problem") { Task { await read(fresh: true) } }
+                .padding(.horizontal, -AceDesign.Space.margin)
+        }
         if let report {
             let view = tab == .cost ? report.cost : report.tokens
             if !view.hasUsage {
@@ -187,7 +194,10 @@ struct UsageView: View {
     }
 
     @ViewBuilder private var limitsPage: some View {
-        ServiceProblem(message: limitsProblem)
+        if let limitsProblem {
+            ProblemRow("Couldn't read limits.", detail: limitsProblem, id: "usage.limits.problem") { Task { await read(fresh: true) } }
+                .padding(.horizontal, -AceDesign.Space.margin)
+        }
         if let limits {
             if limits.providers.isEmpty, limits.quiet.isEmpty {
                 if limits.coverage.complete || limitsLoading {

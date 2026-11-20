@@ -1,5 +1,6 @@
 import { beforeEach, expect, it } from "vitest";
 import { grantPublicKey } from "@ace/account-grant";
+import { serverGate, unknownClient } from "@ace/service/client-features";
 import type { App } from "./apps.ts";
 import { broker } from "./broker.ts";
 import type { BrokerLog } from "./broker.ts";
@@ -19,6 +20,7 @@ const asana: App = {
   token_endpoint: "https://app.asana.example/token",
   client_auth: "client_secret_post",
   scopes: ["default"],
+  authorization_params: {},
   resource: "https://mcp.asana.example/mcp",
   client_id_env: "ASANA_ID",
   client_secret_env: "ASANA_SECRET",
@@ -31,6 +33,7 @@ const box: App = {
   token_endpoint: "https://box.example/token",
   client_auth: "client_secret_basic",
   scopes: [],
+  authorization_params: { access_type: "offline", prompt: "consent" },
 };
 const unset: App = { ...asana, id: "canva" };
 
@@ -93,6 +96,8 @@ beforeEach(() => {
   });
 });
 
+const unknownGate = serverGate(unknownClient);
+
 function post(app: string, step: string, body: unknown, grant = grants.cloud("user_a")) {
   return service.handle(
     new Request(`https://cloud.acehq.dev/v1/oauth/${app}/${step}`, {
@@ -100,12 +105,14 @@ function post(app: string, step: string, body: unknown, grant = grants.cloud("us
       headers: { Authorization: `Bearer ${grant}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+    unknownGate,
   );
 }
 
 function returnTo(app: string, query: Record<string, string>) {
   return service.handle(
     new Request(`https://cloud.acehq.dev/v1/oauth/callback/${app}?${new URLSearchParams(query)}`),
+    unknownGate,
   );
 }
 
@@ -306,6 +313,29 @@ it("an unknown app, or one without its client set, is refused", async () => {
   const unsetApp = await post("canva", "start", body);
   expect(unsetApp.status).toBe(503);
   expect(await unsetApp.json()).toEqual({ error: "app_unavailable" });
+});
+
+it("Spade can ask, without an account, which apps have their client set", async () => {
+  const answer = await service.handle(
+    new Request("https://cloud.acehq.dev/v1/oauth/apps"),
+    unknownGate,
+  );
+  expect(answer.status).toBe(200);
+  expect(await answer.json()).toEqual({ apps: ["asana", "box"] });
+  overBudget.add("unknown");
+  const over = await service.handle(
+    new Request("https://cloud.acehq.dev/v1/oauth/apps"),
+    unknownGate,
+  );
+  expect(over.status).toBe(429);
+});
+
+it("an app's own authorization parameters go on its sign-in address", async () => {
+  const { body } = await started("box");
+  expect(new URL(body.authorization_url).searchParams.get("access_type")).toBe("offline");
+  expect(new URL(body.authorization_url).searchParams.get("prompt")).toBe("consent");
+  const asanaStart = await started("asana", "user_a", 2);
+  expect(new URL(asanaStart.body.authorization_url).searchParams.has("access_type")).toBe(false);
 });
 
 it("a malformed challenge, key or body is refused before anything is kept", async () => {

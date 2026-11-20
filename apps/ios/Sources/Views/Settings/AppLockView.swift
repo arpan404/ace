@@ -16,14 +16,14 @@ struct AppLockView: View {
     var body: some View {
         List {
             Section {
-                InsetRow(systemImage: authentication.symbol, title: "Lock with \(authentication.name)") {
+                InsetRow(systemImage: nil, title: "Lock with \(authentication.name)") {
                     Toggle("Lock with \(authentication.name)", isOn: Binding(get: { lock.enabled }, set: { on in Task { await lock.setEnabled(on) } }))
                         .labelsHidden()
                 }
                 .disabled(lock.authenticating)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("settings.lock.enabled")
-                InsetRow(systemImage: "timer", title: "Lock after") {
+                InsetRow(systemImage: nil, title: "Lock after") {
                     Picker("Lock after", selection: Binding(get: { lock.timeout }, set: { lock.setTimeout($0) })) {
                         ForEach(AppLock.timeouts, id: \.self) { seconds in Text(Self.label(seconds)).tag(seconds) }
                     }

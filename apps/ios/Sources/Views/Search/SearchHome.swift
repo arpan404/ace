@@ -13,6 +13,8 @@ struct SearchHome: View {
     @Binding var query: String
     /// Bumped by a second tap on the Search tab: the field takes focus.
     var focusAsks = 0
+    /// The app has a lock, so Search finds App lock.
+    var hasLock = false
     @State private var openPulls: Int?
     @FocusState private var fieldFocused: Bool
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -23,7 +25,7 @@ struct SearchHome: View {
                 if text.isEmpty {
                     SearchStart(inbox: inbox, openPulls: openPulls, actions: actions, query: $query)
                 } else {
-                    InboxSearchList(inbox: inbox, query: $query, includes: { _ in true }, openTitle: openTitle, actions: actions)
+                    InboxSearchList(inbox: inbox, query: $query, includes: { _ in true }, openTitle: openTitle, actions: actions, hasLock: hasLock)
                 }
             }
             .background(AceTheme.Colours.background)
@@ -41,11 +43,9 @@ struct SearchHome: View {
 }
 
 extension SearchHome {
-    /// The system's search tab (iOS 26) places its own field in the tab bar. As a plain tab the
-    /// field would wait in the collapsed navigation drawer, so it is pinned there open.
-    static var fieldPlacement: SearchFieldPlacement {
-        HomeTabs.composeTab ? .navigationBarDrawer(displayMode: .always) : .automatic
-    }
+    /// Search is a plain tab (the home bar is ace's own), so its field would wait in the collapsed
+    /// navigation drawer: it is pinned there open.
+    static var fieldPlacement: SearchFieldPlacement { .navigationBarDrawer(displayMode: .always) }
 }
 
 /// Search before anything is typed: things to act on, not an explanation. The places, then as the

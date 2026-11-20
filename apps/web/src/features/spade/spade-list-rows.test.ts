@@ -1,7 +1,9 @@
 import { parseSpadeAgentValue, parseSpadeGroupValue } from "@ace/ui-core/spade-chat";
 import { expect, test } from "vitest";
 import {
+  holdSpadeOrder,
   searchSpadeList,
+  spadeEntryKey,
   spadeFlatEntries,
   spadeBotRow,
   spadeListEntries,
@@ -123,7 +125,7 @@ test("the rail counts what waits on the person, groups included, and nothing tha
   expect(spadeNeedsYouCount(bots, [group({ id: "g", name: "G", state: "waiting" })])).toBe(2);
 });
 
-test("pinned conversations leave the rows and read oldest pin first, Spade's included", () => {
+test("pinned conversations leave the rows and read oldest pin first, but Spade never leaves the first row", () => {
   const entries = spadeListEntries(
     [
       bot({ id: "main", kind: "main", name: "Spade" }),
@@ -140,7 +142,9 @@ test("pinned conversations leave the rows and read oldest pin first, Spade's inc
   const spadePinned = splitPinned(
     spadeListEntries([bot({ id: "main", kind: "main", name: "Spade", pinned_at: 5 })], []),
   );
-  expect(spadePinned.pinned.map(name)).toEqual(["Spade"]);
+  // Even a Spade pinned in an older build stays the first row and is not in the strip.
+  expect(spadePinned.pinned).toEqual([]);
+  expect(spadePinned.rest.map(name)).toEqual(["Spade"]);
 });
 
 const maker = { id: "gh", name: "Github watcher" };
@@ -262,4 +266,33 @@ test("a worker's row keeps its own state when its maker is pinned", () => {
   const { rest } = splitPinned(spadeListEntries(bots, [], "gh"), spadeFlatEntries(bots, []));
   expect(shape(rest)).toEqual(["lark:0", "otter:0", "inbox:0"]);
   expect(rest[0]?.row.state).toBe("working");
+});
+
+const names = (entries: ReturnType<typeof spadeListEntries>) =>
+  entries.map((entry) => (entry.kind === "bot" ? entry.bot.name : entry.group.name));
+
+test("while the pointer holds the list, a row that turns busy stays in its place, still current, and a new one comes first", () => {
+  const before = spadeListEntries(
+    [
+      bot({ id: "a", name: "Alpha", last_activity: 3 }),
+      bot({ id: "b", name: "Beta", last_activity: 2 }),
+      bot({ id: "c", name: "Gamma", last_activity: 1 }),
+    ],
+    [],
+  );
+  const held = before.map(spadeEntryKey);
+  // Gamma starts working, which puts it first; Delta is new.
+  const after = spadeListEntries(
+    [
+      bot({ id: "a", name: "Alpha", last_activity: 3 }),
+      bot({ id: "b", name: "Beta", last_activity: 2 }),
+      bot({ id: "c", name: "Gamma", last_activity: 4, state: "working", status: "Reading" }),
+      bot({ id: "d", name: "Delta", last_activity: 5 }),
+    ],
+    [],
+  );
+  expect(names(after)).toEqual(["Gamma", "Delta", "Alpha", "Beta"]);
+  const shown = holdSpadeOrder(after, held);
+  expect(names(shown)).toEqual(["Delta", "Alpha", "Beta", "Gamma"]);
+  expect(shown.at(-1)?.row.state).toBe("working");
 });

@@ -53,7 +53,7 @@ import {
   type WorkspaceActionResult,
 } from "@ace/protocol";
 import { listScripts, shellQuote } from "./workspace-scripts.ts";
-import { editorLocations, installedEditors, registryAppPath } from "./installed-editors.ts";
+import { editorLocations, installedApps, registryAppPath } from "./installed-editors.ts";
 import { fileManagerName, openOnHost, spawnDetached, type HostSpawner } from "./host-open.ts";
 import { openableProjectFolders } from "./host-open-places.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
@@ -67,6 +67,8 @@ import type { Store } from "./store.ts";
 import { systemCredentials } from "./credential-runtime.ts";
 
 export interface WorkspaceRuntimeOptions {
+  /** Why the thread opens no terminal now: it is moving to another machine (ADR 0191). */
+  moveRefusal?(id: ThreadId): string | undefined;
   sourceControl?: import("./source-control.ts").SourceControl;
   git?: GitOptions;
   writingCli?: ReturnType<typeof createWritingCli>;
@@ -108,6 +110,8 @@ export interface WorkspaceRuntimeOptions {
   home?: string;
   /** Finds `host.open`'s editors; this machine's installed ones by default. */
   hostEditors?: () => Promise<readonly InstalledEditor[]>;
+  /** Finds `host.open`'s terminals; this machine's installed ones by default. */
+  hostTerminals?: () => Promise<readonly InstalledEditor[]>;
   /** Launcher folders searched after PATH; the platform's usual ones by default. */
   editorLocations?: readonly string[];
   platform?: NodeJS.Platform;
@@ -160,6 +164,8 @@ export class WorkspaceRuntime {
   private manager: TerminalManager;
   private terminals = new Map<string, { threadId: ThreadId; terminal: Terminal }>();
   private pendingOpens = 0;
+  /** Threads a live move is stopping (ADR 0191), counted per hold: they open no terminal. */
+  private terminalHolds = new Map<ThreadId, number>();
   private opened = new Set<(threadId: ThreadId, terminalId: string) => void>();
   private terminalId: () => string;
   private writing = new Set<AbortController>();
@@ -449,13 +455,16 @@ export class WorkspaceRuntime {
     });
   }
   async openTerminal(threadId: ThreadId, name: string, cols = 80, rows = 24): Promise<string> {
-    if (threadCleaning(this.store, threadId)) throw new Error("thread_deleting");
+    this.mayOpen(threadId);
     for (const [key, entry] of this.terminals)
       if (!terminalAlive(entry.terminal)) {
         await this.manager.release(entry.terminal);
         this.terminals.delete(key);
       }
     if (this.terminals.size + this.pendingOpens >= 256) throw new Error("terminal_limit");
+    // Again after the awaits above, with nothing awaited between this and the spawn: a thread
+    // that started moving or deleting meanwhile gets no new shell (ADR 0191).
+    this.mayOpen(threadId);
     this.pendingOpens++;
     try {
       const terminal = this.manager.openTerminal({ cwd: this.root(threadId), name, cols, rows });
@@ -472,25 +481,53 @@ export class WorkspaceRuntime {
       this.pendingOpens--;
     }
   }
+  /**
+   * From the moment a live move starts stopping these threads until the returned release: no
+   * terminal opens for them, before the ownership record holds them (ADR 0191).
+   */
+  holdTerminals(threadIds: ThreadId[]): () => void {
+    const held = [...new Set(threadIds)];
+    for (const id of held) this.terminalHolds.set(id, (this.terminalHolds.get(id) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const id of held) {
+        const count = (this.terminalHolds.get(id) ?? 1) - 1;
+        if (count > 0) this.terminalHolds.set(id, count);
+        else this.terminalHolds.delete(id);
+      }
+    };
+  }
+  private mayOpen(threadId: ThreadId): void {
+    if (threadCleaning(this.store, threadId)) throw new Error("thread_deleting");
+    if (this.terminalHolds.has(threadId)) throw new Error("thread_moving");
+    const moving = this.options.moveRefusal?.(threadId);
+    if (moving) throw new Error(moving);
+  }
   async closeTerminal(id: string, threadId: ThreadId): Promise<void> {
     const terminal = this.terminal(id, threadId);
     await this.manager.release(terminal);
     this.terminals.delete(id);
   }
   /**
-   * This machine's editors: on PATH and the usual launcher folders, or on Windows only each
-   * editor's own .exe from App Paths and its standard install folders.
+   * This machine's editors and terminals: on PATH and the usual app folders, or on Windows only
+   * each app's own .exe from App Paths and its standard install folders.
    */
-  #editors() {
+  #apps() {
     const platform = this.options.platform ?? process.platform;
-    return installedEditors(
-      this.options.editorPath ?? process.env.PATH,
+    return installedApps({
+      paths: this.options.editorPath ?? process.env.PATH,
       platform,
-      this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
-      platform === "win32"
-        ? { env: process.env, appPath: registryAppPath(process.env) }
-        : { env: {} },
-    );
+      locations: this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
+      windows:
+        platform === "win32"
+          ? { env: process.env, appPath: registryAppPath(process.env) }
+          : { env: {} },
+    });
+  }
+  async #editors() {
+    return (await this.#apps()).editors;
   }
   async read(
     request: WorkspaceActionRequest,
@@ -607,12 +644,15 @@ export class WorkspaceRuntime {
         this.writing.delete(lifetime);
       }
     }
-    if (op.op === "editors.list")
+    if (op.op === "editors.list") {
+      const apps = await this.#apps();
       return wrap({
         kind: "editors",
         fileManager: fileManagerName(this.options.platform ?? process.platform),
-        editors: await this.#editors(),
+        editors: apps.editors,
+        terminals: apps.terminals,
       });
+    }
     if (op.op === "host.open") {
       const named = [op.threadId, op.workspaceId, op.hostPath].filter((at) => at !== undefined);
       if (named.length !== 1 || (op.hostPath !== undefined && op.path !== undefined))
@@ -639,6 +679,7 @@ export class WorkspaceRuntime {
         app: op.app,
         platform,
         editors: this.options.hostEditors ?? (() => this.#editors()),
+        terminals: this.options.hostTerminals ?? (async () => (await this.#apps()).terminals),
         spawn: this.options.hostSpawn ?? spawnDetached,
         systemRoot: process.env.SystemRoot,
         allowed: still ?? (() => true),

@@ -22,7 +22,7 @@ struct SignInTerminalRows: View {
         Text(manual.instruction)
         Text(manual.command).monospaced().textSelection(.enabled).foregroundStyle(AceDesign.Ink.muted)
         if let id = terminalId ?? manual.terminalId {
-            NavigationLink { SignInTerminalView(model: model, terminalId: id) } label: { Text("Open terminal").foregroundStyle(AceDesign.Ink.accent) }
+            NavigationLink { SignInTerminalView(model: model, terminalId: id) } label: { Text("Open terminal").foregroundStyle(AceDesign.Ink.action) }
                 .accessibilityIdentifier("signin.terminal")
         } else {
             Button(opening ? "Opening…" : "Open terminal") { open() }.disabled(opening)

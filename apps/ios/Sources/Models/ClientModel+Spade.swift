@@ -7,6 +7,12 @@ extension ClientModel {
         spade.watching = on
         action(["type": "spade.watch", "on": on])
     }
+    /// The app's scene is active or no longer is: the bridge reads the bots only while it is.
+    func spadeActive(_ on: Bool) {
+        guard spade.active != on else { return }
+        spade.active = on
+        action(["type": "spade.active", "active": on])
+    }
     /// Follow `id` live, or no conversation.
     func spadeOpen(_ id: String?) {
         guard spade.opened != id else { return }
@@ -18,6 +24,7 @@ extension ClientModel {
     func spadeRefresh() { action(["type": "spade.refresh"]) }
     /// A new runtime knows nothing of what shows: tell it again.
     func spadeResume() {
+        if !spade.active { action(["type": "spade.active", "active": false]) }
         if spade.watching { action(["type": "spade.watch", "on": true]) }
         if let id = spade.opened { action(["type": "spade.open", "conversationId": id]) }
     }
@@ -37,6 +44,17 @@ extension ClientModel {
         await spadeRequest(["type": "spade.answer", "conversationId": conversation, "callId": callId,
                             "allowed": allowed, "always": always], failing: "Couldn't answer")
     }
+    /// A card of questions: `reply` is its drafts (`["drafts": [...]]`), `["defer": true]` or
+    /// `["dismiss": true]`.
+    func spadeQuestion(_ conversation: String, callId: String, reply: [String: Any]) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.question", "conversationId": conversation, "callId": callId, "reply": reply],
+                           failing: "Couldn't answer")
+    }
+    /// A sent card not yet settled: the conversation's events since the last one shown, read again.
+    func spadeQuestionRead(_ conversation: String, callId: String) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.question.read", "conversationId": conversation, "callId": callId],
+                           failing: "Couldn't read the conversation")
+    }
     func spadeTurnOn() async -> SpadeOutcome {
         await spadeRequest(["type": "spade.enable"], failing: "Couldn't turn on Spade")
     }
@@ -46,4 +64,8 @@ extension MachineInbox {
     /// The machines that show Spade (Settings › Beta), in the inbox's order: the Spade tab is
     /// there while any does.
     var spadeSessions: [MachineSession] { sessions.filter { $0.client.spade.shown == true } }
+    /// A Spade bot works on a machine that shows Spade: the tab's face moves its eyes.
+    var spadeWorking: Bool {
+        spadeSessions.contains { $0.client.spade.bots?.contains { $0.state == "working" } == true }
+    }
 }

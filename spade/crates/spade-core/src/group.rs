@@ -28,7 +28,7 @@ impl Refusal {
     /// Words for the bot that asked.
     pub fn words(&self) -> String {
         match self {
-            Self::Stopped => "Refused: the person stopped this group's work. Answer with what \
+            Self::Stopped => "Refused: the person stopped this club's work. Answer with what \
                               you have."
                 .to_owned(),
             Self::TooDeep => format!(
@@ -192,6 +192,42 @@ fn same(a: &GroupBot, b: &GroupBot) -> bool {
     a.id == b.id && a.machine == b.machine
 }
 
+/// The replies of a member's own conversation that answer only its groups: every message it
+/// answered since its last reply ended came from a group (ADR 0132). Each such message and its
+/// answer live in the group's transcript, so the member's own chat, row and unseen mark leave
+/// them out. A reply that also answers the person, a job or a wake is the member's own.
+pub fn answering_replies<'a>(
+    events: impl IntoIterator<Item = &'a Event>,
+) -> std::collections::HashSet<String> {
+    let mut answering = std::collections::HashSet::new();
+    // Since the last reply ended: whether anything arrived, and whether all of it was a group's.
+    let (mut inputs, mut only_groups) = (false, true);
+    for event in events {
+        let Event::Known(known) = event else {
+            continue;
+        };
+        match known {
+            Known::UserMessage { from_group, .. } => {
+                inputs = true;
+                only_groups &= from_group.is_some();
+            }
+            Known::JobFinished { .. } => (inputs, only_groups) = (true, false),
+            known if crate::wake::is_note(known) => (inputs, only_groups) = (true, false),
+            Known::ReplyFinished { reply, .. }
+            | Known::ReplyStopped { reply, .. }
+            | Known::ReplyFailed { reply, .. }
+            | Known::ReplyInterrupted { reply, .. } => {
+                if inputs && only_groups {
+                    answering.insert(reply.clone());
+                }
+                (inputs, only_groups) = (false, true);
+            }
+            _ => {}
+        }
+    }
+    answering
+}
+
 /// A group message as the bot answering it reads it.
 pub fn framed(from: &FromGroup, text: &str) -> String {
     let place = from
@@ -205,7 +241,7 @@ pub fn framed(from: &FromGroup, text: &str) -> String {
         ""
     };
     format!(
-        "<group name=\"{}\" id=\"{}\"{place}>\nYour reply is posted in this group as your \
+        "<group name=\"{}\" id=\"{}\"{place}>\nYour reply is posted in this club as your \
          message.{ask}\n\n{text}\n</group>",
         from.name, from.id
     )

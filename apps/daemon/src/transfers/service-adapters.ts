@@ -204,16 +204,17 @@ export function targetThreads(context: ServiceContext): TargetThreadStarter {
           !thread.details?.continuedFrom &&
           !threadGone((id) => store.getThread(id), engine, input.threadId)
         ) {
-          engine.adoptMachineHandoff(input.threadId, {
-            handoff: input.thread.handoff,
-            commandId: `transfer:${input.threadId}`,
-            machine: input.machine.name,
-            to: {
-              provider: thread.provider,
-              ...(thread.execution?.model ? { model: thread.execution.model } : {}),
-            },
-            at: now(),
-          });
+          if (input.handoff !== false)
+            engine.adoptMachineHandoff(input.threadId, {
+              handoff: input.thread.handoff,
+              commandId: `transfer:${input.threadId}`,
+              machine: input.machine.name,
+              to: {
+                provider: thread.provider,
+                ...(thread.execution?.model ? { model: thread.execution.model } : {}),
+              },
+              at: now(),
+            });
           store.appendEvents(input.threadId, [
             {
               type: "thread.client.updated",

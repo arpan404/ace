@@ -16,6 +16,12 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  /**
+   * A daemon the app started on a saved PATH (`login-path-handoff.ts`): provider discovery, and
+   * so restart recovery and sessions, waits for its final PATH, and environments copied at
+   * start take it.
+   */
+  loginPath?: import("../login-path-handoff.ts").LoginPath;
   /** Free space of the volume holding ACE_HOME, reported with storage failures. */
   diskSpace?: import("../sqlite-failure.ts").DiskSpace;
   /** The storage-full watch's timer and thresholds (ADR 0176); tests drive them. */
@@ -88,7 +94,7 @@ export type DaemonOptions = {
   };
   /** Data between agents (ADR 0182): the relay dialer, the pinned request and the pull pace. */
   parcels?: {
-    connectRelay?: import("../parcels/relay-link.ts").RelayLinkDeps["connect"];
+    connectRelay?: import("../machines/relay-link.ts").RelayLinkDeps["connect"];
     pinned?: import("../parcels/link.ts").ParcelLinkDeps["pinned"];
     pollMs?: number;
   };
@@ -134,6 +140,11 @@ export type DaemonOptions = {
     Pick<import("../user-browser.ts").UserBrowserOptions, "home" | "node" | "extraHostDirs">
   >;
   preview?: DaemonPreviewOptions;
+  /**
+   * The account grant keys that give the person's standing, for tests on an account backend of
+   * their own (ADR 0190). `ace start` never sets it: a real daemon trusts `shippedGrantKeys`.
+   */
+  personGrantKeys?: import("@ace/account-grant").GrantKeySet | undefined;
   review?: DaemonReviewOptions;
   history?: DaemonHistoryOptions;
 };

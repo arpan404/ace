@@ -102,6 +102,10 @@
         "message": {
           "type": "string"
         },
+        "recovery": {
+          "maxLength": 4096,
+          "type": "string"
+        },
         "requestId": {
           "maxLength": 128,
           "minLength": 1,
@@ -247,6 +251,35 @@
       "required": [
         "type",
         "change"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "folders": {
+          "items": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "maxItems": 512,
+          "type": "array"
+        },
+        "rescan": {
+          "type": "boolean"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "files.folders_changed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "folders",
+        "rescan"
       ],
       "type": "object"
     }

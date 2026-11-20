@@ -192,10 +192,39 @@ pub enum Known {
         /// the tool's server and version, its own name and its schema (ADR 0171, amendment 1).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tool_key: Option<String>,
+        /// For a driving step (`ask: drive`), the app or site its "always" allows for the bot
+        /// (ADR 0171, amendment 3). Absent where it can't be allowed: a sensitive place, one
+        /// Spade can't name, or any other request.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app: Option<String>,
+        /// For a driving step, where Spade found it acts when it asked: the step runs only if
+        /// it still acts there (ADR 0171, amendment 3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acts_in: Option<Box<crate::effect::drive::Place>>,
         /// Set when a helper (ADR 0152) made the call: the approval is asked in the bot's
         /// conversation, the person answers it there, and the answer reaches the helper.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         helper: Option<Box<HelperAsk>>,
+        /// Where the call was decided to run when the person was asked: the most their answer
+        /// lets it run (ADR 0171, amendment 4). A call that would run anywhere wider at the
+        /// launch doesn't run on it. Absent for older events and calls that run nothing.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_authorized"
+        )]
+        launch: Option<Authorized>,
+        /// Set when one of Spade's judges stopped the call and it was put to the person instead
+        /// of refused (ADR 0163, amendment 3): the reviewer, the second review, the classifier,
+        /// or a check that couldn't vouch for what a command outside the sandbox runs. Absent
+        /// for older events and every other request; a word this build doesn't know reads as
+        /// absent.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::autonomy::escalate::lenient"
+        )]
+        stopped: Option<crate::autonomy::escalate::Stopped>,
     },
     ApprovalAnswered {
         reply: String,
@@ -247,6 +276,28 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         documents: Vec<DocumentRef>,
     },
+    /// Where a command ran and how it went, stored right after its `tool_finished` like
+    /// `shared`: whether Spade's sandbox held it, its exit, and the hosts it reached and the
+    /// network policy refused. The model never reads it (its result already says how it ended);
+    /// the app shows it in the reply's steps, so what a command did is seen in the conversation.
+    CommandRan {
+        reply: String,
+        call_id: String,
+        /// The sandbox held it. False when it ran outside it: the person allowed that one
+        /// command, or this machine has no sandbox and it was reviewed.
+        contained: bool,
+        /// None when a signal ended it, or it never started.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        timed_out: bool,
+        /// Hosts it reached through Spade's proxy, each once, in the order first asked.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        reached: Vec<String>,
+        /// Hosts the network policy refused it, each once.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        refused: Vec<RefusedHost>,
+    },
     /// An allowed call was handed to a background job. Its `tool_finished` says so at once; the
     /// job's own result comes later as `job_finished`.
     JobStarted {
@@ -293,6 +344,18 @@ pub enum Known {
         /// approved with these runs only while they are unchanged.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bound: Option<String>,
+        /// For a driving step, where it acted when it was reviewed (ADR 0171, amendment 3): the
+        /// verdict holds only there, so a restart never carries it to another page or app.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acts_in: Option<Box<crate::effect::drive::Place>>,
+        /// Where the call was decided to run when it was judged: the verdict holds for that
+        /// launch or a narrower one only (ADR 0171, amendment 4). Absent reads as contained only.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_authorized"
+        )]
+        launch: Option<Authorized>,
     },
     /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
     /// events naming `ask` or `full_access` read as `auto_review`.
@@ -460,6 +523,12 @@ pub enum Known {
         reply: String,
         text: String,
     },
+    /// The person pressed Try again on `reply`, the conversation's last reply, which failed. The
+    /// reply stored with this one takes its place: it answers the same turn from the same history,
+    /// with no message posted again, and clients show it in place of the failure.
+    ReplyRetried {
+        reply: String,
+    },
     Renamed {
         title: String,
     },
@@ -577,6 +646,23 @@ pub enum Known {
         keep: bool,
         #[serde(default, skip_serializing_if = "is_zero")]
         restarts: u32,
+        /// The gate let it start only held by the sandbox (ADR 0171): started again after a
+        /// restart, it is held too, or refused.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        contained_only: bool,
+        /// The launch the verdict that started it was given for (ADR 0171, amendment 5). Started
+        /// again after a restart it is held to that, and one with none recorded (an older
+        /// build's) starts only contained.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_authorized"
+        )]
+        launch: Option<Authorized>,
+        /// What its command ran when that verdict was given: started again where nothing holds
+        /// it, it starts only while that is still so.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bound: Option<String>,
     },
     /// An owned service ended.
     ServiceEnded {
@@ -600,6 +686,25 @@ pub enum Known {
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),
+    /// The bot arrived from another machine (ADR 0187): consent given there doesn't count here,
+    /// so no answer before this event is remembered (`since_arrival`).
+    Arrived {
+        /// The machine it came from, by name.
+        from: String,
+    },
+}
+
+/// The events after the bot's latest arrival from another machine (all of them when it never
+/// moved): where the person's remembered answers are looked for, so an "Always allow" or a
+/// kept answer given on another machine never counts on this one (ADR 0187).
+pub fn since_arrival(events: &[Event]) -> &[Event] {
+    match events
+        .iter()
+        .rposition(|event| matches!(event, Event::Known(Known::Arrived { .. })))
+    {
+        Some(at) => &events[at + 1..],
+        None => events,
+    }
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -618,6 +723,9 @@ pub enum FailureKind {
     RateLimited,
     /// The model or the endpoint failed while answering, or refused the request.
     Model,
+    /// The bot has no model it can use: none was chosen yet, or the chosen one is no longer on
+    /// the person's endpoints. Choosing one fixes it.
+    NoModel,
     /// Retired (ADR 0166): a spending cap ended the reply before its next call, as builds with
     /// caps stored it. Still read: such a reply counts as finished, so its task carries on, and
     /// it reaches no one.
@@ -645,8 +753,8 @@ impl FailureKind {
             ModelError::Unanswered { .. }
             | ModelError::Provider { .. }
             | ModelError::Empty { .. }
-            | ModelError::Shape { .. }
-            | ModelError::UnknownModel(_) => Self::Model,
+            | ModelError::Shape { .. } => Self::Model,
+            ModelError::UnknownModel(_) => Self::NoModel,
             ModelError::Listing { .. } | ModelError::Setup(_) => Self::Other,
         }
     }
@@ -680,6 +788,37 @@ pub struct FromAgent {
     /// The machine it runs on, by name, when that is another machine (ADR 0132).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+}
+
+/// Where a call may run on the person's answer, from least to most: held by the sandbox only, as
+/// the sandbox finds it (held where it can be, plainly where it can't), or outside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Authorized {
+    Contained,
+    AsFound,
+    Outside,
+}
+
+impl Authorized {
+    /// What a stored limit allows: one that is absent (older events, an ambiguous request) is
+    /// contained only.
+    pub fn stored(limit: Option<Self>) -> Self {
+        limit.unwrap_or(Self::Contained)
+    }
+
+    /// Whether a verdict given for this launch holds for one at `wanted`: the same or narrower.
+    pub fn covers(self, wanted: Self) -> bool {
+        self >= wanted
+    }
+}
+
+/// A stored authorization read leniently: a word this build doesn't know is the narrowest.
+fn lenient_authorized<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Authorized>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.map(|value| serde_json::from_value(value).unwrap_or(Authorized::Contained)))
 }
 
 /// The helper behind an approval asked in its bot's conversation (ADR 0152).
@@ -736,6 +875,15 @@ pub struct FromRoutine {
     /// (ADR 0144): its instruction may have been planted, so a turn it starts is untrusted.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub untrusted: bool,
+}
+
+/// A host the network policy refused a command, with why (`command_ran`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefusedHost {
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub reason: String,
 }
 
 /// An attached image, as stored in an event: its SHA-256 (hex), media type and size.
@@ -981,5 +1129,32 @@ mod tests {
             var: None,
         };
         assert_eq!(FailureKind::of(&missing), FailureKind::Key);
+    }
+
+    #[test]
+    fn a_reply_without_a_usable_model_fails_as_no_model_and_says_what_to_do() {
+        use spade_models::ModelError;
+        let unchosen = ModelError::UnknownModel(String::new());
+        assert_eq!(FailureKind::of(&unchosen), FailureKind::NoModel);
+        assert!(
+            unchosen
+                .to_string()
+                .contains("no model is chosen yet: choose one")
+        );
+        let gone = ModelError::UnknownModel("old/m".into());
+        assert_eq!(FailureKind::of(&gone), FailureKind::NoModel);
+        assert_eq!(
+            gone.to_string(),
+            "old/m is not a model on one of your endpoints"
+        );
+        let stored = Event::Known(Known::ReplyFailed {
+            reply: "r1".into(),
+            text: String::new(),
+            error: unchosen.to_string(),
+            kind: FailureKind::NoModel,
+            endpoint: None,
+        })
+        .to_json();
+        assert_eq!(stored["kind"], "no_model");
     }
 }

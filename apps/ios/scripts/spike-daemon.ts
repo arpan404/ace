@@ -407,7 +407,7 @@ const server = Bun.serve<SpikeSocketData>({
       return Response.json({ ok: true });
     }
     if (path === "/review/spade" && request.method === "POST") {
-      const kinds = ["off", "on", "stream"] as const satisfies SpadeScenario[];
+      const kinds = ["off", "on", "stream", "hold", "release"] as const satisfies SpadeScenario[];
       spadeScenario(daemon, z.enum(kinds).parse(await request.json()));
       return Response.json({ ok: true });
     }

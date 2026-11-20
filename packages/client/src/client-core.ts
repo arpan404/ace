@@ -50,6 +50,7 @@ import type {
   ConnectionControl,
   RegistryQuery,
   SidebarSource,
+  StandingChallenge,
   ThreadSource,
 } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
@@ -73,6 +74,7 @@ import { Sidebar } from "./sidebar.ts";
 import { Subscriptions, type AcquireOptions, type ThreadSubscription } from "./subscriptions.ts";
 import { HostSnapshots } from "./read-snapshot-scope.ts";
 import { retryDelay } from "./lifecycle.ts";
+import { PageOnce, pageKey } from "./page-once.ts";
 import {
   ClientError,
   defaultLimits,
@@ -156,6 +158,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   protected requests: Requests;
   #subscriptions: Subscriptions;
   #paths: Multipath | undefined;
+  /** This client's own list's page reads (`threadsMore`). */
+  #pages = new PageOnce();
   /** Counts daemon sockets this client has spoken over (`connectionGeneration`). */
   #socket = 0;
   /** The app's last presence, said again on a socket it moves to. */
@@ -188,6 +192,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #hostId: string | undefined;
   /** The daemon build's release line, from its last welcome (ADR 0177). */
   #releaseLine: string | undefined;
+  #standing: StandingChallenge | undefined;
   /** Read snapshots under the verified host id; forgotten once the daemon refuses us. */
   #snapshots: HostSnapshots | undefined;
   #history: KeptHistory | undefined;
@@ -245,6 +250,15 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             if (this.#hostId && this.#hostId !== message.hostId)
               throw new ClientError("identity", "Transport changed daemon identity");
             this.#releaseLine = message.releaseLine;
+            this.#standing =
+              message.standingNonce === undefined || message.standingHost === undefined
+                ? undefined
+                : {
+                    host: message.standingHost,
+                    nonce: message.standingNonce,
+                    binding: this.connection.channelBinding,
+                    device: this.options.deviceId,
+                  };
             this.#newSocket();
             this.#hostId = message.hostId;
             this.#subscriptions.database(message.databaseId);
@@ -358,11 +372,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       (message) => this.connection.send(message),
       options.id,
       () => this.connection.subscribable,
+      (milliseconds, run) => options.scheduler.set(milliseconds, run),
       this.#persistence(),
-      options.openTail && {
-        tail: options.openTail,
-        delay: (milliseconds, run) => options.scheduler.set(milliseconds, run),
-      },
+      options.openTail,
     );
     this.#sidebar = new Sidebar(
       limits,
@@ -513,6 +525,11 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   releaseLine(): Selection<string | undefined> {
     return this.notifications.select(["connection", "socket"], () =>
       this.state === "ready" ? this.#releaseLine : undefined,
+    );
+  }
+  standingChallenge(): Selection<StandingChallenge | undefined> {
+    return this.notifications.select(["connection", "socket"], () =>
+      this.state === "ready" ? this.#standing : undefined,
     );
   }
   #newSocket(): void {
@@ -703,6 +720,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     );
     this.#collections.add(sidebar);
     const leases = new Set<() => void>();
+    const pages = new PageOnce();
     let closed = false;
     return {
       threads: () => {
@@ -728,7 +746,11 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         if (closed || this.closed || this.state !== "ready") throw new ClientError("offline");
         const payload = sidebar.pageRequest();
         if (payload)
-          await this.#readCore(payload, (value) => CoreServerMessage.parse(value), options);
+          await pages.run(pageKey(payload), () =>
+            this.#readCore(payload, (value) => CoreServerMessage.parse(value), options).then(
+              () => undefined,
+            ),
+          );
       },
       close: () => {
         if (closed) return;
@@ -1005,7 +1027,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (this.state !== "ready" || this.closed) throw new ClientError("offline");
     const payload = this.#sidebar.pageRequest();
     if (!payload) return;
-    await this.#readCore(payload, (value) => CoreServerMessage.parse(value), options);
+    // A page already out is shared, never asked for twice (`PageOnce`).
+    await this.#pages.run(pageKey(payload), () =>
+      this.#readCore(payload, (value) => CoreServerMessage.parse(value), options).then(
+        () => undefined,
+      ),
+    );
   }
   /** A read of the core stream (item pages, output): no service schemas to wait for. */
   async #readCore<T>(

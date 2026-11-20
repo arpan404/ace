@@ -6,6 +6,7 @@ import type {
 import { useState } from "react";
 import { needLabel, refName } from "./market-publish-pick.ts";
 import { acceptedTexts, usePrivacy, useReport } from "./market-publish-review.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * A bot's recipe before it is published (ADR 0174 §2): what it holds, the task to edit or
@@ -117,7 +118,9 @@ export function BotReview(props: {
   const plugins = recipe.plugins.map(refName);
   return (
     <section aria-label="Its recipe" style={{ marginTop: 32, maxWidth: 640 }}>
-      <h2 className="mk-quiet-head">What its recipe holds</h2>
+      <h2 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+        What its recipe holds
+      </h2>
       <dl className="mk-facts">
         <div className="mk-fact">
           <dt>Model</dt>
@@ -143,7 +146,9 @@ export function BotReview(props: {
         )}
       </dl>
       <Flags spans={spansOf(0)} />
-      <h3 className="mk-quiet-head">The task</h3>
+      <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+        The task
+      </h3>
       <textarea
         className="mk-field"
         aria-label="Task"
@@ -161,7 +166,9 @@ export function BotReview(props: {
         blocked={hasSecret(spansOf(1)) || hasSecret(spansOf(0))}
         onChange={setTaskOk}
       />
-      <h3 className="mk-quiet-head">Routines</h3>
+      <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+        Routines
+      </h3>
       {recipe.routines.length === 0 ? (
         <p className="mk-line">None.</p>
       ) : (
@@ -209,7 +216,9 @@ export function BotReview(props: {
           })}
         </ul>
       )}
-      <h3 className="mk-quiet-head">What it asks for</h3>
+      <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+        What it asks for
+      </h3>
       {recipe.needs.connectors.length === 0 ? (
         <p className="mk-line">No apps.</p>
       ) : (
@@ -227,7 +236,9 @@ export function BotReview(props: {
       )}
       {leftOut.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">Left out</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            Left out
+          </h3>
           {leftOut.map((line) => (
             <p key={line} className="mk-line">
               {line}

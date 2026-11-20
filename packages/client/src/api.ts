@@ -86,6 +86,15 @@ export type ClientCoreApi = Omit<
   "attachmentBytes" | "projects" | "transfers" | "downloadFile" | "uploadFile"
 >;
 
+/** What a socket's proof of the person's standing names (`ClientApi.standingChallenge`). */
+export interface StandingChallenge {
+  host: string;
+  nonce: string;
+  /** The relay stream's Noise handshake hash; undefined on a socket with no channel of its own. */
+  binding: string | undefined;
+  device: string;
+}
+
 export interface ClientApi {
   /** Resolve a content id on this connection. Never use a global daemon URL. */
   attachmentBytes(
@@ -110,6 +119,12 @@ export interface ClientApi {
    * 0177); undefined while not ready, or from a daemon that doesn't say.
    */
   releaseLine?(): Selection<string | undefined>;
+  /**
+   * What a proof of the person's standing on the current socket must name (ADR 0190): the
+   * daemon's host id, the nonce its welcome gave this socket, the socket's channel binding and
+   * this client's device id. Undefined while not ready, or from a daemon that predates it.
+   */
+  standingChallenge?(): Selection<StandingChallenge | undefined>;
   /** The path to the machine the connection uses now (ADR 0114); absent with a single route. */
   activePath?(): Selection<import("@ace/protocol").MachinePathKind | undefined>;
   /** Let `paths` keep the connection on the machine's fastest working path (ADR 0114). */
@@ -136,6 +151,12 @@ export interface ClientApi {
   close(): Promise<void>;
   networkOnline(online: boolean): void;
   reconnectNow(): void;
+  /**
+   * The page may have been away (the computer slept, the tab came back, the network changed):
+   * a ready socket must answer a ping at once or is replaced, and a waiting reconnect runs now
+   * instead of after its backoff (`Connection.wake`).
+   */
+  wake?(): void;
   /**
    * Hold a thread. `optional` holds take only spare room (`threadRoom`) and give it up for a
    * thread held in the foreground; refused or given up, the store's error reads `no_room`.

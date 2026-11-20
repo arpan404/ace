@@ -34,9 +34,9 @@ struct PluginInstallView: View {
                             .accessibilityIdentifier("plugins.install.ref")
                     }
                     if let found { listing(found) }
-                    if let problem { QuietProblem(message: problem, id: "plugins.install.problem") }
+                    if let problem { ProblemRow(problem, id: "plugins.install.problem") }
                     Button(busy ? "Fetching…" : found == nil ? "Find plugins" : "Review installation") { act() }
-                        .buttonStyle(.textAction(.prominent))
+                        .buttonStyle(.primaryAction).controlSize(.large)
                         .disabled(busy || repository.trimmingCharacters(in: .whitespaces).isEmpty || (found != nil && name.isEmpty) || !model.canOperate)
                         .padding(.horizontal, AceDesign.Space.margin)
                         .accessibilityIdentifier("plugins.install.next")
@@ -81,7 +81,7 @@ struct PluginInstallView: View {
                 }
             }
         }
-        if let note = found.note { QuietProblem(message: note, id: "plugins.install.note") }
+        if let note = found.note { ProblemRow(note, id: "plugins.install.note") }
         if found.manual {
             QuietField("Plugin name") {
                 TextField("Plugin name", text: $name)

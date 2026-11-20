@@ -7,7 +7,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 import { useIsChat, useIsChatThread } from "@/lib/projects.ts";
-import { useOrganizerState } from "@/features/organize/index.ts";
+import { useProjectScope } from "./use-project-scope.ts";
 import { inScope, useSidebarDevice } from "./device-filter-state.ts";
 import type { HomeList, SettledEntry } from "./use-home-threads.ts";
 
@@ -67,7 +67,9 @@ export function useSettledSearch(
   loaded: readonly SettledEntry[],
 ): SettledSearch {
   const all = useThreadHits(query);
-  const { project } = useOrganizerState();
+  // This daemon's hits are its own threads: its checkouts of the chosen project.
+  const scope = useProjectScope();
+  const project = scope.checkouts ? scope.here : null;
   const device = useSidebarDevice();
   const own = usePrimaryMachine().id;
   const shown = useMemo(
@@ -84,7 +86,7 @@ export function useSettledSearch(
       const ids: string[] = [];
       for (const [id, hit] of all) {
         if (shown.has(id)) continue;
-        if (project !== null && hit.workspaceId !== project) continue;
+        if (project !== null && !project.includes(hit.workspaceId)) continue;
         if (isChat(hit.workspaceId)) continue;
         const entry = reader.thread(id);
         if (entry && (isRemoved(entry) || entry.pinned === true || !isSettled(entry))) continue;
