@@ -108,6 +108,11 @@ impl PathArena {
         *self = rebuilt;
     }
 
+    /// Bytes of path text written, live or not: what a copy of the live paths needs at most.
+    pub fn text_len(&self) -> usize {
+        self.bytes.len()
+    }
+
     /// Bytes the arena occupies, for the build report and bench.
     pub fn bytes_used(&self) -> usize {
         self.bytes.capacity() + self.ends.capacity() * size_of::<u32>() + self.live.capacity()
