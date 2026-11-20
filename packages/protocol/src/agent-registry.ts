@@ -32,6 +32,20 @@ export const RegistryAgent = z.object({
   license: z.string().max(256).optional(),
 });
 export type RegistryAgent = z.infer<typeof RegistryAgent>;
+/**
+ * One update of an installation the person approved in place (ADR 0044 amendment, agents that
+ * update themselves): what ran before, what runs now, when.
+ */
+export const RegistryApproval = z.object({
+  approvedAt: z.number().nonnegative(),
+  previousVersion: id,
+  version: id,
+  previousExecutableDigest: digest,
+  executableDigest: digest,
+  previousBridgeDigest: digest.optional(),
+  bridgeDigest: digest.optional(),
+});
+export type RegistryApproval = z.infer<typeof RegistryApproval>;
 export const RegistryInstallation = AcpIdentity.extend({
   version: id,
   profileRevision: id,
@@ -44,6 +58,8 @@ export const RegistryInstallation = AcpIdentity.extend({
       integrity: z.string().max(1024).optional(),
     })
     .optional(),
+  /** Updates approved in place, oldest first; the newest 16 are kept. */
+  approvals: z.array(RegistryApproval).max(16).optional(),
 });
 export type RegistryInstallation = z.infer<typeof RegistryInstallation>;
 export const RegistryInstallPlan = z.object({
@@ -59,6 +75,19 @@ export const RegistryInstallPlan = z.object({
   verification: z.enum(["sha256", "unsigned_https", "package_manager"]),
 });
 export type RegistryInstallPlan = z.infer<typeof RegistryInstallPlan>;
+/**
+ * An installation whose files no longer match what the person approved, so it doesn't run until
+ * they approve the update. The digests are what is on disk now: an approval names them, so a
+ * file that changes again after this was read has to be reviewed again.
+ */
+export const RegistryPendingUpdate = AcpIdentity.extend({
+  /** What changed: the agent's own executable, the native CLI a bridge drives, or both. */
+  changed: z.array(z.enum(["agent", "native_cli"])).min(1).max(2),
+  executableDigest: digest,
+  bridgeDigest: digest.optional(),
+  observedAt: z.number().nonnegative(),
+});
+export type RegistryPendingUpdate = z.infer<typeof RegistryPendingUpdate>;
 export const RegistryRequest = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("registry.list"),
@@ -97,6 +126,19 @@ export const RegistryRequest = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("registry.install-intent"), requestId: id, digest, intentId: id }),
   z.object({ type: z.literal("registry.install-cancel"), requestId: id, intentId: id }),
+  /**
+   * The person approves an installation's changed files for the same identity, so its threads
+   * keep running. Only the person: agents' devices are refused.
+   */
+  z.object({
+    type: z.literal("registry.approve-update"),
+    requestId: id,
+    ...AcpIdentity.shape,
+    executableDigest: digest,
+    bridgeDigest: digest.optional(),
+    /** The version it is now, when the person's client knows it; else the recorded one stays. */
+    version: id.optional(),
+  }),
 ]);
 export type RegistryRequest = z.infer<typeof RegistryRequest>;
 export const RegistryInstallProgress = z.object({
@@ -119,6 +161,8 @@ export const RegistryResult = z.object({
       ok: z.literal(true),
       agents: z.array(RegistryAgent).max(50),
       installations: z.array(RegistryInstallation).max(512),
+      /** Installations that changed since approval and wait for the person to approve them. */
+      updates: z.array(RegistryPendingUpdate).max(512).optional(),
       stale: z.boolean(),
       refreshing: z.boolean(),
       activeInstall: RegistryInstallProgress.optional(),

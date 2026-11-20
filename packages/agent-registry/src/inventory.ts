@@ -3,11 +3,23 @@ import { createHash } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import { z } from "zod";
-import { RegistryInstallation, AcpIdentity } from "@ace/protocol";
+import { RegistryInstallation, AcpIdentity, type RegistryPendingUpdate } from "@ace/protocol";
 import { findExecutable, isPackageRunner } from "@ace/provider-kit/discovery";
 import { requireMinimum, type CliId } from "@ace/provider-kit/cli-requirements";
-import { matchProfile, type CompatibilityProfile } from "./profiles.ts";
+import {
+  matchProfile,
+  profileFor,
+  type CompatibilityProfile,
+  type ProfileFit,
+} from "./profiles.ts";
 import { limits } from "./decode.ts";
+import {
+  UpdateApprovalRequired,
+  approveUpdate,
+  pendingUpdate,
+  type Observed,
+  type UpdateApproval,
+} from "./approvals.ts";
 export const LocalInstallation = z.object({
   metadata: RegistryInstallation,
   command: z.string().min(1).max(4096).refine(isAbsolute),
@@ -56,6 +68,8 @@ export type LaunchPlan = Readonly<{
   args: readonly string[];
   env: Readonly<NodeJS.ProcessEnv>;
   profile?: CompatibilityProfile;
+  /** How the profile covers the approved version: verified on it, or only in its range. */
+  profileFit?: ProfileFit;
 }>;
 export async function executableDigest(path: string): Promise<string> {
   if ((await stat(path)).size > 512 * 1024 * 1024) throw new Error("Executable exceeds bound");
@@ -236,12 +250,17 @@ export async function bindLocal(
 }
 export class LocalInventory {
   #entries = new Map<string, LocalInstallation>();
+  /** Installations whose files changed since approval, by installation id, until approved. */
+  #pending = new Map<string, RegistryPendingUpdate>();
   #digests: ExecutableDigests;
+  #now: () => number;
   constructor(
     entries: readonly LocalInstallation[] = [],
     digests: ExecutableDigests = new ExecutableDigests(),
+    now: () => number = Date.now,
   ) {
     this.#digests = digests;
+    this.#now = now;
     for (const entry of entries) this.add(entry);
   }
   add(input: LocalInstallation): void {
@@ -258,6 +277,10 @@ export class LocalInventory {
   list(): RegistryInstallation[] {
     return [...this.#entries.values()].map((value) => structuredClone(value.metadata));
   }
+  /** Installations that changed since approval and wait for the person (ADR 0044 amendment). */
+  pending(): RegistryPendingUpdate[] {
+    return [...this.#pending.values()].map((value) => structuredClone(value));
+  }
   has(identity: AcpIdentity): boolean {
     const entry = this.#entries.get(identity.installationId);
     return (
@@ -266,41 +289,94 @@ export class LocalInventory {
       entry.metadata.instanceId === identity.instanceId
     );
   }
-  async resolve(input: AcpIdentity, environment: NodeJS.ProcessEnv): Promise<LaunchPlan> {
+  #entry(input: AcpIdentity): LocalInstallation {
     const identity = AcpIdentity.parse(input);
     const entry = this.#entries.get(identity.installationId);
     if (!entry || !this.has(identity)) throw new Error("Approved ACP installation unavailable");
-    if ((await this.#digests.digest(installationArtifact(entry))) !== entry.executableDigest)
-      throw new Error("ACP artifact changed; new approval required");
-    // A reviewed agent older than ace's floor for it is refused before it launches. Agents
-    // without a reviewed profile are admitted by ACP protocol version at initialize.
-    const cli = acpAgentCli(identity.acpAgentId);
-    if (cli) requireMinimum(cli, entry.metadata.version);
-    const profile = identity.acpAgentId.startsWith("official:")
-      ? matchProfile(identity.acpAgentId.slice(9), entry.metadata.version)
-      : undefined;
-    const env = { ...environment, ...entry.env };
+    return entry;
+  }
+  /** The digests on disk now, hashed without running anything. */
+  async #observe(entry: LocalInstallation): Promise<Observed> {
+    const agent = await this.#digests.digest(installationArtifact(entry));
+    if (!entry.bridgeCommand) return { executableDigest: agent };
+    const bridgeDigest = await this.#digests.digest(entry.bridgeCommand).catch(() => {
+      throw new Error("Native bridge CLI changed or unavailable");
+    });
+    return { executableDigest: agent, bridgeDigest };
+  }
+  /** Records whether `entry`'s files still match its approval; true when they do. */
+  #check(entry: LocalInstallation, observed: Observed): boolean {
+    const key = entry.metadata.installationId;
+    const pending = pendingUpdate(entry, observed, this.#now());
+    if (!pending) {
+      this.#pending.delete(key);
+      return true;
+    }
+    const known = this.#pending.get(key);
+    // The first sighting of these files keeps its time.
+    if (
+      known?.executableDigest !== pending.executableDigest ||
+      known.bridgeDigest !== pending.bridgeDigest
+    )
+      this.#pending.set(key, pending);
+    return false;
+  }
+  /**
+   * Checks every installation against its approval without running anything, so the person
+   * sees an update waiting before a thread needs it. A file that can't be read is skipped.
+   */
+  async review(): Promise<void> {
+    for (const entry of this.#entries.values()) {
+      const observed = await this.#observe(entry).catch(() => undefined);
+      if (observed && this.#entries.get(entry.metadata.installationId) === entry)
+        this.#check(entry, observed);
+    }
+  }
+  /**
+   * The installation approved for its changed files, for the same identity, not yet stored:
+   * the caller persists it, then `replace`s. Only the person's approval reaches this.
+   */
+  async approved(identity: AcpIdentity, approval: UpdateApproval): Promise<LocalInstallation> {
+    const entry = this.#entry(identity);
+    const observed = await this.#observe(entry);
+    return LocalInstallation.parse(approveUpdate(entry, approval, observed, this.#now()));
+  }
+  /** Stores an approved update of an installation already here, under the same identity. */
+  replace(input: LocalInstallation): void {
+    const entry = LocalInstallation.parse(input);
+    this.#entry(entry.metadata);
+    this.#entries.set(entry.metadata.installationId, entry);
+    this.#pending.delete(entry.metadata.installationId);
+  }
+  async resolve(input: AcpIdentity, environment: NodeJS.ProcessEnv): Promise<LaunchPlan> {
+    const identity = AcpIdentity.parse(input);
+    const entry = this.#entry(identity);
     const bridgeVariable =
       identity.acpAgentId === "official:claude-acp"
         ? "CLAUDE_CODE_EXECUTABLE"
         : identity.acpAgentId === "official:codex-acp"
           ? "CODEX_PATH"
           : undefined;
-    if (bridgeVariable) {
-      if (
-        !entry.bridgeCommand ||
-        (await this.#digests.digest(entry.bridgeCommand)) !== entry.bridgeDigest
-      )
-        throw new Error("Native bridge CLI changed or unavailable");
-      env[bridgeVariable] = entry.bridgeCommand;
-    }
+    if (bridgeVariable && !entry.bridgeCommand)
+      throw new Error("Native bridge CLI changed or unavailable");
+    // A changed file never runs until the person approves the update (ADR 0044).
+    if (!this.#check(entry, await this.#observe(entry))) throw new UpdateApprovalRequired(identity);
+    // A reviewed agent older than ace's floor for it is refused before it launches. Agents
+    // without a reviewed profile are admitted by ACP protocol version at initialize.
+    const cli = acpAgentCli(identity.acpAgentId);
+    if (cli) requireMinimum(cli, entry.metadata.version);
+    const profile = identity.acpAgentId.startsWith("official:")
+      ? profileFor(identity.acpAgentId.slice(9), entry.metadata.version)
+      : undefined;
+    const env = { ...environment, ...entry.env };
+    if (bridgeVariable && entry.bridgeCommand) env[bridgeVariable] = entry.bridgeCommand;
     return Object.freeze({
       identity: Object.freeze(identity),
       version: entry.metadata.version,
       command: entry.command,
       args: Object.freeze([...entry.args]),
       env: Object.freeze(env),
-      ...(profile ? { profile } : {}),
+      ...(profile ? { profile: profile.profile, profileFit: profile.fit } : {}),
     });
   }
 }
