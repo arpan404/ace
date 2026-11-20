@@ -38,6 +38,12 @@ const tools: Record<string, ToolWords> = {
     doing: "Asking you to connect an app",
     done: "Asked you to connect an app",
   },
+  // A package a bot suggests (ADR 0200 §8).
+  package_suggest: {
+    base: "suggest a bot to install",
+    doing: "Suggesting a bot to install",
+    done: "Suggested a bot to install",
+  },
   skill_load: { base: "load a skill", doing: "Reading a skill", done: "Read a skill" },
   skill_propose: {
     base: "suggest a skill",

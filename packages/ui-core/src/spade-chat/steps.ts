@@ -53,8 +53,11 @@ const shownElsewhere = new Set([
   "memory_forget",
   "image_generate",
   "share_file",
-  // A card the bot showed is its own row (ADR 0200 §5.1).
+  // A card the bot showed is its own row (ADR 0200 §5.1), and so are a notice it sent and a
+  // package it suggested (§4.2, §8).
   "card_show",
+  "notify",
+  "package_suggest",
   // A bot changing its own task, name or face: its own quiet line (`task-changed`, `named`).
   "task_update",
   "profile_update",

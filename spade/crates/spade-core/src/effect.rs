@@ -174,6 +174,10 @@ const BUILTIN: &[(&str, Effect)] = &[
     (crate::contract::CONTRACTS_FIND, Effect::Read),
     (crate::contract::CONTRACT_CALL, Effect::WriteLocal),
     (crate::contract::CONTRACT_RETURN, Effect::WriteLocal),
+    // A notice to the person only, under ADR 0195's reach (ADR 0200 §4.2): nothing outward.
+    (crate::reach::notice::NOTIFY, Effect::WriteLocal),
+    // A card suggesting a package; only the person installs, on its review (ADR 0200 §8).
+    (crate::question::suggest::PACKAGE_SUGGEST, Effect::Read),
 ];
 
 /// The typed tools that hold the person's sign-in outside the sandbox (ADR 0171 decision 2).

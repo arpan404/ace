@@ -23926,6 +23926,22 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"spadeBot"` |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "name": "q",
+  "op": "spadeBot"
+}
+```
+
+### Variant 21
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"discover"` |  |
 
 Example:
@@ -23936,7 +23952,7 @@ Example:
 }
 ```
 
-### Variant 21
+### Variant 22
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -23947,12 +23963,12 @@ Example:
 
 ```json
 {
-  "handle": "m",
+  "handle": "f-bb5-tkwiplsfqod9s1fus6g",
   "op": "publisher"
 }
 ```
 
-### Variant 22
+### Variant 23
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -23964,13 +23980,13 @@ Example:
 
 ```json
 {
-  "hash": "69aa792e3d0e2c00b915c217cfc2e6983865019ade4e75e6b4217900a3a3589b",
-  "kind": "preview",
+  "hash": "d2b9647f23681a0f86f90ee6dd24d6d0f95e073d966ff905e7aad0af9c27cfbc",
+  "kind": "avatar",
   "op": "picture"
 }
 ```
 
-### Variant 23
+### Variant 24
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -23983,12 +23999,15 @@ Example:
 {
   "op": "publish",
   "request": {
-    "action": "checkVerification"
+    "action": "archive",
+    "archived": true,
+    "name": "0",
+    "type": "spade-plugin"
   }
 }
 ```
 
-### Variant 24
+### Variant 25
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24003,15 +24022,15 @@ Example:
 
 ```json
 {
-  "name": "of",
+  "name": "6",
   "note": "example",
   "op": "report",
-  "reason": "spam",
-  "type": "spade-bot"
+  "reason": "copyright",
+  "type": "suit"
 }
 ```
 
-### Variant 25
+### Variant 26
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24023,11 +24042,11 @@ Example:
 ```json
 {
   "op": "publishables",
-  "type": "spade-bot"
+  "type": "spade-plugin"
 }
 ```
 
-### Variant 26
+### Variant 27
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24038,12 +24057,12 @@ Example:
 
 ```json
 {
-  "id": "r272PRWSC26",
+  "id": "eUc5MLAmG",
   "op": "botRecipe"
 }
 ```
 
-### Variant 27
+### Variant 28
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24059,7 +24078,7 @@ Example:
 }
 ```
 
-### Variant 28
+### Variant 29
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24071,7 +24090,7 @@ Example:
 
 ```json
 {
-  "name": "u",
+  "name": "amws3b",
   "op": "spadeSkillFiles"
 }
 ```
@@ -25906,6 +25925,24 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"spadeBot"` |  |
+| signed | yes | any JSON value |  |
+| botJson | yes | string | {"maxLength":1000000} |
+
+Example:
+
+```json
+{
+  "botJson": "example",
+  "op": "spadeBot",
+  "signed": null
+}
+```
+
+### Variant 18
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"spadeSkillFiles"` |  |
 | files | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/MarketSpadeFile.json"}} |
 | content | no | string | {"maxLength":6000000} |
@@ -25919,7 +25956,7 @@ Example:
 }
 ```
 
-### Variant 18
+### Variant 19
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -25935,10 +25972,23 @@ Example:
 
 ```json
 {
-  "action": "example",
-  "code": "person_only",
+  "code": "busy",
   "message": "example",
-  "op": "error"
+  "op": "error",
+  "scan": {
+    "checks": [],
+    "findings": [],
+    "format": "ace-market-scan",
+    "read": {
+      "files": 6,
+      "textBytes": 2
+    },
+    "runnable": false,
+    "runnableReason": "example",
+    "scanner": 8,
+    "truncated": true,
+    "verdict": "block"
+  }
 }
 ```
 

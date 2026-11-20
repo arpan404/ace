@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 129243,
-      "sha256": "e9b9beb97042636d712cb8c4bd1d2aae36b57a481e909b9572f22ca1a27c3574"
+      "bytes": 128942,
+      "sha256": "a551f18913542e2b94b77205112055603a515ade5487f6b120c87cfd14bc9657"
     },
     "requests.md": {
-      "bytes": 125888,
-      "sha256": "1ac24561e0af1eb74055ca7365fe06a637fcbe56944d8d841dc11d08a9f3bc39"
+      "bytes": 125957,
+      "sha256": "1216337edb0e8f6a6db7cbea4485e24b42798a02385d934f282b7a632f8227ed"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -3141,8 +3141,8 @@
       "sha256": "954128bea532e478cef2ba62eba9b50d518474d83cb3c6bb331716bbe2d342e4"
     },
     "schema/MarketOperation.json": {
-      "bytes": 12735,
-      "sha256": "8e71b6b37dfa9ed8664af7943bb2e488efc1fc71fd4bff2d141799744734466a"
+      "bytes": 13081,
+      "sha256": "4ccee7dd0fc14ee3d76e0b636b0bba1bc2a5dbcd5c14f4ab7eed9035167bd6d9"
     },
     "schema/MarketOwnEntry.json": {
       "bytes": 1249,
@@ -3249,8 +3249,8 @@
       "sha256": "1fa6f7e0cfbd04ea8590850543c3e266ad5c225f881bfb17fd121e37e38758ba"
     },
     "schema/MarketResult.json": {
-      "bytes": 10159,
-      "sha256": "e9135ddac6427a7bb9da2241a0b0ed8d3c6a5d3b1913459e2bd7e776171518ba"
+      "bytes": 10539,
+      "sha256": "d8853b0e6b067810e66d260fecfc46535872c703bbf88f835c156b92425d3081"
     },
     "schema/MarketReview.json": {
       "bytes": 1938,
@@ -6681,10 +6681,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1360848,
-      "sha256": "596dfd0e748db89fa1f9ce858b2b89e421e3d29e96266fa0469790f62c46e3bd"
+      "bytes": 1361712,
+      "sha256": "beeed4fa409783d2cd4d65ff7cb40dbbcb8f9a367ea7ff656a379188eb7c4d5e"
     }
   },
-  "input": "a6f6f4d9a7f690f49f058e0e4e66ac5828f9b878db964e83c534bf4e35bacd46",
+  "input": "877354e5a9feb44da4d8ca252a75aadd0e3b7103d62c1bd20844a885c938ed8f",
   "version": 1
 }

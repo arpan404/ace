@@ -777,6 +777,19 @@ pub enum Known {
         #[serde(flatten)]
         ending: crate::contract::Ending,
     },
+    /// A bot's own notice to the person (`notify`, ADR 0200 §4.2), as Spade decided it under
+    /// ADR 0195: sent now, held for the brief, or not sent. Its words are the bot's.
+    NoticeSent {
+        call_id: String,
+        /// The notice's id on the notice stream and in what waits for the person.
+        id: String,
+        title: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        body: String,
+        reach: crate::reach::Reach,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        why: Option<crate::reach::Why>,
+    },
 }
 
 /// The events after the bot's latest arrival from another machine (all of them when it never

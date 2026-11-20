@@ -1,6 +1,7 @@
 import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { seedFakeCards } from "./fake-spade-cards.ts";
 import { seedFakeAgentCards } from "./fake-spade-agent-cards.ts";
+import { seedFakeSuggest } from "./fake-spade-suggest.ts";
 import { seedFakeCreate } from "./fake-spade-create.ts";
 import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeLibrary } from "./fake-spade-library.ts";
@@ -525,6 +526,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
 
   seedFakeCards(here);
   seedFakeAgentCards(here);
+  seedFakeSuggest(here);
   seedFakeLibrary(here, now);
   seedFakeWork(daemon, here, minutes);
   seedFakeGroup(here, now);

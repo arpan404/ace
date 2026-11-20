@@ -322,6 +322,7 @@ impl Transcript {
             | Known::ContractCalled(_)
             | Known::ContractMisfit { .. }
             | Known::ContractEnded { .. }
+            | Known::NoticeSent { .. }
             | Known::TaskParked { .. } => {}
         }
         if self.open_reply().is_none() {
