@@ -49,7 +49,7 @@ test("a note says where it came from, and everything from that source can be for
   await why.findByText(/^Learned in your conversation with Travel/);
   expect(why.getByText("Answering your message “I like aisle seats”")).toBeTruthy();
   await userEvent.click(
-    why.getByRole("button", { name: "Forget everything from Your conversation with Travel" }),
+    why.getByRole("button", { name: "Forget everything from your conversation with Travel" }),
   );
   await userEvent.click(await screen.findByRole("button", { name: "Forget all of it" }));
   await waitFor(() =>

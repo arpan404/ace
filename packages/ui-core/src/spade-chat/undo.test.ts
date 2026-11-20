@@ -175,7 +175,7 @@ describe("undo in the conversation", () => {
     });
     expect(preview?.changed).toEqual(["plan.md"]);
     expect(preview && spadeUndoSummary(preview)).toBe(
-      "1 file goes back, 2 files made since go and 1 file removed since comes back",
+      "1 file goes back, 2 new files are removed and 1 deleted file comes back",
     );
     const same = parseSpadeUndoPreview({
       checkpoint: { id: "cp_1", at: 5 },

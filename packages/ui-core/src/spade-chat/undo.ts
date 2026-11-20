@@ -143,17 +143,17 @@ export function parseSpadeUndoPreview(raw: unknown): SpadeUndoPreview | undefine
 const files = (count: number) => (count === 1 ? "1 file" : `${count} files`);
 const verb = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
-/** "3 files go back, 1 made since goes"; "Nothing to undo" when the files are as they were. */
+/** "3 files go back, 1 new file is removed"; "Nothing to undo" when the files are as they were. */
 export function spadeUndoSummary(preview: SpadeUndoPreview): string {
   const { changed, added, deleted, more } = preview;
   const parts: string[] = [];
   if (changed.length)
     parts.push(`${files(changed.length)} ${verb(changed.length, "goes", "go")} back`);
   if (added.length)
-    parts.push(`${files(added.length)} made since ${verb(added.length, "goes", "go")}`);
+    parts.push(`${verb(added.length, "1 new file is", `${added.length} new files are`)} removed`);
   if (deleted.length)
     parts.push(
-      `${files(deleted.length)} removed since ${verb(deleted.length, "comes", "come")} back`,
+      `${verb(deleted.length, "1 deleted file comes", `${deleted.length} deleted files come`)} back`,
     );
   if (!parts.length) return more ? `${files(more)} change` : "Nothing to undo";
   const said =

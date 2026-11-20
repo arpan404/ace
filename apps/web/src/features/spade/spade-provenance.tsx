@@ -34,6 +34,9 @@ import { personZone } from "./spade-routines-api.ts";
 export const learnedKey = ["spade", "learned"] as const;
 
 /** After a forget: the notes, the pages and the sources are read again. */
+/** A source's label inside a sentence: "your conversation with Trips", not "Your …". */
+const inline = (label: string) => label.replace(/^Your /, "your ");
+
 function useForgotten() {
   const cache = useQueryClient();
   return () =>
@@ -46,8 +49,8 @@ function useForgotten() {
 
 /** "Forgot 2 notes and 1 page from example.com." */
 function forgotWords(gone: { notes: number; entries: number }, label: string): string {
-  if (!gone.notes && !gone.entries) return `Nothing left from ${label}.`;
-  return `Forgot ${spadeLearnedCount({ notes: gone.notes, entries: gone.entries })} from ${label}.`;
+  if (!gone.notes && !gone.entries) return `Nothing left from ${inline(label)}.`;
+  return `Forgot ${spadeLearnedCount({ notes: gone.notes, entries: gone.entries })} from ${inline(label)}.`;
 }
 
 /**
@@ -130,7 +133,7 @@ export function SpadeProvenanceDialog(props: {
                     className={`${rowPill} -ml-3 w-fit text-muted-foreground`}
                     onClick={() => forgetAll(source)}
                   >
-                    Forget everything from {source.label}
+                    Forget everything from {inline(source.label)}
                   </Button>
                 ))}
               </section>
@@ -214,7 +217,7 @@ export function LibraryLearnedFrom(props: { bot: { id: string; name: string } })
           <Button
             size="sm"
             variant="ghost"
-            aria-label={`Forget everything from ${source.label}`}
+            aria-label={`Forget everything from ${inline(source.label)}`}
             className={rowPill}
             onClick={() => ask(source)}
           >

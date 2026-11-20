@@ -95,8 +95,8 @@ Spade is one of ace's places. It adds no navigation of its own.
   to their steps. Raw markdown and raw tool arguments never show.
 - **Undo.** When a reply changed the bot's files, its step line ends in the quiet words "Undo
   these changes" (the whole turn, from its first file-changing step), and each such step offers
-  them too. They open a dialog that first says what goes back, what made since goes and what
-  removed since comes back (paths in mono on `--chat-well`), and what undo can't take back, then
+  them too. They open a dialog that first says what goes back, which new files are removed and which
+  deleted files come back (paths in mono on `--chat-well`), and what undo can't take back, then
   Undo. A step undo can't reach says so plainly in its own line, in full ink: "Can't be undone:
   it was sent in your name.", "…a payment can't be taken back from here.", "…it's published.",
   "Can't be undone here: it changed linear." The step's declared effect decides it, not its name (ADR 0167, spade/docs/security.md).
