@@ -167,6 +167,7 @@ impl Engine {
                 name: me.name.clone(),
                 depth,
                 machine: None,
+                contract: None,
             }),
             from_routine: None,
             from_group: None,

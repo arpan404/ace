@@ -11,6 +11,8 @@ pub const VERSION: &str = "1";
 
 /// The build that first named `spade.v1`.
 const V1: &str = "0.0.24";
+/// The build that adds contracts (ADR 0200 §7).
+const CONTRACTS: &str = "0.0.25";
 
 /// A module of the API, in the order the reference lists them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -120,6 +122,16 @@ const fn spade(name: &'static str, module: Module) -> Tool {
     }
 }
 
+/// One of Spade's own tools a later build added.
+const fn since(name: &'static str, module: Module, since: &'static str) -> Tool {
+    Tool {
+        name,
+        module,
+        source: Source::Table,
+        since,
+    }
+}
+
 const fn ace(name: &'static str, module: Module, most: Effect) -> Tool {
     Tool {
         name,
@@ -190,6 +202,9 @@ pub const TOOLS: &[Tool] = &[
     spade(crate::tree::WORKER_STOP, Agents),
     spade(crate::helper::TOOL, Agents),
     ace("delegate", Agents, Effect::Network),
+    since(crate::contract::CONTRACTS_FIND, Agents, CONTRACTS),
+    since(crate::contract::CONTRACT_CALL, Agents, CONTRACTS),
+    since(crate::contract::CONTRACT_RETURN, Agents, CONTRACTS),
     spade(crate::context::ASK_USER, Ui),
     spade("image_generate", Ui),
     spade(crate::card::CARD_SHOW, Ui),

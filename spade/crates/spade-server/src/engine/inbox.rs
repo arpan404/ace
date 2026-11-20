@@ -169,6 +169,7 @@ impl Engine {
             name: short(from.get("name"), crate::engine::NAME_CHARS, "A bot"),
             depth,
             machine: Some(sender.name.clone()),
+            contract: None,
         });
         let context = body["context"]
             .as_str()

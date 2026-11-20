@@ -8,6 +8,7 @@ pub mod card;
 pub mod checkpoint;
 pub mod compaction;
 pub mod context;
+pub mod contract;
 pub mod decision;
 pub mod digest;
 pub mod effect;
