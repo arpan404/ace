@@ -293,3 +293,27 @@ fn stored_path_names_what_a_link_leads_into() {
         [".git", "config"]
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn an_unstored_folder_walk_follows_inside_links_and_refuses_outside_ones() {
+    let (_temp, root) = checkout();
+    let outside = tempfile::tempdir().expect("another temp dir");
+    fs::create_dir_all(root.path().join("a/b")).expect("folders");
+    fs::write(root.path().join("a/b/file.txt"), b"x").expect("file");
+    std::os::unix::fs::symlink("a", root.path().join("inside")).expect("a link inside");
+    std::os::unix::fs::symlink(outside.path(), root.path().join("away")).expect("a link out");
+
+    let folder = root.open_dir_unstored("a/b").expect("open a/b");
+    assert!(folder.metadata("file.txt").expect("stat").is_file());
+    let through = root
+        .open_dir_unstored("inside/b")
+        .expect("open through the inside link");
+    assert!(through.metadata("file.txt").is_ok());
+    assert_eq!(
+        root.open_dir_unstored("away")
+            .map(|_| ())
+            .map_err(|error| error.code()),
+        Err("PATH_ESCAPE")
+    );
+}

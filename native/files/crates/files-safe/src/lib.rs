@@ -151,6 +151,18 @@ impl Root {
         walk::open_dir(self, rel)
     }
 
+    /// [`Root::open_dir`] for a walker whose names come from listing the disk itself, so they are
+    /// already the spellings the disk stores.
+    ///
+    /// Links on the way are followed exactly as [`Root::open_dir`] follows them, and one that leads
+    /// out of the root is `PATH_ESCAPE`; only the stored-spelling lookup is skipped. That lookup is
+    /// what costs: where the platform cannot name an open handle (Linux) it lists every folder on
+    /// the way, and a content search opening thousands of folders would list their parents again
+    /// and again.
+    pub fn open_dir_unstored(&self, rel: &str) -> Result<cap_std::fs::Dir, Error> {
+        walk::open_folder_unstored(self, rel)
+    }
+
     /// Opens the folder that holds the last segment of `rel` and returns it with that segment's
     /// name, so a read, a create, a rename or a delete can be made relative to the folder itself.
     ///

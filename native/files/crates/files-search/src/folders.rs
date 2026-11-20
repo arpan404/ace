@@ -11,8 +11,9 @@
 //! renamed away and another one, or a link out of the root, put in its place, and the handle would
 //! still read the folder it was opened on. So every reuse is preceded by one lookup through the
 //! root's handle proving that the folder's name still leads to the same identity; when it does not,
-//! the folder is opened again through [`files_safe::Root::open_dir`], which walks it step by step
-//! and follows no link out of the root. The files themselves keep the checks a read needs: the leaf
+//! the folder is opened again through [`files_safe::Root::open_dir_unstored`], which walks it step
+//! by step and follows no link out of the root. Its names come from the walker's own listing, so
+//! they are already the spellings the disk stores and none is looked up again. The files themselves keep the checks a read needs: the leaf
 //! is opened with no link following, and its identity is compared with the entry that was walked.
 
 use std::collections::VecDeque;
@@ -63,7 +64,7 @@ impl Folders {
             if let Some(index) = index {
                 self.open.remove(index);
             }
-            let dir = root.open_dir(folder).ok()?;
+            let dir = root.open_dir_unstored(folder).ok()?;
             let identity = root.folder_identity(&dir);
             let device = crate::open::device(&dir);
             while self.open.len() >= KEPT {
