@@ -47,6 +47,8 @@ async function openTwoTabs(options: { desktop?: boolean } = {}) {
 }
 
 async function engineMenu(panel: HTMLElement) {
+  // A menu left open by the last pick holds the pointer: close it as the person would.
+  while (screen.queryAllByRole("menu").length) await userEvent.keyboard("{Escape}");
   const triggers = within(panel).getAllByRole("button", { name: "Browser options" });
   await userEvent.click(triggers[0] as HTMLElement);
   const menu = await screen.findByRole("menu");
@@ -129,7 +131,7 @@ test("a blank New tab switches engines without failing the move", async () => {
   expect(urls(browser)).toEqual(["about:blank"]);
 });
 
-test("a tab whose address can't reload skips that tab but still moves the rest", async () => {
+test("a tab whose address can't load still moves with the rest, the shown one still shown", async () => {
   desktopBridge();
   const app = harness();
   const scenario = coldStartReplay();
@@ -144,16 +146,16 @@ test("a tab whose address can't reload skips that tab but still moves the rest",
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByRole("button", { name: "Browser options" });
 
+  const shown = activeUrl(browser);
   await engineMenu(panel);
   await pickEngine("ace's Chrome only");
 
+  // The daemon moves every tab as a restart restores them; a page that can't load stays a tab.
   await waitFor(() => expect(browser.view(thread)?.backend).toBe("headless"));
-  expect(urls(browser)).toContain(second);
-  expect(activeUrl(browser)).toBe(second);
-  const toast = await screen.findByRole("alertdialog", {
-    name: "Couldn't switch the browser engine",
-  });
-  expect(toast.textContent).toContain("didn't reload");
+  expect(urls(browser)).toEqual(["http://example.com:22/", second]);
+  expect(activeUrl(browser)).toBe(shown);
+  await within(panel).findByRole("button", { name: "Browser options" });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
 test("the thread's engine menu uses Settings › Browser's words and names the default it overrides", async () => {
