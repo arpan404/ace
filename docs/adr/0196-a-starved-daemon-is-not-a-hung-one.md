@@ -30,14 +30,14 @@ Linux user, and the agents' builds ran at the daemon's own priority.
    - The stall report is the file the daemon's watchdog thread already writes while a stall
      lasts (`ACE_HOME/logs/stall-<pid>.json`). It is now rewritten every 2 s during a stall, so it
      is a live signal: CPU used well under the silence, with the watchdog itself running late or
-     the machine under pressure, is *starved*. CPU close to the silence is *busy*.
+     the machine under pressure, is _starved_. CPU close to the silence is _busy_.
    - Starved, or on a machine under heavy pressure: the daemon stays running (its clients and
      agents carry on) and is checked again for a grace of 15 s that doubles each time, up to two
      minutes per grace. An answer resets it.
    - Silent with CPU to spare (busy or blocked on a calm machine), or silent for five minutes in
      all, it is stopped as before.
-   Each decision is logged with its numbers: load, PSI or memory level, the stall's `silentMs`,
-   `cpuMs` and `watchdogLateMs`, and the grace given.
+     Each decision is logged with its numbers: load, PSI or memory level, the stall's `silentMs`,
+     `cpuMs` and `watchdogLateMs`, and the grace given.
 2. **A start is not stopped while it gets somewhere.** Past the ready budget (120 s) the
    supervisor looks for progress: the size and time of the daemon's `logs/ace.jsonl`,
    `startup-attempts.json` and its stall report. A start that progressed, or one on an
