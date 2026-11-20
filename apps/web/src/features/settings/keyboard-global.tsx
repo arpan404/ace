@@ -56,6 +56,8 @@ export function GlobalShortcuts() {
         inline
       >
         <DesktopShortcut
+          label="Talk to Spade shortcut"
+          offLabel="Turn off the Talk to Spade shortcut"
           value={talk}
           onChange={(spadeTalkShortcut) => write.run(() => update({ spadeTalkShortcut }))}
         />
