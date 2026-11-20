@@ -1,5 +1,6 @@
 import * as z from "zod/mini";
 import type { WorkspaceTab } from "../workspace-tabs.ts";
+import { stripOrder } from "./nodes.ts";
 import { emptyLayout } from "./tree.ts";
 import { defaultExplorer, type EditorLayout, type EditorTab, type ExplorerState } from "./types.ts";
 
@@ -93,9 +94,7 @@ export function migratePanelTabs(
     seen.add(each.data.path);
     read.push({ path: each.data.path, preview: each === preview, pinned: each.tab.pinned });
   }
-  const tabs = [...read.filter((tab) => tab.pinned), ...read.filter((tab) => !tab.pinned)].map(
-    (tab) => (tab.pinned && tab.preview ? { ...tab, preview: false } : tab),
-  );
+  const tabs = stripOrder(read);
   const active = activeFile?.data.path ?? tabs[0]?.path;
   const mru =
     active === undefined

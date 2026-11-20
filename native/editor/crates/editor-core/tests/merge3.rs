@@ -205,3 +205,57 @@ fn a_large_file_with_edits_at_both_ends_merges_cleanly() {
     assert!(merged.contains("theirs 199990\n"));
     assert_eq!(merged.len(), base.len() + 2);
 }
+
+mod line_changes {
+    use editor_core::{LineChange, line_changes};
+
+    fn change(start: u32, end: u32, text: &str) -> LineChange {
+        LineChange {
+            start,
+            end,
+            text: text.to_owned(),
+        }
+    }
+
+    /// Applies changes the way a client does: whole lines, bottom first.
+    fn apply(before: &str, changes: &[LineChange]) -> String {
+        let mut lines: Vec<String> = before.split_inclusive('\n').map(str::to_owned).collect();
+        for change in changes.iter().rev() {
+            lines.splice(
+                change.start as usize..change.end as usize,
+                [change.text.clone()],
+            );
+        }
+        lines.concat()
+    }
+
+    #[test]
+    fn each_changed_block_is_its_own_change_so_text_between_stays_put() {
+        let before = "a\nb\nc\nd\ne\n";
+        let after = "A\nb\nc\nd\nE\nf\n";
+        let changes = line_changes(before, after);
+        assert_eq!(changes, [change(0, 1, "A\n"), change(4, 5, "E\nf\n")]);
+        assert_eq!(apply(before, &changes), after);
+    }
+
+    #[test]
+    fn insertions_deletions_and_line_endings_round_trip() {
+        let table = [
+            ("a\nb\n", "a\nnew\nb\n"),
+            ("a\nb\nc\n", "a\nc\n"),
+            ("a\r\nb\r\n", "a\r\nB\r\n"),
+            ("a\nb", "a\nb\nc"),
+            ("", "x\n"),
+            ("x\n", ""),
+            ("same\n", "same\n"),
+        ];
+        for (before, after) in table {
+            assert_eq!(
+                apply(before, &line_changes(before, after)),
+                after,
+                "{before:?}"
+            );
+        }
+        assert_eq!(line_changes("same\n", "same\n"), []);
+    }
+}

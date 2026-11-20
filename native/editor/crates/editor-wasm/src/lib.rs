@@ -30,4 +30,4 @@ mod merge;
 pub use applied::Applied;
 pub use document::EditorDocument;
 pub use marks::line_marks;
-pub use merge::merge3;
+pub use merge::{LineChanges, line_changes, merge3};

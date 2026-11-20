@@ -2,7 +2,7 @@
 
 //! Behaviour of the Wasm surface: flat arrays in, flat arrays and line strings out.
 
-use editor_wasm::{EditorDocument, line_marks, merge3};
+use editor_wasm::{EditorDocument, line_changes, line_marks, merge3};
 
 /// Three carets on one line each, as the quads JavaScript sends.
 fn carets() -> [u32; 12] {
@@ -111,4 +111,11 @@ fn merge3_tags_clean_text_and_conflicting_blocks() {
             "clean", "a\n", "conflict", "b\n", "mine\n", "theirs\n", "clean", "c\n"
         ]
     );
+}
+
+#[test]
+fn line_changes_are_line_pairs_and_their_new_text() {
+    let changes = line_changes("a\nb\nc\n", "A\nb\nc\nd\n");
+    assert_eq!(changes.ranges(), [0, 1, 3, 3]);
+    assert_eq!(changes.texts(), ["A\n", "d\n"]);
 }

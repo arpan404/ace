@@ -165,10 +165,13 @@ export interface TabLabel {
   folder?: string | undefined;
 }
 
+const nameOf = (segments: readonly string[], path: string) => segments.at(-1) ?? path;
+/** A path's folders, nearest first. */
+const foldersOf = (segments: readonly string[]) => segments.slice(0, -1).toReversed();
+
 /** Names for a strip or a list (spec 20): same names gain their nearest differing folder. */
 export function tabLabels(paths: readonly string[]): readonly TabLabel[] {
   const parts = paths.map((path) => path.split("/").filter(Boolean));
-  const nameOf = (segments: readonly string[], path: string) => segments.at(-1) ?? path;
   const byName = new Map<string, number[]>();
   parts.forEach((segments, index) => {
     const name = nameOf(segments, paths[index] ?? "");
@@ -178,12 +181,11 @@ export function tabLabels(paths: readonly string[]): readonly TabLabel[] {
     const name = nameOf(segments, paths[index] ?? "");
     const others = (byName.get(name) ?? []).filter((other) => other !== index);
     if (others.length === 0) return { name };
-    const folders = segments.slice(0, -1).reverse();
+    const folders = foldersOf(segments);
     for (let depth = 0; depth < folders.length; depth += 1) {
       const folder = folders[depth];
       const clashes = others.some((other) => {
-        const theirs = parts[other] ?? [];
-        return theirs.slice(0, -1).reverse()[depth] === folder;
+        return foldersOf(parts[other] ?? [])[depth] === folder;
       });
       if (!clashes) return { name, folder };
     }

@@ -24,7 +24,7 @@ pub use buffer::LineEnding;
 pub use document::Document;
 pub use error::Error;
 pub use find::FindQuery;
-pub use merge::{Merge, MergeChunk, merge3};
+pub use merge::{LineChange, Merge, MergeChunk, line_changes, merge3};
 pub use position::{Position, Range};
 pub use selection::Selection;
 pub use transaction::{Applied, Change, LineEdit, Replacement, Transaction};

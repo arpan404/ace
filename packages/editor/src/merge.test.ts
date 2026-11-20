@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { merge3 } from "./merge.ts";
+import { lineChanges, merge3 } from "./merge.ts";
 import { initForTests } from "./test-support.ts";
 
 beforeAll(initForTests);
@@ -23,5 +23,14 @@ describe("merge3", () => {
         { kind: "clean", text: "c\r\n" },
       ],
     });
+  });
+});
+
+describe("lineChanges", () => {
+  it("gives one whole-line change per changed block", () => {
+    expect(lineChanges("a\nb\nc\n", "A\nb\nc\nd\n")).toEqual([
+      { start: 0, end: 1, text: "A\n" },
+      { start: 3, end: 3, text: "d\n" },
+    ]);
   });
 });

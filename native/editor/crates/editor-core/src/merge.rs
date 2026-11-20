@@ -135,6 +135,33 @@ pub fn merge3(base: &str, mine: &str, theirs: &str) -> Merge {
     }
 }
 
+/// Lines `start..end` of the old text (0-based, end exclusive) become `text`, which carries its
+/// own line endings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LineChange {
+    /// The first replaced line of the old text.
+    pub start: u32,
+    /// One past the last replaced line; equal to `start` for an insertion.
+    pub end: u32,
+    /// The new lines, with their endings.
+    pub text: String,
+}
+
+/// How to turn `before` into `after` by whole lines, one change per changed block, in order.
+/// Applied to a document, text between the blocks (and the carets in it) does not move.
+pub fn line_changes(before: &str, after: &str) -> Vec<LineChange> {
+    let after_lines: Vec<&str> = lines(after).collect();
+    let input = InternedInput::new(before, after);
+    hunks(&input)
+        .into_iter()
+        .map(|hunk| LineChange {
+            start: hunk.before.start,
+            end: hunk.before.end,
+            text: slice(&after_lines, hunk.after.start, hunk.after.end).concat(),
+        })
+        .collect()
+}
+
 fn hunks(input: &InternedInput<&str>) -> Vec<Hunk> {
     let mut diff = Diff::compute(Algorithm::Histogram, input);
     diff.postprocess_lines(input);

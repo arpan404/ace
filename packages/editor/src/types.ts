@@ -88,3 +88,10 @@ export type MergeChunk =
 export type MergeResult =
   | { clean: true; text: string; chunks: MergeChunk[] }
   | { clean: false; chunks: MergeChunk[] };
+
+/** Lines `start..end` of the old text (0-based, end exclusive) become `text`, endings included. */
+export interface LineChange {
+  start: number;
+  end: number;
+  text: string;
+}

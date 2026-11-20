@@ -28,3 +28,43 @@ pub fn merge3(base: &str, mine: &str, theirs: &str) -> Vec<String> {
     }
     flat
 }
+
+/// Whole-line changes turning one text into another: `ranges` holds `(start, end)` line pairs
+/// of the old text and `texts` the new lines for each, in order.
+#[wasm_bindgen]
+#[derive(Clone, Debug, Default)]
+pub struct LineChanges {
+    ranges: Vec<u32>,
+    texts: Vec<String>,
+}
+
+#[wasm_bindgen]
+impl LineChanges {
+    /// `(start line, end line)` pairs, 0-based, end exclusive, in the old text.
+    #[wasm_bindgen(getter)]
+    pub fn ranges(&self) -> Vec<u32> {
+        self.ranges.clone()
+    }
+
+    /// The new lines replacing each range, with their endings.
+    #[wasm_bindgen(getter)]
+    pub fn texts(&self) -> Vec<String> {
+        self.texts.clone()
+    }
+}
+
+/// How to turn `before` into `after` by whole lines, one change per changed block.
+#[wasm_bindgen(js_name = lineChanges)]
+pub fn line_changes(before: &str, after: &str) -> LineChanges {
+    let changes = editor_core::line_changes(before, after);
+    let mut flat = LineChanges {
+        ranges: Vec::with_capacity(changes.len() * 2),
+        texts: Vec::with_capacity(changes.len()),
+    };
+    for change in changes {
+        flat.ranges.push(change.start);
+        flat.ranges.push(change.end);
+        flat.texts.push(change.text);
+    }
+    flat
+}
