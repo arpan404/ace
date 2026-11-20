@@ -31,3 +31,12 @@ export function stoppableTasks(state: ThreadState): string[] {
     .filter(([, task]) => task.status === "running" && task.owner !== "ace" && !task.internal)
     .map(([key]) => key);
 }
+
+/**
+ * Those of `stoppableTasks` a whole-thread Stop asks the provider to stop: the ones it said it
+ * can stop. Work it can't stop is left to end (ADR 0052) and keeps the thread waiting meanwhile,
+ * as `thread.task.stop` refuses it (`task_not_stoppable`).
+ */
+export function tasksToStop(state: ThreadState): string[] {
+  return stoppableTasks(state).filter((key) => state.tasks[key]?.stoppable === true);
+}

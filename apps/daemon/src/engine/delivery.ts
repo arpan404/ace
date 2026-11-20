@@ -1,5 +1,5 @@
 import { contextNotice } from "@ace/context";
-import { stoppableTasks, stopsWholeThread } from "./stop-scope.ts";
+import { stopsWholeThread, tasksToStop } from "./stop-scope.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
@@ -332,10 +332,11 @@ export async function executeIntent(
     }
     // A Stop of the whole thread stops the agent's background shells and monitors too (ADR
     // 0052's follow-up): left running, they would keep the thread waiting and keep writing.
-    // Each is bounded like the interrupt; one that won't stop closes the session below.
+    // Each is bounded like the interrupt; one that won't stop closes the session below. Work the
+    // provider said it can't stop is left to end, so the thread keeps waiting on it.
     const whole = stopsWholeThread(p, state.agents[state.rootKey ?? ""]?.agent.id);
     if (whole)
-      for (const key of stoppableTasks(repo.requireState(actor.id)))
+      for (const key of tasksToStop(repo.requireState(actor.id)))
         try {
           await interruptWithin(session.stopTask(key));
         } catch (error) {
