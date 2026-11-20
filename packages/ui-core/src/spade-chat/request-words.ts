@@ -128,7 +128,7 @@ function detailOf(
       ["Name", text(fields.name)],
       ["Task", text(fields.task)],
       ["Apps", Array.isArray(fields.apps) ? plain(fields.apps) : undefined],
-    ].flatMap(([label, value]) => (label && value ? [{ label, value }] : []));
+    ].flatMap(([word, value]) => (word && value ? [{ label: word, value }] : []));
     return made.length ? { kind: "fields", fields: made } : undefined;
   }
   const task = text(fields.new_task);
