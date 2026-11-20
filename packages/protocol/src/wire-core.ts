@@ -1,3 +1,4 @@
+import { ClientCloseReport } from "./close-report.ts";
 import { ForgeLifecycleReceipt } from "./forge-lifecycle.ts";
 import { ForgeIssueAction, ForgeIssueRef } from "./forge-issues.ts";
 import { ForgeInboxAction } from "./forge-inbox.ts";
@@ -342,6 +343,14 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * fresh one-use ticket for its next connection (ADR 0150). Older daemons ignore it.
        */
       nextTicket: z.literal(true).optional(),
+      /**
+       * How this client's last connection ended (`ClientCloseReport`), for the daemon's log. A
+       * report that doesn't parse is dropped, never the hello. Older daemons ignore it.
+       */
+      lastClose: ClientCloseReport.optional().catch(undefined).meta({
+        "x-ace-json-input": ClientCloseReport.optional(),
+        "x-ace-constraint": "A report that doesn't parse is read as none; the hello still stands.",
+      }),
     })
     .refine(
       (hello) =>

@@ -99,7 +99,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                 self?.queue.addOperation {
                     guard let self, !self.ended else { return }
                     if case .secured = self.phase { return }
-                    self.finish(1006, cause: "handshake timed out")
+                    self.finish(1006, named: "handshake_timeout", cause: "handshake timed out")
                 }
             }
             self.deadline = deadline
@@ -125,10 +125,20 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         // The grant travels as a subprotocol: never in a URL, which logs would keep. Neither it
         // nor the upgrade entry is ever logged.
         let task = session.webSocketTask(with: url, protocols: RelayEarly.protocols(grant: grant, first: first, offer: offer))
-        task.maximumMessageSize = noiseMaxMessage
+        Self.prepare(task)
         self.task = task
         LaunchTrace.mark("relay.open", url.host ?? "")
         task.resume()
+    }
+
+    /// What URLSession may take as one received message. It counts a message as it arrives, so
+    /// one that came through permessage-deflate (which the hosted relay's edge negotiates)
+    /// counts compressed: a full Noise frame doesn't compress and arrives a few bytes past
+    /// `noiseMaxMessage`, which at that limit failed every receive of one with EMSGSIZE (#1876).
+    /// The Noise layer still refuses any frame past `noiseMaxMessage` once it is read.
+    static let receiveLimit = noiseMaxMessage + 4096
+    static func prepare(_ task: URLSessionWebSocketTask) {
+        task.maximumMessageSize = receiveLimit
     }
 
     func send(_ text: String) {
@@ -197,7 +207,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
             self?.queue.addOperation { [weak self] in
                 // A dial this socket already replaced says nothing of the current one.
                 guard let self, task === self.task else { return }
-                self.finish(1006, cause: "send failed (\(Self.describe(error)))")
+                self.finish(1006, named: "send_failed", cause: "send failed (\(Self.describe(error)))")
             }
         }
     }
@@ -231,7 +241,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                 case .failure(let error):
                     // A close frame ends the receive before its callback: 4020 dials again.
                     if task.closeCode.rawValue == RelayEarly.lostClose, self.redial(closeCode: RelayEarly.lostClose) { return }
-                    self.finish(1006, cause: "receive failed (\(Self.describe(error)))")
+                    self.finish(1006, named: Self.failureCause(error) ?? "receive_failed", cause: "receive failed (\(Self.describe(error)))")
                 }
             }
         }
@@ -321,14 +331,16 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         }
         return true
     }
-    private func finish(_ code: Int, reason: String = "", cause: String) {
+    /// `named`: the cause from the daemon's list (`ClientCloseCause`) the SDK reports in its next
+    /// hello, for the failures this socket can name; `cause` is only logged on the phone.
+    private func finish(_ code: Int, reason: String = "", named: String? = nil, cause: String) {
         guard !ended else { return }
         record(code, cause: reason.isEmpty ? cause : "\(cause): \(reason)")
         ended = true
         deadline?.cancel()
         waiting.removeAll()
         phase = .connecting
-        event("close", .text(reason.isEmpty ? String(code) : "\(code) \(reason)"))
+        event("close", .text(Self.closeEvent(code, reason: reason, named: named)))
         task?.cancel(with: .goingAway, reason: nil)
         session?.invalidateAndCancel()
         task = nil; session = nil
@@ -377,10 +389,24 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         // A 403 before the upgrade is a refusal for good; 401 and 503 retry with a fresh grant.
         let status = (task.response as? HTTPURLResponse)?.statusCode
         if status == 401, let grant { route.grants.discard(grant) }
-        finish(status == 403 ? 4003 : 1006,
+        // The same failure may end the task before its receive callback says so.
+        finish(status == 403 ? 4003 : 1006, named: Self.failureCause(error),
                cause: "connection failed (\(status.map(String.init) ?? "no response"), \(Self.describe(error)))")
     }
 
+    /// The close event the bridge reads as `<code>` or `<code> <reason>`: the daemon's reason
+    /// when it gave one, else `relay:<cause>` when this socket named one. Pure.
+    static func closeEvent(_ code: Int, reason: String, named: String?) -> String {
+        if !reason.isEmpty { return "\(code) \(reason)" }
+        if let named { return "\(code) relay:\(named)" }
+        return String(code)
+    }
+    /// The listed cause a socket failure names on its own: `emsgsize`, a message the socket
+    /// refused as too large (#1876). Pure.
+    static func failureCause(_ error: Error) -> String? {
+        let error = error as NSError
+        return error.domain == NSPOSIXErrorDomain && error.code == Int(EMSGSIZE) ? "emsgsize" : nil
+    }
     /// One line in the relay log: the close code the SDK will see, why, and how long it lasted.
     private func record(_ code: Int, cause: String) {
         let seconds = Date().timeIntervalSince(opened)
