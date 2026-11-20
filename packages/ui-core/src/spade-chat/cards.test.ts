@@ -124,7 +124,9 @@ function conversation() {
         ? [`card ${bubble.card.title}`]
         : bubble.kind === "bot" || bubble.kind === "person"
           ? [`${bubble.kind}: ${bubble.text}`]
-          : [],
+          : bubble.kind === "steps"
+            ? [`steps: ${bubble.summary}`]
+            : [],
     );
   return { stored, cards, said };
 }
@@ -148,6 +150,14 @@ describe("cards in the chat", () => {
       reply: "r1",
       text: "Checking.",
       calls: [{ id: "s1", name: "card_show" }],
+    });
+    c.stored({ type: "tool_started", reply: "r1", call_id: "s1", name: "card_show" });
+    c.stored({
+      type: "tool_finished",
+      reply: "r1",
+      call_id: "s1",
+      name: "card_show",
+      content: "Shown",
     });
     c.stored(shown(1, "Fare dropped"));
     c.stored({ type: "step_finished", reply: "r1", text: "That's the drop.", calls: [] });

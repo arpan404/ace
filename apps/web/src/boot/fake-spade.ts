@@ -1,5 +1,6 @@
 import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { seedFakeCards } from "./fake-spade-cards.ts";
+import { seedFakeAgentCards } from "./fake-spade-agent-cards.ts";
 import { seedFakeCreate } from "./fake-spade-create.ts";
 import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeLibrary } from "./fake-spade-library.ts";
@@ -520,6 +521,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
     here.notes.add({ text, agent: "flights", scope: "agent", source: "bot" });
 
   seedFakeCards(here);
+  seedFakeAgentCards(here);
   seedFakeLibrary(here, now);
   seedFakeWork(daemon, here, minutes);
   seedFakeGroup(here, now);
