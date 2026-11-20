@@ -63,6 +63,9 @@ pub(crate) struct Inotify {
     /// Test-only: the most folders this instance may watch, as if the user's budget ended there.
     #[cfg(test)]
     budget: Option<usize>,
+    /// Test-only: runs once, right after the next `add_watch` returns.
+    #[cfg(test)]
+    after_add: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 #[cfg(test)]
@@ -112,6 +115,8 @@ impl Inotify {
             reader: Some(reader),
             #[cfg(test)]
             budget: WATCH_BUDGET.with(std::cell::Cell::get),
+            #[cfg(test)]
+            after_add: Mutex::new(None),
         })
     }
 
@@ -120,10 +125,15 @@ impl Inotify {
     /// away or may not be read.
     pub(crate) fn watch(&self, rel: &str) -> Result<bool, Error> {
         let path = absolute(&self.root, rel);
+        // The registry stays locked from before the watch is added until its descriptor is
+        // recorded. The kernel may deliver on the descriptor the moment it exists, and the reader
+        // takes this lock to name every event, so it waits here instead of finding an unknown
+        // descriptor and dropping what happened in the folder.
+        let mut registry = self.registry();
         #[cfg(test)]
         if let Some(budget) = self.budget
-            && !self.watches(rel)
-            && self.registry().len() >= budget
+            && !registry.watches(rel)
+            && registry.len() >= budget
         {
             return Err(Error::Unsupported(format!(
                 "inotify watch limit reached watching {}",
@@ -132,7 +142,17 @@ impl Inotify {
         }
         match inotify::add_watch(&*self.fd, &path, mask()) {
             Ok(descriptor) => {
-                let displaced = self.registry().bind(descriptor, rel);
+                #[cfg(test)]
+                if let Some(step) = self
+                    .after_add
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take()
+                {
+                    step();
+                }
+                let displaced = registry.bind(descriptor, rel);
+                drop(registry);
                 if let Some(displaced) = displaced {
                     let _ = inotify::remove_watch(&*self.fd, displaced);
                 }
@@ -326,7 +346,7 @@ fn translate(
 
 #[cfg(test)]
 mod tests {
-    use super::{Renames, translate};
+    use super::{Inotify, Renames, translate};
     use notify::event::{CreateKind, EventKind, ModifyKind, RemoveKind, RenameMode};
     use rustix::fs::inotify::ReadFlags;
     use std::path::PathBuf;
@@ -430,5 +450,31 @@ mod tests {
     fn a_record_for_a_forgotten_watch_says_nothing() {
         let mut pairs = Renames::default();
         assert!(translate(ReadFlags::CREATE, None, 0, &mut pairs).is_empty());
+    }
+
+    #[test]
+    fn an_event_from_a_watch_added_a_moment_ago_is_never_dropped_as_unknown() {
+        // The kernel can deliver on a descriptor the instant `add_watch` returns, before the
+        // descriptor is recorded: the reader must not find it unknown and drop the event.
+        let dir = tempfile::tempdir().expect("a temp dir");
+        std::fs::create_dir(dir.path().join("fresh")).expect("a folder");
+        let (events, collected) = crate::watch::Events::collecting();
+        let watch = Inotify::start(dir.path(), events).expect("inotify starts");
+        let inside = dir.path().join("fresh/inside.txt");
+        let written = inside.clone();
+        *watch
+            .after_add
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::new(move || {
+            std::fs::write(&written, b"x").expect("a file in the new folder");
+            // Long enough for the reader to read the event before the descriptor is recorded.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }));
+        assert!(watch.watch("fresh").expect("the folder is watched"));
+        let paths = collected.paths(std::time::Duration::from_millis(500));
+        assert!(
+            paths.contains(&inside),
+            "the create was dropped, saw {paths:?}"
+        );
     }
 }

@@ -299,6 +299,38 @@ impl Events {
     }
 }
 
+/// Test-only: the receiving end of an [`Events`] made by [`Events::collecting`].
+#[cfg(test)]
+pub(crate) struct Collected(Receiver<Command>);
+
+#[cfg(test)]
+impl Events {
+    /// An `Events` whose events a test reads back, with no worker behind it.
+    pub(crate) fn collecting() -> (Events, Collected) {
+        let (sender, commands) = mpsc::sync_channel(CHANNEL);
+        let events = Events {
+            sender,
+            overflow: Arc::new(AtomicBool::new(false)),
+            failure: Arc::new(Mutex::new(None)),
+        };
+        (events, Collected(commands))
+    }
+}
+
+#[cfg(test)]
+impl Collected {
+    /// Every path the events named until `quiet` passes with none arriving.
+    pub(crate) fn paths(&self, quiet: Duration) -> Vec<std::path::PathBuf> {
+        let mut paths = Vec::new();
+        while let Ok(command) = self.0.recv_timeout(quiet) {
+            if let Command::Event(Ok(event)) = command {
+                paths.extend(event.paths);
+            }
+        }
+        paths
+    }
+}
+
 /// Owns the backend and turns its events into batches.
 struct Worker {
     root: Root,
