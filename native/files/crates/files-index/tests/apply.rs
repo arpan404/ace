@@ -6,7 +6,7 @@ mod support;
 
 use std::fs;
 
-use files_index::{IndexChange, IndexOptions};
+use files_index::{IndexChange, IndexOptions, PathIndex};
 use support::{build_index, checkout, indexed, paths, write};
 
 fn created(path: &str, directory: bool) -> IndexChange {
@@ -268,4 +268,57 @@ fn a_batch_of_twenty_thousand_creates_is_indexed_fully() {
         index.search("ignored", 5).is_empty(),
         "a gitignored path never enters through a batch"
     );
+}
+
+/// A synthetic index of `folders` × 1,000 files, with each folder's own entry, as a walk records it.
+fn large_index(folders: usize) -> PathIndex {
+    let mut paths = Vec::with_capacity(folders * 1_001);
+    for folder in 0..folders {
+        paths.push(format!("pkg{folder}/"));
+        for file in 0..1_000 {
+            paths.push(format!("pkg{folder}/src/file{file}.rs"));
+        }
+    }
+    PathIndex::from_paths(paths)
+}
+
+#[test]
+fn a_deleted_file_leaves_a_large_index_without_a_pass_over_it() {
+    // The watcher hands every batch to the index before the client hears it, so a deletion that
+    // walks a million paths delays every delete and rename the Files panel sees.
+    let (_dir, root) = checkout(&[]);
+    let mut index = large_index(300);
+    let before = index.len();
+    let mut took = Vec::new();
+    for round in 0..9 {
+        let path = format!("pkg{round}/src/file{round}.rs");
+        let started = std::time::Instant::now();
+        index.apply(&root, &[deleted(&path, false)]);
+        took.push(started.elapsed());
+        assert!(
+            !paths(&index.search(&path, 5)).contains(&path.as_str()),
+            "{path} is gone"
+        );
+    }
+    assert_eq!(index.len(), before - 9, "only the deleted files go");
+    took.sort();
+    let median = took[took.len() / 2];
+    assert!(
+        median < std::time::Duration::from_millis(20),
+        "one deleted file should cost about one lookup, took {took:?}"
+    );
+}
+
+#[test]
+fn a_path_held_as_both_a_file_and_a_folder_drops_both_and_the_subtree() {
+    // A file replaced by a folder of the same name inside one window reaches the index as a
+    // change, not a deletion, so for a while it may hold both; a later deletion clears all of it.
+    let (_dir, root) = checkout(&[]);
+    let mut index =
+        PathIndex::from_paths(["a", "a/", "a/inner.rs", "ab.rs", "b/a.rs"].map(str::to_owned));
+    index.apply(&root, &[deleted("a", false)]);
+    assert_eq!(index.len(), 2, "only ab.rs and b/a.rs stay");
+    assert_eq!(paths(&index.search("ab.rs", 5)), ["ab.rs"]);
+    assert_eq!(paths(&index.search("b/a.rs", 5)), ["b/a.rs"]);
+    assert!(index.search("inner", 5).is_empty());
 }
