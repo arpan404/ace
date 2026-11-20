@@ -186,6 +186,10 @@ fn busy_words(name: &str, state: State) -> Option<String> {
         State::Working => "working",
         State::Waiting => "waiting on you",
         State::Sleeping => "sleeping",
+        // Its pause is this machine's: moved, its held wakes would fire on arrival.
+        State::Paused => {
+            return Some(format!("{name} is paused; resume it before it moves."));
+        }
     };
     Some(format!(
         "{name} is {doing}; it can move once that ends, or once you stop it."

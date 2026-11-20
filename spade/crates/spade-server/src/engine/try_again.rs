@@ -76,7 +76,7 @@ impl Engine {
             if !last_failed(&events, reply) {
                 return Err(RetryError::NotLast);
             }
-            if !self.admission.load(Ordering::SeqCst) || self.held(id) {
+            if !self.admission.load(Ordering::SeqCst) || self.closed(id) {
                 return Err(RetryError::NotAdmitted);
             }
             let retried = Event::Known(Known::ReplyRetried {
