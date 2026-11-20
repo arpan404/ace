@@ -28,6 +28,7 @@
     "./devices": "./src/device-kit.ts",
     "./browser-devices": "./src/browser-devices.ts",
     "./browser-device-settings": "./src/browser-device-settings.ts",
+    "./device-loopback": "./src/device-loopback.ts",
     "./interaction-measurement": "./src/interaction-measurement.ts",
     "./editor-url": "./src/editor-url.ts",
     "./editor-commands": "./src/editor-commands.ts",
