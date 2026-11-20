@@ -84,6 +84,8 @@ export interface CodeEditorProps {
   onStatus?: ((status: EditorStatus) => void) | undefined;
   /** Draw a mark for every space and tab. Off by default; the status line can turn it on. */
   renderWhitespace?: boolean;
+  /** Pin the headers of the blocks around the top line above the text. On by default. */
+  stickyScroll?: boolean;
   /** Vertical rulers at these columns. None by default. */
   rulers?: readonly number[];
   /** Alt+Z: the person asked for wrap to toggle. */

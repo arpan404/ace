@@ -16,7 +16,7 @@ export interface FoldRange {
 type Lines = (line: number) => string;
 
 /** A line's indentation in cells, or undefined for a blank line. */
-function indentOf(text: string, size: number): number | undefined {
+export function indentOf(text: string, size: number): number | undefined {
   let index = 0;
   while (index < text.length && (text[index] === " " || text[index] === "\t")) index++;
   return index === text.length ? undefined : visualColumn(text, index, size);

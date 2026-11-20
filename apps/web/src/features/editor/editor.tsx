@@ -20,6 +20,8 @@ import { CaretLayers } from "./layers.tsx";
 import { EditorLine, sliceTokens } from "./line.tsx";
 import { usePointerSelection } from "./pointer.ts";
 import { isFoldStart } from "./folding.ts";
+import { StickyHeaders } from "./sticky-headers.tsx";
+import { pinnedHeaders } from "./sticky.ts";
 import { useFolding } from "./use-folding.ts";
 import { useEditorDocument, type EditBatch } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
@@ -41,6 +43,7 @@ const paddingRight = 24;
 const foldControl = 16;
 /** Rulers are off unless the caller asks for them. */
 const noRulers: readonly number[] = [];
+const noLines: readonly number[] = [];
 
 /** How long the first paint waits for colours before it shows plain text. */
 const firstPaintHold = 250;
@@ -171,6 +174,27 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   });
 
   const { lines, lineAt } = useVisibleLines({ doc, version: state.version, first, last });
+
+  // Sticky scroll: the headers of the blocks around the top line, re-read only when the top row,
+  // the text or the view's height changes, and never more than a bounded number of lines.
+  const stickyScroll = props.stickyScroll ?? true;
+  const topRow = Math.floor(scroll.top / lineHeight);
+  const viewRows = Math.floor(height / lineHeight);
+  const pinned = useMemo(
+    () =>
+      stickyScroll && doc && layout && lineCount > 0
+        ? pinnedHeaders({
+            lineAt: (line) => doc.line(line),
+            lineCount,
+            lineOfRow: (row) => layout.lineAt(row),
+            topRow,
+            viewRows,
+            indentSize,
+          })
+        : noLines,
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the document's text changes with its version, not its identity.
+    [stickyScroll, doc, layout, lineCount, topRow, viewRows, indentSize, state.version],
+  );
 
   const { contentWidth } = useEditorWidth({
     scroller,
@@ -566,6 +590,30 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             {doc && props.layer ? props.layer.render(layer.view) : null}
           </div>
         </div>
+        {doc ? (
+          <StickyHeaders
+            lines={pinned}
+            lineAt={lineAt}
+            gutter={gutter}
+            lineHeight={lineHeight}
+            scrollLeft={scroll.left}
+            onPick={(line) => {
+              const text = doc.line(line);
+              const at = { line, column: text.length - text.trimStart().length };
+              setAffinity(noAffinity);
+              state.select([{ anchor: at, head: at }]);
+              // The picked header lands just under the headers that still enclose it.
+              const element = scroller.current;
+              const outer = pinned.indexOf(line);
+              if (element && layout) {
+                element.scrollTop = Math.max(0, (layout.startOf(line) - outer) * lineHeight);
+                setScroll({ top: element.scrollTop, left: element.scrollLeft });
+              }
+              announce(at);
+              field.current?.focus({ preventScroll: true });
+            }}
+          />
+        ) : null}
         {doc ? (
           <textarea
             ref={field}
