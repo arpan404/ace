@@ -225,6 +225,9 @@ targets:
         buildPhase: resources
       - path: ../../packages/secure-channel/fixtures/snow.json
         buildPhase: resources
+      # The device tab's navigation rule, as @ace/ui-core's own test reads it.
+      - path: ../../packages/ui-core/src/loopback-navigation-cases.json
+        buildPhase: resources
       # Shared, language-neutral emulator cases (see its README).
       - path: ../../fixtures/terminal-emulator
         type: folder

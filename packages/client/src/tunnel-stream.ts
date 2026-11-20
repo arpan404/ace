@@ -67,7 +67,7 @@ export function tunnelStream(
         reset();
       },
     },
-    { highWaterMark: windowSize, size: (chunk) => chunk.byteLength },
+    { highWaterMark: windowSize, size: (chunk: Uint8Array | undefined) => chunk?.byteLength ?? 0 },
   );
   const fail = (error: Error) => {
     for (const entry of queue.splice(0)) entry.reject(error);

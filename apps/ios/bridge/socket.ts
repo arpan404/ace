@@ -2,7 +2,7 @@ import type { Transport, TransportEvents } from "@ace/client";
 import { host } from "./host.ts";
 import type { TrustMonitor } from "./access.ts";
 import type { AuthenticatedChannelOptions } from "@ace/client/devices";
-import type { MediaSocketOpen } from "@ace/native-host";
+import { hasCapability, type MediaSocketOpen } from "@ace/native-host";
 
 type Early = (text: string) => void;
 const sockets = new Map<
@@ -12,6 +12,8 @@ const sockets = new Map<
     trust: TrustMonitor | undefined;
     early: Early | undefined;
     seen: number;
+    /** Binary bytes handed to Swift and not yet sent (`aceSocket(id, "sent", n)`). */
+    buffered: number;
   }
 >();
 /** Messages per socket offered to `early`: the hello's answer comes first. */
@@ -26,12 +28,35 @@ export function nativeTransport(trust?: TrustMonitor, early?: Early): Transport 
   return nativeSocket(host.uuid(), "", trust, early);
 }
 
-function nativeSocket(id: string, opening: string, trust?: TrustMonitor, early?: Early): Transport {
+/** A native socket that also sends binary messages, read by pointer (`socketBytes`). */
+interface BinaryTransport extends Transport {
+  sendBinary(bytes: Uint8Array): void;
+  /** Binary bytes sent here that Swift has not sent on yet. */
+  readonly bufferedAmount: number;
+}
+
+function nativeSocket(
+  id: string,
+  opening: string,
+  trust?: TrustMonitor,
+  early?: Early,
+): BinaryTransport {
   return {
     supportsBinary: true,
     open(events) {
-      sockets.set(id, { events, trust, early, seen: 0 });
+      sockets.set(id, { events, trust, early, seen: 0, buffered: 0 });
       host.socket(id, "open", opening);
+    },
+    sendBinary(bytes) {
+      const send = host.socketBytes;
+      if (!send || !hasCapability(host, "socketBytes"))
+        throw new Error("This app can't send binary messages");
+      const socket = sockets.get(id);
+      if (socket) socket.buffered += bytes.byteLength;
+      send.call(host, id, bytes);
+    },
+    get bufferedAmount() {
+      return sockets.get(id)?.buffered ?? 0;
     },
     send(text) {
       host.socket(id, "send", text);
@@ -81,6 +106,10 @@ export function socketEvent(id: string, type: string, value: string | Uint8Array
     if (type === "binary") socket.events.binary?.(value);
     return;
   }
+  if (type === "sent") {
+    socket.buffered = Math.max(0, socket.buffered - Number(value));
+    return;
+  }
   if (type === "open") socket.events.open();
   else if (type === "message") {
     if (socket.early && socket.seen < earlyMessages) {
@@ -106,18 +135,21 @@ export const nativePortableSocket: (
   const emit = (type: string, event: { data: unknown; code?: number } = { data: null }) => {
     for (const listener of listeners.get(type) ?? []) listener(event);
   };
-  const transport = nativeTransport(trust);
+  const transport = nativeSocket(host.uuid(), "", trust);
   const socket = {
     binaryType: "arraybuffer",
-    bufferedAmount: 0,
+    get bufferedAmount() {
+      return transport.bufferedAmount;
+    },
     addEventListener(type: string, listener: (event: { data: unknown; code?: number }) => void) {
       const entries = listeners.get(type) ?? [];
       entries.push(listener);
       listeners.set(type, entries);
     },
     send(data: string | Uint8Array) {
-      if (typeof data !== "string") throw new Error("Native feature channels send JSON only");
-      transport.send(data);
+      // A tunnel's frames are binary (ADR 0194); every other feature channel sends JSON.
+      if (typeof data === "string") transport.send(data);
+      else transport.sendBinary(data);
     },
     close: () => transport.close(),
   };

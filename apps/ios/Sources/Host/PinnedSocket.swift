@@ -156,9 +156,13 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
         }
     }
     /// One binary message: a media connection's hello. Sent in order with the text ones.
-    func send(bytes: Data) {
+    func send(bytes: Data) { send(bytes: bytes) {} }
+    /// One binary message; `sent` once the task has written it (or the socket failed).
+    func send(bytes: Data, sent: @escaping @Sendable () -> Void) {
         queue.addOperation { [weak self] in
-            self?.task?.send(.data(bytes)) { [weak self] error in
+            guard let task = self?.task else { sent(); return }
+            task.send(.data(bytes)) { [weak self] error in
+                sent()
                 if error != nil { self?.queue.addOperation { [weak self] in self?.finish(1006) } }
             }
         }

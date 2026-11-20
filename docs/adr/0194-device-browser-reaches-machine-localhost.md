@@ -118,8 +118,19 @@ never a host.
     keyed by the machine), so cookies stay apart.
   - A port already taken on the phone isn't listened on. A page that needs it says which port is
     busy.
-  - The listeners close when the last device tab closes. While they're open, other apps on the
-    phone could connect to them too, the way any app can reach another app's loopback port.
+  - The listeners, and the connections they accepted, close when no device tab is on screen: the
+    last device tab closes, the browser shows ace's Chrome or is left, or the app goes to the
+    background. They open again when a device tab is back in front. While they're open, other
+    apps on the phone could connect to them too, the way any app can reach another app's loopback
+    port.
+  - A port listens once both `127.0.0.1` and `::1` are bound (or the phone has no IPv6
+    loopback), so a page never reaches a half-bound port. An address in use is tried again
+    briefly before the port reads as busy.
+  - A route change to the same machine (relay to direct, Wi-Fi to cellular) replaces the phone's
+    runtime for that machine. Its device tabs and their pages stay where they are, and the new
+    runtime opens the tunnel on the new path. Two runtimes can't share a machine's local store,
+    so the old one stops before the new one starts, and streams open on the old path are reset
+    rather than drained. The page retries, as after any dropped connection.
   - Swift only owns the listeners and moves bytes. Which ports to take and which machine owns them
     are decided in the shared JavaScript, behind the native host contract.
 - **Android**, later: `ProxyController` with `removeImplicitRules()`.
@@ -135,8 +146,24 @@ loopback requests whose top-level page is not itself on a loopback host:
   frame's top-level URL isn't loopback;
 - phone: a `WKContentRuleList` blocks loopback URLs `unless-top-url` is loopback.
 
-Top-level navigations to loopback are allowed, so an OAuth flow that leaves for a provider and
-redirects back to `localhost` still works.
+Neither rule can judge a top-level navigation: its own URL is the top-level URL, so a public page
+could still submit a form to a service on the machine. Each app's navigation policy therefore
+asks one pure function, `loopbackNavigationAllowed` in `@ace/ui-core`, about every top-level
+navigation to loopback (the desktop app from its navigation and redirect events, the phone from
+`WKNavigationDelegate`'s navigation-action policy, which sees each redirect again with its method):
+
+- it goes ahead when the document that started it is itself on a loopback host;
+- it goes ahead when the person started it in ace: a typed address, a tab the app opened, "Open
+  on this phone";
+- it goes ahead when it is a GET: a link, a script setting `location`, or a redirect chain whose
+  request to loopback is a GET, so an OAuth provider's 302 or 303 back to `localhost` works;
+- otherwise it is refused: a non-GET started by any other document, such as a public page's form
+  post or a 307 or 308 redirect that keeps its POST.
+
+A GET from a public page can still reach a loopback page, as it can on the machine itself; a
+service that changes state on a GET is open to that anywhere. The phone's WebKit policy can't
+call into the script while it decides, so Swift keeps a copy of the rule, tested against the same
+table as the function (`loopback-navigation-cases.json`).
 
 ### Spikes
 
