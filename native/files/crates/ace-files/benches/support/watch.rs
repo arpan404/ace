@@ -107,6 +107,72 @@ pub fn latency(
         "ms",
         format!("nearest rank of the {LATENCY_SAMPLES} writes"),
     );
+    names(wire, subscription, &watch_rel, &watch_dir, report)
+}
+
+/// Time lone renames, lone deletes and deletes of a name renamed moments before, each awaited
+/// before the next. A delete or rename takes the old path out of quick open before its batch is
+/// sent, so these also cover what the index costs on the tree.
+fn names(
+    wire: &mut Wire,
+    subscription: u64,
+    watch_rel: &str,
+    watch_dir: &std::path::Path,
+    report: &mut Report,
+) -> Result<(), Box<dyn Error>> {
+    let half = LATENCY_SAMPLES / 2;
+    let timed = |wire: &mut Wire, path: String, change: &dyn Fn() -> std::io::Result<()>| {
+        let started = Instant::now();
+        change()?;
+        let reported = await_change(wire, subscription, &path, WATCH_DEADLINE, Some(started))?;
+        Ok::<Duration, Box<dyn Error>>(reported.saturating_duration_since(started))
+    };
+    let (mut renames, mut after_rename, mut deletes) = (Vec::new(), Vec::new(), Vec::new());
+    for sample in 0..half {
+        let from = watch_dir.join(latency_name(sample));
+        let moved = format!("moved_{sample:02}.txt");
+        let to = watch_dir.join(&moved);
+        renames.push(timed(wire, format!("{watch_rel}/{moved}"), &|| {
+            fs::rename(&from, &to)
+        })?);
+        after_rename.push(timed(wire, format!("{watch_rel}/{moved}"), &|| {
+            fs::remove_file(&to)
+        })?);
+    }
+    for sample in half..LATENCY_SAMPLES {
+        let gone = watch_dir.join(latency_name(sample));
+        deletes.push(timed(
+            wire,
+            format!("{watch_rel}/{}", latency_name(sample)),
+            &|| fs::remove_file(&gone),
+        )?);
+    }
+    for (name, samples, what) in [
+        ("watcher delete", &deletes, "single deletes in one folder"),
+        (
+            "watcher rename",
+            &renames,
+            "single renames in one folder, to the new name",
+        ),
+        (
+            "watcher delete after rename",
+            &after_rename,
+            "deletes of the name each rename just made",
+        ),
+    ] {
+        report.metric(
+            format!("{name} p50"),
+            percentile(samples, 50),
+            "ms",
+            format!("{} {what}", samples.len()),
+        );
+        report.metric(
+            format!("{name} max"),
+            percentile(samples, 100),
+            "ms",
+            format!("slowest of the {}", samples.len()),
+        );
+    }
     Ok(())
 }
 
