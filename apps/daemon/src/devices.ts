@@ -84,6 +84,15 @@ export class Devices {
       this.revoked.delete(listener);
     };
   }
+  private rescoped = new Set<(id: string) => void>();
+  /** Hear a device's scopes change (`setScopes`): what it holds open may need ending. */
+  onRescope(listener: (id: string) => void): () => void {
+    if (this.rescoped.size >= 32) throw new Error("Device rescope subscriber limit");
+    this.rescoped.add(listener);
+    return () => {
+      this.rescoped.delete(listener);
+    };
+  }
   private runtime: CredentialRuntime;
   private insert: StatementSync;
   private byId: StatementSync;
@@ -341,6 +350,7 @@ export class Devices {
     if (!activeDevice(held, at)) return undefined;
     const device = Device.parse({ ...held, scopes: [...new Set(scopes)] });
     this.rescope.run(JSON.stringify(device.scopes), device.id);
+    for (const listener of this.rescoped) listener(device.id);
     return device;
   }
   revoke(id: string, at: number): boolean {

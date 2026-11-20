@@ -45,6 +45,7 @@ import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
 import { readCore } from "./socket-reads.ts";
 import { admitUpgrades } from "./socket-upgrade.ts";
+import { startMachineTunnel } from "./machine-tunnel/wiring.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { accountDeviceActor, accountHello } from "./relay-hello.ts";
@@ -246,8 +247,12 @@ export async function startServer(options: ServerOptions): Promise<{
     ).find((error) => error !== undefined);
   const remoteSockets = new Set<WebSocket>();
   const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
-  const attach = (listener: Server, isLocal: boolean) =>
-    admitUpgrades(listener, isLocal, {
+  /** Every listener sockets come in on, for the ports the machine's tunnel refuses. */
+  const listeners = new Set<Server>();
+  const attach = (listener: Server, isLocal: boolean) => {
+    listeners.add(listener);
+    listener.once("close", () => listeners.delete(listener));
+    return admitUpgrades(listener, isLocal, {
       wss: isLocal ? wss : remoteWss,
       allowedOrigins: access.allowedOrigins,
       servesRenderer: options.webRoot !== undefined,
@@ -255,8 +260,19 @@ export async function startServer(options: ServerOptions): Promise<{
       full: () => cleanups.size >= 256,
       remoteSockets,
     });
+  };
   attach(local, true);
   if (remote) attach(remote, false);
+  // The machine's localhost for devices (ADR 0194): idle until a tunnel connection comes.
+  const tunnel = startMachineTunnel({
+    settings: options.settings,
+    listeners: () => listeners,
+    otherPorts: () => [preview?.port, options.spade?.listener()?.port],
+    otherPids: () => [options.spade?.listener()?.pid, options.mediaPid?.()],
+    onRescope: (changed) => options.store.devices.onRescope(changed),
+    ...(options.log ? { log: options.log } : {}),
+  });
+  options.machineTunnel = tunnel;
   const authenticated = new Map<MainSocket, SessionActor>();
   /** One owner for every deliberate close frame; state lives here, not in a module global. */
   const closer = createSocketCloser(runtime.delay);
@@ -986,6 +1002,7 @@ export async function startServer(options: ServerOptions): Promise<{
     await dynamicRemote?.close();
     await transports?.close();
     await preview?.close();
+    tunnel.close();
     appUpdate.close();
     machineUpdates?.close();
     updateHold.close();
@@ -1043,6 +1060,7 @@ export async function startServer(options: ServerOptions): Promise<{
         stopRevocation();
         stopReplaced();
         stopAccountChange?.();
+        tunnel.close();
         machineUpdates?.close();
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of relaySockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");

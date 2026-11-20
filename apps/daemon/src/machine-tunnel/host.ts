@@ -38,8 +38,8 @@ export interface TunnelHostOptions {
   wait(ms: number, signal: AbortSignal): Promise<void>;
   /** The clock the open rate is measured on, in ms. */
   now(): number;
-  /** Start a loopback stream: `@ace/preview`'s `attachPreviewRelay`, or a test's. */
-  attachMux: typeof import("@ace/preview").attachPreviewRelay;
+  /** The loopback stream mux, loaded on first use: `@ace/preview`'s `attachPreviewRelay`. */
+  loadMux(): Promise<typeof import("@ace/preview").attachPreviewRelay>;
   limits?: TunnelLimits;
   log?(error: unknown): void;
 }
@@ -73,7 +73,7 @@ export function createTunnelHost(options: TunnelHostOptions): TunnelHost {
       .finally(() => connection.close());
   };
   const endAll = (code: TunnelRefusalCode | undefined, only?: (c: TunnelConnection) => boolean) => {
-    for (const entry of [...live]) if (!only || only(entry.connection)) entry.end(code);
+    for (const entry of live) if (!only || only(entry.connection)) entry.end(code);
   };
   const stopWatch = options.watchEnabled((next) => {
     enabled = next;
@@ -90,7 +90,7 @@ export function createTunnelHost(options: TunnelHostOptions): TunnelHost {
       const key = `${++serial}`;
       let ended = false;
       let stopPorts: (() => void) | undefined;
-      let mux: ReturnType<TunnelHostOptions["attachMux"]> | undefined;
+      let mux: ReturnType<Awaited<ReturnType<TunnelHostOptions["loadMux"]>>> | undefined;
       const entry = {
         connection,
         end(code?: TunnelRefusalCode) {
@@ -105,6 +105,7 @@ export function createTunnelHost(options: TunnelHostOptions): TunnelHost {
         },
       };
       live.add(entry);
+      const channel = heldChannel(connection.channel, () => entry.end());
       void (async () => {
         const access = tunnelAccess({
           enabled: await readEnabled(),
@@ -115,8 +116,10 @@ export function createTunnelHost(options: TunnelHostOptions): TunnelHost {
           entry.end(access);
           return;
         }
-        mux = options.attachMux({
-          channel: connection.channel,
+        const attachMux = await options.loadMux();
+        if (ended) return;
+        mux = attachMux({
+          channel,
           maxStreams: 512,
           allowPort: async (port, id) => {
             const acePorts = await options.acePorts();
@@ -151,6 +154,51 @@ export function createTunnelHost(options: TunnelHostOptions): TunnelHost {
       stopWatch();
       endAll(undefined);
       feed.close();
+    },
+  };
+}
+
+/** OPENs a device may send before the mux has started: the first page load's connections. */
+const heldFramesLimit = 512;
+
+/**
+ * `channel`, listened to from the moment the connection is handed over. The device sends OPEN
+ * frames as soon as it is welcomed, while the host still reads the setting and loads the mux,
+ * so frames that come first are held (at most `heldFramesLimit`, past which the connection
+ * ends) and handed to the mux when it subscribes, in order.
+ */
+function heldChannel(channel: PreviewChannel, end: () => void): PreviewChannel {
+  const held: Uint8Array[] = [];
+  let lost = false;
+  let deliver: ((frame: Uint8Array) => void) | undefined;
+  let closed: (() => void) | undefined;
+  const stop = channel.subscribe(
+    (frame) => {
+      if (deliver) deliver(frame);
+      else if (held.length < heldFramesLimit) held.push(frame);
+      else end();
+    },
+    () => {
+      lost = true;
+      if (closed) closed();
+      else end();
+    },
+  );
+  return {
+    send: (frame) => channel.send(frame),
+    close: () => channel.close(),
+    get bufferedBytes() {
+      return channel.bufferedBytes ?? 0;
+    },
+    get bufferedReceiveBytes() {
+      return channel.bufferedReceiveBytes ?? 0;
+    },
+    subscribe(onFrame, onClose) {
+      deliver = onFrame;
+      closed = onClose;
+      for (const frame of held.splice(0)) onFrame(frame);
+      if (lost) onClose();
+      return stop;
     },
   };
 }
