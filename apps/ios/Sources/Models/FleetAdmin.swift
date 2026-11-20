@@ -64,6 +64,25 @@ struct AllowProjectsOffer: Decodable, Sendable, Equatable {
     let words: String
 }
 
+/// Whether Allow or Don't allow projects on a link may send, from what the machine there said
+/// (`allowOffer`). Either change needs that machine's answer first: no answer, or one that says
+/// this phone can't change it there, sends nothing and says why.
+enum LinkProjectsChange: Equatable {
+    case send
+    /// Already as asked.
+    case done
+    case say(String)
+
+    static func decide(offer: AllowProjectsOffer?, allowed: Bool, machine: String) -> LinkProjectsChange {
+        guard let offer else { return .say("Couldn't check \(machine). Try again.") }
+        switch (offer.offer, allowed) {
+        case ("allow", true), ("held", false): return .send
+        case ("held", true), ("allow", false): return .done
+        default: return .say(offer.words)
+        }
+    }
+}
+
 extension ClientModel {
     /// Asked of the machine work would go to, about the sending machine's link device there.
     func allowProjectsOffer(deviceId: String, sender: String, machine: String) async -> AllowProjectsOffer? {

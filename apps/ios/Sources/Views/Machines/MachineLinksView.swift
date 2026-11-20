@@ -119,20 +119,21 @@ struct MachineLinksView: View {
         link.hostId.flatMap { inbox.client($0) }?.connection == "ready"
     }
 
-    /// Changes this machine's link device on the other machine, through that machine's runtime.
-    /// A link that may only view there is told to link again instead.
+    /// Changes this machine's link device on the other machine, through that machine's runtime,
+    /// only once that machine said this phone may (`LinkProjectsChange`).
     private func setProjects(_ link: FleetOverview.Link, allowed: Bool) async {
         guard let target = link.hostId, let other = inbox.client(target) else { return }
         busy = true
         defer { busy = false }
         let there = inbox.name(target)
-        if allowed, let offer = await other.allowProjectsOffer(deviceId: link.deviceId, sender: name, machine: there),
-           offer.offer != "allow" && offer.offer != "held" {
-            notice = offer.words
-            return
+        let offer = await other.allowProjectsOffer(deviceId: link.deviceId, sender: name, machine: there)
+        switch LinkProjectsChange.decide(offer: offer, allowed: allowed, machine: there) {
+        case .say(let words): notice = words; return
+        case .done: break
+        case .send:
+            let answer = await other.setLinkProjects(deviceId: link.deviceId, allowed: allowed, machine: there)
+            if answer.ok { changes += 1 } else { notice = answer.message }
         }
-        let answer = await other.setLinkProjects(deviceId: link.deviceId, allowed: allowed, machine: there)
-        if answer.ok { changes += 1 } else { notice = answer.message }
         await read()
     }
 
