@@ -73,6 +73,8 @@ async function install() {
   return review;
 }
 
+const none = { bots: [], needs: {}, startRoutines: false };
+
 const installedBot = async () =>
   (await harness.ask({ op: "installed" }, "installed")).installed.find(
     (item) => item.name === "flight-watcher",
@@ -126,7 +128,7 @@ describe("agent packages", () => {
         asksMore: ["It starts when something posts to it on this machine."],
       },
     });
-    await harness.ask({ op: "install", id: review.id, hash: review.hash }, "done");
+    await harness.ask({ op: "install", id: review.id, hash: review.hash, choices: none }, "done");
     expect(spade.made).toHaveLength(1);
     expect(spade.packageCalls).toEqual([
       expect.objectContaining({
@@ -151,7 +153,10 @@ describe("agent packages", () => {
     );
     expect(back.review).toMatchObject({ version: "1.0.0", updates: "2.0.0" });
     expect(back.review.body).toMatchObject({ update: { bot, rollback: true } });
-    await harness.ask({ op: "install", id: back.review.id, hash: back.review.hash }, "done");
+    await harness.ask(
+      { op: "install", id: back.review.id, hash: back.review.hash, choices: none },
+      "done",
+    );
     expect(spade.packageCalls.at(-1)).toMatchObject({
       bot,
       body: { package: { version: "1.0.0", hash: first.hash } },

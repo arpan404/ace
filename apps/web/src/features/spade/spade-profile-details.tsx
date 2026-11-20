@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProfileApps } from "./spade-bot-connectors.tsx";
 import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
+import { ProfilePackageLine } from "./spade-bot-package.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
 import { ProfileSpending } from "./spade-bot-oversight.tsx";
 import { ProfileReach } from "./spade-bot-reach.tsx";
@@ -42,6 +43,7 @@ export function ProfileDetails(props: { bot: RosterBot }) {
   return (
     <>
       <ProfileMoveLine bot={bot} />
+      <ProfilePackageLine bot={bot} />
       <ProfileSection label="Task">
         <TaskField bot={bot} />
         <TaskHistory bot={bot} />
