@@ -16,7 +16,7 @@ import {
   type Side,
   type TabRef,
 } from "@ace/ui-core/editor-workbench";
-import type { DeckBuffers } from "./buffers.ts";
+import type { DeckBuffers } from "./deck-buffers.ts";
 import type { TabDrag } from "./drag.ts";
 
 /** What one group's chrome can do, bound to that group and the layout it was drawn from. */
@@ -68,7 +68,7 @@ export function groupContext(props: DeckLayoutProps): GroupContext {
       new Set(
         groupsOf(layout)
           .flatMap((group) => group.tabs.map((tab) => tab.path))
-          .filter((path) => buffers.facts(path).unsaved),
+          .filter((path) => buffers.snapshot(path)?.dirty),
       ),
     confirmClose: (refs) => props.onConfirmClose?.(refs),
   };

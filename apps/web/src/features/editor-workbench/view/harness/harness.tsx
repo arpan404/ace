@@ -1,18 +1,25 @@
 import { defaultExplorer, type EditorLayout } from "@ace/ui-core/editor-workbench";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { EditorStatusActions } from "@/features/editor";
+import { ensureEditorReady } from "@/features/editor";
 import { themeStylesheet } from "@/theme/css.ts";
 import "@/styles/index.css";
+import {
+  createBufferRegistry,
+  workerMerge,
+  type BufferKey,
+  type Draft,
+  type FilePort,
+} from "../../buffers/index.ts";
+import { useDeckBuffers } from "../deck-buffers.ts";
 import { Deck } from "../deck.tsx";
-import type { DeckEditorProps } from "../deck-host.ts";
-import { memoryBuffers } from "../memory-buffers.ts";
 import { OpenEditors } from "../open-editors.tsx";
 import { sampleCode } from "./sample-code.ts";
 
 /*
- * Dev-only: the Deck with fake buffers, for screenshots against the mockup. `?scheme=light`,
- * `?state=empty|loading|binary` pick what it shows. Not part of the app's build.
+ * Dev-only: the Deck on the real buffer registry and editor over an in-memory checkout, for
+ * screenshots against the mockup. `?scheme=light`, `?state=empty|loading|binary` pick what it
+ * shows. Not part of the app's build.
  */
 
 const query = new URLSearchParams(location.search);
@@ -22,24 +29,69 @@ const sheet = document.createElement("style");
 sheet.textContent = themeStylesheet("ace");
 document.head.append(sheet);
 
+const root = "harness/t1";
 const tabs = "packages/ui-core/src/workspace-tabs.ts";
 const groups = "apps/web/src/features/editor/editor-groups.ts";
 
-const buffers = memoryBuffers({
-  [tabs]: {
-    unsaved: true,
-    clash: { merging: false },
-    changedBy: { name: "Claude Code", provider: "claude" },
+/** The checkout: sample files, a binary, and one file whose read never finishes. */
+const files = new Map<string, { text: string; version: number }>();
+const textOf = (path: string) => sampleCode[path] ?? `// ${path}\n`;
+const port: FilePort = {
+  read: async (key) => {
+    if (key.path === "src/a.ts") return new Promise(() => {});
+    if (key.path === "store.db") return { kind: "unreadable", reason: "binary" };
+    const file = files.get(key.path) ?? { text: textOf(key.path), version: 1 };
+    files.set(key.path, file);
+    return { kind: "text", text: file.text, version: `v${file.version}` };
   },
-  "apps/web/src/lib/workspace/store.ts": {
-    unseenAgentChange: true,
-    changedBy: { name: "Claude Code", provider: "claude" },
+  write: async (key, text) => {
+    const version = (files.get(key.path)?.version ?? 0) + 1;
+    files.set(key.path, { text, version });
+    return { kind: "saved", version: `v${version}` };
   },
-  "apps/web/src/features/shell/workspace/tab-strip.tsx": {},
-  "store.db": { load: { state: "binary" } },
-  "dist/bundle.js": { load: { state: "too-large", bytes: 48_000_000 } },
-  "src/a.ts": { load: { state: "loading" } },
+};
+const drafts = new Map<string, Draft>();
+const id = (key: BufferKey) => `${key.root}:${key.path}`;
+const registry = createBufferRegistry({
+  files: port,
+  drafts: {
+    get: async (key) => drafts.get(id(key)),
+    put: async (key, draft) => void drafts.set(id(key), draft),
+    delete: async (key) => void drafts.delete(id(key)),
+    list: async () => [],
+  },
+  merge: workerMerge(ensureEditorReady),
+  now: () => performance.now(),
+  schedule: (run, ms) => {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
+  ready: ensureEditorReady,
+  attribute: () => ({ kind: "agent", agent: "Claude Code", threadId: "t1" }),
 });
+const providerOf = (agent: string) => (agent === "Claude Code" ? ("claude" as const) : undefined);
+
+/** Once loaded: the person types in workspace-tabs.ts, then Claude Code writes its top. */
+let staged = false;
+async function stage(): Promise<void> {
+  // Once per page, though StrictMode runs the effect that calls it twice.
+  if (staged) return;
+  staged = true;
+  for (let tries = 0; tries < 100; tries++) {
+    const doc = registry.get({ root, path: tabs })?.document();
+    if (doc) {
+      const buffer = registry.get({ root, path: tabs });
+      const end = { line: Math.max(0, doc.lenLines() - 2), column: 0 };
+      doc.apply([{ range: { start: end, end }, text: "  // kept\n" }]);
+      buffer?.edited();
+      const file = files.get(tabs);
+      if (file) files.set(tabs, { text: `// agent\n${file.text}`, version: file.version + 1 });
+      registry.diskChanged({ root, path: tabs });
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
 
 function initialLayout(): EditorLayout {
   const base = { explorer: defaultExplorer, closed: [] };
@@ -94,52 +146,6 @@ function initialLayout(): EditorLayout {
   };
 }
 
-const inert: EditorStatusActions = {
-  setIndent: () => {},
-  setLineEnding: () => {},
-  setLanguage: () => {},
-  setWhitespace: () => {},
-};
-
-function FakeEditor(props: DeckEditorProps) {
-  const { onStatus, path } = props;
-  const lines = (sampleCode[path] ?? `// ${path}`)
-    .split("\n")
-    .map((text, index) => ({ text, number: index + 1 }));
-  useEffect(() => {
-    onStatus(
-      {
-        line: 25,
-        column: 35,
-        selections: 1,
-        selectedCharacters: 0,
-        selectedLines: 0,
-        indent: { tabs: false, size: 2 },
-        lineEnding: "\n",
-        encoding: "UTF-8",
-        language: "ts",
-        languageChosen: false,
-        whitespace: false,
-        readOnly: false,
-      },
-      inert,
-    );
-    return () => onStatus(undefined);
-  }, [onStatus]);
-  return (
-    <div className="min-h-0 flex-1 overflow-auto pt-1 font-mono text-[12.5px] leading-5">
-      {lines.map((line) => (
-        <div key={line.number} className="flex whitespace-pre">
-          <span className="w-11 shrink-0 pr-2.5 text-right text-faint-foreground tabular-nums">
-            {line.number}
-          </span>
-          <span className="pl-3 text-foreground/85">{line.text}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function Harness() {
   const [layout, setLayout] = useState(initialLayout);
   const [listOpen, setListOpen] = useState(true);
@@ -147,6 +153,8 @@ function Harness() {
     let next = 2;
     return () => `g${++next}`;
   });
+  const buffers = useDeckBuffers(registry, root, layout, providerOf);
+  useEffect(() => void stage(), []);
   const shared = { layout, onLayoutChange: setLayout, newGroupId: ids, buffers };
   return (
     <div className="flex h-dvh bg-background text-foreground">
@@ -154,22 +162,15 @@ function Harness() {
         <OpenEditors {...shared} onSaveAll={() => {}} open={listOpen} onOpenChange={setListOpen} />
       </aside>
       <div className="min-w-0 flex-1">
-        <Deck
-          {...shared}
-          renderEditor={(props) => <FakeEditor {...props} />}
-          onMerge={() => {}}
-          onCompare={() => {}}
-          onQuickOpen={() => {}}
-          onNextChange={() => {}}
-        />
+        <Deck {...shared} onCompare={() => {}} onQuickOpen={() => {}} />
       </div>
     </div>
   );
 }
 
-const root = document.getElementById("root");
-if (root)
-  createRoot(root).render(
+const mount = document.getElementById("root");
+if (mount)
+  createRoot(mount).render(
     <StrictMode>
       <Harness />
     </StrictMode>,

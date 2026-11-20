@@ -1,6 +1,6 @@
 import { useState, type DragEvent, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useBufferFacts, type DeckBuffers } from "./buffers.ts";
+import { useSnapshot, type DeckBuffers } from "./deck-buffers.ts";
 import { writeTabDrag } from "./drag.ts";
 import type { EditorTab } from "@ace/ui-core/editor-workbench";
 import { fileName } from "./paths.ts";
@@ -28,11 +28,11 @@ export function DeckTabView(props: {
   onDragOver(event: DragEvent<HTMLElement>, after: boolean): void;
 }) {
   const { tab } = props;
-  const facts = useBufferFacts(props.buffers, tab.path);
+  const unsaved = useSnapshot(props.buffers, tab.path)?.dirty ?? false;
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const name = fileName(tab.path);
-  const shows = slotShows(facts, tab.pinned, hovered || focused || props.active, hovered);
+  const shows = slotShows(unsaved, tab.pinned, hovered || focused || props.active, hovered);
   return (
     <div
       role="tab"
@@ -75,7 +75,7 @@ export function DeckTabView(props: {
     >
       <span className={cn("max-w-[180px] truncate", tab.preview && "italic")}>{name}</span>
       {props.hint && <span className="text-xs text-subtle-foreground">· {props.hint}</span>}
-      <TabSlot shows={shows} facts={facts} name={name} onClose={props.onClose} />
+      <TabSlot shows={shows} unsaved={unsaved} name={name} onClose={props.onClose} />
     </div>
   );
 }

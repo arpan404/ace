@@ -1,15 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
-import type { DeckBuffers } from "./buffers.ts";
-import type { DeckHost, StatusReport } from "./deck-host.ts";
+import type { DeckHost, StatusNotice, StatusReport } from "./deck-host.ts";
 import {
   evenSplit,
   focusedGroup,
@@ -22,14 +13,17 @@ import { bindGroupActions, groupContext, type DeckLayoutProps } from "./group-ac
 import { GroupView } from "./group-view.tsx";
 import { fileName } from "./paths.ts";
 import { SplitGrid } from "./split-grid.tsx";
-import { agentChangeNotice, StatusLine } from "./status-line.tsx";
+import { StatusLine } from "./status-line.tsx";
 
 /** Spec 5: under this width the Deck shows only the focused group. */
 export const compactBelowPx = 760;
 
 export interface DeckProps extends Omit<DeckHost, "reportStatus">, DeckLayoutProps {
-  /** Steps to the next unseen agent change across open editors (⌥F5). */
-  onNextChange?: (() => void) | undefined;
+  /**
+   * The status line's left notice: what needs a look across open files ("Claude Code changed
+   * 2 open files" with Next change, once change marks exist).
+   */
+  statusNotice?: StatusNotice | undefined;
   /** Compact layout's way to the explorer ("Show files"), at the strip's left. */
   explorerToggle?: ReactNode;
 }
@@ -57,8 +51,6 @@ export function Deck(props: DeckProps) {
     });
   }, []);
   const host: DeckHost = { ...props, reportStatus };
-  const paths = [...new Set(groups.flatMap((group) => group.tabs.map((tab) => tab.path)))];
-  const agentNotice = useAgentNotice(props.buffers, paths, props.onNextChange);
   const pendingFocus = useRef(false);
 
   useEffect(() => {
@@ -142,7 +134,7 @@ export function Deck(props: DeckProps) {
           />
         )}
       </div>
-      <StatusLine report={reports.get(focused.id)} agentNotice={agentNotice} />
+      <StatusLine report={reports.get(focused.id)} notice={props.statusNotice} />
     </div>
   );
 }
@@ -180,25 +172,4 @@ function useCompact(root: React.RefObject<HTMLDivElement | null>): boolean {
     return () => observer.disconnect();
   }, [root]);
   return compact;
-}
-
-/** The status line's agent summary, recomputed whenever any open file's facts change. */
-function useAgentNotice(
-  buffers: DeckBuffers,
-  paths: readonly string[],
-  onNextChange: (() => void) | undefined,
-) {
-  const key = paths.join("\n");
-  const signature = useSyncExternalStore(buffers.subscribe, () => {
-    const notice = agentChangeNotice(
-      key ? key.split("\n").map((path) => buffers.facts(path)) : [],
-      undefined,
-    );
-    return notice?.text ?? "";
-  });
-  if (!signature) return undefined;
-  return {
-    text: signature,
-    action: onNextChange && { label: "Next change", run: onNextChange },
-  };
 }

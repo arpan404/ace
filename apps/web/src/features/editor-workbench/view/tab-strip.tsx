@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode }
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { DeckTabView } from "./deck-tab.tsx";
-import type { DeckBuffers } from "./buffers.ts";
+import type { DeckBuffers } from "./deck-buffers.ts";
 import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
 import type { GroupActions } from "./group-actions.ts";
 import { tabLabels, type GroupNode } from "@ace/ui-core/editor-workbench";

@@ -2,9 +2,10 @@ import { useCallback, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { AgentNotice } from "./agent-notice.tsx";
 import { Breadcrumbs } from "./breadcrumbs.tsx";
-import { useBufferFacts } from "./buffers.ts";
+import { useSnapshot } from "./deck-buffers.ts";
+import { DeckEditor } from "./deck-editor.tsx";
 import type { EditorStatus, EditorStatusActions } from "@/features/editor";
-import type { DeckHost } from "./deck-host.ts";
+import type { DeckEditorProps, DeckHost } from "./deck-host.ts";
 import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
 import { FileProblem, LoadingLines, NoFileOpen } from "./editor-states.tsx";
 import type { GroupActions } from "./group-actions.ts";
@@ -30,7 +31,9 @@ export function GroupView(props: {
 }) {
   const { group, host, actions } = props;
   const path = group.active;
-  const facts = useBufferFacts(host.buffers, path);
+  const snapshot = useSnapshot(host.buffers, path);
+  const buffer = path === undefined ? undefined : host.buffers.buffer(path);
+  const load = snapshot?.status;
   const [zone, setZone] = useState<Zone | undefined>(undefined);
   const { reportStatus } = host;
   // Stable per group, so an editor can report from an effect without re-running it.
@@ -59,8 +62,9 @@ export function GroupView(props: {
       <Breadcrumbs path={path} />
       {path !== undefined && (
         <AgentNotice
-          facts={facts}
-          onMerge={() => host.onMerge(path)}
+          snapshot={snapshot}
+          buffers={host.buffers}
+          onMerge={() => (host.onMerge ? host.onMerge(path) : void buffer?.merge())}
           onCompare={() => host.onCompare(path)}
         />
       )}
@@ -92,24 +96,19 @@ export function GroupView(props: {
           props.last ? (
             <NoFileOpen onQuickOpen={host.onQuickOpen} />
           ) : null
-        ) : facts.load.state === "loading" ? (
-          <LoadingLines />
-        ) : facts.load.state === "ready" ? (
-          host.renderEditor({
-            path,
-            group: group.id,
-            focused: props.focused,
-            onStatus,
-          })
-        ) : (
+        ) : buffer && load?.kind === "ready" ? (
+          showEditor(host, { path, buffer, group: group.id, focused: props.focused, onStatus })
+        ) : load &&
+          (load.kind === "missing" || load.kind === "unreadable" || load.kind === "failed") ? (
           <FileProblem
             path={path}
-            load={facts.load}
+            status={load}
             onClose={() => actions.close([path])}
-            onRestore={host.onRestore && (() => host.onRestore?.(path))}
-            onOpenReadOnly={host.onOpenReadOnly && (() => host.onOpenReadOnly?.(path))}
-            onRetry={host.onRetry && (() => host.onRetry?.(path))}
+            onRetry={() => void buffer?.reload()}
           />
+        ) : (
+          // Loading, or freed under the memory cap and reading again now it is shown.
+          <LoadingLines />
         )}
         {zone && <DropWash zone={zone} />}
       </div>
@@ -118,6 +117,13 @@ export function GroupView(props: {
 }
 
 type Zone = Side | "center";
+
+/** The host's editor when it brings one (tests, the harness), else the Deck's own. */
+function showEditor(host: DeckHost, editor: DeckEditorProps): ReactNode {
+  if (host.renderEditor) return host.renderEditor(editor);
+  // Keyed by path: a tab switch shows a fresh view on the other file's buffer.
+  return <DeckEditor key={editor.path} {...editor} />;
+}
 
 /** For an editor that reported no setters: its status line's menus change nothing. */
 const inertActions: EditorStatusActions = {

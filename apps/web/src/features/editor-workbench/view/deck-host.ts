@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { EditorStatus, EditorStatusActions } from "@/features/editor";
-import type { DeckBuffers } from "./buffers.ts";
+import type { TextBuffer } from "../buffers/index.ts";
+import type { DeckBuffers } from "./deck-buffers.ts";
 
 /** A left-hand status line notice: what needs a look ("Claude Code changed 2 open files"). */
 export interface StatusNotice {
@@ -19,10 +20,11 @@ export interface DeckEditorProps {
   path: string;
   group: string;
   focused: boolean;
+  /** The path's shared buffer (W2): its `view()` is the document `CodeEditor` shows. */
+  buffer: TextBuffer;
   /**
-   * Pass to `CodeEditor` (with `statusLine={false}`): `onStatus={(status) =>
-   * props.onStatus(status, handle.statusActions())}`. Call with `undefined` on unmount. The
-   * Deck keeps each group's latest and draws one status line, for the focused group.
+   * The editor's status and setters, for the Deck's one status line (it keeps each group's
+   * latest and shows the focused group's). Called with `undefined` on unmount.
    */
   onStatus(status: EditorStatus | undefined, actions?: EditorStatusActions): void;
 }
@@ -30,12 +32,12 @@ export interface DeckEditorProps {
 /** Everything a group needs from outside the layout. */
 export interface DeckHost {
   buffers: DeckBuffers;
-  renderEditor(props: DeckEditorProps): ReactNode;
+  /** Draw a group's editor; unset, the Deck draws `CodeEditor` on the shared buffer. */
+  renderEditor?: ((props: DeckEditorProps) => ReactNode) | undefined;
   reportStatus(group: string, report: StatusReport | undefined): void;
-  onMerge(path: string): void;
+  /** Unset, Merge runs the buffer's own three-way merge. */
+  onMerge?: ((path: string) => void) | undefined;
+  /** Compare opens a diff of disk against the buffer in a new tab (W5). */
   onCompare(path: string): void;
   onQuickOpen?: (() => void) | undefined;
-  onRestore?: ((path: string) => void) | undefined;
-  onOpenReadOnly?: ((path: string) => void) | undefined;
-  onRetry?: ((path: string) => void) | undefined;
 }

@@ -1,7 +1,7 @@
 import { CaretDownIcon, CaretRightIcon } from "@ace/icons";
 import { useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useBufferFacts, type DeckBuffers } from "./buffers.ts";
+import { useSnapshot, type DeckBuffers } from "./deck-buffers.ts";
 import {
   bindGroupActions,
   groupContext,
@@ -89,7 +89,7 @@ function OpenEditorRow(props: {
   actions: GroupActions;
 }) {
   const { tab, actions } = props;
-  const facts = useBufferFacts(props.buffers, tab.path);
+  const unsaved = useSnapshot(props.buffers, tab.path)?.dirty ?? false;
   const [hovered, setHovered] = useState(false);
   const name = fileName(tab.path);
   return (
@@ -118,8 +118,8 @@ function OpenEditorRow(props: {
         </span>
       </button>
       <TabSlot
-        shows={slotShows(facts, tab.pinned, hovered, hovered)}
-        facts={facts}
+        shows={slotShows(unsaved, tab.pinned, hovered, hovered)}
+        unsaved={unsaved}
         name={name}
         onClose={() => actions.close([tab.path])}
       />
@@ -130,7 +130,7 @@ function OpenEditorRow(props: {
 /** The unsaved open paths, as a stable string so the list re-renders only when it changes. */
 function useUnsaved(buffers: DeckBuffers, paths: readonly string[]): string[] {
   const key = useSyncExternalStore(buffers.subscribe, () =>
-    paths.filter((path) => buffers.facts(path).unsaved).join("\n"),
+    paths.filter((path) => buffers.snapshot(path)?.dirty).join("\n"),
   );
   return key ? key.split("\n") : [];
 }

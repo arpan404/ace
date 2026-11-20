@@ -1,22 +1,19 @@
 import { PushPinIcon, XIcon } from "@ace/icons";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
-import type { BufferFacts } from "./buffers.ts";
 
 /** What a tab's (or Open editors row's) one slot shows, in the spec's priority order (21). */
-export type SlotShows = "unsaved" | "agent" | "pinned" | "close" | "none";
+export type SlotShows = "unsaved" | "pinned" | "close" | "none";
 
 export function slotShows(
-  facts: BufferFacts,
+  unsaved: boolean,
   pinned: boolean,
   /** Pointer over the tab, focus in it, or the tab is the group's active one. */
   revealed: boolean,
   hovered: boolean,
 ): SlotShows {
   // The unsaved dot turns into × only under the pointer, so a glance never hides it.
-  if (facts.unsaved) return hovered ? "close" : "unsaved";
+  if (unsaved) return hovered ? "close" : "unsaved";
   if (revealed) return "close";
-  if (facts.unseenAgentChange && facts.changedBy?.provider) return "agent";
   if (pinned) return "pinned";
   return "none";
 }
@@ -27,17 +24,17 @@ export function slotShows(
  */
 export function TabSlot(props: {
   shows: SlotShows;
-  facts: BufferFacts;
+  unsaved: boolean;
   name: string;
   onClose(): void;
 }) {
-  const { shows, facts } = props;
+  const { shows } = props;
   return (
     <button
       type="button"
       tabIndex={-1}
       data-shows={shows}
-      aria-label={facts.unsaved ? `Close ${props.name}, unsaved` : `Close ${props.name}`}
+      aria-label={props.unsaved ? `Close ${props.name}, unsaved` : `Close ${props.name}`}
       onClick={(event) => {
         event.stopPropagation();
         props.onClose();
@@ -51,9 +48,6 @@ export function TabSlot(props: {
       {shows === "unsaved" && <span aria-hidden className="size-2 rounded-full bg-current" />}
       {shows === "close" && <XIcon aria-hidden size={12} weight="bold" />}
       {shows === "pinned" && <PushPinIcon aria-hidden size={12} />}
-      {shows === "agent" && facts.changedBy?.provider && (
-        <ProviderIcon provider={facts.changedBy.provider} size={12} decorative />
-      )}
     </button>
   );
 }

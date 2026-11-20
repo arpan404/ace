@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { formatBytes } from "@/components/format-bytes.ts";
-import type { BufferLoad } from "./buffers.ts";
+import type { BufferStatus } from "../buffers/index.ts";
 import { fileName } from "./paths.ts";
 
 /** Spec 62: the last group with nothing open. The explorer beside it is the real way in. */
@@ -49,50 +48,43 @@ export function LoadingLines(props: { delayMs?: number }) {
   );
 }
 
+/** The registry states that show a line instead of the editor. */
+export type ProblemStatus = Extract<BufferStatus, { kind: "missing" | "unreadable" | "failed" }>;
+
+/** Spec 65's one line for a file the editor can't take (W2 passes the Files read's kind). */
+export function problemLine(path: string, status: ProblemStatus): string {
+  const name = fileName(path);
+  if (status.kind === "missing") return "This file was deleted.";
+  if (status.kind === "failed") return `Couldn't open ${name}. ${status.message}`;
+  if (status.reason === "binary") return `${name} is a binary file.`;
+  if (status.reason === "large") return `${name} is too large to edit here.`;
+  if (status.reason === "media" || status.reason === "image") return `${name} is a media file.`;
+  return `Couldn't read ${name}.`;
+}
+
 /**
- * Spec 14 and 65: a file that can't be shown says what, in one line, with the way out.
- * The editor host passes the handlers it supports; a missing one hides its button.
+ * Spec 14 and 65: a file that can't be shown says what, in one line, with the way out: Close
+ * for a deleted file, Try again for a failed read.
  */
 export function FileProblem(props: {
   path: string;
-  load: Exclude<BufferLoad, { state: "loading" } | { state: "ready" }>;
-  onRestore?: (() => void) | undefined;
+  status: ProblemStatus;
   onClose(): void;
-  onOpenReadOnly?: (() => void) | undefined;
-  onRetry?: (() => void) | undefined;
+  onRetry(): void;
 }) {
-  const name = fileName(props.path);
-  const { load } = props;
-  const line =
-    load.state === "deleted"
-      ? "This file was deleted."
-      : load.state === "binary"
-        ? `${name} is a binary file.`
-        : load.state === "too-large"
-          ? `${name} is ${formatBytes(load.bytes)}, too large to edit here.`
-          : `Couldn't read ${name}. ${load.reason}`;
+  const { status } = props;
   return (
     <div
       role="status"
       className="flex flex-1 items-start gap-3 px-3.5 pt-4 text-ui text-muted-foreground"
     >
-      <span>{line}</span>
-      {load.state === "deleted" && load.restorable && props.onRestore && (
-        <Button size="sm" variant="ghost" onClick={props.onRestore}>
-          Restore
-        </Button>
-      )}
-      {load.state === "deleted" && (
+      <span>{problemLine(props.path, status)}</span>
+      {status.kind === "missing" && (
         <Button size="sm" variant="ghost" onClick={props.onClose}>
           Close
         </Button>
       )}
-      {load.state === "too-large" && props.onOpenReadOnly && (
-        <Button size="sm" variant="ghost" onClick={props.onOpenReadOnly}>
-          Open read only
-        </Button>
-      )}
-      {load.state === "unreadable" && props.onRetry && (
+      {status.kind === "failed" && (
         <Button size="sm" variant="ghost" onClick={props.onRetry}>
           Try again
         </Button>
