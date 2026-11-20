@@ -129,7 +129,9 @@ function once(
   if (!deps.current(profile))
     throw new MachineUnpaired("offline", undefined, "Transfer call never sent: unpaired");
   if (route.kind === "direct") {
-    const { connections: _connections, ...rest } = options;
+    const { connections: _connections, ...others } = options;
+    // Asked again once connected, before anything is written, on whichever address.
+    const rest = { ...others, current: () => deps.current(profile) };
     return deps.direct(
       { ...profile, origin: route.url, fingerprint: route.fingerprint },
       request,

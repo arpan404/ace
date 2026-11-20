@@ -143,6 +143,8 @@ export class ParcelLink {
       {
         timeoutMs: options.timeoutMs,
         ...(options.signal ? { signal: options.signal } : {}),
+        // Asked again once connected, before anything is written, on whichever address.
+        current: () => this.deps.current(profile),
         // Only the linked address shares the machine's kept-open connections.
         ...(saved && this.deps.connections ? { connections: this.deps.connections } : {}),
       },
