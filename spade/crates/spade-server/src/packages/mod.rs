@@ -9,6 +9,7 @@ pub mod apply;
 mod busy;
 pub mod envelope;
 pub mod held;
+pub mod panels;
 pub mod proof;
 pub mod switches;
 pub mod template;

@@ -55,7 +55,7 @@ pub fn check(data: &Value) -> Result<Card, Vec<Problem>> {
         })
         .filter_map(|a| match a {
             Action::Choose { id, .. } => Some(id.as_str()),
-            Action::Open { .. } => None,
+            Action::Open { .. } | Action::OpenPanel { .. } => None,
         })
         .collect();
     if ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id)) {
@@ -349,13 +349,32 @@ impl Problems {
                 })
             }
             "open" => {
-                let object = self.object(at, value, &["kind", "label", "url"])?;
+                let object = self.object(at, value, &["kind", "label", "url", "panel"])?;
                 let label = self.text(
                     &format!("{at}.label"),
                     object.get("label"),
                     ACTION_CHARS,
                     true,
                 );
+                // A panel of the bot's package, by id; the engine checks the bot ships it.
+                if let Some(panel) = object.get("panel") {
+                    let panel = match panel.as_str() {
+                        Some(id) if object.get("url").is_none() && !id.trim().is_empty() => {
+                            Some(id.trim().to_owned())
+                        }
+                        _ => {
+                            self.add(
+                                &format!("{at}.panel"),
+                                "names one of your panels by id, instead of a url.".into(),
+                            );
+                            None
+                        }
+                    };
+                    return Some(Action::OpenPanel {
+                        label: label?,
+                        panel: panel?,
+                    });
+                }
                 let link = self.https(&format!("{at}.url"), object.get("url"));
                 let (url, host) = link?;
                 Some(Action::Open {

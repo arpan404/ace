@@ -17,6 +17,7 @@ mod memory;
 mod moves;
 mod oversight;
 mod packages;
+mod panels;
 mod plugins;
 mod questions;
 mod reach;
@@ -153,6 +154,12 @@ pub fn router(state: AppState) -> Router {
             "/conversations/{id}/cards/{card}/actions",
             post(cards::choose),
         )
+        .route("/conversations/{id}/panels", get(panels::list))
+        .route(
+            "/conversations/{id}/panels/{surface}/actions",
+            post(panels::act),
+        )
+        .route("/panels/pages/{hash}", get(panels::page))
         .route(
             "/conversations/{id}/questions/{call_id}",
             post(questions::reply),

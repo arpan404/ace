@@ -124,6 +124,9 @@ struct UpdateBody {
     transaction: String,
     #[serde(default)]
     time_zone: Option<String>,
+    /// The version's panel pages (ADR 0200 §5.2), by path; kept once the step is accepted.
+    #[serde(default)]
+    pages: std::collections::BTreeMap<String, String>,
 }
 
 /// The manifest and identity an update or rollback moves `bot` to: a market package's only from
@@ -203,7 +206,8 @@ async fn update(
     }
     off_thread(move || {
         let asked = proven(&state.engine, &id, &body).and_then(|(manifest, package)| {
-            packages::held::ask(
+            let pages = packages::panels::pages(&manifest, &body.pages)?;
+            let asked = packages::held::ask(
                 &state.engine,
                 &id,
                 Step {
@@ -213,7 +217,11 @@ async fn update(
                     transaction: body.transaction,
                     time_zone: body.time_zone,
                 },
-            )
+            )?;
+            // Its pages are the accepted version's from now on, also while the step is held for
+            // the bot's next still moment.
+            packages::panels::keep(&state.engine, &id, &pages)?;
+            Ok(asked)
         });
         // While the bot works the step is held for its next still moment: 202, saying so.
         let (status, link) = match asked {

@@ -91,6 +91,9 @@ pub(super) struct NewAgent {
     /// The person's effect switches on the review, by key; one missing is off.
     #[serde(default)]
     switches: std::collections::BTreeMap<String, bool>,
+    /// A package's panel pages (ADR 0200 §5.2), by path: `panels/<id>/index.html` to its text.
+    #[serde(default)]
+    pages: std::collections::BTreeMap<String, String>,
     /// Made from one message: the bot names itself in its first reply, and is "New bot" until
     /// then when no name was given.
     #[serde(default)]
@@ -337,6 +340,7 @@ impl NewAgent {
             package: self.package,
             envelope: self.envelope,
             switches: self.switches,
+            pages: self.pages,
             also: self.template.is_some() || self.first_message.is_some(),
         }
     }
