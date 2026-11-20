@@ -16,6 +16,7 @@ import {
 } from "@ace/ui-core";
 import type { PatchSink, Preview } from "./agents.ts";
 import type { DismissedSends } from "./dismissed-sends.ts";
+import { clearLock } from "./work-actions.ts";
 
 /*
  * A new thread's worktree as it is made, for the phone (the web's `WorktreeCreationCard`): one
@@ -34,7 +35,7 @@ import type { DismissedSends } from "./dismissed-sends.ts";
 
 export type WorktreeOwner = Pick<
   ClientApi,
-  "request" | "onMessage" | "connectionState" | "connectionGeneration" | "pendingSends"
+  "request" | "command" | "onMessage" | "connectionState" | "connectionGeneration" | "pendingSends"
 >;
 
 type Entry = {
@@ -43,6 +44,8 @@ type Entry = {
   message: string;
   workspaceId: string;
   returned: boolean;
+  clearing: boolean;
+  lockProblem: string;
 };
 
 /** A worktree start's words, as the person wrote them, to take back into New thread. */
@@ -58,7 +61,12 @@ function startWords(send: PendingSend): { message: string; workspaceId: string }
 const isWorktreeStart = (send: PendingSend) =>
   send.payload.type === "thread.create" && send.payload.mode === "worktree";
 
+const isLocked = (state: WorktreeCreationState): boolean =>
+  state.progress?.state === "failed" && state.progress.error === "git_quarantined";
+
 const finished = "That start has already finished.";
+const notLocked = "No stale Git lock is blocking this start.";
+const missingWorkspace = "Couldn't find this start's project.";
 
 /**
  * A start known to have stopped: its last progress stopped, or its receipt refused it for the
@@ -83,6 +91,7 @@ function made(state: WorktreeCreationState): string | null {
 }
 
 export class WorktreeStarts {
+  readonly #owner: WorktreeOwner;
   readonly #store: WorktreeCreations;
   readonly #sink: PatchSink;
   readonly #preview: Preview;
@@ -94,6 +103,7 @@ export class WorktreeStarts {
   readonly #stopKept: () => void;
 
   constructor(owner: WorktreeOwner, sink: PatchSink, preview: Preview, kept?: DismissedSends) {
+    this.#owner = owner;
     this.#store = new WorktreeCreations(owner);
     this.#sink = sink;
     this.#preview = preview;
@@ -122,11 +132,19 @@ export class WorktreeStarts {
   follow(commandId: string, start: { message: string; workspaceId: string }): void {
     const known = this.#followed.get(commandId);
     if (known) {
-      if (!known.message) Object.assign(known, start);
+      if (!known.message && start.message) known.message = start.message;
+      if (!known.workspaceId && start.workspaceId) known.workspaceId = start.workspaceId;
       return;
     }
     const selection = this.#store.state(commandId);
-    const entry: Entry = { stop: () => {}, code: undefined, ...start, returned: false };
+    const entry: Entry = {
+      stop: () => {},
+      code: undefined,
+      ...start,
+      returned: false,
+      clearing: false,
+      lockProblem: "",
+    };
     this.#followed.set(commandId, entry);
     entry.stop = selection.subscribe(() => this.#emit(commandId, selection.getSnapshot()));
     this.#emit(commandId, selection.getSnapshot());
@@ -142,7 +160,49 @@ export class WorktreeStarts {
 
   /** A card's action: Cancel, Don't use worktree, Retry or Continue. */
   act(commandId: string, action: Exclude<WorktreeAction, "dismiss">): void {
-    if (this.#followed.has(commandId)) void this.#store.act(commandId, action);
+    const entry = this.#followed.get(commandId);
+    if (!entry || entry.clearing) return;
+    entry.lockProblem = "";
+    void this.#store.act(commandId, action);
+  }
+
+  /**
+   * Clear a stale Git lock on a stopped start's project (`workspace.git.lock.clear`) and retry
+   * the same start, answered on `receipt:<requestId>`. Once confirmed, the daemon retires the
+   * lock only after checking its daemon has stopped; if the lock is still held or unreachable,
+   * the card says why in `@ace/ui-core`'s words and does not retry. Once clear, Retry runs the
+   * retained start with the same prompt and project.
+   */
+  async clearLock(commandId: string, requestId: string): Promise<void> {
+    const answer = (ok: boolean, message: string) =>
+      this.#sink.put(`receipt:${requestId}`, () => ({
+        type: "receipt",
+        id: requestId,
+        ok,
+        message: this.#preview(message, 2048),
+      }));
+    const entry = this.#followed.get(commandId);
+    const state = this.#store.state(commandId).getSnapshot();
+    if (!entry || this.#setAside(commandId) || state.gone) return answer(false, finished);
+    if (state.sending || entry.clearing) return answer(false, worktreeRefusalWords.busy);
+    if (!isLocked(state)) return answer(false, notLocked);
+    if (!entry.workspaceId) return answer(false, missingWorkspace);
+    entry.clearing = true;
+    entry.lockProblem = "";
+    this.#emit(commandId, state);
+    const outcome = await clearLock(this.#owner, { workspaceId: entry.workspaceId });
+    if (this.#followed.get(commandId) !== entry) return answer(false, finished);
+    if (!outcome.ok) {
+      entry.clearing = false;
+      entry.lockProblem = this.#preview(outcome.message, 2048);
+      this.#emit(commandId, this.#store.state(commandId).getSnapshot());
+      return answer(false, outcome.message);
+    }
+    entry.clearing = false;
+    if (this.#setAside(commandId)) return answer(false, finished);
+    const retried = await this.#store.act(commandId, "retry");
+    if (retried !== "accepted") return answer(false, worktreeRefusalWords[retried]);
+    answer(true, outcome.message);
   }
 
   /**
@@ -165,7 +225,7 @@ export class WorktreeStarts {
     const state = this.#store.state(commandId).getSnapshot();
     if (!entry || this.#setAside(commandId) || !stoppedStart(state, entry.code))
       return answer(finished);
-    if (state.sending) return answer(worktreeRefusalWords.busy);
+    if (state.sending || entry.clearing) return answer(worktreeRefusalWords.busy);
     if (!state.gone) {
       const result = await this.#store.act(commandId, "dismiss");
       if (result !== "accepted" && result !== "not_found")
@@ -200,6 +260,7 @@ export class WorktreeStarts {
 
   #emit(commandId: string, state: WorktreeCreationState): void {
     const entry = this.#followed.get(commandId);
+    if (entry && !isLocked(state)) entry.lockProblem = "";
     this.#sink.put(`compose:worktree:${commandId}`, () => ({
       type: "compose.worktree",
       id: commandId,
@@ -229,9 +290,9 @@ export class WorktreeStarts {
         percent: row.percent ?? null,
       })),
       note: preview(worktreeNote(progress) ?? "", 1024),
-      refused: state.refused ? worktreeRefusalWords[state.refused] : "",
-      /** A stale Git lock stopped it: Clear stale lock is the web's way on, from the computer. */
-      locked: progress.state === "failed" && progress.error === "git_quarantined",
+      refused: state.refused ? worktreeRefusalWords[state.refused] : entry.lockProblem,
+      /** A stale Git lock stopped it: the card offers Clear the lock and try again. */
+      locked: isLocked(state),
       actions: worktreeActionOrder
         .filter((action) => progress.actions.includes(action))
         .map((action) => ({
@@ -241,14 +302,14 @@ export class WorktreeStarts {
               ? worktreeActionWords[action].busy
               : worktreeActionWords[action].label,
         })),
-      sending: state.sending ?? "",
+      sending: state.sending ?? (entry.clearing ? "clearLock" : ""),
       details: progress.details.slice(-detailLines).map((line) => preview(line, 1024)),
       /** The words the person sent, for Back to New thread. */
       message: preview(entry.message, 100_000),
       /** The project it starts in, for New thread to open on. */
       workspaceId: entry.workspaceId,
       /** It stopped and nothing is on its way: the message can go back to New thread. */
-      canReturn: stopped && progress.cleanupComplete && !state.sending,
+      canReturn: stopped && progress.cleanupComplete && !state.sending && !entry.clearing,
     };
   }
 
