@@ -20,8 +20,18 @@ import {
   type LocalBinding,
 } from "./inventory.ts";
 import { CommittedWriteError } from "./files.ts";
+import { UpdateApprovalRequired, agentLabel, type UpdateApproval } from "./approvals.ts";
 import { executeInstall, type InstallRuntime } from "./install.ts";
 const StoredInstallations = z.array(LocalInstallation).max(512);
+/** Why an approval was refused, in words the person can act on. */
+class ApprovalRefused extends Error {}
+const approvalReasons: ReadonlySet<string> = new Set([
+  "The agent changed again; review the update again",
+  "Nothing changed since approval",
+  "Approved ACP installation unavailable",
+  "Native bridge CLI changed or unavailable",
+  "Registry busy",
+]);
 export type InventoryStorage = {
   load(): Promise<unknown>;
   /** Reject with CommittedWriteError if publication happened before a durability failure. */
@@ -37,6 +47,8 @@ export type RegistryServiceOptions = {
   env: NodeJS.ProcessEnv;
   managers?: Partial<Record<"npm" | "uv", string>>;
   runtime?: Omit<InstallRuntime, "env">;
+  /** The clock approvals and pending updates are stamped with. */
+  now?: () => number;
 };
 export class AgentRegistry {
   readonly catalog: AgentCatalog;
@@ -66,7 +78,7 @@ export class AgentRegistry {
     this.#options = options;
     this.#digests = digests;
     this.catalog = options.catalog;
-    this.inventory = new LocalInventory(entries, digests);
+    this.inventory = new LocalInventory(entries, digests, options.now);
   }
   static async open(options: RegistryServiceOptions): Promise<AgentRegistry> {
     const digests = new ExecutableDigests(undefined, options.digests);
@@ -77,9 +89,20 @@ export class AgentRegistry {
   has(identity: AcpIdentity): boolean {
     return this.inventory.has(identity);
   }
-  resolve(identity: AcpIdentity, environment: NodeJS.ProcessEnv = this.#options.env) {
+  async resolve(identity: AcpIdentity, environment: NodeJS.ProcessEnv = this.#options.env) {
     if (this.#closed) throw new Error("Registry closed");
-    return this.inventory.resolve(identity, environment);
+    try {
+      return await this.inventory.resolve(identity, environment);
+    } catch (error) {
+      // The refusal names the agent as the person knows it.
+      if (error instanceof UpdateApprovalRequired)
+        throw new UpdateApprovalRequired(
+          error.identity,
+          this.catalog.entry(error.identity.acpAgentId)?.name ??
+            agentLabel(error.identity.acpAgentId),
+        );
+      throw error;
+    }
   }
   /** Local terminal login only; never invoke ACP authenticate or a bundled bridge CLI. */
   async resolveLogin(identity: AcpIdentity, environment: NodeJS.ProcessEnv = this.#options.env) {
@@ -115,6 +138,34 @@ export class AgentRegistry {
       this.#binding = false;
     }
   }
+  /**
+   * The person approves an installation's changed files for its same identity, so its threads
+   * keep running (ADR 0044 amendment). The socket admits only the person's devices.
+   */
+  async approveUpdate(
+    identity: AcpIdentity,
+    approval: UpdateApproval,
+  ): Promise<{ installation: LocalInstallation; durability?: "uncertain" }> {
+    if (this.#closed || this.#binding || this.#active) throw new Error("Registry busy");
+    this.#binding = true;
+    try {
+      const installation = await this.inventory.approved(identity, approval);
+      if (this.#closed) throw new Error("Registry closed");
+      const next = new LocalInventory(this.inventory.all());
+      next.replace(installation);
+      let durability: "uncertain" | undefined;
+      try {
+        await this.#options.storage.save(next.all());
+      } catch (error) {
+        if (!(error instanceof CommittedWriteError)) throw error;
+        durability = "uncertain";
+      }
+      this.inventory.replace(installation);
+      return { installation, ...(durability ? { durability } : {}) };
+    } finally {
+      this.#binding = false;
+    }
+  }
   async handle(input: RegistryRequest): Promise<RegistryResult> {
     const request = RegistryRequest.parse(input);
     const reply = (result: RegistryResult["result"]): RegistryResult => ({
@@ -143,10 +194,31 @@ export class AgentRegistry {
           if (!installation) throw new Error("Binding not persisted");
           return reply({ ok: true, installation, ...durability });
         }
+        case "registry.approve-update": {
+          const approved = await this.approveUpdate(request, {
+            executableDigest: request.executableDigest,
+            bridgeDigest: request.bridgeDigest,
+            version: request.version,
+          }).catch((error: unknown) => {
+            throw new ApprovalRefused(
+              error instanceof Error && approvalReasons.has(error.message)
+                ? error.message
+                : "Couldn't approve this update",
+            );
+          });
+          return reply({
+            ok: true,
+            installation: approved.installation.metadata,
+            ...(approved.durability ? { durability: approved.durability } : {}),
+          });
+        }
         case "registry.list":
+          // The first page checks every agent against its approval (a stat each when unchanged).
+          if (request.offset === 0) await this.inventory.review();
           return reply({
             ...this.catalog.list(request.offset, request.limit),
             installations: this.inventory.list(),
+            updates: this.inventory.pending(),
             ...(this.#progress ? { activeInstall: { ...this.#progress } } : {}),
           });
         case "registry.refresh":
@@ -298,7 +370,7 @@ export class AgentRegistry {
       return reply({
         ok: false,
         reason:
-          error instanceof InstallPlanError
+          error instanceof InstallPlanError || error instanceof ApprovalRefused
             ? error.message
             : "Registry operation unavailable or invalid",
       });

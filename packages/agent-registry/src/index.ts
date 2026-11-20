@@ -21,10 +21,13 @@ export {
 } from "./inventory.ts";
 export {
   matchProfile,
+  profileFit,
+  profileFor,
   profiles,
   accountIsolation,
   accountMigration,
   type CompatibilityProfile,
+  type ProfileFit,
 } from "./profiles.ts";
 export {
   sessionSelectors,

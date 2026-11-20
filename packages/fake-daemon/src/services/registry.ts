@@ -3,6 +3,7 @@ import type {
   RegistryInstallation,
   RegistryInstallPlan,
   RegistryInstallProgress,
+  RegistryPendingUpdate,
   RegistryResult,
   ServerMessage,
 } from "@ace/protocol";
@@ -53,6 +54,8 @@ interface Intent {
 export class FakeRegistry {
   entries: FakeRegistryEntry[] = registryFixture();
   installations: RegistryInstallation[];
+  /** Installations whose files changed since approval; tests and dev:fake stage them here. */
+  updates: RegistryPendingUpdate[] = [];
   fetchedAt: number | undefined;
   /** What the next refresh finds upstream; undefined finds the same entries. */
   upstream: FakeRegistryEntry[] | undefined;
@@ -126,6 +129,9 @@ export class FakeRegistry {
       case "registry.install-intent":
         this.install(message.intentId, message.digest, reply(message.requestId));
         return true;
+      case "registry.approve-update":
+        reply(message.requestId)(this.approveUpdate(message));
+        return true;
       case "registry.install-cancel": {
         const intent = this.intentsById.get(message.intentId);
         const cancellable =
@@ -140,6 +146,39 @@ export class FakeRegistry {
       default:
         return false;
     }
+  }
+  /** The person approves a staged update: only for exactly the digests listed. */
+  private approveUpdate(
+    message: Extract<ClientMessage, { type: "registry.approve-update" }>,
+  ): Result {
+    const update = this.updates.find((entry) => entry.installationId === message.installationId);
+    const index = this.installations.findIndex(
+      (entry) => entry.installationId === message.installationId,
+    );
+    const installation = this.installations[index];
+    if (!update || !installation) return { ok: false, reason: "Nothing changed since approval" };
+    if (
+      update.executableDigest !== message.executableDigest ||
+      update.bridgeDigest !== message.bridgeDigest
+    )
+      return { ok: false, reason: "The agent changed again; review the update again" };
+    const approved: RegistryInstallation = {
+      ...installation,
+      version: message.version ?? installation.version,
+      approvals: [
+        ...(installation.approvals ?? []),
+        {
+          approvedAt: this.host.now(),
+          previousVersion: installation.version,
+          version: message.version ?? installation.version,
+          previousExecutableDigest: digest(`${installation.installationId}:approved`),
+          executableDigest: message.executableDigest,
+        },
+      ].slice(-16),
+    };
+    this.installations[index] = approved;
+    this.updates = this.updates.filter((entry) => entry !== update);
+    return { ok: true, installation: approved };
   }
   /** An owner-approved local command (`local:` ids only, commands this machine has). */
   private bind(message: Extract<ClientMessage, { type: "registry.bind" }>): Result {
@@ -174,6 +213,7 @@ export class FakeRegistry {
       ok: true,
       agents,
       installations: this.installations,
+      updates: this.updates,
       stale: this.fetchedAt === undefined || this.host.now() - this.fetchedAt >= ttl,
       refreshing: this.refreshing !== undefined,
       source,

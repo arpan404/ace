@@ -1,4 +1,5 @@
 import { followLoginPath } from "../login-path-handoff.ts";
+import { isAgentDevice } from "../answer-gate.ts";
 import { join } from "node:path";
 import {
   AgentCatalog,
@@ -27,6 +28,7 @@ export async function startAgentRegistry(context: ServiceContext): Promise<void>
     storage: fileInventoryStorage(join(root, "inventory.json"), id),
     digests: fileDigestMemory(join(root, "digests.json"), id),
     env: followLoginPath(options.loginPath, { ...process.env, ...options.providerStatus?.env }),
+    now,
     ...(options.acpManagers ? { managers: options.acpManagers } : {}),
   });
   resources.own(() => registry.close());
@@ -36,7 +38,7 @@ export async function startAgentRegistry(context: ServiceContext): Promise<void>
   services.agentRegistry = registry;
 }
 export function createAgentRegistrySession(context: SocketContext): SocketService {
-  const { options, authorize, send, tasks } = context;
+  const { options, authorize, send, tasks, device } = context;
   let pending = 0;
   return {
     async handle(message) {
@@ -49,6 +51,7 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
           "registry.install-plan",
           "registry.install-intent",
           "registry.install-cancel",
+          "registry.approve-update",
         ].includes(message.type)
       )
         return false;
@@ -72,6 +75,12 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
       }
       if (scope === "admin" && !authorize("operate")) {
         failure("operate scope required");
+        return true;
+      }
+      // Approving what runs is the person's (ADR 0044): an agent's device never binds, installs
+      // or approves an update, its own included, whatever its credential's scopes.
+      if (scope === "admin" && isAgentDevice(device())) {
+        failure("Only the person can approve agents: agents can't.");
         return true;
       }
       if (!options.agentRegistry) {

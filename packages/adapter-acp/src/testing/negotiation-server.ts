@@ -23,6 +23,8 @@ const config = z
     // How it answers session/set_model: empty (as ACP's schema), naming the model it selected,
     // naming another, or with an error (a refusal, or no such method).
     legacyReply: z.enum(["empty", "confirm", "other", "error", "missing"]).default("empty"),
+    // The version it then reports, 9.9.9 when not given.
+    reports: z.string().optional(),
   })
   .parse(JSON.parse(process.env.ACE_SYNTHETIC_ACP ?? "{}"));
 const Envelope = z
@@ -85,7 +87,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     result({
       protocolVersion: 1,
       // An agent that updated itself since it was approved.
-      ...(config.updated ? { agentInfo: { name: "synthetic", version: "9.9.9" } } : {}),
+      ...(config.updated
+        ? { agentInfo: { name: "synthetic", version: config.reports ?? "9.9.9" } }
+        : {}),
       ...(config.airSubagents
         ? {
             _meta: { jetbrains: { air: { version: 1, capabilities: ["nativeSubagentSessions"] } } },

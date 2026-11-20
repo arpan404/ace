@@ -401,7 +401,14 @@ class AcpSession implements ProviderSession {
       this.frame("note", "diagnostic", {
         event: "acp-version-changed",
         ...negotiated.versionChanged,
-        runsAs: "generic",
+      });
+    // In its profile's range but not a version ace verified the profile on (ADR 0044 amendment).
+    if (negotiated.profile && negotiated.profileFit === "compatible")
+      this.frame("note", "diagnostic", {
+        event: "acp-version-unverified",
+        profile: negotiated.profile.id,
+        verified: negotiated.profile.version,
+        version: negotiated.versionChanged?.reported ?? this.launch.version,
       });
     const injected = this.ctx.mcp
       ? negotiated.httpMcp

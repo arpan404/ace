@@ -119,3 +119,23 @@ The owner treats this as a security matter. The legacy path is the agent's own u
 - **Labels are display-safe.** Model names drop control, bidi (overrides and isolates), zero-width and other format characters, and line and paragraph separators; a name left empty shows the id. A model id containing any of those characters is never offered, in the picker or the catalog, because ids go back to the agent unchanged and can't be cleaned.
 
 Code: `listedModels`, `displayLabel` and `sessionSelectors` in `packages/agent-registry/src/selectors.ts`; `AcpConfiguration.select` in `packages/adapter-acp/src/configuration.ts`; `normalizeAcp` in `packages/models/src/normalize.ts`.
+
+## Amendment: agents that update themselves (owner, 2026-11-19)
+
+Gemini CLI, the Claude and Codex bridges (and the native CLIs they drive) and auggie update themselves. Under the rules above, every update stopped every thread on that agent until the person approved it again, approving again made a new installation identity that stranded the old threads, and an agent one patch past its profile's version lost its profile and with it every access mode. The owner decided to keep the approval gate and remove the stranding.
+
+**The gate stays.** A launch hashes the approved executable (and a bridge's native CLI) as before. If either differs from what was approved, ace doesn't run it, ever, until the person approves. The refusal names the agent and the action: "<agent> changed since you approved it, so ace won't run it. Approve the update in Settings → Providers to keep using it."
+
+**Approval in place.**
+
+- The registry listing (`registry.list`, first page) checks every installation against its approval by hashing only (a stat each while unchanged; nothing runs) and reports each changed one in `updates`: its identity, what changed (`agent`, `native_cli`) and the digests on disk now.
+- `registry.approve-update` approves those exact digests for the same installation identity. The digests in the request must match the files on disk at approval: a file that changed again after the person looked is refused ("review the update again"), and an approval of files that already match is refused, so an approval can't be replayed. The request may carry the version the client knows; otherwise the recorded version stays. The profile revision is recomputed from the new version.
+- The installation keeps its `acpAgentId`, `installationId` and `instanceId`, so its threads, their saved sessions and their accounts carry on. Each approval appends `{ approvedAt, previousVersion, version, previousExecutableDigest, executableDigest, previousBridgeDigest?, bridgeDigest? }` to the installation's `approvals`; the newest 16 are kept.
+- Only the person approves. Approval requests (`registry.bind`, `registry.install-intent`, `registry.approve-update`) need admin scope, and an agent's own device (`ace-agent`, `ace-reviewer`: the CLI in an agent's shell, ace's agent tools) is refused whatever its credential's scopes. No MCP tool or agent-control operation reaches the registry, and nothing approves automatically. As for every person-only action on the host token (ADR 0178 §12.5), this guards against honest agents. A process that reads the token and claims to be another device is the boundary ADR 0190 covers, and this amendment doesn't change it.
+- Settings → Providers shows each waiting update in a "Waiting for your approval" group, one sentence and an "Approve update" button. The phone's Add agent screen shows the same rows.
+
+**Profiles cover a version range.**
+
+- A profile keeps the exact version it was verified on and may declare a compatible range (`compatible.below`, exclusive). The default range is the verified version's major version, from the verified version up. A prerelease of the verified version is older than it, so it's outside. An unreadable version fits only exactly.
+- The profile for a version is the one verified on it (`profileFit: "verified"`), else the profile in range verified on the newest version not above it (`profileFit: "compatible"`). A compatible match keeps the profile's selectors, access-mode table and bridge behaviour. The session leaves an `acp-version-unverified` note naming the profile, its verified version and the version running.
+- Negotiation applies the same rule to the version the agent reports at `initialize`. In range, the profile stays (`acp-version-changed` with `runsAs: "profile"`). Outside it, the session runs as generic ACP (`runsAs: "generic"`) and offers no profile-only access modes.
