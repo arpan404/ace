@@ -91,6 +91,10 @@ impl Engine {
             0 => usize::MAX,
             n => n,
         };
+        // A packaged bot's own bound, under the machine's (ADR 0200 §3.6).
+        let most = self
+            .package_workers_at_once(parent)
+            .map_or(most, |own| own.min(most));
         let mut busy = children
             .iter()
             .filter(|c| {

@@ -89,7 +89,12 @@ pub struct Plan {
     pub off: Vec<String>,
 }
 
+/// A field the person or the bot changed since the package set it is kept; one already at the
+/// new version's value (an update a crash cut short, taken again) counts as the package's.
 fn field<T: PartialEq + ?Sized>(made: &T, now: &T, old: &T, next: &T) -> Field {
+    if now == next && made != now {
+        return Field::Replace;
+    }
     if made != now {
         if old == next {
             Field::Same
@@ -108,7 +113,7 @@ pub fn plan(link: &Link, now: Current<'_>, next: &Manifest) -> Plan {
     let old = &link.manifest;
     let made = &link.made;
     let face_of = |m: &Manifest| m.face.clone().map(Value::Object);
-    let face = if made.face.as_ref() == now.face {
+    let face = if made.face.as_ref() == now.face || face_of(next).as_ref() == now.face {
         if face_of(old) == face_of(next) {
             Field::Same
         } else {
@@ -163,14 +168,16 @@ fn routine_steps(
     next: &Manifest,
 ) -> Vec<RoutineStep> {
     let made = &link.made.routines;
-    let unchanged = |name: &str, id: &str| -> Option<bool> {
+    // Unchanged since the package set it, or already as the new version has it.
+    let unchanged = |name: &str, id: &str, next: Option<(&str, &Trigger)>| -> Option<bool> {
         let current = now.get(id)?;
         let was = made.get(name)?;
-        Some(
+        let is = |instruction: &str, trigger: &Trigger| {
             current.name == name
-                && current.instruction == was.instruction
-                && current.trigger == was.trigger,
-        )
+                && current.instruction == instruction
+                && current.trigger == *trigger
+        };
+        Some(is(&was.instruction, &was.trigger) || next.is_some_and(|(i, t)| is(i, t)))
     };
     let mut steps = Vec::new();
     let mut named = BTreeSet::new();
@@ -182,7 +189,7 @@ fn routine_steps(
             });
             continue;
         };
-        match unchanged(name, &was.id) {
+        match unchanged(name, &was.id, Some((instruction, &trigger))) {
             None => steps.push(RoutineStep::Kept {
                 name: name.to_owned(),
                 removed: true,
@@ -202,7 +209,7 @@ fn routine_steps(
         if named.contains(name) {
             continue;
         }
-        match unchanged(name, &was.id) {
+        match unchanged(name, &was.id, None) {
             Some(true) => steps.push(RoutineStep::Remove {
                 id: was.id.clone(),
                 name: name.clone(),

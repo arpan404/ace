@@ -286,6 +286,7 @@ fn link_of(manifest: Manifest, on: &[&str]) -> Link {
         transaction: None,
         previous: None,
         withdrawn: None,
+        pending: None,
     }
 }
 

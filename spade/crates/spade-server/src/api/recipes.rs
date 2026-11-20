@@ -24,6 +24,8 @@ pub(super) struct RecipeBody {
     pub grants: RecipeGrants,
     pub start_routines: bool,
     pub time_zone: Option<String>,
+    pub package: Option<spade_core::package::link::PackageId>,
+    pub switches: std::collections::BTreeMap<String, bool>,
     /// The body also named a template or a first message, which a recipe doesn't take.
     pub also: bool,
 }
@@ -106,6 +108,8 @@ pub(super) async fn create(state: AppState, body: RecipeBody) -> Response {
         grants: body.grants,
         start_routines: body.start_routines,
         time_zone: body.time_zone,
+        package: body.package,
+        switches: body.switches,
     };
     let made_state = state.clone();
     let answer = off_thread(move || {

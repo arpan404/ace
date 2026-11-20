@@ -74,6 +74,23 @@ pub struct Withdrawn {
     pub paused: Vec<String>,
 }
 
+/// An update or rollback under way (ADR 0200 §6.2): written before its first step, with each
+/// routine and note it adds or removes as it goes, and cleared when it commits. A crash leaves
+/// it, and the same step is taken again from the start; what it already did counts as done.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Pending {
+    pub transaction: String,
+    pub package: PackageId,
+    pub manifest: Manifest,
+    /// Routines it added, by name.
+    #[serde(default)]
+    pub routines: BTreeMap<String, String>,
+    #[serde(default)]
+    pub notes_added: Vec<MadeNote>,
+    #[serde(default)]
+    pub notes_removed: Vec<MadeNote>,
+}
+
 /// The link, as stored under `package:<bot>`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Link {
@@ -93,6 +110,8 @@ pub struct Link {
     pub previous: Option<PackageId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub withdrawn: Option<Withdrawn>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending: Option<Pending>,
 }
 
 impl Link {
