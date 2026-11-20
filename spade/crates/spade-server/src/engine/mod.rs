@@ -33,6 +33,7 @@ mod learned;
 mod ledger;
 mod local;
 pub(crate) use ledger::Admission;
+mod made;
 mod maintenance;
 mod media;
 mod memory;
@@ -52,6 +53,7 @@ mod routines;
 mod routing;
 mod search;
 mod security;
+mod self_edit;
 mod services;
 mod speech;
 mod trim;
@@ -88,6 +90,7 @@ pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
 
+pub use made::Undone;
 pub use moves::{AcceptFor, HostRecord, HostRefused, MoveError};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
@@ -304,7 +307,11 @@ impl Engine {
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
             .with_tool(Arc::new(BotMessage(handle.clone())))
-            .with_tool(Arc::new(HelperTool(handle.clone())));
+            .with_tool(Arc::new(HelperTool(handle.clone())))
+            // A bot's own task, name and face.
+            .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ProfileUpdate(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ClubAdd(handle.clone())));
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }

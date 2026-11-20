@@ -288,6 +288,10 @@ impl Transcript {
             | Known::EpisodeStored { .. }
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. }
+            | Known::NamingOpened {}
+            | Known::BotMade { .. }
+            | Known::ClubAdded { .. }
+            | Known::ProfileChanged { .. }
             | Known::CallReviewed { .. }
             | Known::GroupMessage { .. }
             | Known::GroupAsked { .. }

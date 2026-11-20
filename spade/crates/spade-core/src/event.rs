@@ -45,6 +45,38 @@ pub enum Known {
         /// of the standing instructions. Absent on events from before personalities.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         personality: Option<crate::personality::Personality>,
+        /// Who changed the task, from what and why, when this event changed it; missing on events
+        /// from before task history and on a change of model alone. Boxed: most events carry none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        change: Option<Box<TaskChange>>,
+    },
+    /// This bot made a standing bot for the person (ADR 0161, amendment 1): its chat shows it with
+    /// Open and Undo.
+    BotMade {
+        bot: String,
+        name: String,
+        task: String,
+        /// The `bot_create` call's key: a run of the same call finds this bot.
+        call: String,
+    },
+    /// This bot added a bot to a club it is a member of (ADR 0161, amendment 1).
+    ClubAdded {
+        club: String,
+        club_name: String,
+        bot: String,
+        bot_name: String,
+    },
+    /// The bot was made from the person's first message without a name: its first turn chooses
+    /// its name and face (`profile_update`) until it does, the person names it, or that reply
+    /// ends (spade/docs/agents.md, New bots).
+    NamingOpened {},
+    /// The bot's name or face changed. `by` is `bot` (its own first naming, or with the person's
+    /// OK) or `person`.
+    ProfileChanged {
+        name: String,
+        by: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        face: bool,
     },
     /// The skill index for this conversation, stored before its first model call and again after
     /// each compaction, so the prompt's top stays cached in between; skills added meanwhile are
@@ -785,6 +817,20 @@ pub enum Verdict {
     Escalate,
     /// The auto-review (ADR 0144) refused the call: the bot is told why and it is not run.
     Refuse,
+}
+
+/// How a task change came about (`agent_configured`'s `change`). `by` is kept as a word, never
+/// parsed into a closed set, so a word a later build adds never drops the event (and its task).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskChange {
+    /// `person` (the profile, Undo, a restore) or `bot` (`task_update`).
+    pub by: String,
+    /// The task before this change.
+    #[serde(default)]
+    pub previous: String,
+    /// The bot's one line on what changed, or the person's own note; empty when none was given.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub why: String,
 }
 
 /// The agent that sent a message, and how many bot-to-bot hops led to it (1 when the sender was

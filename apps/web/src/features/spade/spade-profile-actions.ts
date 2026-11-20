@@ -29,7 +29,12 @@ export const fault = (error: unknown) => (error instanceof Error ? error.message
 export function useEditBot(bot: { id: string }) {
   const client = useSpadeClient();
   const cache = useQueryClient();
-  return async (change: Partial<SpadeAgentDraft>): Promise<string | undefined> => {
+  return async (
+    change: Partial<SpadeAgentDraft> & {
+      task_why?: string;
+      may_create_bots?: "yes" | "ask" | "no";
+    },
+  ): Promise<string | undefined> => {
     try {
       await editAgent(client, bot.id, change);
       await cache.invalidateQueries({ queryKey: agentsKey });

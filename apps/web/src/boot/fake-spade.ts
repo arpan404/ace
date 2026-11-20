@@ -1,5 +1,6 @@
 import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { seedFakeCards } from "./fake-spade-cards.ts";
+import { seedFakeCreate } from "./fake-spade-create.ts";
 import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeLibrary } from "./fake-spade-library.ts";
 import { seedFakeTranscript } from "./fake-spade-transcript.ts";
@@ -522,6 +523,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   seedFakeLibrary(here, now);
   seedFakeWork(daemon, here, minutes);
   seedFakeGroup(here, now);
+  seedFakeCreate(here, minutes);
   // A few pins, oldest first: the strip under the list's buttons.
   for (const [index, id] of ["inbox", "garden", "notes"].entries()) {
     const agent = here.agents.find((each) => each.id === id);

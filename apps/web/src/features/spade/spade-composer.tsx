@@ -57,6 +57,8 @@ export function SpadeComposer(props: {
    * quoted before their words when it goes.
    */
   quote?: { text: string; onRemove(): void } | undefined;
+  /** What sits under the capsule: a new bot's templates and its More settings. */
+  below?: ReactNode;
   send(message: SpadeMessage): Promise<void>;
   /** A message the person spoke is going: its reply is read aloud. */
   onSpoken?: (() => void) | undefined;
@@ -248,6 +250,7 @@ export function SpadeComposer(props: {
           }
           onSubmit={submit}
         />
+        {props.below}
       </div>
     </ComposerDock>
   );

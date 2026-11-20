@@ -128,6 +128,8 @@ export function spadeDetailText(detail: SpadeRequestDetail | undefined): string 
       return [detail.to && `To ${detail.to}`, detail.subject].filter(Boolean).join(" · ") || null;
     case "message":
       return `To ${detail.to}: ${detail.text}`;
+    case "task":
+      return detail.after;
     case "fields":
       return detail.fields.map((field) => `${field.label}: ${field.value}`).join("\n") || null;
   }

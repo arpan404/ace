@@ -182,6 +182,22 @@ export type SpadeEntry =
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
   | { kind: "compacted"; key: string }
+  /** The bot rewrote its own task (`task_update`): what it was, what it is, and its one line. */
+  | { kind: "task-changed"; key: string; task: string; previous: string; why: string; at?: number }
+  /** It made a standing bot for the person: one line with Open and Undo. */
+  | { kind: "made"; key: string; bot: string; name: string; task: string; at?: number }
+  /** It added a bot to a club it is in. */
+  | {
+      kind: "club-added";
+      key: string;
+      club: string;
+      clubName: string;
+      bot: string;
+      botName: string;
+      at?: number;
+    }
+  /** The bot named itself or changed its face; `first` when it was its first name. */
+  | { kind: "named"; key: string; name: string; face: boolean; first: boolean; at?: number }
   /** A background job ended; its result went to Spade. */
   | {
       kind: "job";
@@ -882,6 +898,54 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       if (state.title === event.title) return false;
       state.title = event.title;
       return true;
+    case "agent_configured": {
+      // Only the bot's own rewrites show; the person's edits are theirs, already seen.
+      const change = event.change;
+      if (!change || change.by !== "bot") return false;
+      steer(state, {
+        kind: "task-changed",
+        key,
+        task: event.task,
+        previous: change.previous,
+        why: change.why,
+        ...stamp(stored),
+      });
+      return true;
+    }
+    case "bot_made":
+      steer(state, {
+        kind: "made",
+        key,
+        bot: event.bot,
+        name: event.name,
+        task: event.task,
+        ...stamp(stored),
+      });
+      return true;
+    case "club_added":
+      steer(state, {
+        kind: "club-added",
+        key,
+        club: event.club,
+        clubName: event.club_name,
+        bot: event.bot,
+        botName: event.bot_name,
+        ...stamp(stored),
+      });
+      return true;
+    case "profile_changed": {
+      if (event.by !== "bot") return false;
+      const first = !state.entries.some((entry) => entry.kind === "named");
+      steer(state, {
+        kind: "named",
+        key,
+        name: event.name,
+        face: event.face,
+        first,
+        ...stamp(stored),
+      });
+      return true;
+    }
   }
 }
 

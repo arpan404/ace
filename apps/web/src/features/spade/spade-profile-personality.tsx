@@ -31,7 +31,6 @@ const toneOptions: readonly SelectOption<ToneChoice>[] = [
 export function ProfilePersonality(props: { bot: RosterBot }) {
   const { bot } = props;
   const edit = useEditBot(bot);
-  const ids = { tone: useId(), humour: useId(), emoji: useId() };
   const stored = parseSpadePersonality(bot.raw.personality) ?? spadeQuietPersonality;
   // What the person just chose, shown at once while it saves.
   const [shown, setShown] = useState<SpadePersonality>();
@@ -46,6 +45,29 @@ export function ProfilePersonality(props: { bot: RosterBot }) {
   };
   return (
     <ProfileSection label="Personality">
+      <PersonalityRows value={now} onChange={(next) => void save(next)} />
+      {refusal && (
+        <p data-setting-slot="" className="py-2 text-xs">
+          <Refusal>{refusal}</Refusal>
+        </p>
+      )}
+    </ProfileSection>
+  );
+}
+
+/**
+ * How a bot talks, as three rows: its tone, humour and emoji. Controlled: the profile saves each
+ * change, New bot's More settings keeps it for the bot it makes.
+ */
+export function PersonalityRows(props: {
+  value: SpadePersonality;
+  onChange(next: SpadePersonality): void;
+}) {
+  const now = props.value;
+  const save = props.onChange;
+  const ids = { tone: useId(), humour: useId(), emoji: useId() };
+  return (
+    <>
       <SettingRow
         title="Tone"
         description="How it talks. Only its style changes, never its task."
@@ -57,7 +79,7 @@ export function ProfilePersonality(props: { bot: RosterBot }) {
           label="Tone"
           value={now.tone ?? own}
           options={toneOptions}
-          onValueChange={(tone) => void save({ ...now, tone: tone === own ? undefined : tone })}
+          onValueChange={(tone) => save({ ...now, tone: tone === own ? undefined : tone })}
           className="w-56 max-w-full"
         />
       </SettingRow>
@@ -65,21 +87,16 @@ export function ProfilePersonality(props: { bot: RosterBot }) {
         <Switch
           id={ids.humour}
           checked={now.humour}
-          onCheckedChange={(humour) => void save({ ...now, humour })}
+          onCheckedChange={(humour) => save({ ...now, humour })}
         />
       </SettingRow>
       <SettingRow title="Emoji" htmlFor={ids.emoji} density="compact" inline>
         <Switch
           id={ids.emoji}
           checked={now.emoji}
-          onCheckedChange={(emoji) => void save({ ...now, emoji })}
+          onCheckedChange={(emoji) => save({ ...now, emoji })}
         />
       </SettingRow>
-      {refusal && (
-        <p data-setting-slot="" className="py-2 text-xs">
-          <Refusal>{refusal}</Refusal>
-        </p>
-      )}
-    </ProfileSection>
+    </>
   );
 }

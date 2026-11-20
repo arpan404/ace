@@ -79,6 +79,10 @@ pub(super) struct NewAgent {
     grants: Option<crate::teams::RecipeGrants>,
     #[serde(default)]
     start_routines: bool,
+    /// Made from one message: the bot names itself in its first reply, and is "New bot" until
+    /// then when no name was given.
+    #[serde(default)]
+    naming: bool,
 }
 
 /// A first message: its text and images, as `POST /conversations/{id}/messages` takes them.
@@ -127,6 +131,12 @@ pub(super) struct Change {
     /// How the bot talks; `null` leaves it to the bot.
     #[serde(default, deserialize_with = "super::body::present")]
     personality: Option<Option<spade_core::personality::Personality>>,
+    /// The person's one line on a task change (Undo, a restore), kept in its history.
+    #[serde(default)]
+    task_why: Option<String>,
+    /// Whether it may make bots for the person: `yes`, `ask` or `no` (ADR 0161, amendment 1).
+    #[serde(default)]
+    may_create_bots: Option<String>,
 }
 
 /// Checks a body's `access`: Spade has one level, so only `auto_review` (or none) is accepted,
@@ -344,6 +354,7 @@ fn make_bot(
             task: body.task,
             model,
             avatar,
+            naming: false,
         };
         return match crate::teams::from_template(
             &state.engine,
@@ -368,6 +379,7 @@ fn make_bot(
         task: body.task,
         model: body.model.unwrap_or_else(|| state.engine.new_bot_default()),
         avatar,
+        naming: body.naming,
     };
     state
         .engine
@@ -416,15 +428,53 @@ pub(super) async fn update(
     if let Err(response) = access(body.access.as_deref()) {
         return *response;
     }
+    if let Some(word) = body.may_create_bots.as_deref() {
+        let Some(may) = spade_core::made::May::parse(word) else {
+            return problem(StatusCode::BAD_REQUEST, "may_create_bots is yes, ask or no");
+        };
+        if let Err(error) = state.engine.set_may_create(&id, may) {
+            return agent_problem(&error);
+        }
+    }
     let change = AgentChange {
         name: body.name,
         task: body.task,
         model: body.model,
         avatar,
         personality: body.personality,
+        why: body.task_why,
+        by: None,
     };
     match state.engine.update_agent(&id, change) {
         Ok(view) => Json(json!({ "agent": agent_json(&view) })).into_response(),
+        Err(error) => agent_problem(&error),
+    }
+}
+
+/// `GET /agents/{id}/task/history`: each version of the bot's task, newest first, with who
+/// changed it and why (`by` is `person`, `bot` or empty for one from before task history).
+pub(super) async fn task_history(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    off_thread(move || match state.engine.task_history(&id) {
+        Ok(versions) => {
+            let versions: Vec<Value> = versions
+                .into_iter()
+                .map(|v| json!({ "seq": v.seq, "at": v.at, "task": v.task, "by": v.by, "why": v.why }))
+                .collect();
+            Json(json!({ "versions": versions })).into_response()
+        }
+        Err(error) => agent_problem(&error),
+    })
+    .await
+}
+
+/// `POST /agents/{id}/undo-made`: Undo on a bot another bot made. `{"undone": "removed"}` when
+/// nothing it did reached outside it, else `{"undone": "archived"}` (stopped, routines paused).
+pub(super) async fn undo_made(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.engine.undo_made(&id).await {
+        Ok(undone) => Json(json!({ "undone": undone.name() })).into_response(),
         Err(error) => agent_problem(&error),
     }
 }

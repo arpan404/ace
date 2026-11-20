@@ -18,6 +18,8 @@ export type SpadeRequestDetail =
   | { kind: "email"; to: string | undefined; subject: string | undefined; body: string | undefined }
   /** A message to another bot: its name (or id, when unknown) and what it would say. */
   | { kind: "message"; to: string; text: string }
+  /** Its own task rewritten (`task_update`): `before` its task now, when known. */
+  | { kind: "task"; after: string; before?: string; why?: string }
   /** Anything else: its fields as label and plain value. */
   | { kind: "fields"; fields: readonly { label: string; value: string }[] };
 
@@ -120,6 +122,26 @@ function detailOf(
       ...(typeof fields.old === "string" ? { before: fields.old } : {}),
       ...(typeof fields.new === "string" ? { after: fields.new } : {}),
     };
+  // A bot it would make (ADR 0161, amendment 1): what it is called and for, not how it's made.
+  if (name === "bot_create") {
+    const made = [
+      ["Name", text(fields.name)],
+      ["Task", text(fields.task)],
+      ["Apps", Array.isArray(fields.apps) ? plain(fields.apps) : undefined],
+    ].flatMap(([word, value]) => (word && value ? [{ label: word, value }] : []));
+    return made.length ? { kind: "fields", fields: made } : undefined;
+  }
+  const task = text(fields.new_task);
+  if (name === "task_update" && task) {
+    const before = options.task?.();
+    const why = text(fields.why);
+    return {
+      kind: "task",
+      after: task,
+      ...(before === undefined ? {} : { before }),
+      ...(why ? { why } : {}),
+    };
+  }
   const note = text(fields.text);
   if ((name === "memory_save" || name === "memory_update") && note) {
     const id = text(fields.id);
@@ -159,6 +181,8 @@ export interface SpadeRequestLookups {
   noteText?: ((id: string) => string | undefined) | undefined;
   /** A bot's name by its id (`bot_message`). */
   botName?: ((id: string) => string | undefined) | undefined;
+  /** The asking bot's task as it stands (`task_update`). */
+  task?: (() => string | undefined) | undefined;
 }
 
 /**

@@ -336,6 +336,7 @@ mod tests {
             task: task.into(),
             model: "cli:codex/m".into(),
             personality: None,
+            change: None,
         })
     }
 

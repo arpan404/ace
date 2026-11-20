@@ -200,6 +200,9 @@ pub struct AgentInput {
     pub task: String,
     pub model: String,
     pub avatar: Option<AvatarInput>,
+    /// Made from one message: the bot names itself in its first reply (`profile_update`), and
+    /// is "New bot" until then when no name was given.
+    pub naming: bool,
 }
 
 /// What changing an agent takes; `None` keeps the value.
@@ -211,6 +214,10 @@ pub struct AgentChange {
     pub avatar: Option<AvatarInput>,
     /// How it talks; `Some(None)` leaves it to the bot again.
     pub personality: Option<Option<spade_core::personality::Personality>>,
+    /// One line on why the task changed, kept in its history.
+    pub why: Option<String>,
+    /// Who changes it: the bot itself (`self_edit::BY_BOT`), else the person.
+    pub by: Option<&'static str>,
 }
 
 #[derive(Debug, thiserror::Error)]
