@@ -31,8 +31,9 @@ export class AcpConfiguration {
     return this.negotiated;
   }
   setup(raw: unknown, mcp: AcpSessionSupport["mcp"]): void {
+    // Options the agent reported while the session was opening stay unless the reply names them.
     this.selectors = sessionSelectors(
-      this.#redact(raw),
+      { ...object(this.selectors.raw), ...object(this.#redact(raw)) },
       this.#launch.profile,
       this.#quirks.provider !== "acp",
     );

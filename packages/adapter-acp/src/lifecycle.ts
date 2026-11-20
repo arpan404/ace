@@ -71,10 +71,23 @@ export function endPrompt(
     if (tool.child?.placeholder) placeholderChild(s, tool, facts);
     retireTool(s, tool);
   }
+  // A stray session (no subagent association) has nothing else to end it: it ends here, as the
+  // session's routing stops counting it at the same reply.
+  if (agent === s.root)
+    for (const child of s.agents.values()) {
+      if (child === s.root || child.associated || child.placeholder || child.terminal) continue;
+      if (child.active) s.end(child, facts, cancelled || !reason ? "interrupted" : "completed");
+      child.terminal = true;
+      s.disarmCancel(child);
+    }
+  let cancelling = false;
   if (cancelled)
     for (const child of s.agents.values())
-      if (child !== s.root && !child.terminal) child.cancelAt = cancellationDeadline(now);
-  if (cancelled && [...s.agents.values()].some((child) => child !== s.root && !child.terminal))
+      if (child !== s.root && !child.terminal) {
+        s.armCancel(child, cancellationDeadline(now));
+        cancelling = true;
+      }
+  if (cancelling)
     facts.push({ type: "wake.expected", agent: agent.key, until: cancellationDeadline(now) });
   for (const [id, request] of s.requests)
     if (cancelled || request.owner === agent) {
@@ -102,4 +115,20 @@ export function endPrompt(
       item: s.key("stop"),
       draft: { type: "notice", complete: true, level: "warning", code: reason, text: limit },
     });
+}
+
+/**
+ * Work after the root's prompt answered opens an implicit turn; it ends, completed, once no tool
+ * of the root is still running outside a background task, as the session's input gate sees it.
+ */
+export function settleImplicitTurn(s: TranslationState, facts: Fact[]): void {
+  const root = s.root;
+  if (!root.implicitTurn) return;
+  if (s.promptOpen || !root.active) {
+    delete root.implicitTurn;
+    return;
+  }
+  for (const tool of s.liveTools) if (tool.owner === root && !tool.task) return;
+  delete root.implicitTurn;
+  s.end(root, facts, "completed");
 }

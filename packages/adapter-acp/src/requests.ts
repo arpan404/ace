@@ -48,15 +48,9 @@ export function openRequest(
     // The request's own call is what approving runs: it replaces what an earlier update said.
     updateTool(owner, { ...call, toolCallId: nativeTool, sessionUpdate: "tool_call_update" });
   }
-  if (!tool && nativeTool) {
-    updateTool(owner, {
-      ...object(params["toolCall"]),
-      toolCallId: nativeTool,
-      sessionUpdate: "tool_call",
-      kind: string(object(params["toolCall"])["kind"]) || "other",
-      title: string(object(params["toolCall"])["title"]) || method,
-      status: string(object(params["toolCall"])["status"]) || "pending",
-    });
+  const synthesized = requestTool(method, params);
+  if (!tool && synthesized) {
+    updateTool(owner, synthesized);
     tool = s.tool(owner, nativeTool);
   }
   const key = interactionKey(id);
@@ -81,6 +75,26 @@ export function openRequest(
     raw: [raw(frame, method)],
   });
   return true;
+}
+/**
+ * The tool a request names, as a tool_call update: an approval-first tool has no notification
+ * before its request. Translation and the session's shell settlement both read it from here.
+ */
+export function requestTool(
+  method: string,
+  params: Data,
+): (Data & { toolCallId: string }) | undefined {
+  const call = object(params["toolCall"]);
+  const toolCallId = string(params["toolCallId"] ?? call["toolCallId"]);
+  if (!toolCallId) return undefined;
+  return {
+    ...call,
+    toolCallId,
+    sessionUpdate: "tool_call",
+    kind: string(call["kind"]) || "other",
+    title: string(call["title"]) || method,
+    status: string(call["status"]) || "pending",
+  };
 }
 export function answerRequest(
   s: TranslationState,

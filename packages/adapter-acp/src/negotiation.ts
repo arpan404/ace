@@ -35,6 +35,8 @@ export type Negotiated = {
   httpMcp: boolean;
   sseMcp: boolean;
   subagentSessions: boolean;
+  /** How a saved session reopens: session/resume (no replay) when advertised, else session/load. */
+  resumeMethod: "session/resume" | "session/load" | undefined;
   raw: unknown;
 };
 export function negotiate(
@@ -57,7 +59,14 @@ export function negotiate(
   const existing = quirks.capabilities(version ?? response.agentInfo?.version);
   const generic = quirks.provider === "acp";
   const subagentSessions = bridgeSubagents(raw, profile);
+  const resumeMethod =
+    object(advertised.sessionCapabilities)["resume"] != null
+      ? ("session/resume" as const)
+      : advertised.loadSession === true
+        ? ("session/load" as const)
+        : undefined;
   return {
+    resumeMethod,
     raw,
     subagentSessions,
     systemPromptAppend: advertisesSystemPromptAppend(raw),
@@ -66,8 +75,7 @@ export function negotiate(
     capabilities: {
       ...existing,
       subagentTranscripts: generic ? subagentSessions : existing.subagentTranscripts,
-      resume:
-        !profile?.denyResume && advertised.loadSession === true && (generic || existing.resume),
+      resume: !profile?.denyResume && resumeMethod !== undefined && (generic || existing.resume),
       imageInput: advertised.promptCapabilities?.image === true && (generic || existing.imageInput),
       attachmentInput: {
         format: "acp",

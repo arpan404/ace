@@ -7,6 +7,19 @@ export function promptStop(result: unknown): string | undefined {
   const parsed = stopReason.safeParse(object(result)["stopReason"]);
   return parsed.success ? parsed.data : undefined;
 }
+/**
+ * How a session/prompt reply ended its prompt, as both translation and I/O read it: the stop
+ * reason (or "" for an error reply), and whether ACP defines that reason. A reply with no stop
+ * reason at all leaves completion unconfirmed (undefined). An unknown reason still ends the turn.
+ */
+export function promptEnd(
+  message: Record<string, unknown>,
+): { reason: string; known: boolean } | undefined {
+  if (message["error"] !== undefined) return { reason: "", known: true };
+  const reason = object(message["result"])["stopReason"];
+  if (typeof reason !== "string" || !reason) return undefined;
+  return { reason, known: stopReason.safeParse(reason).success };
+}
 export const cancellationGraceMs = 12_000;
 export function cancellationDeadline(now: number): number {
   return now + cancellationGraceMs;
