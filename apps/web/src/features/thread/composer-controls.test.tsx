@@ -41,7 +41,7 @@ test("Add offers context without commands and Files opens the mention picker", a
   expect(within(menu).queryByText("Skills")).toBeNull();
   await userEvent.click(within(menu).getByRole("option", { name: /Files and folders/ }));
   await waitFor(() => expect(message.textContent).toBe("@ "));
-  expect(await screen.findByRole("listbox", { name: "Files and threads" })).toBeTruthy();
+  expect(await screen.findByRole("listbox", { name: "Mention" })).toBeTruthy();
 });
 
 test("providers without native plan mode do not offer it in the catalog", async () => {
@@ -85,16 +85,17 @@ test("a pending switch to another provider tunes the new model's levels, not the
   expect(slider.getAttribute("aria-valuetext")).toBe("High");
 });
 
-test("a file mentioned once comes first in the next @ picker", async () => {
+test("a file mentioned once comes first among the next @ picker's files", async () => {
   const { message } = await open("idle");
   await userEvent.type(message, "Look at @check");
-  await screen.findByRole("listbox", { name: "Files and threads" });
+  await screen.findByRole("listbox", { name: "Mention" });
   await userEvent.keyboard("{ArrowDown}{Enter}");
   const picked = (message.textContent ?? "").trim().slice("Look at @".length);
   await userEvent.clear(message);
   await userEvent.type(message, "@");
-  const files = await screen.findByRole("listbox", { name: "Files and threads" });
-  expect(within(files).getAllByRole("option")[0]?.textContent).toContain(picked);
+  const list = await screen.findByRole("listbox", { name: "Mention" });
+  // Agents, bots, clubs and devices come before the files (ADR 0194).
+  expect(list.querySelector('[role="option"][data-group="Files"]')?.textContent).toContain(picked);
 });
 
 test("a file query that matches nothing says so until Escape dismisses it", async () => {

@@ -9,6 +9,7 @@ import { ThreadId } from "@ace/protocol";
 import { displayAddress } from "./browser-address.ts";
 import type { ComposerToken } from "./composer-tokens.ts";
 import { catalogDisplayName } from "./extension-names.ts";
+import { appIcon, catalogMark } from "./mention-marks.ts";
 
 /*
  * What the composer suggests while typing `@` or a leading `/`, and what the + offers: one set
@@ -270,6 +271,13 @@ export function pickSuggestion(item: ComposerSuggestion, held: HeldReferences): 
  * file, the title for a thread, tab or catalog entry) and what it points at. Offsets start at
  * `start`.
  */
+/** A catalog entry's icon, else an app's mark by name when it is one. */
+function entryIcon(entry: CatalogEntry): string | undefined {
+  if (entry.icon) return entry.icon;
+  const mark = catalogMark(entry);
+  return mark.kind === "app" && mark.candidates.length ? appIcon(mark.candidates) : undefined;
+}
+
 export function suggestionToken(
   item: ComposerSuggestion,
   start: number,
@@ -285,7 +293,7 @@ export function suggestionToken(
         name: entry.name,
         title: label,
         kind: entry.kind,
-        ...(entry.icon ? { icon: entry.icon } : {}),
+        ...(entryIcon(entry) ? { icon: entryIcon(entry) } : {}),
         arguments: "",
         ...(values ? { values } : {}),
       }

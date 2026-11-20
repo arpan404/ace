@@ -259,6 +259,7 @@ export function MessageInput({
               kind={
                 token.catalog?.kind ?? (token.thread ? "thread" : token.browserTab ? "tab" : "file")
               }
+              icon={token.catalog?.icon}
             />
           ),
           node,

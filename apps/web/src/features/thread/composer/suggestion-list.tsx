@@ -64,6 +64,7 @@ export function SuggestionList(props: {
                 <div
                   id={`${props.id}-${index}`}
                   role="option"
+                  data-group={item.group}
                   aria-label={[
                     item.label,
                     item.detail,

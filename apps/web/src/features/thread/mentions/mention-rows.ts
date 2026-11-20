@@ -9,7 +9,8 @@ import {
   type PickerSection,
 } from "@ace/ui-core";
 import type { MentionPicture } from "./mention-mark.tsx";
-import { avatarJson, type useMentionSources } from "./use-mention-sources.ts";
+import { avatarJson } from "./avatar-json.ts";
+import type { useMentionSources } from "./use-mention-sources.ts";
 
 /*
  * The `@` picker's rows (ADR 0194), in its fixed order of sections, filtered by what was typed:

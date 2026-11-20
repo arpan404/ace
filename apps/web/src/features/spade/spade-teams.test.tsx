@@ -208,8 +208,8 @@ test("a message in a group posts to the group", async () => {
   await openTrips();
   const field = await screen.findByRole("combobox", { name: "Message Trips" });
   await userEvent.type(field, "@Wr");
-  const members = await screen.findByRole("listbox", { name: "Members" });
-  await userEvent.click(within(members).getByRole("option", { name: "Writer" }));
+  const members = await screen.findByRole("listbox", { name: "Mention" });
+  await userEvent.click(within(members).getByRole("option", { name: /^Writer/ }));
   await userEvent.type(field, "draft it");
   await userEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() =>

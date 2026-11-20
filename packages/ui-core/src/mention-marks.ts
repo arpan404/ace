@@ -66,3 +66,16 @@ export function catalogMark(
   if (entry.kind === "agent" && provider !== "ace") return { kind: "provider", provider };
   return { kind: "glyph", glyph: entry.kind };
 }
+
+/**
+ * A catalog mention's `icon` naming a connected app's mark by its candidate catalogue ids
+ * (`app:linear,linear-app`): display metadata the chip keeps in the composer and the sent message.
+ */
+export function appIcon(candidates: readonly string[]): string {
+  return `app:${candidates.join(",")}`;
+}
+export function appIconCandidates(icon: string | undefined): string[] | undefined {
+  if (!icon?.startsWith("app:")) return undefined;
+  const candidates = icon.slice(4).split(",").filter(Boolean);
+  return candidates.length ? candidates : undefined;
+}

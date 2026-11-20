@@ -1,6 +1,7 @@
 export { MentionMark, type MentionPicture } from "./mention-mark.tsx";
 export { mentionRows, type MentionRow } from "./mention-rows.ts";
-export { useMentionDevices, useMentionSources, avatarJson } from "./use-mention-sources.ts";
+export { useMentionDevices, useMentionSources } from "./use-mention-sources.ts";
+export { avatarJson } from "./avatar-json.ts";
 export { PictureChip } from "./picture-chip.tsx";
 export { addresseePicture, devicePicture, tokenPicture } from "./token-picture.ts";
 export { SharesLine } from "./shares-line.tsx";

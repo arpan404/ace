@@ -1,5 +1,5 @@
 import { useClient, useSidebarIndex } from "@ace/client-react";
-import { SpadeFaceJson, type DeviceContextItem, type ThreadListEntry } from "@ace/protocol";
+import type { DeviceContextItem, ThreadListEntry } from "@ace/protocol";
 import {
   agentDetail,
   botDetail,
@@ -71,18 +71,6 @@ const sameFacts = (a: ReturnType<typeof threadFacts>, b: ReturnType<typeof threa
   a.title === b.title &&
   a.status.state === b.status.state &&
   a.workspaceId === b.workspaceId;
-
-/** Avatars travel as Spade stored them, so a reply's face matches the picker's. */
-export function avatarJson(avatar: SpadeAvatar): SpadeFaceJson | undefined {
-  const value =
-    avatar.kind === "character"
-      ? avatar.raw
-      : avatar.kind === "image"
-        ? { kind: "image", sha256: avatar.sha256 }
-        : { kind: "spade" };
-  const parsed = SpadeFaceJson.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
-}
 
 const osWords: Record<string, string> = { darwin: "macOS", linux: "Linux", win32: "Windows" };
 
