@@ -2,6 +2,9 @@
 
 //! One timed search: through a fresh `ace-files` over the wire, or through `rg` on the same tree.
 //!
+//! ace's peak memory is the whole process's: it includes the root's quick-open index and watcher,
+//! which a search waits for before it starts.
+//!
 //! Both run under `/usr/bin/time`, which reports the process's CPU time and peak resident set
 //! when it exits. ace is timed from the `search` request to its `searchDone` event (the daemon
 //! keeps the process running, so start-up is not part of what a person waits for); `rg` is timed
@@ -79,6 +82,19 @@ fn ace_search(wire: &mut Wire, root: &Path, query: &Query) -> Result<Sample, Box
         Reply::Root { root } => root,
         other => return Err(format!("openRoot answered {other:?}").into()),
     };
+    // Opening a root starts its quick-open index and its watcher. The daemon keeps roots open, so
+    // a person's search meets a root that finished both long ago: wait for the index, then time.
+    loop {
+        match wire.ask(Op::IndexQuery {
+            root,
+            query: String::new(),
+            limit: 1,
+        })? {
+            Reply::Index(index) if index.ready => break,
+            Reply::Index(_) => std::thread::sleep(Duration::from_millis(50)),
+            other => return Err(format!("indexQuery answered {other:?}").into()),
+        }
+    }
     let started = Instant::now();
     let subscription = match wire.ask(Op::Search {
         root,

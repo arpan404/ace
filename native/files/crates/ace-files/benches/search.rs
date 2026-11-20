@@ -5,7 +5,8 @@
 //! Run from `native/files`: `cargo bench -p ace-files --bench search`. Options:
 //! `--files N` (default 200000), `--dir PATH` (default `/var/tmp/ace-search-bench`, or
 //! `ACE_SEARCH_BENCH_DIR`), `--runs N` (default 5, the median is reported), `--rg PATH`,
-//! `--query NAME` (repeatable), `--regenerate`, and `--drop-caches CMD`, a shell command run before
+//! `--query NAME` (repeatable), `--compare PATH` (another ace-files binary, such as a build of
+//! main, run in the same rotation for a before/after column), `--regenerate`, and `--drop-caches CMD`, a shell command run before
 //! every sample of a cold pass (`sync && sudo purge` on macOS,
 //! `sync && echo 3 | sudo tee /proc/sys/vm/drop_caches` on Linux); without it only the warm pass
 //! runs. The tree is described in `support/search_tree.rs`; each sample starts a fresh process
@@ -66,6 +67,8 @@ struct Options {
     only: Vec<String>,
     regenerate: bool,
     drop_caches: Option<String>,
+    /// Another ace-files binary to run in the same rotation, such as a build of main.
+    compare: Option<PathBuf>,
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
@@ -93,19 +96,15 @@ fn run() -> Result<(), Box<dyn Error>> {
     let warmup = &all[0];
     search_runs::rg(&options.rg, &tree.root, warmup, &scratch)?;
     search_runs::ace(&binary, &tree.root, warmup, &scratch)?;
-    out += &pass(
-        "warm", &options, &tree.root, &binary, &chosen, &scratch, None,
-    )?;
+    let bench = Bench {
+        options: &options,
+        root: &tree.root,
+        binary: &binary,
+        scratch: &scratch,
+    };
+    out += &bench.pass("warm", &chosen, None)?;
     if let Some(command) = &options.drop_caches {
-        out += &pass(
-            "cold",
-            &options,
-            &tree.root,
-            &binary,
-            &chosen,
-            &scratch,
-            Some(command),
-        )?;
+        out += &bench.pass("cold", &chosen, Some(command))?;
     } else {
         out += "\ncold: not measured (pass --drop-caches CMD)\n";
     }
@@ -115,49 +114,82 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// One pass over every query, returning its markdown table.
-fn pass(
-    label: &str,
-    options: &Options,
-    root: &Path,
-    binary: &Path,
-    queries: &[Query],
-    scratch: &Path,
-    drop_caches: Option<&String>,
-) -> Result<String, Box<dyn Error>> {
-    let mut table = format!(
-        "\n{label}\n\n| query | ace first ms | ace total ms | rg first ms | rg total ms | ace/rg | ace CPU s | rg CPU s | ace RSS MB | rg RSS MB | ace lines | rg lines |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n"
-    );
-    for query in queries {
-        let mut ace = Vec::new();
-        let mut rg = Vec::new();
-        for _ in 0..options.runs {
-            drop_cache(drop_caches)?;
-            ace.push(search_runs::ace(binary, root, query, scratch)?);
-            drop_cache(drop_caches)?;
-            rg.push(search_runs::rg(&options.rg, root, query, scratch)?);
+/// What every sample of a run shares.
+struct Bench<'a> {
+    options: &'a Options,
+    root: &'a Path,
+    binary: &'a Path,
+    scratch: &'a Path,
+}
+
+impl Bench<'_> {
+    /// One pass over every query, returning its markdown table. With `--compare`, a second ace
+    /// binary runs in the same rotation and its median total and CPU get columns of their own.
+    fn pass(
+        &self,
+        label: &str,
+        queries: &[Query],
+        drop_caches: Option<&String>,
+    ) -> Result<String, Box<dyn Error>> {
+        let options = self.options;
+        let compare = options.compare.as_deref();
+        let mut table = format!("\n{label}\n\n| query | ace first ms | ace total ms |");
+        if compare.is_some() {
+            table += " before total ms | before CPU s |";
         }
-        let (a, r) = (median(&ace), median(&rg));
-        let row = format!(
-            "| {} | {} | {:.0} | {} | {:.0} | {:.2} | {:.2} | {:.2} | {:.0} | {:.0} | {} | {} |\n",
-            query.name,
-            first(&a),
-            ms(a.total),
-            first(&r),
-            ms(r.total),
-            a.total.as_secs_f64() / r.total.as_secs_f64().max(1e-9),
-            a.cpu.as_secs_f64(),
-            r.cpu.as_secs_f64(),
-            a.peak_rss as f64 / 1e6,
-            r.peak_rss as f64 / 1e6,
-            a.lines,
-            r.lines,
-        );
-        print!("{label} {row}");
-        table += &row;
+        table += " rg first ms | rg total ms | ace/rg | ace CPU s | rg CPU s | ace RSS MB | rg RSS MB | ace lines | rg lines |\n|---|---:|---:|";
+        if compare.is_some() {
+            table += "---:|---:|";
+        }
+        table += "---:|---:|---:|---:|---:|---:|---:|---:|---:|\n";
+        for query in queries {
+            let mut ace = Vec::new();
+            let mut before = Vec::new();
+            let mut rg = Vec::new();
+            for _ in 0..options.runs {
+                if let Some(compare) = compare {
+                    drop_cache(drop_caches)?;
+                    before.push(search_runs::ace(compare, self.root, query, self.scratch)?);
+                }
+                drop_cache(drop_caches)?;
+                ace.push(search_runs::ace(
+                    self.binary,
+                    self.root,
+                    query,
+                    self.scratch,
+                )?);
+                drop_cache(drop_caches)?;
+                rg.push(search_runs::rg(
+                    &options.rg,
+                    self.root,
+                    query,
+                    self.scratch,
+                )?);
+            }
+            let (a, r) = (median(&ace), median(&rg));
+            let mut row = format!("| {} | {} | {:.0} |", query.name, first(&a), ms(a.total));
+            if !before.is_empty() {
+                let b = median(&before);
+                row += &format!(" {:.0} | {:.2} |", ms(b.total), b.cpu.as_secs_f64());
+            }
+            row += &format!(
+                " {} | {:.0} | {:.2} | {:.2} | {:.2} | {:.0} | {:.0} | {} | {} |\n",
+                first(&r),
+                ms(r.total),
+                a.total.as_secs_f64() / r.total.as_secs_f64().max(1e-9),
+                a.cpu.as_secs_f64(),
+                r.cpu.as_secs_f64(),
+                a.peak_rss as f64 / 1e6,
+                r.peak_rss as f64 / 1e6,
+                a.lines,
+                r.lines,
+            );
+            print!("{label} {row}");
+            table += &row;
+        }
+        println!("{table}");
+        Ok(table)
     }
-    println!("{table}");
-    Ok(table)
 }
 
 fn drop_cache(command: Option<&String>) -> Result<(), Box<dyn Error>> {
@@ -223,6 +255,7 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Options, Box<dyn Error>> 
         only: Vec::new(),
         regenerate: false,
         drop_caches: None,
+        compare: None,
     };
     let mut args = args;
     while let Some(arg) = args.next() {
@@ -234,6 +267,7 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Options, Box<dyn Error>> 
             "--rg" => options.rg = PathBuf::from(value("--rg")?),
             "--query" => options.only.push(value("--query")?),
             "--drop-caches" => options.drop_caches = Some(value("--drop-caches")?),
+            "--compare" => options.compare = Some(PathBuf::from(value("--compare")?)),
             "--regenerate" => options.regenerate = true,
             "--bench" => {}
             other => return Err(format!("unknown argument {other}").into()),
