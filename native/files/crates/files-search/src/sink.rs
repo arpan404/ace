@@ -10,7 +10,7 @@ use grep_searcher::{Searcher, Sink, SinkMatch};
 use ignore::DirEntry;
 
 use crate::folders::Folders;
-use crate::open;
+use crate::open::{self, Opened};
 use crate::preview;
 use crate::result::{FileMatches, LineMatch};
 use crate::walk::{Shared, emit};
@@ -37,10 +37,7 @@ pub(crate) fn search_file(
         Some((folder, _)) => folder,
         None => "",
     };
-    let Some(folder) = folders.get(shared.root, folder) else {
-        return;
-    };
-    let Some((file, metadata)) = open::open(folder, entry.file_name(), entry) else {
+    let Some((file, metadata)) = open_entry(shared.root, folders, folder, entry) else {
         return;
     };
     if !metadata.is_file() {
@@ -92,6 +89,27 @@ pub(crate) fn search_file(
         shared.refused.fetch_add(refused, Ordering::Relaxed);
     } else {
         shared.release(reserved);
+    }
+}
+
+/// Opens the walked file through its folder's handle. A handle whose folder no longer sits at its
+/// checkout path is dropped and the folder opened again from the root, once, as a folder renamed
+/// and replaced between two of its files must be.
+fn open_entry(
+    root: &files_safe::Root,
+    folders: &mut Folders,
+    folder: &str,
+    entry: &DirEntry,
+) -> Option<(cap_std::fs::File, cap_std::fs::Metadata)> {
+    let name = entry.file_name();
+    match open::open(root, folders.get(root, folder)?, name, entry) {
+        Opened::File(file, metadata) => return Some((file, metadata)),
+        Opened::Skip => return None,
+        Opened::Moved => folders.forget(folder),
+    }
+    match open::open(root, folders.get(root, folder)?, name, entry) {
+        Opened::File(file, metadata) => Some((file, metadata)),
+        Opened::Moved | Opened::Skip => None,
     }
 }
 

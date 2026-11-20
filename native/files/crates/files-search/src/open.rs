@@ -1,68 +1,85 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Opens the file a walker saw, through the folder that holds it.
+//! Opens the file a walker saw, through the folder that holds it, and proves it is still in the
+//! checkout before a byte of it is read.
 
 use std::ffi::OsStr;
 
 use cap_fs_ext::{FollowSymlinks, OpenOptions, OpenOptionsFollowExt};
-use cap_std::fs::{Dir, File, Metadata};
+use cap_std::fs::{File, Metadata};
+use files_safe::Root;
 use ignore::DirEntry;
 
 use crate::folders::Folder;
 
-/// Opens `name` inside `folder` for reading without following a final symlink, and hands back
-/// its metadata with it, read once from the open handle.
+/// What opening one walked file came to.
+pub(crate) enum Opened {
+    /// The file, with its metadata read once from the open handle.
+    File(File, Metadata),
+    /// The folder handle no longer answers for the folder at its checkout path: it moved, or
+    /// something else took its name. The caller may open the folder again and retry once.
+    Moved,
+    /// The file cannot be opened, or is not the entry at that name any more: skip it.
+    Skip,
+}
+
+/// Opens `name` inside `folder` for reading without following a final symlink.
 ///
-/// `None` means the file could not be opened, or is no longer the file the walker saw, so it must
-/// not be searched.
-pub(crate) fn open(folder: &Folder, name: &OsStr, seen: &DirEntry) -> Option<(File, Metadata)> {
+/// The open goes through a folder handle that may have been proven a while ago, so the proof is
+/// taken again after the open: the folder's checkout path must still name the folder the handle
+/// holds (one lookup from the root), and the name inside it must still be the file that was
+/// opened (one lookup through the handle). A folder moved out of the checkout between its last
+/// proof and this open is caught here, before anything is read from the file.
+pub(crate) fn open(root: &Root, folder: &Folder, name: &OsStr, seen: &DirEntry) -> Opened {
     let mut options = OpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);
-    let file = folder.dir.open_with(name, &options).ok()?;
-    let metadata = file.metadata().ok()?;
-    still_the_entry(&file, &metadata, folder.device, seen).then_some((file, metadata))
+    let Ok(file) = folder.dir.open_with(name, &options) else {
+        return Opened::Skip;
+    };
+    let Ok(metadata) = file.metadata() else {
+        return Opened::Skip;
+    };
+    if !folder.still_named(root) {
+        return Opened::Moved;
+    }
+    if still_at_name(folder, name, &file, &metadata, seen) {
+        Opened::File(file, metadata)
+    } else {
+        Opened::Skip
+    }
 }
 
-/// The device a folder handle lives on, so a file opened through it can be matched with the
-/// entry the walk listed without another lookup.
+/// Whether `name` in the proven folder is still the file that was opened.
+///
+/// The walker's name can be rewritten between the walk and the open, or the file moved away just
+/// after it; comparing identities keeps a search from reading a file that is no longer the one at
+/// that checkout path.
 #[cfg(unix)]
-pub(crate) fn device(dir: &Dir) -> Option<u64> {
+fn still_at_name(
+    folder: &Folder,
+    name: &OsStr,
+    _file: &File,
+    opened: &Metadata,
+    _seen: &DirEntry,
+) -> bool {
     use cap_fs_ext::MetadataExt;
 
-    dir.dir_metadata().ok().map(|metadata| metadata.dev())
-}
-
-#[cfg(not(unix))]
-pub(crate) fn device(_dir: &Dir) -> Option<u64> {
-    None
-}
-
-/// Whether the opened file is the entry the walker produced.
-///
-/// The walker's path can be rewritten between the walk and the open; comparing the two entries
-/// keeps a search from reading a file that was swapped in after it was listed. The walk read each
-/// entry's inode from the folder listing, so a file that carries that inode on the folder's device
-/// is the entry the walk saw, with no lookup at all. A file system whose listing reports other
-/// numbers than `stat` does (some overlay mounts) falls back to comparing the name's identity
-/// now, one `lstat`, which is never weaker than the listing's answer.
-#[cfg(unix)]
-fn still_the_entry(_file: &File, opened: &Metadata, device: Option<u64>, seen: &DirEntry) -> bool {
-    use cap_fs_ext::MetadataExt as CapMetadata;
-    use std::os::unix::fs::MetadataExt as StdMetadata;
-
-    let (opened_device, opened_inode) = (CapMetadata::dev(opened), CapMetadata::ino(opened));
-    if seen.ino() == Some(opened_inode) && device == Some(opened_device) {
-        return true;
-    }
-    let Ok(seen) = seen.metadata() else {
+    let Ok(named) = folder.dir.symlink_metadata(name) else {
         return false;
     };
-    opened_device == StdMetadata::dev(&seen) && opened_inode == StdMetadata::ino(&seen)
+    named.dev() == opened.dev() && named.ino() == opened.ino()
 }
 
-/// Windows identifies files by volume and file index rather than device and inode.
+/// Windows identifies files by volume and file index rather than device and inode, so the open
+/// handle is compared with the walked path.
 #[cfg(windows)]
-fn still_the_entry(file: &File, _opened: &Metadata, _device: Option<u64>, seen: &DirEntry) -> bool {
+fn still_at_name(
+    _folder: &Folder,
+    _name: &OsStr,
+    file: &File,
+    _opened: &Metadata,
+    seen: &DirEntry,
+) -> bool {
     let Ok(clone) = file.try_clone() else {
         return false;
     };
@@ -77,10 +94,11 @@ fn still_the_entry(file: &File, _opened: &Metadata, _device: Option<u64>, seen: 
 
 /// Platforms without a file identity cannot tell, so the open alone decides.
 #[cfg(not(any(unix, windows)))]
-fn still_the_entry(
+fn still_at_name(
+    _folder: &Folder,
+    _name: &OsStr,
     _file: &File,
     _opened: &Metadata,
-    _device: Option<u64>,
     _seen: &DirEntry,
 ) -> bool {
     true
@@ -88,7 +106,7 @@ fn still_the_entry(
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::open;
+    use super::{Opened, open};
     use crate::folders::Folders;
     use files_safe::Root;
     use ignore::{DirEntry, WalkBuilder};
@@ -110,7 +128,9 @@ mod tests {
         let mut folders = Folders::default();
         let folder = folders.get(&root, "").expect("the root folder");
 
-        let (_, metadata) = open(folder, entry.file_name(), &entry).expect("the file opens");
+        let Opened::File(_, metadata) = open(&root, folder, entry.file_name(), &entry) else {
+            panic!("the file opens");
+        };
         assert_eq!(metadata.len(), 12);
     }
 
@@ -132,6 +152,34 @@ mod tests {
         let mut folders = Folders::default();
         let folder = folders.get(&root, "").expect("the root folder");
 
-        assert!(open(folder, entry.file_name(), &entry).is_none());
+        assert!(matches!(
+            open(&root, folder, entry.file_name(), &entry),
+            Opened::Skip
+        ));
+    }
+
+    #[test]
+    fn a_folder_moved_out_of_the_root_after_its_handle_was_proven_is_not_read() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let outside = tempfile::tempdir().expect("another temp dir");
+        std::fs::create_dir_all(dir.path().join("d")).expect("a folder");
+        std::fs::write(dir.path().join("d/one.txt"), "moves out").expect("a file");
+        let root = Root::open(dir.path()).expect("the root opens");
+        let entry = walked(root.path(), "one.txt").expect("the walk lists the file");
+        let mut folders = Folders::default();
+        let folder = folders
+            .get(&root, "d")
+            .expect("the folder is inside while it is proven");
+
+        // Between the proof and the open, the folder leaves the checkout.
+        std::fs::rename(dir.path().join("d"), outside.path().join("d")).expect("the move");
+
+        assert!(matches!(
+            open(&root, folder, entry.file_name(), &entry),
+            Opened::Moved
+        ));
+        // Opening the folder again finds nothing at its checkout path.
+        folders.forget("d");
+        assert!(folders.get(&root, "d").is_none());
     }
 }
