@@ -163,6 +163,20 @@ export function insertGroup(
   );
 }
 
+/** Tabs in strip order: pinned ones first in their order, at most one preview, never pinned. */
+export function stripOrder(tabs: readonly EditorTab[]): EditorTab[] {
+  const pinned: EditorTab[] = [];
+  const rest: EditorTab[] = [];
+  let previewSeen = false;
+  for (const tab of tabs) {
+    let placed = tab;
+    if (tab.preview && (tab.pinned || previewSeen)) placed = { ...tab, preview: false };
+    else if (tab.preview) previewSeen = true;
+    (tab.pinned ? pinned : rest).push(placed);
+  }
+  return [...pinned, ...rest];
+}
+
 export function pinnedCount(tabs: readonly EditorTab[]): number {
   let count = 0;
   while (tabs[count]?.pinned) count += 1;

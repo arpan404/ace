@@ -1,5 +1,5 @@
 import * as z from "zod/mini";
-import { normalize, normalSizes, removeTab, updateGroup, walkGroups } from "./nodes.ts";
+import { normalize, normalSizes, removeTab, stripOrder, updateGroup, walkGroups } from "./nodes.ts";
 import { emptyGroup, groupsOf } from "./tree.ts";
 import {
   defaultExplorer,
@@ -64,7 +64,7 @@ const Explorer = z.looseObject({
 const Closed = z.looseObject({ group: text, index: z.catch(count, 0), tab: z.unknown() });
 
 const Layout = z.looseObject({
-  root: z.unknown(),
+  root: z.optional(z.unknown()),
   focused: z.optional(z.unknown()),
   explorer: z.optional(z.unknown()),
   closed: z.catch(z.array(z.unknown()), []),
@@ -100,16 +100,7 @@ function parseGroup(raw: unknown, reading: Reading): GroupNode | undefined {
     seen.add(tab.path);
     read.push(tab);
   }
-  // Pinned tabs first in their order; one preview at most, and never a pinned one.
-  let previewSeen = false;
-  const tabs = [...read.filter((tab) => tab.pinned), ...read.filter((tab) => !tab.pinned)].map(
-    (tab) => {
-      if (!tab.preview) return tab;
-      if (tab.pinned || previewSeen) return { ...tab, preview: false };
-      previewSeen = true;
-      return tab;
-    },
-  );
+  const tabs = stripOrder(read);
   const mru = [
     ...new Set(
       group.mru.filter((path): path is string => typeof path === "string" && seen.has(path)),
@@ -166,8 +157,13 @@ function parseClosed(raw: readonly unknown[]): ClosedEditor[] {
  */
 export function parseLayout(raw: unknown, fallbackGroupId: string): EditorLayout {
   const parsed = Layout.safeParse(raw);
-  if (!parsed.success) return parseLayout({}, fallbackGroupId);
-  const { root: rawRoot, focused: rawFocused, explorer, closed, ...extra } = parsed.data;
+  const {
+    root: rawRoot,
+    focused: rawFocused,
+    explorer,
+    closed,
+    ...extra
+  } = parsed.success ? parsed.data : { closed: [] };
   const root = parseNode(rawRoot, { ids: new Set() }, 0) ?? emptyGroup(fallbackGroupId);
   const groups = walkGroups(root);
   const focused =
