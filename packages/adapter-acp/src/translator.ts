@@ -15,7 +15,15 @@ import { genericQuirks } from "./quirks/generic.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
 import { TranslationState, type AgentState } from "./state.ts";
 import { endPrompt } from "./lifecycle.ts";
-import { toolDetail, toolStatus, todos, mergeToolData } from "./tools.ts";
+import {
+  mcpArguments,
+  toolDetail,
+  toolError,
+  toolStatus,
+  toolTitle,
+  todos,
+  mergeToolData,
+} from "./tools.ts";
 
 export function createAcpTranslator(
   init: { threadId: ThreadId; rootKey: string; identity: TranslatorIdentity },
@@ -278,7 +286,8 @@ class AcpTranslator implements Translator {
       agent.segment = "";
       const detail = live ? toolDetail(tool.data, s.quirks) : finalizeTool(tool, s.quirks);
       if (detail.kind === "mcp" && tool.completedInput)
-        detail.arguments = tool.completedInput["args"] ?? tool.completedInput;
+        detail.arguments = mcpArguments(tool.completedInput);
+      const error = tool.status === "failed" ? toolError(update) : undefined;
       facts.push({
         type: "item.upsert",
         agent: agent.key,
@@ -288,8 +297,9 @@ class AcpTranslator implements Translator {
           complete: !["pending", "running", "awaiting_approval"].includes(tool.status),
           call: {
             kind: detail.kind,
-            title: string(tool.data["title"]),
+            title: toolTitle(tool.data, detail),
             status: tool.status,
+            ...(error ? { error } : {}),
             detail: {
               ...detail,
               ...(detail.kind === "agent.spawn" && tool.child
