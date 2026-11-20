@@ -59,3 +59,4 @@ export * from "./live-rows.ts";
 export * from "./task-history.ts";
 export * from "./cards.ts";
 export * from "./accent.ts";
+export * from "./notices.ts";

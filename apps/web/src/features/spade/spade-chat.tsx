@@ -1,4 +1,5 @@
 import { SpadeAgentCard, type SpadeCardChoose } from "./spade-agent-card.tsx";
+import { SpadeNoticeRow } from "./spade-notice-row.tsx";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
 import {
   type SpadeTaskLine,
@@ -513,6 +514,8 @@ function RunItem(props: {
       );
     case "question":
       return <SpadeQuestionBubble item={item} botName={bot.name} onReply={handlers.onQuestion} />;
+    case "notice":
+      return <SpadeNoticeRow item={item} botName={bot.name} />;
     case "card":
       return (
         <SpadeAgentCard

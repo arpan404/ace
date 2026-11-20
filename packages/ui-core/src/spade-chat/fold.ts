@@ -23,6 +23,7 @@ import {
 import type { SpadeQuiet } from "./quiet.ts";
 import { parseSpadeDecision, type SpadeDecision } from "./decisions.ts";
 import { spadeCardChosen, spadeCardShown, type SpadeCardRow } from "./cards.ts";
+import { spadeNoticeSent, type SpadeNoticeRow } from "./notices.ts";
 import { spadeRiskWeight, spadeStepFacts, type SpadeStepWeight } from "./step-facts.ts";
 import type { SpadeRefusedHost } from "./wire.ts";
 
@@ -238,7 +239,9 @@ export type SpadeEntry =
    * A card the bot showed (ADR 0200 §5.1): its own row where it was first shown, updated in
    * place by each later version.
    */
-  | ({ kind: "card"; key: string; at?: number } & SpadeCardRow);
+  | ({ kind: "card"; key: string; at?: number } & SpadeCardRow)
+  /** A bot's own notice (`notify`, ADR 0200 §4.2), where it was sent, with what became of it. */
+  | ({ kind: "notice"; key: string; at?: number } & SpadeNoticeRow);
 
 /**
  * A call that asked the person, kept where it asked so its bubble stays in place once answered.
@@ -951,6 +954,12 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         return true;
       }
       steer(state, { kind: "card", key, ...row, ...stamp(stored) });
+      return true;
+    }
+    case "notice_sent": {
+      const row = spadeNoticeSent(event);
+      if (!row) return false;
+      steer(state, { kind: "notice", key, ...row, ...stamp(stored) });
       return true;
     }
     case "card_action": {

@@ -15,6 +15,7 @@ import { spadeHelperLine } from "./helper-words.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { spadeReplySteps, type SpadeStep } from "./steps.ts";
 import type { SpadeTurnUndo } from "./undo.ts";
+import type { SpadeNoticeRow } from "./notices.ts";
 import type { SpadeCardRow } from "./cards.ts";
 
 /*
@@ -103,6 +104,8 @@ type SpadeBubbleOf =
     }
   /** A card the bot showed (ADR 0200 §5.1): its own row, drawn from its data by ace's parts. */
   | ({ kind: "card"; key: string } & SpadeCardRow)
+  /** A bot's own notice (`notify`): its words and where it went. */
+  | ({ kind: "notice"; key: string } & SpadeNoticeRow)
   /** "Named itself Ivy", the name and face changed in place from the line. */
   | { kind: "named"; key: string; name: string; face: boolean; first: boolean }
   /** The person handed the computer back: one quiet line, its names behind a disclosure. */
@@ -235,10 +238,10 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       bubbles.push(entry);
       continue;
     }
-    if (entry.kind === "card") {
+    if (entry.kind === "card" || entry.kind === "notice") {
       onlyGroups = false;
-      const { at, ...card } = entry;
-      bubbles.push({ ...card, ...stamp(at) });
+      const { at, ...row } = entry;
+      bubbles.push({ ...row, ...stamp(at) });
       continue;
     }
     if (entry.kind === "quiet") {
