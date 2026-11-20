@@ -9,6 +9,7 @@ import {
 } from "@ace/ui-core/editor-workbench";
 import { findTab, shownTab, type ScopeWorkspace } from "@ace/ui-core/workspace-tabs";
 import type { WorkspaceActions } from "./actions.ts";
+import { requestExplorer } from "./deck-explorer-ask.ts";
 import { requestReveal } from "./deck-reveal.ts";
 
 /*
@@ -126,4 +127,6 @@ export function findInDeck(target: DeckTarget, query: string) {
     ...layout,
     explorer: { ...layout.explorer, open: true, side: "files", query },
   });
+  // A compact Deck's overlay isn't in the layout: it hears this instead.
+  requestExplorer(target.scope);
 }

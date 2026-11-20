@@ -59,6 +59,7 @@ export {
   type OpenInDeckOptions,
 } from "./deck-tab.ts";
 export { requestReveal, settleReveal, useReveal, type Reveal } from "./deck-reveal.ts";
+export { settleExplorerAsk, useExplorerAsk } from "./deck-explorer-ask.ts";
 export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
 export {
   filePreviewTab,

@@ -23,7 +23,7 @@ import { openInDeck, pullRequestTab, useOptionalWorkspace } from "@/lib/workspac
 import { watchImageCaptures } from "./image-refresh.ts";
 import { useFileLinks } from "./use-file-links.ts";
 import { keptAnswersFor, keptAnswersOwnedBy, type ProseKeep } from "./kept-answers.ts";
-import { MarkitView, type MarkitCallbacks } from "./markit-view.tsx";
+import { MarkitView, type MarkitCallbacks, type ReferenceOpen } from "./markit-view.tsx";
 
 /**
  * Agent prose rendered by markit (Rust + Wasm): CommonMark, tables, tasks, code fences with
@@ -63,7 +63,7 @@ interface LinkActions {
   openThread: (threadId: string, machine: string | undefined) => void;
   openFile?: ((path: string) => void) | undefined;
   /** A file an answer names (`socket.ts:3`), found in the thread's checkout. */
-  openMention?: ((target: string) => void) | undefined;
+  openMention?: ((target: string, how: ReferenceOpen) => void) | undefined;
   forgeReference?: ForgeReferenceAddress | undefined;
 }
 
@@ -91,8 +91,8 @@ function linkCallbacks(
   return {
     onLink,
     onSystemLink: (url, click) => void actions.openWeb(url, click).catch(() => {}),
-    onReference: (reference) => {
-      if (reference.kind === "file") return actions.openMention?.(reference.target);
+    onReference: (reference, how) => {
+      if (reference.kind === "file") return actions.openMention?.(reference.target, how);
       onLink(actions.forgeReference?.(reference) ?? reference.target);
     },
   };

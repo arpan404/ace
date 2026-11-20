@@ -148,8 +148,9 @@ function ScopedReference(props: {
     return (
       <button
         type="button"
-        // A glance: the file shows as the Deck's preview and the chat keeps focus.
-        onClick={() => openInDeck(relative)}
+        // A pointer's glance: the file shows as the Deck's preview and the chat keeps focus. From
+        // the keyboard (a click with no pointer count), the keyboard follows into the editor.
+        onClick={(event) => openInDeck(relative, { focus: event.detail === 0 })}
         className="text-link underline decoration-ring/40 underline-offset-[3px] hover:decoration-current"
       >
         {props.children ?? props.alt ?? displayName(relative)}

@@ -13,6 +13,7 @@ import {
 } from "./deck-test-dom.ts";
 import { settle } from "../buffers/test-support.ts";
 import { mountDeck, tab } from "./deck-test-support.tsx";
+import type { EditorStatus } from "@/features/editor";
 
 /*
  * The Deck's strips and groups through the rendered view, on W1's model and a real registry:
@@ -135,4 +136,42 @@ test("closing a non-last group's last tab removes the group and focuses its neig
   const last = deck.seen.at(-1);
   expect(last && groupsOf(last).map((each) => each.id)).toEqual(["g0"]);
   expect(last?.focused).toBe("g0");
+});
+
+const caret = (line: number): EditorStatus => ({
+  line,
+  column: 1,
+  selections: 1,
+  selectedCharacters: 0,
+  selectedLines: 0,
+  indent: { tabs: false, size: 2 },
+  lineEnding: "\n",
+  encoding: "UTF-8",
+  language: undefined,
+  languageChosen: false,
+  whitespace: false,
+  readOnly: false,
+});
+
+test("a caret move redraws the status line without redrawing any tab strip", async () => {
+  let report: ((status: EditorStatus) => void) | undefined;
+  let tabRenders = 0;
+  await mountDeck(two([tab("a.ts"), tab("b.ts")], [tab("c.ts")]), {
+    overrides: {
+      renderEditor: (props) => {
+        if (props.group === "g0") report = (status) => props.onStatus(status);
+        return null;
+      },
+      tabMenuItems: () => {
+        tabRenders += 1;
+        return null;
+      },
+    },
+  });
+  act(() => report?.(caret(3)));
+  tabRenders = 0;
+  act(() => report?.(caret(7)));
+
+  expect(screen.getByText(/Ln 7, Col 1/)).toBeTruthy();
+  expect(tabRenders).toBe(0);
 });
