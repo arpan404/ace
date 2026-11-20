@@ -18,6 +18,7 @@ export {
 export {
   discoverListeners,
   processCwds,
+  processListeningPorts,
   processParents,
   systemProcessIo,
   type ProcessIo,

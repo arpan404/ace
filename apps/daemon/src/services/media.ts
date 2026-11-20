@@ -78,6 +78,8 @@ export type DaemonMedia = BrowserMedia & {
   attach(producer: IngestProducer): IngestSource;
   /** What ace-media runs on, kept across its restarts and before the runtime exists (empty). */
   acceleration: MediaAccelerationStore;
+  /** ace-media's process while it runs. */
+  pid(): number | undefined;
 };
 
 /** One per daemon: the browser and the screen share it. */
@@ -89,6 +91,7 @@ export function startMedia(context: ServiceContext): DaemonMedia | undefined {
   started.set(context.services, media);
   if (media) context.services.mediaDelivery = () => media.delivery();
   if (media) context.services.mediaAcceleration = media.acceleration;
+  if (media) context.services.mediaPid = () => media.pid();
   return media;
 }
 
@@ -175,6 +178,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     delivery: () =>
       runtime && relayPort ? daemonDelivery(runtime, relayPort, () => settings) : undefined,
     acceleration,
+    pid: () => runtime?.supervisor.snapshot().pid,
     add: (producer) => runtime?.sources.add(producer),
     routed: (kind) => runtime?.sources.routed(kind) ?? false,
     wanted: (kind) => runtime?.sources.wanted(kind) ?? false,

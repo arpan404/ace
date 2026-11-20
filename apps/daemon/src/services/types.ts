@@ -36,6 +36,8 @@ export interface Services {
   storage?: import("../storage/service.ts").StorageService;
   /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
   mediaDelivery?: () => import("./media.ts").DaemonDelivery | undefined;
+  /** ace-media's process while it runs: its listeners are ace's own (ADR 0194). */
+  mediaPid?: () => number | undefined;
   sourceControl?: import("../source-control.ts").SourceControl;
   rediscoverProviders?: () => Promise<void>;
   refreshModelInstances?: (provider: import("@ace/protocol").ProviderKind) => Promise<void>;
