@@ -203,12 +203,16 @@ struct ProjectChoiceCache {
     }
 }
 
+/// The filter's rows per machine scope (its first key), each kept until its machines' projects
+/// change, so the list's every-machine lookup and the menu's one-machine rows don't evict each other.
 struct ProjectRowCache {
-    private var key: [String]?
-    private var kept: [ProjectFilterRow] = []
+    private var kept: [String: (key: [String], rows: [ProjectFilterRow])] = [:]
     mutating func rows(for key: [String], build: () -> [ProjectFilterRow]) -> [ProjectFilterRow] {
-        if key != self.key { kept = build(); self.key = key }
-        return kept
+        let scope = key.first ?? ""
+        if let held = kept[scope], held.key == key { return held.rows }
+        let rows = build()
+        kept[scope] = (key, rows)
+        return rows
     }
 }
 

@@ -69,7 +69,8 @@ struct InboxStack<Destination: View, Side: View>: View {
         }
         guard let workspace = row.workspaceId else { return false }
         // One project across machines: each machine's checkout of it (ADR 0189).
-        if let group = ProjectFilterGroups.row(for: project, in: inbox.projectRows(machine: machine)) {
+        // Resolved across every machine, so a choice made under another machine filter holds.
+        if let group = ProjectFilterGroups.group(for: project, in: inbox.projectRows(machine: "")) {
             return group.checkouts.contains(ProjectFilterGroups.key(key.machineId, workspace))
         }
         return workspace == project

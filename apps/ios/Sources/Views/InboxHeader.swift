@@ -41,7 +41,7 @@ struct InboxFilters: View {
 
     /// The scope in words, under the title: "All projects", "ace", "Studio · ace".
     var subtitle: String {
-        let projectName = ProjectFilterGroups.row(for: project, in: projects)?.name ?? "All projects"
+        let projectName = ProjectFilterGroups.group(for: project, in: inbox.projectRows(machine: ""))?.name ?? "All projects"
         guard inbox.showsMachineNames else { return projectName }
         return "\(machine.isEmpty ? "All machines" : inbox.name(machine)) · \(projectName)"
     }
@@ -61,7 +61,7 @@ struct InboxFilters: View {
             }
         }
         // The stored choice may be an older bare id: the row it names reads as chosen.
-        Picker("Project", selection: Binding(get: { ProjectFilterGroups.row(for: project, in: projects)?.id ?? project },
+        Picker("Project", selection: Binding(get: { ProjectFilterGroups.shown(for: project, in: projects, across: inbox.projectRows(machine: ""))?.id ?? project },
                                              set: { project = $0 })) {
             Text("All projects").tag("")
             ForEach(projects) { row in

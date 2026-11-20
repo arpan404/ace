@@ -61,10 +61,26 @@ enum ProjectFilterGroups {
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    /// The workspace id a stored choice names, for New thread's default project.
-    static func workspace(of choice: String) -> String {
-        guard let slash = choice.firstIndex(of: "/") else { return choice }
-        return String(choice[choice.index(after: slash)...])
+    /// The group a stored choice names, among every machine's rows, so changing the machine
+    /// filter never loses it.
+    static func group(for choice: String, in all: [ProjectFilterRow]) -> ProjectFilterRow? { row(for: choice, in: all) }
+
+    /// The row of `shown` (one machine's) that holds the chosen group's checkout there.
+    static func shown(for choice: String, in shown: [ProjectFilterRow], across all: [ProjectFilterRow]) -> ProjectFilterRow? {
+        guard let group = group(for: choice, in: all) else { return row(for: choice, in: shown) }
+        return shown.first { !$0.checkouts.isDisjoint(with: group.checkouts) }
+    }
+
+    /// The workspace New thread starts on, on `machine`: that machine's checkout of the chosen
+    /// project; none when it has no checkout of it. An id no row knows is passed on as it is.
+    static func checkout(of choice: String, on machine: String, in all: [ProjectFilterRow]) -> String? {
+        guard !choice.isEmpty else { return nil }
+        guard let group = group(for: choice, in: all) else {
+            guard let slash = choice.firstIndex(of: "/") else { return choice }
+            return choice[..<slash] == machine ? String(choice[choice.index(after: slash)...]) : nil
+        }
+        let prefix = "\(machine)/"
+        return group.checkouts.sorted().first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
     }
 
     /// The row a stored choice names: a checkout key, or a bare workspace id from an older
