@@ -31,6 +31,7 @@ import {
   compactBelowPx,
   useDeckBuffers,
   type DeckEditorProps,
+  type DeckViewerProps,
   type StatusNotice,
 } from "@/features/editor-workbench/index.ts";
 import { useEditorAnnotations } from "@/features/editor";
@@ -65,6 +66,7 @@ import {
   type SaveProblem,
 } from "./deck-actions.ts";
 import { DeckExplorer, type ExplorerOpen } from "./deck-explorer.tsx";
+import { DeckFileView } from "./deck-file-view.tsx";
 import { DeckTabMenuItems } from "./deck-tab-menu.tsx";
 import { deckKeys, type DeckCommand } from "./deck-keys.ts";
 import { groupIds, openPaths } from "./deck-layout.ts";
@@ -396,6 +398,7 @@ export function DeckPanel(props: TabViewProps) {
           }
           onQuickOpen={() => quickOpen.set(() => threadId)}
           renderEditor={editorFor(threadId)}
+          renderViewer={viewerFor(threadId)}
           tabMenuItems={menuFor(threadId)}
           explorerToggle={
             <button
@@ -422,6 +425,7 @@ function emptyOf(layout: EditorLayout): EditorLayout {
 }
 
 const renderers = new Map<string, (editor: DeckEditorProps) => ReactNode>();
+const viewers = new Map<string, (viewer: DeckViewerProps) => ReactNode>();
 const menus = new Map<string, (path: string) => ReactNode>();
 
 /** One thread's items for its tabs' menus. */
@@ -440,6 +444,16 @@ function editorFor(threadId: string): (editor: DeckEditorProps) => ReactNode {
   if (!render) {
     render = (editor) => <RevealedEditor threadId={threadId} {...editor} />;
     renderers.set(threadId, render);
+  }
+  return render;
+}
+
+/** One thread's read-only viewer for pictures, players and binary files, kept like the editor's. */
+function viewerFor(threadId: string): (viewer: DeckViewerProps) => ReactNode {
+  let render = viewers.get(threadId);
+  if (!render) {
+    render = (viewer) => <DeckFileView key={viewer.path} threadId={threadId} {...viewer} />;
+    viewers.set(threadId, render);
   }
   return render;
 }

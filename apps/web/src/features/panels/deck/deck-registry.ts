@@ -11,7 +11,8 @@ import {
   type BufferRegistry,
   type EditCall,
 } from "@/features/editor-workbench/index.ts";
-import { daemonCheckout } from "../files/checkout-source.ts";
+import { imageType } from "@ace/ui-core";
+import { daemonCheckout, mediaOf } from "../files/checkout-source.ts";
 import { fileManagement } from "../files/file-management-source.ts";
 import { provideUnsaved } from "./deck-close.ts";
 import { keepDrafts } from "./keep-drafts.ts";
@@ -76,7 +77,14 @@ export function deckRegistry(client: ClientApi): BufferRegistry {
   const source = daemonCheckout(client);
   registry = createBufferRegistry({
     files: checkoutFiles((threadId) => ({
-      read: (path, signal) => source.read(threadId, path, signal),
+      // Pictures and players are never text: the Deck's viewer reads their bytes itself, so the
+      // buffer doesn't read them a second time only to drop them.
+      read: (path, signal) =>
+        imageType(path)
+          ? Promise.resolve({ kind: "image" })
+          : mediaOf(path)
+            ? Promise.resolve({ kind: "media" })
+            : source.read(threadId, path, signal),
       mutate: (operation) => fileManagement(client, threadId).mutate(operation),
     })),
     drafts,

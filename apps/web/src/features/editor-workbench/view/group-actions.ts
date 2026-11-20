@@ -7,6 +7,7 @@ import {
   keepTab,
   moveTab,
   pinTab,
+  setViewState,
   tabsToClose,
   unpinTab,
   type CloseWhich,
@@ -15,6 +16,7 @@ import {
   type NewGroupId,
   type Side,
   type TabRef,
+  type ViewState,
 } from "@ace/ui-core/editor-workbench";
 import type { DeckBuffers } from "./deck-buffers.ts";
 import type { TabDrag } from "./drag.ts";
@@ -34,6 +36,8 @@ export interface GroupActions {
   dropInStrip(drag: TabDrag, index: number, copy: boolean): void;
   /** A dragged tab dropped on this group's editor: the middle, or an outer third. */
   dropOnEditor(drag: TabDrag, zone: Side | "center", copy: boolean): void;
+  /** Store a tab's view state with the layout (Markdown's Preview or Source choice). */
+  setView(path: string, view: ViewState): void;
 }
 
 /** What the group's actions need from the Deck around them. */
@@ -104,5 +108,6 @@ export function bindGroupActions(group: string, context: GroupContext): GroupAct
         zone === "center" ? { kind: "group", group } : { kind: "side", group, side: zone },
         copy,
       ),
+    setView: (path, view) => run(setViewState(layout, { group, path }, view)),
   };
 }

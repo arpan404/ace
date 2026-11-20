@@ -54,11 +54,24 @@ export interface DeckEditorProps {
   layer?: EditorLayer | undefined;
 }
 
+/** A file the editor doesn't show as text: a picture, a player, a binary or too-large file. */
+export interface DeckViewerProps {
+  path: string;
+  group: string;
+  /** What the read found instead of text: "image", "media", "binary", "large". */
+  reason: string;
+}
+
 /** Everything a group needs from outside the layout. */
 export interface DeckHost {
   buffers: DeckBuffers;
   /** Draw a group's editor; unset, the Deck draws `CodeEditor` on the shared buffer. */
   renderEditor?: ((props: DeckEditorProps) => ReactNode) | undefined;
+  /**
+   * Draw a file the editor doesn't take, read only (spec 65); unset, the group says why in one
+   * line.
+   */
+  renderViewer?: ((props: DeckViewerProps) => ReactNode) | undefined;
   reportStatus(group: string, report: StatusReport | undefined): void;
   /** Unset, Merge runs the buffer's own three-way merge. */
   onMerge?: ((path: string) => void) | undefined;

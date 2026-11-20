@@ -9,6 +9,7 @@ import type { DeckEditorProps, DeckHost } from "./deck-host.ts";
 import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
 import { FileProblem, LoadingLines, NoFileOpen } from "./editor-states.tsx";
 import type { GroupActions } from "./group-actions.ts";
+import { MarkdownChoice, MarkdownPreview, markdownShow } from "./markdown-view.tsx";
 import { dropZone, type GroupNode, type Side } from "@ace/ui-core/editor-workbench";
 import { TabStrip } from "./tab-strip.tsx";
 
@@ -34,6 +35,8 @@ export function GroupView(props: {
   const snapshot = useSnapshot(host.buffers, path);
   const buffer = path === undefined ? undefined : host.buffers.buffer(path);
   const load = snapshot?.status;
+  const tab = group.tabs.find((each) => each.path === path);
+  const markdown = markdownShow(tab);
   const [zone, setZone] = useState<Zone | undefined>(undefined);
   const { reportStatus } = host;
   // Stable per group, so an editor can report from an effect without re-running it.
@@ -60,7 +63,19 @@ export function GroupView(props: {
         groupMenu={props.groupMenu}
         tabMenuItems={host.tabMenuItems}
       />
-      <Breadcrumbs path={path} />
+      <Breadcrumbs
+        path={path}
+        end={
+          path !== undefined &&
+          markdown &&
+          load?.kind === "ready" && (
+            <MarkdownChoice
+              value={markdown}
+              onChange={(next) => actions.setView(path, { ...tab?.view, markdown: next })}
+            />
+          )
+        }
+      />
       {path !== undefined && (
         <AgentNotice
           snapshot={snapshot}
@@ -98,7 +113,13 @@ export function GroupView(props: {
             <NoFileOpen onQuickOpen={host.onQuickOpen} />
           ) : null
         ) : buffer && load?.kind === "ready" ? (
-          showEditor(host, { path, buffer, group: group.id, focused: props.focused, onStatus })
+          markdown === "preview" ? (
+            <MarkdownPreview buffer={buffer} />
+          ) : (
+            showEditor(host, { path, buffer, group: group.id, focused: props.focused, onStatus })
+          )
+        ) : load?.kind === "unreadable" && host.renderViewer ? (
+          host.renderViewer({ path, group: group.id, reason: load.reason })
         ) : load &&
           (load.kind === "missing" || load.kind === "unreadable" || load.kind === "failed") ? (
           <FileProblem
