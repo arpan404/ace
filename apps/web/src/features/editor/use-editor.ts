@@ -1,16 +1,9 @@
-import {
-  EditorDocument,
-  lineMarks,
-  type Applied,
-  type LineEdit,
-  type Selection,
-  type TextReplacement,
-} from "@ace/editor";
+import { EditorDocument, lineMarks, type Applied, type Selection } from "@ace/editor";
 import { fileLanguage, type LineMark } from "@ace/ui-core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sameSelections } from "./cursor.ts";
 import { MarkitLineHighlighter } from "./highlighter.ts";
-import type { SharedDocument } from "./types.ts";
+import type { DocumentView, EditBatch, SharedDocument } from "./types.ts";
 import { ensureEditorReady } from "./wasm.ts";
 
 /*
@@ -55,15 +48,7 @@ export interface EditorDocumentState {
   retry(): void;
 }
 
-/** One applied edit's changed lines, with the document's line count and version after it. */
-export interface EditBatch {
-  spans: readonly LineEdit[];
-  /** The ranges the transaction replaced, for carrying a stored position through it. */
-  replacements: readonly TextReplacement[];
-  lines: number;
-  /** The document's version once the spans were applied. */
-  version: number;
-}
+export type { EditBatch } from "./types.ts";
 
 export function useEditorDocument(options: {
   text: string;
@@ -224,7 +209,8 @@ export function useEditorDocument(options: {
     [],
   );
 
-  const after = useCallback(
+  /** What any applied edit changes in this view, whichever view made it: colours, layout, carets. */
+  const redraw = useCallback(
     (batch: EditBatch, colours = true) => {
       if (!doc) return;
       if (colours)
@@ -232,51 +218,83 @@ export function useEditorDocument(options: {
           const inserted = doc.lines(span.firstLine, span.firstLine + span.insertedLines);
           highlighter?.edit(span.firstLine, span.removedLines, inserted);
         }
-      // Before React redraws: a layout that measures the new text must already know the edit,
-      // and the page's own callback only hears about it once that layout has the new rows.
+      // Before React redraws: a layout that measures the new text must already know the edit.
       onApplied.current?.(batch);
-      onEdit.current?.();
-      cursorPast.current = [];
       setSelections(doc.selections());
       setPrimary(doc.primarySelection());
       setVersion((value) => value + 1);
+    },
+    [doc, highlighter],
+  );
+
+  const after = useCallback(
+    (batch: EditBatch, colours = true) => {
+      if (!doc) return;
+      redraw(batch, colours);
+      // The page's own callback hears about the edit once the layout has the new rows.
+      onEdit.current?.();
+      cursorPast.current = [];
       scheduleCommit();
     },
-    [doc, highlighter, scheduleCommit],
+    [doc, redraw, scheduleCommit],
+  );
+
+  // A shared document's other mounted views (another split of the file) hear each edit this
+  // view applies, as this one hears theirs.
+  const shared = options.shared;
+  const sharing = shared && doc === shared.doc ? shared : undefined;
+  const self = useRef<DocumentView>(undefined);
+  const others = useCallback(
+    () => (sharing ? sharing.views().filter((view) => view !== self.current) : []),
+    [sharing],
   );
 
   const edit = useCallback(
     (run: (target: EditorDocument) => Applied | undefined): boolean => {
       if (!doc || !editable) return false;
+      const peers = others();
       onBeforeEdit.current?.();
+      for (const peer of peers) peer.before();
       const applied = run(doc);
       if (!applied) {
         // Nothing landed: a position remembered for this operation described no change.
         onNoEdit.current?.();
         return false;
       }
-      after({
+      const batch: EditBatch = {
         spans: applied.spans,
         replacements: applied.replacements,
         lines: doc.lenLines(),
         version: applied.version,
-      });
+      };
+      after(batch);
+      for (const peer of peers) peer.applied(batch);
       return true;
     },
-    [doc, editable, after],
+    [doc, editable, after, others],
   );
 
-  // The owner's edits to a shared document run through this view while it is mounted.
-  const shared = options.shared;
-  useEffect(
-    () => (shared && doc === shared.doc ? shared.attach(edit) : undefined),
-    [shared, doc, edit],
+  // The owner's edits run through this view while it is mounted; other views' reach it here.
+  const view = useMemo<DocumentView>(
+    () => ({ edit, before: () => onBeforeEdit.current?.(), applied: (batch) => redraw(batch) }),
+    [edit, redraw],
   );
+  useEffect(() => {
+    if (!sharing) return undefined;
+    self.current = view;
+    const detach = sharing.attach(view);
+    return () => {
+      if (self.current === view) self.current = undefined;
+      detach();
+    };
+  }, [sharing, view]);
 
   const replaceText = useCallback(
     (next: string) => {
       if (!doc || next === doc.text()) return;
+      const peers = others();
       onBeforeEdit.current?.();
+      for (const peer of peers) peer.before();
       const before = doc.selections();
       const last = Math.max(0, doc.lenLines() - 1);
       const applied = doc.apply([
@@ -294,13 +312,17 @@ export function useEditorDocument(options: {
       highlighter?.setText(next);
       // A reload is not an edit at the reader's position: its one range covers the file, and
       // mapping through it would put the view at the end. The remembered line stays where it is.
-      after(
-        { spans: applied.spans, replacements: [], lines: doc.lenLines(), version: applied.version },
-        false,
-      );
+      const batch = {
+        spans: applied.spans,
+        replacements: [],
+        lines: doc.lenLines(),
+        version: applied.version,
+      };
+      after(batch, false);
+      for (const peer of peers) peer.applied(batch);
       commit();
     },
-    [doc, highlighter, after, commit],
+    [doc, highlighter, after, commit, others],
   );
 
   const publish = useCallback(

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, type Ref } from "react";
 import { beforeAll, beforeEach, expect, test } from "vitest";
@@ -81,6 +81,30 @@ test("two editors of one buffer show one text: typing in one shows in the other"
 
   expect(right.current?.text()).toBe("one!\ntwo\n");
   expect(buffer.snapshot().dirty).toBe(true);
+});
+
+test("typing in one split redraws the other split's rows of the same file", async () => {
+  const { buffer } = await setup("one\ntwo\n");
+  const left = createRef<EditorHandle>();
+  const right = createRef<EditorHandle>();
+  render(
+    <>
+      <View buffer={buffer} label="Left" ref={left} />
+      <View buffer={buffer} label="Right" ref={right} />
+    </>,
+  );
+  await waitFor(() => expect(left.current && right.current).toBeTruthy());
+  const rightRows = screen.getByRole("region", { name: "Right" });
+  expect(within(rightRows).getByText("one")).toBeTruthy();
+
+  act(() => left.current?.focus());
+  act(() =>
+    left.current?.setSelections([{ anchor: { line: 0, column: 3 }, head: { line: 0, column: 3 } }]),
+  );
+  await userEvent.keyboard("!{Enter}three");
+
+  expect(await within(rightRows).findByText("one!")).toBeTruthy();
+  expect(within(rightRows).getByText("three")).toBeTruthy();
 });
 
 test("a merge the registry lands shows in the mounted editor, and unmounting keeps the text", async () => {

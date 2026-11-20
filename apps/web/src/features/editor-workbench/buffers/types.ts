@@ -1,4 +1,5 @@
 import type { Applied, EditorDocument, LineChange, MergeChunk, MergeResult } from "@ace/editor";
+import type { DocumentView } from "@/features/editor";
 import type { MigratedDraft } from "@ace/ui-core/editor-workbench";
 import type { Author } from "./attribution.ts";
 
@@ -135,12 +136,14 @@ export type DocumentEdit = (run: (doc: EditorDocument) => Applied | undefined) =
 
 /**
  * What a `CodeEditor` takes to show a shared document: the document, and `attach`, through which
- * the mounted view lends its edit path so text the registry lands (a reload, a merge) updates its
- * layout, colours and carets like the person's own edits. Stable for one document.
+ * each mounted view joins it: text the registry lands (a reload, a merge) runs through a view's
+ * edit path, and an edit in one view (one split) reaches the others. Stable for one document.
  */
 export interface BufferView {
   doc: EditorDocument;
-  attach(edit: DocumentEdit): () => void;
+  attach(view: DocumentView): () => void;
+  /** The views mounted now, oldest first. */
+  views(): readonly DocumentView[];
 }
 
 /** One shared buffer. Views and tabs hold it through a lease. */

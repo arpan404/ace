@@ -1,4 +1,5 @@
 import { EditorDocument } from "@ace/editor";
+import type { DocumentView } from "@/features/editor";
 import type { Author } from "./attribution.ts";
 import { DraftSlot } from "./draft-slot.ts";
 import { opening } from "./opening.ts";
@@ -12,7 +13,6 @@ import type {
   BufferStatus,
   BufferView,
   Clash,
-  DocumentEdit,
   DiskFile,
   DraftStore,
   FilePort,
@@ -66,8 +66,6 @@ export class Buffer implements TextBuffer {
   readonly #ctx: BufferContext;
   #doc: EditorDocument | undefined;
   #view: BufferView | undefined;
-  /** Edit paths of the mounted views, newest last. */
-  readonly #editors: DocumentEdit[] = [];
   /** The registry is landing text: the views' edit callbacks are not the person typing. */
   #landing = false;
   #status: BufferStatus = { kind: "loading" };
@@ -104,17 +102,22 @@ export class Buffer implements TextBuffer {
   view(): BufferView | undefined {
     const doc = this.#doc;
     if (!doc) return undefined;
-    if (this.#view?.doc !== doc)
+    if (this.#view?.doc !== doc) {
+      // Each document keeps its own views: one that is still leaving an old document never
+      // counts as a view of the new one.
+      const mounted: DocumentView[] = [];
       this.#view = {
         doc,
-        attach: (edit) => {
-          this.#editors.push(edit);
+        attach: (view) => {
+          mounted.push(view);
           return () => {
-            const index = this.#editors.lastIndexOf(edit);
-            if (index >= 0) this.#editors.splice(index, 1);
+            const index = mounted.lastIndexOf(view);
+            if (index >= 0) mounted.splice(index, 1);
           };
         },
+        views: () => mounted,
       };
+    }
     return this.#view;
   }
 
@@ -476,7 +479,8 @@ export class Buffer implements TextBuffer {
     if (this.#doc !== doc || doc.version() !== at) return false;
     this.#landing = true;
     try {
-      landLineChanges(doc, changes, this.#editors.at(-1));
+      const through = this.#view?.doc === doc ? this.#view.views().at(-1) : undefined;
+      landLineChanges(doc, changes, through && ((run) => through.edit(run)));
     } finally {
       this.#landing = false;
     }
