@@ -199,6 +199,10 @@ impl Engine {
         self.kick_wakes();
         // Routine slots that came due catch up once, on the routines' next look.
         self.routines_shared().wake.notify_one();
+        // A withdrawn package's pause is this one: resuming ends it too (ADR 0200 §6.1).
+        if let Err(error) = crate::packages::forget_withdrawal(self, agent) {
+            tracing::warn!(%error, %agent, "a resumed bot still reads withdrawn");
+        }
         // Messages that waited are answered.
         self.resume(&id)?;
         self.announce(&id);
