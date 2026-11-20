@@ -46,7 +46,7 @@ const work = (agents: Agent[], extra: Partial<ThreadWork> = {}): ThreadWork => (
   agents,
   tasks: [],
   interactions: [],
-  status: { state: "working" },
+  status: { state: "working", agents: 1 },
   ...extra,
 });
 

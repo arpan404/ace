@@ -118,6 +118,8 @@ const write = (agent: string, item: string, path: string): Fact[] => [
   facts.toolDone(agent, item),
 ];
 
+const names = (rows: { name: string }[] | undefined) => rows?.map((row) => row.name);
+
 describe("the phone's Summary", () => {
   test("Now says working with the subagent at work, then done once the whole tree settled", async () => {
     const { daemon, sink, follow } = await opened("now", [
@@ -179,7 +181,6 @@ describe("the phone's Summary", () => {
     follow();
     await until(() => (view(sink)?.agents?.asks.length ?? 0) > 0, "asker listed");
     const agents = view(sink)?.agents;
-    const names = (rows: { name: string }[] | undefined) => rows?.map((row) => row.name);
     expect(names(agents?.asks)).toEqual(["Planner"]);
     expect(agents?.asks[0]).toMatchObject({ step: "Asks: Which branch?", action: "Answer" });
     expect(names(agents?.working)).toEqual(["Tester"]);
