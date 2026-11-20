@@ -1,5 +1,6 @@
 import { EditorDocument } from "@ace/editor";
 import type { Author } from "./attribution.ts";
+import { opening } from "./opening.ts";
 import { reconcile, type ReconcileHost } from "./reconcile.ts";
 import { applyLineChanges, utf8Length } from "./text-edits.ts";
 import type {
@@ -155,27 +156,12 @@ export class Buffer implements TextBuffer {
     ]);
     if (generation !== this.#generation || this.disposed) return;
     if (!ready) return this.#setStatus({ kind: "failed", message: "The editor couldn't load." });
-    const fromDraft = draft && { text: draft.original, version: draft.version };
-    if (!read.ok) {
-      // Offline with a draft: the person keeps reading and typing; reconnect checks again.
-      if (draft && fromDraft) this.#adopt(draft.text, fromDraft, true);
-      else this.#setStatus({ kind: "failed", message: read.message });
-      return this.#settled();
-    }
-    const file = read.file;
-    if (file.kind === "unreadable") this.#setStatus({ kind: "unreadable", reason: file.reason });
-    else if (file.kind === "missing") {
-      if (draft && fromDraft) {
-        this.#adopt(draft.text, fromDraft, true);
-        this.#clash = { kind: "deleted", by: this.#author() };
-      } else this.#setStatus({ kind: "missing" });
-    } else if (!draft || !fromDraft) this.#adopt(file.text, theirsOf(file), false);
-    else if (draft.version === file.version) {
-      this.#adopt(draft.text, theirsOf(file), draft.text !== file.text);
-      if (!this.#dirty) void this.#persist();
-    } else {
-      this.#adopt(draft.text, fromDraft, true);
-      this.#clash = { kind: "changed", theirs: theirsOf(file), by: this.#author() };
+    const next = opening(read, draft);
+    if (next.kind === "status") this.#setStatus(next.status);
+    else {
+      const clash: Clash | undefined = next.clash && { ...next.clash, by: this.#author() };
+      this.#adopt(next.text, next.base, next.dirty, clash);
+      if (next.dropDraft) void this.#persist();
     }
     this.#settled();
   }
@@ -387,14 +373,14 @@ export class Buffer implements TextBuffer {
 
   // State and storage.
 
-  #adopt(text: string, base: Theirs, dirty: boolean): void {
+  #adopt(text: string, base: Theirs, dirty: boolean, clash?: Clash): void {
     this.#free();
     const doc = new EditorDocument(text);
     this.#doc = doc;
     this.#base = base;
     this.#dirty = dirty;
     this.#cleanAt = dirty ? Number.NaN : doc.version();
-    this.#clash = undefined;
+    this.#clash = clash;
     this.bytes = utf8Length(text);
     this.#status = { kind: "ready" };
     this.#emit({ type: "document" });
