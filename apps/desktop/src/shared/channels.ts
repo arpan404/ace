@@ -206,6 +206,15 @@ export const requests = {
   /** Open a live stream; its frames and end arrive as `spade.live` events. */
   "spade.live.open": { request: SpadeLiveOpen, result: None },
   "spade.live.close": { request: SpadeLiveClose, result: None },
+  /**
+   * The menu-bar popover (macOS): open the app window (on a thread or page when given) and
+   * close the popover; fit the popover to its page's height; close it (Esc); quit, or quit
+   * completely.
+   */
+  "tray.open": { request: DeepLink.nullable(), result: None },
+  "tray.fit": { request: z.number().int().min(40).max(1200), result: None },
+  "tray.hide": { request: None, result: None },
+  "tray.quit": { request: z.object({ completely: z.boolean() }), result: None },
 } as const;
 export type RequestChannel = keyof typeof requests;
 export type RequestOf<C extends RequestChannel> = z.input<(typeof requests)[C]["request"]>;

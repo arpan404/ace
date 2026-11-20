@@ -70,6 +70,11 @@ export { transcriptSizes } from "@ace/themes";
 
 const storageKey = "ace.appearance";
 
+/** Whether a change to stored settings (`key`, null when all were cleared) touches the look. */
+export function changesAppearance(key: string | null): boolean {
+  return key === null || key === storageKey;
+}
+
 /** The Surfaces choice the slider replaced, read only to carry it over. */
 const EarlierSurfaces = z.object({
   surface: z.optional(z.unknown()),

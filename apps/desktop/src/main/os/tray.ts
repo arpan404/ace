@@ -1,4 +1,4 @@
-import { Menu, Tray, nativeImage, type NativeImage } from "electron";
+import { Menu, Tray, nativeImage, type NativeImage, type Rectangle } from "electron";
 import type { DaemonStatus } from "../../shared/contract.ts";
 import { noWork, type WorkSummary } from "../link/thread-watch.ts";
 
@@ -8,12 +8,18 @@ export interface TrayActions {
   quitAll(): void;
   /** Quits and stops the daemon too. */
   quitCompletely(): void;
+  /**
+   * macOS: the icon was clicked; opens or closes the menu-bar popover under it. False when
+   * there is no popover yet, and the menu opens instead.
+   */
+  popover?(icon: Rectangle): boolean;
 }
 
 /**
  * The menu-bar (macOS) or notification-area icon while ace keeps running in the background:
  * daemon status, the needs-you count, Open, Pause new work, Quit (the daemon this app started
- * keeps running, ADR 0186) and Quit ace completely (it stops too).
+ * keeps running, ADR 0186) and Quit ace completely (it stops too). On macOS a click opens the
+ * popover (os/tray-popover.ts) and a right-click this menu.
  */
 export class StatusTray {
   private tray: Tray | undefined;
@@ -23,6 +29,7 @@ export class StatusTray {
   private shown: string | undefined;
   private actions: TrayActions;
   private iconPath: string;
+  private menu: Menu | undefined;
 
   /** `iconPath` is the 1x template image; its `@2x` sibling is picked up beside it. */
   constructor(actions: TrayActions, iconPath: string) {
@@ -34,8 +41,14 @@ export class StatusTray {
     if (this.tray) return;
     this.tray = new Tray(icon(this.iconPath));
     this.tray.setToolTip("ace");
-    this.tray.on("click", () => {
-      if (process.platform !== "darwin") this.actions.open();
+    const tray = this.tray;
+    tray.on("click", (_event, bounds) => {
+      if (process.platform !== "darwin") return this.actions.open();
+      if (this.actions.popover?.(bounds)) return;
+      if (this.menu) tray.popUpContextMenu(this.menu);
+    });
+    tray.on("right-click", () => {
+      if (this.menu && this.actions.popover) tray.popUpContextMenu(this.menu);
     });
     this.render();
   }
@@ -73,23 +86,24 @@ export class StatusTray {
     if (shown === this.shown) return;
     this.shown = shown;
     if (process.platform === "darwin") tray.setTitle(needsYou ? ` ${needsYou}` : "");
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: state, enabled: false },
-        ...(note ? [{ label: note, enabled: false }] : []),
-        { label: needsYou ? `${needsYou} need you` : "Nothing needs you", enabled: false },
-        { type: "separator" },
-        { label: "Open ace", click: () => this.actions.open() },
-        {
-          label: paused ? "Resume new work" : "Pause new work",
-          enabled: running,
-          click: () => this.actions.pause(!paused),
-        },
-        { type: "separator" },
-        { label: "Quit ace", click: () => this.actions.quitAll() },
-        { label: "Quit ace completely", click: () => this.actions.quitCompletely() },
-      ]),
-    );
+    this.menu = Menu.buildFromTemplate([
+      { label: state, enabled: false },
+      ...(note ? [{ label: note, enabled: false }] : []),
+      { label: needsYou ? `${needsYou} need you` : "Nothing needs you", enabled: false },
+      { type: "separator" },
+      { label: "Open ace", click: () => this.actions.open() },
+      {
+        label: paused ? "Resume new work" : "Pause new work",
+        enabled: running,
+        click: () => this.actions.pause(!paused),
+      },
+      { type: "separator" },
+      { label: "Quit ace", click: () => this.actions.quitAll() },
+      { label: "Quit ace completely", click: () => this.actions.quitCompletely() },
+    ]);
+    // With a popover, macOS opens the menu itself on a right-click (above); a menu set here
+    // would open on every click instead.
+    if (!this.actions.popover) tray.setContextMenu(this.menu);
   }
 }
 
