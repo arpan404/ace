@@ -10,7 +10,7 @@ agents) for multi-day, multi-agent work"). Builds on [ADR 0126](0126-spade-agent
 check of done) and [ADR 0160](0160-spade-wake-and-owned-services.md) (wakes). AGENTS.md
 priority 1 applies throughout: an agent never reads as done while any part of its tree works or
 waits on the person.
-Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): decision 4 (subtree budgets, `worker_budget`, `budget_usd`, `PUT /v1/agents/{id}/budget`) and the `parked` state are removed; a tree's spend is shown, never bounded.
+Amended by amendment 1 below (2026-11-19: standing bots and clubs). Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): decision 4 (subtree budgets, `worker_budget`, `budget_usd`, `PUT /v1/agents/{id}/budget`) and the `parked` state are removed; a tree's spend is shown, never bounded.
 
 ## Context
 
@@ -213,3 +213,32 @@ ace:
   raise action.
 - **Reports in the orchestrator's conversation**, as one quiet line each that opens the
   worker.
+
+## Amendment 1 (2026-11-19): bots make standing bots for the person
+
+Decided by the owner (2026-11-19: "a bot can create a new standing bot ... e.g. Spade making a
+'Research' bot for the person, or a manager bot hiring a specialist"). Builds on
+[ADR 0194](0194-spade-bots-start-from-one-message.md).
+
+1. **`bot_create {kind: standing}`** makes a bot of the person's own instead of a worker: `name`,
+   `task`, `face`, `model` (a role or a model set up for the maker) and `apps`. It has no
+   `worker_of` link: it is listed at the top of the person's list at once, and nothing reports
+   back to its maker. It starts when the person writes to it, or its maker sends it a
+   `bot_message`. A worker (`kind: worker`, the default) is unchanged.
+2. **Never more than a new bot.** A standing bot starts on the auto-review (Full access is never
+   inherited), with its own folder and no apps or plugins. The apps its maker names are kept as a
+   suggestion (`made_by.apps`), connected only by the person.
+3. **Who may.** A per-bot setting, `may_create_bots`: `yes`, `ask` (the person agrees to each
+   one) or `no`. Spade, the main bot, starts on `yes`, every other bot on `ask`. With anything
+   untrusted in view a bot always asks, whatever its setting. This is decided first
+   (`spade_core::made::route`), before access levels, and no "always" covers it.
+4. **The person sees it and can undo it.** The maker's conversation stores
+   `bot_made {bot, name, task, call}`; its chat shows "Made a new bot: Research · Finds and
+   summarises sources" with Open and Undo. `POST /v1/agents/{id}/undo-made` removes a made bot
+   whose steps never reached outside it (only reads and its own things), else archives it: it is
+   stopped, its routines are paused and it reads `archived`, kept with what it did.
+5. **Clubs.** `club_add {club, bot}` adds a bot of this machine to a club its caller is a member
+   of, under the same setting and taint rule, and stores `club_added` in the caller's chat. Clubs
+   hold up to 32 bots (ADR 0132, amended in ADR 0194); a message names at most four members
+   directly, more go to the lead to hand on.
+

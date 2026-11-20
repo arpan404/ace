@@ -65,7 +65,8 @@ pub fn route(tool: &str, arguments: &serde_json::Value, tainted: bool, may: May)
         ask: None,
     };
     let club = tool == CLUB_ADD;
-    if !club && !(tool == BOT_CREATE && standing(arguments)) {
+    let makes = tool == BOT_CREATE && standing(arguments);
+    if !(club || makes) {
         return None;
     }
     Some(match (may, tainted) {

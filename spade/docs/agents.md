@@ -58,6 +58,18 @@ is in view, `profile_update` runs without asking. Otherwise it asks the person.
   a change of model alone is no version, and `by` is empty for the task a bot was made with.
 - Name and face changes store `profile_changed {name, by, face?}`.
 
+### Bots that bots make
+
+[ADR 0161, amendment 1](../../docs/adr/0161-spade-orchestration-trees.md). `bot_create {kind:
+"standing", name, task, face?, model?, apps?}` makes a top-level bot for the person: the
+auto-review, no apps or plugins, `made_by {id, name, apps}` on its Agent JSON. `club_add {club,
+bot}` adds a bot to a club the caller is in. Both run, ask or are refused by the caller's
+`may_create_bots` (`yes` for Spade, `ask` for other bots until the person sets it with
+`PATCH /agents/{id} {may_create_bots}`), and ask whenever untrusted content is in view. The
+maker's chat stores `bot_made` or `club_added`. `POST /agents/{id}/undo-made` answers `{undone:
+"removed"}` when the made bot never acted outside itself, else `{undone: "archived"}` (stopped,
+routines paused, `archived: true`); `409` for a bot the person made.
+
 ### Where Spade lives
 
 [ADR 0187](../../docs/adr/0187-spade-bots-move-between-machines.md). The setting `main_host` holds
