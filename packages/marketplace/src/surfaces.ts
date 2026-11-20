@@ -1,4 +1,6 @@
-import { schemaProblems } from "./data-schema.ts";
+import { readSchema } from "./schema.ts";
+
+const schemaProblems = (value: unknown, at: string) => readSchema(value, at).problems;
 
 /*
  * A package's `surfaces` (ADR 0200 §5): the cards and panels it ships, read the way Spade reads

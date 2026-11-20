@@ -132,6 +132,7 @@ pub(crate) fn run(
         .git_exclude(!query.include_ignored)
         .ignore(!query.include_ignored)
         .filter_entry(move |entry| keeps(entry, inherited.as_ref()));
+    builder.threads(threads());
     builder
         .build_parallel()
         .visit(&mut Workers { shared: &shared });
@@ -145,6 +146,23 @@ pub(crate) fn run(
         limit_hit: shared.refused.load(Ordering::SeqCst) > 0,
     })
 }
+
+/// How many walker threads search at once.
+///
+/// macOS serializes much of `open(2)` inside the kernel, so past a few threads each one mostly
+/// spins on the others: on a 16-core Mac, 12 threads took two to three times as long as 4 over the
+/// same warm tree, with most of the extra time in system CPU. Elsewhere the walker's own choice
+/// (one per core, at most 12) scales.
+fn threads() -> usize {
+    if cfg!(target_os = "macos") {
+        std::thread::available_parallelism().map_or(1, |cores| cores.get().min(MACOS_THREADS))
+    } else {
+        0
+    }
+}
+
+/// The most walker threads a search uses on macOS; see [`threads`].
+const MACOS_THREADS: usize = 4;
 
 /// Whether the walk may hand this entry on: never inside `.git`, and never when a folder above
 /// the root ignores it.

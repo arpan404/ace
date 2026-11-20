@@ -247,6 +247,34 @@ fn a_missing_price_reads_as_free() {
 }
 
 #[test]
+fn a_contract_reads_with_its_schemas_and_the_effects_its_calls_may_use() {
+    let contract = json!({
+        "name": "cheapest_fare",
+        "summary": "The cheapest fare seen for a route this week.",
+        "input": {"type": "object", "properties": {"from": {"type": "string", "maxLength": 3}}, "required": ["from"]},
+        "output": {"type": "object", "properties": {"fare": {"type": "number"}}, "required": ["fare"]},
+        "effects": ["network", "read"],
+        "examples": [{"input": {"from": "KTM"}, "output": {"fare": 182}}]
+    });
+    let read = reads(&with(watcher(), "contracts", json!([contract])));
+    assert!(
+        read.unused.is_empty(),
+        "contracts are read now: {:?}",
+        read.unused
+    );
+    let [one] = read.contracts.as_slice() else {
+        panic!("one contract: {:?}", read.contracts)
+    };
+    assert_eq!(one.name, "cheapest_fare");
+    assert_eq!(one.effects, vec![Effect::Network]);
+    assert_eq!(one.misfit_input(&json!({"from": "KTM"})), None);
+    assert_eq!(
+        one.misfit_output(&json!({"fare": "cheap"})),
+        Some(vec!["output.fare: is a number".to_owned()])
+    );
+}
+
+#[test]
 fn unknown_fields_are_kept_by_name_and_grant_nothing() {
     let value = with(
         with(watcher(), "effects", json!([])),

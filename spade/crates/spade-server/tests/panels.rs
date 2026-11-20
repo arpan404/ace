@@ -179,7 +179,7 @@ async fn a_panels_state_fits_its_schema_and_only_its_declared_actions_reach_the_
     let refused = finished(&events, "p1");
     assert_eq!(refused["is_error"], true);
     let words = refused["content"].as_str().unwrap_or_default();
-    assert!(words.contains("data.trips[0].route: is needed"), "{words}");
+    assert!(words.contains("data.trips[0].route: is missing"), "{words}");
     assert!(
         words.contains("data.trips[0].fare: is at least 0"),
         "{words}"

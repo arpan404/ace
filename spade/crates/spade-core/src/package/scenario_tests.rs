@@ -200,13 +200,16 @@ fn a_misspelt_field_is_a_problem_not_a_silent_pass() {
 }
 
 #[test]
-fn a_scenario_starts_from_a_message_or_a_trigger_never_both() {
+fn a_scenario_starts_from_a_message_a_trigger_or_a_call_never_two() {
     let both = problems(json!({
         "name": "Both",
         "given": { "message": "Hi", "trigger": "Morning check" },
         "model": [{ "say": "Hi" }]
     }));
-    assert_eq!(both, vec!["given is a message or a trigger, one of them"]);
+    assert_eq!(
+        both,
+        vec!["given is a message, a trigger or a call, one of them"]
+    );
     let trigger = scenario(json!({
         "name": "Morning",
         "given": { "trigger": "Morning check" },
@@ -230,4 +233,92 @@ fn an_expected_call_that_answered_an_error_fails() {
         check(&watch(), &seen),
         vec!["memory_save ran and answered an error: text is required"]
     );
+}
+
+fn a_call(output: Option<Value>) -> Scenario {
+    let mut value = json!({
+        "name": "Answers a fare question",
+        "given": { "call": { "contract": "cheapest_fare", "input": { "from": "KTM" } } },
+        "model": [
+            { "calls": [{ "tool": "contract_return", "arguments": { "call": "cc.scenario", "output": { "fare": 182 } } }] },
+            { "say": "Sent." }
+        ]
+    });
+    if let Some(output) = output {
+        value["expect"] = json!({ "output": output });
+    }
+    match read_scenario(&value.to_string(), &[]) {
+        Ok(scenario) => scenario,
+        Err(problems) => panic!("{problems:?}"),
+    }
+}
+
+#[test]
+fn a_call_scenario_passes_only_when_the_call_returned_what_it_expects() {
+    let scenario = a_call(Some(json!({ "fare": 182 })));
+    let returned = |returned: Option<Returned>| Observed {
+        reply: "Sent.".to_owned(),
+        returned,
+        ..Observed::default()
+    };
+    assert!(
+        check(
+            &scenario,
+            &returned(Some(Returned::Output(json!({ "fare": 182 }))))
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        check(
+            &scenario,
+            &returned(Some(Returned::Output(json!({ "fare": 99 }))))
+        ),
+        vec!["The output's fare is 99, not 182".to_owned()]
+    );
+    assert_eq!(
+        check(&scenario, &returned(None)),
+        vec!["The call got no answer: the bot never used contract_return".to_owned()]
+    );
+    let failed = check(
+        &scenario,
+        &returned(Some(Returned::Failed(vec![
+            "output.fare: is a number".to_owned(),
+        ]))),
+    );
+    assert_eq!(
+        failed,
+        vec!["The call failed: output.fare: is a number".to_owned()]
+    );
+}
+
+#[test]
+fn a_given_call_must_name_a_contract_the_package_publishes_with_input_that_fits() {
+    let contract = crate::package::contract::Contract {
+        name: "cheapest_fare".to_owned(),
+        summary: "The cheapest fare.".to_owned(),
+        input: json!({ "type": "object", "properties": { "from": { "type": "string", "maxLength": 3 } }, "required": ["from"] }),
+        output: json!({ "type": "object", "properties": { "fare": { "type": "number" } } }),
+        effects: Vec::new(),
+        examples: Vec::new(),
+    };
+    let scenario = a_call(None);
+    assert!(call_problems(&scenario, std::slice::from_ref(&contract)).is_empty());
+    assert_eq!(
+        call_problems(&scenario, &[]),
+        vec!["given.call.contract: the package has no contract \"cheapest_fare\"".to_owned()]
+    );
+    let mut long = scenario.clone();
+    if let Some(call) = &mut long.given.call {
+        call.input = json!({ "from": "Kathmandu" });
+    }
+    assert_eq!(
+        call_problems(&long, &[contract]),
+        vec!["given.call: input.from: is at most 3 characters".to_owned()]
+    );
+    let both = json!({
+        "name": "Two starts",
+        "given": { "message": "Hi", "call": { "contract": "cheapest_fare", "input": {} } },
+        "model": [{ "say": "Hi." }]
+    });
+    assert!(read_scenario(&both.to_string(), &[]).is_err());
 }

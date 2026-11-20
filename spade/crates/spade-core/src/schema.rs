@@ -1,87 +1,79 @@
-//! Data schemas a package declares (ADR 0200 §5): a panel's state and each of its actions' values,
-//! written as a bounded subset of JSON Schema. Objects have known fields (nothing else is
-//! accepted), strings have a length, arrays a size, and nesting stops at six levels, so data
-//! that fits is always small and its shape always known. A declaration is read strictly: a
-//! keyword this build doesn't enforce (`pattern`, `format`, `$ref`) refuses it rather than being
-//! skipped, so a schema never promises a check that isn't made. The marketplace reads
-//! declarations the same way (`packages/marketplace/src/data-schema.ts`, held to the same rules
-//! by `package/rules.json`). Pure.
+//! The bounded schema subset a contract's input and output are written in (ADR 0200 §5.1, §7):
+//! objects with known fields, strings with a length, numbers, booleans, enums and arrays with a
+//! size, at most six levels deep. Small enough that every value checked against one is bounded,
+//! and that the marketplace's reader (`packages/marketplace/src/schema.ts`) reads it the same way
+//! (`schema_cases.json` holds both to it). Pure.
+//!
+//! A schema is JSON Schema's words for these shapes and nothing else: a keyword outside the subset
+//! refuses the schema, so a schema can never mean more than this reader checks.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
-use crate::card::Problem;
-
-/// Levels of nesting a schema may have: the top is level one.
+/// The deepest a schema nests: the top value is level one.
 pub const MOST_DEPTH: usize = 6;
-pub const MOST_PROPERTIES: usize = 64;
-pub const MOST_WORDS: usize = 64;
-pub const WORD_CHARS: usize = 200;
-pub const MOST_TEXT: u64 = 10_000;
+/// The most fields an object names, values an enum lists, and the longest string or list.
+pub const MOST_FIELDS: usize = 64;
+pub const MOST_ENUM: usize = 64;
+pub const LONGEST_STRING: u64 = 65_536;
 pub const MOST_ITEMS: u64 = 1_000;
-const ABOUT_CHARS: usize = 500;
-const TITLE_CHARS: usize = 120;
-/// Problems listed before the rest are summed up, so a refusal stays readable.
-const MOST_PROBLEMS: usize = 20;
+/// A description's and an enum value's longest text, in characters.
+pub const DESCRIPTION_CHARS: usize = 500;
+pub const ENUM_CHARS: usize = 200;
+/// A whole schema, as JSON.
+pub const MOST_SCHEMA_BYTES: usize = 16 * 1024;
 
-/// A declaration, read.
+/// One schema, read.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Schema {
     Object {
-        properties: BTreeMap<String, Schema>,
-        required: BTreeSet<String>,
-    },
-    Array {
-        items: Box<Schema>,
-        min_items: u64,
-        max_items: u64,
+        fields: BTreeMap<String, Schema>,
+        required: Vec<String>,
     },
     String {
-        min_length: u64,
-        max_length: u64,
+        min: u64,
+        max: u64,
+        /// The only values it takes, when it is an enum.
+        one_of: Option<Vec<String>>,
     },
-    /// One of these words.
-    Enum(Vec<String>),
     Number {
         integer: bool,
-        minimum: Option<f64>,
-        maximum: Option<f64>,
+        min: Option<f64>,
+        max: Option<f64>,
     },
     Boolean,
+    Array {
+        items: Box<Schema>,
+        min: u64,
+        max: u64,
+    },
 }
 
-/// Every keyword a node may carry, by its type. `description` and `title` are words for people.
-fn keywords(kind: &str) -> &'static [&'static str] {
-    match kind {
-        "object" => &["type", "properties", "required", "description", "title"],
-        "array" => &[
-            "type",
-            "items",
-            "minItems",
-            "maxItems",
-            "description",
-            "title",
-        ],
-        "string" => &[
-            "type",
-            "minLength",
-            "maxLength",
-            "enum",
-            "description",
-            "title",
-        ],
-        "number" | "integer" => &["type", "minimum", "maximum", "description", "title"],
-        "boolean" => &["type", "description", "title"],
-        _ => &[],
+/// Where a value doesn't fit, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Misfit {
+    /// `input.from`, `output.fares[2]`.
+    pub at: String,
+    pub why: String,
+}
+
+impl std::fmt::Display for Misfit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.at, self.why)
     }
 }
 
-const TYPES: &str = "object, array, string, number, integer or boolean";
-
-/// Reads a declaration at `at` (`surfaces[1].state`); every problem with it otherwise.
+/// Reads `value` as a schema of the subset; every problem, each at its place (`at` names the
+/// schema, `contracts[0].input`).
 pub fn read(value: &Value, at: &str) -> Result<Schema, Vec<String>> {
     let mut problems = Vec::new();
+    if value.to_string().len() > MOST_SCHEMA_BYTES {
+        return Err(vec![format!(
+            "{at} is longer than {} KiB",
+            MOST_SCHEMA_BYTES / 1024
+        )]);
+    }
     let schema = node(value, at, 1, &mut problems);
     match schema {
         Some(schema) if problems.is_empty() => Ok(schema),
@@ -89,344 +81,355 @@ pub fn read(value: &Value, at: &str) -> Result<Schema, Vec<String>> {
     }
 }
 
-fn whole(value: &Value) -> Option<u64> {
-    value.as_u64()
-}
+const COMMON: [&str; 3] = ["type", "description", "title"];
+/// Every keyword some kind of the subset takes.
+const EVERY_KEYWORD: [&str; 11] = [
+    "properties",
+    "required",
+    "additionalProperties",
+    "maxLength",
+    "minLength",
+    "enum",
+    "minimum",
+    "maximum",
+    "items",
+    "maxItems",
+    "minItems",
+];
 
-fn node(value: &Value, at: &str, depth: usize, problems: &mut Vec<String>) -> Option<Schema> {
-    let Some(fields) = value.as_object() else {
-        problems.push(format!("{at} is a schema: an object with a type"));
-        return None;
-    };
-    if depth > MOST_DEPTH {
-        problems.push(format!("{at} is nested more than {MOST_DEPTH} levels deep"));
-        return None;
-    }
-    let kind = match fields.get("type") {
-        Some(Value::String(kind)) if !keywords(kind).is_empty() => kind.as_str(),
-        // An enum alone is a word from a list.
-        None if fields.contains_key("enum") => "string",
-        _ => {
-            problems.push(format!("{at}.type is {TYPES}"));
-            return None;
-        }
-    };
-    let before = problems.len();
+fn keywords(fields: &Map<String, Value>, at: &str, allowed: &[&str], out: &mut Vec<String>) {
     for key in fields.keys() {
-        if !keywords(kind).contains(&key.as_str()) {
-            problems.push(format!(
-                "{at}: {key} isn't a keyword this Spade reads for {kind}"
+        if !COMMON.contains(&key.as_str()) && !allowed.contains(&key.as_str()) {
+            out.push(format!(
+                "{at}: {key:?} isn't in the schema subset contracts use"
             ));
         }
     }
-    words_for_people(fields, at, problems);
-    let schema = match kind {
-        "object" => object(fields, at, depth, problems),
-        "array" => array(fields, at, depth, problems),
-        "string" => text(fields, at, problems),
-        "number" | "integer" => number(fields, at, kind == "integer", problems),
-        _ => Some(Schema::Boolean),
-    };
-    (problems.len() == before).then_some(schema).flatten()
-}
-
-fn words_for_people(fields: &Map<String, Value>, at: &str, problems: &mut Vec<String>) {
-    for (key, most) in [("description", ABOUT_CHARS), ("title", TITLE_CHARS)] {
+    for key in ["description", "title"] {
         match fields.get(key) {
             None => {}
-            Some(Value::String(text)) if text.chars().count() <= most => {}
-            Some(_) => problems.push(format!("{at}.{key} is text of at most {most} characters")),
+            Some(Value::String(text)) if text.chars().count() <= DESCRIPTION_CHARS => {}
+            Some(_) => out.push(format!(
+                "{at}.{key} is text of at most {DESCRIPTION_CHARS} characters"
+            )),
         }
     }
 }
 
-/// A field's name: what a page and a bot write it as.
-fn field_name(name: &str) -> bool {
-    name.len() <= 64
-        && name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+fn count(fields: &Map<String, Value>, key: &str, at: &str, out: &mut Vec<String>) -> Option<u64> {
+    let value = fields.get(key)?;
+    match value.as_u64() {
+        Some(n) => Some(n),
+        None => {
+            out.push(format!("{at}.{key} is a whole number"));
+            None
+        }
+    }
+}
+
+fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<Schema> {
+    if depth > MOST_DEPTH {
+        out.push(format!("{at}: a schema nests at most {MOST_DEPTH} levels"));
+        return None;
+    }
+    let Some(fields) = value.as_object() else {
+        out.push(format!("{at} is a schema object"));
+        return None;
+    };
+    let kind = match fields.get("type") {
+        Some(Value::String(kind)) => kind.as_str(),
+        // An enum alone is a string enum.
+        None if fields.contains_key("enum") => "string",
+        _ => {
+            // A keyword of another kind of schema (`$ref`, `oneOf`) says so first.
+            keywords(fields, at, &EVERY_KEYWORD, out);
+            out.push(format!(
+                "{at}.type is object, string, number, integer, boolean or array"
+            ));
+            return None;
+        }
+    };
+    match kind {
+        "object" => object(fields, at, depth, out),
+        "string" => string(fields, at, out),
+        "number" | "integer" => {
+            keywords(fields, at, &["minimum", "maximum"], out);
+            let bound = |key: &str, out: &mut Vec<String>| match fields.get(key) {
+                None => None,
+                Some(n) if n.is_number() => n.as_f64(),
+                Some(_) => {
+                    out.push(format!("{at}.{key} is a number"));
+                    None
+                }
+            };
+            let (min, max) = (bound("minimum", out), bound("maximum", out));
+            if let (Some(min), Some(max)) = (min, max)
+                && min > max
+            {
+                out.push(format!("{at}: minimum is more than maximum"));
+            }
+            Some(Schema::Number {
+                integer: kind == "integer",
+                min,
+                max,
+            })
+        }
+        "boolean" => {
+            keywords(fields, at, &[], out);
+            Some(Schema::Boolean)
+        }
+        "array" => {
+            keywords(fields, at, &["items", "maxItems", "minItems"], out);
+            let max = count(fields, "maxItems", at, out);
+            let min = count(fields, "minItems", at, out).unwrap_or(0);
+            let max = match max {
+                Some(max) if (1..=MOST_ITEMS).contains(&max) => max,
+                _ => {
+                    out.push(format!(
+                        "{at}.maxItems says how long the list may be, 1 to {MOST_ITEMS}"
+                    ));
+                    1
+                }
+            };
+            if min > max {
+                out.push(format!("{at}: minItems is more than maxItems"));
+            }
+            let items = match fields.get("items") {
+                Some(items) => node(items, &format!("{at}.items"), depth + 1, out)?,
+                None => {
+                    out.push(format!("{at}.items says what the list holds"));
+                    return None;
+                }
+            };
+            Some(Schema::Array {
+                items: Box::new(items),
+                min,
+                max,
+            })
+        }
+        other => {
+            out.push(format!(
+                "{at}.type {other:?} isn't object, string, number, integer, boolean or array"
+            ));
+            None
+        }
+    }
 }
 
 fn object(
     fields: &Map<String, Value>,
     at: &str,
     depth: usize,
-    problems: &mut Vec<String>,
+    out: &mut Vec<String>,
 ) -> Option<Schema> {
-    let Some(listed) = fields.get("properties").and_then(Value::as_object) else {
-        problems.push(format!("{at}.properties names the object's fields"));
-        return None;
-    };
-    if listed.len() > MOST_PROPERTIES {
-        problems.push(format!(
-            "{at}.properties has at most {MOST_PROPERTIES} fields"
-        ));
-        return None;
+    keywords(
+        fields,
+        at,
+        &["properties", "required", "additionalProperties"],
+        out,
+    );
+    match fields.get("additionalProperties") {
+        None | Some(Value::Bool(false)) => {}
+        Some(_) => out.push(format!(
+            "{at}.additionalProperties is false: an object has only the fields it names"
+        )),
     }
-    let mut properties = BTreeMap::new();
-    for (name, value) in listed {
+    let properties = match fields.get("properties") {
+        None => Map::new(),
+        Some(Value::Object(properties)) if properties.len() <= MOST_FIELDS => properties.clone(),
+        Some(_) => {
+            out.push(format!(
+                "{at}.properties names at most {MOST_FIELDS} fields"
+            ));
+            return None;
+        }
+    };
+    let mut read = BTreeMap::new();
+    for (name, value) in &properties {
         if !field_name(name) {
-            problems.push(format!(
-                "{at}.properties names fields with letters, digits and underscores"
+            out.push(format!(
+                "{at}.properties: {name:?} is a field name of 1 to 64 letters, digits and _"
             ));
             continue;
         }
-        if let Some(schema) = node(
-            value,
-            &format!("{at}.properties.{name}"),
-            depth + 1,
-            problems,
-        ) {
-            properties.insert(name.clone(), schema);
+        if let Some(schema) = node(value, &format!("{at}.{name}"), depth + 1, out) {
+            read.insert(name.clone(), schema);
         }
     }
-    let mut required = BTreeSet::new();
-    match fields.get("required") {
-        None => {}
-        Some(Value::Array(names)) => {
-            for name in names {
-                match name.as_str() {
-                    Some(name) if listed.contains_key(name) => {
-                        required.insert(name.to_owned());
-                    }
-                    _ => {
-                        problems.push(format!("{at}.required names its own properties"));
-                        break;
-                    }
+    let required: Vec<String> = match fields.get("required") {
+        None => Vec::new(),
+        Some(Value::Array(names)) => names
+            .iter()
+            .filter_map(|name| match name.as_str() {
+                Some(name) if properties.contains_key(name) => Some(name.to_owned()),
+                _ => {
+                    out.push(format!("{at}.required names fields its properties have"));
+                    None
                 }
-            }
+            })
+            .collect(),
+        Some(_) => {
+            out.push(format!("{at}.required is a list of field names"));
+            Vec::new()
         }
-        Some(_) => problems.push(format!("{at}.required names its own properties")),
-    }
+    };
     Some(Schema::Object {
-        properties,
+        fields: read,
         required,
     })
 }
 
-fn array(
-    fields: &Map<String, Value>,
-    at: &str,
-    depth: usize,
-    problems: &mut Vec<String>,
-) -> Option<Schema> {
-    let max_items = match fields.get("maxItems").and_then(whole) {
-        Some(most) if (1..=MOST_ITEMS).contains(&most) => most,
-        _ => {
-            problems.push(format!("{at}.maxItems bounds the list (1 to {MOST_ITEMS})"));
-            0
-        }
-    };
-    let min_items = match fields.get("minItems") {
-        None => 0,
-        Some(value) => match whole(value) {
-            Some(least) if least <= max_items => least,
-            _ => {
-                problems.push(format!("{at}.minItems is a count no more than maxItems"));
-                0
-            }
-        },
-    };
-    let Some(items) = fields.get("items") else {
-        problems.push(format!("{at}.items is the schema of each item"));
-        return None;
-    };
-    let items = node(items, &format!("{at}.items"), depth + 1, problems)?;
-    Some(Schema::Array {
-        items: Box::new(items),
-        min_items,
-        max_items,
-    })
-}
-
-fn text(fields: &Map<String, Value>, at: &str, problems: &mut Vec<String>) -> Option<Schema> {
-    if let Some(words) = fields.get("enum") {
-        let listed: Option<Vec<String>> = words.as_array().and_then(|items| {
-            items
+fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<String>) -> Option<Schema> {
+    keywords(fields, at, &["maxLength", "minLength", "enum"], out);
+    let one_of = match fields.get("enum") {
+        None => None,
+        Some(Value::Array(values)) if (1..=MOST_ENUM).contains(&values.len()) => {
+            let words: Option<Vec<String>> = values
                 .iter()
-                .map(|w| {
-                    w.as_str()
-                        .filter(|w| !w.is_empty() && w.chars().count() <= WORD_CHARS)
+                .map(|v| {
+                    v.as_str()
+                        .filter(|w| w.chars().count() <= ENUM_CHARS)
                         .map(str::to_owned)
                 })
-                .collect()
-        });
-        return match listed {
-            Some(words) if !words.is_empty() && words.len() <= MOST_WORDS => {
-                if fields.contains_key("maxLength") || fields.contains_key("minLength") {
-                    problems.push(format!("{at}: an enum's words need no length"));
-                }
-                Some(Schema::Enum(words))
-            }
-            _ => {
-                problems.push(format!(
-                    "{at}.enum lists 1 to {MOST_WORDS} words, each at most {WORD_CHARS} characters"
+                .collect();
+            if words.is_none() {
+                out.push(format!(
+                    "{at}.enum lists words of at most {ENUM_CHARS} characters"
                 ));
-                None
             }
-        };
-    }
-    let max_length = match fields.get("maxLength").and_then(whole) {
-        Some(most) if (1..=MOST_TEXT).contains(&most) => most,
+            words
+        }
+        Some(_) => {
+            out.push(format!("{at}.enum lists 1 to {MOST_ENUM} words"));
+            None
+        }
+    };
+    let longest = one_of
+        .as_ref()
+        .and_then(|words| words.iter().map(|w| w.chars().count() as u64).max());
+    let max = match (count(fields, "maxLength", at, out), longest) {
+        (Some(max), _) if (1..=LONGEST_STRING).contains(&max) => max,
+        // An enum's length is its longest word's.
+        (None, Some(longest)) => longest.max(1),
         _ => {
-            problems.push(format!("{at}.maxLength bounds the text (1 to {MOST_TEXT})"));
-            return None;
+            out.push(format!(
+                "{at}.maxLength says how long the text may be, 1 to {LONGEST_STRING}"
+            ));
+            1
         }
     };
-    let min_length = match fields.get("minLength") {
-        None => 0,
-        Some(value) => match whole(value) {
-            Some(least) if least <= max_length => least,
-            _ => {
-                problems.push(format!("{at}.minLength is a length no more than maxLength"));
-                0
-            }
-        },
-    };
-    Some(Schema::String {
-        min_length,
-        max_length,
-    })
-}
-
-fn number(
-    fields: &Map<String, Value>,
-    at: &str,
-    integer: bool,
-    problems: &mut Vec<String>,
-) -> Option<Schema> {
-    let mut bound = |key: &str| match fields.get(key) {
-        None => None,
-        Some(value) => match value.as_f64() {
-            Some(n) => Some(n),
-            None => {
-                problems.push(format!("{at}.{key} is a number"));
-                None
-            }
-        },
-    };
-    let (minimum, maximum) = (bound("minimum"), bound("maximum"));
-    if let (Some(least), Some(most)) = (minimum, maximum)
-        && least > most
-    {
-        problems.push(format!("{at}.minimum is no more than its maximum"));
+    let min = count(fields, "minLength", at, out).unwrap_or(0);
+    if min > max {
+        out.push(format!("{at}: minLength is more than maxLength"));
     }
-    Some(Schema::Number {
-        integer,
-        minimum,
-        maximum,
-    })
+    Some(Schema::String { min, max, one_of })
 }
 
-/// What `data` breaks of `schema`, each at its place under `at` (`data.trips[0].to`); none when
-/// it fits. The list stops after twenty, with how many more there were.
-pub fn check(schema: &Schema, data: &Value, at: &str) -> Vec<Problem> {
-    let mut problems = Vec::new();
-    fits(schema, data, at, &mut problems);
-    if problems.len() > MOST_PROBLEMS {
-        let more = problems.len() - MOST_PROBLEMS;
-        problems.truncate(MOST_PROBLEMS);
-        problems.push(Problem {
-            at: String::new(),
-            why: format!("and {more} more"),
-        });
+fn field_name(name: &str) -> bool {
+    (1..=64).contains(&name.len()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+impl Schema {
+    /// Every place `value` doesn't fit, under `at` (`input`); empty when it fits.
+    pub fn check(&self, value: &Value, at: &str) -> Vec<Misfit> {
+        let mut out = Vec::new();
+        self.walk(value, at, &mut out);
+        out
     }
-    problems
-}
 
-fn problem(problems: &mut Vec<Problem>, at: &str, why: impl Into<String>) {
-    problems.push(Problem {
-        at: at.to_owned(),
-        why: why.into(),
-    });
-}
-
-fn fits(schema: &Schema, data: &Value, at: &str, problems: &mut Vec<Problem>) {
-    match schema {
-        Schema::Object {
-            properties,
-            required,
-        } => {
-            let Some(fields) = data.as_object() else {
-                return problem(problems, at, "is an object");
-            };
-            for (name, value) in fields {
-                match properties.get(name) {
-                    Some(schema) => fits(schema, value, &format!("{at}.{name}"), problems),
-                    None => problem(problems, &format!("{at}.{name}"), "isn't one of its fields"),
+    fn walk(&self, value: &Value, at: &str, out: &mut Vec<Misfit>) {
+        // Enough to say what to fix; a value that misses everywhere doesn't list it all.
+        if out.len() >= 20 {
+            return;
+        }
+        let miss = |out: &mut Vec<Misfit>, why: String| {
+            out.push(Misfit {
+                at: at.to_owned(),
+                why,
+            });
+        };
+        match (self, value) {
+            (Self::Object { fields, required }, Value::Object(given)) => {
+                for name in required {
+                    if !given.contains_key(name) {
+                        out.push(Misfit {
+                            at: format!("{at}.{name}"),
+                            why: "is missing".to_owned(),
+                        });
+                    }
+                }
+                for (name, item) in given {
+                    match fields.get(name) {
+                        Some(schema) => schema.walk(item, &format!("{at}.{name}"), out),
+                        None => out.push(Misfit {
+                            at: format!("{at}.{name}"),
+                            why: "isn't a field this takes".to_owned(),
+                        }),
+                    }
                 }
             }
-            for name in required {
-                if !fields.contains_key(name) {
-                    problem(problems, &format!("{at}.{name}"), "is needed");
+            (Self::String { min, max, one_of }, Value::String(text)) => {
+                let length = text.chars().count() as u64;
+                if let Some(words) = one_of {
+                    if !words.iter().any(|w| w == text) {
+                        miss(out, format!("is one of {}", words.join(", ")));
+                    }
+                } else if length > *max {
+                    miss(out, format!("is at most {max} characters"));
+                } else if length < *min {
+                    miss(out, format!("is at least {min} characters"));
                 }
             }
-        }
-        Schema::Array {
-            items,
-            min_items,
-            max_items,
-        } => {
-            let Some(list) = data.as_array() else {
-                return problem(problems, at, "is a list");
-            };
-            let count = list.len() as u64;
-            if count > *max_items {
-                problem(problems, at, format!("has at most {max_items} items"));
-            } else if count < *min_items {
-                problem(problems, at, format!("has at least {min_items} items"));
+            (Self::Number { integer, min, max }, Value::Number(n)) => {
+                let x = n.as_f64().unwrap_or(f64::NAN);
+                // `3.0` is whole, as JavaScript reads it: both readers agree on every number.
+                if *integer && x.fract() != 0.0 {
+                    miss(out, "is a whole number".to_owned());
+                } else if min.is_some_and(|min| x < min) {
+                    miss(out, format!("is at least {}", min.unwrap_or_default()));
+                } else if max.is_some_and(|max| x > max) {
+                    miss(out, format!("is at most {}", max.unwrap_or_default()));
+                }
             }
-            for (i, item) in list.iter().enumerate().take(*max_items as usize) {
-                fits(items, item, &format!("{at}[{i}]"), problems);
+            (Self::Boolean, Value::Bool(_)) => {}
+            (Self::Array { items, min, max }, Value::Array(given)) => {
+                let length = given.len() as u64;
+                if length > *max {
+                    miss(out, format!("holds at most {max} items"));
+                } else if length < *min {
+                    miss(out, format!("holds at least {min} items"));
+                }
+                for (i, item) in given.iter().enumerate().take(*max as usize) {
+                    items.walk(item, &format!("{at}[{i}]"), out);
+                }
             }
-        }
-        Schema::String {
-            min_length,
-            max_length,
-        } => {
-            let Some(text) = data.as_str() else {
-                return problem(problems, at, "is text");
-            };
-            let length = text.chars().count() as u64;
-            if length > *max_length {
-                problem(problems, at, format!("is at most {max_length} characters"));
-            } else if length < *min_length {
-                problem(problems, at, format!("is at least {min_length} characters"));
-            }
-        }
-        Schema::Enum(words) => {
-            if !data.as_str().is_some_and(|w| words.iter().any(|x| x == w)) {
-                problem(problems, at, format!("is one of {}", words.join(", ")));
-            }
-        }
-        Schema::Number {
-            integer,
-            minimum,
-            maximum,
-        } => {
-            let Some(n) = data.as_f64() else {
-                return problem(problems, at, "is a number");
-            };
-            if *integer && n.fract() != 0.0 {
-                problem(problems, at, "is a whole number");
-            }
-            if let Some(least) = minimum
-                && n < *least
-            {
-                problem(problems, at, format!("is at least {least}"));
-            }
-            if let Some(most) = maximum
-                && n > *most
-            {
-                problem(problems, at, format!("is at most {most}"));
-            }
-        }
-        Schema::Boolean => {
-            if !data.is_boolean() {
-                problem(problems, at, "is true or false");
-            }
+            (schema, _) => miss(out, format!("is {}", schema.kind())),
         }
     }
+
+    /// The kind in words: "an object", "text".
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Object { .. } => "an object",
+            Self::String {
+                one_of: Some(_), ..
+            } => "one of its words",
+            Self::String { .. } => "text",
+            Self::Number { integer: true, .. } => "a whole number",
+            Self::Number { .. } => "a number",
+            Self::Boolean => "true or false",
+            Self::Array { .. } => "a list",
+        }
+    }
+}
+
+/// Every misfit as one line each, for a refusal or a tool's answer.
+pub fn lines(misfits: &[Misfit]) -> String {
+    misfits
+        .iter()
+        .map(|m| format!("- {m}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

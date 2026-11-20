@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 129274,
-      "sha256": "38256349b4e384c3134cef3564b17d29aefb513692b0dde3f4b9d022b53dea66"
+      "bytes": 128942,
+      "sha256": "a551f18913542e2b94b77205112055603a515ade5487f6b120c87cfd14bc9657"
     },
     "requests.md": {
-      "bytes": 125888,
-      "sha256": "1ac24561e0af1eb74055ca7365fe06a637fcbe56944d8d841dc11d08a9f3bc39"
+      "bytes": 125957,
+      "sha256": "1216337edb0e8f6a6db7cbea4485e24b42798a02385d934f282b7a632f8227ed"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -3141,8 +3141,8 @@
       "sha256": "954128bea532e478cef2ba62eba9b50d518474d83cb3c6bb331716bbe2d342e4"
     },
     "schema/MarketOperation.json": {
-      "bytes": 12735,
-      "sha256": "8e71b6b37dfa9ed8664af7943bb2e488efc1fc71fd4bff2d141799744734466a"
+      "bytes": 13081,
+      "sha256": "4ccee7dd0fc14ee3d76e0b636b0bba1bc2a5dbcd5c14f4ab7eed9035167bd6d9"
     },
     "schema/MarketOwnEntry.json": {
       "bytes": 1249,
@@ -3249,8 +3249,8 @@
       "sha256": "1fa6f7e0cfbd04ea8590850543c3e266ad5c225f881bfb17fd121e37e38758ba"
     },
     "schema/MarketResult.json": {
-      "bytes": 10159,
-      "sha256": "e9135ddac6427a7bb9da2241a0b0ed8d3c6a5d3b1913459e2bd7e776171518ba"
+      "bytes": 10539,
+      "sha256": "d8853b0e6b067810e66d260fecfc46535872c703bbf88f835c156b92425d3081"
     },
     "schema/MarketReview.json": {
       "bytes": 1938,
@@ -3880,6 +3880,10 @@
       "bytes": 632,
       "sha256": "cd958bc1b5485813264b7d6aad88adb36a5a106b387b4546b1821628a82517ae"
     },
+    "schema/PackageContract.json": {
+      "bytes": 1353,
+      "sha256": "214c9ba1a9499d8a07019ba6462a416487a3155b9db7841a749983e1232c992d"
+    },
     "schema/PackageEffect.json": {
       "bytes": 910,
       "sha256": "aa272698d7d5f1679000f0d989cbaf588643936537ab02b3547dd1ba8ce06925"
@@ -3920,6 +3924,10 @@
       "bytes": 340,
       "sha256": "c526b656ea3ef0ebde9221d1d3c52fd5d59cef46a3c1bad3da1b0bec3d42f6c4"
     },
+    "schema/PackageSurface.json": {
+      "bytes": 1815,
+      "sha256": "3c313efd5e914c9f75dfc533cb244567ae2dfcf121849f060f50afa017e4346f"
+    },
     "schema/PackageTrigger.json": {
       "bytes": 2456,
       "sha256": "6856f557b6436c26bb082340d890131f63b84448673dc3e9af07f6bf3178340c"
@@ -3959,6 +3967,26 @@
     "schema/PaletteName.json": {
       "bytes": 216,
       "sha256": "fb5d21fa826b0ddb4468621d9c4a9e7fad769adb33e12526dfd6f132d609147b"
+    },
+    "schema/PanelInit.json": {
+      "bytes": 1222,
+      "sha256": "073ae786ce44ca27bd9dfa4dfa10e374b0d0a38fffafd3a6cd08221712242f7e"
+    },
+    "schema/PanelPageMessage.json": {
+      "bytes": 1513,
+      "sha256": "c1cbce28194d355c46764401ef17f70dbfdd60e89952840c186ad54d151fd81c"
+    },
+    "schema/PanelPing.json": {
+      "bytes": 411,
+      "sha256": "2275e6bec04d39d9c2ba6142479d771452fff71109d9dcb3a9482b52fedc1cf5"
+    },
+    "schema/PanelState.json": {
+      "bytes": 335,
+      "sha256": "4db62e46ab4b98a540b8a72b2c755206c3b1043ef8130d820ef87798ef24b8d8"
+    },
+    "schema/PanelTheme.json": {
+      "bytes": 660,
+      "sha256": "dae200f9237930e8365c4534e4e11e68780a3ec94879d392eec02cc26c5b2d04"
     },
     "schema/ParcelAnswer.json": {
       "bytes": 1516,
@@ -4569,8 +4597,8 @@
       "sha256": "56549ee3cb5c0441b782e3de8a87e4cfc8504d7310fc9ad34b0d59dba575ea45"
     },
     "schema/Recipe.json": {
-      "bytes": 6514,
-      "sha256": "f759c205583ce07b2140669f719ebc746c11b8dee6a21cea390573e9e23c8226"
+      "bytes": 6842,
+      "sha256": "eea8fe092d7650127df7ba03a5c8706194a164b4af231d3a7e20b70e129cee34"
     },
     "schema/RecipeConnectorId.json": {
       "bytes": 193,
@@ -6677,10 +6705,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1359667,
-      "sha256": "e968b47bc5bffc3a15c61c8519d445e1807baaf0d405fb2656396b1abb674610"
+      "bytes": 1365943,
+      "sha256": "1501971a921307f81b8b929df31788523f60758af764835e71a34403464b1581"
     }
   },
-  "input": "04ace3203c2fda498f45ca887b230d54bc44a5e4c278a77a122a00b50b310e7c",
+  "input": "63ed836e871589b250a0de9c0e64365afa961bc94352cfa06ba8a6cf2e9b9fd1",
   "version": 1
 }

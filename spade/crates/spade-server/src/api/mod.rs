@@ -7,6 +7,7 @@ mod brains;
 mod cards;
 mod computer;
 mod connectors;
+mod contracts;
 mod digests;
 mod endpoints;
 mod files;
@@ -201,6 +202,7 @@ pub fn router(state: AppState) -> Router {
         .merge(media::routes())
         .merge(teams::routes())
         .merge(packages::routes())
+        .merge(contracts::routes())
         .merge(thread_asks::routes())
         .merge(moves::routes())
         .merge(wakes::routes())

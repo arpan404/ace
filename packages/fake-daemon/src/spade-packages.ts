@@ -7,6 +7,8 @@ import type { FakeSpadeAnswer } from "./spade.ts";
  * effect on or off and refuses a key the package didn't declare, as Spade does. A bot made from
  * an ace template has `GET …/package/template`, the newer version offered, and `POST …/package`
  * with that exact package moves it, keeping its switches and starting new ones off.
+ * `GET|PUT /v1/agents/{id}/contracts {incoming}` lists its contracts and switches calls to it
+ * from the person's other bots (ADR 0200 §7).
  */
 
 type Json = Record<string, unknown>;
@@ -70,4 +72,21 @@ function takeTemplate(agent: FakeSpadeAgent, link: Json, body: unknown): FakeSpa
   };
   agent.templateOffer = undefined;
   return reply({ package: agent.package });
+}
+
+/** A bot's contracts and whether the person's other bots may call it (ADR 0200 §7). */
+export function contractsRoute(
+  method: string,
+  agent: FakeSpadeAgent | undefined,
+  body: unknown,
+): FakeSpadeAnswer {
+  if (!agent) return problem(404, "no such bot");
+  const link = isJson(agent.package) ? agent.package : {};
+  const contracts = Array.isArray(link["contracts"]) ? link["contracts"] : [];
+  if (method === "PUT") {
+    const incoming = isJson(body) ? body["incoming"] : undefined;
+    if (typeof incoming !== "boolean") return problem(400, "incoming is true or false");
+    agent.takesCalls = incoming;
+  } else if (method !== "GET") return problem(404, "not found");
+  return reply({ contracts, incoming: agent.takesCalls ?? true });
 }

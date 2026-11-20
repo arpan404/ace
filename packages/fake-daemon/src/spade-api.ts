@@ -9,7 +9,7 @@ import { FakeSpadeServices } from "./spade-services.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
 import { FakeSpadeOversight } from "./spade-oversight.ts";
 import { FakeSpadeSecurity } from "./spade-security.ts";
-import { packageRoute } from "./spade-packages.ts";
+import { contractsRoute, packageRoute } from "./spade-packages.ts";
 import { FakeSpadePanels } from "./spade-panels.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
@@ -572,6 +572,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
         this.agents.find((candidate) => candidate.id === id),
         parts.slice(2),
         new URLSearchParams(query),
+        body,
+      );
+    if (root === "agents" && id && sub === "contracts")
+      return contractsRoute(
+        request.method,
+        this.agents.find((candidate) => candidate.id === id),
         body,
       );
     if (root === "agents" && id && sub === "package")

@@ -330,6 +330,7 @@ impl Engine {
                 name: link.parent_name.clone(),
                 depth: u32::try_from(self.worker_ancestors(conversation).len()).unwrap_or(1),
                 machine: None,
+                contract: None,
             });
         }
         message

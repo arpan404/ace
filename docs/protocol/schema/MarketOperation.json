@@ -421,6 +421,23 @@
     {
       "additionalProperties": false,
       "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "op": {
+          "const": "spadeBot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "op": {
           "const": "discover",
           "type": "string"

@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/PanelTheme.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "scheme": {
+      "enum": [
+        "light",
+        "dark"
+      ],
+      "type": "string"
+    },
+    "tokens": {
+      "additionalProperties": {
+        "maxLength": 400,
+        "type": "string"
+      },
+      "propertyNames": {
+        "maxLength": 40,
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "type": {
+      "const": "ace.panel.theme",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "tokens",
+    "scheme"
+  ],
+  "type": "object"
+}

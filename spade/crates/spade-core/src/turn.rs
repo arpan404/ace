@@ -223,6 +223,10 @@ pub fn unanswered_after(events: &[Event], reply: &str) -> bool {
             _ => {}
         }
     }
+    // A contract call a restart cut off is still owed its answer (ADR 0200 §7).
+    if !crate::contract::open(events).is_empty() {
+        return true;
+    }
     let from = prompted.max(stopped);
     events.iter().skip(from).any(|event| match event {
         Event::Known(Known::UserMessage { .. }) => true,

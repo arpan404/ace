@@ -106,6 +106,10 @@ Other bots, clubs, workers, helpers and ace's coding agents.
 | `worker_stop` | `write_local` | 0.0.24 |
 | `helper` | `write_local` | 0.0.24 |
 | `delegate` | `network` (ace's) | 0.0.24 |
+| `contracts_find` | `read` | 0.0.25 |
+| `contract_call` | `write_local` | 0.0.25 |
+| `contract_return` | `write_local` | 0.0.25 |
+| `package_suggest` | `read` | 0.0.25 |
 
 ## `ui`
 
@@ -154,7 +158,11 @@ Pushes, comments and messages with the person's own sign-ins.
 
 ## `notify`
 
-Proactive notices to the person. Phase 2; no tools yet.
+Proactive notices to the person, under their quiet hours, do not disturb, interruption budget and each bot's notification switch; what waits goes into the morning brief. A bot sends at most 3 an hour (more wait for the brief) and 12 a day (more are refused). The words are the bot's, shown as plain text.
+
+| Tool | Effect | Since |
+| --- | --- | --- |
+| `notify` | `write_local` | 0.0.25 |
 
 ## Aliases
 

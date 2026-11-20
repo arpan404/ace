@@ -380,6 +380,12 @@ pub fn view(link: &Link) -> Value {
         "updating": link.pending.as_ref().map(|p| p.package.version.clone()),
         "effects": effects,
         "limits": link.manifest.limits,
+        // Typed calls the person's other bots may make to it (ADR 0200 §7).
+        "contracts": link.manifest.contracts.iter().map(|c| json!({
+            "name": c.name,
+            "summary": c.summary,
+            "effects": c.effects.iter().map(|e| e.name()).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
     })
 }
 

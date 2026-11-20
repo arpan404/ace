@@ -104,8 +104,8 @@ fn state_that_misfits_is_refused_with_its_problems_listed() {
     assert!(refusal.starts_with("Not set: the data doesn't fit"));
     for line in [
         "- data.trips[0].fare: is a number",
-        "- data.trips[0].route: is needed",
-        "- data.x: isn't one of its fields",
+        "- data.trips[0].route: is missing",
+        "- data.x: isn't a field this takes",
     ] {
         assert!(refusal.contains(line), "{refusal}");
     }

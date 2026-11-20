@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn.ts";
 import { ProfileApps } from "./spade-bot-connectors.tsx";
 import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
 import { ProfilePackageLine } from "./spade-bot-package.tsx";
+import { ProfileContracts } from "./spade-profile-contracts.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
 import { ProfileSpending } from "./spade-bot-oversight.tsx";
 import { ProfileReach } from "./spade-bot-reach.tsx";
@@ -88,6 +89,7 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
         <VoiceRows bot={voiceKey(bot.machine.key, bot.id)} speechModel={speechModel} />
       </ProfileSection>
       <ProfileRoutines bot={bot} />
+      <ProfileContracts bot={bot} />
       <ProfileMakesBots bot={bot} />
       <ProfileApps bot={bot} />
       <ProfilePlugins bot={bot} />

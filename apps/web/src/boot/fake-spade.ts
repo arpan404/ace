@@ -2,9 +2,11 @@ import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { seedFakeCards } from "./fake-spade-cards.ts";
 import { seedFakeAgentCards } from "./fake-spade-agent-cards.ts";
 import { seedFakeAgentPanels } from "./fake-spade-agent-panels.ts";
+import { seedFakeSuggest } from "./fake-spade-suggest.ts";
 import { seedFakeCreate } from "./fake-spade-create.ts";
 import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeLibrary } from "./fake-spade-library.ts";
+import { seedFakeContracts } from "./fake-spade-contracts.ts";
 import { seedFakePackages } from "./fake-spade-packages.ts";
 import { seedFakeTranscript } from "./fake-spade-transcript.ts";
 import { seedFakeCapabilities } from "./fake-spade-capabilities.ts";
@@ -526,11 +528,13 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
   seedFakeCards(here);
   seedFakeAgentCards(here);
   seedFakeAgentPanels(here);
+  seedFakeSuggest(here);
   seedFakeLibrary(here, now);
   seedFakeWork(daemon, here, minutes);
   seedFakeGroup(here, now);
   seedFakeCreate(here, minutes);
   seedFakePackages(here, now);
+  seedFakeContracts(here, now);
   // A few pins, oldest first: the strip under the list's buttons.
   for (const [index, id] of ["inbox", "garden", "notes"].entries()) {
     const agent = here.agents.find((each) => each.id === id);

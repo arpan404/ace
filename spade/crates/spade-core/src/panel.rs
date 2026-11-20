@@ -83,7 +83,14 @@ pub fn read_update<'a>(
             })
             .collect::<Vec<_>>()
     })?;
-    let problems = schema::check(&schema, &data, "data");
+    let problems: Vec<Problem> = schema
+        .check(&data, "data")
+        .into_iter()
+        .map(|misfit| Problem {
+            at: misfit.at,
+            why: misfit.why,
+        })
+        .collect();
     if problems.is_empty() {
         Ok((panel, data))
     } else {
@@ -154,7 +161,7 @@ pub fn act(
             }
             let schema = schema::read(declared, "value")
                 .map_err(|found| Refused::Misfit(found.join("; ")))?;
-            let problems = schema::check(&schema, value, "value");
+            let problems = schema.check(value, "value");
             if !problems.is_empty() {
                 let listed: Vec<String> = problems.iter().map(ToString::to_string).collect();
                 return Err(Refused::Misfit(listed.join("; ")));

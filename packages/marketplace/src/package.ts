@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readContracts } from "./contracts.ts";
 import {
   PackageEffect,
   PackageEffectWord,
@@ -56,6 +57,7 @@ const known = new Set([
   "notes",
   "pricing",
   "surfaces",
+  "contracts",
   ...identity,
   ...executions,
 ]);
@@ -274,12 +276,31 @@ export function readPackage(
       triggers.push(raw);
     // Contract calls (phase 2) and kinds a later build adds: kept in the file, not used.
   }
+  // Typed calls other agents of the person may make (ADR 0200 §7), within the declared effects.
+  const declared = effects.flatMap((raw) => {
+    const word = AnyRecord.safeParse(raw).data?.["effect"];
+    return typeof word === "string" ? [word] : [];
+  });
+  const contracts = readContracts(json["contracts"], declared);
+  problems.push(...contracts.problems.map(problem));
   const extra: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(json)) if (!known.has(key)) extra[key] = value;
-  const { triggers: _triggers, effects: _effects, pricing: _pricing, ...rest } = json;
+  const {
+    triggers: _triggers,
+    effects: _effects,
+    pricing: _pricing,
+    contracts: _contracts,
+    ...rest
+  } = json;
   for (const field of [...identity, ...executions, ...Object.keys(extra)])
     delete (rest as Record<string, unknown>)[field];
-  const read = Recipe.safeParse({ ...rest, routines, triggers, effects: kept });
+  const read = Recipe.safeParse({
+    ...rest,
+    routines,
+    triggers,
+    effects: kept,
+    ...(contracts.problems.length ? {} : { contracts: contracts.kept }),
+  });
   if (!read.success) return { recipe: undefined, problems: [...problems, ...issues(read.error)] };
   const recipe: Recipe = Object.keys(extra).length ? { ...read.data, extra } : read.data;
   const names = [

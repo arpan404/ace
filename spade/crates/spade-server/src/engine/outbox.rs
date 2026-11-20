@@ -276,7 +276,11 @@ impl Engine {
             }
         }
         let wait_ms = if entry.stop { 0 } else { ANSWER_POLL_MS };
-        let poll = json!({ "op": "answer", "key": entry.key, "wait_ms": wait_ms });
+        // A contract call's answer also comes back early when its callee starts or stops
+        // waiting on the person, so the caller reads waiting meanwhile (ADR 0200 §6.2).
+        let waiting = super::contracts_remote::waiting_of(entry);
+        let poll =
+            json!({ "op": "answer", "key": entry.key, "wait_ms": wait_ms, "waiting": waiting });
         // A Stop meanwhile ends the wait at once, so the stop reaches that machine now.
         let polled = tokio::select! {
             polled = remote.call(&entry.machine, poll) => polled,
@@ -288,8 +292,16 @@ impl Engine {
                 let state = match status {
                     "pending" if entry.stop => "stopped",
                     "pending" => {
-                        // Read again at once; a reachable machine resets the backoff.
-                        self.advance(entry, "sent", None, 0, now);
+                        // Read again at once; a reachable machine resets the backoff. A call
+                        // keeps whether its callee waits on the person, and its caller is told.
+                        let now_waiting = body["waiting"].as_bool() == Some(true);
+                        let kept = super::contracts_remote::is_call(&entry.key)
+                            .then(|| json!({ "status": "pending", "waiting": now_waiting }));
+                        let call = kept.is_some();
+                        self.advance(entry, "sent", kept, 0, now);
+                        if call && now_waiting != waiting {
+                            self.announce_caller(&entry.key);
+                        }
                         return;
                     }
                     "answered" => "answered",

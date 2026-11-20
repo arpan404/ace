@@ -240,6 +240,7 @@ pub const UPDATING: &str = "Updating";
 pub const IN_BACKGROUND: &str = "Working in the background";
 /// A worker of the bot waits on the person (ADR 0161).
 pub const WORKER_WAITING: &str = "A worker is waiting for you";
+pub const CALLEE_WAITING: &str = "A bot it asked is waiting for you";
 
 /// What a bot whose own work is done reads while its workers work (ADR 0161).
 pub fn workers_working(count: usize) -> String {

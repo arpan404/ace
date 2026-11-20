@@ -18,6 +18,7 @@ import { MarketPictures } from "./pictures.ts";
 import { markOwnProfile } from "./own-profile.ts";
 import { publishRequest } from "./publish-request.ts";
 import { saveGitSource, sourcesOf } from "./sources.ts";
+import { spadeBot } from "./spade-bot.ts";
 import { spadeSkillFiles, spadeSkills } from "./spade-skills.ts";
 import { MarketStore } from "./store.ts";
 import { badgesOf, Trust } from "./trust.ts";
@@ -320,6 +321,14 @@ export class MarketplaceService {
         return spadeSkills(this.#store);
       case "spadeSkillFiles":
         return spadeSkillFiles(this.#store, operation.name, operation.path);
+      case "spadeBot":
+        return spadeBot(
+          {
+            store: this.#store,
+            fetch: (name, version) => this.#reviews.fetchVersion("market", name, version),
+          },
+          operation.name,
+        );
       case "discover":
         return discover(
           {

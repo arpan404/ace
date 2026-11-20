@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use spade_core::reach::notice::{self as bot_notice, Rate};
 use spade_core::reach::{
     self, AgentReach, Category, Decision, Moment, Notice, Reach, Settings, Why, settings,
 };
@@ -26,6 +27,11 @@ const MOST_HELD: usize = 500;
 
 fn agent_key(agent: &str) -> String {
     format!("reach:{agent}")
+}
+
+/// When each of a bot's own notices (`notify`) was sent or held, for its rate.
+fn notify_key(agent: &str) -> String {
+    format!("reach:notify:{agent}")
 }
 
 #[derive(Default)]
@@ -183,7 +189,7 @@ impl Engine {
     /// Decides how `out` reaches the person, records it (sent for the budget, or held), and sends
     /// it on the notice stream with its `id`, `category`, `reach` and `why`.
     pub(super) fn reach_out(&self, out: Outgoing) {
-        let decided = self.decide_and_record(&out).unwrap_or_else(|error| {
+        let decided = self.decide_and_record(&out, false).unwrap_or_else(|error| {
             tracing::error!(%error, "could not record a notice; sending it as it is");
             Decision {
                 reach: Reach::Now,
@@ -191,6 +197,20 @@ impl Engine {
                 counts: false,
             }
         });
+        self.send_notice(out, decided);
+    }
+
+    /// A bot's own notice (`notify`): decided as any proactive notice, with the bot's own rate on
+    /// top. `None` when its day is full: nothing is recorded or sent.
+    pub(super) fn reach_out_for_bot(&self, out: Outgoing) -> Result<Option<Decision>, StoreError> {
+        let Some(decided) = self.decide_rated(&out, true)? else {
+            return Ok(None);
+        };
+        self.send_notice(out, decided);
+        Ok(Some(decided))
+    }
+
+    fn send_notice(&self, out: Outgoing, decided: Decision) {
         let mut notice = out.notice;
         notice["id"] = json!(out.id);
         notice["category"] = json!(out.category);
@@ -201,10 +221,33 @@ impl Engine {
         let _ = self.digests.notices.send(notice);
     }
 
-    fn decide_and_record(&self, out: &Outgoing) -> Result<Decision, StoreError> {
+    fn decide_and_record(&self, out: &Outgoing, rated: bool) -> Result<Decision, StoreError> {
+        Ok(self.decide_rated(out, rated)?.unwrap_or(Decision {
+            reach: Reach::None,
+            why: Some(Why::Rate),
+            counts: false,
+        }))
+    }
+
+    /// Decides `out` and records it. `rated`: a bot's own notice, held to its rate first;
+    /// `Ok(None)` when its day is full, and nothing is recorded.
+    fn decide_rated(&self, out: &Outgoing, rated: bool) -> Result<Option<Decision>, StoreError> {
         let settings = self.reach_settings()?;
         let _held = self.reach.lock.lock().unwrap_or_else(|p| p.into_inner());
         let now = self.now_ms();
+        let rate = if rated {
+            let mut mine: Vec<i64> = self.read_json(&notify_key(&out.agent))?;
+            bot_notice::keep(&mut mine, now);
+            let rate = bot_notice::rate(&mine, now);
+            if rate == Rate::Day {
+                return Ok(None);
+            }
+            mine.push(now);
+            self.write_json(&notify_key(&out.agent), &mine)?;
+            rate
+        } else {
+            Rate::Room
+        };
         let mut sent: Vec<i64> = self.read_json(SENT)?;
         reach::keep_sent(&mut sent, now);
         let own = self.bot_reach(&out.agent);
@@ -223,6 +266,7 @@ impl Engine {
                 sent: &sent,
             },
         );
+        let decided = bot_notice::limit(decided, rate);
         if decided.counts {
             sent.push(now);
             self.write_json(SENT, &sent)?;
@@ -243,7 +287,7 @@ impl Engine {
             trim_held(&mut held);
             self.write_json(HELD, &held)?;
         }
-        Ok(decided)
+        Ok(Some(decided))
     }
 
     /// The held notices of `agents` (every bot's for `None`) not yet in a digest or brief, now

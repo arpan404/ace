@@ -11,6 +11,13 @@ const pathArg = {
   summary: "The package's folder; this one when omitted",
 } as const;
 
+const againstFlag = {
+  name: "against",
+  value: "PATH",
+  summary:
+    "The version other bots call (its folder or bot.json): a contract change that breaks them is refused",
+} as const;
+
 export const botKitCommands: readonly CommandSpec[] = [
   {
     id: "bot.init",
@@ -63,10 +70,11 @@ export const botKitCommands: readonly CommandSpec[] = [
     words: ["bot", "check"],
     summary: "The market's checks on a package, with every problem at its place; no account",
     description:
-      "The same reader Spade and the market use. Problems print as path: sentence and exit 1. Warnings (a thin why on an effect, a TODO left to write, no scenario tests) don't fail the check.",
+      "The same reader Spade and the market use. Problems print as path: sentence and exit 1. Warnings (a thin why on an effect, a TODO left to write, no scenario tests) don't fail the check. With --against, the version other bots call is compared too: a change to a contract that would break them (a field gone or newly required, less text taken, an output that may hold what callers never saw) is refused, since a breaking change takes a new name.",
     group: "spade-market",
     offline: true,
     args: [pathArg],
+    flags: [againstFlag],
     output: "bot.check",
     exits: [{ code: 1, when: "the package has a problem to fix" }],
     seeAlso: ["bot test", "market check"],
@@ -113,11 +121,14 @@ export const botKitCommands: readonly CommandSpec[] = [
     id: "bot.publish",
     words: ["bot", "publish"],
     summary: "Check and test the package, then publish it free: ace market publish spade-bot PATH",
+    description:
+      "Before uploading it reads the latest version published in the market (ACE_MARKET_URL for a development one) and refuses a change to a contract that would break the bots calling it; a breaking change takes a new name. The market's signer refuses the same change.",
     group: "spade-market",
     mutates: true,
     args: [pathArg],
     flags: [
       { name: "version", value: "VERSION", summary: "The version to publish, such as 1.0.0" },
+      againstFlag,
       { name: "name", value: "NAME", summary: "The entry's name; the folder's otherwise" },
       { name: "changelog", value: "TEXT|-|@FILE", summary: "What changed in this version" },
       { name: "draft", summary: "Stop at the draft and print its id" },

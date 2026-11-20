@@ -1,0 +1,63 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageContract.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "effects": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PackageEffectWord.json"
+      },
+      "maxItems": 5,
+      "type": "array"
+    },
+    "examples": {
+      "default": [],
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {},
+          "output": {}
+        },
+        "required": [
+          "input",
+          "output"
+        ],
+        "type": "object"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "input": {
+      "additionalProperties": {},
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "name": {
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "type": "string"
+    },
+    "output": {
+      "additionalProperties": {},
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "summary": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+    }
+  },
+  "required": [
+    "name",
+    "summary",
+    "input",
+    "output"
+  ],
+  "type": "object"
+}

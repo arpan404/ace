@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 use spade_core::effect::Effect;
-use spade_core::package::scenario::{Observed, Outcome, Seen};
+use spade_core::package::scenario::{Observed, Outcome, Returned, Seen};
 
 /// The words a refused call's result starts with (`spade_core::autonomy::refused`).
 const NOT_RUN: &str = "Not run: ";
@@ -72,6 +72,19 @@ pub fn observed(events: &[Value]) -> Observed {
                 }
             }
             Some("card_shown") => seen.cards.push(text(&event["data"]["title"])),
+            // A call the scenario gave the bot ended (ADR 0200 §7).
+            Some("contract_ended") if event["status"] == "returned" => {
+                seen.returned = Some(Returned::Output(event["output"].clone()));
+            }
+            Some("contract_ended") => {
+                let problems = event["problems"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(text)
+                    .collect();
+                seen.returned = Some(Returned::Failed(problems));
+            }
             Some("reply_finished") => seen.reply = text(&event["text"]),
             Some("reply_failed") => {
                 seen.ended = Some(format!(

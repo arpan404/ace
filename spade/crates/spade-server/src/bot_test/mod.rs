@@ -119,6 +119,14 @@ pub async fn run(folder: &Path) -> Report {
         let scenario = std::fs::read_to_string(folder.join(file))
             .map_err(|error| vec![error.to_string()])
             .and_then(|text| scenario::read_scenario(&text, &triggers))
+            .and_then(|scenario| {
+                let problems = scenario::call_problems(&scenario, &manifest.contracts);
+                if problems.is_empty() {
+                    Ok(scenario)
+                } else {
+                    Err(problems)
+                }
+            })
             .and_then(|scenario| fakes_problems(&scenario).map(|()| scenario));
         match scenario {
             Ok(scenario) => {
@@ -256,6 +264,7 @@ fn catalog(root: &str) -> Result<Catalog, Failure> {
 /// A throwaway Spade, serving on this machine until dropped.
 struct Throwaway {
     base: String,
+    engine: Arc<Engine>,
     http: reqwest::Client,
     _folder: tempfile::TempDir,
     stop: Option<oneshot::Sender<()>>,
@@ -304,7 +313,7 @@ impl Throwaway {
             ..Default::default()
         })?;
         let state = AppState {
-            engine,
+            engine: engine.clone(),
             token: TOKEN.into(),
             keys: None,
             ace: None,
@@ -322,6 +331,7 @@ impl Throwaway {
         }));
         Ok(Self {
             base,
+            engine,
             http: reqwest::Client::builder().no_proxy().build()?,
             _folder: folder,
             stop: Some(stop),
@@ -454,6 +464,9 @@ async fn start(
         }
         return Ok(());
     }
+    if let Some(call) = &scenario.given.call {
+        return give_call(spade, call, agent).await;
+    }
     let wanted = scenario.given.trigger.as_deref().unwrap_or_default();
     let (_, listed) = spade.get(&format!("/v1/agents/{agent}/routines")).await?;
     let routine = listed["routines"]
@@ -470,6 +483,39 @@ async fn start(
     if status != 202 {
         return Err(format!("its trigger didn't fire: {}", error_of(&answer)).into());
     }
+    Ok(())
+}
+
+/// The id a scenario's given call has, which its scripted `contract_return` names.
+pub const CALL: &str = "cc.scenario";
+
+/// Another bot of the person's calls the bot's contract, as `contract_call` would deliver it.
+async fn give_call(
+    spade: &Throwaway,
+    call: &scenario::GivenCall,
+    agent: &str,
+) -> Result<(), Failure> {
+    let name = call
+        .from
+        .clone()
+        .unwrap_or_else(|| "Another bot".to_owned());
+    let (status, made) = spade.post("/v1/agents", json!({ "name": name })).await?;
+    if status != 201 {
+        return Err(format!("its caller couldn't be made: {}", error_of(&made)).into());
+    }
+    let caller = made["agent"]["id"].as_str().unwrap_or_default();
+    let store = spade.engine.store();
+    let (Ok(Some(me)), Ok(Some(target))) = (store.agent(caller), store.agent(agent)) else {
+        return Err("the bots couldn't be read".into());
+    };
+    let contract = spade
+        .engine
+        .callable(&target, &call.contract, &call.input)
+        .map_err(|why| format!("the call couldn't start: {why}"))?;
+    spade
+        .engine
+        .deliver_call(&me, &target, CALL, &contract, call.input.clone(), 1)
+        .map_err(|error| format!("the call wasn't delivered: {error}"))?;
     Ok(())
 }
 
@@ -545,3 +591,6 @@ pub fn main(args: &[std::ffi::OsString]) -> std::process::ExitCode {
         std::process::ExitCode::FAILURE
     }
 }
+
+#[cfg(test)]
+mod tests;

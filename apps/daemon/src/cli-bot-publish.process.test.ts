@@ -98,6 +98,8 @@ async function world() {
       ACE_SPADE_BIN: spade,
       ACE_THREAD_ID: "",
       ACE_NO_INPUT: "",
+      // Where `ace bot publish` reads the published version it compares contracts with.
+      ACE_MARKET_URL: market.origin,
     });
   return { market, uploads, root, cli };
 }

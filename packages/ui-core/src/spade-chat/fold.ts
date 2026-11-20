@@ -10,6 +10,11 @@ import type {
 } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
 import {
+  spadeContractAsk,
+  spadeContractResult,
+  type SpadeContractOutcome,
+} from "./contract-words.ts";
+import {
   spadeCardQuestions,
   spadeConnectOf,
   type SpadeQuestion,
@@ -23,6 +28,7 @@ import {
 import type { SpadeQuiet } from "./quiet.ts";
 import { parseSpadeDecision, type SpadeDecision } from "./decisions.ts";
 import { spadeCardChosen, spadeCardShown, type SpadeCardRow } from "./cards.ts";
+import { spadeNoticeSent, type SpadeNoticeRow } from "./notices.ts";
 import { spadeRiskWeight, spadeStepFacts, type SpadeStepWeight } from "./step-facts.ts";
 import type { SpadeRefusedHost } from "./wire.ts";
 
@@ -223,6 +229,21 @@ export type SpadeEntry =
       result: string;
       at?: number;
     }
+  /**
+   * A call this bot made to another bot's contract (ADR 0200 §7): one line where it was made,
+   * settled in place when its result arrives. `result` is the output's fields, or why not.
+   */
+  | {
+      kind: "contract";
+      key: string;
+      job: string;
+      bot: string;
+      machine?: string | undefined;
+      contract: string;
+      outcome: SpadeContractOutcome | undefined;
+      result: string;
+      at?: number;
+    }
   /** The person handed the computer back: Spade's narration, and the names as plain data. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /** A card asked outside the open reply: where it arrived. */
@@ -238,7 +259,9 @@ export type SpadeEntry =
    * A card the bot showed (ADR 0200 §5.1): its own row where it was first shown, updated in
    * place by each later version.
    */
-  | ({ kind: "card"; key: string; at?: number } & SpadeCardRow);
+  | ({ kind: "card"; key: string; at?: number } & SpadeCardRow)
+  /** A bot's own notice (`notify`, ADR 0200 §4.2), where it was sent, with what became of it. */
+  | ({ kind: "notice"; key: string; at?: number } & SpadeNoticeRow);
 
 /**
  * A call that asked the person, kept where it asked so its bubble stays in place once answered.
@@ -532,7 +555,10 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       steer(state, {
         kind: "user",
         key,
-        text: event.text,
+        // A contract call reads as what it asks, never as raw input (ADR 0200 §7).
+        text: event.from_agent?.contract
+          ? spadeContractAsk(event.from_agent.contract.contract, event.from_agent.contract.input)
+          : event.text,
         images: event.images,
         ...(event.documents.length ? { documents: event.documents } : {}),
         ...(event.voice ? { voice: event.voice } : {}),
@@ -822,6 +848,19 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         reply: event.reply,
       });
       return true;
+    case "contract_called":
+      steer(state, {
+        kind: "contract",
+        key,
+        job: event.job,
+        bot: event.name || "Another bot",
+        ...(event.machine_name ? { machine: event.machine_name } : {}),
+        contract: event.contract,
+        outcome: undefined,
+        result: "",
+        ...stamp(stored),
+      });
+      return true;
     case "job_finished": {
       state.jobs.delete(event.job);
       const stopped = state.stopping.delete(event.job);
@@ -834,6 +873,20 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       const line = state.entries[at];
       if (line?.kind === "helper") {
         state.entries[at] = { ...line, outcome, result: event.content ?? "" };
+        return true;
+      }
+      // A contract call's line settles with what came back; its result opens a reply, as any.
+      const call = state.entries.findIndex(
+        (entry) => entry.kind === "contract" && entry.job === event.job,
+      );
+      const asked = state.entries[call];
+      if (asked?.kind === "contract") {
+        const read = spadeContractResult(event.content ?? "");
+        state.entries[call] = {
+          ...asked,
+          outcome: stopped ? "stopped" : read.outcome,
+          result: read.result,
+        };
         return true;
       }
       // Its result goes to Spade like a message: what Spade says about it reads below it.
@@ -954,6 +1007,12 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         return true;
       }
       steer(state, { kind: "card", key, ...row, ...stamp(stored) });
+      return true;
+    }
+    case "notice_sent": {
+      const row = spadeNoticeSent(event);
+      if (!row) return false;
+      steer(state, { kind: "notice", key, ...row, ...stamp(stored) });
       return true;
     }
     case "card_action": {

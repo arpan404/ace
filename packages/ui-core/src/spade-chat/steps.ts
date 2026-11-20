@@ -53,13 +53,18 @@ const shownElsewhere = new Set([
   "memory_forget",
   "image_generate",
   "share_file",
-  // A card the bot showed is its own row (ADR 0200 §5.1).
+  // A card the bot showed is its own row (ADR 0200 §5.1), and so are a notice it sent and a
+  // package it suggested (§4.2, §8).
   "card_show",
+  "notify",
+  "package_suggest",
   // A bot changing its own task, name or face: its own quiet line (`task-changed`, `named`).
   "task_update",
   "profile_update",
   // A bot made for the person, or added to a club: their own lines (`made`, `club-added`).
   "club_add",
+  // A call to another bot's contract: its own line, with what came back (ADR 0200 §7).
+  "contract_call",
 ]);
 
 /** A call that has finished one way or another; one still going is the working line's. */

@@ -11,6 +11,8 @@ pub const VERSION: &str = "1";
 
 /// The build that first named `spade.v1`.
 const V1: &str = "0.0.24";
+/// The build that adds ADR 0200's phase 2 tools.
+const PHASE_2: &str = "0.0.25";
 
 /// A module of the API, in the order the reference lists them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -88,7 +90,12 @@ impl Module {
                 "ace's browser, screen and simulators, and devices named with @, through ace."
             }
             Self::Outward => "Pushes, comments and messages with the person's own sign-ins.",
-            Self::Notify => "Proactive notices to the person. Phase 2; no tools yet.",
+            Self::Notify => {
+                "Proactive notices to the person, under their quiet hours, do not disturb, \
+                 interruption budget and each bot's notification switch; what waits goes into \
+                 the morning brief. A bot sends at most 3 an hour (more wait for the brief) and 12 \
+                 a day (more are refused). The words are the bot's, shown as plain text."
+            }
         }
     }
 }
@@ -123,6 +130,16 @@ const fn spade(name: &'static str, module: Module) -> Tool {
     }
 }
 
+/// A Spade tool added after the first version.
+const fn added(name: &'static str, module: Module, since: &'static str) -> Tool {
+    Tool {
+        name,
+        module,
+        source: Source::Table,
+        since,
+    }
+}
+
 const fn ace(name: &'static str, module: Module, most: Effect) -> Tool {
     Tool {
         name,
@@ -132,7 +149,7 @@ const fn ace(name: &'static str, module: Module, most: Effect) -> Tool {
     }
 }
 
-use Module::{Agents, Apps, Devices, Files, Memory, Outward, Schedule, Task, Ui, Web};
+use Module::{Agents, Apps, Devices, Files, Memory, Notify, Outward, Schedule, Task, Ui, Web};
 
 /// `spade.v1`. Add a tool with the build that adds it; never remove or rename one, or give it a
 /// stronger effect, without an alias in [`ALIASES`] (that is `spade.v2`).
@@ -193,6 +210,10 @@ pub const TOOLS: &[Tool] = &[
     spade(crate::tree::WORKER_STOP, Agents),
     spade(crate::helper::TOOL, Agents),
     ace("delegate", Agents, Effect::Network),
+    added(crate::contract::CONTRACTS_FIND, Agents, PHASE_2),
+    added(crate::contract::CONTRACT_CALL, Agents, PHASE_2),
+    added(crate::contract::CONTRACT_RETURN, Agents, PHASE_2),
+    added(crate::question::suggest::PACKAGE_SUGGEST, Agents, PHASE_2),
     spade(crate::context::ASK_USER, Ui),
     spade("image_generate", Ui),
     spade(crate::card::CARD_SHOW, Ui),
@@ -215,6 +236,7 @@ pub const TOOLS: &[Tool] = &[
     spade(super::PR_COMMENT, Outward),
     spade(super::ISSUE_COMMENT, Outward),
     spade(super::SEND_MESSAGE, Outward),
+    added(crate::reach::notice::NOTIFY, Notify, PHASE_2),
 ];
 
 /// Spade's tools in the gate's table that are not part of the API: they may change in any build.

@@ -37,7 +37,27 @@ export type SpadeQuestion =
     })
   | (Base & { kind: "date"; time: boolean })
   /** Connect an app (`app_connect_request`, ADR 0131 amendment 1): answered by connecting. */
-  | (Base & { kind: "connect"; connect: SpadeConnectAsk });
+  | (Base & { kind: "connect"; connect: SpadeConnectAsk })
+  /** Install a package a bot suggests (`package_suggest`, ADR 0200 §8): answered by installing. */
+  | (Base & { kind: "suggest"; suggest: SpadeSuggestAsk });
+
+/**
+ * The package a suggest card is about, as Spade made it from the market's signed manifest and
+ * the `bot.json` it covers; only the prompt (the bot's reason) is the bot's words.
+ */
+export interface SpadeSuggestAsk {
+  /** Where it is listed (`market`) and its name there, for the install review. */
+  source: string;
+  package: string;
+  version: string;
+  name: string;
+  /** Its face, as a bot's character face, when it has one. */
+  face: Record<string, unknown> | undefined;
+  blurb: string;
+  publisher: { id: string; name: string };
+  /** What it would be allowed to do, a few words each; each is a switch on the review. */
+  can: readonly string[];
+}
 
 /** How the person gives the bot the app a connect card asks for. */
 export type SpadeConnectWay = "sign_in" | "key" | "later" | "use" | "reconnect";
@@ -111,6 +131,28 @@ const connectShape = z.object({
   retry: optional(z.boolean()),
 });
 
+const suggestShape = z.object({
+  source: z.string().min(1),
+  package: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+  version: z.string().catch(""),
+  name: z.string().min(1),
+  face: z.record(z.string(), z.unknown()).nullish().catch(undefined),
+  blurb: z.string().catch(""),
+  publisher: z.object({ id: z.string(), name: z.string().min(1) }),
+  can: z
+    .array(z.unknown())
+    .catch([])
+    .default([])
+    .transform((list) => list.filter((each): each is string => typeof each === "string")),
+});
+
+function readSuggest(raw: unknown): SpadeSuggestAsk | undefined {
+  const parsed = suggestShape.safeParse(raw);
+  if (!parsed.success) return undefined;
+  const { face, ...rest } = parsed.data;
+  return { ...rest, face: face ?? undefined };
+}
+
 function readConnect(raw: unknown): SpadeConnectAsk | undefined {
   const parsed = connectShape.safeParse(raw);
   if (!parsed.success) return undefined;
@@ -165,6 +207,11 @@ function readQuestion(raw: unknown): SpadeQuestion | undefined {
       if (connect) return { ...base, kind: "connect", connect };
       break;
     }
+    case "suggest": {
+      const suggest = readSuggest(raw);
+      if (suggest) return { ...base, kind: "suggest", suggest };
+      break;
+    }
   }
   return { ...base, kind: "text", placeholder: value.placeholder || undefined };
 }
@@ -187,6 +234,7 @@ export function spadeCardQuestions(questions: unknown, words: string): SpadeQues
 /** An answer in the person's words: a label, the labels, Yes or No, the number with its unit. */
 export function spadeAnswerWords(question: SpadeQuestion, answer: unknown): string {
   if (question.kind === "connect") return spadeConnectedWords(question.connect, answer);
+  if (question.kind === "suggest") return spadeInstalledWords(question.suggest, answer);
   if (typeof answer === "boolean") return answer ? "Yes" : "No";
   if (typeof answer === "number")
     return question.kind === "number" && question.unit ? `${answer} ${question.unit}` : `${answer}`;
@@ -217,6 +265,7 @@ export function spadeEmptyDraft(question: SpadeQuestion): SpadeDraft {
     case "date":
       return { kind: "field", text: "" };
     case "connect":
+    case "suggest":
       return { kind: "text", text: "" };
   }
 }
@@ -291,6 +340,9 @@ export function spadeDraftAnswer(
     // Only connecting answers it.
     case "connect":
       return { missing: `Connect ${question.connect.name}` };
+    // Only installing answers it, on the install review.
+    case "suggest":
+      return { missing: `Review ${question.suggest.name} first` };
   }
 }
 
@@ -321,6 +373,23 @@ export function spadeConnectAction(ask: SpadeConnectAsk): string | undefined {
     case "later":
       return undefined;
   }
+}
+
+/** The quiet line a suggest card settles to once the person installed it. */
+export function spadeInstalledWords(ask: SpadeSuggestAsk, answer: unknown): string {
+  const name =
+    typeof answer === "object" && answer !== null && "name" in answer
+      ? (answer as { name?: unknown }).name
+      : undefined;
+  return typeof name === "string" && name && name !== ask.name
+    ? `Installed ${ask.name} as ${name}`
+    : `Installed ${ask.name}`;
+}
+
+/** The suggest card in a card's questions, if it is one. */
+export function spadeSuggestOf(questions: readonly SpadeQuestion[]): SpadeSuggestAsk | undefined {
+  const [only, ...rest] = questions;
+  return only?.kind === "suggest" && rest.length === 0 ? only.suggest : undefined;
 }
 
 /** The connect card in a connect card's questions, if it is one. */

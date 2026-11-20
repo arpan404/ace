@@ -1734,25 +1734,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "leftOut": [],
-    "op": "botRecipe",
-    "recipe": {
-      "blurb": "example",
-      "format": "spade-bot",
-      "name": "example",
-      "needs": {
-        "connectors": []
-      },
-      "notes": [],
-      "plugins": [],
-      "requires": {},
-      "style": {
-        "accent": "#79F67e"
-      },
-      "task": "example",
-      "tests": [],
-      "version": 3
-    }
+    "op": "privacyCheck",
+    "spans": []
   },
   "type": "marketplace.result"
 }

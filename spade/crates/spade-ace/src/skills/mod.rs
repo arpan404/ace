@@ -17,7 +17,7 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 pub use crate::config::SkillsConfig;
-pub use market::{MarketFile, MarketFileBytes, MarketSkill};
+pub use market::{MarketBot, MarketFile, MarketFileBytes, MarketSkill};
 use socket::{Notices, Socket};
 use wire::Operation;
 pub use wire::SkillFile;

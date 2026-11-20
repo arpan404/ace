@@ -782,6 +782,34 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<Value>,
     },
+    /// This bot called another bot's contract (ADR 0200 §7) as job `job`: stored once, before the
+    /// call is delivered, so its steps can say "Asked Flight watcher: cheapest_fare".
+    ContractCalled(Box<crate::contract::Called>),
+    /// The bot answered a contract call (ADR 0200 §7) with output that doesn't fit the
+    /// contract's output schema; the problems went back to it.
+    ContractMisfit {
+        call: String,
+        problems: Vec<String>,
+    },
+    /// A contract call made to this bot ended: its output fit, or it never did.
+    ContractEnded {
+        call: String,
+        #[serde(flatten)]
+        ending: crate::contract::Ending,
+    },
+    /// A bot's own notice to the person (`notify`, ADR 0200 §4.2), as Spade decided it under
+    /// ADR 0195: sent now, held for the brief, or not sent. Its words are the bot's.
+    NoticeSent {
+        call_id: String,
+        /// The notice's id on the notice stream and in what waits for the person.
+        id: String,
+        title: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        body: String,
+        reach: crate::reach::Reach,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        why: Option<crate::reach::Why>,
+    },
 }
 
 /// The events after the bot's latest arrival from another machine (all of them when it never
@@ -892,6 +920,9 @@ pub struct FromAgent {
     /// The machine it runs on, by name, when that is another machine (ADR 0132).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+    /// The contract call it delivers, when it is one (ADR 0200 §7). Boxed: most carry none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<Box<crate::contract::Request>>,
 }
 
 /// Where a call may run on the person's answer, from least to most: held by the sandbox only, as
