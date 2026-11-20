@@ -31,6 +31,7 @@ struct SummaryAgentsSection: View {
                     .accessibilityIdentifier("summary.agents")
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("summary.agentList")
     }
 
