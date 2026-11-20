@@ -14,7 +14,7 @@ use std::error::Error;
 use std::fs;
 use std::time::{Duration, Instant};
 
-use files_wire::EventPayload;
+use files_wire::{ChangeKind, EventPayload};
 
 use crate::measure::{index_ready_until, index_until, resident_mib, subscribe};
 use crate::report::Report;
@@ -124,10 +124,14 @@ fn names(
     report: &mut Report,
 ) -> Result<(), Box<dyn Error>> {
     let half = LATENCY_SAMPLES / 2;
-    let timed = |wire: &mut Wire, path: String, change: &dyn Fn() -> std::io::Result<()>| {
+    // A sample ends when every change it expects has arrived as its own kind: a trailing write
+    // to a path is not its deletion, and a rename is done only once the old name is gone too.
+    let timed = |wire: &mut Wire,
+                 expected: &[(String, ChangeKind)],
+                 change: &dyn Fn() -> std::io::Result<()>| {
         let started = Instant::now();
         change()?;
-        let reported = await_change(wire, subscription, &path, WATCH_DEADLINE, Some(started))?;
+        let reported = await_kinds(wire, subscription, expected, WATCH_DEADLINE, started)?;
         Ok::<Duration, Box<dyn Error>>(reported.saturating_duration_since(started))
     };
     let (mut renames, mut after_rename, mut deletes) = (Vec::new(), Vec::new(), Vec::new());
@@ -135,10 +139,17 @@ fn names(
         let from = watch_dir.join(latency_name(sample));
         let moved = format!("moved_{sample:02}.txt");
         let to = watch_dir.join(&moved);
-        renames.push(timed(wire, format!("{watch_rel}/{moved}"), &|| {
-            fs::rename(&from, &to)
-        })?);
-        after_rename.push(timed(wire, format!("{watch_rel}/{moved}"), &|| {
+        let old = format!("{watch_rel}/{}", latency_name(sample));
+        let new = format!("{watch_rel}/{moved}");
+        renames.push(timed(
+            wire,
+            &[
+                (old, ChangeKind::Deleted),
+                (new.clone(), ChangeKind::Created),
+            ],
+            &|| fs::rename(&from, &to),
+        )?);
+        after_rename.push(timed(wire, &[(new, ChangeKind::Deleted)], &|| {
             fs::remove_file(&to)
         })?);
     }
@@ -146,7 +157,10 @@ fn names(
         let gone = watch_dir.join(latency_name(sample));
         deletes.push(timed(
             wire,
-            format!("{watch_rel}/{}", latency_name(sample)),
+            &[(
+                format!("{watch_rel}/{}", latency_name(sample)),
+                ChangeKind::Deleted,
+            )],
             &|| fs::remove_file(&gone),
         )?);
     }
@@ -155,7 +169,7 @@ fn names(
         (
             "watcher rename",
             &renames,
-            "single renames in one folder, to the new name",
+            "single renames in one folder, until both names are reported",
         ),
         (
             "watcher delete after rename",
@@ -714,6 +728,37 @@ fn await_change(
                 return Ok(at);
             }
             Some(_) | None => {}
+        }
+    }
+}
+
+/// Wait until the watch has reported each `(path, kind)` after `since`, and hand back the moment
+/// the last of them arrived.
+fn await_kinds(
+    wire: &mut Wire,
+    subscription: u64,
+    expected: &[(String, ChangeKind)],
+    deadline: Duration,
+    since: Instant,
+) -> Result<Instant, Box<dyn Error>> {
+    let mut missing: Vec<&(String, ChangeKind)> = expected.iter().collect();
+    let started = Instant::now();
+    loop {
+        if started.elapsed() > deadline {
+            return Err(format!("the watch never reported {missing:?} within {deadline:?}").into());
+        }
+        if let Some((at, EventPayload::Changes { changes })) =
+            wire.try_event(subscription, Duration::from_millis(500))?
+            && at >= since
+        {
+            missing.retain(|(path, kind)| {
+                !changes
+                    .iter()
+                    .any(|change| &change.path == path && change.kind == *kind)
+            });
+            if missing.is_empty() {
+                return Ok(at);
+            }
         }
     }
 }
