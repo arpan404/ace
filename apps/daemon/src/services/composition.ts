@@ -111,7 +111,7 @@ export function readyServices(
   const handler = requireService(services.handler, "engine");
   services.handler = {
     handle: (sent, store) => {
-      // Stop in a thread also stops what its bots and clubs are answering (ADR 0194).
+      // Stop in a thread also stops what its bots and clubs are answering (ADR 0198).
       if (sent.payload.type === "thread.interrupt")
         void services.threadAsks?.stopThread(sent.payload.threadId);
       const command = withBotReplies(sent, services.threadAsks);
@@ -126,7 +126,7 @@ export function readyServices(
 }
 /**
  * The person's message to their thread's agent carries what bots answered there since its last
- * turn (ADR 0194), as untrusted context the daemon expands; ace's own sends don't take them.
+ * turn (ADR 0198), as untrusted context the daemon expands; ace's own sends don't take them.
  */
 function withBotReplies(command: Command, asks: Services["threadAsks"]): Command {
   const p = command.payload;

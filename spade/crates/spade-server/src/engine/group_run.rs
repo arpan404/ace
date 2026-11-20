@@ -27,7 +27,7 @@ impl Engine {
             .map(|posted| posted.map_or_else(String::new, |(run, _)| run))
     }
 
-    /// The person posts in a group, from an ace thread when `thread` names one (ADR 0194): the
+    /// The person posts in a group, from an ace thread when `thread` names one (ADR 0198): the
     /// message records the thread, `thread.1` (the thread's context pack, untrusted) goes to the
     /// bots asked, and `delivery` stores the ask's key with the message, once. `None` when that
     /// ask was posted before. Returns the run and the message's seq.
@@ -110,7 +110,7 @@ impl Engine {
         self.start_ask_with(group, run, by, depth, to, text, None)
     }
 
-    /// [`Engine::start_ask`], with an ace thread's context pack (ADR 0194) put before the club's
+    /// [`Engine::start_ask`], with an ace thread's context pack (ADR 0198) put before the club's
     /// own context: agents' words and tool output, so the turn it starts is untrusted.
     #[allow(clippy::too_many_arguments)]
     fn start_ask_with(

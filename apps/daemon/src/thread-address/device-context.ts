@@ -1,7 +1,7 @@
 import type { DeviceContextItem, FleetLink } from "@ace/protocol";
 
 /*
- * What the agent reads of a device the person named with `@` (ADR 0194): which it is, where,
+ * What the agent reads of a device the person named with `@` (ADR 0198): which it is, where,
  * whether it can be reached now, and how to use it with the tools the agent already has. The
  * machine is checked again here; one this machine no longer links to is left out, so a chip
  * naming a removed machine stays the person's plain words. Pure.

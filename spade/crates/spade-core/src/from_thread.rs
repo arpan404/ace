@@ -1,4 +1,4 @@
-//! A message the person wrote in an ace thread (ADR 0194), as the bot answering it reads it. The
+//! A message the person wrote in an ace thread (ADR 0198), as the bot answering it reads it. The
 //! words are the person's; a summary of the thread that came with it is agents' words and tool
 //! output, so it is marked untrusted.
 

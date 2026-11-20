@@ -22,7 +22,7 @@ import { deviceGlyphs } from "@/features/devices/index.ts";
 import { MentionFace, MentionFaces } from "@/lib/spade-mentions.tsx";
 
 /*
- * The picture of everything `@` can name (ADR 0194), the same in the picker's rows and in the
+ * The picture of everything `@` can name (ADR 0198), the same in the picker's rows and in the
  * chip it leaves, in the composer and in the sent message: an agent its provider's mark, a bot
  * its face, a club its members' faces, a machine or device its kind's glyph, an app its brand
  * mark, a file its kind's glyph. Bare marks in the text colour, never on a tinted tile.

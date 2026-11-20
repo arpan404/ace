@@ -3,7 +3,7 @@ import type { AddressedShare } from "@ace/protocol";
 
 /*
  * Whether a thread's next message to bots and clubs takes the thread's context pack or only its
- * words (ADR 0194): the person's choice on the composer's "Shares" line, kept per thread while
+ * words (ADR 0198): the person's choice on the composer's "Shares" line, kept per thread while
  * the window is open. Sending takes the choice and the next message starts from sharing again.
  */
 

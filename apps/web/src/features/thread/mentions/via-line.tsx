@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /**
- * Above a message the person sent this thread's agent from another thread with `@` (ADR 0194):
+ * Above a message the person sent this thread's agent from another thread with `@` (ADR 0198):
  * "You, from ‹that thread›", opening it. Quiet at rest, like the line naming another agent.
  */
 export function ViaLine(props: { via: MessageVia }) {

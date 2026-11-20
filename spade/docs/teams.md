@@ -191,7 +191,7 @@ status: "online"|"offline"}]}`: the linked machines this daemon can call.
   `unavailable`.
 - `spade.http` and the desktop's direct path refuse `/v1/inbox` (`invalid_path`).
 
-## Asks from ace threads (ADR 0194)
+## Asks from ace threads (ADR 0198)
 
 The person mentions a bot or club in one of their ace threads; ace's daemon delivers their words
 here once, by its key, and reads the answers back. Only the daemon can: every request carries the

@@ -5,7 +5,7 @@ import { BotFace } from "@/components/bot-face.tsx";
 import { SpadeMark } from "@/components/spade-mark.tsx";
 
 /*
- * What a thread's `@` picker and its bot replies need of Spade (ADR 0194): this machine's bots
+ * What a thread's `@` picker and its bot replies need of Spade (ADR 0198): this machine's bots
  * and clubs, and how a bot's face and a club's faces are drawn. Spade's own; the app supplies it
  * (`SpadeMentionsProvider`), so the thread can name bots without importing Spade. With none
  * supplied there are no bots to list, and a face draws from its character alone.

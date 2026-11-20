@@ -87,7 +87,7 @@ const known = z.discriminatedUnion("type", [
       .object({ id: z.string(), name: z.string().catch("") })
       .nullish()
       .catch(undefined),
-    /** The person wrote it in an ace thread (ADR 0194): the thread, to link back to. */
+    /** The person wrote it in an ace thread (ADR 0198): the thread, to link back to. */
     from_thread: z
       .object({ id: z.string().min(1), title: z.string().catch("") })
       .nullish()

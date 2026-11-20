@@ -11,9 +11,9 @@ import type { LocalAttachment } from "@/components/attachment-format.ts";
 /** A message the composer hands over on Enter. */
 export interface Draft {
   text: string;
-  /** Bots, clubs and other threads' agents it also goes to (ADR 0194). */
+  /** Bots, clubs and other threads' agents it also goes to (ADR 0198). */
   addressees?: Addressee[] | undefined;
-  /** Devices it names, for ace's line under it (ADR 0194); the agent gets them as context. */
+  /** Devices it names, for ace's line under it (ADR 0198); the agent gets them as context. */
   devices?: DeviceContextItem[] | undefined;
   input?: ContentPart[] | undefined;
   /** Other threads and browser tabs the message points at (`MessageContext.items`). */

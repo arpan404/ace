@@ -123,7 +123,7 @@ pub fn open_asks(events: &[Event]) -> Vec<OpenAsk> {
     open
 }
 
-/// What one run has said so far (ADR 0194, an ask from an ace thread): every bot's message
+/// What one run has said so far (ADR 0198, an ask from an ace thread): every bot's message
 /// posted in it, in order; its asks still open; how asks that ended without an answer ended; and
 /// whether the person stopped it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

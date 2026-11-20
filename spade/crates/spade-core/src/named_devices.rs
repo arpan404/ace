@@ -1,4 +1,4 @@
-//! Devices the person named with `@` in a message to a bot (ADR 0194): a machine of their fleet,
+//! Devices the person named with `@` in a message to a bot (ADR 0198): a machine of their fleet,
 //! a phone paired with one, a simulator or emulator on one. The bot reads which, where, and
 //! whether each answers, so it uses the machine it runs on, or says it would need to move.
 

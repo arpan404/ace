@@ -174,7 +174,7 @@ export type SpadeEntry =
       fromRoutine?: { id: string; name: string; label: string; heartbeat: boolean };
       /** Sent here from a group the bot is in (ADR 0132). */
       fromGroup?: { id: string; name: string };
-      /** Written by the person in an ace thread (ADR 0194). */
+      /** Written by the person in an ace thread (ADR 0198). */
       fromThread?: { id: string; title: string };
       /** When Spade stored it; a message not stored yet has none. */
       at?: number;

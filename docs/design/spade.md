@@ -122,7 +122,7 @@ Spade is one of ace's places. It adds no navigation of its own.
   bubble. A request becomes one line ("Allowed · curl -s …"); in a run, they fold into the reply's
   steps. Left for later, a card folds to one line in place with Answer, and one pill above the
   composer.
-- **From ace (ADR 0194).** A message the person wrote in an ace thread with `@` this bot or club
+- **From ace (ADR 0198).** A message the person wrote in an ace thread with `@` this bot or club
   carries a quiet line above their bubble, "From ace · Fix login" (`text-xs`, muted, the whole line
   a link to that thread), and the bot's answer goes back to the thread. Nothing else marks it.
 - **`@` in a Spade chat.** The same picker as a thread's: in a club, its members with their faces

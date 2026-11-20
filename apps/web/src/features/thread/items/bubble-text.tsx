@@ -69,7 +69,7 @@ export function BubbleText({
   /** The readable content, for Copy; the fold button stays outside it. */
   ref?: Ref<HTMLDivElement> | undefined;
   fold?: BubbleFold | undefined;
-  /** Draws a plain run of the words, for the chips of what the message named (ADR 0194). */
+  /** Draws a plain run of the words, for the chips of what the message named (ADR 0198). */
   decorate?: ((text: string) => ReactNode) | undefined;
 }) {
   const [open, setOpen] = useState(false);

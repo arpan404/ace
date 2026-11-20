@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { chooseShare, useShareChoice } from "./share-choice.ts";
 
 /**
- * Under the input while the message names a Spade bot or club (ADR 0194): exactly what goes to
+ * Under the input while the message names a Spade bot or club (ADR 0198): exactly what goes to
  * them with it, in words, and the choice to send only the words. Nothing else is said.
  */
 export function SharesLine(props: { threadId: string; tokens: readonly ComposerToken[] }) {

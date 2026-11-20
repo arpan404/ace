@@ -138,7 +138,7 @@ export interface ComposerProps {
   ref?: Ref<ComposerHandle> | undefined;
 }
 
-/** A name `@` offers in a Spade chat (a club's member), with its face (ADR 0194). */
+/** A name `@` offers in a Spade chat (a club's member), with its face (ADR 0198). */
 export interface MentionMember {
   name: string;
   avatar?: import("@ace/ui-core/spade-chat").SpadeAvatar | undefined;

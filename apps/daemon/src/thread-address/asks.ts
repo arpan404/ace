@@ -16,7 +16,7 @@ import {
 
 /*
  * Delivers each bot and club ask of an addressed message to Spade once, by its key, and reads
- * the answers back with a long poll, posting each reply in the thread as it comes (ADR 0194).
+ * the answers back with a long poll, posting each reply in the thread as it comes (ADR 0198).
  * Every ask holds its thread open as one of ace's background tasks until it ends. A restart
  * reads the open asks again from the store; Spade stores each key with its message, so a resend
  * never delivers twice.

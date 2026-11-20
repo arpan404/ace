@@ -13,7 +13,7 @@ import type { Store } from "../store.ts";
 import { personText } from "./plan.ts";
 
 /*
- * The addressed messages and their asks (ADR 0194), kept so a restart picks every open ask up
+ * The addressed messages and their asks (ADR 0198), kept so a restart picks every open ask up
  * again and the person's message keeps saying where each addressee stands. Two small tables of
  * their own, made empty on first use: nothing here grows with the rest of history.
  */

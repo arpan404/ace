@@ -1,5 +1,5 @@
 /*
- * What goes with a message the person sends to Spade bots or clubs from a thread (ADR 0194),
+ * What goes with a message the person sends to Spade bots or clubs from a thread (ADR 0198),
  * in words: the composer's "Shares: …" line before it is sent, ace's line after, and the daemon's
  * context pack all follow this one rule, so what the person reads is what went.
  */

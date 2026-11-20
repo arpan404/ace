@@ -1,4 +1,4 @@
-//! Asks from the person's ace threads (ADR 0194): the person mentioned a bot or a club in a
+//! Asks from the person's ace threads (ADR 0198): the person mentioned a bot or a club in a
 //! thread, and ace's daemon delivers their words here once, by its key, with the thread's context
 //! pack, then reads the answers back by that key. The words are the person's; the pack is agents'
 //! words and tool output, so a turn it comes with is untrusted. The bot works under its own gate.

@@ -1,4 +1,4 @@
-//! Asks from ace threads (ADR 0194): ace's daemon delivers the person's words to a bot or a club
+//! Asks from ace threads (ADR 0198): ace's daemon delivers the person's words to a bot or a club
 //! once, by key and signed with its own token; the answer is read back by the key; the thread's
 //! context pack makes the turn untrusted; the message keeps the thread it came from.
 

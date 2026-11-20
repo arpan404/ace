@@ -39,7 +39,7 @@ type SpadeBubbleOf =
       voice: SpadeVoiceRef | undefined;
       /** Not stored by Spade yet. */
       sending: boolean;
-      /** Written in an ace thread (ADR 0194): the line above links back to it. */
+      /** Written in an ace thread (ADR 0198): the line above links back to it. */
       fromThread?: { id: string; title: string } | undefined;
     }
   /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */

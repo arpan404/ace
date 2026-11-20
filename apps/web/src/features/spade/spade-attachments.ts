@@ -41,7 +41,7 @@ export interface SpadeMessage {
   images: PreparedImage[];
   documents?: PreparedDocument[];
   voice?: PreparedVoice | undefined;
-  /** Devices the person named with `@` (ADR 0194). */
+  /** Devices the person named with `@` (ADR 0198). */
   devices?: DeviceContextItem[] | undefined;
 }
 

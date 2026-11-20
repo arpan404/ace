@@ -1,7 +1,7 @@
 import type { AddressedTo } from "@ace/protocol";
 
 /*
- * What ace's line says of each addressee (ADR 0194), in words: who is working, who waits for
+ * What ace's line says of each addressee (ADR 0198), in words: who is working, who waits for
  * the person, what came back. Pure.
  */
 

@@ -21,9 +21,9 @@ export interface Suggestion {
   entry?: CatalogEntry | undefined;
   /** A name inserted as plain text (a Spade group's member), never a reference chip. */
   plain?: boolean | undefined;
-  /** A bot, club or another thread's agent the message also goes to (ADR 0194). */
+  /** A bot, club or another thread's agent the message also goes to (ADR 0198). */
   addressee?: Addressee | undefined;
-  /** A device the message names for the work (ADR 0194). */
+  /** A device the message names for the work (ADR 0198). */
   device?: DeviceContextItem | undefined;
   /** What the row and its chip show beside the name. */
   picture?: MentionPicture | undefined;

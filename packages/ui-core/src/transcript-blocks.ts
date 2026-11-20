@@ -762,7 +762,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!replaced)
       switch (item.type) {
         case "message":
-          // A Spade bot's reply (ADR 0194) is its own row, never the agent's words or answer.
+          // A Spade bot's reply (ADR 0198) is its own row, never the agent's words or answer.
           if (item.speaker) push({ kind: "item", key: id, itemId: id }, false);
           else if (person) push({ kind: "user", key: id, itemId: id }, item.createdAt);
           else if (item.synthetic || item.role === "user") {

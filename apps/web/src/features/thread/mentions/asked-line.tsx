@@ -8,7 +8,7 @@ import { addresseePicture } from "./token-picture.ts";
 import { stateWords } from "./asked-words.ts";
 
 /**
- * ace's line under a message the person sent with `@` bots, clubs or agents (ADR 0194): each
+ * ace's line under a message the person sent with `@` bots, clubs or agents (ADR 0198): each
  * addressee's face and where it stands, in words, then what went with it. A follow-up shows its
  * own words above, since only the bots got them. A bot waiting for the person links to its chat
  * in Spade, where the approval is; an agent links to its thread.

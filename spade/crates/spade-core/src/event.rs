@@ -35,7 +35,7 @@ pub enum Known {
         /// It came through a group (ADR 0132): the bot's reply is posted there.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_group: Option<Box<FromGroup>>,
-        /// The person wrote it in an ace thread (ADR 0194); `context`, when the thread's summary
+        /// The person wrote it in an ace thread (ADR 0198); `context`, when the thread's summary
         /// came with it, is untrusted.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_thread: Option<Box<FromThread>>,
@@ -606,7 +606,7 @@ pub enum Known {
         text: String,
         #[serde(default)]
         from: Option<GroupBot>,
-        /// The person wrote it in an ace thread (ADR 0194).
+        /// The person wrote it in an ace thread (ADR 0198).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread: Option<FromThread>,
     },
@@ -909,7 +909,7 @@ pub struct FromGroup {
     pub untrusted: bool,
 }
 
-/// The ace thread the person wrote a message in (ADR 0194), and whether a summary of that thread
+/// The ace thread the person wrote a message in (ADR 0198), and whether a summary of that thread
 /// came with it: agents' words and tool output, so untrusted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FromThread {

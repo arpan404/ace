@@ -8,7 +8,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { MentionFace } from "@/lib/spade-mentions.tsx";
 
 /**
- * A Spade bot's reply in the thread (ADR 0194): its face and name (and its club), then its words,
+ * A Spade bot's reply in the thread (ADR 0198): its face and name (and its club), then its words,
  * streaming while it writes them. Never the agent's: the agent is given it, marked untrusted,
  * with the person's next message. Reply asks the bot again, about the same message, with the
  * thread's context as before; only the bot gets it.

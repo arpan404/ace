@@ -4,7 +4,7 @@ import { parseSpadeAvatar } from "@ace/ui-core/spade-chat";
 import type { MentionPicture } from "./mention-mark.tsx";
 
 /*
- * A chip's picture from what it names (ADR 0194), so the composer, a draft read back and a sent
+ * A chip's picture from what it names (ADR 0198), so the composer, a draft read back and a sent
  * message all draw the same one from the same facts.
  */
 

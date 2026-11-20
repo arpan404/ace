@@ -4,7 +4,7 @@ import type { AskedLine } from "@ace/protocol";
 import { useCallback } from "react";
 
 /*
- * ace's lines by the message they are about (ADR 0194), so a sent bubble draws the chips of the
+ * ace's lines by the message they are about (ADR 0198), so a sent bubble draws the chips of the
  * bots, clubs, agents and devices it named. Built once per transcript window (its order changes
  * when a line arrives), never once per bubble.
  */

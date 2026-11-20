@@ -1,4 +1,4 @@
-//! `/v1/thread-asks` (ADR 0194): the person's words from an ace thread to a bot or a club, as
+//! `/v1/thread-asks` (ADR 0198): the person's words from an ace thread to a bot or a club, as
 //! the local daemon delivers them. Only a request the daemon signed with its own token, as for
 //! the inbox, is taken: a client holding Spade's bearer token alone can't make a message claim to
 //! come from a thread.

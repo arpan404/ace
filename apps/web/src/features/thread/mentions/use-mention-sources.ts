@@ -23,7 +23,7 @@ import { useMachines, type Machine } from "@/lib/machines.ts";
 import { useClock } from "@/lib/time.ts";
 
 /*
- * What the `@` picker lists besides files (ADR 0194), each read from the module that already owns
+ * What the `@` picker lists besides files (ADR 0198), each read from the module that already owns
  * it and only while the picker is open: other threads' agents from the sidebar index, this
  * machine's Spade bots and clubs from Spade (the same cache Spade's own panel reads), and the
  * fleet's machines, their paired phones and this machine's simulators and emulators.

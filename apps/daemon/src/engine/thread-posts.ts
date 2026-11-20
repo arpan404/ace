@@ -3,7 +3,7 @@ import type { ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 
 /**
- * Messages ace posts in a thread for the person, outside any provider turn (ADR 0194): a message
+ * Messages ace posts in a thread for the person, outside any provider turn (ADR 0198): a message
  * they addressed to bots, clubs or agents, and each bot's reply. They sit on the root agent's
  * transcript, so they order with everything else, but no provider ever receives them.
  */

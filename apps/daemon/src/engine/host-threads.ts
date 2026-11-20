@@ -32,7 +32,7 @@ export interface HostThreadInput {
 export class HostThreads {
   private repo: EngineRepository;
   private now: () => number;
-  /** Messages ace posts in any thread for the person, outside a provider turn (ADR 0194). */
+  /** Messages ace posts in any thread for the person, outside a provider turn (ADR 0198). */
   readonly posts: ThreadPosts;
   constructor(repo: EngineRepository, now: () => number) {
     this.repo = repo;

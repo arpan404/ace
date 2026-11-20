@@ -124,7 +124,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
     runId: RunId.nullable().optional(),
   }),
   /**
-   * The person's message to Spade bots, clubs or other threads' agents (ADR 0194), beside the
+   * The person's message to Spade bots, clubs or other threads' agents (ADR 0198), beside the
    * `thread.send` that gave it to this thread's agent (`about`, that send's id). A follow-up
    * (`followUp`) went to the bots alone: `about` is the message it follows up. `share` says
    * whether the thread's context pack goes with it.

@@ -13,7 +13,7 @@ import { avatarJson } from "./avatar-json.ts";
 import type { useMentionSources } from "./use-mention-sources.ts";
 
 /*
- * The `@` picker's rows (ADR 0194), in its fixed order of sections, filtered by what was typed:
+ * The `@` picker's rows (ADR 0198), in its fixed order of sections, filtered by what was typed:
  * other threads' agents, Spade bots, clubs, devices, apps, then the files, tabs and threads the
  * composer always offered. Each row carries its picture and what picking it names.
  */

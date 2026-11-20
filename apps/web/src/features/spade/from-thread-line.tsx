@@ -4,7 +4,7 @@ import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /**
  * Above the person's message in a bot's chat or a club when they wrote it in an ace thread with
- * `@` (ADR 0194): "From ace · ‹the thread›", opening that thread. The thread's title as ace lists
+ * `@` (ADR 0198): "From ace · ‹the thread›", opening that thread. The thread's title as ace lists
  * it now, else as it was when the message came.
  */
 export function FromThreadLine(props: { thread: { id: string; title: string } }) {

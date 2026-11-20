@@ -54,7 +54,7 @@ export const ContentPart = z.discriminatedUnion("type", [
 export type ContentPart = z.infer<typeof ContentPart>;
 
 /**
- * ace's line under a message the person sent with `@` mentions (ADR 0194): who else it went to,
+ * ace's line under a message the person sent with `@` mentions (ADR 0198): who else it went to,
  * what went with it, and where each stands. `about` is the person's `thread.send` (its message
  * carries it as `origin.commandId`), or, for a follow-up, the message it follows up. A follow-up
  * went only to the bots: its words live here, not in the agent's transcript.
@@ -121,7 +121,7 @@ export const MessageOrigin = z.object({
   lossy: z.boolean().optional(),
   /** A `restart` continuation resuming a turn its provider dropped on its own, not a restart. */
   afterExit: z.boolean().optional(),
-  /** A `person` message sent from another thread by `@` its agent (ADR 0194): that thread. */
+  /** A `person` message sent from another thread by `@` its agent (ADR 0198): that thread. */
   via: MessageVia.optional(),
 });
 export type MessageOrigin = z.infer<typeof MessageOrigin>;
@@ -168,7 +168,7 @@ export const AgentItem = z.discriminatedUnion("type", [
     origin: MessageOrigin.optional(),
     notAnswered: z.literal("stopped").optional(),
     mergedContext: MergedForkContext.optional(),
-    /** A reply a Spade bot gave in this thread: the bot's words, never the agent's (ADR 0194). */
+    /** A reply a Spade bot gave in this thread: the bot's words, never the agent's (ADR 0198). */
     speaker: Speaker.optional(),
     raw: z.array(RawPayload).default([]),
   }),
@@ -225,7 +225,7 @@ export const AgentItem = z.discriminatedUnion("type", [
     toolCallId: ItemId.optional(),
     /** Uncorrelated daemon measurement, retained rather than discarded. */
     measurement: StepMeasurement.optional(),
-    /** ace's line under a message sent with `@` bots, clubs or agents (ADR 0194). */
+    /** ace's line under a message sent with `@` bots, clubs or agents (ADR 0198). */
     asked: AskedLine.optional(),
     text: z.string(),
     source: TextSource.optional(),

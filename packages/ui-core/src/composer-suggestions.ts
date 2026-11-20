@@ -77,9 +77,9 @@ export interface MentionThread {
 
 export interface ComposerSuggestion<Tab extends MentionTab = MentionTab> {
   group: string;
-  /** A Spade bot, club or another thread's agent (ADR 0194). */
+  /** A Spade bot, club or another thread's agent (ADR 0198). */
   addressee?: Addressee | undefined;
-  /** A device of the fleet (ADR 0194). */
+  /** A device of the fleet (ADR 0198). */
   device?: DeviceContextItem | undefined;
   /** What the row reads. */
   label: string;

@@ -80,7 +80,7 @@ const BlockContent = memo(function BlockContent(props: {
 function Event(props: { threadId: string; itemId: string }) {
   const item = useItem(props.threadId, props.itemId);
   if (usageWarning(item)) return null;
-  // A Spade bot's reply, and ace's line about who else a message went to (ADR 0194).
+  // A Spade bot's reply, and ace's line about who else a message went to (ADR 0198).
   if (item?.type === "message" && item.speaker)
     return <BotReply threadId={props.threadId} itemId={props.itemId} />;
   if (item?.type === "notice" && item.asked)

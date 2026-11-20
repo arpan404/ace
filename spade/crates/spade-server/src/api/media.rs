@@ -52,7 +52,7 @@ struct Message {
     files: Vec<FileUpload>,
     #[serde(default)]
     voice: Option<VoiceUpload>,
-    /// Devices the person named with `@` (ADR 0194); one that can't be read is left out.
+    /// Devices the person named with `@` (ADR 0198); one that can't be read is left out.
     #[serde(default)]
     devices: Vec<Value>,
 }

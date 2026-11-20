@@ -3,7 +3,7 @@ import type { Item } from "@ace/protocol";
 import { sharedTurns, sharesWords, type ShareFacts } from "@ace/ui-core/mention-shares";
 
 /*
- * The context pack a bot or club gets with a message the person sends from a thread (ADR 0194):
+ * The context pack a bot or club gets with a message the person sends from a thread (ADR 0198):
  * the thread's title, its project, its branch and pull request, the files the message names and
  * its last few turns, each line passed through `redact` first so no secret leaves. Exactly what
  * `sharesWords` names, so the person's "Shares: …" line is the truth. Pure.

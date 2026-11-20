@@ -75,7 +75,7 @@ export function MentionChip(props: {
   name: string;
   kind: MentionKind;
   detail?: string | undefined;
-  /** The mention's icon: `app:…` draws the app's own mark (ADR 0194). */
+  /** The mention's icon: `app:…` draws the app's own mark (ADR 0198). */
   icon?: string | undefined;
 }) {
   const candidates = appIconCandidates(props.icon);

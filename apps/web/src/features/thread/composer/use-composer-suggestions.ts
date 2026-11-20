@@ -7,7 +7,7 @@ import { useMentionDevices } from "../mentions/index.ts";
 import type { MentionMember } from "./composer-props.ts";
 
 /**
- * What `@` offers in a Spade chat (ADR 0194): the club's members with their faces, inserted as
+ * What `@` offers in a Spade chat (ADR 0198): the club's members with their faces, inserted as
  * plain names Spade routes by, then the fleet's devices as chips, matched as the thread's picker
  * matches.
  */

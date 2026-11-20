@@ -4,7 +4,7 @@ import { ProviderKind } from "./provider.ts";
 
 /*
  * A message the person addresses from an ace thread to a Spade bot, a club or another thread's
- * agent, and the replies posted back in the thread (ADR 0194). Every field here rides on
+ * agent, and the replies posted back in the thread (ADR 0198). Every field here rides on
  * ordinary message items as optional fields, so a client that doesn't know them shows plain
  * text and never refuses the frame.
  */

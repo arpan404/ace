@@ -36,12 +36,12 @@ export interface ContextServiceOptions extends UploadOptions {
     reference: ThreadRefContextItem,
   ): Promise<ResolvedThreadReference>;
   /**
-   * The words of Spade bots' replies a `bot_replies` item names (ADR 0194), framed untrusted by
+   * The words of Spade bots' replies a `bot_replies` item names (ADR 0198), framed untrusted by
    * the daemon; undefined when none of them is this thread's.
    */
   botReplies?(thread: string, keys: readonly string[]): string | undefined;
   /**
-   * What the agent reads of a device the person named (ADR 0194); undefined when its machine is
+   * What the agent reads of a device the person named (ADR 0198); undefined when its machine is
    * gone, and the item is left out.
    */
   device?(thread: string, item: DeviceContextItem): Promise<string | undefined>;

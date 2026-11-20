@@ -201,7 +201,7 @@ export const serviceOrder = [
       "transfers",
     ],
   },
-  // Bot and club asks from threads (ADR 0194): they post on the engine and ask Spade.
+  // Bot and club asks from threads (ADR 0198): they post on the engine and ask Spade.
   { name: "threadAddress", phase: "listener", requires: ["engine"], after: ["spade", "context"] },
   { name: "previewClient", phase: "listener", requires: [], after: [] },
   {

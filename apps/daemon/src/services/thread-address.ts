@@ -16,7 +16,7 @@ import type { SocketContext, SocketService } from "./socket.ts";
 import type { ServiceContext } from "./types.ts";
 
 /*
- * `thread.address` (ADR 0194): beside the person's `thread.send`, which their thread's agent gets
+ * `thread.address` (ADR 0198): beside the person's `thread.send`, which their thread's agent gets
  * as always, the same words go to the Spade bots and clubs they mention, with the thread's
  * context pack, and to the other threads' agents they mention, as the person's own message from
  * this thread. A follow-up to a bot's reply goes to the bots alone.

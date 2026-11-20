@@ -10,7 +10,7 @@ import {
 } from "@ace/protocol";
 
 /*
- * What a message the person addresses from a thread becomes (ADR 0194), and how Spade's answers
+ * What a message the person addresses from a thread becomes (ADR 0198), and how Spade's answers
  * move it on. Pure: the asks driver (`asks.ts`) brings Spade's answers and writes the results.
  */
 

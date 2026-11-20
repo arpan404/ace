@@ -18,7 +18,7 @@ pub struct Outgoing {
     pub documents: Vec<DocumentRef>,
     /// The recording, when the message was spoken; `text` is its transcript.
     pub voice: Option<VoiceRef>,
-    /// Devices the person named with `@` (ADR 0194).
+    /// Devices the person named with `@` (ADR 0198).
     pub devices: Vec<spade_core::named_devices::NamedDevice>,
 }
 

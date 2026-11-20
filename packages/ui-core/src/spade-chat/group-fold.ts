@@ -18,7 +18,7 @@ const groupEvent = z.discriminatedUnion("type", [
     run,
     text: z.string().catch(""),
     from: spadeGroupBotShape.nullish().catch(undefined),
-    /** The person wrote it in an ace thread (ADR 0194). */
+    /** The person wrote it in an ace thread (ADR 0198). */
     thread: z
       .object({ id: z.string().min(1), title: z.string().catch("") })
       .nullish()
@@ -222,7 +222,7 @@ export type SpadeGroupRow =
       key: string;
       text: string;
       sending: boolean;
-      /** Written in an ace thread (ADR 0194): the line above links back to it. */
+      /** Written in an ace thread (ADR 0198): the line above links back to it. */
       fromThread?: { id: string; title: string } | undefined;
     }
   | {

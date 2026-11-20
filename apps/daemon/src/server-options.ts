@@ -103,7 +103,7 @@ export interface ServerOptions {
   skillLibrary?: import("@ace/commands").SkillLibrary | undefined;
   /** Spade, ace's assistant, when this daemon hosts it (ADR 0121). */
   spade?: import("./spade/link.ts").SpadeLink | undefined;
-  /** Bot and club asks from threads (ADR 0194). */
+  /** Bot and club asks from threads (ADR 0198). */
   threadAsks?: import("./thread-address/asks.ts").ThreadAsks | undefined;
   spadeBrains?: import("./services/types.ts").Services["spadeBrains"];
   spadeGrantVerify?: import("./services/types.ts").Services["spadeGrantVerify"];

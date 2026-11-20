@@ -86,7 +86,7 @@ const wideEnoughToFocus = () =>
  */
 /**
  * Beside the message its agent gets, the same words go to the bots, clubs and agents it names,
- * and ace records the devices it names (ADR 0194). A failure is said; the message itself went.
+ * and ace records the devices it names (ADR 0198). A failure is said; the message itself went.
  */
 function addressFrom(
   client: ReturnType<typeof useClient>,

@@ -94,7 +94,7 @@ test("a file mentioned once comes first among the next @ picker's files", async 
   await userEvent.clear(message);
   await userEvent.type(message, "@");
   const list = await screen.findByRole("listbox", { name: "Mention" });
-  // Agents, bots, clubs and devices come before the files (ADR 0194).
+  // Agents, bots, clubs and devices come before the files (ADR 0198).
   expect(list.querySelector('[role="option"][data-group="Files"]')?.textContent).toContain(picked);
 });
 

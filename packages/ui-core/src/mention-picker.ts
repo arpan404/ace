@@ -3,7 +3,7 @@ import { providerDisplayName } from "./providers.ts";
 import { matchRank } from "./script-choices.ts";
 
 /*
- * The `@` picker's one list (ADR 0194): who and what a message can name, in a fixed order of
+ * The `@` picker's one list (ADR 0198): who and what a message can name, in a fixed order of
  * sections, each row a name and one quiet line of context, filtered across every section by the
  * same forgiving match, with the best match first to be picked. Pure: a client brings the rows'
  * facts and draws each row's picture (`mention-marks.ts`).
@@ -116,14 +116,15 @@ const deviceWords: Record<PickerDeviceKind, string> = {
 };
 
 /**
- * A machine: "omarchy · Linux · online". A simulator or emulator: "iPhone 17 simulator · on this
+ * A machine: "This machine · Linux · online", another one by its kind, since its name is the row's
+ * own ("Server · Linux · online"). A simulator or emulator: "iPhone 17 simulator · on this
  * machine". A paired device: "Phone · paired with omarchy". Offline reads last, always.
  */
 export function deviceDetail(device: PickerDevice): string {
   const isMachine = device.machine.id === device.id;
   const state = device.online ? "online" : "offline";
   if (isMachine)
-    return [device.machine.here ? "This machine" : device.name, device.os, state]
+    return [device.machine.here ? "This machine" : deviceWords[device.kind], device.os, state]
       .filter(Boolean)
       .join(" · ");
   const where = device.machine.here ? "this machine" : device.machine.name;

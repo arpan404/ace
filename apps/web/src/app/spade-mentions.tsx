@@ -4,7 +4,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { MentionFace, type SpadeMentionsApi } from "@/lib/spade-mentions.tsx";
 
 /*
- * Spade, as a thread's `@` picker and bot replies reach it (ADR 0194): loaded the first time a
+ * Spade, as a thread's `@` picker and bot replies reach it (ADR 0198): loaded the first time a
  * face or a list is needed, so the shell carries none of Spade until then.
  */
 

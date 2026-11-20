@@ -1,4 +1,4 @@
-# 0194: `@` a Spade bot, a club, another agent or a device from an ace thread
+# 0198: `@` a Spade bot, a club, another agent or a device from an ace thread
 
 Status: accepted. Date: 2026-11-19. Decided by: the owner (2026-11-19: mention agents, Spade
 bots and clubs in project and chat threads, with what is shared shown, bot replies labelled in

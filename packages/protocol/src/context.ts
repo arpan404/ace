@@ -58,7 +58,7 @@ export const BrowserAnnotationsContextItem = z.strictObject({
 export type BrowserAnnotationsContextItem = z.infer<typeof BrowserAnnotationsContextItem>;
 /** What a message points the agent at besides files: other threads and browser tabs. */
 /**
- * What Spade bots answered in this thread since its agent last heard (ADR 0194), by the replies'
+ * What Spade bots answered in this thread since its agent last heard (ADR 0198), by the replies'
  * item keys. The daemon adds it to the person's next message and expands it as untrusted context;
  * a client never sends it.
  */
@@ -68,7 +68,7 @@ export const BotRepliesContextItem = z.strictObject({
 });
 export type BotRepliesContextItem = z.infer<typeof BotRepliesContextItem>;
 /**
- * A device the person named with `@` for this work (ADR 0194): a machine of the fleet, or a
+ * A device the person named with `@` for this work (ADR 0198): a machine of the fleet, or a
  * phone, simulator or emulator ace knows on one, as the person's app last saw it. The daemon
  * checks the machine again when the message goes and tells the agent how to use it; a machine
  * it no longer knows is left out.

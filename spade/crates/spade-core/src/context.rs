@@ -987,7 +987,7 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             from_group: Some(from),
             ..
         }) if from.untrusted => true,
-        // A message the person wrote in an ace thread, with that thread's summary (ADR 0194):
+        // A message the person wrote in an ace thread, with that thread's summary (ADR 0198):
         // the summary carries agents' words and tool output.
         Event::Known(Known::UserMessage {
             from_thread: Some(from),

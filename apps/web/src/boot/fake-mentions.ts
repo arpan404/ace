@@ -4,7 +4,7 @@ import { CommandId, SpadeFaceJson } from "@ace/protocol";
 /*
  * `?fakeWorld=mentions`: the Spade world plus a thread where the person asked Flights and the
  * Lisbon trip club, and named a device, with the bots' replies under their message; and Flights'
- * chat showing where the ask came from (ADR 0194), for checking the picker, chips and replies
+ * chat showing where the ask came from (ADR 0198), for checking the picker, chips and replies
  * by eye.
  */
 export function seedFakeMentions(daemon: FakeDaemon, here: FakeSpadeApi) {

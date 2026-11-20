@@ -1,7 +1,7 @@
 import { MentionMark, type MentionPicture } from "./mention-mark.tsx";
 
 /**
- * A chip with its picture (ADR 0194): the same mark and name in the composer and the sent
+ * A chip with its picture (ADR 0198): the same mark and name in the composer and the sent
  * message, its one line of context on hover, and "offline" in words for a device that is.
  */
 export function PictureChip(props: {

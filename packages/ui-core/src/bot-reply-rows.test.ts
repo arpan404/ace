@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import { createBlockReader } from "./transcript-block-reader.ts";
 
 /*
- * A Spade bot's reply posted in a thread (ADR 0194) is its own row: never folded into the
+ * A Spade bot's reply posted in a thread (ADR 0198) is its own row: never folded into the
  * agent's turn, and never taken for the turn's answer, even when it comes after the answer.
  */
 

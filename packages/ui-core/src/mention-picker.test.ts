@@ -90,7 +90,7 @@ it("a device row says where it is and whether it answers, in words", () => {
       machine: studio,
       online: false,
     }),
-  ).toBe("Studio · offline");
+  ).toBe("Desktop · offline");
 });
 
 it("agents and clubs read as who they are and what they're doing", () => {

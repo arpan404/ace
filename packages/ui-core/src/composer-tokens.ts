@@ -25,9 +25,9 @@ export interface ComposerToken {
    * composer, and its hash once the daemon holds it.
    */
   attachment?: { key?: number | undefined; sha256?: string | undefined } | undefined;
-  /** A Spade bot, club or another thread's agent the message also goes to (ADR 0194). */
+  /** A Spade bot, club or another thread's agent the message also goes to (ADR 0198). */
   addressee?: Addressee | undefined;
-  /** A device the message names for the work (ADR 0194). */
+  /** A device the message names for the work (ADR 0198). */
   device?: DeviceContextItem | undefined;
   /** The chip's one line of context, shown on hover. */
   detail?: string | undefined;

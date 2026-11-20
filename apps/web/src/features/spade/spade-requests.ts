@@ -107,7 +107,7 @@ export function spadeBody(message: {
   images: readonly { data: string }[];
   documents?: readonly { name: string; data: string }[] | undefined;
   voice?: { data: string; mediaType: string } | undefined;
-  /** Devices the person named with `@` for the work (ADR 0194). */
+  /** Devices the person named with `@` for the work (ADR 0198). */
   devices?: readonly DeviceContextItem[] | undefined;
 }) {
   const documents = message.documents ?? [];

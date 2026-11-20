@@ -53,7 +53,7 @@ export function providerNotice(item: Item | undefined): ProviderNoticeKind | und
  * to a parent) take only these.
  */
 export function isAgentProse(item: Item | undefined): item is Message & { role: "assistant" } {
-  // A Spade bot's reply posted in the thread (ADR 0194) is never the agent's words.
+  // A Spade bot's reply posted in the thread (ADR 0198) is never the agent's words.
   return (
     item?.type === "message" && item.role === "assistant" && !item.speaker && !providerNotice(item)
   );
