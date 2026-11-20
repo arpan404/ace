@@ -116,17 +116,39 @@ never a host.
   changes) and `tunnel.refused` (with a stream id for one OPEN, before that stream's RESET;
   without one for the whole tunnel, which then closes). Refusals are `tunnel_off`,
   `tunnel_forbidden`, `tunnel_port_refused` and `tunnel_limit`. A port with nothing listening is
-  a plain RESET, which the client reports as `tunnel_reset`. A RESET is always abortive: the side
-  that gets one drops what still waited for its socket. A socket that closes after its END while
-  the other side has not ended (a `Connection: close` server that closes after its answer) leaves
-  the stream half-closed, as TCP does, and sends no RESET: the stream goes without one at the
-  peer's END, is reset if the peer sends data nothing can read now, and is reset after 15 s
-  without a frame from the peer (its credit restarts the wait). Everything sent before the END is
-  delivered whole, and no frame kind is added, so the preview relay and older peers are unchanged. The client keeps
+  a plain RESET, which the client reports as `tunnel_reset`. How a stream closes is under
+  "Stream lifecycle" below. The client keeps
   a stream's refusal only while that stream is opening. Once its hello is read, a tunnel
   connection carries only its stream frames and pings: its other JSON reaches no service,
   command or read, whatever the device's scopes. Its authority is decided before any frame is
   handled.
+- **Stream lifecycle.** A stream closes as a TCP connection does, and both ends of the mux
+  run the same pure state machine (`@ace/preview`'s `stream-lifecycle.ts`, tested state by
+  event). The tunnel is this mux's first deployed user, so these are its semantics from the
+  start, and the preview relay shares them.
+  - Each direction closes on its own. END means no more DATA that way (a FIN) and goes behind
+    every DATA before it. DATA after the peer's own END, or a second END, is a protocol error
+    that closes the channel.
+  - RESET aborts both directions at once: whatever either side still queued (bytes waiting for
+    credit, bytes waiting for the local socket) is discarded, and the slot is freed before the
+    RESET is sent. A RESET that follows an END still wins and discards, so a sender must not
+    follow END with RESET when it means a graceful close.
+  - A stream finishes without a RESET only when both ENDs have been exchanged, every byte the
+    peer sent has been written to the local socket, and the local socket has closed. A peer END
+    that arrives while bytes still wait for the socket, or while our own END still waits to go,
+    ends the socket only after those bytes are written; nothing is removed early.
+  - A local socket that closes after its end, with the stream unfinished, leaves the stream
+    waiting for what is still owed: our END going behind its last bytes, then the peer's END,
+    which finishes it. Peer DATA then resets it (nothing can read it, as a closed TCP socket
+    answers with RST). The wait has a fixed deadline of 15 s from the close that nothing
+    extends, CREDIT included, so a peer that only returns credit cannot hold the slot. CREDIT
+    in that state is checked as any CREDIT, against what this side sent and the peer has not
+    acknowledged; an invalid one closes the channel. A socket that closes with bytes it never
+    took resets the stream at once.
+  - A close before the socket's end, a socket error, and an explicit local abort are RESETs,
+    sent at once in every state, after our END too. `TunnelStream.reset()` and a reader that
+    cancels are such aborts: the tunnel stream signals the mux with its own abort event,
+    never with a close, so an abort after `end()` is never mistaken for a graceful close.
 - **Reconnects.** After a drop the client reconnects on a backoff (250 ms up to 10 s), and opens
   honour it: an open while the machine is unreachable waits for the next scheduled attempt,
   shared with every other open; an open given up meanwhile leaves at once and the attempt still
