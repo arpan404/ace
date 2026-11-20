@@ -14,7 +14,7 @@ import { readSchema, schemaMisfits, type Schema } from "./schema.ts";
 
 export const contractLimits = { contracts: 16, examples: 8, summaryChars: 200 } as const;
 
-const fields = new Set(["name", "summary", "input", "output", "effects", "examples", "file"]);
+const fields = new Set(["name", "summary", "input", "output", "effects", "examples"]);
 const declarable = new Set(["network", "publish", "send_as_person", "pay", "change_access"]);
 
 type Fields = Record<string, unknown>;
@@ -44,10 +44,11 @@ export function readContracts(raw: unknown, declared: readonly string[]): Contra
       problems.push(`${at} is an object`);
       return;
     }
-    if ("file" in item && !("input" in item)) {
-      problems.push(
-        `${at}: write the input and output schemas in bot.json; the signed bot.json carries them`,
-      );
+    // A schema file is written in before bot.json is read (`inlineContractFiles`); one still
+    // named here was never read with it.
+    if ("file" in item) {
+      const path = typeof item["file"] === "string" ? item["file"] : "its schema file";
+      problems.push(`${at}.file: ${path} isn't in the package`);
       return;
     }
     for (const key of Object.keys(item))

@@ -45,7 +45,7 @@ pub struct Limits {
     /// reads its events from the database instead, so its memory stays bounded (ADR 0158).
     pub turn_log_bytes: usize,
     /// How often moved-away bots' archives past their time are removed, a few at a time
-    /// (ADR 0187).
+    /// (ADR 0187), and panel pages no bot shows any more (ADR 0200 §5.2).
     pub archive_sweep: Duration,
     /// How long a move may take before its commit, retries included (ADR 0187).
     pub move_pre_commit: Duration,

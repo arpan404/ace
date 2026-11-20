@@ -112,3 +112,53 @@ async fn a_scenario_that_calls_a_contract_the_package_doesnt_publish_is_a_proble
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_contracts_schemas_in_a_file_of_the_package_check_the_output_as_in_bot_json()
+-> std::io::Result<()> {
+    let dir = tempfile::tempdir()?;
+    package(
+        dir.path(),
+        &answering(json!({ "fare": "cheap" }), json!({ "fare": 182 })),
+    )?;
+    // The same contract with its schemas moved to contracts/cheapest-fare.json.
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.path().join("bot.json"))?)?;
+    let contract = &mut manifest["contracts"][0];
+    let schemas = json!({ "input": contract["input"].take(), "output": contract["output"].take() });
+    if let Some(fields) = contract.as_object_mut() {
+        fields.remove("input");
+        fields.remove("output");
+        fields.insert("file".into(), json!("contracts/cheapest-fare.json"));
+    }
+    std::fs::write(dir.path().join("bot.json"), manifest.to_string())?;
+    let report = super::run(dir.path()).await;
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.contains("contracts/cheapest-fare.json isn't in the package")),
+        "{:?}",
+        report.problems
+    );
+
+    std::fs::create_dir_all(dir.path().join("contracts"))?;
+    std::fs::write(
+        dir.path().join("contracts/cheapest-fare.json"),
+        schemas.to_string(),
+    )?;
+    let report = super::run(dir.path()).await;
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    let failures = report
+        .scenarios
+        .first()
+        .map(|s| s.failures.clone())
+        .unwrap_or_default();
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.contains("contract_return ran and answered an error")),
+        "the file's output schema refuses a fare that isn't a number: {failures:?}"
+    );
+    Ok(())
+}

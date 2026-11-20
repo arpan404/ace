@@ -643,7 +643,8 @@ impl Engine {
     }
 
     /// Starts the archive sweep once: every `Limits::archive_sweep`, never at start, it removes
-    /// a few archives past their time, off the async threads.
+    /// a few archives past their time, off the async threads, then the panel pages no bot shows
+    /// any more, in batches (ADR 0170).
     fn start_sweeping(self: &Arc<Self>) {
         if self
             .moves
@@ -660,8 +661,11 @@ impl Engine {
                 let Some(engine) = engine.upgrade() else {
                     return;
                 };
-                let _ =
-                    tokio::task::spawn_blocking(move || engine.sweep_archives(SWEEP_BATCH)).await;
+                let _ = tokio::task::spawn_blocking(move || {
+                    engine.sweep_archives(SWEEP_BATCH);
+                    engine.collect_panel_pages();
+                })
+                .await;
             }
         });
     }

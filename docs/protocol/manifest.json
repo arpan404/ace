@@ -3249,8 +3249,8 @@
       "sha256": "1fa6f7e0cfbd04ea8590850543c3e266ad5c225f881bfb17fd121e37e38758ba"
     },
     "schema/MarketResult.json": {
-      "bytes": 10539,
-      "sha256": "d8853b0e6b067810e66d260fecfc46535872c703bbf88f835c156b92425d3081"
+      "bytes": 10814,
+      "sha256": "25d11f4dba149a714a00caccf16c3d7e245cae7c13def922819eb345555f47d4"
     },
     "schema/MarketReview.json": {
       "bytes": 1938,
@@ -6705,10 +6705,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1365972,
-      "sha256": "bc94e374941a8e5ebc04f95767aeccbf7e7a9ecbe354d5c5f0aab7e389b742fa"
+      "bytes": 1366116,
+      "sha256": "90c512e7c6af137341c502002c498faa3a58dcf2e5e316c8eef646ecabdd70b7"
     }
   },
-  "input": "3d28f97041734972258c0b1576c661f18aa8dd8810537c136e8914069e6e0605",
+  "input": "91cb453b4d176fb550a7f1cd153e3c8e9f635923834aafa0cfe17cf40a8d69f2",
   "version": 1
 }

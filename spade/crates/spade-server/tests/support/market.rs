@@ -32,34 +32,70 @@ fn hex(bytes: &[u8]) -> String {
 /// The envelope for the spade-bot `name` at `version` whose `bot.json` is `recipe`: the market's
 /// signed version manifest and the exact bytes it lists.
 pub fn envelope(name: &str, version: &str, recipe: &Value) -> Value {
+    envelope_with(name, version, recipe, &[])
+}
+
+/// [`envelope`] for a package holding `files` (path and text) too, each listed in the signed
+/// manifest; the envelope carries them as the daemon sends a contract's schema files.
+pub fn envelope_with(name: &str, version: &str, recipe: &Value, files: &[(&str, &str)]) -> Value {
     let bot_json = serde_json::to_string_pretty(recipe).unwrap_or_default();
-    let sha = hex(&Sha256::digest(bot_json.as_bytes()));
     // Each version's bytes differ, as a published package's do, by a file naming it.
     let readme = format!("# {name} {version}\n");
-    let readme_sha = hex(&Sha256::digest(readme.as_bytes()));
-    let lines = format!(
-        "{}\n{}\n",
-        json!(["README.md", readme.len(), false, readme_sha]),
-        json!(["bot.json", bot_json.len(), false, sha]),
+    let mut all: Vec<(String, String)> = vec![
+        ("README.md".to_owned(), readme),
+        ("bot.json".to_owned(), bot_json.clone()),
+    ];
+    all.extend(
+        files
+            .iter()
+            .map(|(p, t)| ((*p).to_owned(), (*t).to_owned())),
     );
+    all.sort();
+    let lines: String = all
+        .iter()
+        .map(|(path, text)| {
+            format!(
+                "{}\n",
+                json!([
+                    path,
+                    text.len(),
+                    false,
+                    hex(&Sha256::digest(text.as_bytes()))
+                ])
+            )
+        })
+        .collect();
     let hash = hex(&Sha256::digest(lines.as_bytes()));
+    let listed: Vec<Value> = all
+        .iter()
+        .map(|(path, text)| {
+            json!({ "bytes": text.len(), "executable": false, "path": path,
+                    "sha256": hex(&Sha256::digest(text.as_bytes())) })
+        })
+        .collect();
     // Keys in sorted order at every depth: the signer's canonical JSON.
     let body = json!({
-        "files": [
-            { "bytes": readme.len(), "executable": false, "path": "README.md", "sha256": readme_sha },
-            { "bytes": bot_json.len(), "executable": false, "path": "bot.json", "sha256": sha },
-        ],
+        "files": listed,
         "format": "ace-market-manifest",
         "hash": hash,
         "key": KEY,
         "name": name,
         "published": 1_760_000_000_000_u64,
         "publisher": { "id": "pub-1", "name": "fares-inc" },
-        "size": readme.len() + bot_json.len(),
+        "size": all.iter().map(|(_, text)| text.len()).sum::<usize>(),
         "type": "spade-bot",
         "version": version,
     });
     let message = format!("ace-market-manifest-v1\n{body}");
     let signature = URL_SAFE_NO_PAD.encode(pair().sign(message.as_bytes()).as_ref());
-    json!({ "signed": { "body": body, "signature": signature }, "bot_json": bot_json })
+    let carried: serde_json::Map<String, Value> = files
+        .iter()
+        .map(|(path, text)| ((*path).to_owned(), json!(text)))
+        .collect();
+    let mut out =
+        json!({ "signed": { "body": body, "signature": signature }, "bot_json": bot_json });
+    if !carried.is_empty() {
+        out["files"] = Value::Object(carried);
+    }
+    out
 }

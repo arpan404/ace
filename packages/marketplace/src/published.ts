@@ -5,6 +5,7 @@ import {
   type MarketKeySet,
 } from "@ace/protocol/marketplace";
 import { readArchive, type ArchiveFile } from "./archive.ts";
+import { contractFileReader, inlineContractFiles } from "./contract-files.ts";
 import { breakingChanges } from "./contracts.ts";
 import { contentHash, hashFiles } from "./hash.ts";
 import { typeLimits } from "./limits.ts";
@@ -97,15 +98,20 @@ export function contractBreaks(previous: unknown, next: unknown): string[] {
   return breakingChanges(contractsOf(previous), contractsOf(next));
 }
 
-/** A package's `bot.json` among its files; undefined when it has none or it doesn't read. */
+/**
+ * A package's `bot.json` among its files as Spade reads it, its contracts' schema files written
+ * in (`inlineContractFiles`); undefined when it has none or it doesn't read.
+ */
 export function botJsonOf(files: readonly ArchiveFile[]): unknown {
   const file = files.find((each) => each.path === "bot.json");
   if (!file) return undefined;
+  let bot: unknown;
   try {
-    return JSON.parse(new TextDecoder().decode(file.content));
+    bot = JSON.parse(new TextDecoder().decode(file.content));
   } catch {
     return undefined;
   }
+  return inlineContractFiles(bot, contractFileReader(files)).bot;
 }
 
 /** The sentence a refusal gives for `breaks` against `version`. */

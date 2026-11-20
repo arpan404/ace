@@ -13,6 +13,7 @@ mod knowledge;
 mod moves;
 mod notes;
 mod oversight;
+mod panels;
 mod routines;
 mod schema;
 mod seen;
@@ -38,6 +39,7 @@ pub use moves::{
 };
 pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
+pub use panels::{BOT_PANELS, Collected, PANEL_PAGE, page_key, panels_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
 pub use skills::{SkillOrigin, SkillUse, StoredSkill};
 pub use spend::{MODEL_ROLES, roles_key};

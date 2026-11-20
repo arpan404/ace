@@ -40,6 +40,9 @@ pub struct PanelView {
     pub state: Option<Value>,
 }
 
+/// Kept pages one batch of the collection looks at, in one short transaction.
+const COLLECT_BATCH: usize = 64;
+
 /// An action ace asks the person to confirm before it goes, in their own words.
 #[derive(Debug, Clone, Serialize)]
 pub struct ConfirmView {
@@ -48,6 +51,33 @@ pub struct ConfirmView {
 }
 
 impl Engine {
+    /// Removes the kept panel pages no bot's panels show any more (an uninstalled bot's, a
+    /// version an update replaced, a move's that left or never took), `COLLECT_BATCH` at a time,
+    /// each batch its own transaction, so other writes go on between them. Runs off the async
+    /// threads from the hourly sweep, never at start (ADR 0170). Answers how many it removed.
+    pub fn collect_panel_pages(&self) -> usize {
+        let mut after: Option<String> = None;
+        let mut removed = 0;
+        loop {
+            match self
+                .store
+                .collect_panel_pages(after.as_deref(), COLLECT_BATCH)
+            {
+                Ok(batch) => {
+                    removed += batch.removed;
+                    match batch.next {
+                        Some(next) => after = Some(next),
+                        None => return removed,
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "unused panel pages could not be collected yet");
+                    return removed;
+                }
+            }
+        }
+    }
+
     /// What bot `agent`'s package ships, if it is packaged.
     fn surfaces_of(&self, agent: &str) -> Vec<Surface> {
         self.bot_package(agent)

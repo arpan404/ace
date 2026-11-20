@@ -181,6 +181,41 @@ describe("agent packages", () => {
     const missing = checkBot([bot]);
     expect(missing.problems.map((problem) => problem.path)).toContain("tests/watch-a-trip.json");
   });
+
+  it("read a contract's schemas from its file in the package, and refuse one without it", () => {
+    const input = {
+      type: "object",
+      properties: { from: { type: "string", maxLength: 3 } },
+      required: ["from"],
+    };
+    const output = { type: "object", properties: { fare: { type: "number" } }, required: ["fare"] };
+    const bot = file(
+      "bot.json",
+      JSON.stringify({
+        ...watcher,
+        contracts: [
+          {
+            name: "cheapest_fare",
+            summary: "The cheapest fare.",
+            file: "contracts/cheapest-fare.json",
+          },
+        ],
+      }),
+    );
+    const schemas = file("contracts/cheapest-fare.json", JSON.stringify({ input, output }));
+    const tests = file("tests/watch-a-trip.json");
+    const ok = checkBot([bot, schemas, tests], { spade: "0.0.25" });
+    expect(ok.problems).toEqual([]);
+    expect(ok.inspection?.recipe.contracts?.[0]).toMatchObject({
+      name: "cheapest_fare",
+      input,
+      output,
+    });
+    const without = checkBot([bot, tests], { spade: "0.0.25" });
+    expect(without.problems.map((problem) => problem.message)).toContain(
+      "contracts[0].file: contracts/cheapest-fare.json isn't in the package",
+    );
+  });
 });
 
 /** The accept and refuse rules Spade's reader runs too (`spade_core::package::read`). */
@@ -191,12 +226,21 @@ const rules = JSON.parse(
   ),
 ) as {
   base: Record<string, unknown>;
-  cases: { name: string; with: Record<string, unknown>; refused?: string }[];
+  cases: {
+    name: string;
+    with: Record<string, unknown>;
+    /** The package's other files: a contract's schema file, written in first. */
+    files?: Record<string, string>;
+    refused?: string;
+  }[];
 };
 
 describe("the rules both readers share", () => {
   it.each(rules.cases.map((rule) => [rule.name, rule] as const))("%s", (_name, rule) => {
-    const problems = refusals({ ...rules.base, ...rule.with });
+    const problems = readRecipe(JSON.stringify({ ...rules.base, ...rule.with }), new Set(), {
+      spade: "0.0.25",
+      files: (path) => rule.files?.[path],
+    }).problems.map((problem) => problem.message);
     if (rule.refused === undefined) expect(problems).toEqual([]);
     else expect(problems.some((problem) => problem.includes(rule.refused!))).toBe(true);
   });

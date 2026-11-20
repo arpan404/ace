@@ -15,6 +15,7 @@ export * from "./contract-words.ts";
 export * from "./helper-words.ts";
 export * from "./agents.ts";
 export * from "./packages.ts";
+export * from "./package-updates.ts";
 export * from "./notes.ts";
 export * from "./endpoints.ts";
 export * from "./markup.ts";
