@@ -3,6 +3,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import type { RefObject } from "react";
 import { Popover, PopoverContent } from "@/components/ui/popover.tsx";
 import { MentionIcon } from "@/components/mention-chip.tsx";
+import { MentionMark } from "../mentions/index.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { catalogSourceLabel } from "@/lib/catalog.ts";
@@ -25,7 +26,7 @@ export function SuggestionList(props: {
     suggestions.kind === "mention"
       ? suggestions.state === "ready" && suggestions.items[0]?.plain
         ? "Members"
-        : "Files and threads"
+        : "Mention"
       : props.adding
         ? "Add"
         : "Commands";
@@ -61,7 +62,7 @@ export function SuggestionList(props: {
           <ul id={props.id} role="listbox" aria-label={title}>
             {suggestions.items.map((item, index) => (
               <li
-                key={item.entry?.id ?? item.threadId ?? item.tab?.tabId ?? item.insert}
+                key={`${item.group}:${item.entry?.id ?? item.threadId ?? item.tab?.tabId ?? item.insert}`}
                 role="presentation"
               >
                 {(index === 0 || suggestions.items[index - 1]?.group !== item.group) && (
@@ -96,14 +97,10 @@ export function SuggestionList(props: {
                     index === props.active && "bg-accent",
                   )}
                 >
-                  {item.tab?.favicon ? (
-                    <img
-                      src={item.tab.favicon}
-                      alt=""
-                      aria-hidden
-                      draggable={false}
-                      className="size-4 shrink-0 self-center rounded-xs"
-                    />
+                  {item.picture ? (
+                    <span className="grid size-4 shrink-0 place-items-center self-center">
+                      <MentionMark picture={item.picture} />
+                    </span>
                   ) : (
                     <MentionIcon
                       kind={

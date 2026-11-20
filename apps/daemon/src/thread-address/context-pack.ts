@@ -14,7 +14,7 @@ const packBytes = 8 * 1024;
 /** One message's share of the pack. */
 const messageChars = 1_200;
 
-export interface PackThread extends ShareFacts {
+export interface PackThread extends Omit<ShareFacts, "files"> {
   title: string;
 }
 

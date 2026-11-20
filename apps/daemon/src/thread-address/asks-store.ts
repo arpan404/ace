@@ -10,6 +10,7 @@ import {
   type AskedLine,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { personText } from "./plan.ts";
 
 /*
  * The addressed messages and their asks (ADR 0194), kept so a restart picks every open ask up
@@ -286,7 +287,7 @@ export function askedLineOf(message: AddressedRow, asks: readonly AskRow[]): Ask
     devices: message.devices,
     share: message.share,
     shares: message.shares,
-    ...(message.followUp ? { words: message.input } : {}),
+    ...(message.followUp ? { words: personText(message.input) } : {}),
   };
 }
 

@@ -150,13 +150,16 @@ function rankOf(label: string, detail: string, query: string): number | undefine
  * (ties keep the order they came in). Nothing typed keeps every row, at most `perSection` each.
  */
 export function pickerRows<Payload>(
-  rows: readonly Omit<PickerRow<Payload>, "rank">[],
+  rows: readonly (Omit<PickerRow<Payload>, "rank"> & {
+    /** Already matched elsewhere (a file the daemon's index found): kept, at this rank. */
+    matched?: number | undefined;
+  })[],
   query: string,
   perSection = 8,
 ): PickerRow<Payload>[] {
   const needle = query.trim().toLowerCase();
-  const ranked = rows.flatMap((row, index) => {
-    const rank = rankOf(row.label, row.detail, needle);
+  const ranked = rows.flatMap(({ matched, ...row }, index) => {
+    const rank = rankOf(row.label, row.detail, needle) ?? matched;
     return rank === undefined ? [] : [{ ...row, rank, index }];
   });
   return pickerSections.flatMap((section) =>

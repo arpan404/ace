@@ -114,3 +114,16 @@ export function AppMark(props: {
     </span>
   );
 }
+
+/**
+ * The first of an app's candidate catalogue ids that has a bundled mark, once the tables are in;
+ * undefined before they load and for an app with no mark, so the caller keeps its own glyph
+ * rather than a guessed letter.
+ */
+export function useKnownApp(candidates: readonly string[]): string | undefined {
+  "use no memo";
+  useSyncExternalStore(subscribe, () => version);
+  const key = candidates.join(",");
+  useEffect(() => load(undefined), [key]);
+  return tables ? candidates.find((id) => tables?.appArt[id]) : undefined;
+}

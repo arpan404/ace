@@ -52,8 +52,10 @@ export function useComposerSuggestions(
   const items = suggestions.state === "ready" ? suggestions.items : [];
   // The highlight resets whenever the token being completed changes.
   const listKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : "";
+  // Until the arrows move it, the best match is highlighted, wherever its section sits.
+  const best = suggestions.state === "ready" ? (suggestions.best ?? 0) : 0;
   const active = Math.min(
-    highlight.key === listKey ? highlight.index : 0,
+    highlight.key === listKey ? highlight.index : best,
     Math.max(0, items.length - 1),
   );
   return {

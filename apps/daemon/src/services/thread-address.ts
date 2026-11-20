@@ -72,7 +72,7 @@ const threadAskSender = "ace:thread";
 
 /** What of the thread the pack names: its project (none for a chat), branch and pull request. */
 function packThread(thread: Thread) {
-  const details = thread.client?.details;
+  const details = thread.details;
   const chat = details?.workspace?.kind === "chat";
   return {
     title: thread.title,

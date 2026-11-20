@@ -135,7 +135,7 @@ function withBotReplies(command: Command, asks: Services["threadAsks"]): Command
   if (p.origin?.via) return command;
   const replies = asks.takeReplies(p.threadId);
   if (!replies) return command;
-  const context = p.context ?? { mentions: [] };
+  const context = p.context ?? { mentions: [], attachments: [] };
   return {
     ...command,
     payload: { ...p, context: { ...context, items: [...(context.items ?? []), replies] } },

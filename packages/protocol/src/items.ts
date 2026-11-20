@@ -67,7 +67,8 @@ export const AskedLine = z.object({
   share: AddressedShare,
   /** What went with the message, in the person's words ("the title and project", "2 files"). */
   shares: z.array(z.string().min(1).max(120)).max(8).default([]),
-  words: z.array(ContentPart).max(64).optional(),
+  /** A follow-up's words, as the person wrote them. */
+  words: z.string().max(16_384).optional(),
 });
 export type AskedLine = z.infer<typeof AskedLine>;
 

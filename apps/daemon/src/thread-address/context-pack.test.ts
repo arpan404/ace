@@ -22,7 +22,6 @@ const thread = {
   project: "ace",
   branch: "fix-login",
   pullRequest: 12,
-  files: 0,
 };
 const redact = createTextRedactor({});
 
@@ -73,7 +72,7 @@ it("a bot's earlier reply is not passed off as the agent's words", () => {
       speaker: { kind: "bot", id: "b", name: "Research", about: "send-1" },
     } as Partial<Item>),
   ];
-  const { pack } = contextPack({ title: "Chat", files: 0 }, [], items, redact);
+  const { pack } = contextPack({ title: "Chat" }, [], items, redact);
   expect(pack).toContain("(a chat)");
   expect(pack).not.toContain("the bot said this");
 });

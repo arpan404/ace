@@ -152,7 +152,7 @@ export function askProgress(
     case "failed":
       return {
         state: "failed",
-        detail: said ?? `${to.name} couldn't answer.`,
+        detail: words ?? `${to.name} couldn't answer.`,
         replies,
         done: true,
       };

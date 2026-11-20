@@ -18,6 +18,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { FileMarkerChip, MentionChip } from "@/components/mention-chip.tsx";
+import { PictureChip, tokenPicture } from "../mentions/index.ts";
 import { editorCaret, editorSelection, editorText, placeEditorSelection } from "./editor-dom.ts";
 import { pointAt, readEditor } from "./editor-read.ts";
 import { editorShows, renderEditor, type Slot } from "./editor-render.ts";
@@ -245,6 +246,13 @@ export function MessageInput({
         createPortal(
           token.attachment ? (
             <FileMarkerChip name={token.label} />
+          ) : tokenPicture(token) ? (
+            <PictureChip
+              name={token.label}
+              picture={tokenPicture(token) ?? { kind: "thread" }}
+              detail={token.detail ?? token.file?.path}
+              offline={token.device ? !token.device.online : undefined}
+            />
           ) : (
             <MentionChip
               name={token.label}
