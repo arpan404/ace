@@ -536,7 +536,7 @@ impl Worker {
         let mut notices = found.notices;
         self.adopt_folders(&mut notices, now, coalescer);
         for notice in notices {
-            coalescer.push(notice, now);
+            coalescer.push_found(notice, now);
         }
     }
 
