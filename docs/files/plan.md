@@ -180,7 +180,9 @@ Acceptance: `lists_one_level_only`, `lists_folders_before_files_in_natural_order
 
 ### files-watch
 
-Crates: `notify` (Linux inotify and the polling fallback), `files-safe`, `globset`; on macOS
+Crates: `notify` (the polling fallback), `files-safe`, `globset`; on Linux `rustix`, which reads
+inotify directly because `notify` always registers `IN_OPEN` and every file a search or the
+index walk opens would wake the watcher; on macOS
 `objc2-core-services` and `dispatch2` for FSEvents; on Windows `windows-sys`.
 
 ```rust
@@ -202,8 +204,9 @@ exclude `["**/.git/objects/**", "**/.git/subtree-cache/**", "**/node_modules/*/*
 drops both; deleted then created is `Modified`; repeated modifies are one. More than `max_batch`
 changes in one window, or an OS overflow signal (inotify `Q_OVERFLOW`, FSEvents must-scan), sends
 `Rescan` for the narrowest folder known, `None` for the whole root. Linux: never add inotify
-watches inside excluded folders; walk with per-folder non-recursive watches and add new folders as
-they appear. If native watching cannot start or hits the inotify limit, fall back to notify's
+watches inside excluded folders; walk with per-folder non-recursive watches (each folder opened
+from its parent's handle, so a million-file checkout starts watching in about a second) and add
+new folders as they appear. If native watching cannot start or hits the inotify limit, fall back to notify's
 `PollWatcher` (2 s) and send one `Warning` saying why. Paths outside the root (symlink targets) are
 never reported.
 
