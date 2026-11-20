@@ -62,6 +62,12 @@ export interface DeckViewerProps {
   reason: string;
 }
 
+/** A file whose disk version moved under unsaved edits, to compare. */
+export interface DeckCompareProps {
+  path: string;
+  buffer: TextBuffer;
+}
+
 /** Everything a group needs from outside the layout. */
 export interface DeckHost {
   buffers: DeckBuffers;
@@ -75,8 +81,12 @@ export interface DeckHost {
   reportStatus(group: string, report: StatusReport | undefined): void;
   /** Unset, Merge runs the buffer's own three-way merge. */
   onMerge?: ((path: string) => void) | undefined;
-  /** Compare opens a diff of disk against the buffer in a new tab (W5). */
-  onCompare(path: string): void;
+  /**
+   * Compare's diff of the disk's text against the unsaved buffer (spec 46), shown in the group
+   * in place of the editor while the change waits for an answer. Unset, the notice has no
+   * Compare.
+   */
+  renderCompare?: ((props: DeckCompareProps) => ReactNode) | undefined;
   onQuickOpen?: (() => void) | undefined;
   /** The host's own items at the end of a tab's menu: Reveal in Files, Open in ›, the paths. */
   tabMenuItems?: ((path: string) => ReactNode) | undefined;

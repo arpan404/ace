@@ -30,6 +30,7 @@ import {
   OpenEditors,
   compactBelowPx,
   useDeckBuffers,
+  type DeckCompareProps,
   type DeckEditorProps,
   type DeckViewerProps,
   type StatusNotice,
@@ -67,6 +68,7 @@ import {
   type DeckActionsHost,
   type SaveProblem,
 } from "./deck-actions.ts";
+import { DeckCompare } from "./deck-compare.tsx";
 import { DeckExplorer, type ExplorerOpen } from "./deck-explorer.tsx";
 import { DeckFileView } from "./deck-file-view.tsx";
 import { DeckTabMenuItems } from "./deck-tab-menu.tsx";
@@ -395,9 +397,7 @@ export function DeckPanel(props: TabViewProps) {
           buffers={buffers}
           statusNotice={notice}
           onConfirmClose={(refs) => void confirmClose(host, refs)}
-          onCompare={(path) =>
-            actions.open({ kind: "changes", data: { scope: "working-tree", path } })
-          }
+          renderCompare={renderCompare}
           onQuickOpen={() => quickOpen.set(() => threadId)}
           renderEditor={editorFor(threadId)}
           renderViewer={viewerFor(threadId)}
@@ -425,6 +425,8 @@ export function DeckPanel(props: TabViewProps) {
 function emptyOf(layout: EditorLayout): EditorLayout {
   return { ...layout, root: { kind: "group", id: focusedGroup(layout).id, tabs: [], mru: [] } };
 }
+
+const renderCompare = (props: DeckCompareProps) => <DeckCompare key={props.path} {...props} />;
 
 const renderers = new Map<string, (editor: DeckEditorProps) => ReactNode>();
 const viewers = new Map<string, (viewer: DeckViewerProps) => ReactNode>();

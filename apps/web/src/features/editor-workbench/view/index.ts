@@ -17,6 +17,7 @@ export {
 export { DeckEditor } from "./deck-editor.tsx";
 export { compactBelowPx } from "./deck.tsx";
 export type {
+  DeckCompareProps,
   DeckEditorProps,
   DeckViewerProps,
   EditorReveal,

@@ -2,7 +2,7 @@ import { useCallback, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { AgentNotice } from "./agent-notice.tsx";
 import { Breadcrumbs } from "./breadcrumbs.tsx";
-import { useSnapshot } from "./deck-buffers.ts";
+import { noticeClash, useSnapshot } from "./deck-buffers.ts";
 import { DeckEditor } from "./deck-editor.tsx";
 import type { EditorStatus, EditorStatusActions } from "@/features/editor";
 import type { DeckEditorProps, DeckHost } from "./deck-host.ts";
@@ -38,6 +38,16 @@ export function GroupView(props: {
   const tab = group.tabs.find((each) => each.path === path);
   const markdown = markdownShow(tab);
   const [zone, setZone] = useState<Zone | undefined>(undefined);
+  // Compare shows in place of the editor while the change it is about waits for an answer.
+  const [comparing, setComparing] = useState<string | undefined>(undefined);
+  const compare =
+    path !== undefined &&
+    comparing === path &&
+    buffer !== undefined &&
+    noticeClash(snapshot) !== undefined &&
+    host.renderCompare
+      ? host.renderCompare
+      : undefined;
   const { reportStatus } = host;
   // Stable per group, so an editor can report from an effect without re-running it.
   const onStatus = useCallback(
@@ -80,8 +90,14 @@ export function GroupView(props: {
         <AgentNotice
           snapshot={snapshot}
           buffers={host.buffers}
+          comparing={compare !== undefined}
           onMerge={() => (host.onMerge ? host.onMerge(path) : void buffer?.merge())}
-          onCompare={() => host.onCompare(path)}
+          onCompare={
+            host.renderCompare &&
+            (() => setComparing((was) => (was === path && compare ? undefined : path)))
+          }
+          onKeepMine={() => void buffer?.keepMine()}
+          onTakeTheirs={() => void buffer?.takeTheirs()}
         />
       )}
       <div
@@ -112,6 +128,8 @@ export function GroupView(props: {
           props.last ? (
             <NoFileOpen onQuickOpen={host.onQuickOpen} />
           ) : null
+        ) : compare && buffer ? (
+          compare({ path, buffer })
         ) : buffer && load?.kind === "ready" ? (
           markdown === "preview" ? (
             <MarkdownPreview buffer={buffer} />

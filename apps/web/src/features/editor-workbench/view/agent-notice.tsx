@@ -5,18 +5,24 @@ import type { BufferSnapshot } from "../buffers/index.ts";
 
 /**
  * Spec 46: the moment the disk version moves under unsaved edits, one line under the group's
- * breadcrumbs names who changed the file, with Merge and Compare. It stays until a merge or a
- * save clears the registry's clash; Merge waits while one runs.
+ * breadcrumbs names who changed the file, with Merge and Compare. While comparing, the line
+ * also answers for the whole file (Keep mine, Take theirs) and leads back to the editor. It
+ * stays until an answer or a save clears the registry's clash; Merge waits while one runs.
  */
 export function AgentNotice(props: {
   snapshot: BufferSnapshot | undefined;
   buffers: DeckBuffers;
+  comparing: boolean;
   onMerge(): void;
-  onCompare(): void;
+  /** Unset: nothing to compare with. */
+  onCompare?: (() => void) | undefined;
+  onKeepMine(): void;
+  onTakeTheirs(): void;
 }) {
   const clash = noticeClash(props.snapshot);
   if (!clash) return null;
   const changer = props.buffers.changer(clash.by);
+  const busy = clash.kind === "merging";
   return (
     <div
       role="status"
@@ -27,12 +33,24 @@ export function AgentNotice(props: {
       <span className="min-w-0 flex-1 truncate">
         {changer ? `${changer.name} also changed this file.` : "This file changed on disk."}
       </span>
-      <Button size="sm" disabled={clash.kind === "merging"} onClick={props.onMerge}>
+      <Button size="sm" disabled={busy} onClick={props.onMerge}>
         Merge
       </Button>
-      <Button size="sm" variant="ghost" onClick={props.onCompare}>
-        Compare
-      </Button>
+      {props.comparing && (
+        <>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={props.onKeepMine}>
+            Keep mine
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={props.onTakeTheirs}>
+            Take theirs
+          </Button>
+        </>
+      )}
+      {props.onCompare && (
+        <Button size="sm" variant="ghost" onClick={props.onCompare}>
+          {props.comparing ? "Back to editor" : "Compare"}
+        </Button>
+      )}
     </div>
   );
 }

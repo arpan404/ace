@@ -49,13 +49,28 @@ test("a change nobody can be named for says the file changed on disk", async () 
   expect(screen.getByText("This file changed on disk.")).toBeTruthy();
 });
 
-test("Compare goes to the host with the path", async () => {
-  const onCompare = vi.fn();
-  const deck = await mountDeck(one(), { author: claude, overrides: { onCompare } });
+test("Compare shows the host's diff in place of the editor until the change is answered", async () => {
+  const renderCompare = ({ path }: { path: string }) => (
+    <div role="region" aria-label={`Compare ${path}`} />
+  );
+  const deck = await mountDeck(one(), { author: claude, overrides: { renderCompare } });
   deck.edit("src/a.ts", "mine");
   await deck.changeOnDisk("src/a.ts", "theirs\n");
   fireEvent.click(screen.getByRole("button", { name: "Compare" }));
-  expect(onCompare).toHaveBeenCalledWith("src/a.ts");
+  expect(screen.getByRole("region", { name: "Compare src/a.ts" })).toBeTruthy();
+  // Back and forth: the editor comes back without answering.
+  fireEvent.click(screen.getByRole("button", { name: "Back to editor" }));
+  expect(screen.queryByRole("region", { name: "Compare src/a.ts" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+
+  fireEvent.click(screen.getByRole("button", { name: "Keep mine" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Compare src/a.ts" })).toBeNull(),
+  );
+  expect(screen.queryByText(/also changed this file/)).toBeNull();
+  const buffer = deck.registry.get({ root, path: "src/a.ts" });
+  expect(buffer?.document()?.text()).toContain("mine");
+  expect(buffer?.snapshot().dirty).toBe(true);
 });
 
 test("one status line follows the focused group's editor", async () => {
