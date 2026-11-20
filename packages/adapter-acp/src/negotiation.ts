@@ -61,23 +61,27 @@ export function negotiate(
   quirks: AcpQuirks,
   version?: string,
   profile?: CompatibilityProfile,
+  approvedFit?: ProfileFit,
 ): Negotiated {
   const response = Initialize.parse(raw);
   if (quirks.provider === "antigravity" && response.agentInfo?.name !== "antigravity-acp")
     throw new Error("Unexpected Antigravity ACP identity");
-  // An agent that updated itself is checked against its profile's version range (ADR 0044,
-  // amendment on agents that update themselves): in range it keeps the profile, unverified;
-  // outside it runs as generic ACP (standard negotiation only) rather than failing every thread
-  // on it. The approved executable itself is still checked before launch.
+  // The profile and how it fits come from ace's own record of the approved artifact (ADR 0044,
+  // amendment on agents that update themselves): the version ace recorded, and the fit the
+  // registry gave it. What the agent reports at `initialize` is its own claim, so it can only
+  // take the profile away: outside the profile's range the session runs as generic ACP (standard
+  // negotiation only); inside it, the profile stays but unverified. It never verifies a profile.
   const reported = response.agentInfo?.version;
   const changed = quirks.provider === "acp" && version && reported && reported !== version;
   const running = changed ? reported : (version ?? reported);
-  // A launch with no version at all (none approved, none reported) has nothing to check against.
-  const fit: ProfileFit | undefined = profile
-    ? running
-      ? profileFit(profile, running)
-      : "verified"
-    : undefined;
+  let fit: ProfileFit | undefined;
+  if (profile) {
+    // A launch with no version at all (none approved, none reported) has nothing to check against.
+    fit = approvedFit ?? (version ? profileFit(profile, version) : "verified");
+    // Only a report ace has no record to compare with, or one that differs from it, is judged.
+    const judged = changed ? reported : version ? undefined : reported;
+    if (fit && judged) fit = profileFit(profile, judged) ? "compatible" : undefined;
+  }
   if (!fit) profile = undefined;
   const versionChanged = changed
     ? { approved: version, reported, runsAs: profile ? ("profile" as const) : ("generic" as const) }

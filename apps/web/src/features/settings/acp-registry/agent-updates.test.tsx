@@ -10,20 +10,28 @@ const identity = {
   installationId: "kiro-1",
   instanceId: "kiro-1:default",
 };
+const installed = {
+  ...identity,
+  version: "1.0.0",
+  profileRevision: "generic-v1",
+  source: "user-local",
+  evidence: "user_local_binding",
+} as const;
+/** The update the daemon lists: files on disk now, what was approved before them, the generation. */
+const pending = (executableDigest: string) => ({
+  ...identity,
+  changed: ["agent" as const],
+  executableDigest,
+  previousExecutableDigest: "a".repeat(64),
+  generation: 0,
+  observedAt: 1,
+});
 
 test("an agent that updated itself waits under Providers until the person approves it", async () => {
   const app = harness();
   const registry = app.daemon.services.registry;
-  registry.installations.push({
-    ...identity,
-    version: "1.0.0",
-    profileRevision: "generic-v1",
-    source: "user-local",
-    evidence: "user_local_binding",
-  });
-  registry.updates = [
-    { ...identity, changed: ["agent"], executableDigest: "b".repeat(64), observedAt: 1 },
-  ];
+  registry.installations.push(installed);
+  registry.updates = [pending("b".repeat(64))];
   await app.open("/settings/providers");
   const group = await screen.findByRole(
     "region",
@@ -42,6 +50,35 @@ test("an agent that updated itself waits under Providers until the person approv
   );
   expect(approved?.approvals?.at(-1)?.executableDigest).toBe("b".repeat(64));
   expect(registry.updates).toEqual([]);
+}, 30_000);
+
+test("Approve sends the update the person saw, so one that changed since isn't approved unseen", async () => {
+  const app = harness();
+  const registry = app.daemon.services.registry;
+  registry.installations.push(installed);
+  registry.updates = [pending("b".repeat(64))];
+  await app.open("/settings/providers");
+  const group = await screen.findByRole(
+    "region",
+    { name: "Waiting for your approval" },
+    { timeout: 10_000 },
+  );
+  // The agent changes again behind the shown row.
+  registry.updates = [pending("c".repeat(64))];
+  await userEvent.click(within(group).getByRole("button", { name: /Approve .*update/ }));
+  expect(
+    await screen.findAllByText(
+      "It changed again since you looked. Check it and approve again.",
+      undefined,
+      {
+        timeout: 10_000,
+      },
+    ),
+  ).not.toHaveLength(0);
+  expect(
+    registry.installations.find((entry) => entry.installationId === identity.installationId)
+      ?.approvals,
+  ).toBeUndefined();
 }, 30_000);
 
 test("nothing waits, nothing shows", async () => {

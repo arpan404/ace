@@ -1,13 +1,35 @@
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { z } from "zod";
-import { RegistryPendingUpdate, type AcpIdentity, type RegistryResult } from "@ace/protocol";
+import {
+  RegistryPendingUpdate,
+  type AcpIdentity,
+  type RegistryInstallation,
+  type RegistryResult,
+} from "@ace/protocol";
 import { AgentCatalog, AgentRegistry, fileCache, fileInventoryStorage } from "./index.ts";
 import { executable, temporary } from "./testing/support.ts";
 
+/**
+ * The approved executable's `--version`, as a provider CLI would answer it: these fake agents
+ * carry a `# version X` line. Counts the runs, so a test can see nothing ran.
+ */
+const probed: string[] = [];
+const probe = async (command: string) => {
+  probed.push(command);
+  const version = /# version (\S+)/.exec(await readFile(command, "utf8"))?.[1];
+  return version
+    ? { code: 0, stdout: `agent ${version}\n`, stderr: "" }
+    : { code: 1, stdout: "", stderr: "unknown option" };
+};
+
+/** Installations the registry announced as approved, as the model catalog would hear them. */
+const announced: RegistryInstallation[] = [];
 const roots: { close(): Promise<void> }[] = [];
 afterEach(async () => {
+  probed.length = 0;
+  announced.length = 0;
   await Promise.all(roots.splice(0).map((root) => root.close()));
 });
 
@@ -31,6 +53,9 @@ async function open(root: string, now = 5000) {
     env: {},
     storage: fileInventoryStorage(join(root, "inventory.json"), () => `write-${++id}`),
     now: () => now,
+    pinned: join(root, "pinned"),
+    probe,
+    onUpdateApproved: (installation) => announced.push(installation),
   });
 }
 
@@ -74,11 +99,12 @@ async function updates(registry: AgentRegistry): Promise<RegistryPendingUpdate[]
   return reply.result.updates ?? [];
 }
 
+/** The person approves exactly the update they were shown. */
 function approve(
   registry: AgentRegistry,
   identity: AcpIdentity,
-  update: Pick<RegistryPendingUpdate, "executableDigest" | "bridgeDigest">,
-  version?: string,
+  update: RegistryPendingUpdate,
+  extra: Record<string, unknown> = {},
 ): Promise<RegistryResult> {
   return registry.handle({
     type: "registry.approve-update",
@@ -86,8 +112,18 @@ function approve(
     ...identity,
     executableDigest: update.executableDigest,
     ...(update.bridgeDigest ? { bridgeDigest: update.bridgeDigest } : {}),
-    ...(version ? { version } : {}),
+    previousExecutableDigest: update.previousExecutableDigest,
+    ...(update.previousBridgeDigest ? { previousBridgeDigest: update.previousBridgeDigest } : {}),
+    generation: update.generation,
+    ...extra,
   });
+}
+
+/** The one update listed now. */
+async function onlyUpdate(registry: AgentRegistry): Promise<RegistryPendingUpdate> {
+  const [update] = await updates(registry);
+  if (!update) throw new Error("No update listed");
+  return update;
 }
 
 test("a changed agent never launches before the person approves it, then runs again under the same identity", async () => {
@@ -100,7 +136,7 @@ test("a changed agent never launches before the person approves it, then runs ag
     await expect(registry.resolve(custom)).resolves.toMatchObject({ command: agent });
     expect(await updates(registry)).toEqual([]);
 
-    await writeFile(agent, `#!/bin/sh\ntouch '${marker}'\n# updated\n`);
+    await writeFile(agent, `#!/bin/sh\ntouch '${marker}'\n# version 1.1.0\n`);
     // Every launch is refused, naming the agent and what lets it run.
     for (let launch = 0; launch < 2; launch++)
       await expect(registry.resolve(custom)).rejects.toThrow(
@@ -110,9 +146,11 @@ test("a changed agent never launches before the person approves it, then runs ag
     expect(update).toMatchObject({ ...custom, changed: ["agent"], observedAt: 5000 });
     if (!update) throw new Error("No update listed");
 
-    expect((await approve(registry, custom, update, "1.1.0")).result).toMatchObject({
+    // Listing and refusing ran nothing.
+    expect(probed).toEqual([]);
+    expect((await approve(registry, custom, update)).result).toMatchObject({
       ok: true,
-      installation: { ...custom, version: "1.1.0" },
+      installation: { ...custom, version: "1.1.0", versionSource: "probed" },
     });
     expect(registry.has(custom)).toBe(true);
     await expect(registry.resolve(custom)).resolves.toMatchObject({
@@ -121,7 +159,10 @@ test("a changed agent never launches before the person approves it, then runs ag
       version: "1.1.0",
     });
     expect(await updates(registry)).toEqual([]);
-    // Nothing above ran the agent: approving hashes, it never executes.
+    // Approving ran only ace's own version probe of the approved file, once.
+    expect(probed).toEqual([agent]);
+    // The model catalog hears of it, with the version ace read.
+    expect(announced).toMatchObject([{ ...custom, version: "1.1.0", versionSource: "probed" }]);
     await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await registry.close();
@@ -142,6 +183,7 @@ test("a changed agent never launches before the person approves it, then runs ag
         version: "1.1.0",
         previousExecutableDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
         executableDigest: stored[0]?.executableDigest,
+        generation: 0,
       },
     ]);
     expect(installation?.approvals?.[0]?.previousExecutableDigest).not.toBe(
@@ -172,10 +214,10 @@ test("an approval covers only the files the person was shown", async () => {
     expect(again?.executableDigest).not.toBe(shown.executableDigest);
     if (!again) throw new Error("No update listed");
     expect((await approve(registry, custom, again)).result.ok).toBe(true);
-    // Replaying an approval once nothing has changed approves nothing.
+    // Replaying an approval approves nothing: its generation is spent.
     expect((await approve(registry, custom, again)).result).toEqual({
       ok: false,
-      reason: "Nothing changed since approval",
+      reason: "This update was already approved or replaced; review it again",
     });
     await expect(registry.resolve(custom)).resolves.toMatchObject({ command: agent });
   } finally {
@@ -183,7 +225,40 @@ test("an approval covers only the files the person was shown", async () => {
   }
 });
 
-test("a bridge's updated native CLI waits for approval, then runs under the bridge's profile", async () => {
+/** One release of a fake agent, always reporting 1.0.0. */
+const release = (name: string) => `#!/bin/sh\n# ${name}\n# version 1.0.0\n`;
+
+test("an approval is good once: after A to B, B to C and back to B, replaying the first approves nothing", async () => {
+  const root = await home();
+  const registry = await open(root);
+  try {
+    const agent = await executable(root, "agent", release("A"));
+    await bind(registry, custom, agent);
+    await writeFile(agent, release("B"));
+    const first = await onlyUpdate(registry);
+    expect((await approve(registry, custom, first)).result.ok).toBe(true);
+    await writeFile(agent, release("C"));
+    expect((await approve(registry, custom, await onlyUpdate(registry))).result.ok).toBe(true);
+    // B is on disk again, as the first approval named it; C is what the person approved last.
+    await writeFile(agent, release("B"));
+    const back = await onlyUpdate(registry);
+    expect(back.executableDigest).toBe(first.executableDigest);
+    expect((await approve(registry, custom, first)).result).toEqual({
+      ok: false,
+      reason: "This update was already approved or replaced; review it again",
+    });
+    await expect(registry.resolve(custom)).rejects.toThrow("Approve the update");
+    // Approving what is listed now works, once.
+    expect((await approve(registry, custom, back)).result).toMatchObject({
+      ok: true,
+      installation: { approvalGeneration: 3 },
+    });
+  } finally {
+    await registry.close();
+  }
+});
+
+test("a bridge's updated native CLI waits for approval, then runs under the bridge's profile, unverified", async () => {
   const root = await home();
   const registry = await open(root);
   const identity: AcpIdentity = {
@@ -192,7 +267,20 @@ test("a bridge's updated native CLI waits for approval, then runs under the brid
     instanceId: "claude-acp-1:default",
   };
   try {
-    const bridge = await executable(root, "claude-agent-acp", "#!/bin/sh\nexit 0\n");
+    // The bridge ships in an npm package, whose manifest names its version.
+    const folder = join(root, "claude-agent-acp");
+    await mkdir(folder);
+    const manifest = (version: string) =>
+      writeFile(
+        join(folder, "package.json"),
+        JSON.stringify({
+          name: "claude-agent-acp",
+          version,
+          bin: { "claude-agent-acp": "cli.js" },
+        }),
+      );
+    await manifest("0.85.1");
+    const bridge = await executable(folder, "cli.js", "#!/bin/sh\nexit 0\n");
     const claude = await executable(root, "claude", "#!/bin/sh\necho v1\n");
     await bind(registry, identity, bridge, "0.85.1", claude);
     await expect(registry.resolve(identity)).resolves.toMatchObject({
@@ -201,12 +289,16 @@ test("a bridge's updated native CLI waits for approval, then runs under the brid
     });
     await rm(claude);
     await executable(root, "claude", "#!/bin/sh\necho v2\n");
+    await manifest("0.90.0");
     await expect(registry.resolve(identity)).rejects.toThrow("Approve the update");
-    const [update] = await updates(registry);
-    expect(update?.changed).toEqual(["native_cli"]);
-    if (!update) throw new Error("No update listed");
-    // The bridge updated itself too, inside its profile's range.
-    expect((await approve(registry, identity, update, "0.90.0")).result.ok).toBe(true);
+    const update = await onlyUpdate(registry);
+    expect(update.changed).toEqual(["native_cli"]);
+    expect((await approve(registry, identity, update)).result).toMatchObject({
+      ok: true,
+      installation: { version: "0.90.0", versionSource: "probed" },
+    });
+    // Read from its package: nothing ran.
+    expect(probed).toEqual([]);
     await expect(registry.resolve(identity)).resolves.toMatchObject({
       identity,
       env: { CLAUDE_CODE_EXECUTABLE: claude },
@@ -218,28 +310,64 @@ test("a bridge's updated native CLI waits for approval, then runs under the brid
   }
 });
 
-test("an update to a version outside the profile's range runs without the profile", async () => {
+const gemini: AcpIdentity = {
+  acpAgentId: "official:gemini",
+  installationId: "gemini-1",
+  instanceId: "gemini-1:default",
+};
+
+test("an update's version is the one ace reads from the approved files, never one the client sends", async () => {
   const root = await home();
   const registry = await open(root);
-  const identity: AcpIdentity = {
-    acpAgentId: "official:gemini",
-    installationId: "gemini-1",
-    instanceId: "gemini-1:default",
-  };
   try {
-    const gemini = await executable(root, "gemini", "#!/bin/sh\necho 0.43\n");
-    await bind(registry, identity, gemini, "0.43.0");
-    await writeFile(gemini, "#!/bin/sh\necho 1.0\n");
-    await expect(registry.resolve(identity)).rejects.toThrow("Approve the update");
-    const [update] = await updates(registry);
-    if (!update) throw new Error("No update listed");
-    expect((await approve(registry, identity, update, "1.0.0")).result).toMatchObject({
+    const agent = await executable(root, "gemini", "#!/bin/sh\n# version 0.43.0\n");
+    await bind(registry, gemini, agent, "0.43.0");
+    await writeFile(agent, "#!/bin/sh\n# version 1.0.0\n");
+    // A client claiming the profile's verified version gets nothing for it.
+    expect(
+      (await approve(registry, gemini, await onlyUpdate(registry), { version: "0.43.0" })).result,
+    ).toMatchObject({
       ok: true,
       installation: { version: "1.0.0", profileRevision: "generic-v1" },
     });
-    const plan = await registry.resolve(identity);
+    const plan = await registry.resolve(gemini);
     expect(plan.profile).toBeUndefined();
     expect(plan.profileFit).toBeUndefined();
+  } finally {
+    await registry.close();
+  }
+});
+
+test("an updated agent claiming a profile's verified version still runs it unverified", async () => {
+  const root = await home();
+  const registry = await open(root);
+  try {
+    const agent = await executable(root, "gemini", "#!/bin/sh\nexit 0\n");
+    await bind(registry, gemini, agent, "0.43.0");
+    await writeFile(agent, "#!/bin/sh\n# version 0.43.0\n");
+    expect((await approve(registry, gemini, await onlyUpdate(registry))).result.ok).toBe(true);
+    await expect(registry.resolve(gemini)).resolves.toMatchObject({
+      version: "0.43.0",
+      profile: { id: "gemini-043" },
+      profileFit: "compatible",
+    });
+  } finally {
+    await registry.close();
+  }
+});
+
+test("an update whose version ace can't read runs as generic ACP", async () => {
+  const root = await home();
+  const registry = await open(root);
+  try {
+    const agent = await executable(root, "gemini", "#!/bin/sh\n# version 0.43.0\n");
+    await bind(registry, gemini, agent, "0.43.0");
+    await writeFile(agent, "#!/bin/sh\nexit 0\n");
+    expect((await approve(registry, gemini, await onlyUpdate(registry))).result).toMatchObject({
+      ok: true,
+      installation: { version: "unknown", profileRevision: "generic-v1" },
+    });
+    expect((await registry.resolve(gemini)).profile).toBeUndefined();
   } finally {
     await registry.close();
   }

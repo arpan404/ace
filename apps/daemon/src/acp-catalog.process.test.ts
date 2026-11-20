@@ -37,10 +37,17 @@ async function daemon(binding: { acpAgentId: string; version: string }) {
   const dataDir = join(root, "data");
   const log = join(root, "requests.log");
   const bin = join(root, "fixture-agent");
+  // The version the agent reports to `--version`, which ace reads itself when it approves.
+  const versionFile = join(root, "version");
+  await writeFile(versionFile, binding.version);
   await writeFile(
     bin,
     `#!${process.execPath}
-const { appendFileSync } = require('node:fs');
+const { appendFileSync, readFileSync } = require('node:fs');
+if (process.argv.includes('--version')) {
+  console.log(readFileSync(${JSON.stringify(versionFile)}, 'utf8'));
+  process.exit(0);
+}
 const session = { sessionId: 'probe', configOptions: [
   { id: 'model', category: 'model', type: 'select', currentValue: 'flash',
     options: [{ value: 'flash', name: 'Flash' }, { value: 'pro', name: 'Pro' }] },
@@ -118,8 +125,9 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       .split("\n")
       .filter(Boolean)
       .map((line): [string, string | null, string | null] => JSON.parse(line));
-  /** Changes the agent's file on disk and approves it as `version`, as Settings would. */
+  /** Updates the agent on disk to `version` and approves it, as Settings would. */
   const approveUpdate = async (version: string) => {
+    await writeFile(versionFile, version);
     await writeFile(bin, `${await readFile(bin, "utf8")}\n// updated\n`, { mode: 0o700 });
     const listed = await agents.handle({
       type: "registry.list",
@@ -135,7 +143,8 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       requestId: "approve",
       ...identity,
       executableDigest: update.executableDigest,
-      version,
+      previousExecutableDigest: update.previousExecutableDigest,
+      generation: update.generation,
     });
     if (!approved.result.ok) throw new Error("Update not approved");
   };

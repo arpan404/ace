@@ -16,10 +16,13 @@ import { limits } from "./decode.ts";
 import {
   UpdateApprovalRequired,
   approveUpdate,
+  checkApproval,
   pendingUpdate,
   type Observed,
   type UpdateApproval,
 } from "./approvals.ts";
+import type { PinnedExecutables } from "./pinned.ts";
+import { probeVersion, type ProbeRunner } from "./version-probe.ts";
 export const LocalInstallation = z.object({
   metadata: RegistryInstallation,
   command: z.string().min(1).max(4096).refine(isAbsolute),
@@ -248,20 +251,65 @@ export async function bindLocal(
       : {}),
   });
 }
+/** How launches run approved files: pinned copies, and ace's own version probe at approval. */
+export type LaunchPinning = Readonly<{
+  /** Without a store, approved files run in place, hashed just before. */
+  pins?: PinnedExecutables;
+  /**
+   * Runs the approved executable's `--version` when its package doesn't name a version. Without
+   * one, such an update's version is `unknown`.
+   */
+  run?: ProbeRunner;
+}>;
+const noProbe: ProbeRunner = () => Promise.reject(new Error("No version probe"));
 export class LocalInventory {
   #entries = new Map<string, LocalInstallation>();
   /** Installations whose files changed since approval, by installation id, until approved. */
   #pending = new Map<string, RegistryPendingUpdate>();
   #digests: ExecutableDigests;
   #now: () => number;
+  #pinning: LaunchPinning | undefined;
   constructor(
     entries: readonly LocalInstallation[] = [],
     digests: ExecutableDigests = new ExecutableDigests(),
     now: () => number = Date.now,
+    pinning?: LaunchPinning,
   ) {
     this.#digests = digests;
     this.#now = now;
+    this.#pinning = pinning;
     for (const entry of entries) this.add(entry);
+  }
+  /** The digests every installation runs now: what its pinned copies may keep. */
+  digests(): Set<string> {
+    return new Set(
+      [...this.#entries.values()].flatMap((entry) =>
+        entry.bridgeDigest
+          ? [entry.executableDigest, entry.bridgeDigest]
+          : [entry.executableDigest],
+      ),
+    );
+  }
+  /**
+   * What a launch runs for `entry`'s approved files: the pinned copies where they can be pinned
+   * (single-file native executables), else the files in place, hashed just before.
+   */
+  async #pinned(entry: LocalInstallation): Promise<{ command: string; bridge?: string }> {
+    const pins = this.#pinning?.pins;
+    const artifact = installationArtifact(entry);
+    // A Windows script launch runs node with the script: the script can't be pinned.
+    const agent =
+      pins && artifact === entry.command
+        ? await pins.pin(entry.command, entry.executableDigest)
+        : undefined;
+    const bridge =
+      pins && entry.bridgeCommand && entry.bridgeDigest
+        ? await pins.pin(entry.bridgeCommand, entry.bridgeDigest)
+        : undefined;
+    return {
+      command: agent ?? entry.command,
+      ...(entry.bridgeCommand ? { bridge: bridge ?? entry.bridgeCommand } : {}),
+    };
   }
   add(input: LocalInstallation): void {
     const entry = LocalInstallation.parse(input);
@@ -336,10 +384,30 @@ export class LocalInventory {
    * The installation approved for its changed files, for the same identity, not yet stored:
    * the caller persists it, then `replace`s. Only the person's approval reaches this.
    */
-  async approved(identity: AcpIdentity, approval: UpdateApproval): Promise<LocalInstallation> {
+  async approved(
+    identity: AcpIdentity,
+    approval: UpdateApproval,
+    environment: NodeJS.ProcessEnv,
+  ): Promise<LocalInstallation> {
     const entry = this.#entry(identity);
     const observed = await this.#observe(entry);
-    return LocalInstallation.parse(approveUpdate(entry, approval, observed, this.#now()));
+    // Nothing runs or is copied before the approval names exactly these files.
+    checkApproval(entry, approval, observed);
+    const next = { ...entry, executableDigest: observed.executableDigest };
+    if (observed.bridgeDigest !== undefined) next.bridgeDigest = observed.bridgeDigest;
+    // Pinned now, so the first launch after doesn't copy, and the probe runs the approved bytes.
+    const launch = await this.#pinned(next);
+    const artifact = installationArtifact(entry);
+    const version = await probeVersion(
+      {
+        command: launch.command,
+        prefix: artifact === entry.command ? [] : [artifact],
+        artifact,
+        env: { ...environment, ...entry.env },
+      },
+      this.#pinning?.run ?? noProbe,
+    );
+    return LocalInstallation.parse(approveUpdate(entry, approval, observed, this.#now(), version));
   }
   /** Stores an approved update of an installation already here, under the same identity. */
   replace(input: LocalInstallation): void {
@@ -368,15 +436,18 @@ export class LocalInventory {
     const profile = identity.acpAgentId.startsWith("official:")
       ? profileFor(identity.acpAgentId.slice(9), entry.metadata.version)
       : undefined;
+    // A version ace read from an updated agent's own files is its claim: never verified.
+    const fit = profile && entry.metadata.versionSource === "probed" ? "compatible" : profile?.fit;
+    const launch = await this.#pinned(entry);
     const env = { ...environment, ...entry.env };
-    if (bridgeVariable && entry.bridgeCommand) env[bridgeVariable] = entry.bridgeCommand;
+    if (bridgeVariable && launch.bridge) env[bridgeVariable] = launch.bridge;
     return Object.freeze({
       identity: Object.freeze(identity),
       version: entry.metadata.version,
-      command: entry.command,
+      command: launch.command,
       args: Object.freeze([...entry.args]),
       env: Object.freeze(env),
-      ...(profile ? { profile: profile.profile, profileFit: profile.fit } : {}),
+      ...(profile && fit ? { profile: profile.profile, profileFit: fit } : {}),
     });
   }
 }

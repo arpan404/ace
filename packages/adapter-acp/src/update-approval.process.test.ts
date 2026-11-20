@@ -61,8 +61,8 @@ test("after the person approves an agent's update, the same thread identity resu
     const marker = join(root, "launches");
     const launcher = join(root, "synthetic-agent");
     const script = (release: string) =>
-      `#!/bin/sh\n# ${release}\necho run >> '${marker}'\nexec '${process.execPath}' '${server}'\n`;
-    await writeFile(launcher, script("v1"));
+      `#!/bin/sh\nif [ "$1" = --version ]; then echo ${release}; exit 0; fi\necho run >> '${marker}'\nexec '${process.execPath}' '${server}'\n`;
+    await writeFile(launcher, script("1.0.0"));
     await chmod(launcher, 0o700);
     await registry.bind({ ...identity, version: "1.0.0", command: launcher, args: [] });
     const env = { ACE_SYNTHETIC_ACP: JSON.stringify({ load: true }) };
@@ -74,7 +74,7 @@ test("after the person approves an agent's update, the same thread identity resu
     if (!nativeSessionId) throw new Error("No session id");
 
     // The agent updates itself: its launcher changes on disk.
-    await writeFile(launcher, script("v2"));
+    await writeFile(launcher, script("1.1.0"));
     await expect(registry.resolve(identity, env)).rejects.toThrow("Approve the update");
     // Refused before anything ran: one launch so far, the approved one.
     expect((await readFile(marker, "utf8")).trim().split("\n")).toHaveLength(1);
@@ -93,8 +93,12 @@ test("after the person approves an agent's update, the same thread identity resu
       requestId: "approve",
       ...identity,
       executableDigest: update.executableDigest,
+      previousExecutableDigest: update.previousExecutableDigest,
+      generation: update.generation,
     });
-    expect(approved.result.ok).toBe(true);
+    // ace read the version from the approved launcher itself, without starting a session.
+    expect(approved.result).toMatchObject({ ok: true, installation: { version: "1.1.0" } });
+    expect((await readFile(marker, "utf8")).trim().split("\n")).toHaveLength(1);
 
     const plan = await registry.resolve(identity, env);
     expect(plan.identity).toEqual(identity);

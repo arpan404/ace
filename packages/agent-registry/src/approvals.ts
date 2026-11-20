@@ -17,6 +17,8 @@ export interface Approved {
     version: string;
     profileRevision: string;
     approvals?: RegistryApproval[] | undefined;
+    approvalGeneration?: number | undefined;
+    versionSource?: "probed" | undefined;
   };
   executableDigest: string;
   bridgeDigest?: string | undefined;
@@ -67,35 +69,58 @@ export function pendingUpdate(
     changed,
     executableDigest: observed.executableDigest,
     ...(observed.bridgeDigest !== undefined ? { bridgeDigest: observed.bridgeDigest } : {}),
+    previousExecutableDigest: entry.executableDigest,
+    ...(entry.bridgeDigest !== undefined ? { previousBridgeDigest: entry.bridgeDigest } : {}),
+    generation: entry.metadata.approvalGeneration ?? 0,
     observedAt,
   };
 }
 
-/** What the person approves: the digests they were shown, and the version if their client knows. */
+/**
+ * What the person approves: exactly the pending update they were shown, the files on disk then,
+ * what was approved before them and the approval generation. The version is never theirs to
+ * give: ace reads it from the approved files itself.
+ */
 export interface UpdateApproval extends Observed {
-  version?: string | undefined;
+  previousExecutableDigest: string;
+  previousBridgeDigest?: string | undefined;
+  generation: number;
+}
+
+/** Throws unless `approval` is exactly the update pending for `entry` with `observed` on disk. */
+export function checkApproval(entry: Approved, approval: UpdateApproval, observed: Observed): void {
+  if (
+    approval.generation !== (entry.metadata.approvalGeneration ?? 0) ||
+    approval.previousExecutableDigest !== entry.executableDigest ||
+    approval.previousBridgeDigest !== entry.bridgeDigest
+  )
+    throw new Error("This update was already approved or replaced; review it again");
+  if (
+    approval.executableDigest !== observed.executableDigest ||
+    approval.bridgeDigest !== observed.bridgeDigest
+  )
+    throw new Error("The agent changed again; review the update again");
+  if (!pendingUpdate(entry, observed, 0)) throw new Error("Nothing changed since approval");
 }
 
 /**
- * `entry` approved for what is on disk now. Refused unless the approval names exactly the files
- * on disk (`observed`) and they differ from what was approved, so a file that changed again after
- * the person looked isn't approved unseen, and an approval can't be replayed.
+ * `entry` approved for what is on disk now, at `version`, which ace read from those files
+ * itself (`versionSource: "probed"`). Refused unless the approval names exactly the files on
+ * disk (`observed`), the approval they replace and the current generation, and the files differ
+ * from what was approved. So a file that changed again after the person looked isn't approved
+ * unseen, and an approval is good once: replaying it after later approvals (A→B, B→C, C→B) names
+ * a spent generation.
  */
 export function approveUpdate<T extends Approved>(
   entry: T,
   approval: UpdateApproval,
   observed: Observed,
   approvedAt: number,
+  version: string,
 ): T {
-  if (
-    approval.executableDigest !== observed.executableDigest ||
-    approval.bridgeDigest !== observed.bridgeDigest
-  )
-    throw new Error("The agent changed again; review the update again");
-  if (!pendingUpdate(entry, observed, approvedAt))
-    throw new Error("Nothing changed since approval");
+  checkApproval(entry, approval, observed);
+  const generation = entry.metadata.approvalGeneration ?? 0;
   const { metadata } = entry;
-  const version = approval.version ?? metadata.version;
   const record: RegistryApproval = {
     approvedAt,
     previousVersion: metadata.version,
@@ -104,6 +129,7 @@ export function approveUpdate<T extends Approved>(
     executableDigest: observed.executableDigest,
     ...(entry.bridgeDigest !== undefined ? { previousBridgeDigest: entry.bridgeDigest } : {}),
     ...(observed.bridgeDigest !== undefined ? { bridgeDigest: observed.bridgeDigest } : {}),
+    generation,
   };
   const profile = metadata.acpAgentId.startsWith("official:")
     ? matchProfile(metadata.acpAgentId.slice(9), version)
@@ -113,8 +139,10 @@ export function approveUpdate<T extends Approved>(
     metadata: {
       ...metadata,
       version,
+      versionSource: "probed",
       profileRevision: profile?.revision ?? "generic-v1",
       approvals: [...(metadata.approvals ?? []), record].slice(-keptApprovals),
+      approvalGeneration: generation + 1,
     },
     executableDigest: observed.executableDigest,
     ...(observed.bridgeDigest !== undefined ? { bridgeDigest: observed.bridgeDigest } : {}),

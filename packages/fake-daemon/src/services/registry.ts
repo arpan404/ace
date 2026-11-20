@@ -147,7 +147,7 @@ export class FakeRegistry {
         return false;
     }
   }
-  /** The person approves a staged update: only for exactly the digests listed. */
+  /** The person approves a staged update: only exactly the update listed, generation included. */
   private approveUpdate(
     message: Extract<ClientMessage, { type: "registry.approve-update" }>,
   ): Result {
@@ -158,21 +158,30 @@ export class FakeRegistry {
     const installation = this.installations[index];
     if (!update || !installation) return { ok: false, reason: "Nothing changed since approval" };
     if (
+      update.generation !== message.generation ||
+      update.previousExecutableDigest !== message.previousExecutableDigest ||
+      update.previousBridgeDigest !== message.previousBridgeDigest
+    )
+      return { ok: false, reason: "This update was already approved or replaced; review it again" };
+    if (
       update.executableDigest !== message.executableDigest ||
       update.bridgeDigest !== message.bridgeDigest
     )
       return { ok: false, reason: "The agent changed again; review the update again" };
+    const generation = installation.approvalGeneration ?? 0;
     const approved: RegistryInstallation = {
       ...installation,
-      version: message.version ?? installation.version,
+      versionSource: "probed",
+      approvalGeneration: generation + 1,
       approvals: [
         ...(installation.approvals ?? []),
         {
           approvedAt: this.host.now(),
           previousVersion: installation.version,
-          version: message.version ?? installation.version,
-          previousExecutableDigest: digest(`${installation.installationId}:approved`),
+          version: installation.version,
+          previousExecutableDigest: message.previousExecutableDigest,
           executableDigest: message.executableDigest,
+          generation,
         },
       ].slice(-16),
     };

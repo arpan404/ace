@@ -1,5 +1,6 @@
 import { followLoginPath } from "../login-path-handoff.ts";
 import { isAgentDevice } from "../answer-gate.ts";
+import { reauthSentence } from "../marketplace/fresh-sign-in.ts";
 import { join } from "node:path";
 import {
   AgentCatalog,
@@ -24,6 +25,8 @@ export async function startAgentRegistry(context: ServiceContext): Promise<void>
   const registry = await AgentRegistry.open({
     catalog,
     root: join(root, "installations"),
+    // Launches run copies of the approved files from here, not files an agent can rewrite.
+    pinned: join(root, "pinned"),
     target,
     storage: fileInventoryStorage(join(root, "inventory.json"), id),
     digests: fileDigestMemory(join(root, "digests.json"), id),
@@ -37,7 +40,20 @@ export async function startAgentRegistry(context: ServiceContext): Promise<void>
   }
   services.agentRegistry = registry;
 }
-export function createAgentRegistrySession(context: SocketContext): SocketService {
+// What runs is the person's to approve (ADR 0044): an agent's device never binds, installs or
+// approves an update, its own included, whatever its credential's scopes. Nor does a socket
+// that hasn't proved the person (ADR 0190): the host token, which any process of theirs can
+// read, and a paired device's bearer token alone, carry admin without proving who asks.
+const personOnly = (type: RegistryRequest["type"]): boolean =>
+  type === "registry.bind" ||
+  type === "registry.install-intent" ||
+  type === "registry.approve-update";
+/** What the registry's socket service reads of its socket. */
+export type AgentRegistrySessionContext = Pick<
+  SocketContext,
+  "authorize" | "send" | "tasks" | "device" | "connected" | "personProven"
+> & { options: Pick<SocketContext["options"], "agentRegistry" | "acpCatalog"> };
+export function createAgentRegistrySession(context: AgentRegistrySessionContext): SocketService {
   const { options, authorize, send, tasks, device } = context;
   let pending = 0;
   return {
@@ -77,10 +93,12 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
         failure("operate scope required");
         return true;
       }
-      // Approving what runs is the person's (ADR 0044): an agent's device never binds, installs
-      // or approves an update, its own included, whatever its credential's scopes.
       if (scope === "admin" && isAgentDevice(device())) {
         failure("Only the person can approve agents: agents can't.");
+        return true;
+      }
+      if (personOnly(request.type) && context.personProven?.() !== true) {
+        failure(reauthSentence);
         return true;
       }
       if (!options.agentRegistry) {
