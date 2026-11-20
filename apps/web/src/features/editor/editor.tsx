@@ -73,6 +73,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const state = useEditorDocument({
     language: chosenLanguage,
     text: props.text,
+    shared: props.document,
     path: props.path,
     original: props.marks ? undefined : props.text,
     editable: !readOnly,
@@ -220,11 +221,13 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     announce,
   });
 
+  const shared = props.document;
   useEffect(() => {
-    if (props.text === seenText.current) return;
+    // A shared document's text is its owner's; `text` is then only the gutter's base.
+    if (shared || props.text === seenText.current) return;
     seenText.current = props.text;
     if (state.doc && state.doc.text() !== props.text) state.replaceText(props.text);
-  }, [props.text, state]);
+  }, [shared, props.text, state]);
 
   const {
     finder,

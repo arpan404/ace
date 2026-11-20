@@ -10,6 +10,7 @@ import { fileLanguage, type LineMark } from "@ace/ui-core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sameSelections } from "./cursor.ts";
 import { MarkitLineHighlighter } from "./highlighter.ts";
+import type { SharedDocument } from "./types.ts";
 import { ensureEditorReady } from "./wasm.ts";
 
 /*
@@ -66,6 +67,8 @@ export interface EditBatch {
 
 export function useEditorDocument(options: {
   text: string;
+  /** A document the caller owns: used instead of one made from `text`, and never freed. */
+  shared?: SharedDocument | undefined;
   path: string;
   /** A language picked over the file's own: a name, or null for plain text. */
   language?: string | null | undefined;
@@ -137,7 +140,18 @@ export function useEditorDocument(options: {
   // same document too; only its colours follow the new name. When the component really goes, the
   // document is unreachable and its Wasm memory is freed at garbage collection.
   const owned = useRef<EditorDocument>(undefined);
+  // A shared document is the owner's (its Wasm loaded, its text kept): adopted while rendering,
+  // so the first paint already shows it, and a new one (a re-read) replaces it the same way.
+  const sharedDoc = options.shared?.doc;
+  const [adopted, setAdopted] = useState<EditorDocument>();
+  if (sharedDoc && sharedDoc !== adopted) {
+    setAdopted(sharedDoc);
+    setDoc(sharedDoc);
+    setSelections(sharedDoc.selections());
+    setPrimary(sharedDoc.primarySelection());
+  }
   useEffect(() => {
+    if (sharedDoc) return;
     let live = true;
     if (!owned.current)
       ensureEditorReady().then(
@@ -162,7 +176,7 @@ export function useEditorDocument(options: {
       if (owned.current) onTextDispose.current?.(owned.current.text());
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a retry (`attempt`) loads the document again.
-  }, [initial, attempt]);
+  }, [initial, attempt, sharedDoc]);
 
   const language =
     options.language === undefined ? fileLanguage(path) : (options.language ?? undefined);
@@ -250,6 +264,13 @@ export function useEditorDocument(options: {
       return true;
     },
     [doc, editable, after],
+  );
+
+  // The owner's edits to a shared document run through this view while it is mounted.
+  const shared = options.shared;
+  useEffect(
+    () => (shared && doc === shared.doc ? shared.attach(edit) : undefined),
+    [shared, doc, edit],
   );
 
   const replaceText = useCallback(
