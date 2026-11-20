@@ -115,7 +115,13 @@ export function startTransfers(context: ServiceContext): void {
     threads: targetThreads(context),
     identities,
     live: new LiveTarget(
-      liveTargetPorts(context, { ownership, git, archive, log: record("warn") }),
+      liveTargetPorts(context, {
+        ownership,
+        git,
+        archive,
+        newSessionId: randomUUID,
+        log: record("warn"),
+      }),
     ),
     now,
     log: record("info"),

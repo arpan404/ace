@@ -15,14 +15,19 @@ import {
 const rightPadding = 24;
 
 /** The monospace cell of the editor's font, remeasured when a web font or the density changes. */
-export function useCellWidth(scroller: RefObject<HTMLDivElement | null>): number {
+export function useCellWidth(
+  scroller: RefObject<HTMLDivElement | null>,
+  /** The font the editor asks for (family and size): a new one is measured again. */
+  font: string,
+): number {
   const [cell, setCell] = useState(fallbackCharWidth);
 
   useLayoutEffect(() => {
     const element = scroller.current;
-    // oxlint-disable-next-line react-compiler/set-state-in-effect -- the cell width comes from the laid-out font, once.
+    // oxlint-disable-next-line react-compiler/set-state-in-effect -- the cell width comes from the laid-out font, once per font.
     if (element) setCell(charWidthFor(getComputedStyle(element).font));
-  }, [scroller]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a new font is read from the laid-out element, not from the key.
+  }, [scroller, font]);
 
   useEffect(() => {
     const measure = () => {

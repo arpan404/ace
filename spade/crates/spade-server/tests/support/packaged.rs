@@ -43,7 +43,8 @@ pub fn watcher(version: &str) -> Value {
         "effects": effects,
         "limits": { "spend_alert": { "usd_per_day": 0.5 }, "workers_at_once": 2 },
         "notes": ["The person books. Never press a purchase button."],
-        "pricing": { "kind": "free" }
+        "pricing": { "kind": "free" },
+        "style": { "accent": "#2F7BEA" }
     })
 }
 

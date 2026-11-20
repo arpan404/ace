@@ -75,3 +75,68 @@ export function claudeProjectFolder(cwd: string): string | undefined {
   const name = cwd.replace(/[^a-zA-Z0-9]/g, "-");
   return name.length > 200 ? undefined : name;
 }
+
+/** Session ids a placed copy is renamed by: each original id, lowercase, to its fresh one. */
+export type SessionIds = ReadonlyMap<string, string>;
+
+type Found = { to: string; set(to: string): void };
+
+/** Every string value in `value` equal to a renamed id, with how to replace it. */
+function idValues(value: unknown, ids: SessionIds, out: Found[]): void {
+  const visit = (item: unknown, set: (to: string) => void) => {
+    const to = typeof item === "string" ? ids.get(item.toLowerCase()) : undefined;
+    if (to !== undefined) out.push({ to, set });
+    else idValues(item, ids, out);
+  };
+  if (Array.isArray(value))
+    value.forEach((item, index) => visit(item, (to) => (value[index] = to)));
+  else if (isRecord(value))
+    for (const [key, item] of Object.entries(value)) visit(item, (to) => (value[key] = to));
+}
+
+/** The id as a whole JSON string on a line, any case. */
+const quotedId = (id: string) =>
+  new RegExp(JSON.stringify(id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+
+/**
+ * Renames one line's session ids: every string value equal to an id in `ids` (a record's
+ * `sessionId`, a rollout header's `id` and the ids it forks from) becomes the fresh one.
+ * A line that isn't JSON, or holds none of the ids, is kept byte for byte.
+ */
+export function renameLine(line: string, ids: SessionIds): string {
+  if (!line.trim()) return line;
+  let record: unknown;
+  try {
+    record = JSON.parse(line);
+  } catch {
+    return line;
+  }
+  const found: Found[] = [];
+  idValues(record, ids, found);
+  if (!found.length) return line;
+  // Replaced in place when each quoted id on the line is one of the values found (none is a
+  // key or inside a longer string), so nothing else on the line changes.
+  let inPlace = line;
+  let counted = 0;
+  for (const [from, to] of ids) {
+    const pattern = quotedId(from);
+    counted += line.match(pattern)?.length ?? 0;
+    inPlace = inPlace.replace(pattern, JSON.stringify(to));
+  }
+  if (counted === found.length) return inPlace;
+  for (const { to, set } of found) set(to);
+  return JSON.stringify(record);
+}
+
+/** Every line of a JSONL session file, renamed with `renameLine`; line endings kept. */
+export function renameSession(text: string, ids: SessionIds): string {
+  if (!ids.size) return text;
+  return text
+    .split("\n")
+    .map((line) => {
+      const carriage = line.endsWith("\r");
+      const body = carriage ? line.slice(0, -1) : line;
+      return renameLine(body, ids) + (carriage ? "\r" : "");
+    })
+    .join("\n");
+}

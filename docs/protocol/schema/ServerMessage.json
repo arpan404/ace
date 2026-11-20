@@ -78,12 +78,6 @@
       "$ref": "https://ace.local/protocol/v1/ChannelClose.json"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/TunnelPorts.json"
-    },
-    {
-      "$ref": "https://ace.local/protocol/v1/TunnelRefused.json"
-    },
-    {
       "$ref": "https://ace.local/protocol/v1/MachinesResult.json"
     },
     {
@@ -178,6 +172,12 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/WorkspaceChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/TunnelPorts.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/TunnelRefused.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/WorkspaceCloneProgress.json"

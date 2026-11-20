@@ -78,6 +78,8 @@ export function installBody(input: {
   readonly folder: string;
   readonly switches: Readonly<Record<string, boolean>>;
   readonly transaction: string;
+  /** Its panels' pages by path (ADR 0200 §5.2), sent beside the manifest. */
+  readonly pages?: Readonly<Record<string, string>>;
 }) {
   return {
     recipe: input.recipe,
@@ -90,6 +92,7 @@ export function installBody(input: {
     grants: { connectors: [], plugins: [], skills: [] },
     switches: input.switches,
     start_routines: false,
+    ...(input.pages && Object.keys(input.pages).length > 0 ? { pages: input.pages } : {}),
   };
 }
 
@@ -102,9 +105,13 @@ const apps = (recipe: Recipe) =>
     ),
   );
 
+const contracts = (recipe: Recipe) =>
+  new Set(list(recipe["contracts"]).map((contract) => String(field(contract, "name"))));
+
 /**
  * What a save asks for that the bot didn't have: the effects Spade's plan says start off, and
- * the trigger kinds and apps the last applied manifest didn't name. Empty when it may apply
+ * the trigger kinds, contracts (calls other bots may make to it) and apps the last applied
+ * manifest didn't name. Empty when it may apply
  * without asking.
  */
 export function asksMore(
@@ -119,6 +126,9 @@ export function asksMore(
     for (const kind of kinds(after)) if (!was.has(kind)) more.push(`a ${kind} trigger`);
     const had = apps(before);
     for (const app of apps(after)) if (!had.has(app)) more.push(`the app ${app}`);
+    const offered = contracts(before);
+    for (const name of contracts(after))
+      if (!offered.has(name)) more.push(`the contract ${name}, which your other bots may call`);
   }
   return { effects, more };
 }

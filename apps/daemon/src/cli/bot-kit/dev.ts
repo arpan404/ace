@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import type { CliBotDev } from "@ace/protocol/cli-outputs";
 import { CliFailure } from "../output.ts";
 import type { SpadeAnswer, SpadeExchange } from "../spade-call.ts";
-import { checkPackage } from "./check.ts";
+import { checkPackage, packageJson } from "./check.ts";
 import { allOn, asksMore, devBotOf, devFolderKey, effectLines, installBody } from "./dev-plan.ts";
 
 /*
@@ -72,18 +72,26 @@ async function skillFolders(root: string): Promise<Set<string>> {
   return new Set(names.map((name) => `skills/${name}`));
 }
 
-/** The package as it is now: checked, read, and its effect switches' keys. */
+/** Each declared panel's page, as text by path: a save to one updates the bot (§5.2). */
+async function panelPages(root: string, surfaces: unknown): Promise<Record<string, string>> {
+  const { panelFiles } = await import("@ace/marketplace");
+  const pages: Record<string, string> = {};
+  for (const path of panelFiles(surfaces).values()) {
+    const page = await readFile(join(root, path), "utf8").catch(() => undefined);
+    if (page !== undefined) pages[path] = page;
+  }
+  return pages;
+}
+
+/** The package as it is now: checked, read, its effect switches' keys and its panel pages. */
 async function current(root: string) {
   const checked = await checkPackage(root);
-  const text = await readFile(join(root, "bot.json"), "utf8");
+  // As Spade reads it: its contracts' schema files written in (ADR 0200 §7).
+  const recipe = (await packageJson(root)) as Record<string, unknown>;
   const { readRecipe, recipeEffects } = await import("@ace/marketplace");
-  const read = readRecipe(text, await skillFolders(root));
+  const read = readRecipe(JSON.stringify(recipe), await skillFolders(root));
   const keys = read.recipe ? recipeEffects(read.recipe).map((row) => row.key) : [];
-  return {
-    checked,
-    recipe: JSON.parse(text) as Record<string, unknown>,
-    keys,
-  };
+  return { checked, recipe, keys, pages: await panelPages(root, recipe["surfaces"]) };
 }
 
 interface State {
@@ -122,6 +130,7 @@ export async function devStep(root: string, io: DevIo, state: State): Promise<Cl
         folder: folderKey,
         switches: allOn(now.keys),
         transaction: `dev-${randomUUID()}`,
+        pages: now.pages,
       }),
     );
     if (made.status !== 201 && made.status !== 200)
@@ -159,6 +168,7 @@ export async function devStep(root: string, io: DevIo, state: State): Promise<Cl
     const applied = await io.exchange("POST", `/v1/agents/${bot.id}/package`, {
       recipe: now.recipe,
       transaction,
+      pages: now.pages,
     });
     if (applied.status === 200) break;
     if (applied.status !== 409)

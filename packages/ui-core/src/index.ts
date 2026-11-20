@@ -82,6 +82,7 @@ export {
 } from "./git-patch.ts";
 export { PatchFileReader } from "./git-patch-reader.ts";
 export * from "./line-marks.ts";
+export * from "./change-hunks.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./file-tree.ts";
@@ -209,6 +210,8 @@ export * from "./folder-tree.ts";
 export * from "./script-choices.ts";
 export * from "./checkout-errors.ts";
 export * from "./checkout-quick-open.ts";
+export * from "./content-search.ts";
+export * from "./content-search-preview.ts";
 export * from "./checkout-transfer-words.ts";
 export * from "./projects.ts";
 export * from "./project-edit.ts";

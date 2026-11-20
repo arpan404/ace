@@ -1,6 +1,6 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import { ProviderKind } from "@ace/protocol";
-import { formatAge, providerDisplayName } from "@ace/ui-core";
+import { formatAge, hunkAt, providerDisplayName, revertChange } from "@ace/ui-core";
 import {
   focusedGroup,
   groupsOf,
@@ -39,6 +39,7 @@ import {
 } from "@/features/editor-workbench/index.ts";
 import { useEditorAnnotations } from "@/features/editor";
 import { cn } from "@/lib/cn.ts";
+import { editorLineHeight, useEditorPreferences } from "@/lib/editor-preferences.ts";
 import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
@@ -79,6 +80,8 @@ import { groupIds, openPaths } from "./editor-layout.ts";
 import { draftsOf, withDrafts, withoutDrafts } from "./editor-migration.ts";
 import { editorRegistry, importDrafts } from "./editor-registry.ts";
 import { RecentEditors, stepRecent } from "./recent-editors.tsx";
+import { EditorPanelContext, useEditorPanelSaving, usePanelAutoSave } from "./use-auto-save.ts";
+import { HunkPeek } from "./hunk-peek.tsx";
 import { useEditorSession } from "./use-editor-session.ts";
 
 /*
@@ -129,13 +132,16 @@ export function EditorPanel(props: TabViewProps) {
       data: withDrafts(storedLayout(next, unsavedOf(host)), carried),
     });
   };
+  const autoSave = usePanelAutoSave({ buffers, online, problem: setProblem });
   const host: EditorActionsHost = {
     buffers,
     layout: () => latest.current,
     change,
     online: () => online,
     problem: setProblem,
+    saved: (path) => autoSave.savedByHand(path),
   };
+  const saving = { autoSave, save: (path: string) => saveFile(host, path) };
   const target = {
     scope: threadId,
     read: () => store.get(threadId),
@@ -224,7 +230,7 @@ export function EditorPanel(props: TabViewProps) {
   const fromExplorer = (path: string, how: ExplorerOpen) => {
     open(path, {
       keep: how.how !== "preview",
-      side: how.how === "tab",
+      side: how.how === "side",
       line: how.line,
       column: how.column,
       length: how.length,
@@ -406,29 +412,31 @@ export function EditorPanel(props: TabViewProps) {
         </aside>
       )}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        <Editor
-          layout={layout}
-          onLayoutChange={change}
-          newGroupId={groupIds(layout)}
-          buffers={buffers}
-          statusNotice={notice}
-          onConfirmClose={(refs) => void confirmClose(host, refs)}
-          renderCompare={renderCompare}
-          onQuickOpen={() => quickOpen.set(() => threadId)}
-          renderEditor={editorFor(threadId)}
-          renderViewer={viewerFor(threadId)}
-          tabMenuItems={menuFor(threadId)}
-          explorerToggle={
-            <button
-              type="button"
-              aria-expanded={overlay}
-              onClick={() => setOverlay((shown) => !shown)}
-              className="mr-1 h-6 shrink-0 rounded-sm px-2 text-xs font-medium text-muted-foreground focus-ring-inset hover:bg-hover hover:text-foreground"
-            >
-              {overlay ? "Hide files" : "Show files"}
-            </button>
-          }
-        />
+        <EditorPanelContext value={saving}>
+          <Editor
+            layout={layout}
+            onLayoutChange={change}
+            newGroupId={groupIds(layout)}
+            buffers={buffers}
+            statusNotice={notice}
+            onConfirmClose={(refs) => void confirmClose(host, refs)}
+            renderCompare={renderCompare}
+            onQuickOpen={() => quickOpen.set(() => threadId)}
+            renderEditor={editorFor(threadId)}
+            renderViewer={viewerFor(threadId)}
+            tabMenuItems={menuFor(threadId)}
+            explorerToggle={
+              <button
+                type="button"
+                aria-expanded={overlay}
+                onClick={() => setOverlay((shown) => !shown)}
+                className="mr-1 h-6 shrink-0 rounded-sm px-2 text-xs font-medium text-muted-foreground focus-ring-inset hover:bg-hover hover:text-foreground"
+              >
+                {overlay ? "Hide files" : "Show files"}
+              </button>
+            }
+          />
+        </EditorPanelContext>
         {recent !== undefined && recentTabs.length > 0 && (
           <RecentEditors tabs={recentTabs} index={recent} onPick={pickRecent} />
         )}
@@ -517,10 +525,45 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
   const reveal = useReveal(threadId, editor.group, editor.path);
   const subscribe = useCallback((changed: () => void) => buffer.subscribe(changed), [buffer]);
   const version = useSyncExternalStore(subscribe, () => buffer.snapshot().version);
-  const marks = useChangeMarks(threadId, editor.path, version);
+  const { marks, hunks } = useChangeMarks(threadId, editor.path, version);
   const onRevealed = useCallback((token: number) => settleReveal(threadId, token), [threadId]);
   // Annotations ride on every group's editor; views of one file map their ranges once per edit.
   const layer = useEditorAnnotations({ threadId, path: editor.path });
+  // Settings › Editor, live: every open editor reads the same device store.
+  const [preferences] = useEditorPreferences();
+  const look = useMemo(
+    () => ({
+      fontSize: preferences.fontSize,
+      lineHeight: editorLineHeight(preferences),
+      fontFamily: preferences.fontFamily,
+      wordWrap: preferences.wordWrap,
+      renderWhitespace: preferences.renderWhitespace,
+      indentGuides: preferences.indentGuides,
+      stickyScroll: preferences.stickyScroll,
+      cursorBlinking: preferences.cursorBlinking,
+    }),
+    [preferences],
+  );
+  const saving = useEditorPanelSaving();
+  const autoSave = saving?.autoSave;
+  const { path } = editor;
+  const onEdited = useCallback(() => autoSave?.edited(path), [autoSave, path]);
+  const onBlurred = useCallback(() => autoSave?.blurred(path), [autoSave, path]);
+  // A press on a change mark shows that hunk under its lines; Revert puts the committed lines
+  // back and saves through the panel's own save.
+  const [peekLine, setPeekLine] = useState<number>();
+  const hunk = peekLine === undefined || !hunks ? undefined : hunkAt(hunks, peekLine);
+  const revert = () => {
+    const doc = buffer.document();
+    const change = hunk && doc && revertChange(hunk, (line) => doc.line(line), doc.lenLines());
+    setPeekLine(undefined);
+    if (!change || !buffer.editLines([change])) return;
+    void saving?.save(path);
+  };
+  const peek = hunk && {
+    after: Math.max(...hunk.marks) - 1,
+    content: <HunkPeek hunk={hunk} onRevert={revert} onClose={() => setPeekLine(undefined)} />,
+  };
   return (
     <MentionSelection
       path={editor.path}
@@ -532,6 +575,11 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
         reveal={reveal}
         marks={marks}
         layer={layer}
+        look={look}
+        onMarkClick={setPeekLine}
+        peek={peek}
+        onEdited={onEdited}
+        onBlurred={onBlurred}
         onRevealed={onRevealed}
       />
     </MentionSelection>

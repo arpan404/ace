@@ -1538,11 +1538,14 @@ Example:
 
 ```json
 {
-  "detail": "example",
-  "state": "sending",
+  "state": "queued",
   "to": {
     "id": "example",
     "kind": "club",
+    "machine": {
+      "id": "example",
+      "name": "example"
+    },
     "name": "example"
   }
 }
@@ -1560,6 +1563,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":128} |
 | name | yes | string | {"minLength":1,"maxLength":120} |
 | avatar | no | [SpadeFaceJson.json](schema/SpadeFaceJson.json) |  |
+| machine | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["id","name"]} |
 
 Example:
 
@@ -1580,6 +1584,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":128} |
 | name | yes | string | {"minLength":1,"maxLength":120} |
 | faces | no | array | {"default":[],"maxItems":3,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"avatar":{"$ref":"https://ace.local/protocol/v1/SpadeFaceJson.json"}},"required":["id"]}} |
+| machine | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["id","name"]} |
 
 Example:
 
@@ -9449,7 +9454,7 @@ Example:
 | --- | --- | --- | --- |
 | bot | yes | string |  |
 | name | yes | string |  |
-| action | yes | ["stop","pause","resume"] |  |
+| action | yes | ["stop","pause","resume","unarchive"] |  |
 | changed | yes | boolean |  |
 | now | no | [CliRunningBot.json](schema/CliRunningBot.json) |  |
 
@@ -9457,7 +9462,7 @@ Example:
 
 ```json
 {
-  "action": "pause",
+  "action": "resume",
   "bot": "example",
   "changed": false,
   "name": "example"
@@ -10609,7 +10614,7 @@ Example:
 | id | yes | string |  |
 | kind | yes | ["main","bot"] |  |
 | name | yes | string |  |
-| state | yes | ["idle","working","waiting","sleeping","paused"] |  |
+| state | yes | ["idle","working","waiting","sleeping","paused","updating"] |  |
 | reads | yes | ["needs_you","working","failed","sleeping","paused","idle"] |  |
 | doing | yes | string |  |
 | uses | yes | string |  |
@@ -10617,7 +10622,7 @@ Example:
 | network | yes | object | {"properties":{"bytes":{"type":"number"},"hosts":{"type":"array","items":{"type":"string"}},"refused":{"type":"number"}},"required":["bytes","hosts","refused"]} |
 | nextWake | no | object | {"properties":{"at":{"type":"number"},"what":{"type":"string"}},"required":["at","what"]} |
 | workers | yes | array | {"items":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"doing":{"type":"string"}},"required":["id","name","doing"]}} |
-| actions | yes | array | {"items":{"type":"string","enum":["stop","pause","resume"]}} |
+| actions | yes | array | {"items":{"type":"string","enum":["stop","pause","resume","unarchive"]}} |
 
 Example:
 
@@ -10639,7 +10644,7 @@ Example:
     "todayMicros": 1,
     "unusual": true
   },
-  "state": "sleeping",
+  "state": "paused",
   "uses": "example",
   "workers": []
 }
@@ -10687,7 +10692,7 @@ Example:
 | task | yes | string |  |
 | model | yes | string |  |
 | conversation | yes | string |  |
-| state | yes | ["idle","working","waiting","paused"] |  |
+| state | yes | ["idle","working","waiting","paused","updating"] |  |
 | waitingFor | no | ["approval","question"] |  |
 | status | no | string |  |
 | problem | no | string |  |
@@ -22309,6 +22314,7 @@ Example:
   "name": [],
   "recipe": {
     "blurb": "example",
+    "contracts": [],
     "effects": [],
     "face": {},
     "format": "spade-bot",
@@ -22316,7 +22322,6 @@ Example:
     "name": "example",
     "plugins": [],
     "skills": [],
-    "tests": [],
     "version": 2
   },
   "routines": [],
@@ -23306,6 +23311,7 @@ Example:
 | botsApproved | no | boolean |  |
 | linked | no | boolean |  |
 | previous | no | object | {"properties":{"version":{"type":"string","maxLength":64},"hash":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"}},"required":["version","hash"],"additionalProperties":false} |
+| held | no | object | {"properties":{"version":{"type":"string","maxLength":64}},"required":["version"],"additionalProperties":false} |
 
 Example:
 
@@ -23815,6 +23821,7 @@ Example:
 | op | yes | `"prepareUpdate"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -23833,6 +23840,7 @@ Example:
 | op | yes | `"prepareRollback"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -23851,6 +23859,7 @@ Example:
 | op | yes | `"remove"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -23869,6 +23878,7 @@ Example:
 | op | yes | `"turnOn"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -23916,6 +23926,22 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"spadeBot"` |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "name": "q",
+  "op": "spadeBot"
+}
+```
+
+### Variant 21
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"discover"` |  |
 
 Example:
@@ -23926,7 +23952,7 @@ Example:
 }
 ```
 
-### Variant 21
+### Variant 22
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -23937,12 +23963,12 @@ Example:
 
 ```json
 {
-  "handle": "m",
+  "handle": "f-bb5-tkwiplsfqod9s1fus6g",
   "op": "publisher"
 }
 ```
 
-### Variant 22
+### Variant 23
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -23954,13 +23980,13 @@ Example:
 
 ```json
 {
-  "hash": "69aa792e3d0e2c00b915c217cfc2e6983865019ade4e75e6b4217900a3a3589b",
-  "kind": "preview",
+  "hash": "d2b9647f23681a0f86f90ee6dd24d6d0f95e073d966ff905e7aad0af9c27cfbc",
+  "kind": "avatar",
   "op": "picture"
 }
 ```
 
-### Variant 23
+### Variant 24
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -23973,12 +23999,15 @@ Example:
 {
   "op": "publish",
   "request": {
-    "action": "checkVerification"
+    "action": "archive",
+    "archived": true,
+    "name": "0",
+    "type": "spade-plugin"
   }
 }
 ```
 
-### Variant 24
+### Variant 25
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -23993,15 +24022,15 @@ Example:
 
 ```json
 {
-  "name": "of",
+  "name": "6",
   "note": "example",
   "op": "report",
-  "reason": "spam",
-  "type": "spade-bot"
+  "reason": "copyright",
+  "type": "suit"
 }
 ```
 
-### Variant 25
+### Variant 26
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24013,11 +24042,11 @@ Example:
 ```json
 {
   "op": "publishables",
-  "type": "spade-bot"
+  "type": "spade-plugin"
 }
 ```
 
-### Variant 26
+### Variant 27
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24028,12 +24057,12 @@ Example:
 
 ```json
 {
-  "id": "r272PRWSC26",
+  "id": "eUc5MLAmG",
   "op": "botRecipe"
 }
 ```
 
-### Variant 27
+### Variant 28
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24049,7 +24078,7 @@ Example:
 }
 ```
 
-### Variant 28
+### Variant 29
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24061,7 +24090,7 @@ Example:
 
 ```json
 {
-  "name": "u",
+  "name": "amws3b",
   "op": "spadeSkillFiles"
 }
 ```
@@ -25608,6 +25637,9 @@ Example:
     "format": "spade-bot",
     "name": "example",
     "requires": {},
+    "style": {
+      "accent": "#61Ce1d"
+    },
     "task": "example",
     "version": 3
   }
@@ -25853,6 +25885,9 @@ Example:
   "installed": {
     "acceptedAt": 9,
     "hash": "7e388707324ee9dc9181d2bc4ca91d9e2855e5de5ffb272d6465dbf2d7aa36f1",
+    "held": {
+      "version": "example"
+    },
     "name": "s",
     "previous": {
       "hash": "150a138a05844ad1ede909280e0dd59382e0bf8c3ad40d415becd4596c6041a6",
@@ -25890,6 +25925,25 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"spadeBot"` |  |
+| signed | yes | any JSON value |  |
+| botJson | yes | string | {"maxLength":1000000} |
+| contractFiles | no | object | {"propertyNames":{"type":"string","maxLength":80},"additionalProperties":{"type":"string","maxLength":40960}} |
+
+Example:
+
+```json
+{
+  "botJson": "example",
+  "op": "spadeBot",
+  "signed": null
+}
+```
+
+### Variant 18
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"spadeSkillFiles"` |  |
 | files | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/MarketSpadeFile.json"}} |
 | content | no | string | {"maxLength":6000000} |
@@ -25903,7 +25957,7 @@ Example:
 }
 ```
 
-### Variant 18
+### Variant 19
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -25919,10 +25973,23 @@ Example:
 
 ```json
 {
-  "action": "example",
-  "code": "person_only",
+  "code": "busy",
   "message": "example",
-  "op": "error"
+  "op": "error",
+  "scan": {
+    "checks": [],
+    "findings": [],
+    "format": "ace-market-scan",
+    "read": {
+      "files": 6,
+      "textBytes": 2
+    },
+    "runnable": false,
+    "runnableReason": "example",
+    "scanner": 8,
+    "truncated": true,
+    "verdict": "block"
+  }
 }
 ```
 
@@ -29376,6 +29443,31 @@ Example:
 }
 ```
 
+## PackageContract
+
+[JSON Schema](schema/PackageContract.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"pattern":"^[a-z][a-z0-9_]{0,63}$"} |
+| summary | yes | string | {"minLength":1,"maxLength":200,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| input | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+| output | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+| effects | no | array | {"default":[],"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/PackageEffectWord.json"}} |
+| examples | no | array | {"default":[],"maxItems":8,"items":{"type":"object","properties":{"input":{},"output":{}},"required":["input","output"],"additionalProperties":false}} |
+
+Example:
+
+```json
+{
+  "examples": [],
+  "input": {},
+  "name": "nq",
+  "output": {},
+  "summary": "example"
+}
+```
+
 ## PackageEffect
 
 [JSON Schema](schema/PackageEffect.json), input validation.
@@ -29578,6 +29670,50 @@ Example:
 
 ```json
 {}
+```
+
+## PackageSurface
+
+[JSON Schema](schema/PackageSurface.json), input validation.
+
+### card
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"card"` |  |
+| id | yes | string | {"maxLength":40} |
+| file | yes | string | {"maxLength":200} |
+
+Example:
+
+```json
+{
+  "file": "example",
+  "id": "example",
+  "kind": "card"
+}
+```
+
+### panel
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"panel"` |  |
+| id | yes | string | {"maxLength":40} |
+| file | yes | string | {"maxLength":200} |
+| title | yes | string | {"minLength":1,"maxLength":60,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| state | no | any JSON value |  |
+| actions | no | array | {"maxItems":16,"items":{"type":"object","properties":{"name":{"type":"string","maxLength":40},"label":{"type":"string","minLength":1,"maxLength":40,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"value":{},"confirm":{"type":"boolean"}},"required":["name"]}} |
+
+Example:
+
+```json
+{
+  "file": "example",
+  "id": "example",
+  "kind": "panel",
+  "title": "example"
+}
 ```
 
 ## PackageTrigger
@@ -29831,6 +29967,159 @@ Example:
 
 ```json
 "sDBpf8"
+```
+
+## PanelInit
+
+[JSON Schema](schema/PanelInit.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.init"` |  |
+| runtime | yes | `"1"` |  |
+| tokens | yes | object | {"propertyNames":{"type":"string","maxLength":40},"additionalProperties":{"type":"string","maxLength":400}} |
+| scheme | yes | ["light","dark"] |  |
+| reduceMotion | yes | boolean |  |
+| size | yes | object | {"properties":{"width":{"type":"integer","minimum":0,"maximum":100000},"height":{"type":"integer","minimum":0,"maximum":100000}},"required":["width","height"],"additionalProperties":false} |
+
+Example:
+
+```json
+{
+  "reduceMotion": true,
+  "runtime": "1",
+  "scheme": "dark",
+  "size": {
+    "height": 8,
+    "width": 3
+  },
+  "tokens": {},
+  "type": "ace.panel.init"
+}
+```
+
+## PanelPageMessage
+
+[JSON Schema](schema/PanelPageMessage.json), input validation.
+
+### ace.html.height
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.html.height"` |  |
+| height | yes | number | {"minimum":1,"maximum":10000} |
+
+Example:
+
+```json
+{
+  "height": 1,
+  "type": "ace.html.height"
+}
+```
+
+### ace.panel.action
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.action"` |  |
+| name | yes | string | {"minLength":1,"maxLength":40} |
+| value | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "name": "example",
+  "type": "ace.panel.action",
+  "value": null
+}
+```
+
+### ace.panel.fault
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.fault"` |  |
+
+Example:
+
+```json
+{
+  "type": "ace.panel.fault"
+}
+```
+
+### ace.panel.pong
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.pong"` |  |
+| n | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "n": 8,
+  "type": "ace.panel.pong"
+}
+```
+
+## PanelPing
+
+[JSON Schema](schema/PanelPing.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.ping"` |  |
+| n | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "n": 6,
+  "type": "ace.panel.ping"
+}
+```
+
+## PanelState
+
+[JSON Schema](schema/PanelState.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.state"` |  |
+| data | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "type": "ace.panel.state"
+}
+```
+
+## PanelTheme
+
+[JSON Schema](schema/PanelTheme.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.theme"` |  |
+| tokens | yes | object | {"propertyNames":{"type":"string","maxLength":40},"additionalProperties":{"type":"string","maxLength":400}} |
+| scheme | yes | ["light","dark"] |  |
+
+Example:
+
+```json
+{
+  "scheme": "light",
+  "tokens": {},
+  "type": "ace.panel.theme"
+}
 ```
 
 ## ParcelAnswer
@@ -34998,8 +35287,10 @@ Example:
 | triggers | no | array | {"default":[],"maxItems":40,"items":{"$ref":"https://ace.local/protocol/v1/PackageTrigger.json"}} |
 | effects | no | array | {"default":[],"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/PackageEffect.json"}} |
 | limits | no | [PackageLimits.json](schema/PackageLimits.json) |  |
+| contracts | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageContract.json"}} |
 | tests | no | array | {"default":[],"maxItems":64,"items":{"type":"string","pattern":"^tests\\/[A-Za-z0-9._-]+\\.json$"}} |
 | style | no | object | {"properties":{"accent":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"required":["accent"],"additionalProperties":false} |
+| surfaces | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageSurface.json"}} |
 
 Example:
 
@@ -35012,6 +35303,9 @@ Example:
   },
   "name": "example",
   "needs": {},
+  "style": {
+    "accent": "#ABDDCF"
+  },
   "task": "example",
   "uses": [],
   "version": 3
@@ -44405,6 +44699,7 @@ Example:
 | name | yes | string | {"minLength":1,"maxLength":120} |
 | avatar | no | [SpadeFaceJson.json](schema/SpadeFaceJson.json) |  |
 | club | no | object | {"properties":{"id":{"type":"string","minLength":1,"maxLength":128},"name":{"type":"string","minLength":1,"maxLength":120}},"required":["id","name"]} |
+| machine | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["id","name"]} |
 | about | yes | string | {"minLength":1,"maxLength":256} |
 | ask | no | string | {"minLength":1,"maxLength":160} |
 
@@ -44413,6 +44708,7 @@ Example:
 ```json
 {
   "about": "example",
+  "ask": "example",
   "id": "example",
   "kind": "bot",
   "name": "example"
@@ -48660,12 +48956,17 @@ Example:
 | --- | --- | --- | --- |
 | kind | yes | ["native","summary"] |  |
 | reason | no | string | {"maxLength":256} |
+| sessionIds | no | object | {"properties":{"from":{"type":"string","minLength":1,"maxLength":256},"to":{"type":"string","minLength":1,"maxLength":256}},"required":["from","to"]} |
 
 Example:
 
 ```json
 {
-  "kind": "native"
+  "kind": "native",
+  "sessionIds": {
+    "from": "example",
+    "to": "example"
+  }
 }
 ```
 

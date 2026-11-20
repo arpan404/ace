@@ -803,3 +803,22 @@ describe("Try again on a failed reply", () => {
     expect(bot.map((b) => [b.text, b.failure])).toEqual([["Checking your calendar.", undefined]]);
   });
 });
+
+test("a message from an ace thread keeps the thread, and the machine it is on when it isn't this one", () => {
+  const chat = conversation();
+  chat.stored({
+    type: "user_message",
+    text: "any drops?",
+    from_thread: { id: "t-1", title: "Plan the trip", machine: "Laptop" },
+  });
+  chat.stored({
+    type: "user_message",
+    text: "and here?",
+    from_thread: { id: "t-2", title: "Fix login" },
+  });
+  const users = chat.view().entries.flatMap((entry) => (entry.kind === "user" ? [entry] : []));
+  expect(users.map((entry) => entry.fromThread)).toEqual([
+    { id: "t-1", title: "Plan the trip", machine: "Laptop" },
+    { id: "t-2", title: "Fix login" },
+  ]);
+});

@@ -18,6 +18,19 @@
     "hash": {
       "$ref": "https://ace.local/protocol/v1/MarketHash.json"
     },
+    "held": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "maxLength": 64,
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "type": "object"
+    },
     "linked": {
       "type": "boolean"
     },

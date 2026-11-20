@@ -48,6 +48,12 @@ pub fn made_under_key(agent: &str) -> String {
     format!("package_ceiling:{agent}")
 }
 
+/// The settings key for the accent the person chose for a bot (ADR 0200 §5.3), over its
+/// package's: `{"accent": "#rrggbb"}`, or `{"accent": null}` for its face's colour.
+pub fn style_key(agent: &str) -> String {
+    format!("bot_style:{agent}")
+}
+
 /// The settings key prefix for an update the person accepted while its bot was working, held
 /// for its next still moment (ADR 0200 §6.1).
 pub const BOT_PACKAGE_HELD: &str = "bot_package_held";
@@ -381,7 +387,13 @@ impl Store {
             params![recipe_key(id)],
         )?;
         // The package it is linked to, and the ceiling its maker's package held it to (ADR 0200).
-        for key in [package_key(id), made_under_key(id)] {
+        // Which pages its panels show; a page no bot shows any more is collected later.
+        for key in [
+            package_key(id),
+            made_under_key(id),
+            style_key(id),
+            crate::panels::panels_key(id),
+        ] {
             tx.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
         }
         tx.execute(

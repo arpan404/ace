@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::{Value, json};
 use spade_core::package::scenario::{self, Observed, Scenario};
-use spade_core::package::{Manifest, read};
+use spade_core::package::{Manifest, contract_files, read};
 use spade_keys::Keys;
 use spade_models::{Catalog, Models};
 use spade_store::Store;
@@ -90,6 +90,21 @@ pub async fn run(folder: &Path) -> Report {
             return report;
         }
     };
+    // Its contracts' schema files are written in, as the daemon sends a package's (ADR 0200 §7).
+    let read_file = |path: &str| {
+        contract_files::schema_path(path)
+            .then(|| std::fs::read_to_string(folder.join(path)).ok())
+            .flatten()
+    };
+    let recipe = match contract_files::inline(&recipe, read_file) {
+        Ok(recipe) => recipe,
+        Err(problems) => {
+            report
+                .problems
+                .extend(problems.into_iter().map(|p| format!("bot.json: {p}")));
+            return report;
+        }
+    };
     let manifest = match read(&recipe, crate::packages::build()) {
         Ok(manifest) => manifest,
         Err(problems) => {
@@ -105,19 +120,40 @@ pub async fn run(folder: &Path) -> Report {
             .problems
             .push("bot.json: tests names no scenario; add one under tests/".to_owned());
     }
+    // Its panels' pages install with it, as the daemon sends them (ADR 0200 §5.2).
+    let pages: serde_json::Map<String, Value> =
+        spade_core::package::surfaces::panels(&manifest.surfaces)
+            .filter_map(|panel| {
+                let page = std::fs::read_to_string(folder.join(&panel.file)).ok()?;
+                Some((panel.file.clone(), Value::String(page)))
+            })
+            .collect();
+    let pages = Value::Object(pages);
     let triggers: Vec<&str> = manifest.routines().map(|(name, _, _)| name).collect();
     for file in &manifest.tests {
         let scenario = std::fs::read_to_string(folder.join(file))
             .map_err(|error| vec![error.to_string()])
             .and_then(|text| scenario::read_scenario(&text, &triggers))
+            .and_then(|scenario| {
+                let problems = scenario::call_problems(&scenario, &manifest.contracts);
+                if problems.is_empty() {
+                    Ok(scenario)
+                } else {
+                    Err(problems)
+                }
+            })
             .and_then(|scenario| fakes_problems(&scenario).map(|()| scenario));
         match scenario {
             Ok(scenario) => {
-                let ran = tokio::time::timeout(SCENARIO_TIME, one(&recipe, &manifest, &scenario))
-                    .await
-                    .unwrap_or_else(|_| {
-                        Err(format!("it didn't finish within {}s", SCENARIO_TIME.as_secs()).into())
-                    });
+                let ran =
+                    tokio::time::timeout(SCENARIO_TIME, one(&recipe, &manifest, &pages, &scenario))
+                        .await
+                        .unwrap_or_else(|_| {
+                            Err(
+                                format!("it didn't finish within {}s", SCENARIO_TIME.as_secs())
+                                    .into(),
+                            )
+                        });
                 let (failures, calls) = match ran {
                     Ok(observed) => (scenario::check(&scenario, &observed), observed.calls),
                     Err(error) => (vec![format!("It couldn't run: {error}")], Vec::new()),
@@ -243,6 +279,7 @@ fn catalog(root: &str) -> Result<Catalog, Failure> {
 /// A throwaway Spade, serving on this machine until dropped.
 struct Throwaway {
     base: String,
+    engine: Arc<Engine>,
     http: reqwest::Client,
     _folder: tempfile::TempDir,
     stop: Option<oneshot::Sender<()>>,
@@ -291,7 +328,7 @@ impl Throwaway {
             ..Default::default()
         })?;
         let state = AppState {
-            engine,
+            engine: engine.clone(),
             token: TOKEN.into(),
             keys: None,
             ace: None,
@@ -309,6 +346,7 @@ impl Throwaway {
         }));
         Ok(Self {
             base,
+            engine,
             http: reqwest::Client::builder().no_proxy().build()?,
             _folder: folder,
             stop: Some(stop),
@@ -366,7 +404,7 @@ async fn secure(
 
 /// The install body: every declared effect switched on. With no market signature the package
 /// installs as a local package, linked to `local/<name>` (ADR 0200 §3.2).
-fn install(recipe: &Value, manifest: &Manifest) -> Value {
+fn install(recipe: &Value, manifest: &Manifest, pages: &Value) -> Value {
     let switches: serde_json::Map<String, Value> = manifest
         .effect_keys()
         .into_iter()
@@ -378,6 +416,7 @@ fn install(recipe: &Value, manifest: &Manifest) -> Value {
         "grants": { "connectors": [], "plugins": [], "skills": [] },
         "switches": switches,
         "start_routines": false,
+        "pages": pages,
     })
 }
 
@@ -385,6 +424,7 @@ fn install(recipe: &Value, manifest: &Manifest) -> Value {
 async fn one(
     recipe: &Value,
     manifest: &Manifest,
+    pages: &Value,
     scenario: &Scenario,
 ) -> Result<Observed, Failure> {
     let fake = FakeProvider::start_turns(
@@ -393,7 +433,9 @@ async fn one(
     )
     .await?;
     let spade = Throwaway::start(scenario, &fake).await?;
-    let (status, made) = spade.post("/v1/agents", install(recipe, manifest)).await?;
+    let (status, made) = spade
+        .post("/v1/agents", install(recipe, manifest, pages))
+        .await?;
     if status != 201 {
         return Err(format!("the package didn't install: {}", error_of(&made)).into());
     }
@@ -437,6 +479,9 @@ async fn start(
         }
         return Ok(());
     }
+    if let Some(call) = &scenario.given.call {
+        return give_call(spade, call, agent).await;
+    }
     let wanted = scenario.given.trigger.as_deref().unwrap_or_default();
     let (_, listed) = spade.get(&format!("/v1/agents/{agent}/routines")).await?;
     let routine = listed["routines"]
@@ -453,6 +498,39 @@ async fn start(
     if status != 202 {
         return Err(format!("its trigger didn't fire: {}", error_of(&answer)).into());
     }
+    Ok(())
+}
+
+/// The id a scenario's given call has, which its scripted `contract_return` names.
+pub const CALL: &str = "cc.scenario";
+
+/// Another bot of the person's calls the bot's contract, as `contract_call` would deliver it.
+async fn give_call(
+    spade: &Throwaway,
+    call: &scenario::GivenCall,
+    agent: &str,
+) -> Result<(), Failure> {
+    let name = call
+        .from
+        .clone()
+        .unwrap_or_else(|| "Another bot".to_owned());
+    let (status, made) = spade.post("/v1/agents", json!({ "name": name })).await?;
+    if status != 201 {
+        return Err(format!("its caller couldn't be made: {}", error_of(&made)).into());
+    }
+    let caller = made["agent"]["id"].as_str().unwrap_or_default();
+    let store = spade.engine.store();
+    let (Ok(Some(me)), Ok(Some(target))) = (store.agent(caller), store.agent(agent)) else {
+        return Err("the bots couldn't be read".into());
+    };
+    let contract = spade
+        .engine
+        .callable(&target, &call.contract, &call.input)
+        .map_err(|why| format!("the call couldn't start: {why}"))?;
+    spade
+        .engine
+        .deliver_call(&me, &target, CALL, &contract, call.input.clone(), 1)
+        .map_err(|error| format!("the call wasn't delivered: {error}"))?;
     Ok(())
 }
 
@@ -528,3 +606,6 @@ pub fn main(args: &[std::ffi::OsString]) -> std::process::ExitCode {
         std::process::ExitCode::FAILURE
     }
 }
+
+#[cfg(test)]
+mod tests;

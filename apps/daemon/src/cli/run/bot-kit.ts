@@ -45,7 +45,9 @@ async function init(context: CommandContext): Promise<void> {
 async function check(context: CommandContext): Promise<void> {
   const { checkPackage, checkLines } = await import("../bot-kit/check.ts");
   const { emit } = await import("../io.ts");
-  const checked = await checkPackage(folderOf(context));
+  const checked = await checkPackage(folderOf(context), {
+    against: option(context.args, "against"),
+  });
   await emit(context.args, checked, { human: checkLines, quiet: (value) => [value.hash] });
 }
 
@@ -114,10 +116,18 @@ async function dev(context: CommandContext): Promise<void> {
 }
 
 async function publish(context: CommandContext): Promise<void> {
-  const { checkPackage } = await import("../bot-kit/check.ts");
+  const { checkAgainstPublished, checkPackage, marketOf, marketReads, packageJson } =
+    await import("../bot-kit/check.ts");
   const { testPackage } = await import("../bot-kit/test.ts");
   const root = folderOf(context);
-  const checked = await checkPackage(root);
+  const checked = await checkPackage(root, { against: option(context.args, "against") });
+  // Callers of the latest published version keep working, or nothing uploads (ADR 0200 §7).
+  const bot = await packageJson(root);
+  await checkAgainstPublished(
+    option(context.args, "name") ?? checked.name,
+    bot,
+    marketReads(marketOf(context.env)),
+  );
   // The market runs a package's tests on its signer; one whose tests fail isn't listed.
   await testPackage(root, await program(context));
   const { publish: marketPublish } = await import("./market-flows.ts");

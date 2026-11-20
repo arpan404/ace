@@ -3,6 +3,8 @@ import { spadeJson as json } from "./json.ts";
 import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
 import { spadeCapabilityEvents } from "./wire-capabilities.ts";
 import { spadeCardEvents } from "./cards.ts";
+import { spadePanelEvents } from "./panels.ts";
+import { spadeNoticeEvents } from "./notices.ts";
 
 /**
  * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
@@ -70,7 +72,15 @@ const known = z.discriminatedUnion("type", [
     text: text.default(""),
     /** Another bot that sent this message into the conversation (ADR 0127). */
     from_agent: z
-      .object({ id: z.string(), name: z.string().catch("") })
+      .object({
+        id: z.string(),
+        name: z.string().catch(""),
+        /** The contract call it delivers, when it is one (ADR 0200 §7). */
+        contract: z
+          .object({ call: z.string(), contract: z.string(), input: z.unknown() })
+          .nullish()
+          .catch(undefined),
+      })
       .nullish()
       .catch(undefined),
     /** One of the bot's routines or its heartbeat fired it (ADR 0129). */
@@ -90,7 +100,12 @@ const known = z.discriminatedUnion("type", [
       .catch(undefined),
     /** The person wrote it in an ace thread (ADR 0198): the thread, to link back to. */
     from_thread: z
-      .object({ id: z.string().min(1), title: z.string().catch("") })
+      .object({
+        id: z.string().min(1),
+        title: z.string().catch(""),
+        /** The person's other machine the thread is on; absent for this machine's. */
+        machine: z.string().max(256).optional().catch(undefined),
+      })
       .nullish()
       .catch(undefined),
     // An image, document or recording this client can't read is left out; the message shows.
@@ -267,6 +282,16 @@ const known = z.discriminatedUnion("type", [
     late: z.boolean().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("job_started"), reply, job: z.string(), name: z.string() }),
+  /** This bot called another bot's contract as job `job` (ADR 0200 §7). */
+  z.object({
+    type: z.literal("contract_called"),
+    job: z.string(),
+    call: z.string(),
+    bot: z.string(),
+    name: z.string().catch(""),
+    machine_name: z.string().nullish().catch(undefined),
+    contract: z.string(),
+  }),
   z.object({
     type: z.literal("job_finished"),
     job: z.string(),
@@ -348,6 +373,8 @@ const known = z.discriminatedUnion("type", [
   }),
   ...spadeCapabilityEvents,
   ...spadeCardEvents,
+  ...spadePanelEvents,
+  ...spadeNoticeEvents,
 ]);
 
 export type SpadeKnownEvent = z.infer<typeof known>;
@@ -394,9 +421,10 @@ const waitingMemberShape = z.object({
 const statusShape = z.object({
   /**
    * `sleeping`: it sleeps or waits on a wake (ADR 0160), never idle or done. `paused`: the person
-   * paused it (ADR 0200 §6.1).
+   * paused it (ADR 0200 §6.1). `updating`: its package update or rollback is being applied
+   * (ADR 0200 §6.2), at work.
    */
-  state: z.enum(["idle", "working", "waiting", "sleeping", "paused"]),
+  state: z.enum(["idle", "working", "waiting", "sleeping", "paused", "updating"]),
   status: z.string().nullish().catch(undefined),
   /** In a group's stream, the member that waits for the person; anything unreadable is none. */
   waiting_member: waitingMemberShape.nullish().catch(undefined),
@@ -412,7 +440,7 @@ export type SpadeLiveInput =
   /** The agent's current state and its few words on what it does now (ADR 0127). */
   | {
       kind: "status";
-      state: "idle" | "working" | "waiting" | "sleeping" | "paused";
+      state: "idle" | "working" | "waiting" | "sleeping" | "paused" | "updating";
       status: string | undefined;
       /** In a group's stream, the member that waits for the person (by id, never by words). */
       waitingMember?: { id: string; name: string; machine: string | null } | undefined;

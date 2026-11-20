@@ -89,7 +89,22 @@ export interface SpadePackage {
   updating: string | undefined;
   /** An update to this version waits for the bot to finish its turn. */
   held: string | undefined;
+  /**
+   * A bot made from one of ace's templates (`source: "spade"`): the newer version of it this
+   * Spade ships, offered for the person to review. Never applied on its own.
+   */
+  templateUpdate: string | undefined;
   effects: readonly SpadePackageEffect[];
+  /** Typed calls the person's other bots may make to it (ADR 0200 §7). */
+  contracts: readonly SpadeContract[];
+}
+
+/** A contract a bot's package publishes, as its profile lists it. */
+export interface SpadeContract {
+  name: string;
+  summary: string;
+  /** Effects a call to it may use beyond reading and the bot's own things. */
+  effects: readonly string[];
 }
 
 const text = z.string().max(2000);
@@ -101,6 +116,7 @@ const shape = z.object({
   withdrawn: z.object({ reason: text }).nullish().catch(undefined),
   updating: text.nullish().catch(undefined),
   held: z.object({ version: text }).nullish().catch(undefined),
+  template_update: z.object({ version: text }).nullish().catch(undefined),
   effects: z
     .array(
       z.object({
@@ -118,6 +134,16 @@ const shape = z.object({
           .transform((grant) => grant ?? undefined),
         why: text.catch(""),
         on: z.boolean().catch(false),
+      }),
+    )
+    .catch([])
+    .default([]),
+  contracts: z
+    .array(
+      z.object({
+        name: text,
+        summary: text.catch(""),
+        effects: z.array(text).catch([]).default([]),
       }),
     )
     .catch([])
@@ -145,6 +171,38 @@ export function parseSpadePackage(raw: unknown): SpadePackage | undefined {
     withdrawn: link.withdrawn?.reason,
     updating: link.updating ?? undefined,
     held: link.held?.version,
+    templateUpdate: link.template_update?.version,
     effects: link.effects,
+    contracts: link.contracts,
   };
+}
+
+const incomingShape = z.object({ incoming: z.boolean() });
+
+/**
+ * `GET /v1/agents/{id}/contracts`'s switch (ADR 0200 §7): whether the person's other bots may
+ * call this bot's contracts; undefined when the answer doesn't read.
+ */
+export function parseSpadeIncoming(body: string): boolean | undefined {
+  try {
+    const read = incomingShape.safeParse(JSON.parse(body));
+    return read.success ? read.data.incoming : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A contract's effects in words, for its row: "It may reach outside its folder while answering." */
+export function spadeContractEffects(effects: readonly string[]): string {
+  const words: Record<string, string> = {
+    network: "reach outside its folder",
+    publish: "publish",
+    send_as_person: "ask you to send in your name",
+    pay: "ask you to pay",
+    change_access: "ask you to change sign-ins",
+  };
+  const said = effects.map((effect) => words[effect] ?? effect);
+  if (!said.length) return "It only reads and uses its own things while answering.";
+  const list = said.length === 1 ? said[0] : `${said.slice(0, -1).join(", ")} and ${said.at(-1)}`;
+  return `It may ${list} while answering.`;
 }

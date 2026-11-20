@@ -112,6 +112,10 @@ pub fn outcome_unknown(is_error: bool, uncertain: bool, content: &str) -> bool {
 
 /// How a finished job reads to the model.
 pub fn job_result(job: &str, name: &str, content: &str, is_error: bool) -> String {
+    // A contract call's result arrives as a `<contract_result>` (ADR 0200 §7).
+    if name == crate::contract::CONTRACT_CALL {
+        return crate::contract::job_text(job, content, is_error);
+    }
     let status = if is_error { "error" } else { "ok" };
     format!(
         "<job_result job=\"{job}\" tool=\"{name}\" status=\"{status}\">\n{content}\n</job_result>"
@@ -186,10 +190,14 @@ pub fn person_text(
         None => text,
     };
     if let Some(from) = from_agent {
-        text = format!(
-            "<bot_message from=\"{}\" id=\"{}\">\n{text}\n</bot_message>",
-            from.name, from.id
-        );
+        text = match &from.contract {
+            // A contract call (ADR 0200 §7): its input, framed as the calling bot's request.
+            Some(request) => crate::contract::framed(request, from),
+            None => format!(
+                "<bot_message from=\"{}\" id=\"{}\">\n{text}\n</bot_message>",
+                from.name, from.id
+            ),
+        };
     }
     if let Some(from) = from_routine {
         text = crate::routine::framed(from, &text);
@@ -618,6 +626,16 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     }
                 }
             }
+            // An action from a panel (ADR 0200 §5.2) reads like a job's result.
+            Known::PanelAction { .. } => {
+                if let Some(text) = crate::panel::action_text(event) {
+                    if pending.is_empty() {
+                        push_person(&mut out, text, Vec::new());
+                    } else {
+                        held.push((text, Vec::new()));
+                    }
+                }
+            }
             // A choice pressed on a card (ADR 0200 §5.1) reads like a job's result; its card is
             // looked up in every event, since it may sit before the compaction's cut.
             Known::CardAction { .. } => {
@@ -987,6 +1005,12 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
     match event {
         // A document's words are its author's, not the person's (ADR 0134).
         Event::Known(Known::UserMessage { documents, .. }) if !documents.is_empty() => true,
+        // What a panel's page sent is its package's code speaking, not the person (ADR 0200
+        // §5.2, amendment 1); only an action the person confirmed in ace is theirs.
+        Event::Known(Known::PanelAction {
+            by: crate::event::PanelSender::Page,
+            ..
+        }) => true,
         // Another bot's message can carry text it read anywhere: treated like untrusted output,
         // whether it started the turn or steered it.
         Event::Known(Known::UserMessage {
@@ -1057,6 +1081,9 @@ fn describe_event(before: &[Event], event: &Event) -> String {
             from_agent: Some(agent),
             ..
         }) => format!("a message from {}", agent.name),
+        Event::Known(Known::PanelAction { surface, .. }) => {
+            format!("an action from the page of the panel {surface}")
+        }
         Event::Known(Known::UserMessage { documents, .. }) if !documents.is_empty() => {
             let names: Vec<String> = documents
                 .iter()

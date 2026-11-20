@@ -9,8 +9,10 @@ pub mod apply;
 mod busy;
 pub mod envelope;
 pub mod held;
+pub mod panels;
 pub mod proof;
 pub mod switches;
+pub mod template;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -24,7 +26,7 @@ use spade_core::package::{Manifest, read};
 use crate::engine::{Engine, NoteScope, TASK_CHARS};
 use crate::routines;
 
-pub use apply::{recover, update};
+pub use apply::update;
 pub use busy::{Busy, Changing};
 
 /// This build, as a manifest's `requires` reads it.
@@ -228,6 +230,22 @@ pub fn link_new(
     Ok(link)
 }
 
+/// Takes again, from the start, every update or rollback a crash cut short (`apply::recover`),
+/// each of those bots reading `updating` until it is taken (ADR 0200 §6.2). Run as Spade opens.
+pub fn recover(engine: &Engine) {
+    let agents = engine.store().agents().unwrap_or_default();
+    let _updating: Vec<_> = agents
+        .iter()
+        .filter(|agent| {
+            engine
+                .bot_package(&agent.id)
+                .is_some_and(|link| link.pending.is_some())
+        })
+        .filter_map(|agent| engine.mark_updating(&agent.id))
+        .collect();
+    apply::recover(engine);
+}
+
 /// Removes every bot an install a crash cut short left: made, but its link never committed. Run
 /// as Spade opens, before anything is scheduled. Each is removed whole, with what it was allowed.
 pub fn recover_installs(engine: &std::sync::Arc<Engine>) {
@@ -328,11 +346,10 @@ pub(crate) fn forget_withdrawal(engine: &Engine, bot: &str) -> Result<(), Packag
     engine.set_bot_package(bot, &link).map_err(failed)
 }
 
-/// A link as the profile and the daemon read it: the package and version, what it was before,
-/// a withdrawal's reason, and each declared effect with the person's switch.
-pub fn view(link: &Link) -> Value {
-    let effects: Vec<Value> = link
-        .manifest
+/// Each effect `manifest` declares, with its switch as `on` has it: what a review and the
+/// profile list.
+pub fn effect_rows(manifest: &Manifest, on: &BTreeSet<String>) -> Vec<Value> {
+    manifest
         .effects
         .iter()
         .map(|declared| {
@@ -343,10 +360,16 @@ pub fn view(link: &Link) -> Value {
                 "hosts": declared.hosts,
                 "grant": declared.grant,
                 "why": declared.why,
-                "on": link.on.contains(&key),
+                "on": on.contains(&key),
             })
         })
-        .collect();
+        .collect()
+}
+
+/// A link as the profile and the daemon read it: the package and version, what it was before,
+/// a withdrawal's reason, and each declared effect with the person's switch.
+pub fn view(link: &Link) -> Value {
+    let effects = effect_rows(&link.manifest, &link.on);
     json!({
         "source": link.package.source,
         "name": link.package.name,
@@ -357,15 +380,27 @@ pub fn view(link: &Link) -> Value {
         "updating": link.pending.as_ref().map(|p| p.package.version.clone()),
         "effects": effects,
         "limits": link.manifest.limits,
+        // Typed calls the person's other bots may make to it (ADR 0200 §7).
+        "contracts": link.manifest.contracts.iter().map(|c| json!({
+            "name": c.name,
+            "summary": c.summary,
+            "effects": c.effects.iter().map(|e| e.name()).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
     })
 }
 
 /// [`view`], with the update the person accepted while the bot was working, held for its next
-/// still moment: `held {version}`.
+/// still moment (`held {version}`), and a newer shipped template offered (`template_update
+/// {version}`).
 pub fn shown(engine: &Engine, bot: &str, link: &Link) -> Value {
     let mut shown = view(link);
     if let Some(held) = held::of(engine, bot) {
         shown["held"] = json!({ "version": held.package.version });
+    }
+    // A newer version of the template it was made from, which this Spade ships: offered, never
+    // applied until the person accepts it in the update review.
+    if let Some(shipped) = template::offered(link) {
+        shown["template_update"] = json!({ "version": shipped.package.version });
     }
     shown
 }

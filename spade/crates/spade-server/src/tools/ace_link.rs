@@ -669,6 +669,23 @@ impl crate::skill_store::Upstream for AceLink {
     }
 }
 
+/// Bots' package suggestions read the market through ace's marketplace (ADR 0200 §8).
+impl crate::engine::MarketBots for AceLink {
+    fn listed_bot(&self, name: &str) -> crate::engine::MarketFuture<'_> {
+        let skills = self.skills();
+        let name = name.to_owned();
+        Box::pin(async move {
+            let skills = skills.ok_or_else(|| AWAY.to_owned())?;
+            let bot = skills.market_bot(&name).await.map_err(|e| e.to_string())?;
+            Ok(bot.map(|bot| crate::packages::envelope::Envelope {
+                signed: bot.signed,
+                bot_json: bot.bot_json,
+                files: bot.files,
+            }))
+        })
+    }
+}
+
 /// The keychain slot for this ace home's grant: the first 16 hex digits of the SHA-256 of its
 /// canonical path, so a development home and the person's own never share one.
 pub fn grant_slot(target: &AceTarget) -> String {

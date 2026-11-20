@@ -1,11 +1,12 @@
 import { botFaceStateOf, type BotFaceState } from "@ace/ui-core/bot-face";
 import { spadeIsDevelopment, type SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { part } from "@/lib/suit-part.ts";
+import { useMarkAccent } from "./spade-accent.ts";
 import { GroupFaces } from "./spade-group-faces.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import type { SpadeRowState } from "./spade-list-rows.ts";
@@ -39,10 +40,19 @@ export function DottedFace(props: {
   /** The profile's bigger dot and ring. */
   large?: boolean;
   dim?: boolean;
+  /** Its accent ring (ADR 0200 §5.3), from {@link useMarkAccent}; none when undefined. */
+  accent?: CSSProperties | undefined;
 }) {
   const ring = props.large ? "var(--face-dot-ring-lg)" : "var(--face-dot-ring)";
   return (
-    <span className="relative grid shrink-0">
+    <span className="relative grid shrink-0" style={props.accent}>
+      {props.accent && (
+        <span
+          aria-hidden
+          data-agent-accent="ring"
+          className="absolute -inset-1.5 rounded-full border-2 border-(--agent-accent-light) dark:border-(--agent-accent-dark)"
+        />
+      )}
       <SpadeFace
         avatar={props.avatar}
         size={props.size}
@@ -150,6 +160,7 @@ export function BotListRow(props: {
 }) {
   const { bot } = props;
   const pose = useFaceState(livePose(bot, props.state), props.current);
+  const accent = useMarkAccent(bot);
   return (
     <Link
       to="/spade/$agentId"
@@ -158,8 +169,16 @@ export function BotListRow(props: {
       aria-current={props.current ? "page" : undefined}
       data-panel-row=""
       {...part("nav-item", props.current && "active", "agent")}
-      className={rowClass}
+      className={cn(rowClass, "relative")}
+      style={accent}
     >
+      {accent && (
+        <span
+          aria-hidden
+          data-agent-accent="row"
+          className="absolute top-1/2 left-0.5 h-4 w-0.5 -translate-y-1/2 rounded-full bg-(--agent-accent-light) dark:bg-(--agent-accent-dark)"
+        />
+      )}
       <FaceCell>
         <DottedFace
           avatar={bot.avatar}

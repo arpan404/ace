@@ -12,13 +12,14 @@ import { spadeRestTime, type SpadeRestClock } from "./wakes.ts";
  */
 
 /** A bot's rolled-up state (ADR 0200 §6.2). */
-export type SpadeRunningState = "idle" | "working" | "waiting" | "sleeping" | "paused";
+/** `updating`: a package update or rollback is being applied to it; it counts as working. */
+export type SpadeRunningState = "idle" | "working" | "waiting" | "sleeping" | "paused" | "updating";
 
 /** How a row reads, in the order rows sort. */
 export type SpadeRunningReads = "needs_you" | "working" | "failed" | "sleeping" | "paused" | "idle";
 
 /** What the person may do to a bot now. */
-export type SpadeRunningAction = "stop" | "pause" | "resume";
+export type SpadeRunningAction = "stop" | "pause" | "resume" | "unarchive";
 
 export interface SpadeRunningWorker {
   id: string;
@@ -40,6 +41,8 @@ export interface SpadeRunningBot {
   doing: string;
   failure: string | undefined;
   pausedAt: number | undefined;
+  /** Undo archived it (ADR 0197): kept and stopped, its routines paused, until unarchived. */
+  archived: boolean;
   uses: { answering: boolean; jobs: number; workers: number; services: number; agents: boolean };
   spend: {
     todayMicros: number;
@@ -60,7 +63,7 @@ export interface SpadeRunningBot {
 const count = z.number().int().nonnegative().catch(0).default(0);
 const micros = z.number().nonnegative().catch(0).default(0);
 const state = z
-  .enum(["idle", "working", "waiting", "sleeping", "paused"])
+  .enum(["idle", "working", "waiting", "sleeping", "paused", "updating"])
   .catch("idle")
   .default("idle");
 const reads = z
@@ -79,6 +82,7 @@ const rowShape = z.object({
   doing: z.string().catch(""),
   failure: z.string().nullish().catch(undefined),
   paused_at_ms: z.number().nullish().catch(undefined),
+  archived: z.boolean().catch(false).default(false),
   uses: z
     .object({
       answering: z.boolean().catch(false).default(false),
@@ -128,7 +132,7 @@ const rowShape = z.object({
 });
 
 const isAction = (action: string): action is SpadeRunningAction =>
-  action === "stop" || action === "pause" || action === "resume";
+  action === "stop" || action === "pause" || action === "resume" || action === "unarchive";
 
 /** One row; undefined when it has no id. */
 export function parseSpadeRunningBot(raw: unknown): SpadeRunningBot | undefined {
@@ -147,6 +151,7 @@ export function parseSpadeRunningBot(raw: unknown): SpadeRunningBot | undefined 
     doing: row.doing || spadeRunningReadsWords[row.reads],
     failure: row.failure ?? undefined,
     pausedAt: row.paused_at_ms ?? undefined,
+    archived: row.archived,
     uses: row.uses,
     spend: {
       todayMicros: row.spend.today_micros,

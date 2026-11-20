@@ -1497,9 +1497,12 @@ Example:
 ```json
 {
   "operation": {
-    "op": "installed"
+    "name": "o",
+    "op": "prepareUpdate",
+    "type": "spade-bot"
   },
   "requestId": "example",
+  "thread": "example",
   "type": "marketplace.request"
 }
 ```

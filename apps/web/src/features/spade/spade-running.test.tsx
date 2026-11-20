@@ -93,3 +93,34 @@ test("Spade's own profile opens Running; another bot's doesn't offer it", async 
   );
   expect(await screen.findByRole("list", { name: "Running" })).toBeTruthy();
 });
+
+test("an archived bot says so on Running and in its profile, and Unarchive from either brings it back", async () => {
+  const { spade } = await spadeApp("/spade/running", (seed) => {
+    withEndpoint(seed);
+    seed.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    seed.addAgent({ id: "poster", name: "Poster", archived: true });
+    seed.addAgent({ id: "digest", name: "Digest", archived: true });
+  });
+  await waitFor(async () => expect(await runningRows()).toHaveLength(3));
+  const poster = within(
+    (await screen.findByRole("button", { name: "Unarchive Poster" })).closest("li") ??
+      document.body,
+  );
+  expect(poster.getByText(/Archived/)).toBeTruthy();
+  await userEvent.click(poster.getByRole("button", { name: "Unarchive Poster" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Unarchive Poster" })).toBeNull(),
+  );
+  expect(spade.running.actions).toEqual([{ agent: "poster", action: "unarchive" }]);
+
+  // From the profile: its line says it is archived, and Unarchive takes the line away.
+  await userEvent.click(await botRow("Digest"));
+  await openProfile("Digest");
+  const line = within(await screen.findByRole("note", { name: "Digest is archived" }));
+  await userEvent.click(line.getByRole("button", { name: "Unarchive" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("note", { name: "Digest is archived" })).toBeNull(),
+  );
+  expect(spade.running.actions.at(-1)).toEqual({ agent: "digest", action: "unarchive" });
+  expect(spade.agents.find((agent) => agent.id === "digest")?.archived).toBe(false);
+});

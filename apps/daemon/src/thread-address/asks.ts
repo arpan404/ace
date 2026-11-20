@@ -1,5 +1,5 @@
 import type { ItemDraft } from "@ace/core";
-import type { Addressee, ThreadId } from "@ace/protocol";
+import type { Addressee, SpadeRemoteOutcome, ThreadId } from "@ace/protocol";
 import type { SpadeAnswer, SpadeConnection } from "@ace/service/spade";
 import { askedLineOf, type AddressedRow, type AskRow, type ThreadAskStore } from "./asks-store.ts";
 import {
@@ -7,6 +7,7 @@ import {
   askedLineDraft,
   askProgress,
   botRepliesText,
+  devicesFor,
   holdTitle,
   personText,
   replyDraft,
@@ -52,6 +53,15 @@ export interface ThreadAsksPorts {
    * when its token can't be read: Spade takes a thread ask only from ace itself.
    */
   sign(body: Buffer): Readonly<Record<string, string>> | undefined;
+  /**
+   * One inbox request to Spade on another of the person's machines, through the fleet (ADR 0132's
+   * `spade` machine call); undefined when this daemon has no fleet.
+   */
+  remote?(
+    hostId: string,
+    request: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<SpadeRemoteOutcome>;
   /** Writes one message item on the thread's root agent. */
   post(threadId: ThreadId, key: string, draft: ItemDraft): void;
   /** Starts or ends the thread's background row for an ask. */
@@ -60,6 +70,8 @@ export interface ThreadAsksPorts {
     task: string,
     hold: { title: string } | { status: "completed" | "failed" | "stopped" },
   ): void;
+  /** Marks an ask's background row as waiting on the person, so the thread needs them. */
+  waiting(threadId: ThreadId, task: string, waiting: boolean): void;
   title(threadId: ThreadId): string;
   now(): number;
   /** Resolves after `ms`, or when `signal` aborts. */
@@ -68,6 +80,17 @@ export interface ThreadAsksPorts {
 }
 
 type SpadeTarget = Extract<Addressee, { kind: "bot" | "club" }>;
+type Answered = { status: number; text: string } | undefined;
+
+/**
+ * Where an ask's Spade is: this machine's, by its own routes, or another machine's, by the inbox
+ * ops that carry the same bodies there (`thread_ask`, `thread_answer`, `thread_stop`).
+ */
+interface SpadeRoute {
+  ask(body: Record<string, unknown>): Promise<Answered>;
+  answer(key: string, waitMs: number): Promise<Answered>;
+  stop(key: string): Promise<Answered>;
+}
 
 export class ThreadAsks {
   private ports: ThreadAsksPorts;
@@ -115,6 +138,8 @@ export class ThreadAsks {
     const ask = this.ports.store.ask(key);
     if (!ask || ask.done || ask.to.kind === "agent") return;
     this.ports.hold(ask.threadId, askTaskPrefix + key, { title: holdTitle(ask.to) });
+    // A bot that was waiting on the person before a restart still is, until it says otherwise.
+    if (ask.state === "waiting") this.ports.waiting(ask.threadId, askTaskPrefix + key, true);
     const run = this.loop(key)
       .catch((error: unknown) => this.ports.log("A thread ask stopped unexpectedly", error))
       .finally(() => this.running.delete(key));
@@ -136,11 +161,9 @@ export class ThreadAsks {
   async stop(key: string): Promise<void> {
     const ask = this.ports.store.ask(key);
     if (!ask || ask.done) return;
-    const connection = this.ports.spade();
-    if (ask.delivered && connection) {
-      const answered = await this.request(connection, "POST", `${path(key)}/stop`).catch(
-        () => undefined,
-      );
+    const route = ask.to.kind === "agent" ? undefined : this.route(ask.to);
+    if (ask.delivered && route) {
+      const answered = await route.stop(key).catch(() => undefined);
       // Delivered and still running there: the poll reads Spade's own stop and its words.
       if (answered?.status === 200 && this.running.has(key)) return;
     }
@@ -178,15 +201,16 @@ export class ThreadAsks {
       const ask = this.ports.store.ask(key);
       if (!ask || ask.done || ask.to.kind === "agent") return;
       if (this.ports.now() - ask.createdAt > giveUpMs) {
-        this.finish(ask, "failed", "Spade couldn't be reached for 7 days.");
+        const where = ask.to.machine ? ask.to.machine.name : "Spade";
+        this.finish(ask, "failed", `${where} couldn't be reached for 7 days.`);
         return;
       }
-      const connection = this.ports.spade();
+      const route = this.route(ask.to);
       const began = this.ports.now();
-      const step = connection
+      const step = route
         ? ask.delivered
-          ? await this.poll(connection, ask, ask.to)
-          : await this.deliver(connection, ask, ask.to)
+          ? await this.poll(route, ask, ask.to)
+          : await this.deliver(route, ask, ask.to)
         : "unreachable";
       if (step === "ok") {
         attempt = 0;
@@ -208,7 +232,7 @@ export class ThreadAsks {
   }
 
   private async deliver(
-    connection: SpadeConnection,
+    route: SpadeRoute,
     ask: AskRow,
     to: SpadeTarget,
   ): Promise<"ok" | "done" | "unreachable"> {
@@ -220,11 +244,11 @@ export class ThreadAsks {
       to: { kind: to.kind, id: to.id },
       text: personText(message.input),
       ...(context ? { context } : {}),
+      // The devices named with it, first in the turn there (a club's members' too).
+      ...(message.devices.length ? { devices: devicesFor(to, message.devices) } : {}),
       thread: { id: ask.threadId, title: this.ports.title(ask.threadId).slice(0, 200) },
     };
-    const answer = await this.request(connection, "POST", "/v1/thread-asks", body).catch(
-      () => undefined,
-    );
+    const answer = await route.ask(body).catch(() => undefined);
     if (!answer || answer.status >= 500 || answer.status === 429) return "unreachable";
     if (answer.status !== 200) {
       this.finish(ask, "failed", refusal(answer.text, to));
@@ -236,15 +260,11 @@ export class ThreadAsks {
   }
 
   private async poll(
-    connection: SpadeConnection,
+    route: SpadeRoute,
     ask: AskRow,
     to: SpadeTarget,
   ): Promise<"ok" | "same" | "done" | "unreachable"> {
-    const answer = await this.request(
-      connection,
-      "GET",
-      `${path(ask.key)}?wait_ms=${pollMs}`,
-    ).catch(() => undefined);
+    const answer = await route.answer(ask.key, pollMs).catch(() => undefined);
     if (!answer || answer.status !== 200) return "unreachable";
     let parsed: ThreadAskAnswer;
     try {
@@ -284,6 +304,9 @@ export class ThreadAsks {
       this.finish({ ...ask, posted }, progress.state, progress.detail);
       return "done";
     }
+    // A bot waiting on the person makes the thread need them, as a waiting thread does.
+    if ((progress.state === "waiting") !== (ask.state === "waiting"))
+      this.ports.waiting(ask.threadId, askTaskPrefix + ask.key, progress.state === "waiting");
     if (posted !== ask.posted || progress.state !== ask.state || progress.detail !== ask.detail) {
       this.ports.store.update(
         ask.key,
@@ -302,6 +325,29 @@ export class ThreadAsks {
     this.ports.hold(ask.threadId, askTaskPrefix + ask.key, {
       status: state === "answered" ? "completed" : state === "stopped" ? "stopped" : "failed",
     });
+  }
+
+  /** The way to the ask's Spade now; undefined while it can't be reached from here. */
+  private route(to: SpadeTarget): SpadeRoute | undefined {
+    const elsewhere = to.machine;
+    if (elsewhere) {
+      const remote = this.ports.remote;
+      if (!remote) return undefined;
+      const send = (request: Record<string, unknown>) =>
+        remote(elsewhere.id, request, this.closing.signal).then(remoteAnswer);
+      return {
+        ask: (body) => send({ op: "thread_ask", ...body }),
+        answer: (key, waitMs) => send({ op: "thread_answer", key, wait_ms: waitMs }),
+        stop: (key) => send({ op: "thread_stop", key }),
+      };
+    }
+    const connection = this.ports.spade();
+    if (!connection) return undefined;
+    return {
+      ask: (body) => this.request(connection, "POST", "/v1/thread-asks", body),
+      answer: (key, waitMs) => this.request(connection, "GET", `${path(key)}?wait_ms=${waitMs}`),
+      stop: (key) => this.request(connection, "POST", `${path(key)}/stop`),
+    };
   }
 
   private async request(
@@ -338,6 +384,20 @@ function notSent(error: string): string {
 }
 
 const path = (key: string) => `/v1/thread-asks/${encodeURIComponent(key)}`;
+
+/**
+ * Another machine's answer as this machine's Spade would give it. Not reached, lost on the way,
+ * or Spade off there: undefined, so the ask waits and tries again (its key keeps it once). That
+ * machine saying no: a refusal in its words, so the ask ends.
+ */
+function remoteAnswer(outcome: SpadeRemoteOutcome): Answered {
+  if (outcome.kind === "response")
+    return { status: outcome.status, text: JSON.stringify(outcome.body ?? null) };
+  if (outcome.code !== "refused" && outcome.code !== "forbidden") return undefined;
+  if (outcome.message.startsWith("unavailable:")) return undefined;
+  const words = outcome.message.replace(/^[a-z_]+: /, "");
+  return { status: 403, text: JSON.stringify({ error: words }) };
+}
 
 /** Spade's refusal in the person's words: its own when it gave one. */
 function refusal(text: string, to: SpadeTarget): string {

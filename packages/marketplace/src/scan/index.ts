@@ -15,6 +15,7 @@ import { filesCheck } from "./checks-files.ts";
 import { hiddenEntryFindings, hiddenFileFindings } from "./checks-hidden.ts";
 import { knownBadFindings } from "./checks-knownbad.ts";
 import { sceneCheck } from "./checks-scene.ts";
+import { panelCheck } from "./checks-panel.ts";
 import { pluginRules } from "./rules-plugin.ts";
 import { recipeRules } from "./rules-recipe.ts";
 import { flowEntryRules, flowRules } from "./rules-flow.ts";
@@ -296,6 +297,7 @@ export function finishScan(state: ScanState, input: ScanInput): MarketScanReport
 
   findings.push(...filesCheck(input.type, input.files));
   if (input.type === "suit") findings.push(...sceneCheck(input.files));
+  if (input.type === "spade-bot") findings.push(...panelCheck(input.files));
   findings.push(...hiddenEntryFindings(input));
   // An instruction cap that dropped executable text surfaces as a block (fail closed, §8).
   findings.push(...instructionTruncations(input));
@@ -442,7 +444,7 @@ const verdictOf = (list: readonly MarketScanFinding[]) =>
 const passSentences: Record<MarketScanCheckId, string> = {
   files: "No programs or archives inside.",
   scripts: "Its scripts do nothing ace refuses.",
-  scene: "Its scene stays inside its sandbox.",
+  scene: "What it draws stays inside its sandbox.",
   plugin: "Its commands and servers match what it declares.",
   recipe: "Its instructions keep to its task.",
   secrets: "No keys or passwords inside.",

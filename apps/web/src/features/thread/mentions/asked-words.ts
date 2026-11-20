@@ -16,7 +16,9 @@ export function stateWords(entry: AddressedTo): string {
     case "sending":
       return entry.to.kind === "agent" ? `Sending to ${name}` : `Asking ${name}`;
     case "queued":
-      return `${name} gets it when Spade is back`;
+      return entry.to.kind !== "agent" && entry.to.machine
+        ? `${name} gets it when ${entry.to.machine.name} is back`
+        : `${name} gets it when Spade is back`;
     case "answering":
       return `${name} is working${detail}`;
     case "waiting":

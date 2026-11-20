@@ -202,8 +202,10 @@ impl Engine {
             if ended(&entry).is_some() {
                 return;
             }
+            // A Stop sets the entry due now and wakes this; a stop not yet answered there waits
+            // out its backoff like any try.
             let wait = entry.next_ms - self.now_ms();
-            if wait > 0 && !entry.stop {
+            if wait > 0 {
                 let _ =
                     tokio::time::timeout(Duration::from_millis(wait as u64), wake.notified()).await;
                 continue;
@@ -221,16 +223,45 @@ impl Engine {
         }
     }
 
-    /// Sends a queued entry; it moves to `sent` once that machine's Spade has taken it.
+    /// Sends a queued entry; it moves to `sent` once that machine's Spade has taken it. Before
+    /// each send the entry is marked as maybe there (stored first, so a crash mid-send keeps
+    /// it): a lost answer or a crash can leave a request that machine took, so a Stop then
+    /// withdraws it only once that machine says it never had it.
     async fn offer(&self, remote: &dyn Remote, entry: &OutboxEntry) {
         let now = self.now_ms();
         if entry.stop {
-            let answer = json!({ "status": "stopped", "text": "Stopped before it was sent." });
-            self.advance(entry, "withdrawn", Some(answer), entry.attempts, now);
+            if maybe_there(entry) {
+                self.cancel_there(remote, entry, now).await;
+            } else {
+                let answer = json!({ "status": "stopped", "text": "Stopped before it was sent." });
+                self.advance(entry, "withdrawn", Some(answer), entry.attempts, now);
+            }
+            return;
+        }
+        let before = maybe_there(entry);
+        let marked = OutboxEntry {
+            answer: Some(MAYBE_THERE.to_string()),
+            ..entry.clone()
+        };
+        if !matches!(
+            self.store.advance_outbox(
+                &entry.key,
+                "queued",
+                marked.answer.as_deref(),
+                entry.attempts,
+                entry.next_ms,
+                now,
+            ),
+            Ok(true)
+        ) {
+            // Ended or unreadable meanwhile: nothing is sent unmarked.
             return;
         }
         let request: Value = serde_json::from_str(&entry.request).unwrap_or(Value::Null);
-        match remote.call(&entry.machine, request.clone()).await {
+        let sent = remote.call(&entry.machine, request.clone()).await;
+        // A Stop that came while it was on its way finds the mark, and cancels it there.
+        let entry = &marked;
+        match sent {
             Ok((200, _)) => self.advance(entry, "sent", None, entry.attempts, now),
             // The bot moved to another machine (ADR 0187): ask it there.
             Ok((410, body))
@@ -252,14 +283,33 @@ impl Engine {
                 let answer = json!({ "status": "failed", "text": error_of(&body) });
                 self.advance(entry, "failed", Some(answer), entry.attempts + 1, now);
             }
-            Err(error) if error.retry() => self.later(entry, now),
+            // Lost after sending: it may be there, so it stays marked.
+            Err(RemoteError::Disconnected) => self.later(entry, now),
+            // Never sent: the mark goes back to what earlier tries left.
+            Err(RemoteError::Offline) => self.later(&unmarked(entry, before), now),
             Err(RemoteError::UnknownMachine(_)) if now - entry.created_ms < GIVE_UP_MS => {
-                self.later(entry, now)
+                self.later(&unmarked(entry, before), now)
             }
             Err(error) => {
                 let answer = json!({ "status": "failed", "text": error.to_string() });
                 self.advance(entry, "failed", Some(answer), entry.attempts + 1, now);
             }
+        }
+    }
+
+    /// Stop on an entry that may be at that machine already: `stop` is sent there under its key
+    /// until that machine answers. One it never had is withdrawn; one it had is read as sent, so
+    /// its stopped (or meanwhile finished) end is read back.
+    async fn cancel_there(&self, remote: &dyn Remote, entry: &OutboxEntry, now: i64) {
+        let stop = json!({ "op": "stop", "key": entry.key });
+        match remote.call(&entry.machine, stop).await {
+            Ok((200, body)) if body["status"] == "unknown" => {
+                let answer = json!({ "status": "stopped", "text": "Stopped before it arrived." });
+                self.advance(entry, "withdrawn", Some(answer), entry.attempts, now);
+            }
+            Ok((200, _)) => self.advance(entry, "sent", None, entry.attempts, now),
+            // Not answered yet: tried again after the backoff, for as long as any ask waits.
+            _ => self.later(entry, now),
         }
     }
 
@@ -276,7 +326,11 @@ impl Engine {
             }
         }
         let wait_ms = if entry.stop { 0 } else { ANSWER_POLL_MS };
-        let poll = json!({ "op": "answer", "key": entry.key, "wait_ms": wait_ms });
+        // A contract call's answer also comes back early when its callee starts or stops
+        // waiting on the person, so the caller reads waiting meanwhile (ADR 0200 §6.2).
+        let waiting = super::contracts_remote::waiting_of(entry);
+        let poll =
+            json!({ "op": "answer", "key": entry.key, "wait_ms": wait_ms, "waiting": waiting });
         // A Stop meanwhile ends the wait at once, so the stop reaches that machine now.
         let polled = tokio::select! {
             polled = remote.call(&entry.machine, poll) => polled,
@@ -288,8 +342,16 @@ impl Engine {
                 let state = match status {
                     "pending" if entry.stop => "stopped",
                     "pending" => {
-                        // Read again at once; a reachable machine resets the backoff.
-                        self.advance(entry, "sent", None, 0, now);
+                        // Read again at once; a reachable machine resets the backoff. A call
+                        // keeps whether its callee waits on the person, and its caller is told.
+                        let now_waiting = body["waiting"].as_bool() == Some(true);
+                        let kept = super::contracts_remote::is_call(&entry.key)
+                            .then(|| json!({ "status": "pending", "waiting": now_waiting }));
+                        let call = kept.is_some();
+                        self.advance(entry, "sent", kept, 0, now);
+                        if call && now_waiting != waiting {
+                            self.announce_caller(&entry.key);
+                        }
                         return;
                     }
                     "answered" => "answered",
@@ -329,9 +391,13 @@ impl Engine {
         let backoff = FIRST_BACKOFF_MS
             .saturating_mul(1 << attempts.saturating_sub(1).min(20))
             .min(LONGEST_BACKOFF_MS);
+        // A queued entry keeps its mark of maybe being there; a sent one reads its answer anew.
+        let kept = (entry.state == "queued")
+            .then_some(entry.answer.as_deref())
+            .flatten();
         if let Err(error) =
             self.store
-                .advance_outbox(&entry.key, &entry.state, None, attempts, now + backoff, now)
+                .advance_outbox(&entry.key, &entry.state, kept, attempts, now + backoff, now)
         {
             tracing::warn!(%error, "could not record an outbox retry");
         }
@@ -352,6 +418,28 @@ impl Engine {
         {
             tracing::warn!(%error, "could not record an outbox step");
         }
+    }
+}
+
+/// What a queued entry holds once it may be at that machine: a send was tried and not known to
+/// have failed before it left.
+const MAYBE_THERE: &str = r#"{"status":"queued","maybe_there":true}"#;
+
+/// Whether a queued entry may be at that machine already.
+fn maybe_there(entry: &OutboxEntry) -> bool {
+    entry.state == "queued"
+        && entry
+            .answer
+            .as_deref()
+            .and_then(|a| serde_json::from_str::<Value>(a).ok())
+            .is_some_and(|a| a["maybe_there"] == true)
+}
+
+/// `entry` as it was before a try that never left: marked only when an earlier one may be there.
+fn unmarked(entry: &OutboxEntry, before: bool) -> OutboxEntry {
+    OutboxEntry {
+        answer: before.then(|| MAYBE_THERE.to_owned()),
+        ..entry.clone()
     }
 }
 

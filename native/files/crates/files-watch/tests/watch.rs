@@ -488,3 +488,69 @@ fn a_burst_that_never_goes_quiet_still_reports_rescans() {
         std::thread::sleep(Duration::from_millis(25));
     }
 }
+
+/// Writes into a folder that left the watched tree, then into the root, and returns what the
+/// watcher said about the old path once the root's write proves it is still listening.
+fn heard_after_leaving(session: &Session, gone: &str, write_into: &std::path::Path) -> Vec<Change> {
+    session.wait_for(gone, ChangeKind::Deleted);
+    std::fs::write(write_into.join("late.txt"), b"late").unwrap();
+    std::fs::create_dir(write_into.join("deeper")).unwrap();
+    std::fs::write(write_into.join("deeper/later.txt"), b"later").unwrap();
+    std::thread::sleep(session.quiet());
+    std::fs::write(session.path("alive.txt"), b"alive").unwrap();
+    session.wait_for("alive.txt", ChangeKind::Created);
+    let prefix = format!("{gone}/");
+    changes(&session.seen())
+        .into_iter()
+        .filter(|change| change.path.starts_with(&prefix))
+        .collect()
+}
+
+#[test]
+fn a_folder_moved_out_of_the_checkout_is_no_longer_reported_under_its_old_path() {
+    // The kernel's watch follows the folder, not its name: kept after the move, it reported writes
+    // in a tree outside the checkout as changes to a path that no longer exists, and every such
+    // move spent another watch from the user's budget.
+    let outside = tempfile::tempdir().unwrap();
+    let session = Session::start(options(), |root| {
+        std::fs::create_dir_all(root.join("leaving/inner")).unwrap();
+        std::fs::write(root.join("leaving/inner/a.txt"), b"a").unwrap();
+    });
+    let moved = outside.path().join("leaving");
+    std::fs::rename(session.path("leaving"), &moved).unwrap();
+    let stale = heard_after_leaving(&session, "leaving", &moved.join("inner"));
+    assert!(
+        stale.is_empty(),
+        "writes outside the checkout were reported: {stale:?}"
+    );
+}
+
+#[test]
+fn a_folder_moved_into_an_excluded_tree_is_no_longer_reported_under_its_old_path() {
+    let session = Session::start(
+        WatchOptions {
+            exclude: vec!["**/node_modules/*/**".to_owned()],
+            ..options()
+        },
+        |root| {
+            std::fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+            std::fs::create_dir_all(root.join("leaving/inner")).unwrap();
+            std::fs::write(root.join("leaving/inner/a.txt"), b"a").unwrap();
+        },
+    );
+    let moved = session.path("node_modules/pkg/leaving");
+    std::fs::rename(session.path("leaving"), &moved).unwrap();
+    let stale = heard_after_leaving(&session, "leaving", &moved.join("inner"));
+    assert!(
+        stale.is_empty(),
+        "writes inside an excluded tree were reported: {stale:?}"
+    );
+    let excluded: Vec<Change> = changes(&session.seen())
+        .into_iter()
+        .filter(|change| change.path.starts_with("node_modules/pkg/"))
+        .collect();
+    assert!(
+        excluded.is_empty(),
+        "excluded paths were reported: {excluded:?}"
+    );
+}

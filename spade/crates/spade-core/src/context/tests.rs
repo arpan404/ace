@@ -823,6 +823,7 @@ fn a_message_from_another_bot_reads_as_one_not_as_the_person() {
             name: "Spade".into(),
             depth: 1,
             machine: None,
+            contract: None,
         }),
         from_routine: None,
         from_group: None,
@@ -850,6 +851,7 @@ fn a_turn_a_bot_started_or_steered_is_untrusted() {
                 name: "Research".into(),
                 depth: 1,
                 machine: None,
+                contract: None,
             }),
             from_routine: None,
             from_group: None,
@@ -946,6 +948,7 @@ fn from_thread(untrusted: bool) -> Event {
             id: "t1".into(),
             title: "Fix login".into(),
             untrusted,
+            machine: None,
         }));
         if untrusted {
             *context = Some("agent: I changed auth.ts".into());

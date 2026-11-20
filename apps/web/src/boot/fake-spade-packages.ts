@@ -12,6 +12,7 @@ export function seedFakePackages(here: FakeSpadeApi, now: number): void {
     name: "Fare watch",
     task: "Watch fares to Lisbon and Porto for May. Tell me only about a real drop.",
     model: "openrouter/openai/gpt-6.1-mini",
+    style: { accent: "#0f8a8a", chosen: false },
     avatar: {
       kind: "character",
       v: 1,
@@ -55,6 +56,19 @@ export function seedFakePackages(here: FakeSpadeApi, now: number): void {
           hosts: [],
           why: "Drafts a mail to your travel agent. You send it.",
           on: false,
+        },
+      ],
+      // What the person's other bots may ask it (ADR 0200 §7); Trip planner does.
+      contracts: [
+        {
+          name: "cheapest_fare",
+          summary: "The cheapest fare seen for a route this week.",
+          effects: ["network"],
+        },
+        {
+          name: "watched_trips",
+          summary: "The trips it watches, with the most you'd pay for each.",
+          effects: [],
         },
       ],
     },

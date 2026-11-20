@@ -72,6 +72,8 @@ pub fn from_template(
             envelope: None,
             shipped: Some(template.package.clone()),
             switches,
+            // ace's templates ship no panels.
+            pages: std::collections::BTreeMap::new(),
         },
     )?;
     let bot = made.agent.agent.id.clone();

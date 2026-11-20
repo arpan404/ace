@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { samplePackage, signedVersion, signedWithdrawn } from "@ace/marketplace/testing";
+import { folder, samplePackage, signedVersion, signedWithdrawn } from "@ace/marketplace/testing";
 import { fakeMarket, fakeSpade, marketplaceHarness } from "./test-support.ts";
 
 /*
@@ -7,7 +7,9 @@ import { fakeMarket, fakeSpade, marketplaceHarness } from "./test-support.ts";
  * market and Spade's link: a version 3 package installs as a linked bot with only the effect
  * switches the person left on; an update and a rollback move that same bot, each after its own
  * review; the rollback reads the bytes pinned here with the market gone; a withdrawn version
- * pauses the bot and deletes nothing.
+ * pauses the bot and deletes nothing. One package can make several bots, each its own install; a
+ * bot that moves away leaves this Marketplace; an update held for a bot's turn shows the version
+ * running until Spade runs the new one.
  */
 
 let market: Awaited<ReturnType<typeof fakeMarket>>;
@@ -75,10 +77,11 @@ async function install() {
 
 const none = { bots: [], needs: {}, startRoutines: false };
 
-const installedBot = async () =>
-  (await harness.ask({ op: "installed" }, "installed")).installed.find(
+const installedBots = async () =>
+  (await harness.ask({ op: "installed" }, "installed")).installed.filter(
     (item) => item.name === "flight-watcher",
   );
+const installedBot = async () => (await installedBots())[0];
 
 describe("agent packages", () => {
   it("install as a linked bot with only the effect switches the person left on", async () => {
@@ -109,6 +112,61 @@ describe("agent packages", () => {
       }),
     ]);
     expect(await installedBot()).toMatchObject({ linked: true, version: "1.0.0" });
+  });
+
+  it("send a package's panel pages to Spade beside its manifest", async () => {
+    const page =
+      '<!doctype html><html><head><title>Trips</title></head><body><script>addEventListener("ace:state", () => {});</script></body></html>';
+    const files = [
+      ...samplePackage({
+        surfaces: [
+          { id: "trips", kind: "panel", file: "panels/trips/index.html", title: "Watched trips" },
+        ],
+      }),
+      ...folder({ "panels/trips/index.html": page }),
+    ];
+    market.publish(
+      signedVersion({ type: "spade-bot", name: "flight-watcher", version: "1.0.0", files }),
+      files,
+    );
+    await harness.ask({ op: "refresh" }, "sources");
+    await install();
+    expect(spade.made).toEqual([
+      expect.objectContaining({ pages: { "panels/trips/index.html": page } }),
+    ]);
+  });
+
+  it("send a contract's schema file beside the signed bot.json, and the manifest with it written in", async () => {
+    const schemas = {
+      input: {
+        type: "object",
+        properties: { from: { type: "string", maxLength: 3 } },
+        required: ["from"],
+      },
+      output: { type: "object", properties: { fare: { type: "number" } }, required: ["fare"] },
+    };
+    const path = "contracts/cheapest-fare.json";
+    const text = JSON.stringify(schemas);
+    const contract = { name: "cheapest_fare", summary: "The cheapest fare.", effects: [] };
+    const files = [
+      ...samplePackage({ contracts: [{ ...contract, file: path }] }),
+      ...folder({ [path]: text }),
+    ];
+    market.publish(
+      signedVersion({ type: "spade-bot", name: "flight-watcher", version: "1.0.0", files }),
+      files,
+    );
+    await harness.ask({ op: "refresh" }, "sources");
+    await install();
+    expect(spade.made).toEqual([
+      expect.objectContaining({
+        // Spade checks the file against the signed manifest and writes it in the same way.
+        recipe: expect.objectContaining({ contracts: [{ ...contract, ...schemas }] }),
+        envelope: expect.objectContaining({ files: { [path]: text } }),
+      }),
+    ]);
+    const listed = await harness.ask({ op: "spadeBot", name: "flight-watcher" }, "spadeBot");
+    expect(listed.contractFiles).toEqual({ [path]: text });
   });
 
   it("update the same bot after a review that says what stays, and roll back with the market gone", async () => {
@@ -262,5 +320,126 @@ describe("agent packages", () => {
         }),
       }),
     ]);
+  });
+
+  it("make a second linked bot when the same package is installed again, each its own install", async () => {
+    publish("1.0.0");
+    await harness.ask({ op: "refresh" }, "sources");
+    await install();
+    const second = await install();
+    // The second install was a new bot's review, not an update of the first.
+    expect(second.updates).toBeUndefined();
+    expect(spade.made).toHaveLength(2);
+    expect((await installedBots()).map((item) => item.target).toSorted()).toEqual([
+      "bot_1",
+      "bot_2",
+    ]);
+
+    // An update names its bot; without one, which bot is unclear.
+    publish("2.0.0", version2);
+    await harness.ask({ op: "refresh" }, "sources");
+    const unclear = await harness.ask(
+      { op: "prepareUpdate", type: "spade-bot", name: "flight-watcher" },
+      "error",
+    );
+    expect(unclear.code).toBe("invalid");
+    const { review } = await harness.ask(
+      { op: "prepareUpdate", type: "spade-bot", name: "flight-watcher", bot: "bot_2" },
+      "review",
+    );
+    expect(review.body).toMatchObject({ update: { bot: "bot_2" } });
+    await harness.ask({ op: "install", id: review.id, hash: review.hash, choices: none }, "done");
+    const after = await installedBots();
+    expect(after.find((item) => item.target === "bot_1")).toMatchObject({ version: "1.0.0" });
+    expect(after.find((item) => item.target === "bot_2")).toMatchObject({ version: "2.0.0" });
+  });
+
+  it("adopt a moved bot on a machine that already has its package for another bot", async () => {
+    const first = publish("1.0.0");
+    await harness.ask({ op: "refresh" }, "sources");
+    await install();
+    spade.arrive("bot_moved", {
+      source: "market",
+      name: "flight-watcher",
+      version: "1.0.0",
+      hash: first.hash,
+    });
+    // Offline: the bytes the other bot's install pinned are the moved bot's too.
+    await market.close();
+    await harness.ask({ op: "refresh" }, "sources");
+    expect((await installedBots()).map((item) => item.target).toSorted()).toEqual([
+      "bot_1",
+      "bot_moved",
+    ]);
+    expect(spade.made).toHaveLength(1);
+    market = await fakeMarket();
+  });
+
+  it("forget the install of a bot that moved away, and keep the others", async () => {
+    publish("1.0.0");
+    await harness.ask({ op: "refresh" }, "sources");
+    await install();
+    await install();
+    spade.moveAway("bot_1");
+    await harness.ask({ op: "refresh" }, "sources");
+    expect((await installedBots()).map((item) => item.target)).toEqual(["bot_2"]);
+    // A Spade that can't answer says nothing of which bots are here: nothing is forgotten.
+    spade.setRunning(false);
+    await harness.ask({ op: "refresh" }, "sources");
+    expect((await installedBots()).map((item) => item.target)).toEqual(["bot_2"]);
+  });
+
+  it("hand Spade a listed package's signed manifest for a bot's suggestion, installing nothing", async () => {
+    const first = publish("1.0.0");
+    await harness.ask({ op: "refresh" }, "sources");
+    const listed = await harness.ask({ op: "spadeBot", name: "flight-watcher" }, "spadeBot");
+    expect(listed.signed).toMatchObject({
+      body: { name: "flight-watcher", version: "1.0.0", hash: first.hash },
+    });
+    expect(JSON.parse(listed.botJson)).toMatchObject({ version: 3, name: "Flight watcher" });
+    expect(spade.made).toEqual([]);
+    expect(await installedBots()).toEqual([]);
+    // A name the market doesn't list, and a version it withdrew, are not handed over.
+    const missing = await harness.ask({ op: "spadeBot", name: "fare-sniper" }, "error");
+    expect(missing.code).toBe("not_found");
+    market.withdraw(
+      signedWithdrawn([{ hash: first.hash, reason: "It sent too many requests" }], { issued: 2 }),
+    );
+    await harness.ask({ op: "refresh" }, "sources");
+    const withdrawn = await harness.ask({ op: "spadeBot", name: "flight-watcher" }, "error");
+    expect(withdrawn).toMatchObject({ code: "refused" });
+    expect(withdrawn.message).toContain("It sent too many requests");
+  });
+
+  it("show the version running while an update waits for the bot's turn, then the new one", async () => {
+    const first = publish("1.0.0");
+    await harness.ask({ op: "refresh" }, "sources");
+    await install();
+    const bot = (await installedBot())?.target ?? "";
+    const second = publish("2.0.0", version2);
+    await harness.ask({ op: "refresh" }, "sources");
+    spade.startTurn(bot);
+    const { review } = await harness.ask(
+      { op: "prepareUpdate", type: "spade-bot", name: "flight-watcher" },
+      "review",
+    );
+    await harness.ask({ op: "install", id: review.id, hash: review.hash, choices: none }, "done");
+    expect(await installedBot()).toMatchObject({
+      version: "1.0.0",
+      hash: first.hash,
+      held: { version: "2.0.0" },
+    });
+    // Still held after a refresh: Spade runs 1.0.0 until the turn ends.
+    await harness.ask({ op: "refresh" }, "sources");
+    expect(await installedBot()).toMatchObject({ version: "1.0.0", held: { version: "2.0.0" } });
+
+    spade.finishTurn(bot);
+    const now = await installedBot();
+    expect(now).toMatchObject({
+      version: "2.0.0",
+      hash: second.hash,
+      previous: { version: "1.0.0", hash: first.hash },
+    });
+    expect(now?.held).toBeUndefined();
   });
 });

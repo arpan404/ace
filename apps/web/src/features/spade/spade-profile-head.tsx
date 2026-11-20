@@ -5,7 +5,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { AvatarChoice, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
+import { useMarkAccent } from "./spade-accent.ts";
 import { DottedFace, faceDotOf } from "./spade-list-parts.tsx";
+import { ProfileArchived } from "./spade-profile-archived.tsx";
 import { spadeBotRow } from "./spade-list-rows.ts";
 import { sentAvatar, useEditBot } from "./spade-profile-actions.ts";
 import { useWornPairs, type RosterBot } from "./use-spade-roster.ts";
@@ -28,6 +30,7 @@ export function ProfileHead(props: { bot: RosterBot }) {
     bot.fullAccess && "Full access",
   ].filter((word): word is string => typeof word === "string");
   const state = bot.away || bot.unavailable ? "idle" : botFaceStateOf(bot);
+  const accent = useMarkAccent(bot);
   const face = (
     <DottedFace
       avatar={bot.avatar}
@@ -35,6 +38,7 @@ export function ProfileHead(props: { bot: RosterBot }) {
       state={state}
       dot={faceDotOf(spadeBotRow(bot).state)}
       large
+      accent={accent}
     />
   );
   return (
@@ -56,6 +60,7 @@ export function ProfileHead(props: { bot: RosterBot }) {
       {quiet.length > 0 && (
         <p className="-mt-1.5 text-ui text-muted-foreground">{quiet.join(" · ")}</p>
       )}
+      {bot.archived && <ProfileArchived bot={bot} />}
     </div>
   );
 }

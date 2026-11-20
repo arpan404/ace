@@ -38,11 +38,16 @@ private struct WorktreeStartPage: View {
     @State private var backing = false
     /// Why Back didn't happen; the card and its Unsent row stay.
     @State private var backProblem = ""
+    /// Confirm before asking the daemon to retire a stale Git lock on the project's repository.
+    @State private var confirmingLock = false
     var body: some View {
         NavigationStack {
             Group {
                 if let card = read?.card {
-                    WorktreeStartView(card: card, act: act, back: card.canReturn == true ? { goBack(card) } : nil,
+                    let canClear = client?.canOperate == true && card.locked && !(card.workspaceId ?? "").isEmpty
+                    WorktreeStartView(card: card, act: act,
+                                      clearLock: canClear ? { confirmingLock = true } : nil,
+                                      back: card.canReturn == true ? { goBack(card) } : nil,
                                       backing: backing, backProblem: backProblem)
                 } else {
                     // Made, or refused for the message's own reason: the sheet goes either way.
@@ -58,6 +63,12 @@ private struct WorktreeStartPage: View {
                         .accessibilityIdentifier("worktree.close")
                 }
             }
+        }
+        .staleLockConfirmation(isPresented: $confirmingLock, confirmId: "worktree.clearLock.confirm") {
+            clearLock()
+        }
+        .onChange(of: read?.card?.locked) { _, locked in
+            if locked != true { confirmingLock = false }
         }
         // The thread made in it opens once the thread list has it.
         .task(id: read?.made) {
@@ -79,6 +90,14 @@ private struct WorktreeStartPage: View {
     }
     private func act(_ action: String) {
         client?.composeAction(["kind": "worktree", "commandId": key.id, "action": action])
+    }
+    private func clearLock() {
+        guard let client else { return }
+        backProblem = ""
+        Task {
+            let refused = await client.worktreeClearLock(key.id)
+            if let refused, read?.card?.refused.isEmpty != false { backProblem = refused }
+        }
     }
     /// The words go back to New thread only once this phone has saved that the start's Unsent
     /// row is dealt with and the daemon has forgotten the start; otherwise the card says why.

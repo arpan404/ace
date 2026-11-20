@@ -621,3 +621,138 @@ async fn a_moved_bot_keeps_its_package_link_and_installed_version() -> Result {
     assert_eq!(arrived["package"]["version"], "1.0.0", "{arrived}");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_moved_bot_keeps_the_accent_the_person_chose() -> Result {
+    let (_fleet, laptop, studio) = pair().await?;
+    let bot = furnished(&laptop).await?;
+    let (status, body) = laptop
+        .patch(
+            &format!("/v1/agents/{bot}"),
+            json!({ "style": { "accent": "#8b5cf6" } }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+
+    let (status, started) = move_bot(&laptop, &studio, &bot, "mv_style", "host-studio").await?;
+    assert_eq!(status, 202, "{started}");
+    assert_eq!(
+        move_ends(&laptop, &bot).await?,
+        Value::Null,
+        "the move took"
+    );
+
+    let arrived = listed(&studio, &bot).await?.ok_or("not on the studio")?;
+    assert_eq!(
+        arrived["style"],
+        json!({ "accent": "#8b5cf6", "chosen": true }),
+        "{arrived}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_moved_bot_keeps_its_calls_turned_off() -> Result {
+    let (_fleet, laptop, studio) = pair().await?;
+    let bot = furnished(&laptop).await?;
+    let (status, body) = laptop
+        .put(
+            &format!("/v1/agents/{bot}/contracts"),
+            json!({ "incoming": false }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+
+    let (status, started) = move_bot(&laptop, &studio, &bot, "mv_calls", "host-studio").await?;
+    assert_eq!(status, 202, "{started}");
+    assert_eq!(
+        move_ends(&laptop, &bot).await?,
+        Value::Null,
+        "the move took"
+    );
+
+    // A move never turns the person's other bots' calls back on (ADR 0200 §7).
+    let (status, body) = studio.get(&format!("/v1/agents/{bot}/contracts")).await?;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["incoming"], false, "{body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_moved_bot_shows_its_panels_page_as_soon_as_it_arrives() -> Result {
+    let (_fleet, laptop, studio) = pair().await?;
+    let page = "<!doctype html><html><body><ul id=\"trips\"></ul></body></html>";
+    let (status, made) = laptop
+        .post(
+            "/v1/agents",
+            json!({
+                "recipe": {
+                    "format": "spade-bot", "version": 3, "requires": { "runtime": "1" },
+                    "name": "Flight watcher", "blurb": "Watches fares.",
+                    "task": "You watch flight fares for the person.",
+                    "surfaces": [{ "id": "watchlist", "kind": "panel",
+                                   "file": "panels/watchlist/index.html", "title": "Watched trips",
+                                   "actions": [
+                                       { "name": "stop_watching", "label": "Stop watching" },
+                                       { "name": "book_fare", "label": "Book this fare", "confirm": true }
+                                   ] }]
+                },
+                "from_recipe": { "source": "local", "name": "flight-watcher", "version": "dev", "transaction": "install-1" },
+                "grants": { "connectors": [], "plugins": [], "skills": [] },
+                "switches": {},
+                "pages": { "panels/watchlist/index.html": page },
+            }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{made}");
+    let bot = made["agent"]["id"].as_str().unwrap_or_default().to_owned();
+    let chat = made["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (_, before) = laptop
+        .get(&format!("/v1/conversations/{chat}/panels"))
+        .await?;
+    let hash = before["panels"][0]["page"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert_eq!(hash.len(), 64, "{before}");
+    idle(&laptop, &bot).await?;
+
+    let (status, started) = move_bot(&laptop, &studio, &bot, "mv_panels", "host-studio").await?;
+    assert_eq!(status, 202, "{started}");
+    assert_eq!(
+        move_ends(&laptop, &bot).await?,
+        Value::Null,
+        "the move took"
+    );
+
+    // The studio names the same page for its panel and serves it, before any update.
+    let (status, after) = studio
+        .get(&format!("/v1/conversations/{chat}/panels"))
+        .await?;
+    assert_eq!(status, 200, "{after}");
+    assert_eq!(after["panels"][0]["page"], json!(hash), "{after}");
+    // What only the person may send stays theirs there: the same confirm, the same actions.
+    assert_eq!(
+        after["panels"][0]["actions"], before["panels"][0]["actions"],
+        "{after}"
+    );
+    assert_eq!(
+        after["panels"][0]["confirm"],
+        json!([{ "name": "book_fare", "label": "Book this fare" }]),
+        "{after}"
+    );
+    let served = studio
+        .http
+        .get(format!("{}/v1/panels/pages/{hash}", studio.base))
+        .bearer_auth(support::TOKEN)
+        .send()
+        .await?;
+    assert_eq!(served.status().as_u16(), 200);
+    assert_eq!(served.text().await?, page);
+    // The laptop no longer shows it, so its next collection takes the page out there.
+    assert_eq!(laptop.engine.collect_panel_pages(), 1);
+    Ok(())
+}

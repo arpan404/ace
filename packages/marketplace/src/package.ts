@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readContracts } from "./contracts.ts";
 import {
   PackageEffect,
   PackageEffectWord,
@@ -8,6 +9,7 @@ import {
   type MarketEffectRow,
   type MarketProblem,
 } from "@ace/protocol/marketplace";
+import { surfaceProblems } from "./surfaces.ts";
 
 /*
  * An agent package's manifest, `bot.json` at version 3 (ADR 0200 §3), read the way Spade reads it
@@ -54,6 +56,8 @@ const known = new Set([
   "tests",
   "notes",
   "pricing",
+  "surfaces",
+  "contracts",
   ...identity,
   ...executions,
 ]);
@@ -171,12 +175,14 @@ function effectProblems(raw: unknown, at: string): MarketProblem[] {
   return problems;
 }
 
-/** Zod's issues as sentences, less an effect's word and why, which its own check says better. */
+/** Zod's issues as sentences, less what the effect and surface checks say better. */
 function issues(error: z.ZodError): MarketProblem[] {
   return error.issues
     .filter(
       (issue) =>
-        !(issue.path[0] === "effects" && (issue.path[2] === "why" || issue.path[2] === "effect")),
+        !(issue.path[0] === "effects" && (issue.path[2] === "why" || issue.path[2] === "effect")) &&
+        // `surfaceProblems` says what's wrong with a surface, in Spade's words.
+        issue.path[0] !== "surfaces",
     )
     .slice(0, 20)
     .map((issue) => problem(`${issue.path.join(".") || "bot.json"}: ${issue.message}`));
@@ -241,6 +247,7 @@ export function readPackage(
     if (raw !== undefined && (!Array.isArray(raw) || raw.length > most))
       problems.push(problem(`${field} is a list of at most ${most}`));
   }
+  for (const message of surfaceProblems(json["surfaces"])) problems.push(problem(message));
   if (json["uses"] !== undefined && !Array.isArray(json["uses"]))
     problems.push(problem("uses lists runtime modules"));
   const effects: unknown[] = Array.isArray(json["effects"]) ? json["effects"] : [];
@@ -269,12 +276,31 @@ export function readPackage(
       triggers.push(raw);
     // Contract calls (phase 2) and kinds a later build adds: kept in the file, not used.
   }
+  // Typed calls other agents of the person may make (ADR 0200 §7), within the declared effects.
+  const declared = effects.flatMap((raw) => {
+    const word = AnyRecord.safeParse(raw).data?.["effect"];
+    return typeof word === "string" ? [word] : [];
+  });
+  const contracts = readContracts(json["contracts"], declared);
+  problems.push(...contracts.problems.map(problem));
   const extra: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(json)) if (!known.has(key)) extra[key] = value;
-  const { triggers: _triggers, effects: _effects, pricing: _pricing, ...rest } = json;
+  const {
+    triggers: _triggers,
+    effects: _effects,
+    pricing: _pricing,
+    contracts: _contracts,
+    ...rest
+  } = json;
   for (const field of [...identity, ...executions, ...Object.keys(extra)])
     delete (rest as Record<string, unknown>)[field];
-  const read = Recipe.safeParse({ ...rest, routines, triggers, effects: kept });
+  const read = Recipe.safeParse({
+    ...rest,
+    routines,
+    triggers,
+    effects: kept,
+    ...(contracts.problems.length ? {} : { contracts: contracts.kept }),
+  });
   if (!read.success) return { recipe: undefined, problems: [...problems, ...issues(read.error)] };
   const recipe: Recipe = Object.keys(extra).length ? { ...read.data, extra } : read.data;
   const names = [

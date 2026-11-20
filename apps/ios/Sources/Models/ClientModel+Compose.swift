@@ -39,6 +39,15 @@ extension ClientModel {
             composeAction(["kind": "worktreeBack", "commandId": commandId, "requestId": id])
         }
     }
+    /// Clear a stale Git lock on a stopped worktree start's project and retry it, once confirmed:
+    /// nil once the lock cleared and the retry was accepted, else why not.
+    func worktreeClearLock(_ commandId: String) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
+        let id = admissions.nextId()
+        return await receipts.wait(id: id) {
+            composeAction(["kind": "worktreeClearLock", "commandId": commandId, "requestId": id])
+        }
+    }
     /// What the sheet has chosen so far: the picker leads with it and its access modes are read.
     func composeChoice(_ draft: NewThreadDraft) {
         var choice: [String: Any] = ["kind": "choice"]

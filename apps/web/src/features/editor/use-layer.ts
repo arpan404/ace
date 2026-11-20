@@ -29,12 +29,13 @@ export function useEditorLayer(options: {
   lastRow: number;
   gutter: number;
   cell: number;
+  lineHeight: number;
   readOnly: boolean;
   host: RefObject<HTMLDivElement | null>;
   select(selections: readonly Selection[]): void;
   focus(): void;
 }) {
-  const { layer, state, lineAt, gutter, cell } = options;
+  const { layer, state, lineAt, gutter, cell, lineHeight } = options;
   const layout = options.layout ?? noLayout;
   const view: EditorLayerView = {
     // The document itself, not the drawn window: a layer reads text as an edit lands.
@@ -47,13 +48,14 @@ export function useEditorLayer(options: {
     lastRow: options.lastRow,
     gutter,
     cell,
+    lineHeight,
     selections: state.selections,
     primary: state.primary,
     readOnly: options.readOnly,
     version: state.version,
     revision: () => (state.doc ? { document: state.doc, version: state.doc.version() } : undefined),
     host: options.host.current,
-    pointOf: (position) => caretOf(lineAt, layout, position, gutter, cell, false),
+    pointOf: (position) => caretOf(lineAt, layout, position, gutter, cell, lineHeight, false),
     select: options.select,
     focus: options.focus,
   };

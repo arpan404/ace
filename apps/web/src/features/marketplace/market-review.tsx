@@ -48,6 +48,8 @@ export function ReviewPage(props: {
   entry: EntryKey;
   update: boolean;
   rollback?: boolean | undefined;
+  /** The bot an update or rollback moves. */
+  bot?: string | undefined;
 }) {
   const read = useMarketEntry(props.entry);
   // A rollback reads the bytes pinned here, so a withdrawn or unlisted entry can still go back.
@@ -55,6 +57,7 @@ export function ReviewPage(props: {
   const review = useMarketReview(props.entry, {
     update: props.update,
     rollback: props.rollback,
+    bot: props.bot,
     enabled: (read.data !== undefined || props.rollback === true) && !block,
   });
   const title = read.data?.entry.summary.title ?? "";

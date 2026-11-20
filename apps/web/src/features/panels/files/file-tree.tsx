@@ -198,9 +198,13 @@ export function FileTree(props: {
     [navigable],
   );
   const selection = useTreeSelection(order, currentPath);
-  /** A plain click picks one row and opens it; Ctrl/⌘ toggles it and Shift extends, no more. */
+  /**
+   * A plain click picks one row and opens it; Ctrl/⌘ toggles it and Shift extends, no more.
+   * Alt/Option opens a file to the side.
+   */
   const pick = (row: FolderRow, event: MouseEvent<HTMLElement>) => {
     if (row.kind === "more") return activate(row, "preview");
+    if (event.altKey && row.kind === "file") return activate(row, "side");
     if (event.shiftKey) return selection.extend(row.key);
     if (keyboardEnv().apple ? event.metaKey : event.ctrlKey) return selection.toggle(row.key);
     selection.only(row.key);

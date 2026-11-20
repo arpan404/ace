@@ -84,6 +84,7 @@ fn day() -> Vec<Event> {
                 name: "Research".into(),
                 depth: 1,
                 machine: None,
+                contract: None,
             }),
             from_routine: None,
             from_group: None,

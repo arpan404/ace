@@ -353,12 +353,9 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...CoreClientMessage.options,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
-/*
- * Every service family's server messages, apart from the core stream. `ServerMessage` is this
- * plus `CoreServerMessage`, and names its type through the two: inferred whole, its declaration
- * passes the compiler's limit on how long a type it will write out (TS7056).
- */
-const ServiceServerMessage = z.discriminatedUnion("type", [
+// One flat union under a written type, its members listed in two halves: inferred whole, its type
+// grows past what the compiler writes out (TS7056).
+const serverMessageFirst = z.discriminatedUnion("type", [
   CliResult,
   StorageResult,
   AdmissionResult,
@@ -384,8 +381,6 @@ const ServiceServerMessage = z.discriminatedUnion("type", [
   MachineCodeResult,
   PairResult,
   ChannelClose,
-  TunnelPorts,
-  TunnelRefused,
   MachinesResult,
   FleetResult,
   OutsideResult,
@@ -417,6 +412,10 @@ const ServiceServerMessage = z.discriminatedUnion("type", [
   SourceControlResult,
   HostedRepositoriesResult,
   WorkspaceChanged,
+]);
+const serverMessageSecond = z.discriminatedUnion("type", [
+  TunnelPorts,
+  TunnelRefused,
   WorkspaceCloneProgress,
   TerminalResult,
   TerminalOutput,
@@ -472,12 +471,18 @@ const ServiceServerMessage = z.discriminatedUnion("type", [
   NotificationFeedResult,
   NotificationRegisterResult,
   NotificationUnregisterResult,
+  ...CoreServerMessage.options,
 ]);
-export const ServerMessage: z.ZodDiscriminatedUnion<
-  [...(typeof ServiceServerMessage)["options"], ...(typeof CoreServerMessage)["options"]],
-  "type"
-> = z.discriminatedUnion("type", [...ServiceServerMessage.options, ...CoreServerMessage.options]);
-export type ServerMessage = z.infer<typeof ServerMessage>;
+export type ServerMessage =
+  | z.output<typeof serverMessageFirst>
+  | z.output<typeof serverMessageSecond>;
+export type ServerMessageInput =
+  | z.input<typeof serverMessageFirst>
+  | z.input<typeof serverMessageSecond>;
+export const ServerMessage: z.ZodType<ServerMessage, ServerMessageInput> = z.discriminatedUnion(
+  "type",
+  [...serverMessageFirst.options, ...serverMessageSecond.options],
+);
 
 export type EventBatch = Extract<ServerMessage, { type: "events" }>;
 export type Progress = Extract<ServerMessage, { type: "progress" }>;

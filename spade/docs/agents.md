@@ -77,7 +77,13 @@ bot}` adds a bot to a club the caller is in. Both run, ask or are refused by the
 `PATCH /agents/{id} {may_create_bots}`), and ask whenever untrusted content is in view. The
 maker's chat stores `bot_made` or `club_added`. `POST /agents/{id}/undo-made` answers `{undone:
 "removed"}` when the made bot never acted outside itself, else `{undone: "archived"}` (stopped,
-routines paused, `archived: true`); `409` for a bot the person made.
+routines paused, `archived: true`); `409` for a bot the person made. The `archived:{id}` setting
+keeps which routines (and heartbeat) were on. `POST /agents/{id}/unarchive` (the profile's and
+Running's Unarchive, `ace bot unarchive`) takes the mark off any archived bot: the routines that
+were on come back on from their next slot, nothing they missed catches up, the rest stay paused,
+and nothing is deleted. It answers as Running's actions do, `{changed, bots}` (`changed` false
+when it wasn't archived), `404` for no such bot. Running's row says `archived: true` and offers
+`unarchive` while it is.
 
 ### Where Spade lives
 
@@ -110,7 +116,9 @@ person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves
    bot, worker, conversation and club it carries in the same transaction (two moves never share
    one; an ended move lets go). Refused too (`409`): a worker (it
    moves with its maker), the main bot where it isn't hosted, and one that (or a worker of which)
-   is working, waiting on the person, sleeping or running a service. The bot and its workers are
+   is working, waiting on the person, sleeping or running a service. A paused bot moves, and
+   arrives paused with what its pause holds ([autonomy.md](autonomy.md), "Pause, resume and the
+   running view"). The bot and its workers are
    frozen for that move: messages answer `409` ("Research is moving to Studio …"), routines don't
    fire, its `status` reads "Moving to Studio". Before its commit a move has a stored deadline
    (`Limits::move_pre_commit`, two hours): past it the move fails and the bot thaws. Once packed,
@@ -429,7 +437,7 @@ then.
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
 | `GET /agents`                                 |                                                                                                  | `{"agents":[Agent]}`: main first, then by `last_activity`  |
 | `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?, naming?}`                               | `201 {"agent"}`; `model` defaults as below                 |
-| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`, `personality`, `task_why`, `may_create_bots` | `200 {"agent"}`; `409` for the main agent's name or avatar |
+| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`, `personality`, `task_why`, `may_create_bots`, `style` | `200 {"agent"}`; `409` for the main agent's name or avatar |
 | `GET /agents/{id}/task/history`               |                                                                                                  | `{"versions":[{seq, at, task, by, why}]}`, newest first    |
 | `DELETE /agents/{id}`                         |                                                                                                  | `204`; `409` for the main agent                            |
 | `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                                               | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |

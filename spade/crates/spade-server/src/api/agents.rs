@@ -16,6 +16,8 @@ use spade_core::autonomy::Access;
 
 /// An agent body may carry one avatar image as base64 (3.75 MB, a third larger encoded).
 pub(super) const AGENT_BODY: usize = 6 * 1024 * 1024;
+/// A package's manifest with its panels' pages (ADR 0200 §5.2): up to eight of 1 MB each.
+pub(super) const PACKAGE_BODY: usize = 10 * 1024 * 1024;
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -91,6 +93,9 @@ pub(super) struct NewAgent {
     /// The person's effect switches on the review, by key; one missing is off.
     #[serde(default)]
     switches: std::collections::BTreeMap<String, bool>,
+    /// A package's panel pages (ADR 0200 §5.2), by path: `panels/<id>/index.html` to its text.
+    #[serde(default)]
+    pages: std::collections::BTreeMap<String, String>,
     /// Made from one message: the bot names itself in its first reply, and is "New bot" until
     /// then when no name was given.
     #[serde(default)]
@@ -149,6 +154,16 @@ pub(super) struct Change {
     /// Whether it may make bots for the person: `yes`, `ask` or `no` (ADR 0161, amendment 1).
     #[serde(default)]
     may_create_bots: Option<String>,
+    /// Its accent (ADR 0200 §5.3): `{"accent": "#rrggbb"}`, or `{"accent": null}` for its face's
+    /// colour.
+    #[serde(default)]
+    style: Option<StyleBody>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct StyleBody {
+    #[serde(default)]
+    accent: Option<String>,
 }
 
 /// Checks a body's `access`: Spade has one level, so only `auto_review` (or none) is accepted,
@@ -327,6 +342,7 @@ impl NewAgent {
             package: self.package,
             envelope: self.envelope,
             switches: self.switches,
+            pages: self.pages,
             also: self.template.is_some() || self.first_message.is_some(),
         }
     }
@@ -452,6 +468,11 @@ pub(super) async fn update(
         if let Err(error) = state.engine.set_may_create(&id, may) {
             return agent_problem(&error);
         }
+    }
+    if let Some(style) = &body.style
+        && let Err(error) = state.engine.set_accent(&id, style.accent.as_deref())
+    {
+        return agent_problem(&error);
     }
     let change = AgentChange {
         name: body.name,

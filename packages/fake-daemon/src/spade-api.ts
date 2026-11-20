@@ -9,7 +9,8 @@ import { FakeSpadeServices } from "./spade-services.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
 import { FakeSpadeOversight } from "./spade-oversight.ts";
 import { FakeSpadeSecurity } from "./spade-security.ts";
-import { packageRoute } from "./spade-packages.ts";
+import { contractsRoute, packageRoute } from "./spade-packages.ts";
+import { FakeSpadePanels } from "./spade-panels.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
@@ -165,6 +166,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly reach = new FakeSpadeReach();
   /** The task manager and the person's Stop, Pause and Resume (ADR 0200 §6.3). */
   readonly running: FakeSpadeRunning;
+  /** Packaged bots' panels (ADR 0200 §5.2). */
+  readonly panels: FakeSpadePanels;
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -234,6 +237,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     });
     this.wakes = new FakeSpadeWakes({
       conversationOf,
+      events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
+      store: (conversation, event) => this.store(conversation, event),
+    });
+    this.panels = new FakeSpadePanels({
       events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
       store: (conversation, event) => this.store(conversation, event),
     });
@@ -513,10 +520,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
     if (root === "running" && !id) return this.running.route(request.method, undefined, undefined);
+    if (root === "panels" && id === "pages" && sub) return this.panels.page(sub);
     if (
       root === "agents" &&
       id &&
-      (sub === "pause" || sub === "resume" || sub === "stop") &&
+      (sub === "pause" || sub === "resume" || sub === "stop" || sub === "unarchive") &&
       !subId
     )
       return this.running.route(request.method, id, sub);
@@ -564,6 +572,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
         this.agents.find((candidate) => candidate.id === id),
         parts.slice(2),
         new URLSearchParams(query),
+        body,
+      );
+    if (root === "agents" && id && sub === "contracts")
+      return contractsRoute(
+        request.method,
+        this.agents.find((candidate) => candidate.id === id),
         body,
       );
     if (root === "agents" && id && sub === "package")
@@ -898,6 +912,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
         body.may_create_bots === "no"
       )
         agent.may_create_bots = body.may_create_bots;
+      // As Spade: the person's accent (ADR 0200 §5.3), one colour or its face's.
+      if (body.style && typeof body.style === "object") {
+        if (agent.kind === "main") return problem(409, "Spade has no accent of its own.");
+        const accent = (body.style as Json).accent;
+        if (accent !== null && !(typeof accent === "string" && /^#[0-9a-f]{6}$/i.test(accent)))
+          return problem(400, "style.accent is one colour, like #2f7bea");
+        agent.style = { accent: accent === null ? null : accent.toLowerCase(), chosen: true };
+      }
       // As Spade: a task change is kept with who made it and why.
       if (typeof body.task === "string")
         this.tasks.change(
@@ -1142,6 +1164,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (!list) return problem(404, "No such conversation.");
     const agent = this.agents.find((candidate) => candidate.conversation === id);
     if (sub === "seen" && request.method === "PUT") return this.markSeen(id, list, request.body);
+    if (sub === "panels")
+      return this.panels.conversationRoute(
+        request.method,
+        agent,
+        subId,
+        tail,
+        request.body ? (JSON.parse(request.body) as unknown) : {},
+      );
     if (sub === "events") {
       const after = Number(new URLSearchParams(query).get("after") ?? 0);
       return reply(list.filter((stored) => stored.seq > after));

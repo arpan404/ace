@@ -7,7 +7,8 @@
         "enum": [
           "stop",
           "pause",
-          "resume"
+          "resume",
+          "unarchive"
         ],
         "type": "string"
       },
@@ -102,7 +103,8 @@
         "working",
         "waiting",
         "sleeping",
-        "paused"
+        "paused",
+        "updating"
       ],
       "type": "string"
     },

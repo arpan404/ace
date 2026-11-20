@@ -96,7 +96,11 @@ pub fn ask(engine: &Arc<Engine>, bot: &str, step: Step) -> Result<Asked, Package
 /// version it was paused for is gone.
 fn applied(engine: &Arc<Engine>, bot: &str, step: Step) -> Result<Link, PackageError> {
     let withdrawn = link_of(engine, bot)?.withdrawn.is_some();
-    let link = apply::update(engine, bot, step)?;
+    // It reads `updating` from here until the step committed or failed (ADR 0200 §6.2).
+    let link = {
+        let _updating = engine.mark_updating(bot);
+        apply::update(engine, bot, step)?
+    };
     if withdrawn && link.withdrawn.is_none() {
         engine.resume_agent(bot).map_err(failed)?;
     }

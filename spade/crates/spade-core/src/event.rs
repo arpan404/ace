@@ -762,6 +762,58 @@ pub enum Known {
         /// The choice's label, fixed when the card was shown.
         label: String,
     },
+    /// The bot set the state of its package's panel `surface` (ADR 0200 §5.2), checked against
+    /// the panel's state schema. Every update is one; the panel shows the latest. The model reads
+    /// only its call's result.
+    PanelUpdated {
+        surface: String,
+        call_id: String,
+        data: Value,
+    },
+    /// A declared action from panel `surface`, its value checked against the action's schema.
+    /// Stored once per `key`, and read by the bot as a `<panel_action>`: input from its package's
+    /// page, untrusted like another bot's message, unless the person sent it through ace's own
+    /// confirm (§5.2, amendment 1).
+    PanelAction {
+        surface: String,
+        key: String,
+        action: String,
+        /// The words the bot reads for it, from the declaration.
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<Value>,
+        /// Who stands behind it; one stored before this was kept is the page's.
+        #[serde(default)]
+        by: PanelSender,
+    },
+    /// This bot called another bot's contract (ADR 0200 §7) as job `job`: stored once, before the
+    /// call is delivered, so its steps can say "Asked Flight watcher: cheapest_fare".
+    ContractCalled(Box<crate::contract::Called>),
+    /// The bot answered a contract call (ADR 0200 §7) with output that doesn't fit the
+    /// contract's output schema; the problems went back to it.
+    ContractMisfit {
+        call: String,
+        problems: Vec<String>,
+    },
+    /// A contract call made to this bot ended: its output fit, or it never did.
+    ContractEnded {
+        call: String,
+        #[serde(flatten)]
+        ending: crate::contract::Ending,
+    },
+    /// A bot's own notice to the person (`notify`, ADR 0200 §4.2), as Spade decided it under
+    /// ADR 0195: sent now, held for the brief, or not sent. Its words are the bot's.
+    NoticeSent {
+        call_id: String,
+        /// The notice's id on the notice stream and in what waits for the person.
+        id: String,
+        title: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        body: String,
+        reach: crate::reach::Reach,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        why: Option<crate::reach::Why>,
+    },
 }
 
 /// The events after the bot's latest arrival from another machine (all of them when it never
@@ -862,6 +914,16 @@ pub struct TaskChange {
     pub why: String,
 }
 
+/// Who stands behind a panel's action (ADR 0200 §5.2, amendment 1): its page alone, whatever the
+/// page did to send it, or the person, who pressed Confirm on the line ace drew outside the page.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelSender {
+    #[default]
+    Page,
+    Person,
+}
+
 /// The agent that sent a message, and how many bot-to-bot hops led to it (1 when the sender was
 /// answering the person).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -872,6 +934,9 @@ pub struct FromAgent {
     /// The machine it runs on, by name, when that is another machine (ADR 0132).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+    /// The contract call it delivers, when it is one (ADR 0200 §7). Boxed: most carry none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<Box<crate::contract::Request>>,
 }
 
 /// Where a call may run on the person's answer, from least to most: held by the sandbox only, as
@@ -946,6 +1011,10 @@ pub struct FromThread {
     pub title: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub untrusted: bool,
+    /// The person's other machine the thread is on, by name, when its ace asked through the
+    /// fleet; `None` for this machine's ace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
 }
 
 /// A bot as a group names it: its id, name and machine (host id; `None` for this machine).

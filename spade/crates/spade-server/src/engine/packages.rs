@@ -125,17 +125,30 @@ impl Engine {
 
     /// Every ceiling a call in `conversation` is held to, the outermost first.
     fn held_over(&self, conversation: &str) -> Vec<Held> {
-        let owner = self
-            .helper_of(conversation)
-            .map_or_else(|| conversation.to_owned(), |h| h.parent);
+        let helper = self.helper_of(conversation);
+        let owner = helper
+            .as_ref()
+            .map_or_else(|| conversation.to_owned(), |h| h.parent.clone());
         let mut chain: Vec<String> = self.worker_ancestors(&owner);
         chain.reverse();
         chain.push(owner);
         let mut held = Vec::new();
+        let by_call = |scope: spade_core::contract::Scope| Held {
+            name: format!("The {} call", scope.contract),
+            allows: scope.effects.into_iter().collect(),
+            by: None,
+        };
         for conversation in &chain {
             if let Ok(Some(agent)) = self.store.agent_for_conversation(conversation) {
                 self.held_by(&agent, MOST_MAKERS, &mut held);
             }
+            // A contract call its reply serves, or one it was made under, holds it to the
+            // contract's effects too (ADR 0200 §7).
+            held.extend(self.call_ceilings(conversation).into_iter().map(by_call));
+        }
+        // A helper stays held to the calls of the reply that started it, after that reply ends.
+        if let Some(helper) = &helper {
+            held.extend(self.helper_call_ceilings(helper).into_iter().map(by_call));
         }
         held
     }

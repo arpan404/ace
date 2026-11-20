@@ -20,7 +20,16 @@ import {
   verifyVerifiedList,
   verifyWithdrawn,
 } from "./signing.ts";
-import { keySetOf, sampleSkill, signedVersion, signedWithdrawn, testKey } from "./testing.ts";
+import {
+  folder,
+  keySetOf,
+  samplePackage,
+  sampleSkill,
+  signedVersion,
+  signedWithdrawn,
+  testKey,
+  testPublisher,
+} from "./testing.ts";
 
 /* The signer through its I/O, here an in-memory market. */
 
@@ -297,6 +306,210 @@ describe("the signed lists", () => {
     expect(list.withdrawn.map((item) => [item.scope, item.reason])).toEqual([
       ["version", "Spam"],
       ["version", "Spam"],
+    ]);
+  });
+});
+
+describe("a bot package's own tests", () => {
+  const files = samplePackage({ tests: ["tests/hello.json"] });
+  const withTest = [...files, ...folder({ "tests/hello.json": "{}" })];
+  const hash = contentHash(hashFiles(withTest));
+  const pending = {
+    "/v1/signer/pending": {
+      versions: [
+        {
+          type: "spade-bot",
+          name: "flight-watcher",
+          version: "1.0.0",
+          hash,
+          publisher: testPublisher,
+          size: 1,
+          published: 1,
+          approved: true,
+        },
+      ],
+      withdrawals: [],
+    },
+    "/v1/signer/scan-context": { entries: [], verified: [], newPublishers: [] },
+  };
+  const stored = () => {
+    const at = memory(pending);
+    at.io.object = async () => writeArchive(withTest);
+    return at;
+  };
+
+  it("are run before it is signed, and a version whose tests pass is signed", async () => {
+    const { io, puts } = stored();
+    const ran: string[][] = [];
+    const report = await signPending(io, next, () => 30, trusted, {
+      testBot: async (given) => {
+        ran.push(given.map((file) => file.path).toSorted());
+        return { passed: true, scenarios: 1, failures: [] };
+      },
+    });
+    expect(ran).toEqual([["README.md", "bot.json", "tests/hello.json"]]);
+    expect(report.signed).toEqual(["spade-bot/flight-watcher@1.0.0"]);
+    expect(report.tested).toEqual([{ version: "spade-bot/flight-watcher@1.0.0", scenarios: 1 }]);
+    expect(puts.map((put) => put.path)).toEqual([
+      "/v1/signer/versions/spade-bot/flight-watcher/1.0.0",
+    ]);
+  });
+
+  it("refuse a version whose tests fail, never signing it, with each failure for the publisher", async () => {
+    const { io, puts } = stored();
+    const report = await signPending(io, next, () => 30, trusted, {
+      testBot: async () => ({
+        passed: false,
+        scenarios: 1,
+        failures: [
+          { path: "tests/hello.json", message: 'Says hello: The reply doesn\'t say "hello"' },
+        ],
+      }),
+    });
+    expect(report.signed).toEqual([]);
+    expect(report.blocked).toEqual([
+      {
+        version: "spade-bot/flight-watcher@1.0.0",
+        reason:
+          "Its tests failed when ace's market ran them: tests/hello.json: Says hello: The reply doesn't say \"hello\"",
+      },
+    ]);
+    const [put] = puts;
+    expect(put?.path).toBe("/v1/signer/blocks/spade-bot/flight-watcher/1.0.0");
+    expect(put?.body).toMatchObject({
+      scan: {
+        verdict: "block",
+        findings: [
+          expect.objectContaining({
+            rule: "tests-failed",
+            path: "tests/hello.json",
+            message: 'Says hello: The reply doesn\'t say "hello"',
+          }),
+        ],
+      },
+    });
+  });
+
+  it("leave a version unsigned and pending when this signer can't run its tests", async () => {
+    for (const testBot of [
+      undefined,
+      async () => {
+        throw new Error("spade isn't installed");
+      },
+    ]) {
+      const { io, puts } = stored();
+      const report = await signPending(io, next, () => 30, trusted, { testBot });
+      expect(report.signed).toEqual([]);
+      expect(report.blocked).toEqual([]);
+      expect(report.refused).toHaveLength(1);
+      expect(puts).toEqual([]);
+    }
+  });
+});
+
+describe("a bot package's contracts", () => {
+  /** `cheapest_fare`, its input requiring `required`. */
+  const fare = (required: string[]) => ({
+    contracts: [
+      {
+        name: "cheapest_fare",
+        summary: "The cheapest fare seen for a route this week.",
+        input: {
+          type: "object",
+          properties: {
+            from: { type: "string", maxLength: 3 },
+            to: { type: "string", maxLength: 3 },
+            month: { type: "string", maxLength: 7 },
+          },
+          required,
+        },
+        output: { type: "object", properties: { fare: { type: "number" } }, required: ["fare"] },
+      },
+    ],
+  });
+  const before = samplePackage(fare(["from", "to"]));
+  const signedBefore = signedVersion({
+    type: "spade-bot",
+    name: "flight-watcher",
+    files: before,
+    key: old,
+  });
+
+  /** 2.0.0 with `cheapest_fare`'s schemas in contracts/cheapest-fare.json. */
+  const moved = (required: string[]) => {
+    const [contract] = fare(required).contracts;
+    const { input, output, ...rest } = contract!;
+    return [
+      ...samplePackage({ contracts: [{ ...rest, file: "contracts/cheapest-fare.json" }] }),
+      ...folder({ "contracts/cheapest-fare.json": JSON.stringify({ input, output }) }),
+    ];
+  };
+
+  /** The market with 1.0.0 signed and listed, and `files` pending as 2.0.0. */
+  function pendingOver(files: ReturnType<typeof samplePackage>) {
+    const hash = contentHash(hashFiles(files));
+    const at = memory({
+      "/v1/signer/pending": {
+        versions: [
+          {
+            type: "spade-bot",
+            name: "flight-watcher",
+            version: "2.0.0",
+            hash,
+            publisher: testPublisher,
+            size: 1,
+            published: 2,
+            approved: true,
+          },
+        ],
+        withdrawals: [],
+      },
+      "/v1/signer/scan-context": { entries: [], verified: [], newPublishers: [] },
+      "/v1/entries/spade-bot/flight-watcher": {
+        entry: {},
+        versions: [
+          { version: "1.0.0", hash: signedBefore.hash, size: 1, published: 1, downloads: 0 },
+        ],
+      },
+      "/v1/entries/spade-bot/flight-watcher/1.0.0": { manifest: signedBefore.manifest },
+    });
+    at.io.object = async (wanted) => writeArchive(wanted === hash ? files : before);
+    return at;
+  }
+
+  it("refuses for good a version that breaks the bots calling the last signed one", async () => {
+    const { io, puts } = pendingOver(samplePackage(fare(["from", "to", "month"])));
+    const report = await signPending(io, next, () => 30, trusted);
+    expect(report.signed).toEqual([]);
+    expect(report.blocked).toEqual([
+      {
+        version: "spade-bot/flight-watcher@2.0.0",
+        reason:
+          "Its contracts would break bots that call 1.0.0: cheapest_fare: input.month became required. A breaking change takes a new contract name.",
+      },
+    ]);
+    expect(puts.map((put) => put.path)).toEqual([
+      "/v1/signer/blocks/spade-bot/flight-watcher/2.0.0",
+    ]);
+  });
+
+  it("compares a contract whose schemas moved to a file of the package as written there", async () => {
+    const breaking = pendingOver(moved(["from", "to", "month"]));
+    const blocked = await signPending(breaking.io, next, () => 30, trusted);
+    expect(blocked.blocked.map((block) => block.reason)).toEqual([
+      "Its contracts would break bots that call 1.0.0: cheapest_fare: input.month became required. A breaking change takes a new contract name.",
+    ]);
+    const keeping = pendingOver(moved(["from", "to"]));
+    const signed = await signPending(keeping.io, next, () => 30, trusted);
+    expect(signed.signed).toEqual(["spade-bot/flight-watcher@2.0.0"]);
+  });
+
+  it("signs a version that keeps its callers working", async () => {
+    const { io, puts } = pendingOver(samplePackage(fare(["from"])));
+    const report = await signPending(io, next, () => 30, trusted);
+    expect(report.signed).toEqual(["spade-bot/flight-watcher@2.0.0"]);
+    expect(puts.map((put) => put.path)).toEqual([
+      "/v1/signer/versions/spade-bot/flight-watcher/2.0.0",
     ]);
   });
 });

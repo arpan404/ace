@@ -7,8 +7,8 @@ import {
   spadeTaskLine,
 } from "@ace/ui-core/spade-chat";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { SidebarSimpleIcon } from "@ace/icons";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { SidebarSimpleIcon, XIcon } from "@ace/icons";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
@@ -58,6 +58,14 @@ import { spadeWorks } from "./spade-works.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { actOnWake, useSpadeDigests } from "./spade-wakes-api.ts";
 import { panelReveal } from "@/components/ui/rules.ts";
+import { Skeleton } from "@/components/ui/skeleton.tsx";
+import { useBotPanels } from "./panels/panels-api.ts";
+import { spadePanelState } from "@ace/ui-core/spade-chat";
+
+/** A package's panel (ADR 0200 §5.2) loads its sandbox the first time one opens. */
+const BotPanelView = lazy(() =>
+  import("./panels/bot-panel.tsx").then((module) => ({ default: module.BotPanelView })),
+);
 
 /** Below 680px the profile takes the window (docs/design/spade.md §1). */
 const coverQuery = "(max-width: 42.49rem)";
@@ -89,6 +97,8 @@ export function Conversation(props: {
   files: FilesAt;
   /** An approval or question a notification opened, brought forward once it shows. */
   request?: string | undefined;
+  /** One of its package's panels open beside it, in place of the profile (ADR 0200 §5.2). */
+  panel?: string | undefined;
 }) {
   const { bot } = props;
   const conversation = useSpadeConversation(bot.conversation);
@@ -144,7 +154,8 @@ export function Conversation(props: {
     const remembered = readPanel(storage(), memoryKey);
     if (!arrived.current) {
       arrived.current = true;
-      if (tab === undefined && remembered.open) {
+      // A panel the route opened stays: the profile is remembered for when it closes.
+      if (tab === undefined && props.panel === undefined && remembered.open) {
         go(
           {
             profile: remembered.tab,
@@ -201,6 +212,7 @@ export function Conversation(props: {
       id: bot.id,
       name: bot.name,
       avatar: bot.avatar,
+      style: bot.style,
       others: new Map(
         props.roster
           .filter((other) => other.machine.key === bot.machine.key)
@@ -213,7 +225,11 @@ export function Conversation(props: {
   );
   const live = spadeLiveSurfaces(computer.computer);
   const using = live[0];
-  const panelShown = tab !== undefined;
+  // Its package's panels; the one the route names opens beside the chat, one at a time.
+  const panels = useBotPanels(bot.conversation, props.panel !== undefined);
+  const openPanel = tab === undefined ? panels.find((each) => each.id === props.panel) : undefined;
+  const showPanel = (panel: string) => go({ panel });
+  const panelShown = tab !== undefined || openPanel !== undefined;
 
   const chat = (
     <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
@@ -277,6 +293,9 @@ export function Conversation(props: {
                   return "";
                 },
               )
+            }
+            onOpenPanel={(panel) =>
+              panels.some((each) => each.id === panel) ? showPanel(panel) : undefined
             }
             onCardChoice={(cardId, version, action) =>
               conversation.chooseOnCard(cardId, version, action).then(
@@ -362,34 +381,49 @@ export function Conversation(props: {
     </div>
   );
 
-  const panel = tab && (
-    <SpadeProfile
-      bot={bot}
-      tab={tab}
-      onTab={(next) => go({ profile: next })}
-      computer={{
-        view: props.computer,
-        files: props.files,
-        onView: openComputer,
-        state: computer,
-        side: conversation.side,
-      }}
-      work={{
-        decisions: view.decisions,
-        entries: view.entries,
-        roster: props.roster,
-        onChange: (decision) => {
-          setQuote(decision.choice);
-          // Where the profile takes the window, the chat comes back to write in.
-          if (covering) closePanel();
-        },
-        onOpenFile: (path) =>
-          openComputer("files", { folder: path.split("/").slice(0, -1).join("/"), file: path }),
-        onOpenActivity: () => openComputer("activity"),
-      }}
-      covering={covering}
-      onClose={closePanel}
-    />
+  const panel = openPanel ? (
+    <Suspense fallback={<Skeleton className="m-4 h-24" />}>
+      <BotPanelView
+        key={openPanel.id}
+        bot={bot}
+        conversation={bot.conversation}
+        panel={openPanel}
+        state={spadePanelState(openPanel, view.panels)}
+        covering={covering}
+        onClose={() => go({})}
+      />
+    </Suspense>
+  ) : (
+    tab && (
+      <SpadeProfile
+        bot={bot}
+        tab={tab}
+        onTab={(next) => go({ profile: next })}
+        computer={{
+          view: props.computer,
+          files: props.files,
+          onView: openComputer,
+          state: computer,
+          side: conversation.side,
+        }}
+        work={{
+          decisions: view.decisions,
+          entries: view.entries,
+          roster: props.roster,
+          onChange: (decision) => {
+            setQuote(decision.choice);
+            // Where the profile takes the window, the chat comes back to write in.
+            if (covering) closePanel();
+          },
+          onOpenFile: (path) =>
+            openComputer("files", { folder: path.split("/").slice(0, -1).join("/"), file: path }),
+          onOpenActivity: () => openComputer("activity"),
+        }}
+        panels={{ list: panels, onOpen: showPanel }}
+        covering={covering}
+        onClose={closePanel}
+      />
+    )
   );
 
   return (
@@ -404,17 +438,37 @@ export function Conversation(props: {
                   {spadeForLaterWords(view.questionsForLater)}
                 </Button>
               )}
-              {panelShown ? (
+              {openPanel ? (
+                <IconButton
+                  icon={XIcon}
+                  label={`Close ${openPanel.title}`}
+                  tip="Close"
+                  onClick={() => go({})}
+                />
+              ) : panelShown ? (
                 // The top bar's part above the profile holds its strip: Share and close.
                 <ProfileStripActions bot={bot} onClose={closePanel} />
               ) : (
-                <IconButton
-                  icon={SidebarSimpleIcon}
-                  label={`Open ${bot.name}'s profile`}
-                  tip="Profile"
-                  className="-scale-x-100"
-                  onClick={() => openProfile()}
-                />
+                <>
+                  {/* Its panels, by name: the header is one way in (§5.2). */}
+                  {panels.slice(0, 2).map((each) => (
+                    <Button
+                      key={each.id}
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => showPanel(each.id)}
+                    >
+                      {each.title}
+                    </Button>
+                  ))}
+                  <IconButton
+                    icon={SidebarSimpleIcon}
+                    label={`Open ${bot.name}'s profile`}
+                    tip="Profile"
+                    className="-scale-x-100"
+                    onClick={() => openProfile()}
+                  />
+                </>
               )}
             </>
           )

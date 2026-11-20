@@ -45,6 +45,7 @@ import { followFileChanges } from "./checkout-request.ts";
 import { NativeFilesAction, routeFilesAction, type FilesActions } from "./checkout-actions.ts";
 import { CheckoutDownloads } from "./checkout-downloads.ts";
 import { CheckoutMemory } from "./checkout-memory.ts";
+import { CheckoutContentSearch } from "./checkout-content-search.ts";
 import { CheckoutTrees } from "./checkout-tree-live.ts";
 import { CheckoutUploads } from "./checkout-uploads.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
@@ -459,6 +460,7 @@ async function start(json: string): Promise<void> {
     downloads: new CheckoutDownloads(client, pump, { call, uuid: () => host.uuid() }),
     uploads: new CheckoutUploads(client, pump, nativeChunks),
     trees: new CheckoutTrees(client, files, pump, scheduler),
+    contents: new CheckoutContentSearch(client, pump, scheduler, () => host.uuid()),
   };
   followFileChanges(client, pump);
   const forgeClient = client;

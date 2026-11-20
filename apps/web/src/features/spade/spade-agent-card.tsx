@@ -1,15 +1,16 @@
 // oxlint-disable react/no-array-index-key -- a card's blocks, rows and cells have no ids; their place is theirs.
 import {
-  spadeAgentAccent,
+  type SpadeAgentStyle,
   type SpadeAvatar,
   type SpadeCardAction,
   type SpadeCardBlock,
   type SpadeCardRow,
 } from "@ace/ui-core/spade-chat";
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
+import { accentFill, useCardAccent } from "./spade-accent.ts";
 import { Pictures } from "./spade-media.tsx";
 
 /*
@@ -29,14 +30,15 @@ export type SpadeCardChoose = (
 export function SpadeAgentCard(props: {
   item: SpadeCardRow;
   avatar: SpadeAvatar;
+  /** The bot's `style` (§5.3): its accent over its face's colour when it holds. */
+  style?: SpadeAgentStyle | undefined;
   botName: string;
   onChoose: SpadeCardChoose;
+  /** Opens one of the bot's panels beside its chat; its buttons are left out without it. */
+  onOpenPanel?: ((panel: string) => void) | undefined;
 }) {
   const { item } = props;
-  const accent = {
-    "--agent-accent-light": spadeAgentAccent(props.avatar, "light") ?? "var(--border)",
-    "--agent-accent-dark": spadeAgentAccent(props.avatar, "dark") ?? "var(--border)",
-  } as CSSProperties;
+  const accent = useCardAccent(props);
   return (
     <section
       {...part("card", undefined, "spade-agent")}
@@ -48,7 +50,8 @@ export function SpadeAgentCard(props: {
         <h3 className="text-base leading-6 font-medium text-foreground">{item.card.title}</h3>
         <span
           aria-hidden
-          className="h-0.5 w-6 rounded-full bg-(--agent-accent-light) dark:bg-(--agent-accent-dark)"
+          data-agent-accent=""
+          className={cn("h-0.5 w-6 rounded-full", accentFill)}
         />
       </header>
       {item.card.blocks.map((block, index) => (
@@ -57,13 +60,19 @@ export function SpadeAgentCard(props: {
           block={block}
           item={item}
           onChoose={props.onChoose}
+          onOpenPanel={props.onOpenPanel}
         />
       ))}
     </section>
   );
 }
 
-function Block(props: { block: SpadeCardBlock; item: SpadeCardRow; onChoose: SpadeCardChoose }) {
+function Block(props: {
+  block: SpadeCardBlock;
+  item: SpadeCardRow;
+  onChoose: SpadeCardChoose;
+  onOpenPanel: ((panel: string) => void) | undefined;
+}) {
   const { block } = props;
   switch (block.kind) {
     case "fields":
@@ -176,7 +185,14 @@ function Block(props: { block: SpadeCardBlock; item: SpadeCardRow; onChoose: Spa
         </a>
       );
     case "actions":
-      return <Actions actions={block.actions} item={props.item} onChoose={props.onChoose} />;
+      return (
+        <Actions
+          actions={block.actions}
+          item={props.item}
+          onChoose={props.onChoose}
+          onOpenPanel={props.onOpenPanel}
+        />
+      );
     case "unknown":
       return null;
   }
@@ -186,8 +202,9 @@ function Actions(props: {
   actions: readonly SpadeCardAction[];
   item: SpadeCardRow;
   onChoose: SpadeCardChoose;
+  onOpenPanel: ((panel: string) => void) | undefined;
 }) {
-  const { item } = props;
+  const { item, onOpenPanel } = props;
   const [pressing, setPressing] = useState<string>();
   const [refused, setRefused] = useState<{ version: number; words: string }>();
   const chosen = item.chosen;
@@ -200,7 +217,9 @@ function Actions(props: {
       if (words) setRefused({ version: item.version, words });
     });
   };
-  const opens = props.actions.filter((a) => a.kind === "open");
+  const opens = props.actions.filter(
+    (a) => a.kind === "open" || (a.kind === "open_panel" && onOpenPanel),
+  );
   return (
     <div className="flex flex-col gap-2">
       {chosen ? (
@@ -241,6 +260,15 @@ function Actions(props: {
                 {action.label}
                 <span className="text-subtle-foreground">{action.host}</span>
               </a>
+            ) : action.kind === "open_panel" && onOpenPanel ? (
+              <Button
+                key={`panel:${action.panel}`}
+                size="sm"
+                variant="ghost"
+                onClick={() => onOpenPanel(action.panel)}
+              >
+                {action.label}
+              </Button>
             ) : null,
           )}
         </div>

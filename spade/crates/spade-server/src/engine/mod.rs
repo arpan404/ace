@@ -5,6 +5,7 @@
 mod adopt;
 mod agents;
 mod apps;
+mod archive;
 mod autonomy;
 mod bots;
 mod brain;
@@ -15,6 +16,8 @@ mod classify;
 mod compact;
 mod computer;
 mod continuation;
+mod contracts;
+mod contracts_remote;
 mod control;
 mod digests;
 mod drive;
@@ -39,10 +42,12 @@ mod maintenance;
 mod media;
 mod memory;
 mod moves;
+mod notify;
 pub mod onboarding;
 mod outbox;
 mod oversight;
 pub(crate) mod packages;
+mod panels;
 mod park;
 mod pause;
 mod plugin_hooks;
@@ -60,12 +65,15 @@ mod security;
 mod self_edit;
 mod services;
 mod speech;
+mod style;
+mod suggest;
 mod thread_asks;
 mod trim;
 mod try_again;
 mod turn;
 mod turn_log;
 mod types;
+mod updating;
 mod wake_sources;
 mod wakes;
 mod workers;
@@ -91,8 +99,10 @@ pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use panels::{PanelError, PanelView};
 pub use reach::ReachError;
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
+pub use suggest::{MarketBots, MarketFuture};
 pub use thread_asks::FROM_ACE;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
@@ -236,6 +246,10 @@ pub struct Engine {
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
     /// The person's apps (ADR 0131, `apps`), once the server has set them.
     apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
+    /// The market as suggestions read it (ADR 0200 §8, `suggest`), once the server has set it.
+    market: std::sync::OnceLock<Arc<dyn suggest::MarketBots>>,
+    /// Held while the open package suggestions are read and written.
+    suggest_lock: Mutex<()>,
     /// The scope each call about to run was allowed with, by call key, for the tool to check
     /// again where it runs (a terminal command's folder and variables, ADR 0142).
     allowed_scopes: Mutex<HashMap<String, String>>,
@@ -276,6 +290,8 @@ pub struct Engine {
     moves: moves::Shared,
     /// Bots the person paused, and the wakes met meanwhile (ADR 0200 §6.1, `pause`).
     pause_hold: pause::Shared,
+    /// Bots whose package update or rollback is being applied (ADR 0200 §6.2, `updating`).
+    updating: updating::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -285,9 +301,9 @@ pub struct Engine {
     /// which hold it there to order a Stop against it. Only with the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
     helper_start_hold: Mutex<Option<HelperStartHold>>,
-    /// Run, blocking, just before a wake or a service is admitted and stored; none outside
-    /// tests, which hold it there to order a Stop or a job's end against it. Only with the
-    /// `test-hooks` feature.
+    /// Run, blocking, just before a wake or a service is admitted and stored, and as a package
+    /// step starts; none outside tests, which hold it there to order a Stop or a job's end
+    /// against it, or to read a bot mid-update. Only with the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
     registration_hold: Mutex<Option<RegistrationHold>>,
 }
@@ -322,6 +338,10 @@ impl Engine {
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
             .with_tool(Arc::new(BotMessage(handle.clone())))
+            // Typed calls between the person's bots (ADR 0200 §7).
+            .with_tool(Arc::new(crate::tools::ContractsFind(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ContractCall(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ContractReturn(handle.clone())))
             .with_tool(Arc::new(HelperTool(handle.clone())))
             // A bot's own task, name and face.
             .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
@@ -331,6 +351,13 @@ impl Engine {
         if tools.get(spade_core::card::CARD_SHOW).is_none() {
             tools = tools.with_tool(Arc::new(crate::tools::CardShow::new(handle.clone(), None)));
         }
+        // `notify` and `package_suggest` (ADR 0200 §4.2, §8).
+        let tools = tools
+            .with_tool(Arc::new(crate::tools::Notify(handle.clone())))
+            .with_tool(Arc::new(crate::tools::PackageSuggest));
+        let mut tools = tools;
+        // `panel_update` (ADR 0200 §5.2): the state a packaged bot's panel shows.
+        tools = tools.with_tool(Arc::new(crate::tools::PanelUpdate(handle.clone())));
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -387,6 +414,8 @@ impl Engine {
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             apps: std::sync::OnceLock::new(),
+            market: std::sync::OnceLock::new(),
+            suggest_lock: Mutex::default(),
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             launches: Mutex::default(),
@@ -402,6 +431,7 @@ impl Engine {
             reach: reach::Shared::default(),
             moves: moves::Shared::default(),
             pause_hold: pause::Shared::default(),
+            updating: updating::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
@@ -528,6 +558,7 @@ impl Engine {
     pub(crate) fn activity(&self, id: &str) -> Result<Activity, StoreError> {
         let mut own = self.own_activity(id)?;
         own.state = spade_core::running::held(own.state, self.paused(id));
+        own.state = spade_core::running::updating(own.state, self.is_updating(id));
         Ok(self.roll_up(id, own))
     }
 
@@ -571,6 +602,16 @@ impl Engine {
             ace_waiting: ace.iter().any(|c| c.state.waiting()),
             ace_working: ace.iter().any(|c| c.state.working()),
             workers: 0,
+            calls: spade_core::contract::calling(events.iter(), &transcript.jobs)
+                .into_iter()
+                .filter(|called| called.machine.is_none())
+                .map(|called| called.bot.clone())
+                .collect(),
+            remote_calls: spade_core::contract::calling(events.iter(), &transcript.jobs)
+                .into_iter()
+                .filter(|called| called.machine.is_some())
+                .map(|called| called.call.clone())
+                .collect(),
         };
         self.activity
             .lock()
@@ -640,12 +681,17 @@ impl Engine {
             State::Waiting if activity.waiting_for == Some("worker") => {
                 Some(roster::WORKER_WAITING.to_owned())
             }
+            // A bot it called waits on the person for that call (ADR 0200 §6.2).
+            State::Waiting if activity.waiting_for == Some("callee") => {
+                Some(roster::CALLEE_WAITING.to_owned())
+            }
             State::Waiting => Some(roster::WAITING_FOR_YOU.to_owned()),
             State::Sleeping => activity
                 .wake
                 .as_ref()
                 .map(|open| spade_core::wake::words(open, |ms| self.short_time(ms))),
             State::Paused => Some(roster::PAUSED.to_owned()),
+            State::Updating => Some(roster::UPDATING.to_owned()),
             State::Working if self.held(id) => Some(computer::PAUSED_FOR_YOU.to_owned()),
             State::Working => Some(
                 self.live(id)
@@ -807,6 +853,23 @@ impl Engine {
                     ..
                 }) => {
                     if spade_core::card::choose(&events, card, *version, action).is_err() {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    false
+                }
+                // Each contract call is delivered once, by its key (ADR 0200 §7).
+                Event::Known(Known::UserMessage {
+                    from_agent: Some(from),
+                    ..
+                }) if from.contract.as_ref().is_some_and(|request| {
+                    spade_core::contract::delivered_at(&events, &request.call).is_some()
+                }) =>
+                {
+                    return Ok(spade_store::Delivered::Duplicate);
+                }
+                // A panel's action lands once per request (ADR 0200 §5.2), however often sent.
+                Event::Known(Known::PanelAction { key, .. }) => {
+                    if spade_core::panel::acted(&events, key) {
                         return Ok(spade_store::Delivered::Duplicate);
                     }
                     false
@@ -1140,7 +1203,8 @@ impl Engine {
             .unwrap_or_else(|p| p.into_inner()) = Some(hold);
     }
 
-    /// Has every wake and service run `hold` (blocking) just before it is admitted and stored.
+    /// Has every wake and service run `hold` (blocking) just before it is admitted and stored,
+    /// and every package update or rollback (`package_step`) once its bot reads updating.
     #[cfg(feature = "test-hooks")]
     pub fn hold_registrations(&self, hold: RegistrationHold) {
         *self

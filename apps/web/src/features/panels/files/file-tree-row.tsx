@@ -192,12 +192,12 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         onPointerLeave={props.onHoverEnd}
         onClick={(event) => props.onPick(row, event)}
         onDoubleClick={() => !folder && props.onActivate(row, "keep")}
-        // A middle click opens a file in a tab of its own, as a browser opens a link.
+        // A middle click opens a file to the side, as a browser opens a link in a tab of its own.
         onMouseDown={(event) => event.button === 1 && event.preventDefault()}
         onAuxClick={(event) => {
           if (event.button !== 1 || folder) return;
           event.preventDefault();
-          props.onActivate(row, "tab");
+          props.onActivate(row, "side");
         }}
         onKeyDown={(event) => props.onKeyDown(event, row, index)}
         {...props.drag?.row(row)}
