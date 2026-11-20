@@ -283,6 +283,14 @@ const RecipeRoutine = z.strictObject({
   schedule: trimmedText(1, 200),
 });
 
+/** How a Spade bot talks: its tone, and humour and emoji (both off unless chosen). */
+export const SpadePersonality = z.strictObject({
+  tone: z.enum(["concise", "warm", "formal", "playful"]).optional(),
+  humour: z.boolean().default(false),
+  emoji: z.boolean().default(false),
+});
+export type SpadePersonality = z.infer<typeof SpadePersonality>;
+
 /** A bot recipe: ADR 0132's bot file at version 2, which asks rather than grants (0168 §5). */
 export const Recipe = z.object({
   format: z.literal("spade-bot"),
@@ -304,6 +312,8 @@ export const Recipe = z.object({
     })
     .default({ connectors: [] }),
   notes: z.array(z.string().max(2000)).max(recipeLimits.notes).default([]),
+  /** How the bot talks from its first turn: a section of its own in its standing instructions. */
+  personality: SpadePersonality.optional(),
 });
 export type Recipe = z.infer<typeof Recipe> & { extra?: Record<string, unknown> };
 

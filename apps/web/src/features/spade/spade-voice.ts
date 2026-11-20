@@ -1,3 +1,6 @@
+import { hasDesktopBridge } from "@/boot/desktop.ts";
+import { allowMicrophone } from "@/boot/desktop-microphone.ts";
+
 /*
  * Voice in (ADR 0134): the microphone recorded with MediaRecorder, and, where the browser has
  * it, the Web Speech API listening alongside to turn the words into text on the device. Spade's
@@ -31,9 +34,12 @@ function recognitionConstructor(): RecognitionConstructor | undefined {
   return typeof found === "function" ? (found as RecognitionConstructor) : undefined;
 }
 
-/** The browser can turn speech into words itself. */
+/**
+ * The browser can turn speech into words itself. Not in the desktop app: Electron has the API
+ * but no service behind it, so it always fails there (`network`) and only wastes the first try.
+ */
 export function hasSpeechRecognition(): boolean {
-  return recognitionConstructor() !== undefined;
+  return recognitionConstructor() !== undefined && !hasDesktopBridge();
 }
 
 /** The browser can record the microphone. */
@@ -72,17 +78,33 @@ export interface VoiceSession {
 /** How long to wait for recognition to settle after the recording stops. */
 const settleMs = 3_000;
 
-/**
- * Start recording, with on-device recognition alongside when `recognize`. Once `signal` aborts
- * nothing starts: a microphone granted after that is released at once and this rejects.
- */
-export async function startVoice(recognize: boolean, signal: AbortSignal): Promise<VoiceSession> {
+/** The microphone, with the browser's echo cancelling on so ace's own voice is heard less. */
+export async function openMicrophone(signal: AbortSignal): Promise<MediaStream> {
   signal.throwIfAborted();
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const asking = allowMicrophone();
+  if (asking) await asking;
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true },
+  });
   if (signal.aborted) {
     for (const track of stream.getTracks()) track.stop();
     signal.throwIfAborted();
   }
+  return stream;
+}
+
+/**
+ * Start recording, with on-device recognition alongside when `recognize`. Once `signal` aborts
+ * nothing starts: a microphone granted after that is released at once and this rejects. With
+ * `borrowed`, it records that open stream and leaves it open when done (a spoken conversation
+ * keeps listening on it).
+ */
+export async function startVoice(
+  recognize: boolean,
+  signal: AbortSignal,
+  borrowed?: MediaStream,
+): Promise<VoiceSession> {
+  const stream = borrowed ?? (await openMicrophone(signal));
   const recorder = new MediaRecorder(stream);
   const chunks: Blob[] = [];
   recorder.addEventListener("dataavailable", (event) => {
@@ -125,7 +147,7 @@ export async function startVoice(recognize: boolean, signal: AbortSignal): Promi
   }
 
   const release = () => {
-    for (const track of stream.getTracks()) track.stop();
+    if (!borrowed) for (const track of stream.getTracks()) track.stop();
   };
   return {
     async finish() {

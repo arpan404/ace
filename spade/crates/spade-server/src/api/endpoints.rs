@@ -71,6 +71,9 @@ pub(super) struct Settings {
     /// The model that transcribes voice (ADR 0134).
     #[serde(default, deserialize_with = "present")]
     transcription_model: Option<Option<String>>,
+    /// The model that reads replies aloud (ADR 0134, amended).
+    #[serde(default, deserialize_with = "present")]
+    speech_model: Option<Option<String>>,
     /// The model new bots start on; `null` goes back to the first usable model.
     #[serde(default, deserialize_with = "present")]
     new_bot_model: Option<Option<String>>,
@@ -191,6 +194,7 @@ fn models_now(state: &AppState) -> Response {
         "presets": presets,
         "fast_model": fast,
         "transcription_model": engine.transcription_model().ok().flatten(),
+        "speech_model": engine.speech_model().ok().flatten(),
         "new_bot_model": engine.new_bot_model().ok().flatten(),
         "keychain": state.keys.is_some(),
         "starting": engine.starting().is_some(),
@@ -319,5 +323,52 @@ pub(super) async fn settings(
     {
         return problem(StatusCode::BAD_REQUEST, &error.to_string());
     }
+    if let Some(model) = body.speech_model
+        && let Err(error) = state.engine.set_speech_model(model.as_deref())
+    {
+        return problem(StatusCode::BAD_REQUEST, &error.to_string());
+    }
     StatusCode::NO_CONTENT.into_response()
+}
+
+/// Model servers on this computer (Ollama, LM Studio): whether each runs, its models, and the
+/// endpoint already added for it.
+pub(super) async fn local(State(state): State<AppState>) -> Response {
+    let servers: Vec<Value> = state
+        .engine
+        .local_servers()
+        .await
+        .into_iter()
+        .map(|s| {
+            json!({
+                "id": s.server.id, "name": s.server.name, "base_url": s.server.base_url,
+                "running": s.running, "models": s.models, "endpoint": s.endpoint,
+            })
+        })
+        .collect();
+    Json(json!({ "servers": servers })).into_response()
+}
+
+#[derive(Deserialize)]
+pub(super) struct LocalModel {
+    model: String,
+}
+
+/// Uses one of a local server's models: its endpoint added the first time, the model saved.
+pub(super) async fn use_local(
+    State(state): State<AppState>,
+    Path(server): Path<String>,
+    Body(body): Body<LocalModel>,
+) -> Response {
+    off_thread(
+        move || match state.engine.use_local_model(&server, &body.model) {
+            Ok((view, value)) => Json(json!({
+                "endpoint": one_endpoint(&state, &view),
+                "value": value,
+            }))
+            .into_response(),
+            Err(error) => endpoint_problem(&error),
+        },
+    )
+    .await
 }

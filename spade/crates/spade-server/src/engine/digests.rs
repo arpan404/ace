@@ -12,13 +12,16 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use spade_core::digest::schedule::{self, Settings};
 use spade_core::digest::{self, Digest, polish, render};
-use spade_core::escalation;
+use spade_core::escalation::{self, Level};
 use spade_core::event::Known;
+use spade_core::reach::notable::{engaged, notable};
+use spade_core::reach::{self, Category};
 use spade_core::{Event, routing::Role};
 use spade_store::{NewDigest, StoreError, StoredDigest, StoredEvent};
 use tokio::sync::{Notify, broadcast};
 
 use super::Engine;
+use super::reach::Outgoing;
 
 /// The longest the timer sleeps before it looks again.
 const LONGEST_SLEEP: Duration = Duration::from_secs(60);
@@ -31,11 +34,13 @@ const DEEPEST: usize = 16;
 
 pub(super) struct Shared {
     /// Notices for whoever listens (ace's daemon, a client): not stored.
-    notices: broadcast::Sender<Value>,
-    kick: Arc<Notify>,
+    pub(super) notices: broadcast::Sender<Value>,
+    pub(super) kick: Arc<Notify>,
     /// Where each bot's schedule last found nothing new, so a quiet window isn't built again
     /// every minute. Lost on restart, which only builds it once more.
     checked: Mutex<HashMap<String, i64>>,
+    /// When spend rates were last looked at (ADR 0195).
+    pub(super) spend_checked: Mutex<Option<i64>>,
     running: AtomicBool,
 }
 
@@ -45,6 +50,7 @@ impl Default for Shared {
             notices: broadcast::channel(256).0,
             kick: Arc::new(Notify::new()),
             checked: Mutex::default(),
+            spend_checked: Mutex::default(),
             running: AtomicBool::new(false),
         }
     }
@@ -66,31 +72,68 @@ impl Engine {
         self.digests.notices.subscribe()
     }
 
-    /// Sends a notice for each of `events` that has a level, when anyone listens. Called after
-    /// every write, so it does nothing more than a check when no one does.
+    /// Sends a notice for each of `events` worth telling the person: those with a level, and a
+    /// routine that spoke, a long job's end, a checked goal and a finished worker (ADR 0195).
+    /// Called after every write, so it does nothing more than a check when no one listens; the
+    /// history is read only for the events that need it.
     pub(super) fn notice_stored(&self, id: &str, events: &[StoredEvent]) {
         if self.digests.notices.receiver_count() == 0 {
             return;
         }
         let mut agent = None;
+        let mut history = None;
         for stored in events {
             let Event::Known(known) = &stored.event else {
                 continue;
             };
-            let (Some(level), Some(text)) = (escalation::level(known), escalation::sentence(known))
-            else {
-                continue;
+            let found = if matches!(
+                known,
+                Known::ReplyFinished { .. } | Known::JobFinished { .. }
+            ) {
+                let Some((events, stamps)) = history_of(self, id, &mut history) else {
+                    continue;
+                };
+                let Some(index) = stamps.iter().position(|(seq, _)| *seq == stored.seq) else {
+                    continue;
+                };
+                let at_ms: Vec<i64> = stamps.iter().map(|(_, at)| *at).collect();
+                notable(&events[..=index], &at_ms, index)
+            } else {
+                notable(std::slice::from_ref(&stored.event), &[stored.at_ms], 0)
             };
+            let Some(found) = found else { continue };
             if agent.is_none() {
                 agent = self.store.agent_for_conversation(id).ok().flatten();
             }
             // A helper's hidden conversation has no agent: its asks are its bot's.
             let Some(agent) = &agent else { return };
-            let _ = self.digests.notices.send(json!({
+            let engaged = found.category == Category::NeedsYou
+                && found.level == Some(Level::Ask)
+                && history_of(self, id, &mut history).is_some_and(|(events, stamps)| {
+                    let at_ms: Vec<i64> = stamps.iter().map(|(_, at)| *at).collect();
+                    engaged(&events, &at_ms, self.now_ms() - reach::ENGAGED_MS)
+                });
+            let mut notice = json!({
                 "kind": "event", "agent": agent.id, "name": agent.name, "conversation": id,
-                "seq": stored.seq, "at": stored.at_ms, "level": level,
-                "type": stored.event.to_json()["type"], "text": text,
-            }));
+                "seq": stored.seq, "at": stored.at_ms,
+                "type": stored.event.to_json()["type"], "text": found.text,
+            });
+            if let Some(level) = found.level {
+                notice["level"] = json!(level);
+            }
+            if let Some(request) = &found.request {
+                notice["request"] = json!(request);
+            }
+            self.reach_out(Outgoing {
+                notice,
+                id: format!("event:{id}:{}", stored.seq),
+                agent: agent.id.clone(),
+                name: agent.name.clone(),
+                category: found.category,
+                level: found.level,
+                engaged,
+                text: found.text,
+            });
         }
     }
 
@@ -186,10 +229,18 @@ impl Engine {
         to: i64,
         scheduled: bool,
     ) -> Result<Option<Value>, DigestError> {
-        let built = self.build_digest(&agent.conversation, &agent.id, &agent.name, from, to, 0)?;
+        let mut built =
+            self.build_digest(&agent.conversation, &agent.id, &agent.name, from, to, 0)?;
         if scheduled && built.quiet {
             return Ok(None);
         }
+        // What waited for the person in this tree comes here instead (ADR 0195).
+        let tree = tree_agents(&built);
+        built.away = self
+            .take_away(Some(&tree))?
+            .into_iter()
+            .map(|held| format!("{}: {}", held.name, held.text))
+            .collect();
         let time = |ms: i64| self.short_time(ms);
         let plain = render::text(&built, &time);
         let own = self.read_digest_settings(&spade_store::digests_key(&agent.id))?;
@@ -217,11 +268,21 @@ impl Engine {
             text: &plain,
             polished: polished.as_deref(),
         })?;
-        let _ = self.digests.notices.send(json!({
-            "kind": "digest", "agent": agent.id, "name": agent.name, "digest": id,
-            "level": escalation::Level::Inform,
-            "text": render::headline(&built, &time),
-        }));
+        let headline = render::headline(&built, &time);
+        self.reach_out(Outgoing {
+            notice: json!({
+                "kind": "digest", "agent": agent.id, "name": agent.name,
+                "conversation": agent.conversation, "digest": id,
+                "level": escalation::Level::Inform, "text": headline,
+            }),
+            id: format!("digest:{id}"),
+            agent: agent.id.clone(),
+            name: agent.name.clone(),
+            category: Category::Digest,
+            level: Some(escalation::Level::Inform),
+            engaged: false,
+            text: headline.clone(),
+        });
         Ok(self.digest_by_id(id)?)
     }
 
@@ -262,7 +323,11 @@ impl Engine {
     }
 
     /// The text rewritten by the `title` role's model, or `None` to keep the plain one.
-    async fn polish(self: &Arc<Self>, conversation: &str, plain: &str) -> Option<String> {
+    pub(super) async fn polish(
+        self: &Arc<Self>,
+        conversation: &str,
+        plain: &str,
+    ) -> Option<String> {
         let model = self.role_model(conversation, Role::Title);
         let prompt = polish::prompt(plain).session(conversation);
         let admitted = self.admit(conversation, &model).for_role(Role::Title);
@@ -357,7 +422,12 @@ impl Engine {
         tokio::spawn(async move {
             loop {
                 let Some(engine) = weak.upgrade() else { return };
-                let next = engine.digest_tick().await;
+                let digests = engine.digest_tick().await;
+                let reach = engine.reach_tick().await;
+                let next = match (digests, reach) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
                 let wait = next.map_or(LONGEST_SLEEP, |at| {
                     let ms = u64::try_from(at.saturating_sub(engine.now_ms())).unwrap_or(0);
                     Duration::from_millis(ms).min(LONGEST_SLEEP)
@@ -402,6 +472,29 @@ impl Engine {
             },
         ))
     }
+}
+
+/// The ids of a digest's bot and every worker under it.
+fn tree_agents(digest: &Digest) -> Vec<String> {
+    let mut ids = vec![digest.agent.clone()];
+    for worker in &digest.workers {
+        ids.extend(tree_agents(worker));
+    }
+    ids
+}
+
+type History = Option<(super::Events, super::turn_log::Stamps)>;
+
+/// The conversation's history with its stamps, read once per write and only when needed.
+fn history_of(
+    engine: &Engine,
+    id: &str,
+    history: &mut History,
+) -> Option<(super::Events, super::turn_log::Stamps)> {
+    if history.is_none() {
+        *history = engine.load_stamped(id).ok();
+    }
+    history.clone()
 }
 
 fn digest_json(row: &StoredDigest) -> Value {

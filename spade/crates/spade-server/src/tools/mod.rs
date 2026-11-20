@@ -4,6 +4,7 @@
 mod ace;
 mod ace_link;
 mod ace_wait;
+mod apps;
 mod bots;
 mod cloud_account;
 mod connectors;
@@ -83,6 +84,10 @@ pub struct ToolOutput {
     /// Where a command ran and how it went, stored as `command_ran` beside the result for the
     /// reply's steps; the model is not shown it. Set only by the tools that run commands.
     pub command: Option<Box<CommandRun>>,
+    /// Not run because the sign-in to this connector expired and couldn't be renewed: the call
+    /// waits on a Reconnect card and runs again once the person reconnects (ADR 0131,
+    /// amendment 1). Set only by connector tools.
+    pub reconnect: Option<String>,
 }
 
 /// Where a command ran and how it went (`command_ran`).
@@ -136,6 +141,7 @@ impl ToolOutput {
             shared: Box::default(),
             transient: false,
             command: None,
+            reconnect: None,
         }
     }
 
@@ -164,6 +170,7 @@ impl ToolOutput {
             shared: Box::default(),
             transient: false,
             command: None,
+            reconnect: None,
         }
     }
 
@@ -262,6 +269,12 @@ pub struct TurnFacts {
     /// The only untrusted thing in view is a summary drawn from untrusted text: a note saved or
     /// rewritten now is kept as a suggestion the person keeps or dismisses (memory.md).
     pub memory_suggests: bool,
+    /// The untrusted content in view, each in a few words, oldest first: what a note or entry
+    /// written now records as read (its origin).
+    pub in_view: Vec<String>,
+    /// The call running, set by the tool from its key: what a note or entry written now
+    /// records as having written it.
+    pub call: Option<String>,
 }
 
 /// Tools whose list changes while Spade runs, such as ace's. Every one is offered deferred, so

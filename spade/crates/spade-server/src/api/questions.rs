@@ -63,3 +63,33 @@ pub(super) async fn list(State(state): State<AppState>, Path(id): Path<String>) 
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }
 }
+
+/// `{connector, everyone?}`: the person connected the app a connect card asks for (ADR 0131,
+/// amendment 1). Spade checks the connector is that app and signed in, lets the bot that asked
+/// use it (every bot with `everyone`), and answers the card.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Connected {
+    connector: String,
+    #[serde(default)]
+    everyone: bool,
+}
+
+pub(super) async fn connected(
+    State(state): State<AppState>,
+    Path((id, call_id)): Path<(String, String)>,
+    Json(body): Json<Connected>,
+) -> Response {
+    match state
+        .engine
+        .app_connected(&id, &call_id, &body.connector, body.everyone)
+    {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(QuestionError::NotFound) => problem(StatusCode::NOT_FOUND, "no such conversation"),
+        Err(error @ QuestionError::NotOpen) => problem(StatusCode::CONFLICT, &error.to_string()),
+        Err(QuestionError::Invalid(why)) => problem(StatusCode::BAD_REQUEST, &why),
+        Err(QuestionError::Store(error)) => {
+            problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string())
+        }
+    }
+}

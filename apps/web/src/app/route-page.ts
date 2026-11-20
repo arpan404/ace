@@ -75,6 +75,7 @@ export const routePages = {
   "/settings/remote/$machine_/apps": null,
   "/settings/remote/every-machine": null,
   "/settings/remote/map": null,
+  "/tray": null,
 } as const satisfies Record<RouteId, SuitPage | null>;
 
 const known: Readonly<Record<string, SuitPage | null>> = routePages;

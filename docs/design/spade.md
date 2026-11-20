@@ -21,8 +21,15 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Profile** (ace's side panel). One place per bot: Details, Library, Computer. The person keeps
   talking while they change the bot, and watches its computer beside the chat. Below 680px the
   profile takes the window; on iPhone it is a sheet.
-- **Settings › Spade.** General (run, model for new bots, fast, review, transcription, voice,
-  spending), Models, Web search, Apps.
+- **Settings › Spade › Apps** lists each connected app with its health (Working, Needs
+  reconnect), the account, the bots that use it and when one last did, with Reconnect and
+  Disconnect. A bot's Apps (in Details) offer Use <App> for apps connected already and the apps
+  that fit its task, each a click from connected.
+- **Settings › Spade.** General (run, model for new bots, fast, review, transcription, speech,
+  Speak replies and voice, notifications, spending), Models, Web search, Apps. Notifications
+  (ADR 0195): Notify me, Do not disturb, Quiet hours, Interruptions an hour and a day, Morning
+  brief (its time, the bots and clubs it covers, a rewrite with the fast model) and Unusual
+  spending, each a switch that applies at once.
 
 ## 2. List
 
@@ -86,6 +93,15 @@ Spade is one of ace's places. It adds no navigation of its own.
   reached the network, pushed, commented, sent). Words only: no icons, badges or tints. Notes it
   saved and what it showed the person keep their own places. Helpers are one line each, opening
   to their steps. Raw markdown and raw tool arguments never show.
+- **Undo.** When a reply changed the bot's files, its step line ends in the quiet words "Undo
+  these changes" (the whole turn, from its first file-changing step), and each such step offers
+  them too. They open a dialog that first says what goes back, which new files are removed and which
+  deleted files come back (paths in mono on `--chat-well`), and what undo can't take back, then
+  Undo. A step undo can't reach says so plainly in its own line, in full ink: "Can't be undone:
+  it was sent in your name.", "…a payment can't be taken back from here.", "…it's published.",
+  "Can't be undone here: it changed linear." The step's declared effect decides it, not its name (ADR 0167, spade/docs/security.md).
+- **What it had in mind.** Under a finished reply whose message recalled notes, one quiet line
+  ("Had 2 notes in mind") opens to them; each opens where it's from.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.
 - **Raised card** (an open question or request, and only those): `--chat-raised`, its edge and
   lift (`shadow-chat-raised`), 18 corners, 20px padding, at most 600px. The amber needs-you glyph
@@ -93,6 +109,15 @@ Spade is one of ace's places. It adds no navigation of its own.
   primary at the footer's right, a pill: Send (⌘↵), Next before the last question, Allow (↵, Esc
   denies). Quieter answers are ghost words on the left. Fields and options sit on `--chat-well`.
   A refused answer says why under the field.
+- **Connect card** (a bot asking for an app, ADR 0131 amendment 1): a raised card whose first
+  line is the app's mark and name, with "<Bot> asks to use it" (or that its sign-in ended); the
+  bot's reason; "<Bot> will be able to:" and the catalogue's lines; one quiet line that the person
+  signs in on the app's own page. One primary in words: Connect <App>, Add a key (its two steps
+  and a field inline), Use <App> or Reconnect <App>; Later and Not now as ghost words; "Let every
+  bot use <App>" as a checkbox. While signing in, one line says what to do in the browser, with
+  Cancel; a failure says what fixes it. Connected, it settles to one quiet line with the mark
+  ("Connected as ada@example.com"); an app not available yet is the bot's bubble with "Not
+  available yet", and nothing waits.
 - **Settled cards.** An answered question becomes a quiet bot bubble, the answer the person's own
   bubble. A request becomes one line ("Allowed · curl -s …"); in a run, they fold into the reply's
   steps. Left for later, a card folds to one line in place with Answer, and one pill above the
@@ -100,18 +125,23 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Composer.** The capsule: + on the left, the field, then the trailing slot. Empty, a mic for
   dictation and a filled round voice button (the accent, 40px); typed, the filled button is Send;
   while the bot works, Stop. Waiting on the person is not working, so a card shows Send. Spade
-  off is said once, above the composer. Voice mode comes later: until it ships, the voice button
-  is drawn but off.
+  off is said once, above the composer. The voice button starts a hands-free conversation
+  (ADR 0134, amended): while it lasts, one quiet line above the composer says where it is in
+  words (Listening, Hearing you, Turning it into words, "Flights is thinking", "Flights is
+  speaking · Esc to stop") with End; nothing is tinted. With no way to turn speech into words
+  yet, the mic or the voice button first shows a strip with one button per endpoint that can.
 
 ## 4. Profile
 
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
   22/28 at 600 ("Full access" under it, quiet, while the bot is in it), then Details · Library ·
   Computer as a segmented control in the body.
-- **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps, security
+- **Details:** task, model (one picker, grouped by endpoint), machine, voice (Speak replies and
+  the bot's voice, kept on this device), routines, apps, security
   (first "How it decides": Auto-review or Full access, with one sentence under Full access saying
   what still asks; turning it on asks first in a dialog, words only, the first time for that bot),
-  spending, then Duplicate and Delete. The machine row carries Move to…, a menu of the other
+  spending, notifications (Notify me, on unless turned off for this bot), then Duplicate and
+  Delete. The machine row carries Move to…, a menu of the other
   machines with Spade (an offline one named and not choosable); Spade read through a machine that
   isn't its host offers Move Spade to this machine (ADR 0187). A move, a failed move or what needs
   the person after one is one sentence above the task with its text buttons (Cancel; Try again
@@ -119,8 +149,16 @@ Spade is one of ace's places. It adds no navigation of its own.
   back. The face opens a popover to change it.
 - **Routines** are a section of Details: schedule, webhook (its address and secret only here, with
   Copy), heartbeat, on a thread event. A row says a failed last run in words; paused reads paused.
-- **Library:** notes (Spade's own starts with About you), files and skills. A suggested note offers
-  Keep or Dismiss; ↵ saves an edit, Esc puts it back.
+- **Library:** notes (Spade's own starts with About you), pages, Learned from, past work, files
+  and skills. A suggested note offers Keep or Dismiss; ↵ saves an edit, Esc puts it back. Each
+  note (on hover, like Delete) and each page offers "Where it's from": a dialog with who wrote
+  it, the conversation and the message it answered, what it had read, its trust and when, then
+  Forget this, Correct this, and "Forget everything from …" for each of its sources. **Learned
+  from** lists those sources (a conversation, a site, an app, an import) with what each taught,
+  and Forget all behind a confirm; the person's own words are never in it.
+- **Personality** (a section of Details, after Runs with): Tone (its own way, Concise, Warm,
+  Formal, Playful), Humour and Emoji switches, off until turned on. Saved as each changes, taken
+  from the next turn.
 - **Computer:** the surfaces it used (screen, browser, terminal) live at panel size, Activity in
   words (only exceptions stand out), and Take over only while it drives (it is at work and the
   surface is live, never live alone: Spade keeps a surface live a while after its last use);
@@ -128,7 +166,14 @@ Spade is one of ace's places. It adds no navigation of its own.
   no face, button or spinner.
   While the computer starts, its small face and "Waking up…". Never used: one line.
 
-## 5. New bot and groups
+## 5. First run, new bot and groups
+
+- **First run.** Once Spade is on and has a model, the main Spade's chat ends in a raised card:
+  four short questions, one at a time (‹ n/4 ›: what to call you, what you do, what you want help
+  with, how you like to be talked to, the last with quick picks), each skippable, and Skip for
+  now. The answers become About-you notes, edited later in Library › About you. Then a second
+  card offers the templates as starter bots, each with Create; Done or Not now. Spade remembers
+  either way.
 
 - **New bot** is a conversation, not a form: under the name, one quiet line that opens the
   profile (model and machine live there; every bot starts on the auto-review, and Full access is

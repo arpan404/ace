@@ -184,6 +184,16 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::moves::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // How a bot talks (its personality), and where each note and knowledge entry came
+        // from (its origin). Columns only: nothing is rewritten, so opening stays instant.
+        sql: "
+    ALTER TABLE agents ADD COLUMN personality TEXT;
+    ALTER TABLE notes ADD COLUMN origin TEXT;
+    ALTER TABLE knowledge ADD COLUMN origin TEXT;
+",
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

@@ -9,7 +9,12 @@ import type {
   SpadeStoppedKind,
 } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
-import { spadeCardQuestions, type SpadeQuestion, type SpadeQuestionStanding } from "./questions.ts";
+import {
+  spadeCardQuestions,
+  spadeConnectOf,
+  type SpadeQuestion,
+  type SpadeQuestionStanding,
+} from "./questions.ts";
 import {
   emptySpadeCapabilities,
   foldSpadeCapability,
@@ -84,6 +89,11 @@ export type SpadeReplyPart =
       weight?: SpadeStepWeight;
       /** Where a command ran and how it went, once Spade says (`command_ran`). */
       ran?: SpadeCommandRan;
+      /**
+       * What the tool declared it does, as Spade's gate read it (`send_as_person`, `pay`,
+       * `publish`, `change_access`, `network`…), from its `tool_started`.
+       */
+      effect?: string;
     }
   /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
@@ -166,6 +176,8 @@ export type SpadeEntry =
       fromGroup?: { id: string; name: string };
       /** When Spade stored it; a message not stored yet has none. */
       at?: number;
+      /** The notes Spade recalled for it, by id: what the reply to it had in mind (ADR 0128). */
+      recalled?: readonly string[];
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
@@ -504,6 +516,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ...(event.from_group
           ? { fromGroup: { id: event.from_group.id, name: event.from_group.name } }
           : {}),
+        ...recalledOf(event.context),
         ...stamp(stored),
       });
       return true;
@@ -646,6 +659,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         patchCall(state, event.reply, event.call_id, (part) =>
           part.weight === "destructive" || part.weight === weight ? undefined : { ...part, weight },
         );
+      const effect = event.effect ?? undefined;
+      if (effect)
+        patchCall(state, event.reply, event.call_id, (part) =>
+          part.effect === effect ? undefined : { ...part, effect },
+        );
       return true;
     }
     case "command_ran":
@@ -693,13 +711,29 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ],
       }));
     case "question_asked": {
-      // Asked again (a replay): the card already stands where it was first asked.
-      if (updateQuestion(state, event.call_id, (card) => card)) return false;
+      // A call that stopped to ask the person (its sign-in to reconnect) runs no longer: the bot
+      // waits on them, as for any question.
+      if (state.running.delete(event.call_id))
+        setCall(state, event.reply, event.call_id, undefined, "waiting");
+      const questions = spadeCardQuestions(event.questions, event.question);
+      // A call held on a Reconnect card that was refused again asks again, in the same place.
+      const again = spadeConnectOf(questions)?.retry === true;
+      const known = updateQuestion(state, event.call_id, (card) =>
+        again && card.standing !== "waiting"
+          ? { ...card, questions, standing: "waiting", answers: undefined, typed: false }
+          : card,
+      );
+      if (known) {
+        if (again && state.open?.reply === event.reply)
+          state.question = { reply: event.reply, callId: event.call_id };
+        // Asked again as a replay: the card already stands where it was first asked.
+        return again;
+      }
       const card: { kind: "question"; key: string } & SpadeQuestionCard = {
         kind: "question",
         key,
         callId: event.call_id,
-        questions: spadeCardQuestions(event.questions, event.question),
+        questions,
         standing: "waiting",
         answers: undefined,
         typed: false,
@@ -892,6 +926,14 @@ const sameMessage = (
 function helperEntry(state: SpadeConversationState, job: string) {
   const line = state.entries.find((entry) => entry.kind === "helper" && entry.job === job);
   return line?.kind === "helper" ? line : undefined;
+}
+
+/** The note ids a message's fixed context recalled (`- [n_4] …` lines); nothing for none. */
+function recalledOf(context: string | null | undefined): { recalled?: readonly string[] } {
+  const ids = [...(context ?? "").matchAll(/^- \[(n_[A-Za-z0-9_-]+)\]/gm)].flatMap((m) =>
+    m[1] ? [m[1]] : [],
+  );
+  return ids.length ? { recalled: [...new Set(ids)] } : {};
 }
 
 /** When Spade stored an event, for the entry it makes; nothing when the event had no time. */

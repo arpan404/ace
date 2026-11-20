@@ -18,9 +18,11 @@ import {
   type OpenDialogOptions,
 } from "electron";
 import { shell } from "electron";
+import type { WebContents } from "electron";
 import type {
   AppInfo,
   DaemonConnection,
+  DeepLink,
   NativeAppearance,
   VisualizationWindow,
   WindowBackground,
@@ -31,13 +33,15 @@ import type { DoctorReport } from "../shared/onboarding.ts";
 import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
+import type { SpadeTalkState } from "../shared/contract.ts";
+import { withTalkDefault } from "./spade-talk.ts";
 import type { AppUpdates } from "./os/app-updates.ts";
 import type { SandboxNotice } from "../shared/contract.ts";
 import { writeClipboardImage } from "./os/clipboard.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
 import { appIdentities, systemApplication, systemApplicationIcon } from "./os/app-identity.ts";
 import { appIcons, appOnDisk, editorIcons } from "./os/editor-icon.ts";
-import { openPermissionPane, permissions } from "./os/permissions.ts";
+import { microphonePermission, openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
 import type { SpadeDirect } from "./spade/direct.ts";
 import { spadeHandlers } from "./spade/handlers.ts";
@@ -98,6 +102,10 @@ export function createHandlers(options: {
   updates: AppUpdates;
   /** What the quick-thread shortcut still needs from the person here (os/hyprland-shortcut.ts). */
   shortcutHint?(): Promise<string | undefined>;
+  /** The same for the push-to-talk shortcut. */
+  talkShortcutHint?(): Promise<string | undefined>;
+  /** How the push-to-talk turn goes, as the page says, for its indicator. */
+  spadeTalk?: { report(state: SpadeTalkState): void };
   /** Chromium's sandbox setup on a Linux AppImage or tar.gz (os/linux-sandbox-setup.ts). */
   sandbox: {
     current(): SandboxNotice;
@@ -107,6 +115,13 @@ export function createHandlers(options: {
   };
   /** The direct path to Spade on this computer (ADR 0123). */
   spade: SpadeDirect;
+  /** The menu-bar popover (os/tray-popover.ts); each call is refused from any other page. */
+  tray: {
+    open(link: DeepLink | undefined, sender: WebContents | undefined): void;
+    fit(height: number, sender: WebContents | undefined): void;
+    hide(sender: WebContents | undefined): void;
+    quit(completely: boolean, sender: WebContents | undefined): void;
+  };
 }): Handlers {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
@@ -157,6 +172,22 @@ export function createHandlers(options: {
     },
     "app.reload": () => {
       options.reload();
+      return undefined;
+    },
+    "tray.open": (link, sender) => {
+      options.tray.open(link ?? undefined, sender);
+      return undefined;
+    },
+    "tray.fit": (height, sender) => {
+      options.tray.fit(height, sender);
+      return undefined;
+    },
+    "tray.hide": (_request, sender) => {
+      options.tray.hide(sender);
+      return undefined;
+    },
+    "tray.quit": ({ completely }, sender) => {
+      options.tray.quit(completely, sender);
       return undefined;
     },
     "daemon.connection": () => options.connection(),
@@ -259,15 +290,21 @@ export function createHandlers(options: {
       options.openVisualization(request);
       return undefined;
     },
-    "settings.get": () => settings.get(),
+    "settings.get": () => withTalkDefault(settings.get(), process.platform),
     "settings.shortcutHint": async () => (await options.shortcutHint?.()) ?? null,
+    "settings.talkShortcutHint": async () => (await options.talkShortcutHint?.()) ?? null,
+    "spade.talkState": (state) => {
+      options.spadeTalk?.report(state);
+      return undefined;
+    },
     "settings.update": async (patch) => {
       // A downloads folder must be one this app can save in, now.
       if (patch.browserDownloads) await writableFolder(patch.browserDownloads);
-      return settings.update(patch);
+      return withTalkDefault(await settings.update(patch), process.platform);
     },
     "permissions.status": () => permissions(),
     "permissions.open": (pane) => openPermissionPane(pane),
+    "permissions.microphone": () => microphonePermission(),
     "browser.place": (placement, sender) => {
       const window = sender && BrowserWindow.fromWebContents(sender);
       // Bounds are the page's CSS pixels; the view is placed in window DIPs.

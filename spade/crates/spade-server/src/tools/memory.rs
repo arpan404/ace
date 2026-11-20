@@ -154,14 +154,15 @@ impl Tool for MemoryTool {
     }
 
     fn run_in(&self, key: &str, arguments: Value, turn: &TurnFacts) -> ToolFuture {
-        let (engine, call, suggest) = (self.engine.get(), self.call, turn.memory_suggests);
+        let (engine, call, mut turn) = (self.engine.get(), self.call, turn.clone());
         let caller = key
             .split_once('.')
             .map_or(key, |(conversation, _)| conversation)
             .to_owned();
+        turn.call = key.split_once('.').map(|(_, call)| call.to_owned());
         Box::pin(async move {
             match engine {
-                Some(engine) => engine.memory_call(&caller, call, &arguments, suggest),
+                Some(engine) => engine.memory_call(&caller, call, &arguments, &turn),
                 None => ToolOutput::error("Spade is stopping."),
             }
         })

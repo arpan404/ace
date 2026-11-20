@@ -15,6 +15,11 @@ const rows: {
     description: "Messages addressed to you.",
   },
   {
+    key: "spade",
+    title: "Spade",
+    description: "Your bots, as Spade's notification settings allow.",
+  },
+  {
     key: "needsYou",
     title: "Needs you",
     description: "Approvals, questions and plans.",

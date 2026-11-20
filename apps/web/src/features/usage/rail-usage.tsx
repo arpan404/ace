@@ -24,21 +24,10 @@ import { useUsageHeadroom } from "./use-usage-headroom.ts";
  */
 export function UsagePlace(props: { current: boolean }) {
   const usage = useUsageHeadroom();
-  const machines = useMachines();
+  const redeem = useRedeemReset(usage.refresh);
   const [open, setOpen] = useState(false);
   // A banked reset's confirmation sits over the card; the card stays until it closes.
   const confirming = useRef(false);
-  const redeem: RedeemReset = async (entry, idempotencyKey) => {
-    const client = machines.find((machine) => machine.primary)?.client;
-    if (!client) throw new Error("Machine is offline");
-    const reply = await client.request({
-      type: "accounts.consumeReset",
-      instanceId: entry.account.id,
-      idempotencyKey,
-    });
-    await usage.refresh();
-    return reply.outcome;
-  };
   return (
     <HoverCard
       open={open}
@@ -88,6 +77,22 @@ export function UsagePlace(props: { current: boolean }) {
   );
 }
 
+/** Spends one of an account's banked resets on this computer's daemon, then reads usage again. */
+export function useRedeemReset(refresh: () => Promise<unknown>): RedeemReset {
+  const machines = useMachines();
+  return async (entry, idempotencyKey) => {
+    const client = machines.find((machine) => machine.primary)?.client;
+    if (!client) throw new Error("Machine is offline");
+    const reply = await client.request({
+      type: "accounts.consumeReset",
+      instanceId: entry.account.id,
+      idempotencyKey,
+    });
+    await refresh();
+    return reply.outcome;
+  };
+}
+
 /** One grid for every row of the card: label, bar, share left, when. */
 const cardGrid = "grid grid-cols-[3.75rem_minmax(0,1fr)_2.25rem_7.25rem] items-center gap-x-2.5";
 
@@ -106,7 +111,6 @@ function UsageCard(props: {
   onDialogChange(open: boolean): void;
   close(): void;
 }) {
-  const shown = props.rail.accounts.filter((entry) => entry.windows.length > 0);
   return (
     <div data-slot="usage-card" className="text-ui tabular-nums">
       <p className="flex h-6 items-center justify-between">
@@ -117,14 +121,48 @@ function UsageCard(props: {
             : `Read ${formatAgo(props.observedAt, props.now)}`}
         </span>
       </p>
-      {shown.length === 0 && (
-        <p className="mt-1 text-xs text-subtle-foreground">No limits read yet.</p>
-      )}
+      <UsageAccounts
+        rail={props.rail}
+        now={props.now}
+        redeem={props.redeem}
+        onDialogChange={props.onDialogChange}
+      />
+      <p className="mt-3 flex h-8 items-center justify-between border-t border-border text-xs">
+        <span className="text-subtle-foreground">
+          {props.rail.pinned ? "Pinned" : "Used most this week"}
+        </span>
+        <Link
+          to="/usage"
+          onClick={props.close}
+          className="rounded-xs font-medium text-foreground focus-ring hover:underline"
+        >
+          Open Usage ›
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Each provider's current account and every window it reports, its banked resets on its name's
+ * line: the card's body, and the menu-bar popover's Usage.
+ */
+export function UsageAccounts(props: {
+  rail: RailUsage;
+  now: number;
+  redeem: RedeemReset;
+  onDialogChange(open: boolean): void;
+}) {
+  const shown = props.rail.accounts.filter((entry) => entry.windows.length > 0);
+  if (shown.length === 0)
+    return <p className="mt-1 text-xs text-subtle-foreground">No limits read yet.</p>;
+  return (
+    <>
       {shown.map((entry) => (
         <section
           key={entry.key}
           aria-label={`${entry.account.providerLabel} · ${entry.account.label}`}
-          className="mt-3"
+          className="mt-3 first:mt-0 text-ui tabular-nums"
         >
           <div className="mb-1 flex items-center gap-1.5">
             <ProviderIcon
@@ -144,19 +182,7 @@ function UsageCard(props: {
           ))}
         </section>
       ))}
-      <p className="mt-3 flex h-8 items-center justify-between border-t border-border text-xs">
-        <span className="text-subtle-foreground">
-          {props.rail.pinned ? "Pinned" : "Used most this week"}
-        </span>
-        <Link
-          to="/usage"
-          onClick={props.close}
-          className="rounded-xs font-medium text-foreground focus-ring hover:underline"
-        >
-          Open Usage ›
-        </Link>
-      </p>
-    </div>
+    </>
   );
 }
 

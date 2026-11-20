@@ -73,7 +73,22 @@ export async function spadeBlob(
   path: string,
   signal?: AbortSignal,
 ): Promise<Blob> {
-  const answer = await spadeAnswer(client, { method: "GET", path }, signal);
+  return blobOf(await spadeAnswer(client, { method: "GET", path }, signal));
+}
+
+/** A binary answer to a request with a JSON body (spoken audio), as a Blob. */
+export async function spadePostBlob(
+  client: SpadeTarget,
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return blobOf(
+    await spadeAnswer(client, { method: "POST", path, body: JSON.stringify(body) }, signal),
+  );
+}
+
+function blobOf(answer: { body: SpadeBody; contentType: string | undefined }): Blob {
   const type = answer.contentType ?? "application/octet-stream";
   const { body } = answer;
   if ("text" in body) return new Blob([body.text], { type });

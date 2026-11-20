@@ -140,6 +140,7 @@ export const spadeMediaCapabilities = [
   "image-generation",
   "image-output",
   "transcription",
+  "speech",
 ] as const;
 export type SpadeMediaCapability = (typeof spadeMediaCapabilities)[number];
 

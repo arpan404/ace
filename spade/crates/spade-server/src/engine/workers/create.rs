@@ -59,9 +59,11 @@ struct Arguments {
 }
 
 impl Engine {
-    /// Sets where connectors are granted to workers. Once; later calls are ignored.
-    pub fn set_connector_grants(&self, grants: Arc<dyn ConnectorGrants>) {
-        let _ = self.workers.grants.set(grants);
+    /// Sets the person's apps: where connectors are granted to workers, and what a bot asking
+    /// for an app is answered from. Once; later calls are ignored.
+    pub fn set_connector_grants(&self, hub: Arc<spade_connect::Connectors>) {
+        let _ = self.apps.set(hub.clone());
+        let _ = self.workers.grants.set(hub);
     }
 
     /// The person's apps, as bots are let use them; `None` when Spade has none.
@@ -178,6 +180,7 @@ impl Engine {
             Event::Known(Known::AgentConfigured {
                 task: task.clone(),
                 model: model.clone(),
+                personality: None,
             }),
             // Named by its maker: no model call for a title.
             Event::renamed(name.clone()),

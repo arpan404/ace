@@ -26,3 +26,6 @@ export {
 export { OnMachine, machineAwayText } from "./on-machine.tsx";
 export { rememberMachine, rememberedMachine, targetMachine } from "./new-thread/machine-choice.ts";
 export { ThreadHoverPreview } from "./thread-hover-preview.tsx";
+/** A thread row's live view model and its status and provider marks, for the menu-bar popover. */
+export { useThreadCard } from "./use-thread-card.ts";
+export { RowProvider, RowStatus } from "./row-parts.tsx";

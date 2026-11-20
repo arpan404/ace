@@ -52,6 +52,7 @@ fn wrote(reply: &str) -> Event {
         name: "workspace_write".into(),
         risk: Some(Risk::Write),
         background: false,
+        effect: None,
     })
 }
 
