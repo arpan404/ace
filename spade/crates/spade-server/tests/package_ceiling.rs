@@ -222,10 +222,10 @@ async fn without_the_markets_signature_a_package_installs_as_local_and_claims_no
     assert!(bots(&spade).await?.is_empty());
     // No identity at all: a local package, linked so its ceiling holds, never a market one.
     let mut local = install(hosts_on(), false);
-    local.as_object_mut().map(|body| {
+    if let Some(body) = local.as_object_mut() {
         body.remove("package");
         body.remove("envelope");
-    });
+    }
     let (status, made) = spade.post("/v1/agents", local).await?;
     assert_eq!(status, 201, "{made}");
     let identity = &made["agent"]["package"];

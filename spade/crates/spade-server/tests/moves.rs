@@ -572,19 +572,24 @@ async fn a_large_bot_arriving_never_holds_up_the_other_bots_requests() -> Result
 #[tokio::test]
 async fn a_moved_bot_keeps_its_package_link_and_installed_version() -> Result {
     let (_fleet, laptop, studio) = pair().await?;
-    let package = json!({ "source": "market", "name": "flight-watcher", "version": "1.0.0", "hash": "hash-1.0.0" });
+    let recipe = json!({
+        "format": "spade-bot", "version": 3, "requires": { "runtime": "1" },
+        "name": "Flight watcher", "blurb": "Watches fares.",
+        "task": "You watch flight fares for the person.", "model": "capable",
+        "triggers": [{ "kind": "message" }],
+        "effects": [{ "effect": "publish", "why": "Posts a weekly fare report." }],
+        "notes": [], "pricing": { "kind": "free" }
+    });
+    // The market's signature is what gives it this identity (ADR 0200 §3.2).
+    support::market::trust(&laptop.engine);
+    let envelope = support::market::envelope("flight-watcher", "1.0.0", &recipe);
+    let package = json!({ "source": "market", "name": "flight-watcher", "version": "1.0.0", "hash": envelope["signed"]["body"]["hash"] });
     let (status, made) = laptop
         .post(
             "/v1/agents",
             json!({
-                "recipe": {
-                    "format": "spade-bot", "version": 3, "requires": { "runtime": "1" },
-                    "name": "Flight watcher", "blurb": "Watches fares.",
-                    "task": "You watch flight fares for the person.", "model": "capable",
-                    "triggers": [{ "kind": "message" }],
-                    "effects": [{ "effect": "publish", "why": "Posts a weekly fare report." }],
-                    "notes": [], "pricing": { "kind": "free" }
-                },
+                "recipe": recipe,
+                "envelope": envelope,
                 "from_recipe": { "source": "market", "name": "flight-watcher", "version": "1.0.0", "transaction": "install-1" },
                 "package": package,
                 "grants": { "connectors": [], "plugins": [], "skills": [] },
