@@ -19,13 +19,14 @@ must agree). Version 3 adds, beside version 2's fields:
 | `limits`   | `spend_alert {usd_per_day}`, `workers_at_once`, `workspace_mb`: an alert line and bounds, never a stop                                                                                          |
 | `pricing`  | `{kind: "free"}` only; missing reads as free                                                                                                                                                    |
 | `tests`    | `tests/<name>.json` scenario files in the package                                                                                                                                               |
+| `surfaces` | Cards (`cards/<name>.json`) and panels (`panels/<id>/index.html` with a title, a state schema and declared actions), [surfaces.md](surfaces.md)                                                 |
 
 Version 2's `routines` read as schedule triggers. Refused whole: anything named or shaped like a
 secret; `publisher`, `signature`, `hash`, `package` or a string `version` (identity is the signed
 manifest's); `mcpServers`, `hooks`, `commands` and other executions (those are plugins'); the
 `credential` effect; a grant other than `drive_site`, `drive_app` or `tool` (and any grant under a
-send, payment or access change); any price but free. Fields this build doesn't know (`surfaces`
-and `contracts` until phase 2) are kept by name and grant nothing.
+send, payment or access change); any price but free. Fields this build doesn't know (`contracts`
+until it reads them) are kept by name and grant nothing.
 
 ## Effects: switches and a ceiling
 
@@ -117,7 +118,9 @@ person turned off while an update waited stays off.
 - `POST /v1/agents` with `recipe` (the published `bot.json`), `envelope {signed, bot_json}` (the
   market's signed version manifest as served, and `bot.json`'s exact text), `package {source,
 name, version, hash}` (checked against the envelope, refused without one), `switches {key:
-bool}` (missing is off), `grants`, `from_recipe`, `start_routines`: makes the linked bot. Schedule, event and webhook triggers start paused unless
+bool}` (missing is off), `grants`, `from_recipe`, `start_routines`, `pages {path: text}` (each
+  declared panel's page, kept by hash in the same write as the bot; a panel without its page
+  refuses the install): makes the linked bot. Schedule, event and webhook triggers start paused unless
   `start_routines`. A failure part-way removes the bot and whatever its switches made.
 - `GET /v1/agents/{id}/package`: `{package}` with `version`, `previous`, `withdrawn {reason}`,
   `updating`, `held {version}`, `template_update {version}` (a bot from an ace template whose
@@ -130,7 +133,8 @@ bool}` (missing is off), `grants`, `from_recipe`, `start_routines`: makes the li
   `name`, `task`, `face`, `personality` each `same`, `replace` or `kept` (the person or the bot
   changed it), routine steps (`add` paused, `replace`, `remove`, `kept`), `notes_kept`,
   `asks_more` (effect keys that start off) and `off`.
-- `POST /v1/agents/{id}/package {recipe, envelope, package, transaction}` (the envelope as
+- `POST /v1/agents/{id}/package {recipe, envelope, package, transaction, pages}` (pages as for
+  an install, kept once the step is accepted; the envelope as
   above; a local bot's without one; a template bot's with only `package`, which must be exactly
   the version `template_update` offers): applies an update or a rollback, the same path both
   ways. While the bot works or waits on the person it isn't refused:
