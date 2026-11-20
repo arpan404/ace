@@ -1,6 +1,6 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { Fact } from "@ace/core";
-import { ThreadId } from "@ace/protocol";
+import { CommandId, ThreadId } from "@ace/protocol";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
 const reply = (item: string, text: string): Fact => ({
@@ -348,6 +348,167 @@ test("a thread whose only message waits in a held queue stays listed as a task",
     expect(creationOrder(h, id)).toEqual([]);
     expect(listed()).toBe(true);
   } finally {
+    await h.close();
+  }
+});
+
+/** The provider was handed a message whose text is `text`. */
+const handed = (h: Harness, text: string) =>
+  h.adapter.commands.some(
+    (command) =>
+      command.type === "send" &&
+      command.input.some((part) => part.type === "text" && part.text === text),
+  );
+const triggers = (h: Harness, id: ThreadId) =>
+  Object.values(h.store.snapshotThread(id).runs)
+    .toSorted((a, b) => a.startedAt - b.startedAt)
+    .map((run) => run.trigger);
+
+test("a steer still being prepared when the turn before it starts is no run's, so a Stop puts it back", async () => {
+  const frames = scriptFrames();
+  const steer = "steer-in-preparation";
+  let h: Harness | undefined;
+  h = await harness([], frames, {
+    steer: true,
+    // The person's steer waits here; meanwhile the message sent before it starts its turn, and
+    // the person stops the thread.
+    beforeSend: async (threadId, commandId) => {
+      if (commandId !== steer || !h) return;
+      const ready = h;
+      ready.contexts[0]?.onFrame(frames.frame(start));
+      await vi.waitFor(() =>
+        expect(Object.values(ready.store.snapshotThread(threadId).runs).at(-1)?.state).toBe(
+          "active",
+        ),
+      );
+      ready.command({ type: "thread.interrupt", threadId, cascade: true });
+    },
+  });
+  try {
+    const id = await h.create();
+    h.contexts[0]?.onFrame(frames.frame(start, end));
+    await h.engine.flush();
+    h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "first" }] });
+    await vi.waitFor(() => expect(handed(h, "first")).toBe(true));
+    h.command(
+      {
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "steer" }],
+        delivery: "steer",
+      },
+      "device",
+      steer,
+    );
+    await vi.waitFor(() => expect(h?.engine.queue(id).reason).toBe("stopped"));
+    await h.engine.flush();
+    // Never handed over, so it waits for the person's Resume instead of failing as stopped.
+    expect(handed(h, "steer")).toBe(false);
+    expect(h.engine.queue(id).messages.map((message) => message.id)).toEqual([steer]);
+    expect(h.engine.inputFate(id, CommandId.parse(steer))).toEqual({ state: "waiting" });
+  } finally {
+    await h.close();
+  }
+});
+
+test("a steer handed over once the turn before it started goes into that turn and holds nothing after it", async () => {
+  const frames = scriptFrames();
+  const steer = "steer-after-start";
+  let h: Harness | undefined;
+  h = await harness([], frames, {
+    steer: true,
+    // The message sent before the steer starts its turn while the steer is still prepared.
+    beforeSend: async (threadId, commandId) => {
+      if (commandId !== steer || !h) return;
+      const ready = h;
+      ready.contexts[0]?.onFrame(frames.frame(start));
+      await vi.waitFor(() =>
+        expect(Object.values(ready.store.snapshotThread(threadId).runs).at(-1)?.state).toBe(
+          "active",
+        ),
+      );
+    },
+  });
+  try {
+    const id = await h.create();
+    h.contexts[0]?.onFrame(frames.frame(start, end));
+    await h.engine.flush();
+    h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "first" }] });
+    await vi.waitFor(() => expect(handed(h, "first")).toBe(true));
+    h.command(
+      {
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "steer" }],
+        delivery: "steer",
+      },
+      "device",
+      steer,
+    );
+    await vi.waitFor(() => expect(handed(h, "steer")).toBe(true));
+    await h.engine.flush();
+    h.contexts[0]?.onFrame(frames.frame(end));
+    await h.engine.flush();
+    expect(triggers(h, id)).toHaveLength(2);
+    expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
+    expect(h.engine.queue(id).pendingCount).toBe(0);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a turn started for the person's message is theirs, while an earlier child result is still being prepared", async () => {
+  const frames = scriptFrames();
+  const result = "child-result";
+  let preparing = false;
+  const { promise: prepared, resolve: release } = Promise.withResolvers<void>();
+  const h = await harness([], frames, {
+    steer: true,
+    // ace's child result waits for its checkpoint; the person's message goes ahead of it.
+    beforeSend: async (_threadId, commandId) => {
+      if (commandId !== result) return;
+      preparing = true;
+      await prepared;
+    },
+  });
+  try {
+    const id = await h.create();
+    h.contexts[0]?.onFrame(frames.frame(start, end));
+    await h.engine.flush();
+    expect(
+      h.internalCommand(
+        {
+          type: "thread.send",
+          threadId: id,
+          input: [{ type: "text", text: "Results of the review child" }],
+          delivery: "queue",
+          trigger: "subagent_result",
+        },
+        result,
+      ).ok,
+    ).toBe(true);
+    await vi.waitFor(() => expect(preparing).toBe(true));
+    h.command({
+      type: "thread.send",
+      threadId: id,
+      input: [{ type: "text", text: "Also check the docs" }],
+      delivery: "steer",
+    });
+    await vi.waitFor(() => expect(handed(h, "Also check the docs")).toBe(true));
+    expect(handed(h, "Results of the review child")).toBe(false);
+    // The provider starts the person's message's turn.
+    h.contexts[0]?.onFrame(frames.frame(start, end));
+    await vi.waitFor(() => expect(triggers(h, id).slice(1)).toEqual(["user"]));
+    // Handed over at last, the child result is the next turn's.
+    release();
+    await vi.waitFor(() => expect(handed(h, "Results of the review child")).toBe(true));
+    h.contexts[0]?.onFrame(frames.frame(start, end));
+    await h.engine.flush();
+    expect(triggers(h, id).slice(1)).toEqual(["user", "subagent_result"]);
+    await vi.waitFor(() => expect(h.store.getThread(id)?.status).toEqual({ state: "done" }));
+    expect(h.engine.queue(id).pendingCount).toBe(0);
+  } finally {
+    release();
     await h.close();
   }
 });
