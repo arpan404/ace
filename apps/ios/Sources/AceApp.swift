@@ -28,6 +28,7 @@ import QuartzCore
         WindowGroup {
             Group {
                 if LoopbackBench.enabled { LoopbackBenchView() }
+                else if PageRulesCheck.enabled { PageRulesCheckView() }
                 else if SpikeConfiguration.renderFixtureEnabled { renderFixture }
                 else if SpikeConfiguration.enabled { spike }
                 else if let production {

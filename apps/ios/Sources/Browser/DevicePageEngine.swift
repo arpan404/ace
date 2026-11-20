@@ -35,6 +35,40 @@ enum DevicePageEngine {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// Whether `host` is the machine's loopback: `localhost`, a name under it, `127.0.0.0/8` or
+    /// `::1` (bracketed or not). Pure.
+    static func isLoopbackHost(_ host: String?) -> Bool {
+        guard var host = host?.lowercased(), !host.isEmpty else { return false }
+        if host.hasSuffix(".") { host.removeLast() }
+        if host == "localhost" || host.hasSuffix(".localhost") { return true }
+        if host == "::1" || host == "[::1]" { return true }
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 4 && parts[0] == "127" && parts.allSatisfy { part in
+            !part.isEmpty && part.count <= 3 && part.allSatisfy(\.isNumber) && (Int(part) ?? 256) <= 255
+        }
+    }
+
+    /// `@ace/ui-core`'s `loopbackNavigationAllowed` (ADR 0194), kept here because WebKit's policy
+    /// can't wait on the script: a top-level navigation to loopback goes ahead when a loopback
+    /// document or the person started it, or when it is a GET (links, `location`, a 302 or 303
+    /// back to localhost); any other non-GET is refused. WebKit reports a redirect's request with
+    /// the method it is sent with, so no redirect status is needed here. Tested against the same
+    /// table (`loopback-navigation-cases.json`). Pure.
+    static func loopbackNavigationAllowed(method: String, initiatorIsLoopback: Bool, byPerson: Bool, redirectStatus: Int? = nil) -> Bool {
+        if initiatorIsLoopback || byPerson { return true }
+        var effective = method.uppercased()
+        if redirectStatus == 303, effective != "HEAD" { effective = "GET" }
+        if redirectStatus == 301 || redirectStatus == 302, effective == "POST" { effective = "GET" }
+        return effective == "GET"
+    }
+
+    /// Whether a main-frame navigation may go ahead: anything not to loopback does; one to
+    /// loopback follows `loopbackNavigationAllowed`. Pure.
+    static func allowsMainFrame(to url: URL?, method: String?, sourceHost: String?, byPerson: Bool) -> Bool {
+        guard isLoopbackHost(url?.host(percentEncoded: false)) else { return true }
+        return loopbackNavigationAllowed(method: method ?? "GET", initiatorIsLoopback: isLoopbackHost(sourceHost), byPerson: byPerson)
+    }
+
     static let ruleListIdentifier = "ace.device-tab.loopback.v1"
 
     /// The compiled rule list, made once for the app.
