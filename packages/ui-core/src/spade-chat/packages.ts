@@ -89,6 +89,11 @@ export interface SpadePackage {
   updating: string | undefined;
   /** An update to this version waits for the bot to finish its turn. */
   held: string | undefined;
+  /**
+   * A bot made from one of ace's templates (`source: "spade"`): the newer version of it this
+   * Spade ships, offered for the person to review. Never applied on its own.
+   */
+  templateUpdate: string | undefined;
   effects: readonly SpadePackageEffect[];
 }
 
@@ -101,6 +106,7 @@ const shape = z.object({
   withdrawn: z.object({ reason: text }).nullish().catch(undefined),
   updating: text.nullish().catch(undefined),
   held: z.object({ version: text }).nullish().catch(undefined),
+  template_update: z.object({ version: text }).nullish().catch(undefined),
   effects: z
     .array(
       z.object({
@@ -145,6 +151,7 @@ export function parseSpadePackage(raw: unknown): SpadePackage | undefined {
     withdrawn: link.withdrawn?.reason,
     updating: link.updating ?? undefined,
     held: link.held?.version,
+    templateUpdate: link.template_update?.version,
     effects: link.effects,
   };
 }

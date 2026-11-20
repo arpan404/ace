@@ -1,5 +1,5 @@
-import type { MarketBotUpdate, MarketEffectRow, MarketReviewBody } from "@ace/protocol/marketplace";
-import { effectStartsOn, effectWords } from "@ace/ui-core/spade-chat";
+import type { MarketBotUpdate, MarketReviewBody } from "@ace/protocol/marketplace";
+import { effectStartsOn, effectWords, type SpadeDeclaredEffect } from "@ace/ui-core/spade-chat";
 
 export { decidedEachTime, effectWords } from "@ace/ui-core/spade-chat";
 
@@ -71,8 +71,8 @@ const fieldWords = {
 
 /** What an update or rollback changes, and what stays because the person or the bot changed it. */
 export function updateSentences(
-  update: MarketBotUpdate,
-  effects: readonly MarketEffectRow[],
+  update: Pick<MarketBotUpdate, "plan" | "asksMore">,
+  effects: readonly (SpadeDeclaredEffect & { key: string })[],
 ): { changes: string[]; kept: string[]; more: string[] } {
   const { plan } = update;
   const changes: string[] = [];

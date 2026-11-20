@@ -3,6 +3,9 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
+  "exports": {
+    "./testing": "./src/testing/index.ts"
+  },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "dev": "wrangler dev",

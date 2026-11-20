@@ -60,7 +60,7 @@ test("a linked bot's profile names its package and version, with Update and Roll
   await userEvent.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
   await waitFor(() =>
     expect(new URLSearchParams(history.location.search).get("market")).toBe(
-      "bot/flight-watcher/rollback",
+      "bot/flight-watcher/rollback/fares",
     ),
   );
 });
@@ -142,6 +142,72 @@ test("a packaged bot's Security section has each declared effect as a switch wit
   expect(stored.effects.find((effect) => effect.key === "publish")?.on).toBe(true);
   // Only what the package declared is there to turn on.
   expect(security.queryByRole("switch", { name: /Can ask you to pay/ })).toBeNull();
+});
+
+test("a bot from an ace template is offered the newer template its Spade ships, reviewed before it moves", async () => {
+  const offered = { source: "spade", name: "inbox", version: "1.0.0", hash: "b".repeat(64) };
+  const { spade } = await spadeApp("/spade/inbox?profile=details", (fake) => {
+    withEndpoint(fake);
+    fake.addAgent({
+      id: "inbox",
+      name: "My inbox",
+      package: {
+        source: "spade",
+        name: "inbox",
+        version: "0.9.0",
+        hash: "a".repeat(64),
+        previous: { version: "0.8.0" },
+        template_update: { version: "1.0.0" },
+        effects: [{ key: "network", effect: "network", hosts: [], why: "Sorts mail.", on: true }],
+      },
+      templateOffer: {
+        package: offered,
+        plan: {
+          name: "kept",
+          task: "replace",
+          face: "same",
+          personality: "same",
+          routines: [],
+          notes_kept: 0,
+          asks_more: ["send_as_person"],
+          off: [],
+        },
+        effects: [
+          { key: "network", effect: "network", hosts: [], why: "Sorts mail.", on: true },
+          { key: "send_as_person", effect: "send_as_person", hosts: [], why: "Sends.", on: false },
+        ],
+      },
+    });
+  });
+  expect(await screen.findByText("From ace's inbox template 0.9.0.")).toBeTruthy();
+  // Its earlier versions aren't kept anywhere, so there is nothing to roll back to.
+  expect(screen.queryByRole("button", { name: /^Roll back/ })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Update to 1.0.0" }));
+
+  const review = within(await screen.findByRole("dialog"));
+  expect(
+    within(await review.findByRole("list", { name: "What changes" })).getByText(
+      "Its task changes to the new one.",
+    ),
+  ).toBeTruthy();
+  expect(
+    within(review.getByRole("list", { name: "Stays because you changed it" })).getByText(
+      "You renamed it, so it keeps its name.",
+    ),
+  ).toBeTruthy();
+  expect(
+    within(review.getByRole("list", { name: "Asks for more" })).getByText(
+      "Can ask you to send things in your name. Off until you turn it on.",
+    ),
+  ).toBeTruthy();
+  // Nothing moved while the person read it.
+  const stored = () => spade.agents.find((agent) => agent.id === "inbox")?.package;
+  expect(stored()?.["version"]).toBe("0.9.0");
+
+  await userEvent.click(review.getByRole("button", { name: "Update to 1.0.0" }));
+  expect(await screen.findByText("From ace's inbox template 1.0.0.")).toBeTruthy();
+  expect(stored()?.["hash"]).toBe(offered.hash);
+  expect(screen.queryByRole("button", { name: /^Update to/ })).toBeNull();
 });
 
 test("a development bot says Development in its row, its profile and on Running, and is never updated through the Marketplace", async () => {
