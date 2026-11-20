@@ -23,6 +23,9 @@ pub struct Settings {
     /// A daily quiet window in the person's zone; proactive notices wait through it.
     #[serde(default)]
     pub quiet: Option<Window>,
+    /// What an approval or a question a bot waits on does through do not disturb and quiet hours.
+    #[serde(default)]
+    pub approvals: Approvals,
     #[serde(default)]
     pub budget: Budget,
     #[serde(default)]
@@ -37,11 +40,24 @@ impl Default for Settings {
             notify: true,
             dnd: false,
             quiet: None,
+            approvals: Approvals::default(),
             budget: Budget::default(),
             brief: Brief::default(),
             spend: SpendAlerts::default(),
         }
     }
+}
+
+/// What an approval or a question a bot is waiting on does while do not disturb is on or inside
+/// quiet hours. A `stop` always notifies, whatever this says.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Approvals {
+    /// Notify now, as always (the default).
+    #[default]
+    Notify,
+    /// Wait for the morning brief or digest, where it is listed under Waiting on you.
+    Wait,
 }
 
 /// Minutes after local midnight; `from > to` wraps past midnight.
@@ -130,11 +146,13 @@ impl Default for SpendAlerts {
     }
 }
 
-/// One bot's own choice; `None` follows the global switch.
+/// One bot's own choices; `None` follows the global setting.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentReach {
     #[serde(default)]
     pub notify: Option<bool>,
+    #[serde(default)]
+    pub approvals: Option<Approvals>,
 }
 
 fn on() -> bool {
