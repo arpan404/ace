@@ -13,7 +13,9 @@
     "effects": [
       {
         "effect": "network",
-        "hosts": ["api.example-fares.com"],
+        "hosts": [
+          "api.example-fares.com"
+        ],
         "why": "Reads fares."
       }
     ],
@@ -188,7 +190,9 @@
         "effects": [
           {
             "effect": "publish",
-            "hosts": ["api.example.com"],
+            "hosts": [
+              "api.example.com"
+            ],
             "why": "Posts."
           }
         ]
@@ -257,7 +261,10 @@
     {
       "name": "a module this build doesn't have",
       "with": {
-        "uses": ["task", "telepathy"]
+        "uses": [
+          "task",
+          "telepathy"
+        ]
       },
       "refused": "telepathy"
     },
@@ -288,6 +295,761 @@
         "uses": "task"
       },
       "refused": "uses lists runtime modules"
+    },
+    {
+      "name": "a contract with an example",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare seen for a route this week.",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "month": {
+                  "type": "string",
+                  "maxLength": 7
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "month"
+              ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": [],
+            "examples": [
+              {
+                "input": {
+                  "from": "KTM",
+                  "to": "DEL",
+                  "month": "2027-01"
+                },
+                "output": {
+                  "fare": 182,
+                  "currency": "USD"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a contract that may reach the hosts the package declares",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare seen for a route this week.",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "month": {
+                  "type": "string",
+                  "maxLength": 7
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "month"
+              ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": [
+              "network"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a contract that may publish, which the package doesn't declare",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare seen for a route this week.",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "month": {
+                  "type": "string",
+                  "maxLength": 7
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "month"
+              ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": [
+              "publish"
+            ]
+          }
+        ]
+      },
+      "refused": "isn't among the package's effects"
+    },
+    {
+      "name": "a contract with a credential effect",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare seen for a route this week.",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "month": {
+                  "type": "string",
+                  "maxLength": 7
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "month"
+              ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": [
+              "credential"
+            ]
+          }
+        ]
+      },
+      "refused": "isn't an effect a call may use"
+    },
+    {
+      "name": "two contracts of one name",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare seen for a route this week.",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "month": {
+                  "type": "string",
+                  "maxLength": 7
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "month"
+              ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": []
+          },
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare seen for a route this week.",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "month": {
+                  "type": "string",
+                  "maxLength": 7
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "month"
+              ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": []
+          }
+        ]
+      },
+      "refused": "a name of its own"
+    },
+    {
+      "name": "a contract named in capitals",
+      "with": {
+        "contracts": [
+          {
+            "name": "CheapestFare",
+            "summary": "The cheapest fare seen for a route this week.",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "month": {
+                  "type": "string",
+                  "maxLength": 7
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "month"
+              ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": []
+          }
+        ]
+      },
+      "refused": "lower-case words"
+    },
+    {
+      "name": "a contract with no summary",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "month": {
+                  "type": "string",
+                  "maxLength": 7
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "month"
+              ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": []
+          }
+        ]
+      },
+      "refused": "summary"
+    },
+    {
+      "name": "a contract whose string has no length",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare seen for a route this week.",
+            "input": {
+              "type": "object",
+              "properties": {
+                "q": {
+                  "type": "string"
+                }
+              }
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": []
+          }
+        ]
+      },
+      "refused": "maxLength"
+    },
+    {
+      "name": "a contract whose example doesn't fit its output",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare seen for a route this week.",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "month": {
+                  "type": "string",
+                  "maxLength": 7
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "month"
+              ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": [],
+            "examples": [
+              {
+                "input": {
+                  "from": "KTM",
+                  "to": "DEL",
+                  "month": "2027-01"
+                },
+                "output": {
+                  "fare": "cheap",
+                  "currency": "USD"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "refused": "examples[0].output.fare"
+    },
+    {
+      "name": "a contract whose schemas live in a file",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare.",
+            "file": "contracts/cheapest-fare.json"
+          }
+        ]
+      },
+      "refused": "write the input and output schemas in bot.json"
+    },
+    {
+      "name": "contracts as an object",
+      "with": {
+        "contracts": {
+          "cheapest_fare": {}
+        }
+      },
+      "refused": "contracts is a list"
+    },
+    {
+      "name": "a contract with a field contracts don't have",
+      "with": {
+        "contracts": [
+          {
+            "name": "cheapest_fare",
+            "summary": "The cheapest fare seen for a route this week.",
+            "input": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "month": {
+                  "type": "string",
+                  "maxLength": 7
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "month"
+              ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "fare": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "maxLength": 3
+                },
+                "carrier": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "seen_at": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "link": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "fare",
+                "currency"
+              ]
+            },
+            "effects": [],
+            "price": 3
+          }
+        ]
+      },
+      "refused": "isn't a field of a contract"
     }
   ]
 }

@@ -39,6 +39,7 @@ pub mod review;
 pub mod routine;
 pub mod routing;
 pub mod running;
+pub mod schema;
 pub mod self_edit;
 pub mod service;
 pub mod skills;
