@@ -125,6 +125,10 @@ export class Buffer implements TextBuffer {
     };
   }
 
+  baseText(): string | undefined {
+    return this.#base?.text;
+  }
+
   subscribe(listener: (event: BufferEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);

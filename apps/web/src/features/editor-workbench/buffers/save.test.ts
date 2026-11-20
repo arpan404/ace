@@ -60,6 +60,16 @@ describe("saving", () => {
     expect(await context.buffer.save()).toEqual({ kind: "unchanged" });
   });
 
+  it("bases the buffer on the saved text, which the gutter compares against", async () => {
+    const context = await setup("a\nb\n");
+    replaceLine(context.buffer, 0, "A");
+    // Unsaved: the base is still the disk's text.
+    expect(context.buffer.baseText()).toBe("a\nb\n");
+
+    await context.buffer.save();
+    expect(context.buffer.baseText()).toBe("A\nb\n");
+  });
+
   it("that meets a version clash overwrites nothing and raises the clash", async () => {
     const context = await setup("a\nb\n");
     replaceLine(context.buffer, 0, "A");

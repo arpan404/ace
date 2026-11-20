@@ -17,8 +17,9 @@ export function DeckEditor(props: DeckEditorProps) {
   const subscribe = useCallback((changed: () => void) => buffer.subscribe(changed), [buffer]);
   const view = useSyncExternalStore(subscribe, () => buffer.view());
   const handle = useRef<EditorHandle>(null);
-  // What the gutter compares against: the text as this view first showed it.
-  const opening = useMemo(() => view?.doc.text() ?? "", [view]);
+  // What the gutter compares against: the last saved or read text, so unsaved lines stay marked
+  // when this view remounts (a tab switch) and clear once saved.
+  const base = useSyncExternalStore(subscribe, () => buffer.baseText()) ?? "";
   // The setters reach whichever editor is mounted when a status-line menu is used.
   const actions = useMemo<EditorStatusActions>(
     () => ({
@@ -49,7 +50,7 @@ export function DeckEditor(props: DeckEditorProps) {
     <CodeEditor
       ref={handle}
       document={view}
-      text={opening}
+      text={base}
       path={props.path}
       label={fileName(props.path)}
       statusLine={false}
