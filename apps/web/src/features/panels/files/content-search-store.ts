@@ -2,7 +2,7 @@ import type { ClientApi } from "@ace/client";
 import type { FileSearchFile, FileSearchLine, FileSearchSummary } from "@ace/protocol";
 import { useSyncExternalStore } from "react";
 import { checkoutError, type CheckoutError } from "./checkout-source.ts";
-import { searchContents, type ContentQuery } from "./content-search-source.ts";
+import { globs, searchContents, type ContentQuery } from "./content-search-source.ts";
 import { watchFolders, type FolderWatchHandle } from "./folder-watch.ts";
 
 /** How long typing pauses before the search runs. */
@@ -81,6 +81,31 @@ export function matchCount(file: FileSearchFile): number {
   return total;
 }
 
+/** The folder holding `path`, as `files.watch` names it ("" is the root). */
+function folderOf(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? "" : path.slice(0, slash);
+}
+
+/**
+ * The folders a query searches: each include glob's folders before its first wildcard
+ * ("src/**" searches src), or the whole checkout ("") when a glob names none ("*.ts").
+ */
+function searchedRoots(query: Pick<ContentQuery, "include">): string[] {
+  const roots = globs(query.include).map((glob) => {
+    const fixed: string[] = [];
+    for (const part of glob
+      .replace(/^\.?\//, "")
+      .split("/")
+      .slice(0, -1)) {
+      if (/[*?[\]{}!]/.test(part)) break;
+      fixed.push(part);
+    }
+    return fixed.join("/");
+  });
+  return roots.length && !roots.includes("") ? [...new Set(roots)] : [""];
+}
+
 const emptyQuery: ContentQuery = {
   pattern: "",
   matchCase: false,
@@ -94,10 +119,10 @@ const emptyQuery: ContentQuery = {
  * One thread's content search, shared by every Files tab of the thread so opening a result
  * keeps the list, its folds, its scroll and the hit last opened. A change to the query cancels
  * the search before it (the daemon stops walking) and empties the list at once, so no row of the
- * old query stays to be clicked; only the new search waits for typing to pause. The folders of
- * the files found join the thread's watch set: when the daemon says one changed (an agent wrote
- * it, or a save landed) the same query runs again quietly and its results replace the old ones
- * once complete.
+ * old query stays to be clicked; only the new search waits for typing to pause. The folders it
+ * searches and those of the files found join the thread's watch set: when the daemon says one
+ * changed (an agent wrote it), or a save lands anywhere under them, the same query runs again
+ * quietly and its results replace the old ones once complete, even when it found nothing.
  */
 export class ContentSearchStore {
   readonly #client: ClientApi;
@@ -126,9 +151,20 @@ export class ContentSearchStore {
     this.#threadId = threadId;
     this.#watch = watchFolders(client, threadId);
     this.#stopListening = client.onMessage((message) => {
-      if (message.type !== "files.folders_changed" || message.threadId !== threadId) return;
-      if (message.rescan || message.folders.some((folder) => this.#folders().has(folder)))
-        this.#refreshSoon();
+      if (message.type === "files.folders_changed") {
+        if (message.threadId !== threadId) return;
+        if (message.rescan || message.folders.some((folder) => this.#searches(folder)))
+          this.#refreshSoon();
+      } else if (message.type === "files.changed") {
+        // A save through ace names its path. It carries no thread, so a save of the same path
+        // in another checkout runs one extra quiet search, never a missed one.
+        const { path, destination } = message.change;
+        if (
+          this.#searches(folderOf(path)) ||
+          (destination && this.#searches(folderOf(destination)))
+        )
+          this.#refreshSoon();
+      }
     });
   }
 
@@ -229,7 +265,7 @@ export class ContentSearchStore {
         if (this.#running !== controller) return;
         this.#running = undefined;
         this.#set({ status: "done", summary, ...(quiet ? found : {}) });
-        this.#watch.set(this.#folders());
+        this.#watch.set(new Set([...searchedRoots(this.#state.query), ...this.#folders()]));
       },
       (error: unknown) => {
         if (this.#running !== controller) return;
@@ -242,11 +278,14 @@ export class ContentSearchStore {
 
   /** The folders holding the files found, as `files.watch` names them ("" is the root). */
   #folders(): Set<string> {
-    return new Set(
-      this.#state.files.map((file) => {
-        const slash = file.path.lastIndexOf("/");
-        return slash < 0 ? "" : file.path.slice(0, slash);
-      }),
+    return new Set(this.#state.files.map((file) => folderOf(file.path)));
+  }
+
+  /** Whether a change in `folder` can change what the current query finds. */
+  #searches(folder: string): boolean {
+    if (this.#folders().has(folder)) return true;
+    return searchedRoots(this.#state.query).some(
+      (root) => !root || folder === root || folder.startsWith(`${root}/`),
     );
   }
 

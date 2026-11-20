@@ -9,19 +9,34 @@ const treeDragType = "application/x-ace-tree-entries";
 /** How long a drag rests on a closed folder before it opens. */
 const openDelay = 600;
 
-const DraggedEntries = z.array(z.object({ path: z.string(), folder: z.boolean() }));
+/**
+ * A drag's rows and the checkout they came from: paths are relative, so they mean something
+ * only in the thread whose tree they were dragged from.
+ */
+const DraggedRows = z.object({
+  threadId: z.string(),
+  entries: z.array(z.object({ path: z.string(), folder: z.boolean() })),
+});
+type DraggedRows = z.infer<typeof DraggedRows>;
+
+/** Tree rows a drag carries, by source thread. The drag's data can't be read before the drop. */
+const sourceType = (threadId: string) => `${treeDragType}+${encodeURIComponent(threadId)}`;
 
 /** The rows a drop carries, read leniently: another window's drag may carry anything. */
-function draggedEntries(event: DragEvent<HTMLElement>): TreeEntry[] {
+function draggedRows(event: DragEvent<HTMLElement>): DraggedRows | undefined {
   try {
-    const parsed = DraggedEntries.safeParse(JSON.parse(event.dataTransfer.getData(treeDragType)));
-    return parsed.success ? parsed.data : [];
+    const parsed = DraggedRows.safeParse(JSON.parse(event.dataTransfer.getData(treeDragType)));
+    return parsed.success ? parsed.data : undefined;
   } catch {
-    return [];
+    return undefined;
   }
 }
 
 const fromTree = (event: DragEvent<HTMLElement>) => event.dataTransfer.types.includes(treeDragType);
+/** Over a row, only the drag's types can be read: its own checkout's rows carry its thread. */
+const fromThisCheckout = (event: DragEvent<HTMLElement>, threadId: string) =>
+  event.dataTransfer.types.includes(sourceType(threadId).toLowerCase()) ||
+  event.dataTransfer.types.includes(sourceType(threadId));
 const fromOutside = (event: DragEvent<HTMLElement>) => event.dataTransfer.types.includes("Files");
 
 /** The folder a drop on `row` goes into: a folder row itself, else the file's folder. */
@@ -32,12 +47,18 @@ const dropFolder = (row: FolderRow) =>
  * Dragging in the file tree: rows (a selection drags whole) move into the folder they're
  * dropped on, a closed folder opens while a drag rests on it, and files from outside upload
  * there. A drop on a file goes into the file's folder; on the tree's empty space, the root
- * for rows and the showing file's folder for files from outside.
+ * for rows and the showing file's folder for files from outside. Rows dragged from another
+ * checkout's tree never land: their paths name that checkout's files, and moving the
+ * same-named file here would move the wrong one.
  */
 export function useTreeDrag(options: {
+  /** The thread whose checkout this tree shows. */
+  threadId: string;
   covered(entry: TreeEntry): TreeEntry[];
   onMove(paths: readonly string[], folder: string): void;
   onUpload(files: readonly File[], folder: string): void;
+  /** Rows from another checkout were dropped here, and nothing moved. */
+  onForeign(): void;
   expand(folder: string): void;
   /** Where files from outside go when dropped on the empty space. */
   uploadFolder: string;
@@ -60,7 +81,12 @@ export function useTreeDrag(options: {
     if (!inside && !fromOutside(event)) return false;
     event.preventDefault();
     event.stopPropagation();
-    event.dataTransfer.dropEffect = inside ? "move" : "copy";
+    // Rows from another checkout still take the drop, so it can say why nothing moves.
+    event.dataTransfer.dropEffect = !inside
+      ? "copy"
+      : fromThisCheckout(event, options.threadId)
+        ? "move"
+        : "none";
     setDropTarget(folder);
     return true;
   };
@@ -70,10 +96,11 @@ export function useTreeDrag(options: {
     event.stopPropagation();
     end();
     if (fromTree(event)) {
-      const entries = draggedEntries(event);
-      if (entries.length)
+      const dragged = draggedRows(event);
+      if (!dragged || dragged.threadId !== options.threadId) return options.onForeign();
+      if (dragged.entries.length)
         options.onMove(
-          entries.map((entry) => entry.path),
+          dragged.entries.map((entry) => entry.path),
           cleanPath(folder),
         );
       return;
@@ -88,7 +115,9 @@ export function useTreeDrag(options: {
       draggable: true,
       onDragStart: (event: DragEvent<HTMLElement>) => {
         const entries = options.covered(entryOf(row));
-        event.dataTransfer.setData(treeDragType, JSON.stringify(entries));
+        const dragged: DraggedRows = { threadId: options.threadId, entries };
+        event.dataTransfer.setData(treeDragType, JSON.stringify(dragged));
+        event.dataTransfer.setData(sourceType(options.threadId), "");
         event.dataTransfer.setData("text/plain", entries.map((entry) => entry.path).join("\n"));
         event.dataTransfer.effectAllowed = "copyMove";
       },

@@ -1,6 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { threadId } from "./tree-test-queries.ts";
 import { bytes, menuPick, renderTree, row } from "./tree-test-support.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -52,4 +53,39 @@ test("the menu's Cut and Paste move a file into a folder", async () => {
   await menuPick(await row(tree, "apps/"), /^Paste/);
   await waitFor(() => expect(tree.querySelector('[data-path="README.md"]')).toBeNull());
   expect(await bytes({ client }, "apps/README.md")).toBe(before);
+});
+
+test("a folder paste that fails partway leaves no partial folder, and a retry makes one copy", async () => {
+  const { client, tree } = await renderTree();
+  const download = client.downloadFile.bind(client);
+  let failing = true;
+  client.downloadFile = (request) => {
+    if (failing && "path" in request && request.path.endsWith("cursor.ts"))
+      throw new Error("The connection dropped.");
+    return download(request);
+  };
+  await press(await row(tree, "apps/"), "{Control>}c{/Control}");
+  await press(await row(tree, "README.md"), "{Control>}v{/Control}");
+  expect(await screen.findAllByText(/Couldn't copy the files/)).not.toHaveLength(0);
+  const listed = async () =>
+    (
+      (await client.request({
+        type: "files.request",
+        threadId,
+        operation: { op: "list", path: "", limit: 1000 },
+      })) as { value: { paths: string[] } }
+    ).value.paths;
+  expect((await listed()).filter((path) => !path.startsWith("apps/"))).not.toContainEqual(
+    expect.stringContaining("apps"),
+  );
+
+  failing = false;
+  await press(await row(tree, "README.md"), "{Control>}v{/Control}");
+  expect(await row(tree, "apps copy/")).toBeTruthy();
+  await waitFor(async () =>
+    expect(await listed()).toContainEqual(expect.stringMatching(/^apps copy\/.*cursor\.ts$/)),
+  );
+  const copies = (await listed()).filter((path) => !path.startsWith("apps/"));
+  expect(copies.filter((path) => path.includes("apps copy 2"))).toEqual([]);
+  expect(copies.filter((path) => path.split("/").some((part) => part.startsWith(".")))).toEqual([]);
 });

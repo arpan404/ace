@@ -26,6 +26,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
 import { MenuCheckboxItem, MenuSeparator } from "@/components/ui/menu.tsx";
+import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import { attachWorkspaceScroll } from "@/lib/workspace/index.ts";
@@ -156,6 +157,7 @@ export function FileTree(props: {
   const hoverEnd = () => clearTimeout(hover.current);
   useEffect(() => () => clearTimeout(hover.current), []);
   const client = useClient();
+  const toast = useToast();
   const activate = (row: FolderRow, how: OpenHow, at?: number) => {
     if (row.kind === "more") {
       tree.showMore(row.folder ?? "");
@@ -255,6 +257,12 @@ export function FileTree(props: {
     onKeyFor(keys, event, row, index);
   const currentFolder = currentPath ? pathParts(currentPath).folder : "";
   const drag = useTreeDrag({
+    threadId: props.threadId,
+    onForeign: () =>
+      toast.error({
+        title: "Files can't be dragged between checkouts",
+        description: "Each thread has its own checkout. Nothing was moved.",
+      }),
     covered: commands.covered,
     onMove: commands.move,
     onUpload: props.onUpload,

@@ -1,4 +1,3 @@
-import type { LineEdit } from "@ace/editor";
 import { visualColumn } from "./geometry.ts";
 
 /*
@@ -111,29 +110,4 @@ export function hiddenRanges(folds: readonly FoldRange[]): { from: number; to: n
     else out.push({ from, to });
   }
   return out;
-}
-
-/**
- * The folds after an edit. Spans are in post-edit coordinates. A fold whose hidden lines the
- * edit touched, or whose header line gained or lost lines, opens; folds below move with it.
- */
-export function mapFolds(folds: readonly FoldRange[], spans: readonly LineEdit[]): FoldRange[] {
-  const sorted = spans.toSorted((a, b) => a.firstLine - b.firstLine);
-  let current = [...folds];
-  // Each span's first line, in post-edit coordinates, is also where it starts once the spans
-  // before it have moved the folds: so the folds are compared and moved one span at a time.
-  for (const span of sorted) {
-    const from = span.firstLine;
-    const to = from + Math.max(1, span.removedLines);
-    const delta = span.insertedLines - span.removedLines;
-    const next: FoldRange[] = [];
-    for (const fold of current) {
-      if (fold.end < from) next.push(fold);
-      else if (fold.start >= to) next.push({ start: fold.start + delta, end: fold.end + delta });
-      else if (delta === 0 && from === fold.start && to === fold.start + 1) next.push(fold);
-      // Anything else changed the folded text itself: the fold opens.
-    }
-    current = next;
-  }
-  return current;
 }

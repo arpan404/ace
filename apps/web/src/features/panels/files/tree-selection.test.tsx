@@ -1,7 +1,8 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { expand, menuPick, renderTree, row } from "./tree-test-support.tsx";
+import { threadId } from "./tree-test-queries.ts";
+import { bytes, expand, menuPick, renderTree, row } from "./tree-test-support.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -117,4 +118,24 @@ test("deleting a selection moves every row away, and one Undo brings them back",
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
   expect(await row(tree, "README.md")).toBeTruthy();
   expect(await row(tree, "package.json")).toBeTruthy();
+});
+
+test("Undo of a bulk delete restores every path that is free and names the ones taken since", async () => {
+  const { client, tree } = await renderTree();
+  await clickWith("Control", await row(tree, "README.md"));
+  await clickWith("Control", await row(tree, "package.json"));
+  await menuPick(await row(tree, "package.json"), /^Delete/);
+  const dialog = await screen.findByRole("dialog", { name: "Delete" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+  await waitFor(() => expect(tree.querySelector('[data-path="README.md"]')).toBeNull());
+  // An agent writes a new package.json before Undo.
+  await client.request({
+    type: "files.request",
+    threadId,
+    operation: { op: "create", path: "package.json", expected: null, text: "new" },
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  expect(await row(tree, "README.md")).toBeTruthy();
+  expect(await screen.findAllByText(/package\.json is taken/)).not.toHaveLength(0);
+  expect(await bytes({ client }, "package.json")).toBe("new");
 });

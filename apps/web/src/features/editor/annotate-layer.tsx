@@ -15,7 +15,18 @@ import { rowOffset } from "./wrap.ts";
 
 /** What the layer has open: a new annotation's comment, an existing one, or the menu. */
 export type Open =
-  | { kind: "new"; span: Span; intent?: CodeAnnotationIntent | undefined; comment: string }
+  | {
+      kind: "new";
+      span: Span;
+      intent?: CodeAnnotationIntent | undefined;
+      comment: string;
+      /** Which comment this is: its popover keeps what was typed while its code moves. */
+      seq: number;
+      /** The code as it was marked, saved as is once the code is gone. */
+      marked: { excerpt: string; cut?: true | undefined };
+      /** The code it was opened on changed or went away since. */
+      outdated?: boolean | undefined;
+    }
   | { kind: "edit"; id: string }
   | { kind: "menu"; span: Span; x: number; y: number };
 
@@ -247,7 +258,7 @@ export function AnnotationLayer(props: {
       <Contained>
         {open?.kind === "new" && (
           <CommentPopover
-            key={`new-${open.span.start.line}-${open.span.start.column}-${open.intent ?? ""}`}
+            key={`new-${open.seq}-${open.intent ?? ""}`}
             anchor={anchorAt(view, open.span.end, true)}
             lines={linesBadge(open.span)}
             comment={open.comment}

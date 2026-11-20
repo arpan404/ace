@@ -121,10 +121,36 @@ export function findOnce(text: string, excerpt: string): Span | undefined {
 const lastLineOf = (span: Span) =>
   span.end.column === 0 && span.end.line > span.start.line ? span.end.line - 1 : span.end.line;
 
+/** What stands on a range's own lines around it: before its start and after its end. */
+const besideOf = (lines: readonly string[], span: Span) => ({
+  before: (lines[span.start.line] ?? "").slice(0, span.start.column),
+  after: (lines[span.end.line] ?? "").slice(span.end.column),
+});
+
+/**
+ * Where a rewritten range's code went: its exact text, found once in the new text, that was
+ * also the only copy in the old text (so it is this range's code, not a look-alike) and that
+ * stands between the same text on its own lines as it did.
+ */
+function refind(
+  span: Span,
+  excerpt: string,
+  before: readonly string[],
+  after: readonly string[],
+  afterText: string,
+): Span | undefined {
+  const found = findOnce(afterText, excerpt);
+  if (!found || !findOnce(before.join("\n"), excerpt)) return undefined;
+  const was = besideOf(before, span);
+  const now = besideOf(after, found);
+  return was.before === now.before && was.after === now.after ? found : undefined;
+}
+
 /**
  * A range after its file's whole text changed from `before` to `after`: kept when the change is
  * all below it, shifted when all above it, and otherwise found again by its exact text when that
- * occurs exactly once. Anything else is outdated at the nearest line it had.
+ * is the one copy in both texts, between the same text on its lines. Anything else is outdated
+ * at the nearest line it had.
  */
 export function reanchor(
   span: Span,
@@ -151,7 +177,7 @@ export function reanchor(
       outdated: false,
     };
   }
-  const found = excerpt.cut ? undefined : findOnce(afterText, excerpt.text);
+  const found = excerpt.cut ? undefined : refind(span, excerpt.text, before, after, afterText);
   if (found) return { ...found, outdated: false };
   const line = Math.min(span.start.line, Math.max(0, after.length - 1));
   const point = { line, column: Math.min(span.start.column, after[line]?.length ?? 0) };

@@ -13,6 +13,7 @@ import {
 } from "./cursor.ts";
 import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
 import { lineCommand } from "./line-keys.ts";
+import { isTabFocusToggle, tabFocus } from "./tab-focus.ts";
 import { columnAtVisual, tabSize } from "./geometry.ts";
 import { boxFrom, boxHead, cursorsAtLineEnds, moveBox, type Box } from "./multi-cursor.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
@@ -73,6 +74,8 @@ export function useEditorKeys(options: EditorKeyOptions) {
   const expansions = useRef<{ before: readonly Selection[]; after: readonly Selection[] }[]>([]);
   /** Cmd+K was pressed: the next key completes a chord. */
   const chord = useRef(false);
+  /** Escape was the last key: a Tab now leaves the editor once, as it does in VS Code's mode. */
+  const escaped = useRef(false);
   /** The keyboard box selection, while the selections are still the ones it made. */
   const box = useRef<{ box: Box; selections: readonly Selection[] } | undefined>(undefined);
 
@@ -213,6 +216,18 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const mod = mac ? event.metaKey : event.ctrlKey;
     const word = mac ? event.altKey : event.ctrlKey;
     const key = event.key;
+    const afterEscape = escaped.current;
+    if (!/^(Shift|Control|Alt|Meta)$/.test(key)) escaped.current = false;
+
+    if (isTabFocusToggle(event, mac)) {
+      event.preventDefault();
+      tabFocus.toggle();
+      return;
+    }
+    // Tab moves focus on (or once, right after Escape): the browser takes it to the next control.
+    if (key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (tabFocus.on || afterEscape) return;
+    }
 
     // Alt+Z: macOS reports the Option key's character, every other platform the letter.
     const togglesWrap = mac ? event.code === "KeyZ" : key.toLowerCase() === "z";
@@ -390,6 +405,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
     }
     if (key === "Escape") {
       event.preventDefault();
+      escaped.current = true;
       if (options.onEscape?.()) return;
       const position = head();
       goal.current = undefined;
