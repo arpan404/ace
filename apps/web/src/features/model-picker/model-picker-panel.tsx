@@ -1,5 +1,5 @@
 import { useAccountViews } from "@/lib/account-views.ts";
-import type { ProviderKind } from "@ace/protocol";
+import type { ModelInstanceStatus, ProviderKind } from "@ace/protocol";
 import {
   pickerGroups,
   pickerSection,
@@ -35,6 +35,18 @@ import { useFavoriteModels } from "./favorites.ts";
 import { GroupProblem, LegacyToggle, ModelRow, PickerEmpty } from "./model-picker-rows.tsx";
 import { useRefreshModels } from "./use-refresh-models.ts";
 
+/**
+ * An ACP agent without a reviewed profile that has never loaded its models: it starts only
+ * when the person asks (ADR 0044), so its tab offers Load models instead of an empty list.
+ */
+function waitsForLoad(status: ModelInstanceStatus): boolean {
+  return (
+    status.provider === "acp" &&
+    status.modelProbe === "on-request" &&
+    status.refreshedAt === undefined
+  );
+}
+
 /** ⌘1…⌘9 pick the first rows. */
 const numbered = 9;
 
@@ -68,15 +80,20 @@ export function ModelPickerPanel(props: {
   const instances = useModelInstances();
   const accounts = useAccountViews();
   const refresh = useRefreshModels();
-  // A provider whose discovery failed keeps its tab open, to say why it has nothing to pick.
+  // A provider whose discovery failed keeps its tab open, to say why it has nothing to pick;
+  // an ACP agent that loads its models only when asked keeps its tab to offer Load models.
   const troubled = useMemo(() => providersWithProblems(instances), [instances]);
-  const providers = useMemo(
-    () =>
-      props.providers.map((entry) =>
-        entry.reason && troubled.has(entry.provider) ? { ...entry, reason: undefined } : entry,
-      ),
-    [props.providers, troubled],
-  );
+  const asking = useMemo(() => instances.some(waitsForLoad), [instances]);
+  const providers = useMemo(() => {
+    const open = (provider: ProviderKind) =>
+      troubled.has(provider) || (asking && provider === "acp");
+    const listed = props.providers.map((entry) =>
+      entry.reason && open(entry.provider) ? { ...entry, reason: undefined } : entry,
+    );
+    return asking && !listed.some((entry) => entry.provider === "acp")
+      ? [...listed, { provider: "acp" as const, reason: undefined }]
+      : listed;
+  }, [props.providers, troubled, asking]);
   const now = useNow();
   // Settings and automations choose a provider model without routing it to an account.
   const providerOnly = useMemo(
@@ -219,6 +236,16 @@ export function ModelPickerPanel(props: {
     else if (item.bottom > bounds.bottom) pane.scrollTop += item.bottom - bounds.bottom;
   }, [listId, active]);
   const loading = props.catalog === "loading" && !props.models.length;
+  const unloaded =
+    !mixed && provider === "acp"
+      ? instances.find(
+          (status) =>
+            waitsForLoad(status) &&
+            (!selectedInstance ||
+              status.instance === selectedInstance ||
+              status.instanceId === selectedInstance),
+        )
+      : undefined;
 
   const pick = (model: PickerModel | undefined) => {
     // Every row carries its account, including search results and Favorites.
@@ -492,7 +519,18 @@ export function ModelPickerPanel(props: {
                 ))}
               </LoadingRegion>
             ) : (
-              <PickerEmpty query={query} favorites={tab === "favorites"} />
+              <PickerEmpty
+                query={query}
+                favorites={tab === "favorites"}
+                load={
+                  unloaded && {
+                    // Named by its own row, so the daemon knows the person asked for this agent.
+                    onLoad: () => refresh.refresh("acp", unloaded.instance),
+                    disabled:
+                      unloaded.refreshing || refresh.pending || refresh.reason !== undefined,
+                  }
+                }
+              />
             ))}
         </div>
       </div>

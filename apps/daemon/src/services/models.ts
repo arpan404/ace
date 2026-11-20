@@ -46,6 +46,11 @@ export async function startModels(context: ServiceContext): Promise<void> {
     config.dataDir,
     instances,
     {
+      // Bound once the engine knows the approved agents; a probe before then fails and retries.
+      acpProbe: (instance, signal) =>
+        services.acpCatalog
+          ? services.acpCatalog.probe(instance, signal)
+          : Promise.reject(new Error("ACP agents are still loading")),
       ...options.modelDiscovery,
       cursorSlots: cursorHosts(context),
       cursorEnv: options.engine?.cursor?.env ?? process.env,

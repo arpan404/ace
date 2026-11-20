@@ -13,6 +13,7 @@ import { withDaemonMcp, withShippedSkills } from "./provider-mcp.ts";
 import { withNativeTools } from "./native-tools.ts";
 import { cachedToolFiles, nodeFileSystem } from "../native-tools/files.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
+import { acpProbeLauncher, registerAcpAgent, registerApprovedAcpAgents } from "../acp-catalog.ts";
 import { ManagedWorktrees } from "../managed-worktrees.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerAntigravity } from "./antigravity.ts";
@@ -79,6 +80,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           mcp: services.mcp,
           store,
           options,
+          dataDir: config.dataDir,
           accounts: services.accounts,
           accountRegistry: services.accountRegistry,
           worktreeSource: (path) => {
@@ -88,6 +90,37 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           report: (error) => log.log("error", "ACP metadata failure", logError(error)),
         })
       : {};
+  if (services.agentRegistry && services.models) {
+    const catalog = {
+      agents: services.agentRegistry,
+      models: services.models,
+      options,
+      accounts: services.accounts,
+      accountRegistry: services.accountRegistry,
+      dataDir: config.dataDir,
+    };
+    services.acpCatalog = {
+      probe: acpProbeLauncher(catalog),
+      async register(installation) {
+        const stored = catalog.agents.inventory
+          .all()
+          .find((entry) => entry.metadata.installationId === installation.installationId);
+        if (stored)
+          await registerAcpAgent(catalog, installation, {
+            command: stored.command,
+            args: stored.args,
+            version: stored.metadata.version,
+          });
+      },
+    };
+    // Rows from the stored inventory alone, so the picker lists each approved agent (and any
+    // cached models) at once. No agent starts here; a row probes when a read first asks for it.
+    void registerApprovedAcpAgents(catalog, (error) =>
+      log.log("warn", "ACP catalog registration failed", logError(error)),
+    ).catch((error: unknown) =>
+      log.log("warn", "ACP catalog registration failed", logError(error)),
+    );
+  }
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
   // Preserve the SDK adapter's original home when it first enters accounts ownership.

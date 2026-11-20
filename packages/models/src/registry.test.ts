@@ -31,12 +31,14 @@ const instance = (
   });
 test("generic model listing and explicit refresh never launch a metadata session or a process", async () => {
   const config = instance("one");
-  const rows = await createModelDiscovery({
-    spawn() {
-      throw new Error("Generic discovery must not execute");
-    },
-  })(config, new AbortController().signal);
-  expect(rows).toEqual([]);
+  // Without a probe launch, and a row that allows no probe, nothing is started.
+  await expect(
+    createModelDiscovery({
+      spawn() {
+        throw new Error("Generic discovery must not execute");
+      },
+    })(config, new AbortController().signal),
+  ).rejects.toThrow("ACP model probe unavailable");
   const catalog = new ModelCatalog({
     instances: [config],
     storage: { load: () => [], replace() {}, remove() {}, close() {} },

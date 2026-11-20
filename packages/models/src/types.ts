@@ -28,6 +28,13 @@ export const ModelInstance = z
     profileRevision: z.string().max(256).optional(),
     installationVersion: z.string().max(256).optional(),
     loginRevision: z.string().min(1).max(256),
+    /**
+     * ACP agents only: when the catalog may open a metadata-only probe session (initialize and
+     * session/new, never a prompt). `automatic`: a reviewed profile, probed the first time a
+     * read asks for this row. `on-request`: an unprofiled agent, probed only when the person asks
+     * for this row's models. Absent: sessions alone report the row.
+     */
+    modelProbe: z.enum(["automatic", "on-request"]).optional(),
     /** The ACP method the person signed in with, selected again when the agent asks for one. */
     signInMethod: z.string().min(1).max(128).optional(),
     executable: z.string().max(4096).default(""),

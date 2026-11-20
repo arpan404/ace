@@ -556,6 +556,8 @@ test("an Antigravity session's reported models and levels refresh its catalog ro
       mcp: undefined as never,
       store: h.store,
       options: {},
+      // An Antigravity session opens no probe folder.
+      dataDir: "/nonexistent-ace-data",
       report: (error) => {
         throw error;
       },

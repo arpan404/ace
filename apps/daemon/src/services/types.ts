@@ -151,6 +151,14 @@ export interface Services {
   relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;
   agentRegistry?: import("@ace/agent-registry").AgentRegistry;
+  /**
+   * Generic ACP agents' catalog rows (`acp-catalog.ts`): the probe the model catalog runs before
+   * an agent's first thread, and registration of an agent approved while the daemon runs.
+   */
+  acpCatalog?: {
+    probe: NonNullable<import("@ace/models").DiscoveryOptions["acpProbe"]>;
+    register(installation: import("@ace/protocol").RegistryInstallation): Promise<void>;
+  };
   engine?: Engine;
   cursorHosts?: CursorHostSlots;
   cursorAccounts?: ReturnType<typeof bindCursorSdk>;
