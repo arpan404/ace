@@ -253,6 +253,14 @@ impl Engine {
                 continue;
             };
             let open = episodes.get(&agent.id).copied().unwrap_or(false);
+            // A packaged bot's expected spend is the least that counts as unusual for it.
+            let rule = match self.package_spend_floor(&agent.id) {
+                Some(floor) => spade_core::reach::settings::SpendAlerts {
+                    floor_micros: rule.floor_micros.max(floor),
+                    ..rule
+                },
+                None => rule,
+            };
             let checked = spend::check(rule, *last, trailing, open);
             if checked.episode {
                 episodes.insert(agent.id.clone(), true);

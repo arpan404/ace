@@ -104,6 +104,7 @@ pub(super) async fn call(
         bound: None,
         acts_in: None,
         launch: Some(launch),
+        raised: None,
     });
     match engine.record_unless_stopped(id, reply, &reviewed) {
         Ok(true) => of(verdict, reason),

@@ -1,3 +1,4 @@
+import { SpadeAgentCard, type SpadeCardChoose } from "./spade-agent-card.tsx";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
 import {
   type SpadeTaskLine,
@@ -97,6 +98,8 @@ export function SpadeChat(props: {
   onAnswerOutside?(id: string, answer: RequestAnswer): Promise<boolean>;
   /** Reply to a card of questions; resolves with what to say under it when refused. */
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
+  /** Press a choice on a card the bot showed (ADR 0200 §5.1); resolves with why when refused. */
+  onCardChoice?: SpadeCardChoose | undefined;
   /** A file chip: open that file of the bot's workspace. */
   onOpenFile(path: string): void;
   proposals?: readonly SpadeProposal[];
@@ -178,6 +181,7 @@ export function SpadeChat(props: {
     onAnswer: props.onAnswer,
     onAnswerOutside: props.onAnswerOutside,
     onQuestion: props.onQuestion,
+    onCardChoice: props.onCardChoice,
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
     onSetUpModel: props.onSetUpModel,
@@ -291,6 +295,7 @@ interface Handlers {
   onAnswerOutside: ((id: string, answer: RequestAnswer) => Promise<boolean>) | undefined;
   /** Reply to a card of questions; resolves with what to say under it when refused. */
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
+  onCardChoice: SpadeCardChoose | undefined;
   onOpenFile(path: string): void;
   onRetry: ((reply: string) => Promise<boolean>) | undefined;
   onSetUpModel: (() => void) | undefined;
@@ -505,6 +510,17 @@ function RunItem(props: {
       );
     case "question":
       return <SpadeQuestionBubble item={item} botName={bot.name} onReply={handlers.onQuestion} />;
+    case "card":
+      return (
+        <SpadeAgentCard
+          item={item}
+          avatar={bot.avatar}
+          botName={bot.name}
+          onChoose={
+            handlers.onCardChoice ?? (() => Promise.resolve("Choices work in the bot's own chat."))
+          }
+        />
+      );
     case "ask":
       return (
         <SpadeRequestBubble

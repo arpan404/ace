@@ -293,3 +293,17 @@ fn lines_split_on_lf_only() {
     assert_eq!(document.len_lines(), 1);
     assert_eq!(document.line(0), "a\rb");
 }
+
+#[test]
+fn changing_the_line_ending_rewrites_every_break_and_undoes_in_one_step() {
+    let mut document = editor_core::Document::new("a\r\nb\r\nc");
+    document.set_line_ending(editor_core::LineEnding::Lf);
+    assert_eq!(document.text(), "a\nb\nc");
+    assert_eq!(document.line_ending(), editor_core::LineEnding::Lf);
+    document.insert_newline();
+    assert_eq!(document.text(), "\na\nb\nc");
+    document.undo();
+    document.undo();
+    assert_eq!(document.text(), "a\r\nb\r\nc");
+    assert_eq!(document.line_ending(), editor_core::LineEnding::Crlf);
+}

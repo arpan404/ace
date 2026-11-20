@@ -32,6 +32,9 @@
       "maxItems": 5,
       "type": "array"
     },
+    "official": {
+      "type": "boolean"
+    },
     "pins": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/MarketEntryRef.json"

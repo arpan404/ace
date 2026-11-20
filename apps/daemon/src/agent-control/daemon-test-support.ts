@@ -1,6 +1,8 @@
 import { join } from "node:path";
 import { readConfig, startDaemon } from "@ace/daemon";
-import type { McpAttribution, AgentControlOperation } from "@ace/protocol";
+import type { Fact } from "@ace/core";
+import type { McpAttribution, AgentControlOperation, ThreadId } from "@ace/protocol";
+import { end, start } from "../engine/test-support.ts";
 import { setup } from "./test-support.ts";
 import { seedScriptedModels, scriptedModelInstance } from "../testing/models.ts";
 
@@ -132,6 +134,26 @@ export async function daemonFixture(
     controls,
     workspace,
     caller,
+    /**
+     * Makes `call` from inside a turn of `threadId`'s root on the daemon running now, as a
+     * provider's tool call is: the turn starts in the thread's current session, the call is
+     * made, the turn ends. After a Stop, only a call from a turn that runs lifts the delegation
+     * fence (ADR 0191).
+     */
+    async duringTurn<T>(threadId: ThreadId, call: () => T): Promise<Awaited<T>> {
+      const report = async (fact: Fact) => {
+        const session = h.contexts.get(threadId);
+        if (!session) throw new Error("Missing native session");
+        session.onFrame(h.frames.frame(fact));
+        await current.engine?.flush();
+      };
+      await report(start);
+      try {
+        return await call();
+      } finally {
+        await report(end);
+      }
+    },
     /** An agent tool call from the parent, on the daemon running now (after any restart). */
     call: (operation: AgentControlOperation) =>
       (current.agentControl ?? controls).port.execute(

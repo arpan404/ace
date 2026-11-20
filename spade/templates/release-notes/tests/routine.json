@@ -1,0 +1,14 @@
+{
+  "name": "Weekly changes runs and reports",
+  "given": {
+    "trigger": "Weekly changes"
+  },
+  "model": [
+    {
+      "say": "Nothing was merged since the last notes."
+    }
+  ],
+  "expect": {
+    "reply_contains": ["Nothing"]
+  }
+}

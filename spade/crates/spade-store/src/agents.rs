@@ -34,6 +34,29 @@ pub fn recipe_key(agent: &str) -> String {
     format!("{BOT_RECIPE}:{agent}")
 }
 
+/// The settings key prefix for a bot linked to an agent package (ADR 0200 §3.9): the package and
+/// version, the manifest as installed, the person's effect switches, as JSON the server shapes.
+pub const BOT_PACKAGE: &str = "bot_package";
+
+/// One bot's package settings key.
+pub fn package_key(agent: &str) -> String {
+    format!("{BOT_PACKAGE}:{agent}")
+}
+
+/// The setting a bot a packaged bot made keeps its maker's ceiling under (ADR 0200 §3.4).
+pub fn made_under_key(agent: &str) -> String {
+    format!("package_ceiling:{agent}")
+}
+
+/// The settings key prefix for an update the person accepted while its bot was working, held
+/// for its next still moment (ADR 0200 §6.1).
+pub const BOT_PACKAGE_HELD: &str = "bot_package_held";
+
+/// One bot's held-update settings key.
+pub fn package_held_key(agent: &str) -> String {
+    format!("{BOT_PACKAGE_HELD}:{agent}")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Agent {
     pub id: String,
@@ -99,35 +122,47 @@ impl Store {
     pub fn create_agent(&self, new: NewAgent<'_>, first: &[Event], now_ms: i64) -> Result<()> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
-        let inserted = tx.execute(
-            "INSERT OR IGNORE INTO conversations (id, title, created_ms, updated_ms)
-             VALUES (?1, NULL, ?2, ?2)",
-            params![new.conversation, now_ms],
-        )?;
-        if inserted == 0 {
-            return Err(StoreError::Exists(new.conversation.to_owned()));
-        }
-        let inserted = tx.execute(
-            "INSERT OR IGNORE INTO agents
-             (id, kind, name, task, avatar, model, conversation_id, created_ms, updated_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
-            params![
-                new.id,
-                new.kind,
-                new.name,
-                new.task,
-                new.avatar,
-                new.model,
-                new.conversation,
-                now_ms
-            ],
-        )?;
-        if inserted == 0 {
-            return Err(StoreError::Exists(new.id.to_owned()));
-        }
-        append_in(&tx, new.conversation, first, now_ms)?;
+        create_agent_in(&tx, &new, first, now_ms)?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// [`Store::create_agent`] with `settings` (key and value) stored in the same transaction:
+    /// a bot that must never exist without them (a package's ceiling) has them from its start.
+    pub fn create_agent_with(
+        &self,
+        new: NewAgent<'_>,
+        first: &[Event],
+        settings: &[(&str, &str)],
+        now_ms: i64,
+    ) -> Result<()> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        create_agent_in(&tx, &new, first, now_ms)?;
+        put_settings(&tx, settings)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// [`Store::create_agent`] for a bot another bot made, in one transaction with `settings`
+    /// (who made it, and what its maker's package lets it do) and `note` appended to its maker's
+    /// conversation `maker`: all of it is stored, or none. Answers the maker's stored note.
+    pub fn create_made_agent(
+        &self,
+        new: NewAgent<'_>,
+        first: &[Event],
+        settings: &[(&str, &str)],
+        maker: &str,
+        note: &Event,
+        now_ms: i64,
+    ) -> Result<Vec<StoredEvent>> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        create_agent_in(&tx, &new, first, now_ms)?;
+        put_settings(&tx, settings)?;
+        let stored = append_in(&tx, maker, std::slice::from_ref(note), now_ms)?;
+        tx.commit()?;
+        Ok(stored)
     }
 
     /// Every agent: the main one first, then by latest activity. A main bot another machine's
@@ -345,6 +380,14 @@ impl Store {
             "DELETE FROM settings WHERE key = ?1",
             params![recipe_key(id)],
         )?;
+        // The package it is linked to, and the ceiling its maker's package held it to (ADR 0200).
+        for key in [package_key(id), made_under_key(id)] {
+            tx.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+        }
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![package_held_key(id)],
+        )?;
         tx.execute(
             "DELETE FROM events WHERE conversation_id = ?1",
             params![conversation],
@@ -442,5 +485,53 @@ pub(crate) fn character_faces(tx: &Transaction<'_>) -> rusqlite::Result<()> {
         )?;
         taken.extend(made.get("pair"));
     }
+    Ok(())
+}
+
+/// Inserts the agent and its conversation with `first` as its first events, in `tx`.
+fn put_settings(tx: &Transaction<'_>, settings: &[(&str, &str)]) -> Result<()> {
+    for (key, value) in settings {
+        tx.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+    }
+    Ok(())
+}
+
+fn create_agent_in(
+    tx: &Transaction<'_>,
+    new: &NewAgent<'_>,
+    first: &[Event],
+    now_ms: i64,
+) -> Result<()> {
+    let inserted = tx.execute(
+        "INSERT OR IGNORE INTO conversations (id, title, created_ms, updated_ms)
+         VALUES (?1, NULL, ?2, ?2)",
+        params![new.conversation, now_ms],
+    )?;
+    if inserted == 0 {
+        return Err(StoreError::Exists(new.conversation.to_owned()));
+    }
+    let inserted = tx.execute(
+        "INSERT OR IGNORE INTO agents
+         (id, kind, name, task, avatar, model, conversation_id, created_ms, updated_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+        params![
+            new.id,
+            new.kind,
+            new.name,
+            new.task,
+            new.avatar,
+            new.model,
+            new.conversation,
+            now_ms
+        ],
+    )?;
+    if inserted == 0 {
+        return Err(StoreError::Exists(new.id.to_owned()));
+    }
+    append_in(tx, new.conversation, first, now_ms)?;
     Ok(())
 }

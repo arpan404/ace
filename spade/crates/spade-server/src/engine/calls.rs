@@ -33,6 +33,13 @@ use again::{Again, Held, ask_again, asked_stopped};
 
 const DECLINED: &str = "The person declined this action.";
 
+/// What starting a step's calls carries from deciding them: the verdict each one outside the
+/// sandbox was let run on, and what Spade's classifier read in each it raised to the person.
+struct Holding<'a> {
+    bound: &'a HashMap<String, Held>,
+    raised: &'a HashMap<String, effect::Effect>,
+}
+
 /// Memory tools whose writes become suggestions while only a tainted summary is in view.
 fn suggestible(name: &str) -> bool {
     matches!(name, "memory_save" | "memory_update")
@@ -88,6 +95,9 @@ pub(super) async fn handle_calls(
     // Calls let run outside the sandbox, by call id, with what the verdict that let each run was
     // given on (ADR 0144): checked again right before it starts.
     let mut bound: HashMap<String, Held> = HashMap::new();
+    // What Spade's classifier read in a call it raised to the person, by call id: held to the
+    // ceiling with the call's own effect when it starts.
+    let mut raised_at: HashMap<String, effect::Effect> = HashMap::new();
     let mut waiting = false;
     // Started with no stored result. This worker runs every call it starts to its stored end, so
     // such a call ran in an earlier worker that was cut off: its outcome is unknown.
@@ -95,6 +105,13 @@ pub(super) async fn handle_calls(
     for pending in calls {
         let (name, arguments) = resolve(&pending.call);
         match pending.status {
+            // A packaged bot has only the tools of the modules it uses (ADR 0200 §4.3), checked
+            // before any tool the turn loop answers itself: `tool_search`, `ask_user` and
+            // `app_connect_request` are `apps`' and `ui`'s like any other.
+            Status::New if !engine.uses_allow(id, &name) => {
+                let missing = ToolOutput::error(ceiling::not_used(&name));
+                finish_tool(engine, id, reply, &pending.call, &name, missing).await;
+            }
             Status::New if name == TOOL_SEARCH => runnable.push((pending.call, name, arguments)),
             // A helper may use only what its profile allows (ADR 0152), checked before any tool
             // the turn loop answers itself: a helper's `ask_user` would wait on a question
@@ -178,6 +195,9 @@ pub(super) async fn handle_calls(
             Status::Answered if super::apps::held_for_reconnect(events, &pending.call.id) => {
                 match super::apps::after_reconnect(events, &pending.call.id) {
                     super::apps::AfterReconnect::RunAgain => {
+                        if let Some(raised) = review::raised(events, &pending.call.id) {
+                            raised_at.insert(pending.call.id.clone(), raised);
+                        }
                         runnable.push((pending.call, name, arguments));
                     }
                     super::apps::AfterReconnect::Answer(output) => {
@@ -369,13 +389,59 @@ pub(super) async fn handle_calls(
                         .is_some_and(|tool| tool.hints().is_some() && !tool.sealed());
                     // One reading of the classifier for this call, for routing and screening.
                     let classifier = engine.classifier_ready();
-                    // A bot's own task, name and face are decided first, in every access level:
+                    // A packaged bot's declared effects, as the person left them on, for it and
+                    // everything under it (ADR 0200 §3.4).
+                    let ceiling = engine.ceiling(id);
+                    let gate = effect::Call {
+                        tool: &name,
+                        rule,
+                        risk: def.risk,
+                        always,
+                        effect: declared,
+                        remembered,
+                        place,
+                        // Anything untrusted the prompt shows, from any turn since compaction.
+                        tainted: !in_view.is_empty(),
+                        // The sandbox's deny-list holds a sandboxed call; anything else that
+                        // names a credential place, or a script it runs that reads one, is
+                        // refused on every level.
+                        credentials: (place != Place::Sandbox || remote)
+                            && (classed.credentials || autonomy::reaches_credentials(&arguments)),
+                        standing: autonomy::STANDING.contains(&name.as_str()),
+                        fits: autonomy::fits_review(&arguments, &classed.shown),
+                        // A grant records no launch: it holds for a contained launch only.
+                        granted: if limit == Authorized::Contained {
+                            engine.granted(id, &name, &arguments, declared)
+                        } else {
+                            effect::Granted::No
+                        },
+                        checkpointed: held && classed.runs == Runs::Host,
+                        target: target.as_deref(),
+                        drive,
+                        mode,
+                        remote,
+                        classifier,
+                        ceiling: ceiling
+                            .as_ref()
+                            .map(|(bot, allows)| effect::ceiling::Ceiling {
+                                bot,
+                                allows: *allows,
+                            }),
+                        command: ceiling::outside_class(&classed),
+                    };
+                    // The ceiling first, before any route of Spade's own: nothing a packaged bot
+                    // does, a bot it makes for the person included, gets past what its package
+                    // declared.
+                    let own = effect::ceiling_refusal(&gate).map(Route::Refuse);
+                    // A bot's own task, name and face are decided next, in every access level:
                     // with anything untrusted in view, a change goes to the person.
-                    let own = spade_core::self_edit::route(
-                        &name,
-                        untrusted || !in_view.is_empty(),
-                        spade_core::self_edit::naming_open(events),
-                    );
+                    let own = own.or_else(|| {
+                        spade_core::self_edit::route(
+                            &name,
+                            untrusted || !in_view.is_empty(),
+                            spade_core::self_edit::naming_open(events),
+                        )
+                    });
                     // A bot made for the person, or added to a club: its setting, and the person
                     // whenever untrusted content is in view (ADR 0161, amendment 1).
                     let own = own.or_else(|| {
@@ -388,37 +454,7 @@ pub(super) async fn handle_calls(
                     });
                     let route = match own {
                         Some(route) => route,
-                        None => effect::route(effect::Call {
-                            tool: &name,
-                            rule,
-                            risk: def.risk,
-                            always,
-                            effect: declared,
-                            remembered,
-                            place,
-                            // Anything untrusted the prompt shows, from any turn since compaction.
-                            tainted: !in_view.is_empty(),
-                            // The sandbox's deny-list holds a sandboxed call; anything else that
-                            // names a credential place, or a script it runs that reads one, is
-                            // refused on every level.
-                            credentials: (place != Place::Sandbox || remote)
-                                && (classed.credentials
-                                    || autonomy::reaches_credentials(&arguments)),
-                            standing: autonomy::STANDING.contains(&name.as_str()),
-                            fits: autonomy::fits_review(&arguments, &classed.shown),
-                            // A grant records no launch: it holds for a contained launch only.
-                            granted: if limit == Authorized::Contained {
-                                engine.granted(id, &name, &arguments, declared)
-                            } else {
-                                effect::Granted::No
-                            },
-                            checkpointed: held && classed.runs == Runs::Host,
-                            target: target.as_deref(),
-                            drive,
-                            mode,
-                            remote,
-                            classifier,
-                        }),
+                        None => effect::route(gate),
                     };
                     // An app's write in Full access runs counting on the screening.
                     let required = remote && declared != Some(effect::Effect::Read);
@@ -443,6 +479,8 @@ pub(super) async fn handle_calls(
                     };
                     // Which of Spade's judges put the call to the person, when one did.
                     let mut stopped = None;
+                    // What Spade's classifier read in it, when it raised it to the person.
+                    let mut raised = None;
                     // In Full access nothing is reviewed, but Spade's classifier may still raise a
                     // command outside the sandbox or an app's tool it reads as a hard stop.
                     let route = match route {
@@ -458,7 +496,8 @@ pub(super) async fn handle_calls(
                         {
                             engine.screening_now();
                             match engine.raise_only(id, reply, events, &screening(false)) {
-                                Ok(Screened::Ask(line)) => {
+                                Ok(Screened::Ask(line, read)) => {
+                                    raised = read;
                                     stopped = Some(Stopped::Classifier);
                                     Route::Ask { line, ask: None }
                                 }
@@ -546,7 +585,8 @@ pub(super) async fn handle_calls(
                             };
                             match screened {
                                 Screened::Run => Decision::Run,
-                                Screened::Ask(line) => {
+                                Screened::Ask(line, read) => {
+                                    raised = read;
                                     reviewer_reason = Some(line);
                                     stopped = Some(Stopped::Classifier);
                                     Decision::Ask
@@ -678,6 +718,17 @@ pub(super) async fn handle_calls(
                             runnable.push((pending.call, name, arguments));
                         }
                         Decision::Ask => {
+                            // Raised to the person for an effect its package never declared, or
+                            // the person turned off: refused, never asked (ADR 0200 §3.4).
+                            let raised =
+                                raised.or_else(|| review::raised(events, &pending.call.id));
+                            if let Some(why) =
+                                ceiling::raised_refusal(ceiling.as_ref(), raised, place, remote)
+                            {
+                                let refused = ToolOutput::ok(autonomy::refused(&why));
+                                finish_tool(engine, id, reply, &pending.call, &name, refused).await;
+                                continue;
+                            }
                             waiting = true;
                             // A driving step asked for any reason (its place, the reviewer, the
                             // classifier) offers to allow its app or site, where that may be.
@@ -785,6 +836,9 @@ pub(super) async fn handle_calls(
                 if let Some(place) = asked_place(events, &pending.call.id) {
                     engine.decide_place(&key, place, false);
                 }
+                if let Some(raised) = review::raised(events, &pending.call.id) {
+                    raised_at.insert(pending.call.id.clone(), raised);
+                }
                 runnable.push((pending.call, name, arguments));
             }
             Status::Declined => {
@@ -800,7 +854,11 @@ pub(super) async fn handle_calls(
         finish_tool(engine, id, reply, &call, &name, unknown).await;
     }
     if !runnable.is_empty() {
-        return run_tools(engine, id, reply, runnable, &bound, &facts, stop, pause).await;
+        let held = Holding {
+            bound: &bound,
+            raised: &raised_at,
+        };
+        return run_tools(engine, id, reply, runnable, held, &facts, stop, pause).await;
     }
     if waiting {
         let live = engine.live(id);
@@ -964,7 +1022,7 @@ async fn run_tools(
     id: &str,
     reply: &str,
     calls: Vec<(Call, String, Value)>,
-    bound: &HashMap<String, Held>,
+    holding: Holding<'_>,
     facts: &TurnFacts,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
@@ -993,7 +1051,7 @@ async fn run_tools(
             };
             // What it runs is read again: if it can't be, or a file changed since its verdict,
             // it doesn't start, and the person decides on it as it is now (ADR 0163, amendment 3).
-            if let Some(held) = bound.get(&call.id).filter(|held| held.recheck) {
+            if let Some(held) = holding.bound.get(&call.id).filter(|held| held.recheck) {
                 let key = format!("{id}.{}", call.id);
                 let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await else {
                     return Handled::Stopped;
@@ -1037,6 +1095,27 @@ async fn run_tools(
                      it or from a bot above it). Carry on without it."
                 ));
                 finished.push_back((call, name, gone));
+                continue;
+            }
+            // The ceiling as it is when the call starts: the person may have turned a switch off
+            // since it was decided, asked about or queued, or while its command was read just now
+            // (ADR 0200 §3.4). Read first, then checked and started with every packaged bot over
+            // it held, so no switch changes in between.
+            let Some(reading) = ceiling::read(engine, id, &call.id, &name, &arguments, stop).await
+            else {
+                return Handled::Stopped;
+            };
+            let raised = holding.raised.get(&call.id).copied();
+            let _ceiling_held = match &reading {
+                Some(_) => ceiling::hold(engine, id).await,
+                None => Vec::new(),
+            };
+            if let Some(why) = reading
+                .as_ref()
+                .and_then(|reading| ceiling::refusal(engine, id, reading, raised))
+            {
+                let refused = ToolOutput::ok(autonomy::refused(&why));
+                finished.push_back((call, name, refused));
                 continue;
             }
             let background = def.as_ref().is_some_and(|def| def.background);
@@ -1085,8 +1164,9 @@ async fn run_tools(
                 continue;
             }
             let (engine, id, facts) = (engine.clone(), id.to_owned(), facts.clone());
+            let gate = reading.map(|reading| (reading, raised));
             running.push(async move {
-                let output = run_one(&engine, &id, &call.id, &name, arguments, &facts).await;
+                let output = run_one(&engine, &id, &call.id, &name, arguments, &facts, gate).await;
                 (call, name, output)
             });
         }
@@ -1241,7 +1321,20 @@ async fn run_one(
     name: &str,
     arguments: Value,
     facts: &TurnFacts,
+    gate: Option<(ceiling::Reading, Option<effect::Effect>)>,
 ) -> Ran {
+    // Started with the packaged bots over it held, the ceiling checked once more: a call queued
+    // behind others is first polled only now.
+    let held = match &gate {
+        Some(_) => ceiling::hold(engine, id).await,
+        None => Vec::new(),
+    };
+    if let Some(why) = gate
+        .as_ref()
+        .and_then(|(reading, raised)| ceiling::refusal(engine, id, reading, *raised))
+    {
+        return Ran::Done(ToolOutput::ok(autonomy::refused(&why)));
+    }
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
         let registry = engine.registry_for(id);
@@ -1254,6 +1347,12 @@ async fn run_one(
     // Unique across conversations, and the same on every retry of this call.
     let key = format!("{id}.{call_id}");
     let mut work = tool.run_in(&key, arguments, facts);
+    // Its start, the first poll, still under the hold.
+    let first = std::future::poll_fn(|cx| std::task::Poll::Ready(work.as_mut().poll(cx))).await;
+    drop(held);
+    if let std::task::Poll::Ready(output) = first {
+        return Ran::Done(output);
+    }
     match tokio::time::timeout(engine.limits.foreground, &mut work).await {
         Ok(output) => Ran::Done(output),
         Err(_) => Ran::Outlived(work),
@@ -1353,3 +1452,4 @@ async fn finish_tool(
 }
 
 mod again;
+mod ceiling;

@@ -153,12 +153,12 @@ test("resuming a stopped root keeps cancelled child results readable without wak
   });
   expect(() => h.delegate(h.caller(child.childId), "stopped-child-work")).toThrow("cancelled");
   h.restartOwner();
-  const fresh = h.delegate(parent, "fresh-child");
-  await h.engine.flush();
+  // From a turn of the root's that runs, as a provider's tool call is (ADR 0191).
+  const fresh = await h.duringTurn(parent.threadId, () => h.delegate(parent, "fresh-child"));
   expect(h.store.getThread(fresh.childId)?.status.state).toBe("working");
 });
 
-test("after Stop a root's automatic inputs stay held while it may still delegate", async () => {
+test("after Stop a root's automatic inputs stay held, and it delegates again from its next turn", async () => {
   const h = setup();
   const parent = await h.parent();
   expect(
@@ -185,10 +185,11 @@ test("after Stop a root's automatic inputs stay held while it may still delegate
       expectedRevision: h.engine.queue(parent.threadId).revision + 1,
     }).ok,
   ).toBe(false);
-  // Stop ended the work in flight; it never fences the root's later delegation.
-  expect(h.delegate(parent, "after-stop").parentId).toBe(parent.threadId);
+  // A late delegation from the stopped work is refused until a new turn runs (ADR 0191), and the
+  // fence outlives the owner's restart.
+  expect(() => h.delegate(parent, "after-stop")).toThrow("cancelled");
   h.restartOwner();
-  expect(h.delegate(parent, "after-restart").parentId).toBe(parent.threadId);
+  expect(() => h.delegate(parent, "after-restart")).toThrow("cancelled");
   expect(
     h.service.command("resume-root", {
       type: "queue.resume",
@@ -196,5 +197,16 @@ test("after Stop a root's automatic inputs stay held while it may still delegate
       expectedRevision: h.engine.queue(parent.threadId).revision,
     }).ok,
   ).toBe(true);
-  expect(h.delegate(parent, "restored").parentId).toBe(parent.threadId);
+  // The person's next message runs a new turn, and a call from a turn that runs is admitted.
+  expect(
+    h.service.command("carry-on", {
+      type: "thread.send",
+      threadId: parent.threadId,
+      trigger: "user",
+      input: [{ type: "text", text: "Carry on" }],
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  const restored = await h.duringTurn(parent.threadId, () => h.delegate(parent, "restored"));
+  expect(restored.parentId).toBe(parent.threadId);
 });

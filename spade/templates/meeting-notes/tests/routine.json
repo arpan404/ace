@@ -1,0 +1,14 @@
+{
+  "name": "Follow-ups runs and reports",
+  "given": {
+    "trigger": "Follow-ups"
+  },
+  "model": [
+    {
+      "say": "No meetings need preparing today."
+    }
+  ],
+  "expect": {
+    "reply_contains": ["No"]
+  }
+}

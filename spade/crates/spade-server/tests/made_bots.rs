@@ -87,6 +87,35 @@ async fn spade_makes_a_standing_bot_that_is_listed_at_once_with_no_more_than_a_n
 }
 
 #[tokio::test]
+async fn a_bot_whose_makers_note_cannot_be_stored_is_not_made_at_all() -> Result {
+    let spade = Spade::start(
+        vec![research(), Script::reply("I could not make it.")],
+        Vec::new(),
+    )
+    .await?;
+    // The maker's `bot_made` note is how a rerun of the call finds the bot: never one without it.
+    spade_store::Store::connect(spade.database())?.execute_batch(
+        "CREATE TRIGGER refuse_bot_made BEFORE INSERT ON events \
+         WHEN json_extract(NEW.body, '$.type') = 'bot_made' \
+         BEGIN SELECT RAISE(ABORT, 'refused for a test'); END;",
+    )?;
+    let chat = main_conversation(&spade).await?;
+    spade.say(&chat, "Make me a research bot").await?;
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    assert!(
+        !events.iter().any(|e| e["type"] == "bot_made"),
+        "{events:?}"
+    );
+    assert_eq!(
+        named(&spade, "Research").await?,
+        Value::Null,
+        "no bot is listed without its maker's note"
+    );
+    assert_eq!(roster(&spade).await?.len(), 1, "only Spade");
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_bot_asks_the_person_before_making_a_bot_unless_allowed() -> Result {
     let spade = Spade::start(vec![research(), Script::reply("Asked.")], Vec::new()).await?;
     let manager = spade.new_agent("Manager", "Run my team").await?;

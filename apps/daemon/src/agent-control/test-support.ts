@@ -311,6 +311,19 @@ export function setup(
     ctx.onFrame(frames.frame(...facts));
     await engine.flush();
   }
+  /**
+   * Makes `call` from inside a turn of `thread`'s root, as a provider's tool call is: the turn
+   * starts in the thread's current session, the call is made, the turn ends. After a Stop, only
+   * a call from a turn that runs lifts the delegation fence (ADR 0191).
+   */
+  async function duringTurn<T>(thread: ThreadId, call: () => T): Promise<Awaited<T>> {
+    await emit(thread, start);
+    try {
+      return await call();
+    } finally {
+      await emit(thread, end);
+    }
+  }
   async function complete(thread: ThreadId, text: string) {
     await emit(
       thread,
@@ -371,6 +384,7 @@ export function setup(
     parent,
     delegate,
     emit,
+    duringTurn,
     complete,
     close,
     get service() {

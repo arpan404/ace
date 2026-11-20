@@ -4,9 +4,10 @@ import type { ArchiveFile } from "@ace/marketplace";
 import { MarketEntryType } from "@ace/protocol/marketplace";
 
 /*
- * The market's seed (ADR 0168 phase 1) as plain folders: `seed/<type>/<name>/`. A Suit's seed
- * folder holds only its `market.json`; its files are ace's own built-in Suit of that id, so
- * the two never drift apart.
+ * The market's seed (ADR 0168 phase 1) as plain folders: `seed/<type>/<name>/`. A Suit's or a
+ * bot's seed folder holds only its `market.json`; its files are ace's own built-in Suit of that
+ * id, or the agent package Spade ships as that template (`spade/templates/<id>/`, ADR 0200
+ * §3.8), so the two never drift apart.
  */
 
 export const seedRoot = join(import.meta.dirname, "../../seed");
@@ -14,8 +15,8 @@ export const builtinSuitsRoot = join(
   import.meta.dirname,
   "../../../../packages/plugins/builtin-suits",
 );
-/** Spade's built-in bot templates, which the seed's recipes are written from. */
-export const templatesPath = join(import.meta.dirname, "../../../../spade/config/templates.json");
+/** Spade's built-in bot templates, each a version 3 package. */
+export const templatesRoot = join(import.meta.dirname, "../../../../spade/templates");
 export const seedVersion = "1.0.0";
 
 export interface SeedEntry {
@@ -56,21 +57,20 @@ const folders = async (root: string) =>
 export async function readSeed(
   root = seedRoot,
   suitsRoot = builtinSuitsRoot,
+  botsRoot = templatesRoot,
 ): Promise<SeedEntry[]> {
   const entries: SeedEntry[] = [];
   for (const typeFolder of await folders(root)) {
     const type = MarketEntryType.parse(typeFolder);
     for (const name of await folders(join(root, typeFolder))) {
       const own = await filesIn(join(root, typeFolder, name));
-      const files =
-        type === "suit"
-          ? [
-              ...(await filesIn(join(suitsRoot, name))).filter(
-                (file) => file.path !== "market.json",
-              ),
-              ...own,
-            ]
-          : own;
+      const shipped = type === "suit" ? suitsRoot : type === "spade-bot" ? botsRoot : undefined;
+      const files = shipped
+        ? [
+            ...(await filesIn(join(shipped, name))).filter((file) => file.path !== "market.json"),
+            ...own,
+          ]
+        : own;
       entries.push({ type, name, version: seedVersion, files });
     }
   }

@@ -722,6 +722,10 @@ export async function startServer(options: ServerOptions): Promise<{
                 ? "desktop"
                 : "paired";
         if (message.channel !== undefined) peer.channel = message.channel;
+        // The client's own account of how its last connection ended (#1876): through a relay,
+        // "Peer closed" is all the daemon learns of a drop on the far side.
+        if (message.lastClose && message.channel === undefined)
+          options.warn?.("Client's last connection closed", { ...message.lastClose, ...peer });
         preAuth.authenticated(socket);
         authenticated.set(socket, actor);
         try {

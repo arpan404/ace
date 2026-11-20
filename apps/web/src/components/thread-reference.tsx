@@ -10,7 +10,7 @@ import {
   localLinkPath as localPath,
   normalizedPath,
 } from "@ace/ui-core/file-references";
-import { fileTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useOpenInEditorPanel } from "@/lib/workspace/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 const InlineImage = deferredComponent(() =>
   import("./attachment-tiles.tsx").then((module) => module.CapturedInlineImage),
@@ -46,7 +46,7 @@ function ScopedReference(props: {
 }) {
   const client = useClient();
   const root = useThreadField(props.threadId, threadCheckoutRoot);
-  const workspace = useWorkspaceActions(props.threadId);
+  const openInEditorPanel = useOpenInEditorPanel(props.threadId);
   const path = localPath(props.reference);
   const base = props.cwd ?? root;
   const resolvePath = (value: string, cwd = base) =>
@@ -148,7 +148,9 @@ function ScopedReference(props: {
     return (
       <button
         type="button"
-        onClick={() => workspace.open(fileTab(relative))}
+        // A pointer's glance: the file shows as the editor's preview and the chat keeps focus. From
+        // the keyboard (a click with no pointer count), the keyboard follows into the editor.
+        onClick={(event) => openInEditorPanel(relative, { focus: event.detail === 0 })}
         className="text-link underline decoration-ring/40 underline-offset-[3px] hover:decoration-current"
       >
         {props.children ?? props.alt ?? displayName(relative)}

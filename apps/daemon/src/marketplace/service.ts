@@ -23,6 +23,7 @@ import { MarketStore } from "./store.ts";
 import { badgesOf, Trust } from "./trust.ts";
 import { TurnedOff } from "./turned-off.ts";
 import { markUpdates, turnOffWithdrawn } from "./upkeep.ts";
+import { adoptArrivedBots } from "./arrived-bots.ts";
 
 export type { MarketPluginPort, MarketplaceOptions, MarketRequestPorts } from "./options.ts";
 
@@ -287,9 +288,16 @@ export class MarketplaceService {
       case "prepareUpdate": {
         const install = this.#store.install(operation.type, operation.name);
         if (!install) return error("not_found", "That entry isn't installed");
+        // A linked bot's update moves that bot (ADR 0200 §6.1).
+        const bot = install.type === "spade-bot" && install.linked ? install.target : undefined;
         return this.#serial(() =>
-          this.#reviews.prepare(install.source, install.type, install.name, install.update),
+          this.#reviews.prepare(install.source, install.type, install.name, install.update, bot),
         );
+      }
+      case "prepareRollback": {
+        const install = this.#store.install(operation.type, operation.name);
+        if (!install) return error("not_found", "That entry isn't installed");
+        return this.#serial(() => this.#reviews.prepareRollback(install));
       }
       case "remove":
         return this.#serial(async () => {
@@ -399,6 +407,13 @@ export class MarketplaceService {
       await this.#enforceBlocklist();
       const withdrawn = readWithdrawn(this.#store);
       await this.#reviews.cancelWithdrawn(withdrawn);
+      // A linked bot a move brought here becomes an install here, with its pinned bytes.
+      await adoptArrivedBots({
+        store: this.#store,
+        spade: this.#options.spade,
+        now: this.#options.now,
+        fetch: (source, name, version) => this.#reviews.fetchVersion(source, name, version),
+      });
       await turnOffWithdrawn(() => this.#installPorts(), this.#store, withdrawn);
       await markUpdates(this.#store);
       this.#emit();

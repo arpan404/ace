@@ -1,0 +1,14 @@
+{
+  "name": "Error check runs and reports",
+  "given": {
+    "trigger": "Error check"
+  },
+  "model": [
+    {
+      "say": "No new alerts since the last check."
+    }
+  ],
+  "expect": {
+    "reply_contains": ["No"]
+  }
+}

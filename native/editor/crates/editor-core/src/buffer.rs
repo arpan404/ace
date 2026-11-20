@@ -49,6 +49,22 @@ impl Buffer {
         self.line_ending
     }
 
+    pub(crate) fn set_line_ending(&mut self, ending: LineEnding) {
+        self.line_ending = ending;
+    }
+
+    /// Reads the ending from the first line break again, after an undo put other text back.
+    /// A document with no break keeps the ending it had.
+    pub(crate) fn redetect_line_ending(&mut self) {
+        if self.len_lines() > 1 {
+            self.line_ending = if self.ending_len(0) == 2 {
+                LineEnding::Crlf
+            } else {
+                LineEnding::Lf
+            };
+        }
+    }
+
     pub(crate) fn text(&self) -> String {
         self.rope.to_string()
     }
@@ -279,6 +295,74 @@ impl Buffer {
             return None;
         }
         Some((self.rope.char_to_byte(start), self.rope.char_to_byte(end)))
+    }
+}
+
+impl Buffer {
+    /// The bracket that pairs with the one at char index `at`, scanning at most `limit`
+    /// characters, as a char index. Nested pairs of the same kind are skipped; other kinds and
+    /// strings are not looked at.
+    fn pair_of(&self, at: usize, limit: usize) -> Option<usize> {
+        let ch = self.rope.char(at);
+        let (open, close, forward) = match ch {
+            '(' => ('(', ')', true),
+            '[' => ('[', ']', true),
+            '{' => ('{', '}', true),
+            ')' => ('(', ')', false),
+            ']' => ('[', ']', false),
+            '}' => ('{', '}', false),
+            _ => return None,
+        };
+        let mut depth = 0usize;
+        if forward {
+            let end = (at + 1 + limit).min(self.rope.len_chars());
+            for (index, next) in self.rope.slice(at + 1..end).chars().enumerate() {
+                if next == open {
+                    depth += 1;
+                } else if next == close {
+                    if depth == 0 {
+                        return Some(at + 1 + index);
+                    }
+                    depth -= 1;
+                }
+            }
+        } else {
+            let start = at.saturating_sub(limit);
+            let slice = self.rope.slice(start..at);
+            let mut index = at;
+            for previous in slice.chars_at(slice.len_chars()).reversed() {
+                index -= 1;
+                if previous == close {
+                    depth += 1;
+                } else if previous == open {
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                    depth -= 1;
+                }
+            }
+        }
+        None
+    }
+
+    /// The pair of brackets at a byte offset: the bracket just before it, else the one at it,
+    /// and its match, as byte offsets of the two brackets in document order.
+    pub(crate) fn matching_bracket(&self, offset: usize, limit: usize) -> Option<(usize, usize)> {
+        let at = self.rope.byte_to_char(offset.min(self.len_bytes()));
+        let candidates = [
+            at.checked_sub(1),
+            (at < self.rope.len_chars()).then_some(at),
+        ];
+        for candidate in candidates.into_iter().flatten() {
+            if let Some(other) = self.pair_of(candidate, limit) {
+                let (first, second) = (candidate.min(other), candidate.max(other));
+                return Some((
+                    self.rope.char_to_byte(first),
+                    self.rope.char_to_byte(second),
+                ));
+            }
+        }
+        None
     }
 }
 

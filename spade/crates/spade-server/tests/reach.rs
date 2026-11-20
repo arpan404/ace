@@ -416,7 +416,7 @@ async fn an_unusual_spend_rate_alerts_once() -> Result {
     let (id, conversation) = bot(&spade, "Spender").await?;
     let mut body = listen(&spade).await?;
     {
-        let db = rusqlite::Connection::open(spade.database())?;
+        let db = spade_store::Store::connect(spade.database())?;
         for hour in 1..=24 {
             db.execute(
                 "INSERT INTO spend (conversation_id, model, role, cost_micros, at_ms)

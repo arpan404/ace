@@ -33,4 +33,20 @@ function ContextMenuContent({ className, children, ...props }: ContextMenuPrimit
   );
 }
 
-export { ContextMenu, ContextMenuTrigger, ContextMenuContent };
+/**
+ * Open the context menu of `target` from the keyboard (Shift+F10; Mac keyboards have no
+ * context-menu key), anchored under its bottom-left corner.
+ */
+function openContextMenuFromKeyboard(target: HTMLElement): void {
+  const rect = target.getBoundingClientRect();
+  target.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left,
+      clientY: rect.bottom,
+    }),
+  );
+}
+
+export { ContextMenu, ContextMenuTrigger, ContextMenuContent, openContextMenuFromKeyboard };

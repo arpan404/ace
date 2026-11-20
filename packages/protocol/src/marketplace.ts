@@ -17,11 +17,19 @@ import {
 
 import { marketPublishOperations, marketPublishResults } from "./marketplace-publish-ops.ts";
 import { SpadePersonality } from "./marketplace-catalog.ts";
+import {
+  PackageEffectWord,
+  PackageGrant,
+  PackageLimits,
+  PackagePlan,
+  PackageTrigger,
+} from "./marketplace-package.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
 
 export * from "./marketplace-base.ts";
 export * from "./marketplace-publish-pick.ts";
 export * from "./marketplace-catalog.ts";
+export * from "./marketplace-package.ts";
 export * from "./marketplace-discover.ts";
 export * from "./marketplace-publish-ops.ts";
 export * from "./marketplace-publisher.ts";
@@ -64,6 +72,10 @@ export const MarketInstalled = z.strictObject({
    * the skill is installed but no bot sees it until the person turns it on.
    */
   botsApproved: z.boolean().optional(),
+  /** A bot from a version 3 package: it stays linked, so it updates and rolls back (ADR 0200). */
+  linked: z.boolean().optional(),
+  /** The version a linked bot had before, kept pinned here so a rollback needs no network. */
+  previous: z.strictObject({ version: z.string().max(64), hash: MarketHash }).optional(),
 });
 export type MarketInstalled = z.infer<typeof MarketInstalled>;
 
@@ -119,8 +131,31 @@ export const MarketRoutineRow = z.strictObject({
   schedule: z.string().max(200),
 });
 
+/** One effect a package declares, as a switch on its review (ADR 0200 §3.4). */
+export const MarketEffectRow = z.strictObject({
+  /** The switch's key, as Spade reads it (`network:hosts:api.example.com`). */
+  key: z.string().min(1).max(2100),
+  effect: PackageEffectWord,
+  hosts: z.array(z.string().max(260)).max(32).optional(),
+  grant: PackageGrant.optional(),
+  why: z.string().max(500),
+});
+export type MarketEffectRow = z.infer<typeof MarketEffectRow>;
+
+/** What an update or rollback of a linked bot does, for its review (ADR 0200 §6.1). */
+export const MarketBotUpdate = z.strictObject({
+  bot: z.string().min(1).max(80),
+  /** Back to the version it had before, from the bytes pinned here. */
+  rollback: z.boolean(),
+  /** Spade's plan: what is replaced, and what stays because the person or the bot changed it. */
+  plan: PackagePlan,
+  /** What the new version asks for that the old one didn't, besides effects; it starts off. */
+  asksMore: z.array(z.string().max(500)).max(64),
+});
+export type MarketBotUpdate = z.infer<typeof MarketBotUpdate>;
+
 /** What one type can do, in the facts its review page says in sentences. */
-export const MarketReviewBody = z.discriminatedUnion("type", [
+const MarketReviewBodySchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("suit"),
     passes: z.boolean(),
@@ -165,9 +200,22 @@ export const MarketReviewBody = z.discriminatedUnion("type", [
     needs: z.array(MarketNeed).max(64),
     /** Whether Spade is running to make the bot; installing waits for it otherwise. */
     spadeReady: z.boolean(),
+    /** A version 3 package: the bot stays linked to it (ADR 0200 §3.9). */
+    linked: z.boolean().optional(),
+    /** Its declared effects, each a switch the person sets; nothing is granted before Install. */
+    effects: z.array(MarketEffectRow).max(32).optional(),
+    /** Its triggers other than schedules, which `routines` lists. */
+    triggers: z.array(PackageTrigger).max(40).optional(),
+    limits: PackageLimits.optional(),
+    /** Fields this build doesn't use: "Not used by this Spade". */
+    unused: z.array(z.string().max(80)).max(64).optional(),
+    /** For an update or a rollback of an installed bot. */
+    update: MarketBotUpdate.optional(),
   }),
 ]);
-export type MarketReviewBody = z.infer<typeof MarketReviewBody>;
+export type MarketReviewBody = z.infer<typeof MarketReviewBodySchema>;
+/** Typed by name, so the wire's unions that carry a review stay small enough to declare. */
+export const MarketReviewBody: z.ZodType<MarketReviewBody> = MarketReviewBodySchema;
 
 /** A review's summary, bounded; its files, texts and executions page through `readReview`. */
 export const MarketReview = z.strictObject({
@@ -240,6 +288,8 @@ export const MarketInstallChoices = z.strictObject({
   needs: z.record(z.string().max(2100), z.boolean()).default({}),
   /** A recipe's routines start running; off by default. */
   startRoutines: z.boolean().default(false),
+  /** A package's effect switches as the person left them, by `MarketEffectRow.key`; one missing is off. */
+  effects: z.record(z.string().max(2100), z.boolean()).optional(),
 });
 export type MarketInstallChoices = z.infer<typeof MarketInstallChoices>;
 
@@ -280,6 +330,8 @@ export const MarketOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("cancel"), id: MarketReviewId }),
   z.strictObject({ op: z.literal("installed") }),
   z.strictObject({ op: z.literal("prepareUpdate"), ...installedKey }),
+  /** A review of the version a linked bot had before, from the bytes pinned here (ADR 0200). */
+  z.strictObject({ op: z.literal("prepareRollback"), ...installedKey }),
   z.strictObject({ op: z.literal("remove"), ...installedKey }),
   /** Turns a withdrawn or turned-off entry back on, from its pinned bytes. */
   z.strictObject({ op: z.literal("turnOn"), ...installedKey }),

@@ -1,4 +1,4 @@
-import type { RunTrigger, InteractionResolution } from "@ace/protocol";
+import type { FileChange, RunTrigger, InteractionResolution } from "@ace/protocol";
 import type { Fact, Key } from "@ace/core";
 import type { Data } from "./data.ts";
 import { failureCode, object, string, number } from "./data.ts";
@@ -11,6 +11,8 @@ export type Tool = {
   input: Data;
   live: boolean;
   created: number;
+  /** The file changes an edit or write reported with their patches, once it has. */
+  changes?: FileChange[];
 };
 export class NativeState {
   readonly rootKey: Key;

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { startBenchDaemon } from "@ace/perf-kit/daemon";
 import { bunBinary } from "../../../scripts/runtimes.ts";
 import { staleBuild } from "./web-build-stamp.ts";
+import { viteBuild } from "./vite-build.ts";
 
 /*
  * The slow-link run's `daemon` target: the bench daemon from apps/daemon/bench (a real daemon in
@@ -19,10 +20,10 @@ import { staleBuild } from "./web-build-stamp.ts";
 const web = new URL("../../../apps/web/", import.meta.url).pathname;
 const stampFile = `${web}dist/.slow-link-build.json`;
 const exec = promisify(execFile);
+const git = async (...args: string[]) => (await exec("git", args, { cwd: web })).stdout.trim();
 
 /** Builds apps/web/dist for this checkout unless the build there is already this checkout's. */
 async function freshWebBuild(): Promise<void> {
-  const git = async (...args: string[]) => (await exec("git", args, { cwd: web })).stdout.trim();
   const checkout = {
     commit: await git("rev-parse", "HEAD"),
     dirty: (await git("status", "--porcelain", "--untracked-files=no")) !== "",
@@ -33,7 +34,7 @@ async function freshWebBuild(): Promise<void> {
   const stale = staleBuild(stamp, checkout);
   if (stale === undefined) return;
   process.stderr.write(`Building apps/web/dist: the build there can't be used, ${stale}.\n`);
-  await exec("bunx", ["vite", "build"], { cwd: web, maxBuffer: 64 * 1024 * 1024 });
+  await viteBuild([]);
   // An edited tree gets no stamp, so the next run builds again.
   if (!checkout.dirty) await writeFile(stampFile, JSON.stringify({ commit: checkout.commit }));
 }

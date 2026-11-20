@@ -83,6 +83,11 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       quit: () => call("app.quit"),
       reload: () => call("app.reload"),
     },
+    drafts: {
+      /** The app is quitting: write pending drafts, then call `flushed` saying whether they are kept. */
+      onFlush: (listener: () => void) => subscribe("drafts.flush", () => listener()),
+      flushed: (kept: boolean) => call("drafts.flushed", { kept }),
+    },
     /** The menu-bar popover's own requests; refused from any other page. */
     tray: {
       open: (link: RequestOf<"tray.open">) => call("tray.open", link),

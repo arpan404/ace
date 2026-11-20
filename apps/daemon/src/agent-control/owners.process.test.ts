@@ -411,19 +411,23 @@ test("a new person input after Stop restores MCP delegation on the root thread",
     ).toBe(true);
     await f.daemon.engine?.flush();
     // Stop may close the provider session (#1005); the new input runs in the session it opens.
+    await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe("Try delegating again");
     const connection = f.h.contexts.get(f.caller.threadId)?.aceMcp;
     if (!connection) throw new Error("Missing scoped MCP connection");
+    // Made from a turn that runs, as a provider's tool call is (ADR 0191).
     expect(
-      await mcpCall(connection, "delegate", {
-        tasks: [
-          {
-            requestId: "after-stop",
-            role: "after-stop-greeting",
-            task: "Hello",
-            provider: "claude",
-          },
-        ],
-      }),
+      await f.duringTurn(f.caller.threadId, () =>
+        mcpCall(connection, "delegate", {
+          tasks: [
+            {
+              requestId: "after-stop",
+              role: "after-stop-greeting",
+              task: "Hello",
+              provider: "claude",
+            },
+          ],
+        }),
+      ),
     ).toMatchObject({ ok: true, data: { threadIds: [expect.any(String)] } });
   } finally {
     await f.daemon.close();

@@ -658,7 +658,45 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
   restart `keep` ones start again and the rest are `lost`. A running service does not make the
   bot read as working.
 
+## Pause, resume and the running view
+
+ADR 0200 §6. **Pause** is Stop, then hold. The pause is stored first (the `paused_bots` setting,
+`{agent: {at_ms, held}}`), so a restart holds it, then the bot's turn, jobs, helpers and workers stop
+as for Stop. Its own sleeps and waits stay open and armed; the stopped work's retries, outage
+waits and parked steps end with it; its services stop. While it is paused:
+
+- no turn starts: a message, a worker's report or a club's ask to it is stored and waits;
+- the wake timer skips its wakes, and one its condition meets (or the person wakes) is stored in
+  the pause's `held`, in the one write that marks it held, so a restart before Resume keeps it;
+- its routines' due slots stay due and unclaimed; event and webhook triggers are skipped
+  (`skipped_paused`); the person's own Run now is delivered and waits, as a message does.
+
+**Resume** fires each held wake once (a wake fires only while it is open), then clears the
+setting; a crash in between leaves the bot paused, and resuming again fires nothing twice. It lets
+the timer find the wakes that came
+due by time, lets the routines catch up once (`caught_up`), and answers what waited. Services
+don't restart by themselves. A paused bot can't move to another machine until it is resumed.
+A withdrawn package version pauses its bot with this same pause ([packages.md](packages.md)), and
+any Resume ends it: there is one pause.
+
+The state is the rolled-up one with `paused` below `sleeping`: waiting, working, sleeping,
+paused, idle (`spade_core::running`). A paused bot reads `paused`, its held wakes included, unless
+it still waits on the person or something of it is still being stopped. `working` on an agent is
+false while it is paused, so a client from before reads it at rest.
+
 ## API
+
+- `GET /v1/running`: `{bots: [row]}`, every bot that is no worker, in the task manager's order
+  (needs you, working, failed, sleeping, paused, idle, by name). A row is `{id, name, kind,
+conversation, avatar, state, reads, doing, failure?, paused_at_ms?, uses {answering, jobs,
+workers, services, agents}, spend {today_micros, month_micros, last_hour_micros,
+alert_line_micros, unusual}, network {sent_bytes, received_bytes, hosts, refused}, next_wake?
+{at_ms, what}, workers [{id, name, state, doing}], actions}`. `doing` is the state in words;
+  `actions` is what the person may do now (`stop`, then `pause` or `resume`). The network is
+  today's, from the egress log; `alert_line_micros` is the spend alert's hourly line, `null`
+  while alerts are off.
+- `POST /v1/agents/{id}/stop`, `/pause`, `/resume`: `{changed, bots}` (`changed` false when there
+  was nothing to do), `404` for no such agent.
 
 - `GET /v1/agents/{id}/wakes`: `{wakes: [{id, purpose, due_at, condition, reason, words,
 attempt, job, error, parked}]}`; `purpose` is `sleep`, `wait`, `retry`, `outage` or `park`,

@@ -21,6 +21,10 @@
             "hostId": {
               "$ref": "https://ace.local/protocol/v1/HostId.json"
             },
+            "keep": {
+              "const": true,
+              "type": "boolean"
+            },
             "name": {
               "maxLength": 256,
               "minLength": 1,
@@ -194,6 +198,41 @@
           "required": [
             "op",
             "deviceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "allowed": {
+              "type": "boolean"
+            },
+            "commandId": {
+              "$ref": "https://ace.local/protocol/v1/CommandId.json"
+            },
+            "deviceId": {
+              "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+            },
+            "op": {
+              "const": "scope",
+              "type": "string"
+            },
+            "scope": {
+              "enum": [
+                "read",
+                "operate",
+                "admin",
+                "projects",
+                "accounts"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "commandId",
+            "deviceId",
+            "scope",
+            "allowed"
           ],
           "type": "object"
         },

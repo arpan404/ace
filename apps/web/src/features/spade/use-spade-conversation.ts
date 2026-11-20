@@ -128,6 +128,12 @@ export function useSpadeConversation(conversation: string) {
      * A card of questions (ADR 0154): its answers, Answer later, or Never mind. A 400 names the
      * question and the rule it broke, in Spade's words (`SpadeRequestError`'s message).
      */
+    /** A choice pressed on a card the bot showed (ADR 0200 §5.1), on the version seen. */
+    chooseOnCard(cardId: string, version: number, action: string): Promise<string> {
+      return spadeHttp(client, "POST", `${path}/cards/${segment(cardId)}/actions`, {
+        body: { action, version },
+      });
+    },
     question(callId: string, body: QuestionReply): Promise<string> {
       const card = `${path}/questions/${segment(callId)}`;
       if ("connected" in body)

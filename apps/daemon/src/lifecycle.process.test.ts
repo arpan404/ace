@@ -93,7 +93,15 @@ describe("daemon lifecycle", () => {
     cleanups.push(() => reopened.close());
     expect(readFileSync(reopened.tokenPath, "utf8")).toBe(token);
     const again = await connect(reopened.url, home);
-    expect(await again.next()).toEqual(first);
+    // The reopened daemon greets as the same host; only the standing nonce, new for every socket
+    // (ADR 0190, #2310), differs.
+    const welcome = await again.next();
+    if (first.type !== "welcome" || welcome.type !== "welcome")
+      throw new Error("Expected welcomes");
+    const { standingNonce, ...rest } = welcome;
+    const { standingNonce: firstNonce, ...firstRest } = first;
+    expect(rest).toEqual(firstRest);
+    expect(standingNonce).not.toBe(firstNonce);
   });
   it("prevents a second process sharing the database and restarts after SIGTERM", async () => {
     const home = tempHome();

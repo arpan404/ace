@@ -88,7 +88,7 @@ async function fixture() {
     guard?.();
     return { text: "shared clipboard", truncated: false };
   };
-  return { service, taps, advance, state, holdTap, setWallClock };
+  return { service, platform, taps, advance, state, holdTap, setWallClock };
 }
 
 it("the person's tap goes into a device an agent holds, and the agent's tap waits until they pause", async () => {
@@ -280,6 +280,56 @@ it("a simulator clipboard read does not wait for the person's lease or queued in
   expect(result).toEqual({ kind: "json", value: { text: "shared clipboard", truncated: false } });
   release();
   await running;
+});
+
+it("a clipboard read an agent started never hands it what the person copied while they held the device", async () => {
+  const { service, platform } = await fixture();
+  let clipboard = "the agent's text";
+  const reading = Promise.withResolvers<void>();
+  const delivered = Promise.withResolvers<void>();
+  // As scrcpy does: authorized before the request goes out, never again when the device answers.
+  platform.clipboardRead = async (_device, guard) => {
+    guard?.();
+    reading.resolve();
+    // The device answers only once the test lets it, with what its clipboard holds then.
+    await delivered.promise;
+    return { text: clipboard, truncated: false };
+  };
+  const read = service.request({ op: "clipboard.get", deviceId }, agent);
+  const outcome = read.then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
+  );
+  await reading.promise;
+  // The person takes the device, copies something of theirs, and hands it back to the agent.
+  await service.request({ op: "controller", deviceId, controller: "human" }, person);
+  clipboard = "the person's password";
+  await service.request({ op: "controller", deviceId, controller: "none" }, person);
+  await service.claimForAgent(deviceId, agent);
+  delivered.resolve();
+  const result = await outcome;
+  expect(JSON.stringify(result)).not.toContain("the person's password");
+  expect(result).toMatchObject({ error: { code: "lease_required" } });
+});
+
+it("handing back a device nobody holds leaves an agent's clipboard read in flight to finish", async () => {
+  const { service, platform } = await fixture();
+  // The person hands the agent's device back; it stays the agent's thread's, held by nobody.
+  await service.request({ op: "controller", deviceId, controller: "none" }, person);
+  const reading = Promise.withResolvers<void>();
+  const delivered = Promise.withResolvers<void>();
+  platform.clipboardRead = async (_device, guard) => {
+    guard?.();
+    reading.resolve();
+    await delivered.promise;
+    return { text: "the agent's text", truncated: false };
+  };
+  const read = service.request({ op: "clipboard.get", deviceId }, agent);
+  await reading.promise;
+  // Handing back again changes nothing about who holds it.
+  await service.request({ op: "controller", deviceId, controller: "none" }, person);
+  delivered.resolve();
+  await expect(read).resolves.toEqual({ text: "the agent's text", truncated: false });
 });
 
 it("thirty-two waiting agents leave a separately bounded lane for human input", async () => {

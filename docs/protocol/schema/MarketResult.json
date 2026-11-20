@@ -426,6 +426,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "action": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
         "code": {
           "$ref": "https://ace.local/protocol/v1/MarketErrorCode.json"
         },

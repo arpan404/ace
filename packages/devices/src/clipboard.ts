@@ -8,7 +8,8 @@ export type ClipboardRead = { text: string; truncated: boolean };
 
 /** A device clipboard reached over a capture's own control channel. */
 export interface DeviceClipboard {
-  read(guard: () => void): Promise<string>;
+  /** `owner` is whose read it is: one owner's late answer never reaches another's read. */
+  read(guard: () => void, owner: string): Promise<string>;
   write(text: string, guard: () => void): Promise<void>;
 }
 

@@ -218,7 +218,22 @@ export interface SpadeTemplate {
   task: string;
   /** Its face; a template without a readable one gets the face its id seeds. */
   face: BotFace;
+  /** Its routines, each with its schedule in Spade's own words (`Weekdays at 8:00`). */
+  routines: SpadeTemplateRoutine[];
 }
+
+export interface SpadeTemplateRoutine {
+  name: string;
+  words: string;
+}
+
+const templateRoutine = z
+  .object({
+    name: z.string().catch(""),
+    words: z.string().catch(""),
+    schedule: z.string().catch(""),
+  })
+  .transform((routine) => ({ name: routine.name, words: routine.words || routine.schedule }));
 
 const templateShape = z.object({
   id: z.string().min(1),
@@ -226,7 +241,19 @@ const templateShape = z.object({
   blurb: z.string().catch(""),
   task: z.string().catch(""),
   face: z.unknown().optional(),
+  routines: z.array(z.unknown()).catch([]),
 });
+
+/** A template's routines in one quiet line: `Morning inbox, weekdays at 8:00`. Pure. */
+export function spadeTemplateRoutinesLine(routines: readonly SpadeTemplateRoutine[]): string {
+  return routines
+    .map((routine) => {
+      const when = routine.words ? routine.words[0]?.toLowerCase() + routine.words.slice(1) : "";
+      return [routine.name, when].filter(Boolean).join(", ");
+    })
+    .filter(Boolean)
+    .join(" · ");
+}
 
 /** `GET /v1/templates`; undefined when the body has no list. */
 export function parseSpadeTemplates(body: string): SpadeTemplate[] | undefined {
@@ -235,8 +262,17 @@ export function parseSpadeTemplates(body: string): SpadeTemplate[] | undefined {
   return list.flatMap((raw) => {
     const template = templateShape.safeParse(raw);
     if (!template.success) return [];
-    const { face, ...rest } = template.data;
-    return [{ ...rest, face: parseStoredBotFace(face)?.face ?? faceForId(rest.id) }];
+    const { face, routines, ...rest } = template.data;
+    return [
+      {
+        ...rest,
+        face: parseStoredBotFace(face)?.face ?? faceForId(rest.id),
+        routines: routines.flatMap((entry) => {
+          const routine = templateRoutine.safeParse(entry);
+          return routine.success ? [routine.data] : [];
+        }),
+      },
+    ];
   });
 }
 

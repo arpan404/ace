@@ -97,6 +97,9 @@
         "provider"
       ],
       "type": "object"
+    },
+    "via": {
+      "$ref": "https://ace.local/protocol/v1/MessageVia.json"
     }
   },
   "required": [

@@ -118,3 +118,29 @@ test("a refused credential heals automatically, at most once a minute, and revoc
   expect(stored).toBe(healed);
   handOver.close();
 });
+
+test("a restarted Spade that lost its grant is handed a new one at once, within the minute", async () => {
+  const stored = new Map<number, string>();
+  let issued = 0;
+  const handOver = new SpadeGrantDelivery({
+    now: () => 100_000,
+    grants: {
+      current: () => ({ ...grant, lastUsedAt: 100_000 }),
+      issue: () => `credential-${++issued}`,
+    },
+    prove: async () => true,
+    ready: () => undefined,
+    after: () => () => {},
+    log: () => {},
+    call: async (spade, method, body) => {
+      if (method === "GET") return { status: 200, body: { grant: stored.has(spade.port) } };
+      if (body) stored.set(spade.port, body.grant);
+      return { status: 204, body: undefined };
+    },
+  });
+  await handOver.deliver(connection, true);
+  const restarted = { ...connection, port: 4101, token: "spade-token-restarted" };
+  await handOver.deliver(restarted);
+  expect(stored.get(restarted.port)).toBe("credential-2");
+  handOver.close();
+});

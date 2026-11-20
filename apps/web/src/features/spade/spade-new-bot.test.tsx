@@ -216,6 +216,59 @@ test("a template chip under the composer starts the bot from it, named after it 
     ]),
   );
   expect(spade.sent("POST", "/v1/agents")[0]).not.toHaveProperty("naming");
+  // No routines: no switch, and nothing said about them.
+  expect(screen.queryByRole("switch", { name: /routines/ })).toBeNull();
+  expect(spade.sent("POST", "/v1/agents")[0]).not.toHaveProperty("start_routines");
+});
+
+const briefing = {
+  ...digest,
+  id: "briefing",
+  name: "Daily brief",
+  routines: [
+    {
+      name: "Morning brief",
+      instruction: "Brief me on the day.",
+      schedule: "daily at 7:00",
+      words: "Every day at 7:00",
+    },
+  ],
+};
+
+test("a template's routines show in one line with a switch, on unless the person turns it off", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    withSpade(api);
+    api.teams.templates.push(briefing, digest);
+  });
+  await openNew("New bot");
+  await userEvent.click(await screen.findByRole("button", { name: "Daily brief" }));
+  expect(await screen.findByText("Morning brief, every day at 7:00")).toBeTruthy();
+  const routines = screen.getByRole("switch", { name: "Start Daily brief's routines" });
+  expect(routines.getAttribute("aria-checked")).toBe("true");
+  await send("Start tomorrow", "Daily brief");
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/agents")).toEqual([
+      expect.objectContaining({ template: "briefing", start_routines: true }),
+    ]),
+  );
+});
+
+test("with the switch off, a template's bot is made with its routines paused", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    withSpade(api);
+    api.teams.templates.push(briefing);
+  });
+  await openNew("New bot");
+  await userEvent.click(await screen.findByRole("button", { name: "Daily brief" }));
+  await userEvent.click(
+    await screen.findByRole("switch", { name: "Start Daily brief's routines" }),
+  );
+  await send("Start next week", "Daily brief");
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/agents")).toEqual([
+      expect.objectContaining({ template: "briefing", start_routines: false }),
+    ]),
+  );
 });
 
 test("More settings chooses the model and machine, and is never needed", async () => {

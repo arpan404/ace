@@ -1,0 +1,30 @@
+{
+  "name": "Answers its first message",
+  "given": {
+    "message": "Plan a weekend in Lisbon in May."
+  },
+  "model": [
+    {
+      "calls": [
+        {
+          "tool": "todo",
+          "arguments": {
+            "items": [
+              {
+                "text": "Answer: Plan a weekend in Lisbon in May.",
+                "done": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "say": "Here is a plan for your weekend in Lisbon."
+    }
+  ],
+  "expect": {
+    "calls": ["todo"],
+    "reply_contains": ["Lisbon"]
+  }
+}

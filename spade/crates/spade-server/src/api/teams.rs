@@ -31,6 +31,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/agents/{id}/duplicate", post(duplicate))
         .route("/agents/{id}/export", get(export))
         .route("/agents/{id}/recipe", get(export_recipe))
+        .route("/agents/{id}/package-draft", get(package_draft))
         .route(
             "/agents/import",
             post(import).layer(DefaultBodyLimit::max(AGENT_BODY)),
@@ -333,6 +334,23 @@ async fn export_recipe(State(state): State<AppState>, Path(id): Path<String>) ->
         };
         match teams::export_recipe(&state.engine, sources, &id) {
             Ok(exported) => Json(exported).into_response(),
+            Err(error) => portable_problem(&error),
+        }
+    })
+    .await
+}
+
+/// `GET /v1/agents/{id}/package-draft`: the bot as the start of a version 3 agent package
+/// (ADR 0200 §9), with what a package can't carry. `ace bot init --from` writes it as a folder.
+async fn package_draft(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    off_thread(move || {
+        let sources = teams::RecipeSources {
+            connectors: state.connectors.as_deref(),
+            plugins: state.engine.plugins().map(|p| &**p),
+            skills: state.skill_store.as_deref(),
+        };
+        match teams::package_draft(&state.engine, sources, &id) {
+            Ok(drafted) => Json(drafted).into_response(),
             Err(error) => portable_problem(&error),
         }
     })

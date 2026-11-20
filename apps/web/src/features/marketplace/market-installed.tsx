@@ -95,6 +95,19 @@ function InstalledRow(props: { item: MarketInstalled }) {
   const key = { source: item.source, type: item.type, name: item.name };
   const version = item.update ? `${item.version} → ${item.update}` : item.version;
   const busy = remove.isPending || turnOn.isPending;
+  // A linked bot goes back to the version it had before, from the copy kept here (ADR 0200).
+  const rollBack =
+    item.linked && item.previous ? (
+      <Button
+        size="sm"
+        variant="ghost"
+        aria-label={`Roll back ${item.title} to ${item.previous.version}`}
+        disabled={busy}
+        onClick={() => nav.push({ kind: "review", entry: key, update: true, rollback: true })}
+      >
+        Roll back
+      </Button>
+    ) : undefined;
   const failed = remove.error ?? turnOn.error;
   return (
     <li {...part("list-row", undefined, "market-installed")} className="mk-row">
@@ -126,13 +139,14 @@ function InstalledRow(props: { item: MarketInstalled }) {
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => remove.mutate(item)}>
               Remove
             </Button>
+            {rollBack}
             <Button
               size="sm"
               variant="secondary"
               disabled={busy}
               onClick={() => turnOn.mutate(item)}
             >
-              Turn on
+              {item.linked ? "Resume" : "Turn on"}
             </Button>
           </>
         ) : item.update ? (
@@ -146,6 +160,8 @@ function InstalledRow(props: { item: MarketInstalled }) {
           >
             Update
           </Button>
+        ) : rollBack ? (
+          rollBack
         ) : (
           <Button
             size="sm"

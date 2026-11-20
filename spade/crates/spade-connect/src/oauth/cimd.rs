@@ -3,9 +3,10 @@
 //! address of a public JSON document on acehq.dev (ADR 0136) naming Spade and its loopback
 //! callback. A server that supports it fetches the document itself, so Spade registers nothing.
 //!
-//! The document lists one callback for every connector, `http://127.0.0.1/v1/connectors/callback`
-//! (any port, RFC 8252 section 7.3), because a document can't list the per-connector addresses
-//! Spade uses otherwise. The `state` picks the sign-in, and `iss` must name the server it began
+//! The document lists one callback for every connector, `http://localhost/v1/connectors/callback`
+//! (any port on loopback), because a document can't list the per-connector addresses Spade uses
+//! otherwise. It names `localhost`, not `127.0.0.1`: some servers refuse an IP address in a
+//! document's redirects but allow `localhost` (ADR 0136 amendment 1). The `state` picks the sign-in, and `iss` must name the server it began
 //! with: the client ID and callback being the same everywhere, nothing else could tell one
 //! server's answer from another's.
 

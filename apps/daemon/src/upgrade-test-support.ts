@@ -1,5 +1,5 @@
 import { outsideGrantTables } from "./external-mcp/tables.ts";
-import { schemaVersionBefore } from "./migrations.ts";
+import { devicePersonStep, schemaVersionBefore } from "./migrations.ts";
 
 /**
  * SQL that takes a current database back to an older schema, newest steps first, for upgrade
@@ -15,8 +15,19 @@ import { schemaVersionBefore } from "./migrations.ts";
  */
 const olderBuild = "DROP TABLE IF EXISTS stored_event_shape; ";
 
-/** What the raw revision step, the newest in the schema, added: item heads' `raw_seq`. */
-export const undoRawRevisions = olderBuild + "ALTER TABLE item_heads DROP COLUMN raw_seq; ";
+/**
+ * What the person's standing steps (ADR 0190), the newest in the schema, added: whether a
+ * paired device's link was the person's, and the key it proves that standing with.
+ */
+export const undoPersonStanding =
+  olderBuild +
+  "ALTER TABLE devices DROP COLUMN standing_key; ALTER TABLE devices DROP COLUMN person; ";
+
+/** The schema just before the person's standing steps. */
+export const beforePersonStanding = schemaVersionBefore(devicePersonStep);
+
+/** What the raw revision step, the one before them, added: item heads' `raw_seq`. */
+export const undoRawRevisions = undoPersonStanding + "ALTER TABLE item_heads DROP COLUMN raw_seq; ";
 
 /** What the Spade computer step, the one before it, added: the take-over table. */
 export const undoSpadeComputers = undoRawRevisions + "DROP TABLE spade_computer_drivers; ";

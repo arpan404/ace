@@ -308,6 +308,27 @@
           "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
         },
         "op": {
+          "const": "prepareRollback",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "op",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "op": {
           "const": "remove",
           "type": "string"
         },
@@ -340,6 +361,27 @@
         "op",
         "type",
         "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "op": {
+          "const": "turnOnForBots",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "name",
+        "hash"
       ],
       "type": "object"
     },

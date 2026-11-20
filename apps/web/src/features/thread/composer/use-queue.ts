@@ -42,7 +42,7 @@ export const queuedText = (message: Pick<QueuedMessage, "input">) =>
  */
 export function queuedLine(message: Pick<QueuedMessage, "input">): string {
   const shown = bubbleContent(message.input);
-  const annotations = shown.annotations?.items.length ?? 0;
+  const annotations = (shown.annotations?.items.length ?? 0) + (shown.code?.length ?? 0);
   const quotes = shown.quotes?.length ?? 0;
   // Not `shown.text`: the transcript's clean-up drops a leading slash command.
   const words = typedWords(shown.parts);

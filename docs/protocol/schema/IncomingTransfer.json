@@ -32,6 +32,25 @@
       "minimum": 0,
       "type": "integer"
     },
+    "live": {
+      "properties": {
+        "finalOffset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "session": {
+          "$ref": "https://ace.local/protocol/v1/TransferSessionOutcome.json"
+        }
+      },
+      "required": [
+        "finalOffset"
+      ],
+      "type": "object"
+    },
     "method": {
       "$ref": "https://ace.local/protocol/v1/TransferMethod.json"
     },

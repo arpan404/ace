@@ -10,6 +10,7 @@ mod bots;
 mod brain;
 mod brief;
 mod calls;
+mod cards;
 mod classify;
 mod compact;
 mod computer;
@@ -41,7 +42,9 @@ mod moves;
 pub mod onboarding;
 mod outbox;
 mod oversight;
+pub(crate) mod packages;
 mod park;
+mod pause;
 mod plugin_hooks;
 mod questions;
 mod reach;
@@ -51,6 +54,7 @@ mod review;
 pub mod roster;
 mod routines;
 mod routing;
+mod running;
 mod search;
 mod security;
 mod self_edit;
@@ -69,6 +73,7 @@ mod workers;
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
+pub use cards::CardError;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
@@ -183,6 +188,12 @@ pub struct Engine {
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
     record_lock: Mutex<()>,
+    /// Bots whose package link is being changed (an install, an update or rollback, a switch, a
+    /// withdrawal): one change to a bot's package at a time (`packages::Busy`).
+    pub(crate) package_busy: crate::packages::Changing,
+    /// The market keys a package's signed manifest must verify with (ADR 0200 §3.2): the ones
+    /// this build ships, unless a test trusts its own.
+    market_keys: std::sync::RwLock<Vec<crate::packages::envelope::MarketKey>>,
     /// Each conversation's activity, so listing conversations folds only those that changed.
     /// Every stored event goes through `append_events`, which drops the entry.
     activity: Mutex<HashMap<String, Activity>>,
@@ -263,6 +274,8 @@ pub struct Engine {
     reach: reach::Shared,
     /// Bots moving to or from another machine (ADR 0187, `moves`).
     moves: moves::Shared,
+    /// Bots the person paused, and the wakes met meanwhile (ADR 0200 §6.1, `pause`).
+    pause_hold: pause::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -314,6 +327,10 @@ impl Engine {
             .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
             .with_tool(Arc::new(crate::tools::ProfileUpdate(handle.clone())))
             .with_tool(Arc::new(crate::tools::ClubAdd(handle.clone())));
+        // `card_show` (ADR 0200 §5.1), unless Spade gave one that keeps images from workspaces.
+        if tools.get(spade_core::card::CARD_SHOW).is_none() {
+            tools = tools.with_tool(Arc::new(crate::tools::CardShow::new(handle.clone(), None)));
+        }
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -349,6 +366,8 @@ impl Engine {
             ),
             live: Mutex::default(),
             record_lock: Mutex::default(),
+            package_busy: crate::packages::Changing::default(),
+            market_keys: std::sync::RwLock::new(crate::packages::envelope::shipped()),
             activity: Mutex::default(),
             // Closed until `open_for_work`, so nothing runs before ace's tools are back.
             admission: AtomicBool::new(false),
@@ -382,6 +401,7 @@ impl Engine {
             digests: digests::Shared::default(),
             reach: reach::Shared::default(),
             moves: moves::Shared::default(),
+            pause_hold: pause::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
@@ -432,11 +452,17 @@ impl Engine {
         // bot has back, so a conversation that never runs again is remembered too.
         self.sweep_episodes();
         self.end_maintenance();
+        // A bot an install a crash cut short left goes before anything is scheduled for it, and a
+        // package update cut short is taken again from the start (ADR 0200 §3.4, §6.2).
+        crate::packages::recover_installs(self);
+        crate::packages::recover(self);
         // Bots' wakes are armed from their events and `keep` services start again (ADR 0160).
         self.restore_wakes();
         if let Err(error) = self.resume_groups() {
             tracing::error!(%error, "could not pick up the groups' open asks");
         }
+        // An update held while a bot worked applies to each bot that is still now.
+        crate::packages::held::recover(self);
         // Workers owed a report or a start since the last run get it (ADR 0161).
         self.start_workers();
         // Digests on each bot's schedule (ADR 0165).
@@ -500,7 +526,8 @@ impl Engine {
     /// What `id` is doing and its latest message, with everything under it rolled up (ADR
     /// 0161): it reads waiting or working while any worker of it does.
     pub(crate) fn activity(&self, id: &str) -> Result<Activity, StoreError> {
-        let own = self.own_activity(id)?;
+        let mut own = self.own_activity(id)?;
+        own.state = spade_core::running::held(own.state, self.paused(id));
         Ok(self.roll_up(id, own))
     }
 
@@ -531,6 +558,7 @@ impl Engine {
             waiting_for: memory::waiting_for(&transcript),
             questions_for_later: question::for_later(events.iter()),
             problem: spade_core::brain::problem(events.iter()).map(str::to_owned),
+            failure: spade_core::running::failure(events.iter()),
             task: spade_core::task::state_in(events.iter()),
             task_progress: spade_core::goal::view::progress_in(
                 events.iter(),
@@ -617,6 +645,7 @@ impl Engine {
                 .wake
                 .as_ref()
                 .map(|open| spade_core::wake::words(open, |ms| self.short_time(ms))),
+            State::Paused => Some(roster::PAUSED.to_owned()),
             State::Working if self.held(id) => Some(computer::PAUSED_FOR_YOU.to_owned()),
             State::Working => Some(
                 self.live(id)
@@ -769,6 +798,19 @@ impl Engine {
                     }
                     false
                 }
+                // A card's choice lands once per version (ADR 0200 §5.1), and only on the
+                // version the person saw.
+                Event::Known(Known::CardAction {
+                    card,
+                    version,
+                    action,
+                    ..
+                }) => {
+                    if spade_core::card::choose(&events, card, *version, action).is_err() {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    false
+                }
                 // A wake fires once (ADR 0160): only while it is still open.
                 Event::Known(Known::WakeFired { wake, .. }) => {
                     if !spade_core::wake::is_open(&events, wake) {
@@ -804,8 +846,9 @@ impl Engine {
             // The waits this event settles (a job's end, a message) are stored with it, so
             // they are settled once, with what settles them (ADR 0160).
             let settled = spade_core::wake::settled_by(&events, event);
-            // While the person has the bot's computer, messages wait for the hand-back.
-            let admitted = self.admission.load(Ordering::SeqCst) && !self.held(id);
+            // While the person has the bot's computer, messages wait for the hand-back; while
+            // they paused it, for Resume (ADR 0200 §6.1).
+            let admitted = self.admission.load(Ordering::SeqCst) && !self.closed(id);
             let (start, stored) =
                 if quiet || !admitted || Transcript::fold(events.iter()).open_reply().is_some() {
                     // A typed message that can stand for a waiting card's answers is stored with
@@ -1009,16 +1052,22 @@ impl Engine {
         self.forget_activity(id);
         let stored = stored?;
         if let spade_store::Delivered::Stored(events) = &stored {
-            for event in events {
-                let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
-            }
-            // The tree follows, and the worker is checked for a report (ADR 0161).
-            let written: Vec<Event> = events.iter().map(|e| e.event.clone()).collect();
-            self.workers_stored(id, &written);
-            // Events that reach the person go out as notices, with their level (ADR 0165).
-            self.notice_stored(id, events);
+            self.publish_stored(id, events);
         }
         Ok(stored)
+    }
+
+    /// Sends events just stored in conversation `id` to its subscribers, the tree and the
+    /// person's notices, in order; for a store write that appended them itself.
+    fn publish_stored(&self, id: &str, events: &[StoredEvent]) {
+        for event in events {
+            let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
+        }
+        // The tree follows, and the worker is checked for a report (ADR 0161).
+        let written: Vec<Event> = events.iter().map(|e| e.event.clone()).collect();
+        self.workers_stored(id, &written);
+        // Events that reach the person go out as notices, with their level (ADR 0165).
+        self.notice_stored(id, events);
     }
 
     /// Records `cost` micros spent on `model` in conversation `id` for `role` (ADR 0162); with
@@ -1053,7 +1102,7 @@ impl Engine {
     fn resume(self: &Arc<Self>, id: &str) -> Result<(), StoreError> {
         let open = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if self.deleting(id) || self.held(id) {
+            if self.deleting(id) || self.closed(id) {
                 return Ok(());
             }
             let events = self.load(id)?;

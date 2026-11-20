@@ -1,0 +1,105 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageTrigger.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "in": {
+          "default": [
+            "threads",
+            "clubs"
+          ],
+          "items": {
+            "enum": [
+              "threads",
+              "clubs"
+            ],
+            "type": "string"
+          },
+          "maxItems": 2,
+          "type": "array"
+        },
+        "kind": {
+          "const": "mention",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "$ref": "https://ace.local/protocol/v1/PackageEvent.json"
+        },
+        "instruction": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+        },
+        "kind": {
+          "const": "event",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 60,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "instruction",
+        "event"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instruction": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+        },
+        "kind": {
+          "const": "webhook",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 60,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "instruction"
+      ],
+      "type": "object"
+    }
+  ]
+}

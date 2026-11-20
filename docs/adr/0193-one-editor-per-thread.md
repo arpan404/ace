@@ -1,8 +1,10 @@
 # 0193: Each thread has one editor, and every file opens there
 
-Status: proposed. Date: 2026-11-19. Decided by: pending the owner. Builds on
+Status: accepted. Date: 2026-11-19. Decided by: the owner. Builds on
 [ADR 0178](0178-rust-files-and-editor-core.md) (Rust files and editor core). The spec, audit and
 mockup are in [docs/editor/workbench.md](../editor/workbench.md).
+
+Note: the panel was named Deck during the build and renamed Editor on 2026-11-20, before it shipped.
 
 ## Context
 
@@ -34,7 +36,8 @@ Files explorer kept for quick lookups, and a better UX than today's.
 
 ## Decision
 
-1. **A thread with a checkout has one Editor panel tab, a singleton kind.** It holds an explorer
+1. **A thread with a checkout has one editor panel tab, a singleton kind.** The panel tab is named
+   Editor; the code editor is the text-editing component inside it. It holds an explorer
    (Files and Search), an editor area of groups in a split tree, each with its own tab strip, and
    one status line. It replaces the pinned Files tab and every per-file panel tab; files never
    appear in the panel strip.
@@ -65,8 +68,8 @@ Files explorer kept for quick lookups, and a better UX than today's.
   works; splits and keyboard flows without touching the panel system.
 - Harder: the registry, draft store and merge are new moving parts with their own failure modes
   (storage full, a merge with no base version after eviction; the spec defines both).
-- Required: a client-side migration of stored per-file tabs; an `editor` keymap scope whose ⌘1–⌘9
-  may shadow "Open thread 1–9" while focus is in the editor (open question in the spec); a web perf
+- Required: a client-side migration of stored per-file tabs; a `editor` keymap scope whose ⌘1–⌘9
+  focus groups and shadow "Open thread 1–9" only while focus is in the editor; a web perf
   test holding the budgets in the spec.
 - Accepted: freeing a hidden saved buffer drops its undo history; layouts do not sync across
   devices.

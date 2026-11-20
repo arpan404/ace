@@ -16,7 +16,7 @@
  */
 
 import type { LineEdit } from "@ace/editor";
-import { wholeLineRow, wrapLine, type WrapRows } from "./wrap.ts";
+import { noRows, wholeLineRow, wrapLine, type WrapRows } from "./wrap.ts";
 
 /** The text the index wraps: the open document, asked one line at a time. */
 export interface WrapText {
@@ -91,6 +91,10 @@ export class WrapIndex implements RowLayout {
   /** A new generation each time a node is freed or handed out, which retires stale work. */
   #stamp = new Int32Array(64);
   #priority = new Uint32Array(64);
+  /** 1 = the line is inside a folded region and draws no rows. */
+  #hidden = new Uint8Array(64);
+  /** The nodes now hidden, so the next fold change can show them again. */
+  #hiddenNodes = new Set<number>();
   #root = 0;
   #used = 0;
   #seed = 0;
@@ -99,7 +103,10 @@ export class WrapIndex implements RowLayout {
   constructor(text: WrapText) {
     this.#text = text;
     this.#version = text.version();
-    this.#root = this.#build(Math.max(0, text.lenLines()));
+    const lines = Math.max(0, text.lenLines());
+    // Room for every line at once: growing by doubling would copy the arrays a dozen times.
+    this.#grow(lines + 2);
+    this.#root = this.#build(lines);
   }
 
   /** The cells a line wraps at; `Infinity` leaves every line on one row. */
@@ -127,6 +134,8 @@ export class WrapIndex implements RowLayout {
         this.#sum[node] = this.#sizeOf(node);
       });
       this.#dirtyCount = 0;
+      // A hidden line has no rows: the sums above it are rebuilt without them.
+      if (this.#hiddenNodes.size) for (const node of this.#hiddenNodes) this.#settle(node);
       return true;
     }
     this.#walk((node) => {
@@ -202,9 +211,53 @@ export class WrapIndex implements RowLayout {
     return this.#pending.length - this.#from;
   }
 
+  /**
+   * Hides the lines in each `[from, to)` range (folded regions) and shows every line hidden
+   * before. A hidden line keeps its measured rows but draws none, and stays hidden as the lines
+   * around it move; costs the hidden lines' count, once per fold change, never per keystroke.
+   */
+  setHidden(ranges: readonly { from: number; to: number }[]): void {
+    const previous = this.#hiddenNodes;
+    this.#hiddenNodes = new Set();
+    for (const node of previous) {
+      this.#hidden[node] = 0;
+    }
+    const next: number[] = [];
+    for (const { from, to } of ranges)
+      for (let line = Math.max(0, from); line < Math.min(to, this.#length); line++) {
+        const node = this.#nodeAt(line);
+        if (node === 0 || this.#hidden[node] === 1) continue;
+        this.#hidden[node] = 1;
+        this.#hiddenNodes.add(node);
+        next.push(node);
+      }
+    for (const node of previous) if (this.#hidden[node] !== 1) this.#settle(node);
+    for (const node of next) this.#settle(node);
+  }
+
+  /**
+   * Shows the lines in `[from, to)` again (a fold an edit opened) and leaves every other hidden
+   * line as it is: costs those lines only.
+   */
+  showLines(from: number, to: number): void {
+    for (let line = Math.max(0, from); line < Math.min(to, this.#length); line++) {
+      const node = this.#nodeAt(line);
+      if (node === 0 || this.#hidden[node] !== 1) continue;
+      this.#hidden[node] = 0;
+      this.#hiddenNodes.delete(node);
+      this.#settle(node);
+    }
+  }
+
+  /** Whether a line is inside a folded region. */
+  isHidden(line: number): boolean {
+    return this.#hidden[this.#nodeAt(line)] === 1;
+  }
+
   rowsOf(line: number): WrapRows {
     const node = this.#nodeAt(line);
     if (node === 0) return wholeLineRow;
+    if (this.#hidden[node] === 1) return noRows;
     const known = this.#rows.get(node);
     if (known) return known;
     const rows = this.#measure(node);
@@ -327,10 +380,40 @@ export class WrapIndex implements RowLayout {
     this.#freeTree(gone);
   }
 
-  /** A treap of `count` fresh one-row lines, for an insertion or the document it opens with. */
+  /**
+   * A treap of `count` fresh one-row lines, for an insertion or the document it opens with. In
+   * one pass, as a Cartesian tree: a stack holds the right spine, and each new line takes the run
+   * of lower (or equal, as `#merge` breaks ties) priorities it pops as its left subtree. The same
+   * tree as merging the lines one by one, in O(count) rather than O(count log count): a 200,000
+   * line file opens a view without 35 ms of merges.
+   */
   #build(count: number): number {
-    let root = 0;
-    for (let index = 0; index < count; index++) root = this.#merge(root, this.#allocate());
+    const spine: number[] = [];
+    for (let index = 0; index < count; index++) {
+      const node = this.#allocate();
+      const rank = this.#priorityOf(node);
+      let below = 0;
+      while (spine.length > 0 && this.#priorityOf(spine.at(-1) ?? 0) <= rank)
+        below = spine.pop() ?? 0;
+      this.#left[node] = below;
+      const above = spine.at(-1);
+      if (above !== undefined) this.#right[above] = node;
+      spine.push(node);
+    }
+    const root = spine[0] ?? 0;
+    // Sizes and sums from the leaves up: a pre-order walk, reversed, puts children first.
+    const order: number[] = [];
+    const stack = root === 0 ? [] : [root];
+    while (stack.length > 0) {
+      const node = stack.pop() ?? 0;
+      order.push(node);
+      const left = this.#leftOf(node);
+      const right = this.#rightOf(node);
+      if (left !== 0) stack.push(left);
+      if (right !== 0) stack.push(right);
+    }
+    for (let at = order.length - 1; at >= 0; at--) this.#pull(order[at] ?? 0);
+    this.#parent[root] = 0;
     return root;
   }
 
@@ -349,6 +432,8 @@ export class WrapIndex implements RowLayout {
     this.#count[node] = 1;
     this.#sum[node] = 1;
     this.#queued[node] = 0;
+    this.#hidden[node] = 0;
+    this.#hiddenNodes.delete(node);
     this.#priority[node] = priority(++this.#seed);
     this.#rows.delete(node);
     if (this.#columns === Infinity) {
@@ -360,9 +445,13 @@ export class WrapIndex implements RowLayout {
     return node;
   }
 
-  /** Doubles the node arrays; a treap over a large file runs out of ids in bursts. */
-  #grow(): void {
-    const size = this.#left.length * 2;
+  /**
+   * Doubles the node arrays (or grows them to hold `least` nodes); a treap over a large file
+   * runs out of ids in bursts.
+   */
+  #grow(least = 0): void {
+    let size = this.#left.length * 2;
+    while (size < least) size *= 2;
     const growInts = (array: Int32Array) => {
       const next = new Int32Array(size);
       next.set(array);
@@ -382,6 +471,9 @@ export class WrapIndex implements RowLayout {
     const priorities = new Uint32Array(size);
     priorities.set(this.#priority);
     this.#priority = priorities;
+    const hidden = new Uint8Array(size);
+    hidden.set(this.#hidden);
+    this.#hidden = hidden;
   }
 
   #split(node: number, count: number): [number, number] {
@@ -432,6 +524,8 @@ export class WrapIndex implements RowLayout {
       this.#dirty[node] = 0;
       this.#queued[node] = 0;
       this.#stamp[node] = (this.#stamp[node] ?? 0) + 1;
+      this.#hidden[node] = 0;
+      this.#hiddenNodes.delete(node);
       this.#rows.delete(node);
       this.#free.push(node);
     }
@@ -569,8 +663,9 @@ export class WrapIndex implements RowLayout {
     return node === 0 ? 0 : (this.#size[node] ?? 0);
   }
 
+  /** The rows a line draws: none while it is folded away. */
   #countOf(node: number): number {
-    return node === 0 ? 0 : (this.#count[node] ?? 0);
+    return node === 0 || this.#hidden[node] === 1 ? 0 : (this.#count[node] ?? 0);
   }
 
   #sumOf(node: number): number {

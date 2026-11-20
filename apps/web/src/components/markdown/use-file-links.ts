@@ -1,10 +1,11 @@
 import type { ClientApi } from "@ace/client";
 import { codeFileReference } from "@ace/ui-core/file-references";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { ScopeWorkspace, WorkspaceActions } from "@/lib/workspace/index.ts";
+import type { EditorPanelTarget } from "@/lib/workspace/index.ts";
+import type { ReferenceOpen } from "./markit-view.tsx";
 import {
   fileMentionLabel,
-  fileMentionTab,
+  openFileMention,
   resolveFileMention,
   type MentionResolution,
 } from "../file-reference.ts";
@@ -31,7 +32,7 @@ export function useFileLinks(input: {
   /** The answer drawn, whose absolute paths open even outside the checkout. */
   itemId: string | undefined;
   root: string | undefined;
-  workspace: { actions: WorkspaceActions; read: () => ScopeWorkspace } | undefined;
+  workspace: { editor: EditorPanelTarget } | undefined;
 }) {
   const { client, threadId, itemId, root, workspace } = input;
   const answers = useRef(
@@ -82,11 +83,13 @@ export function useFileLinks(input: {
   );
 
   const open = useCallback(
-    (target: string) => {
+    (target: string, how: ReferenceOpen) => {
       if (!workspace) return;
       const follow = (mention: FileMention, resolution: MentionResolution) => {
         if (resolution.kind !== "none")
-          workspace.actions.open(fileMentionTab(workspace.read(), mention.reference, resolution));
+          openFileMention(workspace.editor, mention.reference, resolution, {
+            focus: how.keyboard,
+          });
       };
       const known = answers.current.get(target);
       if (known) return follow(known.mention, known.resolution);

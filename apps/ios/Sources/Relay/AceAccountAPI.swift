@@ -26,9 +26,13 @@ enum AccountGrantError: Error, Equatable {
 struct AceAccountAPI: Sendable {
     let origin: URL
     private let http: URLSession
+    private let aceClient: String?
+    private let allowLoopback: Bool
 
-    init(origin: URL) {
+    init(origin: URL, aceClient: String? = AceCloudRequest.defaultClient, allowLoopback: Bool = false) {
         self.origin = origin
+        self.aceClient = aceClient
+        self.allowLoopback = allowLoopback
         http = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
     }
 
@@ -69,10 +73,14 @@ struct AceAccountAPI: Sendable {
 
     private struct Ignored: Decodable {}
     private func call<T: Decodable>(_ path: String, method: String, token: String, body: Data? = nil) async throws(AccountGrantError) -> T {
-        var request = URLRequest(url: origin.appending(path: "v1/\(path)"))
+        var request = AceCloudRequest.make(
+            url: origin.appending(path: "v1/\(path)"),
+            timeoutInterval: 15,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            client: aceClient,
+            allowLoopback: allowLoopback
+        )
         request.httpMethod = method
-        request.timeoutInterval = 15
-        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         let data: Data, response: URLResponse

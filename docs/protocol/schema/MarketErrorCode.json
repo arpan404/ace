@@ -16,7 +16,8 @@
     "expired",
     "busy",
     "failed",
-    "person_only"
+    "person_only",
+    "person_grant"
   ],
   "type": "string"
 }

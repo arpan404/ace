@@ -8,6 +8,9 @@
       "minimum": 0,
       "type": "integer"
     },
+    "botsApproved": {
+      "type": "boolean"
+    },
     "deprecated": {
       "maxLength": 500,
       "type": "string"
@@ -15,8 +18,28 @@
     "hash": {
       "$ref": "https://ace.local/protocol/v1/MarketHash.json"
     },
+    "linked": {
+      "type": "boolean"
+    },
     "name": {
       "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "previous": {
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+        },
+        "version": {
+          "maxLength": 64,
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "hash"
+      ],
+      "type": "object"
     },
     "reason": {
       "maxLength": 500,

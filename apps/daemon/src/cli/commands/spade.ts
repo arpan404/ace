@@ -4,6 +4,11 @@ import type { CommandSpec, NounSpec } from "./spec.ts";
 /** Spade, Beta switches and automations (ADR 0178 §7). */
 export const spadeNouns: readonly NounSpec[] = [
   { name: "spade", summary: "Spade, ace's assistant, and its bots", group: "spade-market" },
+  {
+    name: "bot",
+    summary: "What Spade's bots run, Stop, Pause and Resume, and the kit to make one",
+    group: "spade-market",
+  },
   { name: "feature", summary: "Beta features", group: "spade-market" },
   { name: "automation", summary: "Automations", group: "spade-market" },
   {
@@ -118,6 +123,46 @@ export const spadeCommands: readonly CommandSpec[] = [
       { command: "ace spade chat", summary: "A conversation with Spade" },
       { command: 'ace spade chat writer "Draft the release notes"', summary: "One message" },
     ],
+  },
+  {
+    id: "bot.running",
+    words: ["bot", "running"],
+    summary: "Every bot: what it does now, its spend today, its network and next wake",
+    description:
+      "One row per bot, its workers under it, in the order the app's Running page shows: needs you, working, failed, sleeping, paused, then idle.",
+    group: "spade-market",
+    nounDefault: true,
+    output: "bot.running",
+  },
+  {
+    id: "bot.stop",
+    words: ["bot", "stop"],
+    summary: "End a bot's work now, and its workers'; its routines stay on",
+    group: "spade-market",
+    mutates: true,
+    args: [botArg],
+    output: "bot.action",
+  },
+  {
+    id: "bot.pause",
+    words: ["bot", "pause"],
+    summary: "Stop a bot and hold it: nothing of it fires until you resume it",
+    description:
+      "Its wakes are kept and its routines' slots wait; messages to it wait too. It holds through a restart of Spade.",
+    group: "spade-market",
+    mutates: true,
+    args: [botArg],
+    output: "bot.action",
+  },
+  {
+    id: "bot.resume",
+    personOnly: "setting",
+    words: ["bot", "resume"],
+    summary: "End a pause: what came due fires once, and what waited is answered",
+    group: "spade-market",
+    mutates: true,
+    args: [botArg],
+    output: "bot.action",
   },
   {
     id: "feature.list",

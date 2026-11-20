@@ -1,5 +1,5 @@
-import { mkdir, readdir, realpath, symlink } from "node:fs/promises";
-import { basename, delimiter, isAbsolute, join } from "node:path";
+import { access, mkdir, readdir, realpath, symlink, writeFile } from "node:fs/promises";
+import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 import { findExecutable, versionManagerShim } from "@ace/provider-kit/discovery";
 
 /**
@@ -108,6 +108,7 @@ export async function prepareTestToolPath(
     );
   }
   await mkdir(directory, { recursive: true, mode: 0o700 });
+  await writeFile(join(directory, toolDirectoryMarker), "");
   const candidates: [name: string, path: string][] = [];
   // The runtime running the tests is always real, even when PATH only offers its shim.
   candidates.push([basename(runtime).replace(/\.exe$/, "") === "node" ? "node" : "bun", runtime]);
@@ -115,13 +116,22 @@ export async function prepareTestToolPath(
     const found = await firstRealTool(name, path);
     if (found) candidates.push([name, found]);
   }
-  // System directories in the person's PATH order, so the same `git` wins as in their shell.
-  const systems = path.split(delimiter).filter((entry) => systemDirectories.includes(entry));
-  for (const system of new Set(systems))
+  // System directories in the person's PATH order, so the same `git` wins as in their shell. A
+  // run nested in a test (one that runs the suite) has only its run's tool directory on PATH;
+  // that directory's links passed these rules already, so it counts as a system directory.
+  const entries = [...new Set(path.split(delimiter).filter((entry) => isAbsolute(entry)))];
+  const nested = await Promise.all(entries.map(isToolDirectory));
+  const systems = entries.filter(
+    (entry, index) => systemDirectories.includes(entry) || nested[index],
+  );
+  for (const system of systems)
     for (const name of await readdir(system).catch(() => []))
-      candidates.push([name, join(system, name)]);
+      if (name !== toolDirectoryMarker) candidates.push([name, join(system, name)]);
   const targets = await Promise.all(
-    candidates.map(([, candidate]) => realpath(candidate).catch(() => undefined)),
+    candidates.map(async ([name, candidate]) => {
+      const target = await realpath(candidate).catch(() => undefined);
+      return target && (await npmEntry(name, target));
+    }),
   );
   const links = new Map<string, string>();
   candidates.forEach(([name, candidate], index) => {
@@ -130,6 +140,31 @@ export async function prepareTestToolPath(
   });
   await Promise.all([...links].map(([name, target]) => symlink(target, join(directory, name))));
   return directory;
+}
+
+/**
+ * npm and npx as npm's own CLI scripts, which a standard Node install's `bin` links to. Some
+ * installs put a wrapper there instead (mise's `npm` runs `mise reshim` after global installs)
+ * that finds `node` beside its own path, so linked into the tool directory it finds none.
+ */
+async function npmEntry(name: string, target: string): Promise<string> {
+  if (name !== "npm" && name !== "npx") return target;
+  const cli = join(dirname(target), "../lib/node_modules/npm/bin", `${name}-cli.js`);
+  return access(cli).then(
+    () => realpath(cli),
+    () => target,
+  );
+}
+
+/** Marks a directory `prepareTestToolPath` built. */
+const toolDirectoryMarker = ".ace-test-tools";
+
+/** Whether `entry` is a tool directory an enclosing test run built. */
+function isToolDirectory(entry: string): Promise<boolean> {
+  return access(join(entry, toolDirectoryMarker)).then(
+    () => true,
+    () => false,
+  );
 }
 
 /** The first `name` on PATH that isn't a version manager's shim. */

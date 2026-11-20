@@ -15,12 +15,15 @@ export class DeferredLoadError extends Error {
  * A component whose code loads after the first paint. Its first render before the code has
  * loaded suspends, like `React.lazy`; once `preload()` (or that first render) has loaded it, it
  * renders synchronously, so warming it while the browser is idle means nobody waits for it.
+ * `loaded()` says whether it has, for a parent that shows its own placeholder instead of
+ * suspending (a Suspense fallback holds back what follows it, see `WhenKindsReady`).
  */
 export function deferredComponent<P extends object>(
   load: () => Promise<ComponentType<P>>,
 ): {
   Component: ComponentType<P>;
   preload(): Promise<unknown>;
+  loaded(): boolean;
 } {
   let loaded: ComponentType<P> | undefined;
   let loading: Promise<ComponentType<P>> | undefined;
@@ -47,5 +50,5 @@ export function deferredComponent<P extends object>(
     const [Component] = useState(() => loaded ?? Lazy);
     return <Component {...props} />;
   }
-  return { Component: Deferred, preload };
+  return { Component: Deferred, preload, loaded: () => loaded !== undefined };
 }

@@ -11,8 +11,10 @@ use crate::autonomy::{self, Class, Mode};
 use crate::gate::Decision;
 use crate::tools::Risk;
 
+pub mod ceiling;
 pub mod drive;
 mod full_access;
+pub mod runtime;
 
 pub use full_access::NO_CLASSIFIER;
 
@@ -160,6 +162,13 @@ const BUILTIN: &[(&str, Effect)] = &[
     (PR_COMMENT, Effect::SendAsPerson),
     (ISSUE_COMMENT, Effect::SendAsPerson),
     (SEND_MESSAGE, Effect::SendAsPerson),
+    // Named for `spade.v1` (ADR 0200 §4): each reads as its risk always read it.
+    (crate::context::ASK_USER, Effect::Read),
+    (crate::tools::TOOL_SEARCH, Effect::Read),
+    ("apps_find", Effect::Read),
+    ("app_connect_request", Effect::Read),
+    // A card in the bot's own conversation, drawn by ace: the bot's output, like its reply.
+    (crate::card::CARD_SHOW, Effect::WriteLocal),
 ];
 
 /// The typed tools that hold the person's sign-in outside the sandbox (ADR 0171 decision 2).
@@ -167,6 +176,14 @@ pub const GIT_PUSH: &str = "git_push";
 pub const PR_COMMENT: &str = "pr_comment";
 pub const ISSUE_COMMENT: &str = "issue_comment";
 pub const SEND_MESSAGE: &str = "send_message";
+
+/// What the table says one of Spade's own tools does, with no fallback on its risk.
+pub fn table(name: &str) -> Option<Effect> {
+    BUILTIN
+        .iter()
+        .find(|(tool, _)| *tool == name)
+        .map(|(_, effect)| *effect)
+}
 
 /// What one of Spade's own tools does.
 pub fn builtin(name: &str, risk: Risk) -> Option<Effect> {
@@ -317,6 +334,12 @@ pub struct Call<'a> {
     /// Spade's classifier (ADR 0172) is on and loaded, so a call the gate lets run can still be
     /// raised to the person.
     pub classifier: bool,
+    /// For a packaged bot, or anything under one, what its package declared and the person left
+    /// on (ADR 0200 §3.4); `None` for every other bot.
+    pub ceiling: Option<ceiling::Ceiling<'a>>,
+    /// For a command that runs or asks to run outside the sandbox, what the shell classifier read
+    /// in it: the ceiling holds the call to that, not to the command tool's own local write.
+    pub command: Option<Class>,
 }
 
 /// Why the person is asked, when it isn't the usual request.
@@ -398,6 +421,23 @@ pub fn route(call: Call<'_>) -> Route {
     if call.credentials || call.effect == Some(Effect::Credential) {
         return Route::Refuse(autonomy::CREDENTIALS_REFUSED.to_owned());
     }
+    // A packaged bot's ceiling, right after: an effect its package didn't declare, or one the
+    // person turned off, is refused before any review or request, in every mode.
+    if let Some(why) = ceiling_refusal(&call) {
+        return Route::Refuse(why);
+    }
+    // Under a ceiling, a send, a payment, an access change or what Spade can't name is the
+    // person's own answer each time: nothing they answered before carries to it.
+    let call = if call.ceiling.is_some() && ceiling::fresh_each_time(call.effect) {
+        Call {
+            remembered: None,
+            granted: Granted::No,
+            ..call
+        }
+    } else {
+        call
+    };
+    let allowed = allowed && !(call.ceiling.is_some() && ceiling::fresh_each_time(call.effect));
     if let Some(effect) = call.effect
         && let Some(route) = persons(call, effect, allowed)
     {
@@ -489,11 +529,48 @@ fn undeclared(call: Call<'_>) -> Route {
         Some(true) if call.tainted => Route::ask(UNDECLARED_TAINTED),
         Some(true) => Route::Run,
         Some(false) => Route::Refuse(DECLINED_TOOL.to_owned()),
+        // Under a package's ceiling no answer is kept for the tool: the person decides each time.
+        None if call.ceiling.is_some() => Route::ask(UNDECLARED_EACH_TIME),
         None => Route::Ask {
             line: UNDECLARED.to_owned(),
             ask: Some(Ask::Undeclared),
         },
     }
+}
+
+/// Why a packaged bot's ceiling (ADR 0200 §3.4) refuses `call`, if it does: its effect as the
+/// gate reads it, raised by what a command outside the sandbox runs, outside what its package
+/// declared and the person left on; or an effect Spade can't resolve, anywhere but the sandbox.
+/// Checked first in [`route`], and by the engine before any route of its own (a bot made for the
+/// person, a club) and again right before a call starts.
+pub fn ceiling_refusal(call: &Call<'_>) -> Option<String> {
+    ceiling_holds(
+        call.ceiling,
+        call.effect,
+        call.command,
+        call.place,
+        call.remote,
+    )
+}
+
+/// [`ceiling_refusal`] from the facts it reads: the call's declared effect, what a command
+/// outside the sandbox runs, where it runs, and whether it is an app's tool that reaches a
+/// server.
+pub fn ceiling_holds(
+    ceiling: Option<ceiling::Ceiling<'_>>,
+    effect: Option<Effect>,
+    command: Option<Class>,
+    place: Place,
+    remote: bool,
+) -> Option<String> {
+    let confined = matches!(place, Place::Sandbox | Place::Unprotected) && !remote;
+    let effect = ceiling::reading(effect, command);
+    // An app's tool that says it writes locally acts on its server: outside the bot.
+    let effect = match effect {
+        Some(Effect::WriteLocal) if remote => Some(Effect::Network),
+        effect => effect,
+    };
+    ceiling::refusal(ceiling, effect, confined)
 }
 
 /// Where a person-only effect goes: to the person unless their Always allow covers it, or, for a
@@ -681,6 +758,7 @@ pub const SENDS_AS_YOU: &str = "It sends something in your name, so you decide."
 pub const PUSHES: &str = "It pushes with your sign-in, so you decide.";
 pub const CHANGES_ACCESS: &str = "It changes sign-ins, keys or who has access, so you decide.";
 pub const UNDECLARED: &str = "It doesn't say what it does, so you decide once for this bot.";
+pub const UNDECLARED_EACH_TIME: &str = "It doesn't say what it does, so you decide each time.";
 pub const UNDECLARED_TAINTED: &str =
     "It doesn't say what it does and untrusted content is in view, so you decide.";
 pub const DRIVES: &str = "It acts in a page or app as you, so you decide.";
@@ -749,5 +827,7 @@ pub fn blocked_hint(kind: Blocked) -> &'static str {
     }
 }
 
+#[cfg(test)]
+mod ceiling_tests;
 #[cfg(test)]
 mod tests;

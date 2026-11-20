@@ -132,9 +132,10 @@ cloud or the market goes through it, never a copy per call site.
   The CLI's other traffic goes through the daemon.
 - **Spade** (Rust): `spade/<ACE_SPADE_VERSION>` or `spade/development` on its sign-in broker
   calls (`spade-connect`'s `CloudClient`). Spade's TypeScript side never calls the cloud.
-- **iPhone**: not yet. Its cloud requests have no single place (`AceAccountAPI`,
-  `AceAccountModel` and `RelaySocket` each build their own); it names itself once they share
-  one. Until then it is an unknown client.
+- **iPhone**: `AceCloudRequest` builds `ios/<CFBundleShortVersionString>` in release builds
+  (when it parses as a `ReleaseVersion`, else none) and `ios/development` in debug builds,
+  sending the header on `AceAccountAPI`, `AceAccountModel` (including profile pictures) and
+  `RelaySocket` upgrades to ace's own hosts only; a self-hosted relay is never told.
 
 The relay object can read the same value from the upgrade it receives with `clientOf` when a
 relay feature needs it.

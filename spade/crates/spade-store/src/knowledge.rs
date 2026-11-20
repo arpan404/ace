@@ -356,7 +356,7 @@ impl Store {
         ids: &mut dyn FnMut() -> String,
     ) -> Result<Written> {
         let mut connection = self.lock()?;
-        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = connection.transaction()?;
         let base = base_in(&tx, new.agent)?;
         if let Some(found) = base.iter().find(|e| {
             e.topic == new.topic && knowledge::same(&e.title, &e.body, new.title, new.body)
@@ -505,7 +505,7 @@ impl Store {
         now_ms: i64,
     ) -> Result<Option<StoredEntry>> {
         let mut connection = self.lock()?;
-        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = connection.transaction()?;
         let Some(target) = one_in(&tx, into)? else {
             return Ok(None);
         };

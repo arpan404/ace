@@ -218,7 +218,8 @@ describe.skipIf(!executable || process.platform === "win32")("Use my Chrome live
       const pictures = [];
       const errors = [];
       const decoder = new VideoDecoder({
-        output: (frame) => { pictures.push([frame.codedWidth, frame.codedHeight]); frame.close(); },
+        // The picture, not the decoder's buffer: a software decoder pads its coded size.
+        output: (frame) => { pictures.push([frame.visibleRect.width, frame.visibleRect.height]); frame.close(); },
         error: (error) => errors.push(String(error)),
       });
       decoder.configure({

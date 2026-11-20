@@ -32,6 +32,7 @@ import { CliCommandHelp, CliCommandTree, CliVersionOutput } from "./cli-output.t
 import { cliMachineOutputs } from "./cli-outputs-machine.ts";
 import { DaemonHealth } from "./release.ts";
 import { cliAccessOutputs } from "./cli-outputs-access.ts";
+import { cliBotOutputs } from "./cli-outputs-bot.ts";
 import {
   MarketDiscover,
   MarketEntryDetail,
@@ -185,6 +186,7 @@ export const cliOutputs = {
   receipt: CliReceipt,
   ...cliAccessOutputs,
   ...cliMachineOutputs,
+  ...cliBotOutputs,
   "market.discover": MarketDiscover,
   "market.search": CliMarketSearch,
   "market.show": CliMarketShow,
@@ -196,5 +198,8 @@ export const cliOutputs = {
   "market.check": CliMarketCheck,
   /** Publishing: the market's answer as it is (ADR 0178 §12.5). */
   "market.publish": MarketPublishAnswer,
+  /** `ace bot publish`: the same answer, after the local check and tests. */
+  "bot.publish": MarketPublishAnswer,
 } satisfies Record<string, z.ZodType>;
 export * from "./cli-outputs-machine.ts";
+export * from "./cli-outputs-bot.ts";

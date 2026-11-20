@@ -2,6 +2,7 @@ import { fileCapability } from "./access.ts";
 import { createHash, type Hash } from "node:crypto";
 import { z } from "zod";
 import {
+  FILE_REQUESTS_PER_CONNECTION,
   FilesClientMessage,
   type FilesServerMessage,
   type FileOperation,
@@ -340,7 +341,7 @@ export function chunkFilesChannel(options: {
           .catch(fail);
         return;
       }
-      if (pending >= 8) {
+      if (pending >= FILE_REQUESTS_PER_CONNECTION) {
         fail(new FileError("BUSY", "File request limit"));
         return;
       }

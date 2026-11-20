@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 base64.workspace = true
+ring = "0.17"
 hmac.workspace = true
 jiff.workspace = true
 sha2.workspace = true
@@ -49,6 +50,8 @@ cap-fs-ext = "4.0.3"
 notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
 regex = "1"
 reqwest.workspace = true
+# The scripted model a package's scenario tests run against (`spade --bot-test`, ADR 0200 §9).
+spade-testkit = { path = "../spade-testkit" }
 
 [features]
 default = ["landlock"]
@@ -71,7 +74,6 @@ rmcp = { version = "3.9.0", default-features = false, features = [
   "server",
   "transport-streamable-http-server",
 ] }
-spade-testkit = { path = "../spade-testkit" }
 spade-docs = { path = "../spade-docs" }
 url = "2"
 tokio-util = "0.7"

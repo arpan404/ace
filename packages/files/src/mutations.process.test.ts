@@ -591,7 +591,8 @@ it("refuses a folder whose tree changed when the delete reaches the queue", asyn
   const current = await version(client, "dir");
   expect(reply).toMatchObject({ type: "files.error", code: "CONFLICT", current });
   expect(current).not.toBe(before);
-  expect(await readdir(join(f.root, "dir"))).toEqual(["a", "arrived"]);
+  // Both entries remain; readdir lists them in the filesystem's order.
+  expect((await readdir(join(f.root, "dir"))).toSorted()).toEqual(["a", "arrived"]);
 });
 
 it("rejects a folder's own version as a destructive guard", async () => {

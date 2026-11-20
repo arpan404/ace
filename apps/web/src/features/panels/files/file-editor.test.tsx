@@ -10,6 +10,7 @@ configure({ asyncUtilTimeout: 10_000 });
 const threadId = ThreadId.parse("thread-cold-start");
 const path = "apps/web/src/relay/socket.ts";
 
+/** ⌘P to socket.ts: it opens in the editor, always editable, with the keyboard in it. */
 async function openEditor() {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
@@ -22,11 +23,10 @@ async function openEditor() {
   await userEvent.keyboard("{Enter}");
 
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByRole("tab", { name: "socket.ts", selected: true });
-  await userEvent.click(within(panel).getByRole("button", { name: "Edit file" }));
+  const tab = await within(panel).findByRole("tab", { name: "socket.ts", selected: true });
   const box = await within(panel).findByRole("textbox", { name: "socket.ts" });
   await userEvent.click(box);
-  return { app, panel, box };
+  return { app, panel, box, tab };
 }
 
 async function readCheckout(app: ReturnType<typeof harness>, file: string) {
@@ -60,45 +60,36 @@ async function versionOf(app: ReturnType<typeof harness>) {
   return stat.value.version;
 }
 
-test("the toolbar's wrap button stays available while the file is open in the editor", async () => {
-  const { panel } = await openEditor();
+const slot = (tab: HTMLElement) => tab.querySelector<HTMLElement>("[data-shows]")?.dataset.shows;
 
-  const wrap = within(panel).getByRole("button", { name: "Wrap lines" });
-  expect((wrap as HTMLButtonElement).disabled).toBe(false);
-  await userEvent.click(wrap);
-
-  await within(panel).findByRole("button", { name: "Don't wrap lines" });
-});
-
-test("saving an edit writes it, and a file changed elsewhere asks before it is replaced", async () => {
-  const { app, panel, box } = await openEditor();
+test("⌘S saves an edit in place; a file changed elsewhere asks before it is replaced", async () => {
+  const { app, panel, box, tab } = await openEditor();
 
   await userEvent.keyboard("{Control>}a{/Control}");
   await userEvent.keyboard("// edited by the test");
-  expect(within(panel).getByText("Unsaved changes")).toBeTruthy();
-  await userEvent.click(within(panel).getByRole("button", { name: "Save" }));
+  // Unsaved shows as the tab's dot, and nowhere else in the editor.
+  await waitFor(() => expect(slot(tab)).toBe("unsaved"));
+  expect(within(panel).queryByText("Unsaved changes")).toBeNull();
+  await userEvent.keyboard("{Control>}s{/Control}");
   await waitFor(async () => expect(await readCheckout(app, path)).toBe("// edited by the test"));
-  await within(panel).findByRole("region", { name: `Source of ${path}` });
+  await waitFor(() => expect(slot(tab)).not.toBe("unsaved"));
+  // Saving changes no mode: the same editor keeps the keyboard.
+  expect(box.isConnected).toBe(true);
+  expect(document.activeElement).toBe(box);
 
-  // Open it again and change the file behind the editor's back.
-  await userEvent.click(within(panel).getByRole("button", { name: "Edit file" }));
-  const again = await within(panel).findByRole("textbox", { name: "socket.ts" });
-  await userEvent.click(again);
-  await userEvent.keyboard("{End}");
-  await userEvent.keyboard("!");
+  // Edit again, and the file changes behind the editor's back.
+  await userEvent.keyboard("{End}!");
   await app.client.request({
     type: "files.request",
     threadId,
     operation: { op: "write", path, expected: await versionOf(app), text: "a newer version" },
   });
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Save" }));
-  expect(await within(panel).findByText(/changed since you opened it. Replace it\?/)).toBeTruthy();
+  await userEvent.keyboard("{Control>}s{/Control}");
+  const dialog = await screen.findByRole("dialog", {
+    name: "socket.ts changed on disk. Replace it?",
+  });
   expect(await readCheckout(app, path)).toBe("a newer version");
-
-  await userEvent.click(within(panel).getByRole("button", { name: "Replace" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: "Replace" }));
   await waitFor(async () => expect(await readCheckout(app, path)).toBe("// edited by the test!"));
-  const boxAfter = await within(panel).findByRole("region", { name: `Source of ${path}` });
-  expect(await within(boxAfter).findByText(/edited by the test/)).toBeTruthy();
-  expect(box.isConnected).toBe(false);
 });
