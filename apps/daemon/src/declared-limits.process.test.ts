@@ -403,13 +403,17 @@ test("a signed-out agy reports sign-in-again without opening anything", async ()
   expect(await agy.browserOpened()).toBe(false);
 });
 
-test("a missing agy shows no usage", async () => {
+test("a missing agy asks for the CLI instead of reporting no usage", async () => {
   const { logs, refresh } = await antigravityHarness();
   const account = await refresh();
-  expect(account).toBeDefined();
   expect(account?.quota.windows).toEqual({});
-  expect(account?.quota.usageNotice).toBeUndefined();
-  expect(logs).toEqual([]);
+  expect(account?.quota.usageNotice).toMatchObject({
+    reason: "unavailable",
+    message: "Install the Antigravity CLI (agy) to see Antigravity’s limits",
+  });
+  expect(logs).toEqual([
+    `${antigravityIdentity.instanceId}: Error: Install the Antigravity CLI (agy) to see Antigravity’s limits`,
+  ]);
 });
 
 /** The Codex account's availability in an accounts list. */
