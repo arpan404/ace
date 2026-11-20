@@ -124,6 +124,14 @@ const shape = z.object({
     .default([]),
 });
 
+/**
+ * Whether a bot is a development bot (ADR 0200 §9): linked to a package with no market
+ * signature, a folder on its machine that `ace bot dev` keeps it updated from. It shows
+ * "Development" and is never updated or rolled back through the Marketplace.
+ */
+export const spadeIsDevelopment = (link: SpadePackage | undefined): boolean =>
+  link?.source === "local";
+
 /** The `package` of a Spade agent; undefined for a bot that isn't linked to one. */
 export function parseSpadePackage(raw: unknown): SpadePackage | undefined {
   const read = shape.safeParse(raw);
