@@ -93,7 +93,16 @@ export function tunnelChannel(options: AuthenticatedChannelOptions): TunnelLink 
   return authenticatedChannel(options, "tunnel");
 }
 
-/** Opens the tunnel to one connected machine; it connects at once, so `ports` fills. */
+/**
+ * Opens the tunnel to one connected machine. It connects at once, so `ports` fills and the
+ * first stream finds the connection up: open it when a device tab opens, not at its first
+ * request (on a slow link the connection takes several round trips).
+ *
+ * After a drop it reconnects on a backoff (`tunnelRetryMs`), which opens honour: an open while
+ * the machine is unreachable waits for the next scheduled attempt, shared with every other open,
+ * and fails with that attempt. The backoff starts over only once the machine has accepted the
+ * tunnel (its port list or a stream), since a refusal can follow the welcome.
+ */
 export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel {
   const Readable = options.ReadableStream ?? globalThis.ReadableStream;
   if (typeof Readable !== "function") throw new Error("The tunnel needs a ReadableStream");
@@ -107,6 +116,8 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
   /** The machine's refusal of the whole tunnel, until a connection is welcomed again. */
   let refused: TunnelRefusalCode | undefined;
   let cancelRetry: (() => void) | undefined;
+  /** Opens waiting for the scheduled attempt; settled when it runs or is called off. */
+  let nextAttempt: PromiseWithResolvers<void> | undefined;
 
   const setPorts = (next: readonly number[]) => {
     if (next.length === ports.length && next.every((port, index) => port === ports[index])) return;
@@ -123,12 +134,27 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
     connection.link.close();
     draining.delete(connection);
   };
+  const settleAttempt = () => {
+    const waiting = nextAttempt;
+    nextAttempt = undefined;
+    waiting?.resolve();
+  };
+  const stopRetry = () => {
+    cancelRetry?.();
+    cancelRetry = undefined;
+    settleAttempt();
+  };
   const retry = (delayMs: number) => {
     cancelRetry?.();
     cancelRetry = options.schedule(() => {
       cancelRetry = undefined;
       if (!closed && !current) connect();
+      settleAttempt();
     }, delayMs);
+  };
+  /** The machine took the tunnel (not only welcomed it): the backoff starts over. */
+  const accepted = (connection: Connection) => {
+    if (connection === current) attempt = 0;
   };
   const connect = () => {
     const path = options.path.get();
@@ -163,7 +189,6 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
     connection.link.open({
       ready() {
         if (connection.ended) return;
-        attempt = 0;
         refused = undefined;
         connection.mux = createMux({
           channel,
@@ -179,6 +204,7 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
           return;
         }
         if (message.type === "tunnel.ports") {
+          accepted(connection);
           if (connection === current) setPorts(message.ports);
         } else if (message.type === "tunnel.refused") {
           if (message.stream !== undefined) connection.refusals.set(message.stream, message.code);
@@ -221,8 +247,7 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
     const path = options.path.get();
     if (!path) {
       // A lost path resets every stream on it; the browser retries as after any drop.
-      cancelRetry?.();
-      cancelRetry = undefined;
+      stopRetry();
       const lost = [current, ...draining];
       current = undefined;
       for (const connection of lost)
@@ -233,10 +258,9 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
     const old = current;
     current = undefined;
     if (old) drain(old);
-    cancelRetry?.();
-    cancelRetry = undefined;
     attempt = 0;
     connect();
+    stopRetry();
   };
   const welcomed = (connection: Connection) =>
     connection.mux
@@ -250,20 +274,26 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
       const target = PreviewPort.parse(port);
       if (closed) throw new ClientError("offline", "Tunnel closed");
       if (!current && refused) throw new ClientError(refused, "Tunnel refused");
-      if (!current) {
-        cancelRetry?.();
-        cancelRetry = undefined;
-        connect();
-      }
+      if (!current && cancelRetry) {
+        // Never ahead of the backoff: wait for its attempt, with every other open.
+        nextAttempt ??= Promise.withResolvers<void>();
+        await nextAttempt.promise;
+        if (closed) throw new ClientError("offline", "Tunnel closed");
+      } else if (!current) connect();
       const connection = current;
-      if (!connection) throw new ClientError("offline", "Machine offline");
+      if (!connection) throw new ClientError(refused ?? "offline", "Machine offline");
       await welcomed(connection);
       const mux = connection.mux;
-      if (!mux || connection.ended) throw new ClientError("offline", "Tunnel closed");
+      // A refusal that came with the close is the reason, for an open already under way too.
+      if (!mux || connection.ended)
+        throw new ClientError(connection.refusal ?? "offline", "Tunnel closed");
       return new Promise<TunnelStream>((resolve, reject) => {
         let id: number | undefined;
         const { socket, stream } = tunnelStream(Readable, {
-          opened: () => resolve(stream),
+          opened: () => {
+            accepted(connection);
+            resolve(stream);
+          },
           failed: () => {
             const code =
               (id === undefined ? undefined : connection.refusals.get(id)) ?? connection.refusal;
@@ -281,11 +311,13 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
           },
         });
         connection.streams++;
-        void stream.closed.then(() => {
-          connection.streams--;
-          if (connection.draining && connection.streams === 0)
-            end(connection, new ClientError("offline", "Tunnel path drained"));
-        });
+        stream.closed
+          .then(() => {
+            connection.streams--;
+            if (connection.draining && connection.streams === 0)
+              end(connection, new ClientError("offline", "Tunnel path drained"));
+          })
+          .catch(() => {});
         id = mux.open(socket, target);
       });
     },
@@ -300,7 +332,7 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
       if (closed) return;
       closed = true;
       stopPath();
-      cancelRetry?.();
+      stopRetry();
       const all = [current, ...draining];
       current = undefined;
       for (const connection of all)
