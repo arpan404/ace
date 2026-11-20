@@ -10,6 +10,7 @@ import type { OpenHow, TreeCommands } from "./tree-commands.ts";
 import { entryOf } from "./tree-row-keys.ts";
 import type { TreeDrag } from "./use-tree-drag.ts";
 import { Highlighted } from "./highlighted-path.tsx";
+import { RenameField, type InlineRename } from "./file-tree-rename.tsx";
 
 const rowClass =
   "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-sidebar-accent";
@@ -45,6 +46,8 @@ export interface FileTreeRowViewProps {
   onPick(row: FolderRow, event: MouseEvent<HTMLElement>): void;
   onKeyDown(event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number): void;
   onFocus(key: string): void;
+  /** Put the keyboard back on a row (a rename given up). */
+  onRefocus(key: string): void;
   commands: TreeCommands;
   /** Dragging rows to move them, and dropping on them; unset while the tree is a search. */
   drag: TreeDrag | undefined;
@@ -52,6 +55,8 @@ export interface FileTreeRowViewProps {
   onHoverEnd(): void;
   onRetry(folder: string): void;
   onMore(folder: string): void;
+  /** This row is being renamed: its name is a field. */
+  renaming?: InlineRename | undefined;
 }
 
 /** One row of the lazy checkout tree: an entry, or a folder's Loading, error or Show more line. */
@@ -107,6 +112,36 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
     );
   if (row.kind === "more") return <MoreRow row={row} index={index} props={props} indent={indent} />;
   const folder = row.kind === "folder";
+  if (props.renaming)
+    return (
+      <div
+        role="treeitem"
+        aria-level={row.depth + 1}
+        aria-selected
+        aria-expanded={folder ? row.expanded : undefined}
+        data-part="list-row"
+        data-path={row.key}
+        data-row={row.key}
+        style={indent}
+        className="flex min-h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui"
+      >
+        <span aria-hidden className="size-4 shrink-0" />
+        <Icon
+          icon={folder ? (row.expanded ? FolderOpenIcon : FolderIcon) : fileIcon(row.key)}
+          size={14}
+          className="shrink-0 self-start mt-2 text-subtle-foreground"
+        />
+        <RenameField
+          name={row.name}
+          folder={folder}
+          onCommit={props.renaming.commit}
+          onCancel={(keyboard) => {
+            props.renaming?.cancel();
+            if (keyboard) requestAnimationFrame(() => props.onRefocus(row.key));
+          }}
+        />
+      </div>
+    );
   return (
     <FileRowMenu
       name={row.name}

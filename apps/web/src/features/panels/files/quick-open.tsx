@@ -13,10 +13,10 @@ import { CommandDialog } from "@/components/ui/command.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { fileIcon } from "@/components/file-icon.ts";
+import { useDeck } from "./file-tree-deck.ts";
 import { useRecentFiles } from "./files-state.ts";
-import { openFile } from "./open-file.ts";
+import { emptyQuickOpenRows } from "./quick-open-rows.ts";
 import { useCheckoutSearch, useEditedPaths } from "./use-checkout.ts";
 
 type Row = QuickOpenRow;
@@ -48,8 +48,9 @@ function Name(props: { path: string; query: string }) {
 }
 
 /**
- * ⌘P: find a file in the thread's checkout by a few letters of its path, or reopen a recent one.
- * Arrows move, Enter opens it in a tab that stays, Escape returns focus where it was.
+ * ⌘P: find a file in the thread's checkout by a few letters of its path, or go back to one open,
+ * changed or opened recently. Arrows move, Enter opens it in a tab that stays and puts the
+ * keyboard in it, Escape returns focus where it was.
  * `path:line` opens at that line.
  */
 export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
@@ -60,19 +61,23 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
   const search = useCheckoutSearch(props.threadId, query);
   const recent = useRecentFiles(props.threadId);
   const edited = useEditedPaths(props.threadId);
-  const workspace = useScopeWorkspace(props.threadId);
-  const actions = useWorkspaceActions(props.threadId);
+  const deck = useDeck(props.threadId);
+  const openEditors = deck.openEditors;
   const listId = useId();
   const rows = useMemo<Row[]>(
-    () => quickOpenRows(query, search.data ?? [], recent, edited),
-    [query, search.data, recent, edited],
+    () =>
+      query
+        ? quickOpenRows(query, search.data ?? [], recent, edited)
+        : emptyQuickOpenRows({ open: openEditors, changed: edited, recent }),
+    [query, search.data, recent, edited, openEditors],
   );
   const current = Math.min(active, Math.max(0, rows.length - 1));
 
   const choose = (row: Row | undefined) => {
     if (!row) return;
     props.onClose();
-    openFile(workspace, actions, row.path, { keep: true, line });
+    // The keyboard goes on into the file, not back to where it was before the palette.
+    deck.open(row.path, { preview: false, line, focus: true });
   };
   const optionId = (index: number) => `${listId}-${index}`;
   // Enter pressed before the results arrived opens the best one once they do.
@@ -92,8 +97,6 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
   else if (query && search.error) status = `Couldn't search the checkout. ${search.error.message}`;
   else if (query && search.pending && !rows.length) status = "Searching files…";
   else if (query && !rows.length) status = `No files match “${query}”.`;
-  else if (!query && !rows.length)
-    status = "No recent files yet. Type a few letters of a file's name.";
 
   return (
     <CommandDialog open onOpenChange={(open) => !open && props.onClose()} title="Open a file">

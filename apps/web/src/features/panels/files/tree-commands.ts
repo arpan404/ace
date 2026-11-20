@@ -7,13 +7,10 @@ import { useHostOpen, useRemoteHost } from "@/lib/host-open.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import type { FileOperationDialog } from "./file-operation.ts";
 import { treeClipboard, useTreeClip, type TreeClip } from "./tree-clipboard.ts";
+import type { TreeEntry } from "./tree-entry.ts";
 import { useFileMutations } from "./use-file-mutations.ts";
 
-/** A tree row as its actions see it: a checkout path without a trailing slash ("" is the root). */
-export interface TreeEntry {
-  path: string;
-  folder: boolean;
-}
+export type { TreeEntry } from "./tree-entry.ts";
 
 /** How a file opens from the tree: a preview the next pick replaces, kept, or in its own tab. */
 export type OpenHow = "preview" | "keep" | "tab";

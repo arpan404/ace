@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { TreeEntry } from "./tree-commands.ts";
+import type { TreeEntry } from "./tree-entry.ts";
 
 /** Entries cut or copied in the tree, waiting for a paste. */
 export interface TreeClip {

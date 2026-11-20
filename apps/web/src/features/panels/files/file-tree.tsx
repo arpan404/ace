@@ -2,10 +2,10 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import {
   buildFileTree,
   checkoutTreeRows,
+  cleanPath,
   folderKey,
   openedFolders,
   pathParts,
-  revealingFolders,
   toggledFolders,
   type FolderRow,
 } from "@ace/ui-core";
@@ -25,6 +25,7 @@ import {
   ContextMenuContent,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
+import { MenuCheckboxItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import { attachWorkspaceScroll } from "@/lib/workspace/index.ts";
@@ -34,6 +35,8 @@ import { isSecondClick } from "./second-click.ts";
 import { FileTreeRowView } from "./file-tree-row.tsx";
 import { FileTreeSearch } from "./file-tree-search.tsx";
 import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
+import { useExplorerFollows, useRevealRows } from "./file-tree-follow.ts";
+import { useInlineRename } from "./file-tree-rename.tsx";
 import { useFolderTree } from "./use-folder-tree.ts";
 import { useTreeCommands, type OpenHow, type TreeCommands } from "./tree-commands.ts";
 import { entryOf, onRowKey as onKeyFor, type RowKeyContext } from "./tree-row-keys.ts";
@@ -68,6 +71,11 @@ export function FileTree(props: {
   onScroll?(scrollTop: number): void;
   /** Shown under the tree: an upload in progress or what stopped it. */
   footer?: ReactNode;
+  /**
+   * The explorer's first section, above the filter: the Deck's Open editors (workbench spec 29),
+   * which draws and folds itself.
+   */
+  openEditors?: ReactNode;
 }) {
   const online = useConnectionState() === "ready";
   const { query, onQuery: setQuery } = props;
@@ -80,19 +88,12 @@ export function FileTree(props: {
   // ignores folding, so every match is visible.
   const currentPath = props.current;
   const onExpanded = props.onExpanded;
+  const [follows, setFollows] = useExplorerFollows();
+  // Unset, the current file's folders stand open only while the explorer follows it.
   const opened = useMemo(
-    () => openedFolders(props.expanded, currentPath),
-    [props.expanded, currentPath],
+    () => openedFolders(props.expanded ?? (follows ? undefined : []), currentPath),
+    [props.expanded, follows, currentPath],
   );
-  // A file opened from elsewhere (quick open, a tab) is revealed by opening its ancestors, each
-  // of which lists on the way. Folding one by hand stays folded until another file is revealed.
-  const revealed = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (revealed.current === currentPath) return;
-    revealed.current = currentPath;
-    const missing = revealingFolders(opened, currentPath);
-    if (missing.length) onExpanded([...opened, ...missing]);
-  }, [currentPath, opened, onExpanded]);
   const tree = useFolderTree({ threadId: props.threadId, expanded: opened, paused: searching });
   const searchRows = useMemo<FolderRow[]>(
     () =>
@@ -169,6 +170,25 @@ export function FileTree(props: {
       how === "preview" && at !== undefined && isSecondClick(client, props.threadId, row.key, at);
     props.onOpen(row.key, second ? "keep" : how);
   };
+  // A file opened from elsewhere (quick open, a tab) is revealed by opening its ancestors, each
+  // of which lists on the way, then scrolled to and selected. Folding one by hand stays folded
+  // until another file is revealed.
+  const reveal = useRevealRows({
+    threadId: props.threadId,
+    current: currentPath,
+    follows,
+    opened,
+    onExpanded,
+    rows,
+    list,
+    handle: rowsHandle,
+    onRevealed: (key, focus) => {
+      if (focus) focusRow(key);
+      else setFocusKey(key);
+      if (key !== currentPath) selection.only(key);
+    },
+  });
+  const rename = useInlineRename(props.threadId, reveal);
   const order = useMemo(
     () => navigable.filter((row) => row.kind !== "more").map((row) => row.key),
     [navigable],
@@ -195,7 +215,12 @@ export function FileTree(props: {
       });
     },
     open: props.onOpen,
-    operation: props.onOperation,
+    // Rename happens in the row; every other operation is the tab's dialog.
+    operation: (operation) => {
+      if (operation.kind !== "rename") return props.onOperation(operation);
+      const path = cleanPath(operation.path);
+      rename.start(path, operation.path.endsWith("/") || byKey.has(folderKey(path)));
+    },
     findInFolder: props.onFindInFolder,
     download: props.onDownload,
     opened,
@@ -249,85 +274,95 @@ export function FileTree(props: {
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col" {...drag.area}>
-      <FileTreeSearch
-        query={query}
-        onQuery={setQuery}
-        pending={searching && search.pending}
-        folder={currentFolder}
-        disabled={!online}
-        onOperation={props.onOperation}
-        onUpload={props.onUpload}
-        onFirstRow={() => focusRow(navigable[0]?.key)}
-        onEnter={() => {
-          const first = rows.find((row) => row.kind === "file");
-          if (first) props.onOpen(first.key, "keep");
-        }}
-      />
-      <div ref={attachScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2">
-        <div
-          ref={list}
-          role="tree"
-          aria-label={searching ? "Matching files" : "Checkout files"}
-          data-part="file-tree"
-          data-variant="files"
-          aria-busy={searching && search.pending}
-          aria-multiselectable
-          className={cn(
-            "flex flex-col rounded-md",
-            drag.dropTarget === "" && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
-          )}
-        >
-          <LongRows
-            items={rows}
-            virtualAbove={virtualAbove}
-            handle={rowsHandle}
-            rowKey={(row) => row.key}
-            estimate={32}
-            render={(row, index) => (
-              <FileTreeRowView
-                row={row}
-                index={index}
-                current={currentPath}
-                focusable={row.key === focusable}
-                searching={searching}
-                query={query}
-                online={online}
-                dropTarget={drag.dropTarget}
-                drag={searching ? undefined : drag}
-                selected={selection.has(row.key)}
-                cut={cutKeys.has(row.key)}
-                place={positions.get(row.key)}
-                onPick={pick}
-                onActivate={activate}
-                onKeyDown={onRowKey}
-                onFocus={setFocusKey}
-                commands={commands}
-                onHoverStart={hoverStart}
-                onHoverEnd={hoverEnd}
-                onRetry={tree.retry}
-                onMore={tree.showMore}
-              />
-            )}
-          />
-        </div>
-        <TreeStatus
-          online={online}
-          searching={searching}
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Outside the tree's drop area: a drop there isn't an upload into the checkout. */}
+      {props.openEditors}
+      <div className="flex min-h-0 flex-1 flex-col" {...drag.area}>
+        <FileTreeSearch
           query={query}
-          search={search}
-          results={results}
-          empty={!rows.length}
+          onQuery={setQuery}
+          pending={searching && search.pending}
+          folder={currentFolder}
+          disabled={!online}
+          onOperation={props.onOperation}
+          onUpload={props.onUpload}
+          onFirstRow={() => focusRow(navigable[0]?.key)}
+          onEnter={() => {
+            const first = rows.find((row) => row.kind === "file");
+            if (first) props.onOpen(first.key, "keep");
+          }}
         />
-        <RootMenu commands={commands} />
+        <div ref={attachScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2">
+          <div
+            ref={list}
+            role="tree"
+            aria-label={searching ? "Matching files" : "Checkout files"}
+            data-part="file-tree"
+            data-variant="files"
+            aria-busy={searching && search.pending}
+            aria-multiselectable
+            className={cn(
+              "flex flex-col rounded-md",
+              drag.dropTarget === "" && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
+            )}
+          >
+            <LongRows
+              items={rows}
+              virtualAbove={virtualAbove}
+              handle={rowsHandle}
+              rowKey={(row) => row.key}
+              estimate={32}
+              render={(row, index) => (
+                <FileTreeRowView
+                  row={row}
+                  index={index}
+                  current={currentPath}
+                  focusable={row.key === focusable}
+                  searching={searching}
+                  query={query}
+                  online={online}
+                  dropTarget={drag.dropTarget}
+                  drag={searching ? undefined : drag}
+                  selected={selection.has(row.key)}
+                  cut={cutKeys.has(row.key)}
+                  place={positions.get(row.key)}
+                  onPick={pick}
+                  onActivate={activate}
+                  onKeyDown={onRowKey}
+                  onFocus={setFocusKey}
+                  onRefocus={focusRow}
+                  commands={commands}
+                  onHoverStart={hoverStart}
+                  onHoverEnd={hoverEnd}
+                  onRetry={tree.retry}
+                  onMore={tree.showMore}
+                  renaming={!searching && rename.key === row.key ? rename : undefined}
+                />
+              )}
+            />
+          </div>
+          <TreeStatus
+            online={online}
+            searching={searching}
+            query={query}
+            search={search}
+            results={results}
+            empty={!rows.length}
+          />
+          <RootMenu commands={commands} follows={follows} onFollows={setFollows} />
+        </div>
+        {props.footer}
       </div>
-      {props.footer}
     </div>
   );
 }
 
 /** The tree's empty space below its rows: right-click there acts on the checkout's root. */
-function RootMenu(props: { commands: TreeCommands }) {
+function RootMenu(props: {
+  commands: TreeCommands;
+  follows: boolean;
+  onFollows(follows: boolean): void;
+}) {
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -335,6 +370,10 @@ function RootMenu(props: { commands: TreeCommands }) {
       />
       <ContextMenuContent>
         <FileRowItems entry={{ path: "", folder: true }} commands={props.commands} />
+        <MenuSeparator />
+        <MenuCheckboxItem checked={props.follows} onCheckedChange={props.onFollows}>
+          Follow the open file
+        </MenuCheckboxItem>
       </ContextMenuContent>
     </ContextMenu>
   );
