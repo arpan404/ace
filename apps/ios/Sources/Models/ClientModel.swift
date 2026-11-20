@@ -96,6 +96,9 @@ import QuartzCore
     /// Around each frame that moves the reading rows, so the feed keeps the reader's place.
     @ObservationIgnored var readingWillMove: (() -> Void)?
     @ObservationIgnored var readingMoved: (() -> Void)?
+    /// The open thread's whole window is about to replace the screenful it opened from, adding
+    /// rows above those on screen: the feed holds the reader's line, as for an older page.
+    @ObservationIgnored var liveWindowWillGrow: (() -> Void)?
     /// Reading patches wait for both page completion and the end of user scrolling, then
     /// land together so anchor restoration cannot fight a drag or deceleration.
     /// Bounded and coalesced (`ReadingHold`): latest wins per key, reset clears, a
@@ -696,6 +699,9 @@ import QuartzCore
                         // A late fence belongs to the superseded pass. Leave the newer
                         // staging intact; its own matching fence can still complete it.
                         if let revision, let staged = thread.refreshRevision, revision < staged { continue }
+                        if thread.loaded, let incoming = thread.refresh, incoming.items.count > thread.items.count {
+                            liveWindowWillGrow?()
+                        }
                         let committed = thread.commitSnapshot(revision: revision, count: count)
                         if committed {
                             reorder = true
