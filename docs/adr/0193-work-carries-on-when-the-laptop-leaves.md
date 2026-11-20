@@ -154,6 +154,25 @@ The same reclamation also runs once a day when the standby is idle (ADR 0170: bo
 open). If reclamation can't free enough, the refusal stands: the runner says "omarchy is out of
 room for copies", and the standby's Settings lists each stream's share.
 
+#### When the thread is settled, the other copy goes
+
+A kept thread lives on one machine; the other holds only a warm copy, or, after a takeover or a
+move, the old thread. Once the thread is **settled** where it now lives (the person settles it,
+or it is archived or deleted there), nothing should be left behind on the other machine:
+
+- **Warm copies are deleted.** Settling the thread retires its stream, exactly as turning
+  keep-going off does: the standby removes every generation's ref, its landing worktree and its
+  pinned inputs, and gives the space back under the cap. The runner drops its capture refs. A
+  standby that is offline at the time is told when it is next reached; until then its stream is
+  marked retired and never offered for Take over.
+- **A takeover's leftovers are deleted the same way.** If the thread was taken over and then
+  settled on the standby, the laptop's moved thread and its `ace/kept/` cleanup state are removed
+  once the laptop next answers, after the rescue branch is written, so no work is lost: the
+  branch stays in the repository, and only the thread record and keep-going state go.
+- **Nothing is deleted while the thread is still live anywhere.** A retirement is a fenced change
+  like the others (section 3): it needs the current epoch, and a thread that is working,
+  waiting on the person, or still moving is never settled by this.
+
 ### 3. Who owns the thread: one fence on the standby
 
 ADR 0191's `thread_ownership` gains two states:
