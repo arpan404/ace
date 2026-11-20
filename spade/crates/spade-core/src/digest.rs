@@ -52,6 +52,10 @@ pub struct Digest {
     pub workers: Vec<Digest>,
     /// This bot's spend in the window with its workers'.
     pub subtree_spend_micros: u64,
+    /// What waited for the person (do not disturb, quiet hours, the interruption budget) and
+    /// came here instead (ADR 0194). Filled by the engine, which holds those notices.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub away: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -206,6 +210,7 @@ pub fn task(input: &Input<'_>) -> Digest {
         blocked: blocked(task.as_ref()),
         workers: Vec::new(),
         subtree_spend_micros: total_micros,
+        away: Vec::new(),
     }
 }
 
