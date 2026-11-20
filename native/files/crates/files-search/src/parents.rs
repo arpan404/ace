@@ -118,12 +118,30 @@ fn repository_to(root: &Path) -> Option<Vec<PathBuf>> {
 }
 
 /// The `.gitignore` rules of one folder, if it has any that parse.
+///
+/// The file is read only when it is a regular file of that folder: it is opened without following
+/// a link, so a `.gitignore` that is a link never brings in rules from somewhere else.
 fn read(folder: &Path) -> Option<Gitignore> {
-    let file = folder.join(".gitignore");
-    if !file.is_file() {
+    use std::io::Read;
+
+    use cap_fs_ext::{FollowSymlinks, OpenOptions, OpenOptionsFollowExt};
+
+    let dir = cap_std::fs::Dir::open_ambient_dir(folder, cap_std::ambient_authority()).ok()?;
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let mut file = dir.open_with(GITIGNORE, &options).ok()?;
+    if !file.metadata().ok()?.is_file() {
         return None;
     }
+    let mut text = String::new();
+    file.read_to_string(&mut text).ok()?;
+    let from = folder.join(GITIGNORE);
     let mut builder = GitignoreBuilder::new(folder);
-    let _ = builder.add(&file);
+    for line in text.lines() {
+        let _ = builder.add_line(Some(from.clone()), line);
+    }
     builder.build().ok()
 }
+
+/// The name of a folder's ignore file.
+const GITIGNORE: &str = ".gitignore";
