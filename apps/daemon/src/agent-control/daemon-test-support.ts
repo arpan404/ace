@@ -135,14 +135,14 @@ export async function daemonFixture(
     workspace,
     caller,
     /**
-     * Makes `call` from inside a turn of `thread`'s root on the daemon running now, as a
+     * Makes `call` from inside a turn of `threadId`'s root on the daemon running now, as a
      * provider's tool call is: the turn starts in the thread's current session, the call is
      * made, the turn ends. After a Stop, only a call from a turn that runs lifts the delegation
      * fence (ADR 0191).
      */
-    async duringTurn<T>(thread: ThreadId, call: () => T): Promise<Awaited<T>> {
+    async duringTurn<T>(threadId: ThreadId, call: () => T): Promise<Awaited<T>> {
       const report = async (fact: Fact) => {
-        const session = h.contexts.get(thread);
+        const session = h.contexts.get(threadId);
         if (!session) throw new Error("Missing native session");
         session.onFrame(h.frames.frame(fact));
         await current.engine?.flush();
