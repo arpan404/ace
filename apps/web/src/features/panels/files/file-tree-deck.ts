@@ -23,6 +23,8 @@ export interface DeckOpenOptions {
   preview: boolean;
   line?: number | undefined;
   column?: number | undefined;
+  /** With `column`, select this many code units there (a search match), revealed centred. */
+  length?: number | undefined;
   /** Move the keyboard into the editor once it shows (a pick in quick open), not back where
    * focus was before. */
   focus?: boolean | undefined;
