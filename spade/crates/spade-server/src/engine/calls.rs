@@ -273,7 +273,7 @@ pub(super) async fn handle_calls(
                     // A sandboxed command, or a file write in the workspace: checkpointed first;
                     // when the checkpoint can't be taken, reviewed instead.
                     let held = engine
-                        .contained_call(id, &name, classed.runs == Runs::Sandbox)
+                        .contained_call(id, &name, classed.runs == Runs::Sandbox, reply)
                         .await;
                     let place = match classed.runs {
                         Runs::Host => Place::Host,
