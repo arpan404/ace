@@ -15,7 +15,8 @@ use crate::folders::Folder;
 pub(crate) enum Opened {
     /// The file, with its metadata read once from the open handle.
     File(File, Metadata),
-    /// The file could not be opened through this handle.
+    /// The file could not be opened through this handle. A handle held from an earlier file may
+    /// be stale: the caller opens the folder again and retries once.
     Failed,
     /// The checkout path no longer leads to the file that was opened. A handle held from an
     /// earlier file may be stale: the caller opens the folder again and retries once.

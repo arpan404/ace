@@ -92,9 +92,10 @@ pub(crate) fn search_file(
     }
 }
 
-/// Opens the walked file through its folder's handle. A handle held from an earlier file whose
-/// checkout path leads elsewhere may be stale, as when the folder was replaced between two of its
-/// files: it is dropped, the folder opened again from the root, and the file tried once more.
+/// Opens the walked file through its folder's handle. A handle held from an earlier file that
+/// fails to open this one, or whose checkout path leads elsewhere, may be stale, as when the folder
+/// was replaced between two of its files: it is dropped, the folder opened again from the root,
+/// and the file tried once more.
 fn open_entry(
     root: &files_safe::Root,
     folders: &mut Folders,
@@ -105,9 +106,8 @@ fn open_entry(
     let held = folders.holds(folder);
     match open::open(root, folders.get(root, folder)?, name) {
         Opened::File(file, metadata) => return Some((file, metadata)),
-        Opened::Failed => return None,
-        Opened::Refused if !held => return None,
-        Opened::Refused => folders.forget(folder),
+        Opened::Failed | Opened::Refused if !held => return None,
+        Opened::Failed | Opened::Refused => folders.forget(folder),
     }
     match open::open(root, folders.get(root, folder)?, name) {
         Opened::File(file, metadata) => Some((file, metadata)),
@@ -201,5 +201,42 @@ impl Sink for FileSink<'_> {
     fn binary_data(&mut self, _searcher: &Searcher, _offset: u64) -> Result<bool, io::Error> {
         self.binary = true;
         Ok(false)
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::open_entry;
+    use crate::folders::Folders;
+    use files_safe::Root;
+    use ignore::WalkBuilder;
+
+    #[test]
+    fn a_held_folder_replaced_before_its_next_file_searches_the_replacement() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let aside = tempfile::tempdir().expect("another temp dir");
+        std::fs::create_dir_all(dir.path().join("d")).expect("a folder");
+        std::fs::write(dir.path().join("d/one.txt"), "first").expect("a file");
+        let root = Root::open(dir.path()).expect("the root opens");
+        let mut folders = Folders::default();
+        assert!(
+            folders.get(&root, "d").is_some(),
+            "the first file's folder is held"
+        );
+
+        // The folder is replaced by another one that holds the next walked name, which the old
+        // folder never had.
+        std::fs::rename(dir.path().join("d"), aside.path().join("d")).expect("the move");
+        std::fs::create_dir_all(dir.path().join("d")).expect("the replacement");
+        std::fs::write(dir.path().join("d/two.txt"), "second").expect("its file");
+        let entry = WalkBuilder::new(root.path())
+            .build()
+            .filter_map(Result::ok)
+            .find(|entry| entry.file_name() == "two.txt")
+            .expect("the walk lists the replacement's file");
+
+        let (_, metadata) =
+            open_entry(&root, &mut folders, "d", &entry).expect("the replacement is searched");
+        assert_eq!(metadata.len(), 6);
     }
 }
