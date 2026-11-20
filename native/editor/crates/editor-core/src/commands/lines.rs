@@ -9,24 +9,26 @@ use super::{
 use crate::document::Document;
 use crate::transaction::{Applied, Edit, EditSet};
 
-/// One indent step, in spaces.
-const INDENT: &str = "  ";
-
 impl Document {
     /// Adds one indent step to the start of every selected line.
     pub fn indent_lines(&mut self) -> Applied {
         let spans = merged_line_spans(&self.buffer, &self.selections);
+        let unit = self.indent.unit();
         let mut raw = Vec::new();
         let mut columns = Vec::new();
         for (start, end) in &spans {
             for line in *start..*end {
+                // A blank line inside a block stays blank, as in VS Code.
+                if *end - *start > 1 && self.buffer.line(line).trim().is_empty() {
+                    continue;
+                }
                 let offset = self.buffer.line_start(line);
                 raw.push(Edit {
                     start: offset,
                     end: offset,
-                    text: INDENT.to_owned(),
+                    text: unit.clone(),
                 });
-                columns.push((line as u32, 0, INDENT.len() as i64));
+                columns.push((line as u32, 0, unit.len() as i64));
             }
         }
         let edits = EditSet::new(raw);
@@ -42,9 +44,10 @@ impl Document {
         self.finish(edits, outcome, after, false)
     }
 
-    /// Removes one indent step (a tab or up to `INDENT` spaces) from every selected line.
+    /// Removes one indent step (a tab or up to one step of spaces) from every selected line.
     pub fn outdent_lines(&mut self) -> Applied {
         let spans = merged_line_spans(&self.buffer, &self.selections);
+        let size = self.indent.size.max(1) as usize;
         let mut raw = Vec::new();
         let mut columns = Vec::new();
         for (start, end) in &spans {
@@ -55,7 +58,7 @@ impl Document {
                 } else {
                     content
                         .bytes()
-                        .take(INDENT.len())
+                        .take(size)
                         .take_while(|b| *b == b' ')
                         .count()
                 };

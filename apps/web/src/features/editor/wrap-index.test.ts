@@ -307,3 +307,24 @@ test("an edit with no width reads no text either, however many lines it replaced
   expect(text.line).not.toHaveBeenCalled();
   expect(index.total()).toBe(1_000);
 });
+
+test("hidden lines draw no rows, rows skip over them, and they stay hidden as lines move", () => {
+  const index = ready(["a", "x".repeat(60), "b", "c"]);
+  expect(index.total()).toBe(6);
+  index.setHidden([{ from: 1, to: 3 }]);
+  expect(index.total()).toBe(2);
+  expect(index.rowsOf(1).length).toBe(0);
+  expect(index.startOf(3)).toBe(1);
+  expect(index.lineAt(1)).toBe(3);
+  // A line inserted above moves the hidden ones down with their text.
+  index.apply([
+    { spans: [{ firstLine: 0, removedLines: 1, insertedLines: 2 }], lines: 5, version: 0 },
+  ]);
+  expect(index.isHidden(2)).toBe(true);
+  expect(index.isHidden(1)).toBe(false);
+  // Unwrapping keeps them hidden.
+  index.setColumns(Infinity);
+  expect(index.total()).toBe(3);
+  index.setHidden([]);
+  expect(index.total()).toBe(5);
+});

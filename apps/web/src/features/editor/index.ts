@@ -6,3 +6,12 @@
 export { CodeEditor } from "./editor.tsx";
 export type { CodeEditorProps, EditorHandle } from "./types.ts";
 export type { LineHighlighter, Token } from "./highlighter.ts";
+export { EditorStatusLine } from "./status-line.tsx";
+export {
+  indentText,
+  languageName,
+  lineEndingText,
+  positionText,
+  type EditorStatus,
+  type EditorStatusActions,
+} from "./editor-status.ts";

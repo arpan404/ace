@@ -50,6 +50,7 @@ const FileOperations = lazy(() =>
   import("./file-operations.tsx").then((module) => ({ default: module.FileOperations })),
 );
 import type { FileOperationDialog } from "./file-operation.ts";
+import type { OpenHow } from "./tree-commands.ts";
 
 const findChord = parseChord("mod+f");
 const searchChord = parseChord(keymap["files.search"].keys);
@@ -154,13 +155,14 @@ export function FileTab(props: TabViewProps) {
     setOverflow((previous) =>
       previous.path === path && previous.end === end ? previous : { path, end },
     );
-  const open = (target: string, keep: boolean) =>
+  const open = (target: string, how: OpenHow = "keep") =>
     openFile(workspace, actions, target, {
-      keep,
+      keep: how !== "preview",
+      newTab: how === "tab",
       from: props.tab.key,
       tree: over ? undefined : data.tree,
     });
-  const fileActions = useFileActions(threadId, (uploaded) => open(uploaded, true));
+  const fileActions = useFileActions(threadId, (uploaded) => open(uploaded));
 
   useEffect(() => {
     if (path) recentStore.remember(threadId, path);
@@ -222,8 +224,8 @@ export function FileTab(props: TabViewProps) {
             operation={operation}
             onClose={() => setOperation(undefined)}
             onChanged={(changed, destination) => {
-              if (operation.kind === "create") open(changed, true);
-              if (destination && path === changed) open(destination, true);
+              if (operation.kind === "create") open(changed);
+              if (destination && path === changed) open(destination);
             }}
           />
         </Suspense>
@@ -415,6 +417,12 @@ export function FileTab(props: TabViewProps) {
                 scrollTop={data.treeScroll ?? 0}
                 onScroll={(treeScroll) => update({ treeScroll })}
                 onOpen={open}
+                onDownload={(target) => void fileActions.save(target)}
+                onFindInFolder={(folder) => {
+                  searchStore.update({ include: folder ? `${folder}/**` : "" }, true);
+                  update({ side: "search" });
+                  setFocusSearch((value) => value + 1);
+                }}
                 onUpload={(files, folder) => void fileActions.uploadFiles(files, folder)}
                 footer={
                   fileActions.upload && (

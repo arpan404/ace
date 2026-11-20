@@ -1,6 +1,6 @@
 import { flattenSelections, readApplied, readRanges, readSelections } from "./flat.ts";
 import { wasm } from "./loader.ts";
-import type { Applied, Change, FindQuery, Position, Range, Selection } from "./types.ts";
+import type { Applied, Change, FindQuery, Indent, Position, Range, Selection } from "./types.ts";
 import type { WasmDocument } from "./wasm-types.ts";
 
 /**
@@ -44,6 +44,11 @@ export class EditorDocument {
   /** The line ending the document was loaded with. */
   lineEnding(): "\n" | "\r\n" {
     return this.#inner.lineEnding() === "\r\n" ? "\r\n" : "\n";
+  }
+
+  /** Rewrites every line break with `ending` as one undo step; new lines use it from now on. */
+  setLineEnding(ending: "\n" | "\r\n"): Applied {
+    return readApplied(this.#inner.setLineEnding(ending === "\r\n"));
   }
 
   /** The number of edits applied so far. */
@@ -131,6 +136,85 @@ export class EditorDocument {
     return readApplied(this.#inner.toggleLineComment(token));
   }
 
+  /** Copies the selected lines above themselves; the carets stay on the upper copy. */
+  copyLinesUp(): Applied {
+    return readApplied(this.#inner.copyLinesUp());
+  }
+
+  /** Deletes every selected line; each caret lands on the line that moves into its place. */
+  deleteLines(): Applied {
+    return readApplied(this.#inner.deleteLines());
+  }
+
+  /** Opens an empty line below each caret's line, indented like it. */
+  insertLineBelow(): Applied {
+    return readApplied(this.#inner.insertLineBelow());
+  }
+
+  /** Opens an empty line above each caret's line, indented like it. */
+  insertLineAbove(): Applied {
+    return readApplied(this.#inner.insertLineAbove());
+  }
+
+  /** Joins each selection's lines into one, or a caret's line with the next. */
+  joinLines(): Applied {
+    return readApplied(this.#inner.joinLines());
+  }
+
+  /** Tab: indents a multi-line selection's lines, or inserts one indent step at every caret. */
+  tab(): Applied {
+    return readApplied(this.#inner.tab());
+  }
+
+  /** Wraps each selection in a block comment, or unwraps one that already is. */
+  toggleBlockComment(open: string, close: string): Applied {
+    return readApplied(this.#inner.toggleBlockComment(open, close));
+  }
+
+  /**
+   * Types one keystroke at every cursor: brackets and quotes close themselves, a closer types
+   * over the same character, and a bracket over a selection wraps it. Pastes use `insertText`.
+   */
+  typeText(text: string): Applied {
+    return readApplied(this.#inner.typeText(text));
+  }
+
+  /** Enter: the line's indentation, one step more after an opening bracket, split in a pair. */
+  smartNewline(): Applied {
+    return readApplied(this.#inner.smartNewline());
+  }
+
+  /** Backspace: one indent step in leading spaces, both halves of an empty pair, else one grapheme. */
+  smartBackspace(): Applied {
+    return readApplied(this.#inner.smartBackspace());
+  }
+
+  /** The indentation the start of the text uses, or undefined when no line is indented. */
+  detectIndent(): Indent | undefined {
+    const [tabs, size] = this.#inner.detectIndent();
+    return size === undefined ? undefined : { tabs: tabs === 1, size };
+  }
+
+  /**
+   * The bracket pair a caret at `at` highlights: the bracket just before it, else the one after
+   * it, and its match. Scans at most `limit` characters; undefined when there is no pair.
+   */
+  matchingBracket(at: Position, limit = 20_000): [Range, Range] | undefined {
+    const [first, second] = readRanges(this.#inner.matchingBracket(at.line, at.column, limit));
+    return first && second ? [first, second] : undefined;
+  }
+
+  /** How one indent step is written. */
+  indent(): Indent {
+    const [tabs = 0, size = 2] = this.#inner.indent();
+    return { tabs: tabs === 1, size };
+  }
+
+  /** Sets how indent commands, Tab and new lines write one indent step. */
+  setIndent(indent: Indent): void {
+    this.#inner.setIndent(indent.tabs, indent.size);
+  }
+
   /** Undoes the last step, or `undefined` when there is nothing to undo. */
   undo(): Applied | undefined {
     const applied = this.#inner.undo();
@@ -150,14 +234,29 @@ export class EditorDocument {
 
   /** Finds at most `limit` matches, in document order. */
   find(query: FindQuery, limit = 1_000): Range[] {
-    return readRanges(
-      this.#inner.find(
-        query.pattern,
-        query.regex ?? false,
-        query.caseSensitive ?? true,
-        query.wholeWord ?? false,
-        limit,
-      ),
+    return readRanges(this.#inner.find(...queryArgs(query), limit));
+  }
+
+  /** Finds at most `limit` matches lying wholly inside one of `within`, in document order. */
+  findWithin(query: FindQuery, within: readonly Range[], limit = 1_000): Range[] {
+    const q = queryArgs(query);
+    return readRanges(this.#inner.findWithin(...q, flattenRanges(within), limit));
+  }
+
+  /**
+   * Replaces every match, or only those inside `within` when it is not empty, as one undo step.
+   * A regex query expands `$1` and `${name}` groups and `\n`, `\t` escapes.
+   */
+  replaceAll(query: FindQuery, replacement: string, within: readonly Range[] = []): Applied {
+    return readApplied(
+      this.#inner.replaceAll(...queryArgs(query), replacement, flattenRanges(within)),
+    );
+  }
+
+  /** Replaces the match at `at` when it is still exactly a match; otherwise changes nothing. */
+  replaceMatch(query: FindQuery, at: Range, replacement: string): Applied {
+    return readApplied(
+      this.#inner.replaceMatch(...queryArgs(query), flattenRanges([at]), replacement),
     );
   }
 
@@ -171,8 +270,42 @@ export class EditorDocument {
     return this.#inner.selectNextOccurrence();
   }
 
+  /** Selects every occurrence of the primary selection's text, or of the word at a caret. */
+  selectAllOccurrences(): boolean {
+    return this.#inner.selectAllOccurrences();
+  }
+
+  /** Moves the newest selection on to the next occurrence of its text (Cmd+K Cmd+D). */
+  skipOccurrence(): boolean {
+    return this.#inner.skipOccurrence();
+  }
+
+  /**
+   * Grows every selection to the smallest larger unit around it: word, the text inside the
+   * brackets, the brackets, the line, the indented block, the document. False when none grows.
+   */
+  expandSelection(): boolean {
+    return this.#inner.expandSelection();
+  }
+
   /** Releases the Wasm-side document now instead of at garbage collection. */
   dispose(): void {
     this.#inner.free();
   }
+}
+
+function queryArgs(query: FindQuery): [string, boolean, boolean, boolean] {
+  return [
+    query.pattern,
+    query.regex ?? false,
+    query.caseSensitive ?? true,
+    query.wholeWord ?? false,
+  ];
+}
+
+function flattenRanges(ranges: readonly Range[]): Uint32Array {
+  const flat = new Uint32Array(ranges.length * 4);
+  for (const [index, { start, end }] of ranges.entries())
+    flat.set([start.line, start.column, end.line, end.column], index * 4);
+  return flat;
 }

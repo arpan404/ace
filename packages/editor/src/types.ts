@@ -60,6 +60,12 @@ export interface FindQuery {
   wholeWord?: boolean;
 }
 
+/** How one indent step is written: a tab, or `size` spaces (`size` is also a tab's width). */
+export interface Indent {
+  tabs: boolean;
+  size: number;
+}
+
 /** How a line of the current text differs from the original. */
 export type LineMarkKind = "added" | "modified" | "removed";
 
