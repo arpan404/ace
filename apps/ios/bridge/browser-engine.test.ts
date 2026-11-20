@@ -39,7 +39,7 @@ describe("Engine for this thread", () => {
     await until(() => daemon.browser.view("web")?.backend === "headless", "moved");
     await until(() => engine(sink)?.current === "headless" && !engine(sink)?.moving, "shown");
     await until(() => url(sink) === "https://shop.test/cart", "page reloaded");
-    // The phone asks the daemon for the move; the daemon makes it (ADR 0193).
+    // The phone asks the daemon for the move; the daemon makes it (ADR 0194).
     expect(requested).toContainEqual(
       expect.objectContaining({ type: "browser.engine.move", threadId: "web", engine: "headless" }),
     );

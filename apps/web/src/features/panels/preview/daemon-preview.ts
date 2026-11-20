@@ -1049,11 +1049,13 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     },
     /**
      * Move the thread's browser to another engine. The daemon keeps the choice for the thread
-     * and moves a browser already open there, one move per thread at a time (ADR 0193).
+     * and moves a browser already open there, one move per thread at a time (ADR 0194).
      */
     async switchEngine(threadId, engine, workspaceId) {
       if (disposed) throw new Error("preview_disposed");
-      const move = { threadId, workspaceId, engine, openTimeoutMs };
+      const before = views.get(threadId);
+      const browserOpen = before !== undefined && !before.closed;
+      const move = { threadId, workspaceId, engine, openTimeoutMs, browserOpen };
       return moveBrowserEngine({ request }, move, (state) => {
         const watch = watches.get(threadId);
         if (!watch) return;

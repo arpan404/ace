@@ -15,7 +15,7 @@ function daemon(reply: { ok: boolean; result?: unknown; error?: string }) {
   return { client: { request } as unknown as Pick<ClientApi, "request">, asked };
 }
 
-const input = { threadId: "thread-1", workspaceId: "workspace-1" };
+const input = { threadId: "thread-1", workspaceId: "workspace-1", browserOpen: true };
 const moved = {
   threadId: "thread-1",
   url: "https://two.example/",
@@ -35,7 +35,14 @@ describe("switching a thread's browser engine", () => {
     const result = await moveBrowserEngine(machine.client, { ...input, engine: "headless" }, (s) =>
       heard.push(s),
     );
-    expect(machine.asked).toEqual([{ type: "browser.engine.move", ...input, engine: "headless" }]);
+    expect(machine.asked).toEqual([
+      {
+        type: "browser.engine.move",
+        threadId: "thread-1",
+        workspaceId: "workspace-1",
+        engine: "headless",
+      },
+    ]);
     expect(result.activeTabId).toBe("t2");
     expect(heard.map((state) => state.backend)).toEqual(["headless"]);
   });
