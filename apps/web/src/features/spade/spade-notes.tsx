@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import {
+  notesKey,
   acceptNote,
   addNote,
   deleteNote,
@@ -17,9 +18,9 @@ import {
 } from "./spade-notes-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import { SpadeProvenanceDialog } from "./spade-provenance.tsx";
 
-/** Every notes read; one scope's under `[...notesKey, machine key, scope]`. */
-export const notesKey = ["spade", "notes"] as const;
+export { notesKey };
 
 const scopeKey = (scope: SpadeNotesScope) => (scope.kind === "agent" ? scope.agent : "shared");
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
@@ -43,6 +44,8 @@ export function SpadeNotes(props: {
   /** The list's name for assistive tech ("Travel's memory"). */
   label: string;
   placeholder: string;
+  /** The bot whose Library this is, for forgetting everything from a note's source. */
+  bot?: string | undefined;
 }) {
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
@@ -54,6 +57,8 @@ export function SpadeNotes(props: {
     queryFn: ({ signal }) => readNotes(client, props.scope, { signal }),
   });
   const [editing, setEditing] = useState<string | undefined>();
+  // The note whose origin is open ("Where it's from").
+  const [why, setWhy] = useState<string>();
   const [adding, setAdding] = useState(false);
   // A note being opened: the field shows once the notes are read again, so it never starts
   // from cached text the bot has since changed.
@@ -147,6 +152,7 @@ export function SpadeNotes(props: {
               <NoteRow
                 key={note.id}
                 note={note}
+                onWhy={() => setWhy(note.id)}
                 onEdit={() => setOpening(note.id)}
                 onDelete={() =>
                   void change("Couldn't delete the note", () => deleteNote(client, note.id))
@@ -156,6 +162,15 @@ export function SpadeNotes(props: {
           )}
         </SettingList>
       )}
+      <SpadeProvenanceDialog
+        bot={props.bot}
+        of={why ? { kind: "note", id: why } : undefined}
+        onForget={async () => {
+          if (why) await change("Couldn't forget the note", () => deleteNote(client, why));
+        }}
+        onCorrect={() => why && setOpening(why)}
+        onDone={() => setWhy(undefined)}
+      />
       {adding && (
         <AddNote
           placeholder={props.placeholder}
@@ -206,7 +221,7 @@ function Suggested(props: {
   );
 }
 
-function NoteRow(props: { note: SpadeNote; onEdit(): void; onDelete(): void }) {
+function NoteRow(props: { note: SpadeNote; onWhy(): void; onEdit(): void; onDelete(): void }) {
   const { note } = props;
   return (
     <SettingListItem className="group/note">
@@ -218,6 +233,15 @@ function NoteRow(props: { note: SpadeNote; onEdit(): void; onDelete(): void }) {
       >
         {note.text}
       </button>
+      <Button
+        size="sm"
+        variant="ghost"
+        aria-label={`Where it's from: ${note.text}`}
+        className={`${rowPill} opacity-0 group-hover/note:opacity-100 group-focus-within/note:opacity-100 pointer-coarse:opacity-100`}
+        onClick={props.onWhy}
+      >
+        Where it's from
+      </Button>
       <Button
         size="sm"
         variant="ghost"

@@ -93,6 +93,7 @@ export function spadePort(connection: () => SpadeConnection | undefined): SpadeP
             routines: recipe.routines,
             ...(recipe.needs.tools ? { tools: recipe.needs.tools } : {}),
             notes: recipe.notes,
+            ...(recipe.personality ? { personality: recipe.personality } : {}),
           },
           // Spade answers a second request with the same transaction with the bot it made.
           from_recipe: { ...input.fromRecipe, transaction: input.transaction },

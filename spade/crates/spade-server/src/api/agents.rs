@@ -66,6 +66,9 @@ pub(super) struct NewAgent {
     /// message are made together, or neither is.
     #[serde(default)]
     first_message: Option<FirstMessage>,
+    /// How the bot talks from its first turn; over a template's own.
+    #[serde(default)]
+    personality: Option<spade_core::personality::Personality>,
     /// A marketplace recipe to make the bot from (ADR 0168, docs/teams.md), with where it came
     /// from, what the person granted by pressing Install, and whether its routines start on.
     #[serde(default)]
@@ -121,6 +124,9 @@ pub(super) struct Change {
     /// Only `auto_review`, Spade's one level (ADR 0163); any other word is refused.
     #[serde(default)]
     access: Option<String>,
+    /// How the bot talks; `null` leaves it to the bot.
+    #[serde(default, deserialize_with = "super::body::present")]
+    personality: Option<Option<spade_core::personality::Personality>>,
 }
 
 /// Checks a body's `access`: Spade has one level, so only `auto_review` (or none) is accepted,
@@ -186,6 +192,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "updated_at": agent.updated_ms,
         "last_activity": agent.last_activity_ms,
         "pinned_at": agent.pinned_ms,
+        "personality": agent.personality,
         "state": view.state.name(),
         "working": view.state != AgentState::Idle,
         "waiting_for": view.waiting_for,
@@ -305,6 +312,26 @@ fn make(
     body: NewAgent,
     avatar: Option<AvatarInput>,
 ) -> Result<(AgentView, Option<Vec<String>>), Box<Response>> {
+    let personality = body.personality;
+    let (view, left_out) = make_bot(state, body, avatar)?;
+    let Some(personality) = personality else {
+        return Ok((view, left_out));
+    };
+    match state
+        .engine
+        .start_with_personality(&view.agent.id, personality)
+    {
+        Ok(view) => Ok((view, left_out)),
+        Err(error) => Err(Box::new(agent_problem(&error))),
+    }
+}
+
+/// [`make`] before the person's personality is applied.
+fn make_bot(
+    state: &AppState,
+    body: NewAgent,
+    avatar: Option<AvatarInput>,
+) -> Result<(AgentView, Option<Vec<String>>), Box<Response>> {
     if let Some(template) = &body.template {
         let model = body
             .model
@@ -394,6 +421,7 @@ pub(super) async fn update(
         task: body.task,
         model: body.model,
         avatar,
+        personality: body.personality,
     };
     match state.engine.update_agent(&id, change) {
         Ok(view) => Json(json!({ "agent": agent_json(&view) })).into_response(),

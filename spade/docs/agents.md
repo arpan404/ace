@@ -21,6 +21,12 @@ describe. Agents run on models from the person's own endpoints.
   conversation and used from its next turn, never mid-turn: a turn's prompt takes the task stored
   before its `reply_started`, placed in the cached top of the prompt, and `reply_started` names
   its model. A restart rebuilds the identical prompt. Name and avatar changes apply at once.
+- **Personality** (`{tone?: concise|warm|formal|playful, humour: bool, emoji: bool}`, humour and
+  emoji off unless chosen) is how the bot talks. Set in the profile, or brought by a template or
+  recipe, it is stored on the row and in the same `agent_configured` event (a task change keeps
+  it), and taken from the next turn as a section of its own after the task, in `<personality>`
+  tags, saying it changes only style, never the task or what the bot may do. With none set there
+  is no section. `PATCH` with `personality: null` clears it.
 - **Delete** first marks the agent as being deleted, under the lock every delivery takes: from
   then on no message or job result reaches it, no turn, job or title starts, and messages answer
   `404`. Its turn and jobs are stopped and given up to 5 seconds to let go; whatever is still
@@ -181,6 +187,15 @@ Every agent has two tools:
   (it was 3 before ADR 0158). The same holds for asks from other machines.
 
 ## Endpoints and models
+
+**On this computer.** `GET /v1/endpoints/local` looks for Ollama (`http://127.0.0.1:11434/v1/`)
+and LM Studio (`http://127.0.0.1:1234/v1/`) at once, each given 1.5 seconds and reached without a
+proxy: `{"servers": [{id, name, base_url, running, models, endpoint}]}`, `models` from their
+OpenAI `GET /models` (or Ollama's `/api/tags` shape), `endpoint` the person's endpoint at that
+address if any. `POST /v1/endpoints/local/{server} {model}` adds the server as an
+`openai-chat` endpoint with no key the first time (an endpoint already at that address is used),
+saves the model on it and answers `{endpoint, value: "<endpoint>/<model>"}`; `404` for a server
+Spade doesn't know.
 
 The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain (ADR 0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read
 from there on every start, holds presets: endpoint templates and known facts about model ids
@@ -375,7 +390,7 @@ then.
 | --------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `GET /agents`                                 |                                                                            | `{"agents":[Agent]}`: main first, then by `last_activity`  |
 | `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?}`                  | `201 {"agent"}`; `model` defaults as below                 |
-| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`                         | `200 {"agent"}`; `409` for the main agent's name or avatar |
+| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`, `personality`          | `200 {"agent"}`; `409` for the main agent's name or avatar |
 | `DELETE /agents/{id}`                         |                                                                            | `204`; `409` for the main agent                            |
 | `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                         | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |
 | `PUT /main`                                   | `{"enabled": bool}`                                                        | `204`                                                      |
@@ -427,7 +442,7 @@ answered, a turn or job ends). Not stored. Older clients ignore the event name.
 
 ## Events
 
-| Type               | Fields                              | Meaning                               |
-| ------------------ | ----------------------------------- | ------------------------------------- |
-| `agent_configured` | `task`, `model`                     | The agent's task or model changed     |
-| `user_message`     | `…, from_agent?: {id, name, depth}` | `from_agent` when another bot sent it |
+| Type               | Fields                              | Meaning                                  |
+| ------------------ | ----------------------------------- | ---------------------------------------- |
+| `agent_configured` | `task`, `model`, `personality?`     | The agent's task, model or voice changed |
+| `user_message`     | `…, from_agent?: {id, name, depth}` | `from_agent` when another bot sent it    |

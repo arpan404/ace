@@ -39,6 +39,7 @@ import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
 import { SpadeBriefBubble } from "./spade-brief-bubble.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
+import { SpadeRecalledLine } from "./spade-recalled-line.tsx";
 import { SpadeStepsLine } from "./spade-steps-line.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
@@ -465,7 +466,16 @@ function RunItem(props: {
         </BubbleFrame>
       );
     case "steps":
-      return <SpadeStepsLine summary={item.summary} steps={item.steps} />;
+      return (
+        <SpadeStepsLine
+          summary={item.summary}
+          steps={item.steps}
+          undo={item.undo}
+          bot={{ id: bot.id, name: bot.name }}
+        />
+      );
+    case "recalled":
+      return <SpadeRecalledLine notes={item.notes} bot={bot.id} />;
     case "files":
       return (
         <div {...part("spade-message", undefined, sender(bot))} className={chatBubble}>

@@ -79,6 +79,8 @@ pub(super) async fn handle_calls(
     let facts = TurnFacts {
         untrusted: (!in_view.is_empty()).then(|| in_view.join(", ")),
         memory_suggests: summary_only,
+        in_view: in_view.clone(),
+        call: None,
     };
     // How the bot decides (ADR 0163, amendment 2), read once for the step's calls.
     let mode = engine.autonomy(id);
@@ -301,7 +303,7 @@ pub(super) async fn handle_calls(
                     // A sandboxed command, or a file write in the workspace: checkpointed first;
                     // when the checkpoint can't be taken, reviewed instead.
                     let held = engine
-                        .contained_call(id, &name, classed.runs == Runs::Sandbox)
+                        .contained_call(id, &name, classed.runs == Runs::Sandbox, reply)
                         .await;
                     let place = match classed.runs {
                         Runs::Host => Place::Host,
@@ -1022,12 +1024,19 @@ async fn run_tools(
                 None if name == TOOL_SEARCH => Some(Risk::Read),
                 None => None,
             };
+            // What it does, as declared to the gate, so the app can say a send or a payment
+            // stays when its files are undone.
+            let effect = engine
+                .tools
+                .get_for(id, &name)
+                .and_then(|tool| tool.effect(&arguments));
             let started = Event::Known(Known::ToolStarted {
                 reply: reply.to_owned(),
                 call_id: call.id.clone(),
                 name: name.clone(),
                 risk,
                 background,
+                effect,
             });
             if let Err(error) = engine.record(id, &started) {
                 return Handled::Failed(error.to_string());

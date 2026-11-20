@@ -53,6 +53,7 @@ const botSide = new Set<SpadeChatItem["kind"]>([
   "files",
   "digest",
   "steps",
+  "recalled",
 ]);
 
 /** Whose run an item belongs to, if any: "bot", another bot's id, or undefined for its own row. */

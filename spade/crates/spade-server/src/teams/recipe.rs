@@ -61,6 +61,9 @@ pub struct Recipe {
     pub tools: Option<Vec<String>>,
     #[serde(default)]
     pub notes: Vec<String>,
+    /// How the bot talks (tone, humour, emoji); its own section of the standing instructions.
+    #[serde(default)]
+    pub personality: Option<spade_core::personality::Personality>,
 }
 
 fn capable() -> String {
@@ -324,6 +327,11 @@ fn furnish(
     granted: &BTreeSet<String>,
     plugin_names: &BTreeSet<String>,
 ) -> Result<(), PortableError> {
+    if let Some(personality) = recipe.personality {
+        engine
+            .start_with_personality(id, personality)
+            .map_err(|why| invalid(format!("its personality wasn't set: {why}")))?;
+    }
     for routine in &recipe.routines {
         routines::create(
             engine,
@@ -349,7 +357,11 @@ fn furnish(
     }
     for note in &recipe.notes {
         engine
-            .add_note(&NoteScope::Agent(id.to_owned()), note)
+            .import_note(
+                &NoteScope::Agent(id.to_owned()),
+                note,
+                &format!("the {} recipe", recipe.name.trim()),
+            )
             .map_err(|why| invalid(format!("a note wasn't kept: {why}")))?;
     }
     if let (Some(hub), false) = (connectors, granted.is_empty()) {

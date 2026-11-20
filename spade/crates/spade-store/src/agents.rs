@@ -52,6 +52,8 @@ pub struct Agent {
     pub last_activity_ms: i64,
     /// When the person pinned it to the top of their list; `None` when it isn't pinned.
     pub pinned_ms: Option<i64>,
+    /// How it talks, when set; `None` leaves it to the bot.
+    pub personality: Option<spade_core::personality::Personality>,
 }
 
 /// What creating an agent needs.
@@ -67,7 +69,12 @@ pub struct NewAgent<'a> {
 }
 
 const COLUMNS: &str = "a.id, a.kind, a.name, a.task, a.avatar, a.model, a.conversation_id,
-    a.created_ms, a.updated_ms, c.updated_ms, a.pinned_ms";
+    a.created_ms, a.updated_ms, c.updated_ms, a.pinned_ms, a.personality";
+
+/// A stored personality; one this build can't read counts as none.
+fn personality(text: Option<String>) -> Option<spade_core::personality::Personality> {
+    text.and_then(|text| serde_json::from_str(&text).ok())
+}
 
 fn agent(row: &Row<'_>) -> rusqlite::Result<Agent> {
     Ok(Agent {
@@ -82,6 +89,7 @@ fn agent(row: &Row<'_>) -> rusqlite::Result<Agent> {
         updated_ms: row.get(8)?,
         last_activity_ms: row.get(9)?,
         pinned_ms: row.get(10)?,
+        personality: personality(row.get(11)?),
     })
 }
 
@@ -200,7 +208,8 @@ impl Store {
         Ok(changed > 0)
     }
 
-    /// Changes the task and model: the row and an `agent_configured` event, together.
+    /// Changes the task and model: the row and an `agent_configured` event, together. The
+    /// personality stays as it is, and the event carries it so turns keep reading it.
     pub fn configure_agent(
         &self,
         id: &str,
@@ -208,25 +217,51 @@ impl Store {
         model: &str,
         now_ms: i64,
     ) -> Result<StoredEvent> {
+        self.configure(id, Some((task, model)), None, now_ms)
+    }
+
+    /// Sets how the agent talks (`None`: left to the bot): the row and an `agent_configured`
+    /// event with its task and model as they are, together.
+    pub fn set_agent_personality(
+        &self,
+        id: &str,
+        personality: Option<spade_core::personality::Personality>,
+        now_ms: i64,
+    ) -> Result<StoredEvent> {
+        self.configure(id, None, Some(personality), now_ms)
+    }
+
+    fn configure(
+        &self,
+        id: &str,
+        work: Option<(&str, &str)>,
+        voice: Option<Option<spade_core::personality::Personality>>,
+        now_ms: i64,
+    ) -> Result<StoredEvent> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
-        let conversation: Option<String> = tx
+        let row: Option<(String, String, String, Option<String>)> = tx
             .query_row(
-                &format!("SELECT conversation_id FROM agents WHERE id = ?1 AND id NOT IN {ARRIVING_AGENTS}"),
+                &format!("SELECT conversation_id, task, model, personality FROM agents WHERE id = ?1 AND id NOT IN {ARRIVING_AGENTS}"),
                 params![id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?;
-        let Some(conversation) = conversation else {
+        let Some((conversation, old_task, old_model, old_voice)) = row else {
             return Err(StoreError::NoConversation(id.to_owned()));
         };
+        let (task, model) = work.unwrap_or((&old_task, &old_model));
+        let personality = voice.unwrap_or_else(|| self::personality(old_voice));
+        let stored_voice = personality.and_then(|p| serde_json::to_string(&p).ok());
         tx.execute(
-            "UPDATE agents SET task = ?2, model = ?3, updated_ms = ?4 WHERE id = ?1",
-            params![id, task, model, now_ms],
+            "UPDATE agents SET task = ?2, model = ?3, personality = ?4, updated_ms = ?5
+             WHERE id = ?1",
+            params![id, task, model, stored_voice, now_ms],
         )?;
         let event = Event::Known(Known::AgentConfigured {
             task: task.to_owned(),
             model: model.to_owned(),
+            personality,
         });
         let mut stored = append_in(&tx, &conversation, &[event], now_ms)?;
         tx.commit()?;
