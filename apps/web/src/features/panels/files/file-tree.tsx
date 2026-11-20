@@ -1,6 +1,5 @@
-import { useConnectionState } from "@ace/client-react";
+import { useClient, useConnectionState } from "@ace/client-react";
 import {
-  ancestorFolders,
   buildFileTree,
   checkoutTreeRows,
   folderKey,
@@ -16,19 +15,32 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu.tsx";
 import { cn } from "@/lib/cn.ts";
+import { keyboardEnv } from "@/lib/keybindings.ts";
 import { attachWorkspaceScroll } from "@/lib/workspace/index.ts";
 import type { FileOperationDialog } from "./file-operation.ts";
+import { FileRowItems } from "./file-row-items.tsx";
+import { isSecondClick } from "./second-click.ts";
 import { FileTreeRowView } from "./file-tree-row.tsx";
 import { FileTreeSearch } from "./file-tree-search.tsx";
 import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
 import { useFolderTree } from "./use-folder-tree.ts";
+import { useTreeCommands, type OpenHow, type TreeCommands } from "./tree-commands.ts";
+import { entryOf, onRowKey as onKeyFor, type RowKeyContext } from "./tree-row-keys.ts";
+import { useTreeDrag } from "./use-tree-drag.ts";
+import { useTreeSelection } from "./use-tree-selection.ts";
+import { siblingPositions, type TypeAhead } from "./tree-navigation.ts";
+import { TreeStatus } from "./tree-status.tsx";
 
 /** Past this many rows, only those near the viewport mount: each row carries two menus. */
 const virtualAbove = 200;
@@ -40,8 +52,11 @@ export function FileTree(props: {
   threadId: string;
   onOperation(operation: FileOperationDialog): void;
   current: string | undefined;
-  onOpen(path: string, keep: boolean): void;
+  onOpen(path: string, how: OpenHow): void;
   onUpload(files: readonly File[], folder: string): void;
+  /** Search file contents with `folder` ("" is the root) as the files to include. */
+  onFindInFolder(folder: string): void;
+  onDownload(path: string): void;
   /** The filter's text, owned by the tab so its breadcrumb can narrow it to a folder. */
   query: string;
   onQuery(query: string): void;
@@ -94,7 +109,6 @@ export function FileTree(props: {
   );
   const rows = searching ? searchRows : tree.rows;
   const [focusKey, setFocusKey] = useState<string>();
-  const [dropTarget, setDropTarget] = useState<string>();
   const list = useRef<HTMLDivElement>(null);
   const navigable = useMemo(
     () => rows.filter((row) => row.kind !== "loading" && row.kind !== "error"),
@@ -128,14 +142,6 @@ export function FileTree(props: {
   useEffect(() => {
     if (restart?.folder) focusRowRef.current(folderKey(restart.folder));
   }, [restart]);
-  /** The next row a key press may land on, skipping a folder's loading or error line. */
-  const step = (index: number, delta: number) => {
-    for (let at = index + delta; at >= 0 && at < rows.length; at += delta) {
-      const candidate = rows[at];
-      if (candidate && candidate.kind !== "loading" && candidate.kind !== "error") return candidate;
-    }
-    return undefined;
-  };
   // A file the pointer rests on is read ahead, so clicking it shows it at once.
   const prefetchFile = usePrefetchFile(props.threadId);
   const hover = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -146,7 +152,8 @@ export function FileTree(props: {
   };
   const hoverEnd = () => clearTimeout(hover.current);
   useEffect(() => () => clearTimeout(hover.current), []);
-  const activate = (row: FolderRow, keep: boolean) => {
+  const client = useClient();
+  const activate = (row: FolderRow, how: OpenHow, at?: number) => {
     if (row.kind === "more") {
       tree.showMore(row.folder ?? "");
       return;
@@ -157,82 +164,76 @@ export function FileTree(props: {
       else toggle(row.key);
       return;
     }
-    if (row.kind === "file") props.onOpen(row.key, keep);
+    if (row.kind !== "file") return;
+    const second =
+      how === "preview" && at !== undefined && isSecondClick(client, props.threadId, row.key, at);
+    props.onOpen(row.key, second ? "keep" : how);
   };
-  const onRowKey = (event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number) => {
-    if (row.kind === "loading" || row.kind === "error") return;
-    if (
-      row.kind !== "more" &&
-      online &&
-      (event.key === "F2" ||
-        event.key === "Delete" ||
-        event.key === "Backspace" ||
-        ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "m"))
-    ) {
-      event.preventDefault();
-      props.onOperation({
-        kind:
-          event.key === "F2"
-            ? "rename"
-            : event.key === "Delete" || event.key === "Backspace"
-              ? "delete"
-              : "move",
-        path: row.key,
+  const order = useMemo(
+    () => navigable.filter((row) => row.kind !== "more").map((row) => row.key),
+    [navigable],
+  );
+  const selection = useTreeSelection(order, currentPath);
+  /** A plain click picks one row and opens it; Ctrl/⌘ toggles it and Shift extends, no more. */
+  const pick = (row: FolderRow, event: MouseEvent<HTMLElement>) => {
+    if (row.kind === "more") return activate(row, "preview");
+    if (event.shiftKey) return selection.extend(row.key);
+    if (keyboardEnv().apple ? event.metaKey : event.ctrlKey) return selection.toggle(row.key);
+    selection.only(row.key);
+    activate(row, "preview", event.timeStamp);
+  };
+  const byKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
+  const commands = useTreeCommands({
+    threadId: props.threadId,
+    online,
+    covered: (entry) => {
+      const key = entry.folder ? folderKey(entry.path) : entry.path;
+      if (!selection.has(key) || selection.keys.size < 2) return [entry];
+      return [...selection.keys].flatMap((each) => {
+        const listedRow = byKey.get(each);
+        return listedRow ? [entryOf(listedRow)] : [];
       });
-      return;
-    }
-    switch (event.key) {
-      case "ArrowDown":
-        focusRow(step(index, 1)?.key);
-        break;
-      case "ArrowUp":
-        if (index === 0) list.current?.parentElement?.querySelector("input")?.focus();
-        else focusRow(step(index, -1)?.key);
-        break;
-      case "Home":
-        focusRow(navigable[0]?.key);
-        break;
-      case "End":
-        focusRow(navigable.at(-1)?.key);
-        break;
-      case "ArrowRight":
-        if (row.kind !== "folder") return;
-        if (!row.expanded) toggle(row.key, true);
-        else focusRow(step(index, 1)?.key);
-        break;
-      case "ArrowLeft":
-        if (row.kind === "more") {
-          focusRow(row.folder ? folderKey(row.folder) : undefined);
-          break;
-        }
-        if (row.kind === "folder" && row.expanded) toggle(row.key, false);
-        else focusRow(ancestorFolders(row.key).at(-1));
-        break;
-      case "Enter":
-        activate(row, true);
-        break;
-      case " ":
-        activate(row, false);
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
+    },
+    open: props.onOpen,
+    operation: props.onOperation,
+    findInFolder: props.onFindInFolder,
+    download: props.onDownload,
+    opened,
+    onExpanded,
+    onMade: (key) => focusRow(key),
+  });
+  const typed = useRef<TypeAhead>({ text: "", at: 0 });
+  const positions = useMemo(() => siblingPositions(rows), [rows]);
+  const clip = commands.clip;
+  const cutKeys = useMemo(
+    () =>
+      new Set(
+        clip?.mode === "cut"
+          ? clip.entries.map((entry) => (entry.folder ? folderKey(entry.path) : entry.path))
+          : [],
+      ),
+    [clip],
+  );
+  const keys: RowKeyContext = {
+    typed,
+    rows,
+    commands,
+    selection,
+    focusRow,
+    focusFilter: () => list.current?.parentElement?.parentElement?.querySelector("input")?.focus(),
+    toggle,
+    activate,
   };
+  const onRowKey = (event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number) =>
+    onKeyFor(keys, event, row, index);
   const currentFolder = currentPath ? pathParts(currentPath).folder : "";
-  const drop = (event: DragEvent<HTMLElement>, folder: string) => {
-    if (!event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    setDropTarget(undefined);
-    const files = [...event.dataTransfer.files];
-    if (files.length) props.onUpload(files, folder);
-  };
-  const dragOver = (event: DragEvent<HTMLElement>, folder: string) => {
-    if (!event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-    setDropTarget(folder);
-  };
+  const drag = useTreeDrag({
+    covered: commands.covered,
+    onMove: commands.move,
+    onUpload: props.onUpload,
+    expand: (folder) => toggle(folder, true),
+    uploadFolder: currentFolder ? `${currentFolder}/` : "",
+  });
   // Opening a file keeps the tree where it was: the tab owns the scroll position, restored once
   // the rows are tall enough and saved when scrolling settles or the tab goes away.
   const initialScroll = useRef(props.scrollTop ?? 0);
@@ -247,44 +248,8 @@ export function FileTree(props: {
     );
   }, []);
 
-  let status: ReactNode = null;
-  if (searching && !online)
-    status = <Note>ace is offline. Search works again once it reconnects.</Note>;
-  else if (searching && search.error)
-    status = (
-      <Note role="alert">
-        Couldn't search the checkout. {search.error.message}{" "}
-        <button
-          type="button"
-          className="font-medium text-foreground underline-offset-2 hover:underline"
-          onClick={() => void search.refetch()}
-        >
-          Try again
-        </button>
-      </Note>
-    );
-  else if (searching && search.pending && !results?.length)
-    status = (
-      <Note>
-        <Spinner /> Searching files…
-      </Note>
-    );
-  else if (searching && results && !results.length)
-    status = <Note>No files match “{query.trim()}”.</Note>;
-  else if (!searching && !online)
-    status = <Note>ace is offline. Files load again once it reconnects.</Note>;
-  else if (!searching && !rows.length) status = <Note>This checkout is empty.</Note>;
-
   return (
-    <div
-      className="flex h-full min-h-0 flex-col"
-      onDragOver={(event) => dragOver(event, currentFolder ? `${currentFolder}/` : "")}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-          setDropTarget(undefined);
-      }}
-      onDrop={(event) => drop(event, currentFolder ? `${currentFolder}/` : "")}
-    >
+    <div className="flex h-full min-h-0 flex-col" {...drag.area}>
       <FileTreeSearch
         query={query}
         onQuery={setQuery}
@@ -296,10 +261,10 @@ export function FileTree(props: {
         onFirstRow={() => focusRow(navigable[0]?.key)}
         onEnter={() => {
           const first = rows.find((row) => row.kind === "file");
-          if (first) props.onOpen(first.key, true);
+          if (first) props.onOpen(first.key, "keep");
         }}
       />
-      <div ref={attachScroll} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <div ref={attachScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2">
         <div
           ref={list}
           role="tree"
@@ -307,9 +272,10 @@ export function FileTree(props: {
           data-part="file-tree"
           data-variant="files"
           aria-busy={searching && search.pending}
+          aria-multiselectable
           className={cn(
             "flex flex-col rounded-md",
-            dropTarget === "" && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
+            drag.dropTarget === "" && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
           )}
         >
           <LongRows
@@ -327,13 +293,16 @@ export function FileTree(props: {
                 searching={searching}
                 query={query}
                 online={online}
-                dropTarget={dropTarget}
+                dropTarget={drag.dropTarget}
+                drag={searching ? undefined : drag}
+                selected={selection.has(row.key)}
+                cut={cutKeys.has(row.key)}
+                place={positions.get(row.key)}
+                onPick={pick}
                 onActivate={activate}
                 onKeyDown={onRowKey}
                 onFocus={setFocusKey}
-                onOperation={props.onOperation}
-                onDragOver={dragOver}
-                onDrop={drop}
+                commands={commands}
                 onHoverStart={hoverStart}
                 onHoverEnd={hoverEnd}
                 onRetry={tree.retry}
@@ -342,20 +311,31 @@ export function FileTree(props: {
             )}
           />
         </div>
-        {status}
+        <TreeStatus
+          online={online}
+          searching={searching}
+          query={query}
+          search={search}
+          results={results}
+          empty={!rows.length}
+        />
+        <RootMenu commands={commands} />
       </div>
       {props.footer}
     </div>
   );
 }
 
-function Note(props: { children: ReactNode; role?: "alert" }) {
+/** The tree's empty space below its rows: right-click there acts on the checkout's root. */
+function RootMenu(props: { commands: TreeCommands }) {
   return (
-    <p
-      role={props.role}
-      className="flex min-h-7 items-center gap-2 px-1 py-1 text-ui leading-snug text-muted-foreground"
-    >
-      {props.children}
-    </p>
+    <ContextMenu>
+      <ContextMenuTrigger
+        render={<div data-part="tree-root" className="min-h-8 flex-1" aria-hidden />}
+      />
+      <ContextMenuContent>
+        <FileRowItems entry={{ path: "", folder: true }} commands={props.commands} />
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

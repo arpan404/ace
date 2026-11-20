@@ -5,6 +5,8 @@ import { fileTabId } from "./tab-id.ts";
 export interface OpenFileOptions {
   /** A deliberate open (Enter, double-click, quick open): the tab stays. Else a preview. */
   keep?: boolean;
+  /** Open in a tab of its own (kept), leaving every open tab as it is. */
+  newTab?: boolean;
   /** The tab the pick came from (its tree): an empty or preview tab turns into the file. */
   from?: string | undefined;
   line?: number | undefined;
@@ -27,7 +29,7 @@ export function openFile(
   options: OpenFileOptions = {},
 ): void {
   const id = fileTabId(path);
-  const keep = options.keep ?? false;
+  const keep = (options.keep ?? false) || options.newTab === true;
   const extra = {
     ...(options.line === undefined ? {} : { line: options.line }),
     // A jump without a column starts its line; a stale column from an earlier jump must not stay.
@@ -50,9 +52,10 @@ export function openFile(
     const current = fileTabData(found.tab);
     return !current.path || current.preview ? found.tab.key : undefined;
   };
-  const target =
-    replaceable(options.from) ??
-    workspace.tabs.map((tab) => replaceable(tab.key)).find((key) => key !== undefined);
+  const target = options.newTab
+    ? undefined
+    : (replaceable(options.from) ??
+      workspace.tabs.map((tab) => replaceable(tab.key)).find((key) => key !== undefined));
   // The tree beside the file keeps what the person left there: its filter, which folders were
   // opened, and where it was scrolled. A replacement carries its own tree over; a new tab takes
   // its source tab's (or the showing files tab's, for quick open), so browsing files never

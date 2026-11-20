@@ -15,8 +15,10 @@ mod document;
 mod error;
 mod find;
 mod history;
+mod indent;
 mod merge;
 mod position;
+mod replace;
 mod selection;
 mod transaction;
 
@@ -24,6 +26,7 @@ pub use buffer::LineEnding;
 pub use document::Document;
 pub use error::Error;
 pub use find::FindQuery;
+pub use indent::{Indent, detect_indent};
 pub use merge::{LineChange, Merge, MergeChunk, line_changes, merge3};
 pub use position::{Position, Range};
 pub use selection::Selection;

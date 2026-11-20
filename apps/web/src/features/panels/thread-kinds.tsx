@@ -87,6 +87,11 @@ export const filesKind = defineTabKind({
       : undefined,
   icon: FilesIcon,
   launcher: 30,
+  // A pinned tab is never replaced, so it no longer reads as a preview.
+  preview: (tab) => {
+    const data = fileTabData(tab);
+    return data.preview && !tab.pinned ? { kept: { ...data, preview: false } } : undefined;
+  },
   title: (tab) => {
     const path = field(tab.data, "path");
     return path ? (path.split("/").at(-1) ?? path) : "Files";
