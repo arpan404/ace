@@ -72,19 +72,18 @@ struct ThreadSummaryPage: View {
     private func results(_ summary: ThreadSummarySheet) -> some View {
         QuietSection("Results") {
             ForEach(summary.prs) { pr in
-                Button { openPull?(summary.workspaceId, pr.number, pr.repository) } label: {
-                    QuietSectionRow {
-                        AceIcon(.gitPullRequest, size: AceDesign.Size.glyphSmall, relativeTo: .footnote)
-                            .foregroundStyle(AceDesign.Ink.subtle)
-                            .overlay(alignment: .bottomTrailing) { PullStateDot(state: pr.dot) }
-                        QuietRowText(title: pr.title, detail: pr.line)
-                        if openPull != nil { RowCaret() }
-                    }
+                // In row ink either way: the dot carries its state, and a row with nowhere to open
+                // is drawn plain rather than as a disabled, greyed button.
+                if let openPull {
+                    Button { openPull(summary.workspaceId, pr.number, pr.repository) } label: { pullRow(pr, opens: true) }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens the pull request")
+                        .accessibilityIdentifier("summary.pr.\(pr.number)")
+                } else {
+                    pullRow(pr, opens: false)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("summary.pr.\(pr.number)")
                 }
-                .buttonStyle(.plain)
-                .disabled(openPull == nil)
-                .accessibilityHint(openPull == nil ? "" : "Opens the pull request")
-                .accessibilityIdentifier("summary.pr.\(pr.number)")
             }
             if let fold = summary.prFold {
                 QuietSectionRow {
@@ -111,6 +110,16 @@ struct ThreadSummaryPage: View {
             }
         }
         .accessibilityIdentifier("summary.results")
+    }
+
+    private func pullRow(_ pr: ThreadSummarySheet.PullRequest, opens: Bool) -> some View {
+        QuietSectionRow {
+            AceIcon(.gitPullRequest, size: AceDesign.Size.glyphSmall, relativeTo: .footnote)
+                .foregroundStyle(AceDesign.Ink.subtle)
+                .overlay(alignment: .bottomTrailing) { PullStateDot(state: pr.dot) }
+            QuietRowText(title: pr.title, detail: pr.line)
+            if opens { RowCaret() }
+        }
     }
 
     private func filesRow(_ files: ThreadSummarySheet.Files) -> some View {
