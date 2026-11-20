@@ -103,13 +103,14 @@ test("a working bot's composer offers Stop until the person types, then Send", a
   await waitFor(() => expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull());
 });
 
-test("an idle bot's empty composer draws voice off, saying it is coming, and Send once there are words", async () => {
+test("an idle bot's empty composer draws voice off on a device that can't record, saying why, and Send once there are words", async () => {
+  // This page has no microphone or recorder (jsdom), so a spoken conversation can't start here.
   await spadeApp("/spade/garden", garden);
   await feed("Garden");
   const voice = await screen.findByRole("button", { name: "Talk with Garden" });
   expect(voice.getAttribute("aria-disabled")).toBe("true");
   await userEvent.hover(voice);
-  expect(await screen.findByText("Voice is coming")).toBeTruthy();
+  expect(await screen.findByText("This device can't record")).toBeTruthy();
   await userEvent.type(screen.getByRole("combobox", { name: "Message Garden" }), "hello");
   expect(await screen.findByRole("button", { name: /^(Send|Steer message)$/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Talk with Garden" })).toBeNull();

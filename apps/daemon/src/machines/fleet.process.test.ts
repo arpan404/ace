@@ -95,8 +95,10 @@ it("one machine links another from Settings, and its agents reach that machine u
   });
 
   await studio.daemon.settings.set("remote.agentAccess", "operate", { kind: "global" });
+  // `keep: true`: this daemon honours keep on link, so Link all may send it (#2333).
   expect(await here.ask({ op: "links" })).toEqual({
     kind: "links",
+    keep: true,
     links: [
       {
         hostId: there.hostId,
@@ -123,7 +125,7 @@ it("one machine links another from Settings, and its agents reach that machine u
   expect(JSON.stringify([...here.replies, ...there.replies])).not.toContain(profile.token);
 
   expect(await here.ask({ op: "unlink", hostId: there.hostId })).toEqual({ kind: "unlinked" });
-  expect(await here.ask({ op: "links" })).toEqual({ kind: "links", links: [] });
+  expect(await here.ask({ op: "links" })).toEqual({ kind: "links", links: [], keep: true });
   expect((await machines()).machines).toEqual([]);
   await expect(here.ask({ op: "unlink", hostId: there.hostId })).rejects.toMatchObject({
     code: "not_found",
@@ -150,5 +152,5 @@ it("linking with a used pairing link explains why and keeps no link", async () =
     code: "refused",
     message: expect.stringContaining("expired, was cancelled or was already used"),
   });
-  expect(await here.ask({ op: "links" })).toEqual({ kind: "links", links: [] });
+  expect(await here.ask({ op: "links" })).toEqual({ kind: "links", links: [], keep: true });
 });

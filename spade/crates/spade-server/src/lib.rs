@@ -11,6 +11,7 @@ pub mod images;
 pub mod learning;
 pub mod local_models;
 pub mod media;
+pub mod packages;
 pub mod plugins;
 pub mod presets;
 pub mod proof;

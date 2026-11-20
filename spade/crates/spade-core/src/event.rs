@@ -740,6 +740,19 @@ pub enum Known {
         /// The machine it came from, by name.
         from: String,
     },
+    /// A card the bot showed (ADR 0200 §5.1), checked against its blocks' rules: its own row in
+    /// the conversation. Every version is one; the chat shows the latest. The model reads only
+    /// its call's result. Boxed: a card is larger than most events.
+    CardShown(Box<crate::card::Shown>),
+    /// The person pressed a choice on a card. Stored once per card version, and read by the bot
+    /// like a job's result, as a `<card_action>`.
+    CardAction {
+        card: String,
+        version: u32,
+        action: String,
+        /// The choice's label, fixed when the card was shown.
+        label: String,
+    },
 }
 
 /// The events after the bot's latest arrival from another machine (all of them when it never

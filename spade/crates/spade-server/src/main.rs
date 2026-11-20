@@ -377,6 +377,11 @@ async fn run() -> Result<(), Failure> {
         workspaces.clone(),
         bots.clone(),
     ));
+    // Cards (ADR 0200 §5.1), whose image blocks name files in the bot's workspace.
+    core.push(Arc::new(spade_server::tools::CardShow::new(
+        bots.clone(),
+        Some(workspaces.clone()),
+    )));
     // Spade's own skill store (ADR 0151): ace's library mirrored with its files while ace is
     // there, skills written in Spade otherwise. Spade Cloud has the store with no ace.
     let upstream = ace

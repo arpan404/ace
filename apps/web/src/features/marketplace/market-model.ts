@@ -224,13 +224,22 @@ export function canDoSentences(review: MarketReview): string[] {
     case "spade-bot":
       return [
         `Makes a new bot, ${body.botName}, on your ${body.model} model.`,
-        body.routines.length
-          ? `Has ${count(body.routines.length, "routine")}, paused until you start them.`
-          : "Has no routines.",
+        // A package's event and webhook triggers are routines too (ADR 0200 §3.5).
+        routinesLine(
+          body.routines.length +
+            (body.triggers ?? []).filter((t) => t.kind === "event" || t.kind === "webhook").length,
+        ),
         ...(body.tools ? [`Uses only these tools: ${body.tools.join(", ")}.`] : []),
         ...personalityLine(body.personality),
       ];
   }
+}
+
+function routinesLine(routines: number): string {
+  if (!routines) return "Has no routines.";
+  return routines === 1
+    ? "Has 1 routine, paused until you start it."
+    : `Has ${routines} routines, paused until you start them.`;
 }
 
 /** How a recipe's bot talks, when it ships with a personality: "Talks: Concise, no jokes, no emoji." */

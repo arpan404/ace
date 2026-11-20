@@ -1,11 +1,14 @@
 import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { seedFakeCards } from "./fake-spade-cards.ts";
+import { seedFakeAgentCards } from "./fake-spade-agent-cards.ts";
 import { seedFakeCreate } from "./fake-spade-create.ts";
 import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeLibrary } from "./fake-spade-library.ts";
+import { seedFakePackages } from "./fake-spade-packages.ts";
 import { seedFakeTranscript } from "./fake-spade-transcript.ts";
 import { seedFakeCapabilities } from "./fake-spade-capabilities.ts";
 import { seedFakeReach } from "./fake-spade-reach.ts";
+import { seedFakeRunning } from "./fake-spade-running.ts";
 import { seedFakeWork } from "./fake-spade-work.ts";
 
 /*
@@ -520,10 +523,12 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
     here.notes.add({ text, agent: "flights", scope: "agent", source: "bot" });
 
   seedFakeCards(here);
+  seedFakeAgentCards(here);
   seedFakeLibrary(here, now);
   seedFakeWork(daemon, here, minutes);
   seedFakeGroup(here, now);
   seedFakeCreate(here, minutes);
+  seedFakePackages(here, now);
   // A few pins, oldest first: the strip under the list's buttons.
   for (const [index, id] of ["inbox", "garden", "notes"].entries()) {
     const agent = here.agents.find((each) => each.id === id);
@@ -535,6 +540,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
     rewound = back * 60_000;
   });
   seedFakeReach(here, now);
+  seedFakeRunning(here, now);
   seedFakeCapabilities(
     here,
     (back) => {

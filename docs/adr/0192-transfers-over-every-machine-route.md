@@ -121,12 +121,19 @@ keeps its row and its upload; one that comes after the delete is refused.
 The sender's own retry loop already resent all of these after a lost answer. No call needed to
 stay on one route.
 
-Every route checks that the pairing is still saved before it sends. Opening a relay stream takes
-time, and its `hello` carries the pairing's token. So the pairing is checked again right before
-that hello, and the hello goes only while some caller still waits for the stream (several callers
-may share one opening). Each opening keeps its own waiters, and closing the pool (links changed)
-voids every opening that hasn't said hello yet, so an old opening never says hello for a caller of
-a newer one. A send checks once more after the stream is open.
+Every route checks that the pairing is still saved before it sends. On a direct address, the
+linked one or any other, the check runs again once the connection is up (a new connection is
+handed over only after its TLS handshake is done and pinned) and immediately before the first
+byte, headers included. A pairing removed while a call waited for its connection or its handshake
+gets nothing written, and the call ends unpaired, which no other route sends again. What was
+already handed to the socket before the removal can't be recalled; that is the only window left.
+Parcels go through the same check (ADR 0182).
+
+Opening a relay stream takes time, and its `hello` carries the pairing's token. So the pairing is
+checked again right before that hello, and the hello goes only while some caller still waits for
+the stream (several callers may share one opening). Each opening keeps its own waiters, and
+closing the pool (links changed) voids every opening that hasn't said hello yet, so an old opening
+never says hello for a caller of a newer one. A send checks once more after the stream is open.
 
 **On the relay.** A relay `machine` stream carries a new frame, `machine.transfer`, which takes
 either one control call or one chunk piece and is answered by `machine.answer`. It shares the

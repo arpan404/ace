@@ -163,20 +163,31 @@ async function readAll(client: ClientApi, review: MarketReview, signal: AbortSig
   return { review, items };
 }
 
-export const reviewKey = (key: EntryKey, update: boolean) =>
-  [...marketKey, "review", key.source, key.type, key.name, update ? "update" : "install"] as const;
+export const reviewKey = (key: EntryKey, update: boolean, rollback = false) =>
+  [
+    ...marketKey,
+    "review",
+    key.source,
+    key.type,
+    key.name,
+    rollback ? "rollback" : update ? "update" : "install",
+  ] as const;
 
 /**
  * The entry's review, prepared once and held while its page and review are open (the daemon
  * keeps it 30 minutes). `update` reviews the newer version of an installed entry.
  */
-export function useMarketReview(key: EntryKey, options: { update: boolean; enabled: boolean }) {
+export function useMarketReview(
+  key: EntryKey,
+  options: { update: boolean; rollback?: boolean | undefined; enabled: boolean },
+) {
+  const rollback = options.rollback === true;
   return useDaemonQuery<PreparedReview>({
-    queryKey: reviewKey(key, options.update),
+    queryKey: reviewKey(key, options.update, rollback),
     enabled: options.enabled,
     staleTime: reviewStale,
     retry: false,
-    read: (client, signal) => prepareReview(client, key, options.update, signal),
+    read: (client, signal) => prepareReview(client, key, options.update, signal, rollback),
   });
 }
 
@@ -187,12 +198,15 @@ async function prepareReview(
   key: EntryKey,
   update: boolean,
   signal: AbortSignal,
+  rollback = false,
 ) {
   const prepared = await market(
     client,
-    update
-      ? { op: "prepareUpdate", type: typeOf(key.type), name: key.name }
-      : { op: "prepare", ...keyOnly(key) },
+    rollback
+      ? { op: "prepareRollback", type: typeOf(key.type), name: key.name }
+      : update
+        ? { op: "prepareUpdate", type: typeOf(key.type), name: key.name }
+        : { op: "prepare", ...keyOnly(key) },
     "review",
     signal,
   );

@@ -308,6 +308,8 @@ export class MarketStore {
     const keep = new Set(
       [
         ...this.installs().map((install) => install.hash),
+        // A linked bot's earlier version stays, so a rollback needs no network (ADR 0200).
+        ...this.installs().flatMap((install) => (install.previous ? [install.previous.hash] : [])),
         ...this.journals().flatMap(journalHashes),
       ].map((hash) => `${hash}.tar`),
     );

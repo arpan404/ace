@@ -78,6 +78,8 @@ export function spadeBotRow(bot: SpadeRowBot, notYet?: string): SpadeRow {
       state: "needs-you",
       line: bot.waitingFor === "question" ? "Asked you a question" : (bot.status ?? "Needs you"),
     };
+  // The person paused it (ADR 0200 §6.1): nothing of it fires until they resume it.
+  if (bot.state === "paused") return { state: "rest", line: "Paused" };
   // The person has its computer: Spade pauses it until they hand it back.
   if (bot.computer?.driver === "person")
     return { state: "rest", line: "Paused while you have the computer" };

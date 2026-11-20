@@ -1,4 +1,5 @@
 import { marketPickFixture, marketPublishFixture, type MarketplaceSeed } from "@ace/fake-daemon";
+import { packageEntries, packageInstalls } from "./fake-market-packages.ts";
 import type {
   MarketDiscover,
   MarketEntrySummary,
@@ -193,7 +194,7 @@ export function fakeMarket(now: number): MarketplaceSeed {
     rankedAt: now,
   };
   return {
-    entries: listed.map((entry) => ({ summary: entry })),
+    entries: [...listed.map((entry) => ({ summary: entry })), ...packageEntries(now)],
     featured: picks.map(({ type, name }) => ({ type, name })),
     categories: [
       { id: "mail", title: "Mail" },
@@ -221,6 +222,7 @@ export function fakeMarket(now: number): MarketplaceSeed {
         state: "on",
         update: "1.0.0",
       },
+      ...packageInstalls(now),
     ],
     publishing: publishing(discover, listed),
     pick: marketPickFixture(),

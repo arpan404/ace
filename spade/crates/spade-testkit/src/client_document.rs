@@ -111,9 +111,9 @@ pub fn redirect_matches(listed: &str, asked: &str) -> bool {
     }
 }
 
-/// `http://127.0.0.1:4555/x` → `http://127.0.0.1/x`; `None` when not an http loopback IP.
+/// `http://127.0.0.1:4555/x` → `http://127.0.0.1/x`; `None` when not an http loopback host.
 fn without_loopback_port(uri: &str) -> Option<String> {
-    for host in ["http://127.0.0.1", "http://[::1]"] {
+    for host in ["http://127.0.0.1", "http://[::1]", "http://localhost"] {
         if let Some(rest) = uri.strip_prefix(host) {
             let rest = match rest.strip_prefix(':') {
                 Some(after) => {

@@ -1,5 +1,7 @@
-//! A bot from a marketplace recipe (ADR 0168 §5, §8): the `spade-bot` format at version 2, which
-//! asks rather than grants. The daemon fetched and reviewed the recipe and the person pressed
+//! A bot from a marketplace recipe (ADR 0168 §5, §8) or agent package (ADR 0200 §3): the
+//! `spade-bot` format at version 2 or 3, which asks rather than grants. A version 2 recipe makes a
+//! copy the person owns; a version 3 package makes a bot linked to it, whose declared effects are
+//! switches the person set on the review (`switches`) and whose triggers start paused. The daemon fetched and reviewed the recipe and the person pressed
 //! Install; it then posts the recipe with the person's choices to `POST /v1/agents`.
 //!
 //! The bot is made as a template's is: name, task and face from the recipe, the person's own fast
@@ -11,72 +13,29 @@
 //! bot. A recipe holding anything named or shaped like a secret is refused whole, and any failure
 //! after the bot was made removes it again: there is a whole bot or none.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 use serde_json::Value;
 use spade_connect::{Access, Connectors};
-use spade_core::routine::Trigger;
+use spade_core::package::Manifest;
+use spade_core::package::link::{MadeNote, PackageId};
 
 use super::portable::{Imported, PortableError};
-use crate::engine::{
-    AgentInput, AvatarInput, BotRecipe, Engine, FromRecipe, NoteScope, TASK_CHARS,
-};
+use crate::engine::{AgentInput, AvatarInput, BotRecipe, Engine, FromRecipe, NoteScope};
+use crate::packages::{self, Linking};
 use crate::plugins::Plugins;
 use crate::routines::{self, By, RoutineInput};
 
 pub const RECIPE_VERSION: u32 = 2;
 
-/// What one recipe may bring (`recipeLimits` in `packages/marketplace/src/recipe.ts`).
-const MOST_ROUTINES: usize = 32;
-const MOST_NOTES: usize = 50;
-const NOTE_CHARS: usize = 2000;
-const MOST_TOOLS: usize = 64;
+/// What one install may grant (`recipeLimits` in `packages/marketplace/src/recipe.ts`).
 const MOST_CONNECTORS: usize = 32;
 const MOST_PLUGINS: usize = 16;
 const MOST_SKILLS: usize = 64;
+const MOST_SWITCHES: usize = 64;
 /// Longest source, entry name or version kept in `from_recipe`.
 const FROM_CHARS: usize = 200;
-
-/// The recipe as the daemon sends it (`spade-port.ts`).
-#[derive(Debug, Clone, Deserialize)]
-pub struct Recipe {
-    pub format: String,
-    pub version: u32,
-    pub name: String,
-    #[serde(default)]
-    pub blurb: String,
-    #[serde(default)]
-    pub task: String,
-    /// The eight stored fields of a character face; repaired if a value is unknown.
-    #[serde(default)]
-    pub face: Option<serde_json::Map<String, Value>>,
-    /// `fast` or `capable`, never a model id.
-    #[serde(default = "capable")]
-    pub model: String,
-    #[serde(default)]
-    pub routines: Vec<RecipeRoutine>,
-    /// Narrows the bot's built-in tools; unset means all.
-    #[serde(default)]
-    pub tools: Option<Vec<String>>,
-    #[serde(default)]
-    pub notes: Vec<String>,
-    /// How the bot talks (tone, humour, emoji); its own section of the standing instructions.
-    #[serde(default)]
-    pub personality: Option<spade_core::personality::Personality>,
-}
-
-fn capable() -> String {
-    "capable".to_owned()
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct RecipeRoutine {
-    pub name: String,
-    pub instruction: String,
-    /// A phrase or cron expression routines read (`weekdays at 8:00`).
-    pub schedule: String,
-}
 
 /// What the person granted by pressing Install.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -92,15 +51,19 @@ pub struct RecipeGrants {
     pub skills: Vec<String>,
 }
 
-/// Everything `POST /v1/agents` passes for a recipe.
+/// Everything `POST /v1/agents` passes for a recipe or a package.
 pub struct RecipeInput {
-    /// The recipe as sent, checked for secrets before it is read.
+    /// `bot.json` as sent, read by [`spade_core::package::read`].
     pub recipe: Value,
     pub from_recipe: FromRecipe,
     pub grants: RecipeGrants,
     pub start_routines: bool,
     /// The IANA time zone its routines run in; the machine's when absent.
     pub time_zone: Option<String>,
+    /// A version 3 package's market identity, from its signed manifest: the bot stays linked.
+    pub package: Option<PackageId>,
+    /// The person's effect switches, by key; one missing is off.
+    pub switches: BTreeMap<String, bool>,
 }
 
 fn invalid(message: impl Into<String>) -> PortableError {
@@ -109,90 +72,12 @@ fn invalid(message: impl Into<String>) -> PortableError {
 
 /// Every place in `value` that holds a field named like a secret or a string shaped like one.
 pub(super) fn secret_problems(value: &Value, path: &str, out: &mut Vec<String>) {
-    match value {
-        Value::String(text) if spade_core::redact::text(text) != *text => {
-            out.push(format!("{path} holds something shaped like a secret"));
-        }
-        Value::Array(items) => {
-            for (i, item) in items.iter().enumerate() {
-                secret_problems(item, &format!("{path}[{i}]"), out);
-            }
-        }
-        Value::Object(fields) => {
-            for (key, item) in fields {
-                let at = format!("{path}.{key}");
-                if spade_core::redact::secret_name(key) {
-                    out.push(format!("{at} is named like a secret"));
-                } else {
-                    secret_problems(item, &at, out);
-                }
-            }
-        }
-        _ => {}
-    }
+    spade_core::package::manifest::secret_problems(value, path, out);
 }
 
 /// The recipe read and checked, before anything is made.
-fn checked(input: &RecipeInput) -> Result<Recipe, PortableError> {
-    let mut secrets = Vec::new();
-    secret_problems(&input.recipe, "recipe", &mut secrets);
-    if let Some(first) = secrets.first() {
-        return Err(invalid(format!(
-            "{first}; a recipe never carries a key, token or secret"
-        )));
-    }
-    let recipe: Recipe = serde_json::from_value(input.recipe.clone())
-        .map_err(|e| invalid(format!("this is not a bot recipe: {e}")))?;
-    if recipe.format != super::portable::FORMAT || recipe.version != RECIPE_VERSION {
-        return Err(invalid("this is not a Spade bot recipe this version reads"));
-    }
-    if recipe.name.trim().is_empty() {
-        return Err(invalid("a recipe needs a name"));
-    }
-    if recipe.task.chars().count() > TASK_CHARS {
-        return Err(invalid(format!(
-            "a recipe's task is at most {TASK_CHARS} characters"
-        )));
-    }
-    if !matches!(recipe.model.as_str(), "fast" | "capable") {
-        return Err(invalid(
-            "a recipe's model is fast or capable, never a model of its own",
-        ));
-    }
-    if recipe.routines.len() > MOST_ROUTINES {
-        return Err(invalid(format!(
-            "a recipe has at most {MOST_ROUTINES} routines"
-        )));
-    }
-    for routine in &recipe.routines {
-        let trigger = Trigger::Schedule {
-            schedule: routine.schedule.clone(),
-        };
-        if !trigger.schedule().is_ok_and(|s| s.is_some()) {
-            let name: String = routine.name.chars().take(60).collect();
-            return Err(invalid(format!(
-                "the routine {name:?} has a schedule Spade doesn't read"
-            )));
-        }
-    }
-    if recipe.notes.len() > MOST_NOTES
-        || recipe.notes.iter().any(|n| n.chars().count() > NOTE_CHARS)
-    {
-        return Err(invalid(format!(
-            "a recipe has at most {MOST_NOTES} notes of {NOTE_CHARS} characters"
-        )));
-    }
-    if let Some(tools) = &recipe.tools {
-        let named = |t: &String| {
-            t.len() <= 64
-                && t.starts_with(|c: char| c.is_ascii_lowercase())
-                && t.chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-        };
-        if tools.len() > MOST_TOOLS || !tools.iter().all(named) {
-            return Err(invalid("a recipe's tools are built-in tools, by name"));
-        }
-    }
+fn checked(input: &RecipeInput) -> Result<Manifest, PortableError> {
+    let manifest = packages::manifest(&input.recipe).map_err(|e| invalid(e.to_string()))?;
     let from = &input.from_recipe;
     if [&from.source, &from.name, &from.version]
         .iter()
@@ -206,10 +91,31 @@ fn checked(input: &RecipeInput) -> Result<Recipe, PortableError> {
     if grants.connectors.len() > MOST_CONNECTORS
         || grants.plugins.len() > MOST_PLUGINS
         || grants.skills.len() > MOST_SKILLS
+        || input.switches.len() > MOST_SWITCHES
     {
         return Err(invalid("more grants than a recipe can ask for"));
     }
-    Ok(recipe)
+    match (&input.package, manifest.version) {
+        (None, 3) => Err(invalid(
+            "a version 3 package installs with its package {source, name, version, hash}",
+        )),
+        (Some(_), 2) => Err(invalid(
+            "a version 2 recipe installs as a copy you own, never linked",
+        )),
+        (Some(package), _)
+            if [
+                &package.source,
+                &package.name,
+                &package.version,
+                &package.hash,
+            ]
+            .iter()
+            .any(|f| f.trim().is_empty() || f.chars().count() > FROM_CHARS) =>
+        {
+            Err(invalid("package names its source, name, version and hash"))
+        }
+        _ => Ok(manifest),
+    }
 }
 
 /// The connectors granted that this machine has, by id, and a line for each it hasn't.
@@ -277,7 +183,7 @@ pub fn from_recipe(
     }
     .unwrap_or_else(|| engine.new_bot_default());
     let made = engine.create_agent(AgentInput {
-        name: recipe.name.trim().to_owned(),
+        name: recipe.name.clone(),
         task: recipe.task.clone(),
         model,
         avatar: recipe
@@ -316,14 +222,15 @@ pub fn from_recipe(
     Ok(Imported { agent, left_out })
 }
 
-/// Everything after the bot exists: routines, notes, grants and its recipe record.
+/// Everything after the bot exists: routines, notes, grants, its recipe record and, for a
+/// version 3 package, its link.
 #[allow(clippy::too_many_arguments)]
 fn furnish(
     engine: &Engine,
     connectors: Option<&Connectors>,
     plugins: Option<&Plugins>,
     id: &str,
-    recipe: &Recipe,
+    recipe: &Manifest,
     input: &RecipeInput,
     granted: &BTreeSet<String>,
     plugin_names: &BTreeSet<String>,
@@ -333,37 +240,44 @@ fn furnish(
             .start_with_personality(id, personality)
             .map_err(|why| invalid(format!("its personality wasn't set: {why}")))?;
     }
-    for routine in &recipe.routines {
-        routines::create(
+    // Schedule, event and webhook triggers become routines, paused unless the person turned
+    // them on (ADR 0200 §3.5); a webhook's secret is made here, never shipped.
+    let mut routine_ids = BTreeMap::new();
+    for (name, instruction, trigger) in recipe.routines() {
+        let made = routines::create(
             engine,
             id,
             RoutineInput {
-                name: Some(routine.name.clone()),
-                instruction: Some(routine.instruction.clone()),
-                trigger: Some(Trigger::Schedule {
-                    schedule: routine.schedule.clone(),
-                }),
+                name: Some(name.to_owned()),
+                instruction: Some(instruction.to_owned()),
+                trigger: Some(trigger),
                 time_zone: input.time_zone.clone(),
                 paused: Some(!input.start_routines),
                 untrusted: false,
             },
             By::Person,
         )
-        .map_err(|why| {
-            invalid(format!(
-                "the routine {:?} wasn't added: {why}",
-                routine.name
-            ))
-        })?;
+        .map_err(|why| invalid(format!("the routine {name:?} wasn't added: {why}")))?;
+        routine_ids.insert(name.to_owned(), made.routine.id);
     }
+    let what = if recipe.version == 3 {
+        "package"
+    } else {
+        "recipe"
+    };
+    let mut notes = Vec::new();
     for note in &recipe.notes {
-        engine
+        let (kept, _) = engine
             .import_note(
                 &NoteScope::Agent(id.to_owned()),
                 note,
-                &format!("the {} recipe", recipe.name.trim()),
+                &format!("the {} {what}", recipe.name),
             )
             .map_err(|why| invalid(format!("a note wasn't kept: {why}")))?;
+        notes.push(MadeNote {
+            id: kept.id,
+            text: kept.text,
+        });
     }
     if let (Some(hub), false) = (connectors, granted.is_empty()) {
         hub.set_access(id, Access::Only(granted.clone()))
@@ -387,7 +301,23 @@ fn furnish(
                 tools: recipe.tools.clone(),
             },
         )
-        .map_err(|e| PortableError::Failed(e.to_string()))
+        .map_err(|e| PortableError::Failed(e.to_string()))?;
+    if let Some(package) = &input.package {
+        packages::link_new(
+            engine,
+            id,
+            recipe,
+            Linking {
+                package: package.clone(),
+                switches: &input.switches,
+                transaction: input.from_recipe.transaction.clone(),
+                routine_ids,
+                notes,
+            },
+        )
+        .map_err(|why| invalid(why.to_string()))?;
+    }
+    Ok(())
 }
 
 /// Removes a half-made bot and whatever it was allowed.

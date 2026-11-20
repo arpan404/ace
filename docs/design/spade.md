@@ -18,6 +18,14 @@ Spade is one of ace's places. It adds no navigation of its own.
   ordinary row. No head, no foot: the profile and Settings live in the rail.
 - **Conversation** (the main column). The floating pill, bubbles, raised cards, folded steps, the
   working line and the composer. The top bar carries no title here.
+- **Running** (ADR 0200 §6.3), a page in the main column at `/spade/running`: one list of every
+  bot on every machine, Spade's own an ordinary row among them, in the order needs you, working,
+  failed, sleeping, paused, idle. A row is the 40px face, the name, its state in words ("Checking
+  fares", "Waiting on you: a question", "Paused", "Failed: …"), then one quiet line: what it
+  holds open, spend today and this month, the network today and its next wake ("Held: …" while
+  paused). Its workers are listed under it in words. Stop, Pause or Resume, and Open are text
+  buttons. No head, no foot, no tints. It is opened from Spade's own profile (Details › Running)
+  and the palette (Running bots), never from a new rail icon or toolbar button.
 - **Profile** (ace's side panel). One place per bot: Details, Library, Computer. The person keeps
   talking while they change the bot, and watches its computer beside the chat. Below 680px the
   profile takes the window; on iPhone it is a sheet.
@@ -49,6 +57,7 @@ Spade is one of ace's places. It adds no navigation of its own.
   | ------------------ | -------------- | ----- | ---------------------------------------- |
   | Needs you          | looks up       | amber | the ask, in the needs-you text colour    |
   | Working            | moves          | none  | what it is doing, muted                  |
+  | Paused             | still, asleep  | none  | "Paused"                                 |
   | Failed             | slumps         | red   | what broke, in the failed text colour    |
   | Finished, not seen | pleased        | none  | name and line in full ink                |
   | At rest            | still          | none  | the last thing it said, as plain text    |

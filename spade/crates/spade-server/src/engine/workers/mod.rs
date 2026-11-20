@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use spade_core::Event;
+use spade_core::running::rolled;
 use spade_core::tools::Registry;
 use spade_core::tree::{self, Link};
 
@@ -85,19 +86,6 @@ impl Index {
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
-}
-
-/// The state a node reads with something under it: waiting beats working beats sleeping beats
-/// idle, so a bot never reads idle (or done) while anything under it works or waits on the
-/// person (ace's priority 1).
-pub(super) fn rolled(own: State, under: State) -> State {
-    let rank = |s: State| match s {
-        State::Idle => 0,
-        State::Sleeping => 1,
-        State::Working => 2,
-        State::Waiting => 3,
-    };
-    if rank(under) > rank(own) { under } else { own }
 }
 
 /// What `activity`'s ace children add to its state: waiting while one waits on the person,
@@ -279,7 +267,7 @@ impl Engine {
         let Ok(own) = self.own_activity(id) else {
             return State::Idle;
         };
-        let mut state = own.state;
+        let mut state = spade_core::running::held(own.state, self.paused(id));
         if state == State::Idle && self.continuing(id, false) {
             state = State::Working;
         }
@@ -300,11 +288,16 @@ impl Engine {
             .helper_of(id)
             .map_or_else(|| id.to_owned(), |h| h.parent);
         let Some(link) = self.worker_link(&owner) else {
-            // A top-level bot made from a recipe that named its tools has only those (ADR 0168).
-            return match self.recipe_tools(&owner) {
+            // A top-level bot made from a recipe that named its tools has only those (ADR 0168),
+            // and a packaged one only its `uses` modules' (ADR 0200 §4.3).
+            let registry = match self.recipe_tools(&owner) {
                 Some(tools) => {
                     registry.retain(|def| tree::allows(Some(&tools), def.spec.name.as_str()))
                 }
+                None => registry,
+            };
+            return match self.package_uses(&owner) {
+                Some(uses) => registry.retain(|def| uses_allow(&uses, def.spec.name.as_str())),
                 None => registry,
             };
         };
@@ -362,29 +355,10 @@ impl Engine {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_node_reads_waiting_over_working_over_sleeping_over_idle_from_anything_under_it() {
-        use State::{Idle, Sleeping, Waiting, Working};
-        let cases = [
-            (Idle, Working, Working),
-            (Idle, Waiting, Waiting),
-            (Working, Waiting, Waiting),
-            (Waiting, Working, Waiting),
-            (Idle, Sleeping, Sleeping),
-            (Sleeping, Working, Working),
-            (Working, Idle, Working),
-            (Idle, Idle, Idle),
-        ];
-        for (own, under, expected) in cases {
-            assert_eq!(
-                rolled(own, under),
-                expected,
-                "{own:?} with {under:?} under it"
-            );
-        }
-    }
+/// Whether a packaged bot that uses `uses` keeps tool `name`: a tool of `spade.v1` only when its
+/// module is among them; anything outside the API (a connected app's own tools) is left to the
+/// `apps` module's gate.
+fn uses_allow(uses: &[String], name: &str) -> bool {
+    spade_core::effect::runtime::tool(spade_core::effect::runtime::resolve(name))
+        .is_none_or(|tool| uses.iter().any(|module| module == tool.module.name()))
 }

@@ -34,6 +34,15 @@ pub fn recipe_key(agent: &str) -> String {
     format!("{BOT_RECIPE}:{agent}")
 }
 
+/// The settings key prefix for a bot linked to an agent package (ADR 0200 §3.9): the package and
+/// version, the manifest as installed, the person's effect switches, as JSON the server shapes.
+pub const BOT_PACKAGE: &str = "bot_package";
+
+/// One bot's package settings key.
+pub fn package_key(agent: &str) -> String {
+    format!("{BOT_PACKAGE}:{agent}")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Agent {
     pub id: String,
@@ -343,6 +352,11 @@ impl Store {
         tx.execute(
             "DELETE FROM settings WHERE key = ?1",
             params![recipe_key(id)],
+        )?;
+        // The package it is linked to (ADR 0200).
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![package_key(id)],
         )?;
         tx.execute(
             "DELETE FROM events WHERE conversation_id = ?1",

@@ -125,7 +125,9 @@ export function foldSpadeGroup(state: SpadeGroupState, input: SpadeFoldInput): b
           waiting !== undefined &&
           sameBot(state.waitingMember, waiting));
       // A group never sleeps itself; a stream that says so reads as at work, as older clients do.
-      const next = input.state === "sleeping" ? "working" : input.state;
+      // Nor is it paused: only bots are (ADR 0200 §6.1), so one that says so reads at rest.
+      const next =
+        input.state === "sleeping" ? "working" : input.state === "paused" ? "idle" : input.state;
       const first = !state.reported;
       state.reported = true;
       if (state.state === next && state.status === status && sameWaiting) return first;
@@ -259,14 +261,16 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
   for (const message of state.pending)
     items.push({ kind: "person", key: message.key, text: message.text });
   const rows = items.map((item, index): SpadeGroupRow => {
-    if (item.kind === "person")
-      return {
+    if (item.kind === "person") {
+      const row: SpadeGroupRow = {
         kind: "person",
         key: item.key,
         text: item.text,
         sending: index >= state.items.length,
-        ...(item.fromThread ? { fromThread: item.fromThread } : {}),
       };
+      if (item.fromThread) row.fromThread = item.fromThread;
+      return row;
+    }
     if (item.kind === "line") return item;
     const before = items[index - 1];
     const after = items[index + 1];

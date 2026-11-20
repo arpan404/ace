@@ -17,7 +17,7 @@ export interface FakeSpadeAgent {
   last_activity: number;
   /** When it was pinned (ms), as Spade sends it; null or absent when it isn't. */
   pinned_at?: number | null;
-  state: "idle" | "working" | "waiting";
+  state: "idle" | "working" | "waiting" | "paused";
   waiting_for: "approval" | "question" | null;
   /** Its cards left for later, not yet answered or dismissed (ADR 0154). */
   questions_for_later?: number;
@@ -34,6 +34,8 @@ export interface FakeSpadeAgent {
   move?: Json | null;
   /** What needs the person since it arrived from another machine. */
   arrived?: Json | null;
+  /** The agent package it is linked to (ADR 0200 §3.9). */
+  package?: Json | null;
   /** The conversation's seen cursor, as Spade sends it; null when never marked. */
   seen_seq?: number | null;
   /** Finished and not seen since; tests set it, and marking the conversation seen clears it. */

@@ -81,7 +81,8 @@ export const CliSpadeBot = z.object({
   task: z.string(),
   model: z.string(),
   conversation: z.string(),
-  state: z.enum(["idle", "working", "waiting"]),
+  /** `paused`: the person paused it (ADR 0200 §6.1). */
+  state: z.enum(["idle", "working", "waiting", "paused"]),
   waitingFor: z.enum(["approval", "question"]).optional(),
   status: z.string().optional(),
   problem: z.string().optional(),
@@ -94,6 +95,36 @@ export const CliSpadeBot = z.object({
   parent: z.object({ id: z.string(), name: z.string() }).optional(),
 });
 export type CliSpadeBot = z.infer<typeof CliSpadeBot>;
+
+/** One bot as `ace bot running` shows it (ADR 0200 §6.3). */
+export const CliRunningBot = z.object({
+  id: z.string(),
+  kind: z.enum(["main", "bot"]),
+  name: z.string(),
+  state: z.enum(["idle", "working", "waiting", "sleeping", "paused"]),
+  /** How it reads, in the order rows sort. */
+  reads: z.enum(["needs_you", "working", "failed", "sleeping", "paused", "idle"]),
+  /** Its state in words: "Checking fares", "Waiting on you: a question", "Paused". */
+  doing: z.string(),
+  uses: z.string(),
+  spend: z.object({ todayMicros: z.number(), monthMicros: z.number(), unusual: z.boolean() }),
+  network: z.object({ bytes: z.number(), hosts: z.array(z.string()), refused: z.number() }),
+  nextWake: z.object({ at: z.number(), what: z.string() }).optional(),
+  workers: z.array(z.object({ id: z.string(), name: z.string(), doing: z.string() })),
+  actions: z.array(z.enum(["stop", "pause", "resume"])),
+});
+export type CliRunningBot = z.infer<typeof CliRunningBot>;
+
+/** `ace bot stop|pause|resume BOT`: what was done, and the bot as it reads after. */
+export const CliBotAction = z.object({
+  bot: z.string(),
+  name: z.string(),
+  action: z.enum(["stop", "pause", "resume"]),
+  /** False when there was nothing to do: nothing ran, or it was paused or running already. */
+  changed: z.boolean(),
+  now: CliRunningBot.optional(),
+});
+export type CliBotAction = z.infer<typeof CliBotAction>;
 
 /** `ace spade chat BOT TEXT`: the message Spade took, and the reply when one came in time. */
 export const CliSpadeChat = z.object({
@@ -144,6 +175,8 @@ export const cliMachineOutputs = {
   "spade.bot.list": z.array(CliSpadeBot),
   "spade.bot.show": CliSpadeBot,
   "spade.chat": CliSpadeChat,
+  "bot.running": z.array(CliRunningBot),
+  "bot.action": CliBotAction,
   "spade.move": CliSpadeMove,
   "feature.list": CliFeatures,
   "feature.switch": CliFeatureSwitch,
