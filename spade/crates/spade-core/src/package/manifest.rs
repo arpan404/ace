@@ -19,6 +19,8 @@ use crate::personality::Personality;
 use crate::routine::{self, AceEvent, Trigger};
 use crate::tools::Risk;
 
+use super::surfaces::Surface;
+
 pub const FORMAT: &str = "spade-bot";
 /// The runtime API's major version this build serves (ADR 0200 §4): `spade.v1`'s.
 pub const RUNTIME: &str = runtime::VERSION;
@@ -75,11 +77,9 @@ const KNOWN_V3: [&str; 22] = [
     "tests",
     "notes",
     "pricing",
-    // Read in phase 2 (ADR 0200 §5, §7); kept and listed as not used until then.
     "surfaces",
     "contracts",
 ];
-const NOT_YET: [&str; 2] = ["surfaces", "contracts"];
 const KNOWN_V2: [&str; 14] = [
     "personality",
     "format",
@@ -247,9 +247,15 @@ pub struct Manifest {
     /// Apps it names in `needs.connectors`, by catalogue id or https address.
     pub connectors: Vec<String>,
     pub effects: Vec<Declared>,
+    /// Typed calls other agents of the person may make to it (ADR 0200 §7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contracts: Vec<super::contract::Contract>,
     pub limits: Limits,
     pub tests: Vec<String>,
     pub notes: Vec<String>,
+    /// The cards and panels it ships (ADR 0200 §5).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<Surface>,
     /// Fields this build doesn't use, by name, for the review's "Not used by this Spade".
     pub unused: Vec<String>,
 }
@@ -364,10 +370,9 @@ impl Reader<'_> {
             .fields
             .keys()
             .filter(|key| {
-                NOT_YET.contains(&key.as_str())
-                    || !(known.contains(&key.as_str())
-                        || IDENTITY.contains(&key.as_str())
-                        || EXECUTIONS.contains(&key.as_str()))
+                !(known.contains(&key.as_str())
+                    || IDENTITY.contains(&key.as_str())
+                    || EXECUTIONS.contains(&key.as_str()))
             })
             .cloned()
             .collect();
@@ -391,6 +396,17 @@ impl Reader<'_> {
         } else {
             self.routines_v2()
         };
+        let effects = if version == 3 {
+            self.effects()
+        } else {
+            Vec::new()
+        };
+        let contracts = if version == 3 {
+            let declared: Vec<Effect> = effects.iter().map(|d| d.effect).collect();
+            super::contract::read(self.fields.get("contracts"), &declared, &mut self.problems)
+        } else {
+            Vec::new()
+        };
         let manifest = Manifest {
             version,
             name,
@@ -406,11 +422,8 @@ impl Reader<'_> {
             skills: self.refs("skills"),
             plugins: self.refs("plugins"),
             connectors: connectors(&needs),
-            effects: if version == 3 {
-                self.effects()
-            } else {
-                Vec::new()
-            },
+            effects,
+            contracts,
             limits: if version == 3 {
                 self.limits()
             } else {
@@ -422,6 +435,11 @@ impl Reader<'_> {
                 Vec::new()
             },
             notes: self.notes(),
+            surfaces: if version == 3 {
+                super::surfaces::read(self.fields.get("surfaces"), &mut self.problems)
+            } else {
+                Vec::new()
+            },
             unused,
         };
         if version == 3 {
@@ -639,7 +657,8 @@ impl Reader<'_> {
                         _ => PackageTrigger::Webhook { name, instruction },
                     }
                 }
-                // Contract calls (phase 2) and kinds a later build adds: kept, not used.
+                // A contract call is implied by the package's contracts (ADR 0200 §3.5); kinds a
+                // later build adds are kept, not used.
                 _ => continue,
             };
             triggers.push(trigger);

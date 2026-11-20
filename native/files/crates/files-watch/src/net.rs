@@ -601,6 +601,10 @@ mod tests {
     }
 
     const NOW: Duration = Duration::ZERO;
+    /// Longer than the slowest tick of the clock Linux stamps files and folders from (10 ms, at
+    /// `HZ` 100). A change made in the tick the net read a folder in can leave the folder's stamp
+    /// as it was, or date a new name to before the read; tests that make one wait this long first.
+    const CLOCK_TICK: Duration = Duration::from_millis(25);
     const LATER: Duration = Duration::from_secs(3_600);
 
     struct Tree {
@@ -629,6 +633,9 @@ mod tests {
                 folders.iter().map(|folder| (*folder).to_owned()).collect(),
                 SystemTime::now(),
             );
+            // What a test does next happens after the read, as the clock files are stamped by
+            // sees it too.
+            std::thread::sleep(CLOCK_TICK);
             net
         }
 
@@ -656,6 +663,7 @@ mod tests {
         let mut net = tree.net(100, &["src"]);
         assert!(tree.check(&mut net, NOW).is_empty());
 
+        std::thread::sleep(CLOCK_TICK);
         std::fs::remove_file(tree.path("src/doomed.txt")).unwrap();
         std::fs::remove_file(tree.path("src/swap")).unwrap();
         std::fs::create_dir(tree.path("src/swap")).unwrap();
@@ -682,6 +690,7 @@ mod tests {
             &as_batch(&found),
             SystemTime::now(),
         );
+        std::thread::sleep(CLOCK_TICK);
         std::fs::write(tree.path("src/later.txt"), b"x").unwrap();
         assert_eq!(
             tree.check(&mut net, NOW),
@@ -840,6 +849,10 @@ mod tests {
             },
             SystemTime::now(),
         );
+        // Linux stamps a new file from a clock that ticks every few milliseconds. A file made in
+        // the tick the folder was read in could have been made before the read and moved in, so
+        // the net rightly holds it for the OS watch; this one lands a tick after the read.
+        std::thread::sleep(CLOCK_TICK);
         std::fs::write(tree.path("src/late.txt"), b"x").unwrap();
         assert_eq!(
             tree.check(&mut net, NOW),

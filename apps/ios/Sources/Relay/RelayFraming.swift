@@ -48,6 +48,9 @@ struct RelaySession: Sendable {
     /// One JSON text's plaintext fragments, not yet encrypted: a flow-controlled sender seals
     /// each only when its window has room, so a credit can still go out ahead of them.
     func fragments(text: String) throws -> [Data] { try Self.fragments(Data(text.utf8), kind: 0) }
+    /// One binary record's plaintext fragments (kinds 2/3), not yet encrypted. The caller has
+    /// checked it against `binaryLimit`.
+    static func binaryFragments(_ binary: Data) -> [Data] { (try? fragments(binary, kind: 2)) ?? [] }
     private static func fragments(_ data: Data, kind: UInt8) throws -> [Data] {
         guard data.count <= Self.logicalLimit else { throw RelayFrameError.tooLarge }
         var out: [Data] = []

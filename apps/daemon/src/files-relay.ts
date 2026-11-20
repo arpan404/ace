@@ -25,6 +25,8 @@ import { mediaHelloAdmission, type MediaTicketClaim } from "./media-relay/admit.
 import { serveRelayMachineCalls } from "./relay-machine-host.ts";
 import type { TransferTarget } from "./transfers/serve.ts";
 import type { MachineTarget } from "./machines/target.ts";
+import type { TunnelAttachment, TunnelHost } from "./machine-tunnel/host.ts";
+import { serveRelayTunnel } from "./machine-tunnel/relay.ts";
 
 /** The production host composes authenticated relay frames with the same file service. */
 export async function startFilesRelay(
@@ -50,6 +52,8 @@ export async function startFilesRelay(
     machineCalls?: (() => Pick<MachineTarget, "handle"> | undefined) | undefined;
     /** Transfers from paired machines that reach this one only through the relay (ADR 0192). */
     transfers?: (() => TransferTarget | undefined) | undefined;
+    /** The machine's tunnel to its loopback (ADR 0194), for `channel: "tunnel"` hellos. */
+    tunnel?: (() => TunnelHost | undefined) | undefined;
     /** `url` is ace's hosted relay, by this machine's settings: transfers through it are bounded. */
     hostedRelay?: boolean | undefined;
     /** Forwarded HTTP from ace's hosted relay (`relay-http.ts`, ADR 0122). */
@@ -93,8 +97,15 @@ export async function startFilesRelay(
     for (const [channel, admitted] of accountClients) if (!admitted()) channel.close();
   });
   const controller = new AbortController();
+  /** Tunnel channels, refused through their host so the device hears why (ADR 0194). */
+  const tunnels = new Map<HostChannel, TunnelAttachment>();
   const stopRevoked = options.auth.onRevoke((id) => {
-    for (const [channel, device] of clients) if (device === id) channel.close();
+    for (const [channel, device] of clients) {
+      if (device !== id) continue;
+      const tunnel = tunnels.get(channel);
+      if (tunnel) tunnel.refuse("tunnel_forbidden");
+      else channel.close();
+    }
   });
   // A channel opened with a credential since replaced (the install paired again) ends too.
   const stopReplaced = options.auth.onCredentialReplaced((id) => {
@@ -268,9 +279,41 @@ export async function startFilesRelay(
           }
           return;
         }
+        const tunnel = hello.channel === "tunnel" ? options.tunnel?.() : undefined;
+        if (tunnel) {
+          channel.authorize();
+          clients.set(channel, admitted.stillAdmitted ? "" : device.id);
+          if (admitted.stillAdmitted) accountClients.set(channel, admitted.stillAdmitted);
+          try {
+            await serveRelayTunnel(channel, tunnel, {
+              device: device.id,
+              operate: () =>
+                admitted.stillAdmitted
+                  ? admitted.stillAdmitted()
+                  : allows(
+                      options.devices.current(device.id, device.generation, options.auth.now()),
+                      "operate",
+                    ),
+              welcome: {
+                type: "welcome",
+                hostId: HostId.parse(options.hostId),
+                protocolVersion: 1,
+                headSeq: options.headSeq(),
+              },
+              attached: (attachment) => tunnels.set(channel, attachment),
+            });
+          } finally {
+            tunnels.delete(channel);
+            clients.delete(channel);
+            accountClients.delete(channel);
+            channel.close();
+          }
+          return;
+        }
         // A media hello comes only on a `purpose=media` stream, which ace-media holds; on any
-        // other it is refused before anything is served.
-        if (hello.channel === "media") {
+        // other it is refused before anything is served. A tunnel is refused where the daemon
+        // has none.
+        if (hello.channel === "media" || hello.channel === "tunnel") {
           await channel
             .send({ type: "error", code: "unauthorized", message: "Valid hello required" })
             .catch(() => {});

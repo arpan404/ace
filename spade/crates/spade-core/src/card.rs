@@ -105,7 +105,8 @@ pub struct Field {
 }
 
 /// An action, of a fixed kind: `choose` sends its label back to the bot as the person's choice;
-/// `open` opens an https link, its host shown first. Neither runs anything on its own.
+/// `open` opens an https link, its host shown first, or one of the bot's panels (`open_panel`,
+/// written as `open` with a `panel`). None runs anything on its own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Action {
@@ -117,6 +118,11 @@ pub enum Action {
         label: String,
         url: String,
         host: String,
+    },
+    /// Opens the bot's package panel `panel` beside its conversation (ADR 0200 §5.2).
+    OpenPanel {
+        label: String,
+        panel: String,
     },
 }
 
@@ -139,6 +145,22 @@ impl Card {
                 *image = kept.next();
             }
         }
+    }
+
+    /// The panels its `open` actions name, in order.
+    pub fn panels(&self) -> Vec<&str> {
+        self.blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Actions { actions } => Some(actions),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|action| match action {
+                Action::OpenPanel { panel, .. } => Some(panel.as_str()),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The `choose` action with `id`.
@@ -418,7 +440,8 @@ pub fn schema() -> Value {
                         unit?, change?}. progress: {label?, value, max}. table: {columns: [..], \
                         rows: [[..]]}. list: {items: [..], ordered?}. image: {file, alt} (a file \
                         in your workspace). link: {url, label?} (https). actions: {actions: \
-                        [{kind: \"choose\", id, label} | {kind: \"open\", label, url}]}.",
+                        [{kind: \"choose\", id, label} | {kind: \"open\", label, url} | {kind: \"open\", \
+                        label, panel} (one of your package's panels)]}.",
         "properties": {
             "kind": { "type": "string",
                       "enum": ["fields", "metric", "progress", "table", "list", "image", "link",

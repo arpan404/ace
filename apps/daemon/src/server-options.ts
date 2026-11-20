@@ -192,6 +192,10 @@ export interface ServerOptions {
   browser?: BrowserService;
   /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
   mediaDelivery?: () => import("./services/media.ts").DaemonDelivery | undefined;
+  /** ace-media's process while it runs: its listeners are ace's own (ADR 0194). */
+  mediaPid?: () => number | undefined;
+  /** The tunnel to this machine's loopback (ADR 0194), once the listeners are up. */
+  machineTunnel?: import("./machine-tunnel/host.ts").TunnelHost | undefined;
   userBrowser?: import("./user-browser.ts").UserBrowserService;
   review?: ReviewPort;
   replayLimit?: number;

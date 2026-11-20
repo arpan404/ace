@@ -16,7 +16,17 @@ export type OptionalCapability =
   /** zlib: `inflate` (gzip, deflate, deflate-raw). Without it the daemon never compresses. */
   | "inflate"
   /** `trace`: totals of spans the script times itself (diagnostics only). */
-  | "trace";
+  | "trace"
+  /**
+   * `loopback`: listeners on the device's own `127.0.0.1` and `::1` (ADR 0194), opened with
+   * `loopback.listen`, their connections moved with `loopback(...)` and `aceLoopback`.
+   */
+  | "loopback"
+  /**
+   * `socketBytes`: one binary message on an open socket, read by pointer (a tunnel's frames,
+   * ADR 0194); native code answers `aceSocket(id, "sent", "<bytes>")` once it has sent it.
+   */
+  | "socketBytes";
 
 /** What `storage.value.*` keeps: one value per key, each owned by one shared module. */
 export type KeptValueKey = "review" | "files" | "runAlerts";
@@ -183,6 +193,20 @@ export interface HostOperations {
    * (`localId`, `name`, `mimeType`, `bytes`, `sha256`).
    */
   "capture.stage": { input: { name: string; mimeType: string }; body: string };
+  /**
+   * The ports this runtime listens on at the device's loopback (ADR 0194), replacing the ones it
+   * listened on before; `[]` closes them all. A port is taken on both `127.0.0.1` and `::1`.
+   * One runtime holds the device's loopback at a time: asking for ports takes them from any other,
+   * which hears `aceLoopback("released", "", 0)` and has its listeners closed (connections it
+   * accepted stay open). Answers `LoopbackListening` as JSON once every listener is up or failed.
+   */
+  "loopback.listen": { input: { ports: number[] }; body: never };
+}
+
+/** What `loopback.listen` answers: the ports now listened on, and those another app holds. */
+export interface LoopbackListening {
+  listening: number[];
+  busy: number[];
 }
 export type HostOperation = keyof HostOperations;
 
@@ -204,6 +228,26 @@ export type SocketAction = "open" | "send" | "bytes" | "close";
 export interface MediaSocketOpen {
   media: { url?: string };
 }
+
+/**
+ * What the script asks of one accepted loopback connection:
+ * - `read`: deliver the next chunk (at most 64 KiB) as `aceLoopback("data", id, bytes)`. Native
+ *   code reads only when asked, so the device side is paced by the tunnel's credit.
+ * - `write`: send `bytes` to the connection; `aceLoopback("written", id, 0)` once sent.
+ * - `end`: no more bytes from the machine (half-close); reading may go on.
+ * - `close`: after `end`, the machine's side is gone: close the connection once the end has been
+ *   sent, without a reset, whatever the page does.
+ * - `reset`: drop the connection at once.
+ */
+export type LoopbackAction = "read" | "write" | "end" | "close" | "reset";
+
+/**
+ * What native code tells the script about the loopback (`aceLoopback(event, id, value)`):
+ * `accept` (a new connection `id`, value the port), `data` (bytes), `written`, `end` (the page
+ * sent all it will), `reset` (the connection failed or was dropped) and `released` (another
+ * runtime took the listeners; `id` is "").
+ */
+export type LoopbackEvent = "accept" | "data" | "written" | "end" | "reset" | "released";
 
 /** What native code installs as `globalThis.aceHost` before the bundle runs. */
 export interface NativeHost {
@@ -260,6 +304,12 @@ export interface NativeHost {
   /** One frame of display patches: a JSON array of at most 32 patches and 32 KiB UTF-8. */
   emit(frame: string): void;
   socket(id: string, action: SocketAction, value: string): void;
+  /** One binary message on socket `id`, read by pointer during the call (`socketBytes`). */
+  socketBytes?(id: string, bytes: Uint8Array): void;
+
+  // The device's loopback (`loopback`).
+  /** `bytes` only with `write`, read by pointer during the call. */
+  loopback?(connection: string, action: LoopbackAction, bytes?: Uint8Array): void;
 
   // Diagnostics.
   readonly tracing?: boolean;
@@ -278,6 +328,8 @@ export interface HostEntries {
   aceSocket(id: string, type: string, value: string | Uint8Array): void;
   /** Starts a pairing or machine-directory runtime with its JSON request. */
   aceAccess(json: string): void;
+  /** A loopback event (`LoopbackEvent`), when the host offers `loopback`. */
+  aceLoopback?(event: string, connection: string, value: number | Uint8Array): void;
 }
 
 /** Every function a host must have, checked once when the bundle starts. */

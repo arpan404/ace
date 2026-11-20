@@ -231,6 +231,7 @@ impl Engine {
                 name: b.name,
                 depth,
                 machine: None,
+                contract: None,
             }),
             from_routine: None,
             from_group: Some(Box::new(from_group)),

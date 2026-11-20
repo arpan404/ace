@@ -16,7 +16,8 @@ numbers, a short table, choices to press), not for prose; your reply carries wor
 fields (label and value rows), metric (one number with its unit and change), progress (value of \
 max), table (columns and rows of text), list (short items), image (a file in your workspace), \
 link (https, shown with its host) and actions: `choose` buttons whose label comes back to you \
-once, as a <card_action>, and `open` buttons that open an https link. To update a card in place \
+once, as a <card_action>, and `open` buttons that open an https link or, with `panel`, one of \
+your package's panels. To update a card in place \
 (a fare ticking down), call card_show again with `replaces` and the card's id. A card that \
 doesn't fit is refused with every problem listed; fix them and show it again.";
 

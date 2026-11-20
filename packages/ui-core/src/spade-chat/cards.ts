@@ -17,7 +17,9 @@ export interface SpadeCardField {
 /** An action, of a fixed kind: `choose` sends its label back to the bot; `open` opens a link. */
 export type SpadeCardAction =
   | { kind: "choose"; id: string; label: string }
-  | { kind: "open"; label: string; url: string; host: string };
+  | { kind: "open"; label: string; url: string; host: string }
+  /** Opens one of the bot's package panels beside its conversation (ADR 0200 §5.2). */
+  | { kind: "open_panel"; label: string; panel: string };
 
 export type SpadeCardBlock =
   | { kind: "fields"; rows: readonly SpadeCardField[] }
@@ -54,6 +56,7 @@ const imageRef = z.object({
 const action = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("choose"), id: words, label: words }),
   z.object({ kind: z.literal("open"), label: words, url: https, host: words }),
+  z.object({ kind: z.literal("open_panel"), label: words, panel: words }),
 ]);
 
 const block = z.discriminatedUnion("kind", [

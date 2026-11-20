@@ -9,7 +9,7 @@ enum HostContract {
     /// The contract version this host implements (`HOST_CONTRACT_VERSION`).
     static let version = 1
     /// Optional capabilities this host offers.
-    static let capabilities = ["inflate", "trace"]
+    static let capabilities = ["inflate", "trace", "loopback", "socketBytes"]
 
     /// Clock, ids, entropy, text, bytes and URL parsing, as `aceHost` members.
     static func stateless() -> [String: Any] {
@@ -58,12 +58,13 @@ enum HostContract {
         return functions.merging(NativeBytes.functions()) { current, _ in current }
     }
 
-    /// Installs `members` as `aceHost` with this host's version and capabilities.
+    /// Installs `members` as `aceHost` with this host's version and the capabilities among them
+    /// (a test harness installs only the stateless ones).
     static func install(_ members: [String: Any], in context: JSContext) {
         context.setObject(members, forKeyedSubscript: "aceHost" as NSString)
         let host = context.objectForKeyedSubscript("aceHost")
         host?.setObject(version, forKeyedSubscript: "version" as NSString)
-        host?.setObject(capabilities, forKeyedSubscript: "capabilities" as NSString)
+        host?.setObject(capabilities.filter { members[$0] != nil }, forKeyedSubscript: "capabilities" as NSString)
         host?.setObject(HostTrace.enabled, forKeyedSubscript: "tracing" as NSString)
     }
 }

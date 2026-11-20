@@ -16,6 +16,8 @@ mod classify;
 mod compact;
 mod computer;
 mod continuation;
+mod contracts;
+mod contracts_remote;
 mod control;
 mod digests;
 mod drive;
@@ -40,10 +42,12 @@ mod maintenance;
 mod media;
 mod memory;
 mod moves;
+mod notify;
 pub mod onboarding;
 mod outbox;
 mod oversight;
 pub(crate) mod packages;
+mod panels;
 mod park;
 mod pause;
 mod plugin_hooks;
@@ -62,6 +66,7 @@ mod self_edit;
 mod services;
 mod speech;
 mod style;
+mod suggest;
 mod thread_asks;
 mod trim;
 mod try_again;
@@ -94,8 +99,10 @@ pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use panels::{PanelError, PanelView};
 pub use reach::ReachError;
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
+pub use suggest::{MarketBots, MarketFuture};
 pub use thread_asks::FROM_ACE;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
@@ -239,6 +246,10 @@ pub struct Engine {
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
     /// The person's apps (ADR 0131, `apps`), once the server has set them.
     apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
+    /// The market as suggestions read it (ADR 0200 §8, `suggest`), once the server has set it.
+    market: std::sync::OnceLock<Arc<dyn suggest::MarketBots>>,
+    /// Held while the open package suggestions are read and written.
+    suggest_lock: Mutex<()>,
     /// The scope each call about to run was allowed with, by call key, for the tool to check
     /// again where it runs (a terminal command's folder and variables, ADR 0142).
     allowed_scopes: Mutex<HashMap<String, String>>,
@@ -327,6 +338,10 @@ impl Engine {
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
             .with_tool(Arc::new(BotMessage(handle.clone())))
+            // Typed calls between the person's bots (ADR 0200 §7).
+            .with_tool(Arc::new(crate::tools::ContractsFind(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ContractCall(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ContractReturn(handle.clone())))
             .with_tool(Arc::new(HelperTool(handle.clone())))
             // A bot's own task, name and face.
             .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
@@ -336,6 +351,13 @@ impl Engine {
         if tools.get(spade_core::card::CARD_SHOW).is_none() {
             tools = tools.with_tool(Arc::new(crate::tools::CardShow::new(handle.clone(), None)));
         }
+        // `notify` and `package_suggest` (ADR 0200 §4.2, §8).
+        let tools = tools
+            .with_tool(Arc::new(crate::tools::Notify(handle.clone())))
+            .with_tool(Arc::new(crate::tools::PackageSuggest));
+        let mut tools = tools;
+        // `panel_update` (ADR 0200 §5.2): the state a packaged bot's panel shows.
+        tools = tools.with_tool(Arc::new(crate::tools::PanelUpdate(handle.clone())));
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -392,6 +414,8 @@ impl Engine {
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             apps: std::sync::OnceLock::new(),
+            market: std::sync::OnceLock::new(),
+            suggest_lock: Mutex::default(),
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             launches: Mutex::default(),
@@ -578,6 +602,16 @@ impl Engine {
             ace_waiting: ace.iter().any(|c| c.state.waiting()),
             ace_working: ace.iter().any(|c| c.state.working()),
             workers: 0,
+            calls: spade_core::contract::calling(events.iter(), &transcript.jobs)
+                .into_iter()
+                .filter(|called| called.machine.is_none())
+                .map(|called| called.bot.clone())
+                .collect(),
+            remote_calls: spade_core::contract::calling(events.iter(), &transcript.jobs)
+                .into_iter()
+                .filter(|called| called.machine.is_some())
+                .map(|called| called.call.clone())
+                .collect(),
         };
         self.activity
             .lock()
@@ -646,6 +680,10 @@ impl Engine {
             // A worker of it waits on the person (ADR 0161).
             State::Waiting if activity.waiting_for == Some("worker") => {
                 Some(roster::WORKER_WAITING.to_owned())
+            }
+            // A bot it called waits on the person for that call (ADR 0200 §6.2).
+            State::Waiting if activity.waiting_for == Some("callee") => {
+                Some(roster::CALLEE_WAITING.to_owned())
             }
             State::Waiting => Some(roster::WAITING_FOR_YOU.to_owned()),
             State::Sleeping => activity
@@ -815,6 +853,23 @@ impl Engine {
                     ..
                 }) => {
                     if spade_core::card::choose(&events, card, *version, action).is_err() {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    false
+                }
+                // Each contract call is delivered once, by its key (ADR 0200 §7).
+                Event::Known(Known::UserMessage {
+                    from_agent: Some(from),
+                    ..
+                }) if from.contract.as_ref().is_some_and(|request| {
+                    spade_core::contract::delivered_at(&events, &request.call).is_some()
+                }) =>
+                {
+                    return Ok(spade_store::Delivered::Duplicate);
+                }
+                // A panel's action lands once per request (ADR 0200 §5.2), however often sent.
+                Event::Known(Known::PanelAction { key, .. }) => {
+                    if spade_core::panel::acted(&events, key) {
                         return Ok(spade_store::Delivered::Duplicate);
                     }
                     false

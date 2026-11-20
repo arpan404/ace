@@ -381,7 +381,7 @@ impl Engine {
         let part = &body["part"];
         if !matches!(
             part["kind"].as_str(),
-            Some("rows" | "piece" | "image" | "file" | "inventory")
+            Some("rows" | "piece" | "image" | "page" | "file" | "inventory")
         ) {
             return refuse(400, "that part is not one Spade here can read");
         }

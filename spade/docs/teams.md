@@ -131,8 +131,10 @@ An ask to a bot of another machine is stored in the outbox first, with a key the
 with long polls, and survives restarts. While the machine can't be reached the ask is queued
 (backoff 2 s doubling to 5 minutes, for up to 7 days); a club shows `group_queued`, `bot_message`
 keeps waiting. At most 500 asks wait at once (more are refused until some end); ended entries
-are kept 30 days. Stop withdraws a queued ask before it is sent, and sends `stop` for one already
-delivered.
+are kept 30 days. Stop withdraws a queued ask never tried, and sends `stop` for one already
+delivered. Each try first marks the entry as maybe there (stored before the request leaves), so
+Stop on a queued ask whose answer was lost, or that a crash cut off mid-send, sends `stop` under
+its key until that machine answers: withdrawn when it never had it, stopped there when it did.
 
 ### Receiving (inbox)
 
@@ -185,7 +187,9 @@ status: "online"|"offline"}]}`: the linked machines this daemon can call.
     `spade.remote.result {requestId, result}` with `result` `{kind: "response", status, body}`
     (`body` is Spade's JSON answer there) or `{kind: "error", code, message}`, `code` one of
     `unknown_machine`, `offline` (nothing was sent), `disconnected` (it may have arrived),
-    `refused` (that machine said no), `forbidden`.
+    `refused` (that machine said no), `forbidden`. Only Spade's own socket (loopback, ace's
+    local token) may send it: another machine's Spade reads each request as this machine's
+    Spade's, so a paired device, even with operate, gets `forbidden` (ADR 0200 §7 amendment).
 - **Between daemons:** machine call op `{op: "spade", request: <JSON object, at most 512 KiB>}`.
   The target admits it under the Agents grant (ADR 0105): `bots` and `answer` need Read, `ask`
   and `stop` need Read and act. A pairing made from a time-limited link is a guest and is refused

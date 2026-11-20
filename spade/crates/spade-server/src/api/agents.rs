@@ -16,6 +16,8 @@ use spade_core::autonomy::Access;
 
 /// An agent body may carry one avatar image as base64 (3.75 MB, a third larger encoded).
 pub(super) const AGENT_BODY: usize = 6 * 1024 * 1024;
+/// A package's manifest with its panels' pages (ADR 0200 §5.2): up to eight of 1 MB each.
+pub(super) const PACKAGE_BODY: usize = 10 * 1024 * 1024;
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -91,6 +93,9 @@ pub(super) struct NewAgent {
     /// The person's effect switches on the review, by key; one missing is off.
     #[serde(default)]
     switches: std::collections::BTreeMap<String, bool>,
+    /// A package's panel pages (ADR 0200 §5.2), by path: `panels/<id>/index.html` to its text.
+    #[serde(default)]
+    pages: std::collections::BTreeMap<String, String>,
     /// Made from one message: the bot names itself in its first reply, and is "New bot" until
     /// then when no name was given.
     #[serde(default)]
@@ -337,6 +342,7 @@ impl NewAgent {
             package: self.package,
             envelope: self.envelope,
             switches: self.switches,
+            pages: self.pages,
             also: self.template.is_some() || self.first_message.is_some(),
         }
     }

@@ -26,6 +26,8 @@ import { LoadingBadge } from "./browser/loading-badge.tsx";
 import { setLoading } from "./browser/loading.ts";
 import { browserTabData, daemonTabId } from "./browser/browser-data.ts";
 import { closeBrowserTab } from "./browser/browser-closers.ts";
+import { deviceTabData, deviceTabKind } from "./device-browser/device-data.ts";
+import { closeDeviceTab } from "./device-browser/close-device-tab.ts";
 import { BrowserTabBadge, BrowserTabMark } from "./browser/tab-mark.tsx";
 import { BrowserTabMenuItems } from "./browser/tab-menu.tsx";
 import { prepareEditorClose } from "./editor/editor-close.ts";
@@ -138,6 +140,25 @@ export const browserKind = defineTabKind({
   },
 });
 
+/**
+ * A page the person opened, in the desktop app, on another machine's thread (ADR 0194): it runs
+ * on this computer, its `localhost` is the machine's. Only this window's panel knows it, so a
+ * closed one doesn't come back. Opened from a browser tab, never from the launcher.
+ */
+export const deviceBrowserKind = defineTabKind({
+  kind: deviceTabKind,
+  label: "Browser",
+  icon: GlobeSimpleIcon,
+  title: (tab) => {
+    const data = deviceTabData(tab);
+    if (data?.title) return data.title;
+    return (data && addressHost(data.url)) ?? "New tab";
+  },
+  load: () => import("./device-browser/device-browser-tab.tsx"),
+  reopenable: () => false,
+  onClose: (_scope, tab) => closeDeviceTab(tab.id),
+});
+
 export const previewKind = defineTabKind({
   kind: "preview",
   label: "Preview",
@@ -234,6 +255,7 @@ export const threadKinds: readonly TabKind[] = [
   filePreviewKind,
   textEditKind,
   browserKind,
+  deviceBrowserKind,
   previewKind,
   portKind,
   devicesKind,

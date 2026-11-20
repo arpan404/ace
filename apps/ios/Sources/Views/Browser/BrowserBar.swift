@@ -104,7 +104,7 @@ struct BrowserBar: View {
 }
 
 /// The tabs button: the count in a rounded square, as Safari draws it.
-private struct TabCount: View {
+struct TabCount: View {
     let count: Int
     /// The glyph's own drawing: a count inside a bar icon's square, stroked like the other bar glyphs.
     private static let digits: CGFloat = 12
@@ -163,15 +163,20 @@ struct BrowserAddressEditor: View {
             .background(AceDesign.Surface.background)
         }
         .onAppear {
-            text = model.browser.view?.state?.addressUrl ?? ""
+            let device = model.deviceTabs.shownTab?.url
+            text = (device == "about:blank" ? "" : device) ?? model.browser.view?.state?.addressUrl ?? ""
             focused = true
         }
     }
+    /// Loads in the tab shown: a device tab on this phone, or ace's Chrome tab on the machine.
     private func go() {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         editing = false
         guard !typed.isEmpty else { return }
-        model.browserGo(typed)
+        // With no page in ace's Chrome (no agent opened one), the person's page runs on this phone.
+        if let device = model.deviceTabs.shownTab { model.navigateDeviceTab(device.id, address: typed) }
+        else if model.chromeHasPage { model.browserGo(typed) }
+        else { model.openDeviceTab(typed) }
     }
 }
 

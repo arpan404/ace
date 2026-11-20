@@ -38,6 +38,12 @@ const tools: Record<string, ToolWords> = {
     doing: "Asking you to connect an app",
     done: "Asked you to connect an app",
   },
+  // A package a bot suggests (ADR 0200 §8).
+  package_suggest: {
+    base: "suggest a bot to install",
+    doing: "Suggesting a bot to install",
+    done: "Suggested a bot to install",
+  },
   skill_load: { base: "load a skill", doing: "Reading a skill", done: "Read a skill" },
   skill_propose: {
     base: "suggest a skill",
@@ -86,6 +92,22 @@ const tools: Record<string, ToolWords> = {
     base: "search its notes",
     doing: "Searching its notes",
     done: "Searched its notes",
+  },
+  // Typed calls between the person's bots (ADR 0200 §7); a call itself is its own line.
+  contracts_find: {
+    base: "look for what your other bots offer",
+    doing: "Looking for what your other bots offer",
+    done: "Looked for what your other bots offer",
+  },
+  contract_call: {
+    base: "ask another bot",
+    doing: "Asking another bot",
+    done: "Asked another bot",
+  },
+  contract_return: {
+    base: "answer another bot",
+    doing: "Answering another bot",
+    done: "Answered another bot",
   },
   bot_message: {
     base: "message another bot",

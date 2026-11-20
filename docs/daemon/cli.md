@@ -1047,13 +1047,15 @@ Every file is valid as written: the folder passes ace bot check and ace bot test
     ace bot init --from "Release notes"
     # Your bot Release notes as a package folder to finish and publish
 
-### `ace bot check [PATH]`
+### `ace bot check [PATH] [flags]`
 
 The market's checks on a package, with every problem at its place; no account.
 
-The same reader Spade and the market use. Problems print as path: sentence and exit 1. Warnings (a thin why on an effect, a TODO left to write, no scenario tests) don't fail the check.
+The same reader Spade and the market use. Problems print as path: sentence and exit 1. Warnings (a thin why on an effect, a TODO left to write, no scenario tests) don't fail the check. With --against, the version other bots call is compared too: a change to a contract that would break them (a field gone or newly required, less text taken, an output that may hold what callers never saw) is refused, since a breaking change takes a new name.
 
 - `PATH`: The package's folder; this one when omitted
+
+- `--against PATH`: The version other bots call (its folder or bot.json): a contract change that breaks them is refused
 
 ### `ace bot test [PATH]`
 
@@ -1078,9 +1080,12 @@ It installs once, linked to the local package of its name (local/<name>), its ro
 
 Check and test the package, then publish it free: ace market publish spade-bot PATH.
 
+Before uploading it reads the latest version published in the market (ACE_MARKET_URL for a development one) and refuses a change to a contract that would break the bots calling it; a breaking change takes a new name. The market's signer refuses the same change.
+
 - `PATH`: The package's folder; this one when omitted
 
 - `--version VERSION`: The version to publish, such as 1.0.0
+- `--against PATH`: The version other bots call (its folder or bot.json): a contract change that breaks them is refused
 - `--name NAME`: The entry's name; the folder's otherwise
 - `--changelog TEXT|-|@FILE`: What changed in this version
 - `--draft`: Stop at the draft and print its id

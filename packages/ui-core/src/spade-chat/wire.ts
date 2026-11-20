@@ -3,6 +3,8 @@ import { spadeJson as json } from "./json.ts";
 import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
 import { spadeCapabilityEvents } from "./wire-capabilities.ts";
 import { spadeCardEvents } from "./cards.ts";
+import { spadePanelEvents } from "./panels.ts";
+import { spadeNoticeEvents } from "./notices.ts";
 
 /**
  * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
@@ -70,7 +72,15 @@ const known = z.discriminatedUnion("type", [
     text: text.default(""),
     /** Another bot that sent this message into the conversation (ADR 0127). */
     from_agent: z
-      .object({ id: z.string(), name: z.string().catch("") })
+      .object({
+        id: z.string(),
+        name: z.string().catch(""),
+        /** The contract call it delivers, when it is one (ADR 0200 §7). */
+        contract: z
+          .object({ call: z.string(), contract: z.string(), input: z.unknown() })
+          .nullish()
+          .catch(undefined),
+      })
       .nullish()
       .catch(undefined),
     /** One of the bot's routines or its heartbeat fired it (ADR 0129). */
@@ -272,6 +282,16 @@ const known = z.discriminatedUnion("type", [
     late: z.boolean().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("job_started"), reply, job: z.string(), name: z.string() }),
+  /** This bot called another bot's contract as job `job` (ADR 0200 §7). */
+  z.object({
+    type: z.literal("contract_called"),
+    job: z.string(),
+    call: z.string(),
+    bot: z.string(),
+    name: z.string().catch(""),
+    machine_name: z.string().nullish().catch(undefined),
+    contract: z.string(),
+  }),
   z.object({
     type: z.literal("job_finished"),
     job: z.string(),
@@ -353,6 +373,8 @@ const known = z.discriminatedUnion("type", [
   }),
   ...spadeCapabilityEvents,
   ...spadeCardEvents,
+  ...spadePanelEvents,
+  ...spadeNoticeEvents,
 ]);
 
 export type SpadeKnownEvent = z.infer<typeof known>;

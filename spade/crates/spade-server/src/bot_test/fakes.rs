@@ -28,6 +28,9 @@ pub const OUTSIDE: &[&str] = &[
     "issue_comment",
     "send_message",
     "delegate",
+    // Another bot's contracts: the scenario's answer stands for the bot it would call.
+    "contracts_find",
+    "contract_call",
 ];
 
 /// One fake tool: the scenario's answers in turn, the last again and again.

@@ -108,6 +108,15 @@ export function signerIo(base: URL): SignerIo {
   const fetch = cliFetch();
   return {
     get: async (path) => (await answered(await fetch(new URL(path, base), { headers }))).json(),
+    // A read route the market has nothing at (a package never published) is no error.
+    read: async (path) => {
+      const response = await fetch(new URL(path, base), { headers });
+      if (response.status === 404) {
+        await response.body?.cancel();
+        return undefined;
+      }
+      return (await answered(response)).json();
+    },
     object: async (hash) =>
       new Uint8Array(
         await (

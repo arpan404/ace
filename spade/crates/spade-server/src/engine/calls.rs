@@ -13,7 +13,7 @@ use spade_core::event::Verdict;
 use spade_core::event::{Authorized, Call, Known, since_arrival};
 use spade_core::gate::{self, Decision};
 use spade_core::maintenance::{Pause, Point};
-use spade_core::question::{self, connect};
+use spade_core::question::{self, connect, suggest};
 use spade_core::review;
 use spade_core::tools::{CALL_TOOL, Risk, TOOL_SEARCH, unwrap_call_tool};
 use spade_core::turn::{Pending, Status};
@@ -153,6 +153,21 @@ pub(super) async fn handle_calls(
             Status::New if name == connect::APP_CONNECT_REQUEST => {
                 match engine
                     .app_connect_request(id, reply, &pending.call, &arguments)
+                    .await
+                {
+                    Ok(Requested::Answered(output)) => {
+                        finish_tool(engine, id, reply, &pending.call, &name, output).await;
+                    }
+                    Ok(Requested::Waiting) => waiting = true,
+                    Ok(Requested::Stopped) => return Handled::Stopped,
+                    Err(error) => return Handled::Failed(error),
+                }
+            }
+            // A bot suggests a package (ADR 0200 §8): a suggest card from the market's signed
+            // manifest, which waits like a question; a name the market doesn't list is refused.
+            Status::New if name == suggest::PACKAGE_SUGGEST => {
+                match engine
+                    .package_suggest(id, reply, &pending.call, &arguments)
                     .await
                 {
                     Ok(Requested::Answered(output)) => {

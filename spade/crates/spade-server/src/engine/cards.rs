@@ -58,6 +58,20 @@ impl Engine {
         };
         let mut kept = Vec::new();
         let mut problems = Vec::new();
+        // An `open` names a panel only of the bot's own package (ADR 0200 §5.2).
+        let panels = self
+            .agent_of(conversation)
+            .and_then(|agent| self.bot_package(&agent))
+            .map(|link| link.manifest.surfaces)
+            .unwrap_or_default();
+        for panel in show.card.panels() {
+            if spade_core::package::surfaces::panel(&panels, panel).is_none() {
+                problems.push(card::Problem {
+                    at: format!("panel {panel}"),
+                    why: "isn't one of your package's panels.".to_owned(),
+                });
+            }
+        }
         for file in show.card.files() {
             match images(file.to_owned()).await {
                 Ok(image) => kept.push(image),

@@ -173,6 +173,8 @@ import QuartzCore
     let terminal = TerminalScreenModel()
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
     let browser = BrowserLiveModel()
+    /// Pages the person opened in the phone's own web view (`ClientModel+DeviceTabs.swift`).
+    let deviceTabs = DeviceTabsModel()
     let devices = DevicesModel()
     let computerAccess = ComputerAccessModel()
     /// Outside apps' sign-ins and screen use (ADR 0122).
@@ -244,6 +246,9 @@ import QuartzCore
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset(); spade.reset()
+        // Another machine's pages never carry over. Another route to the same machine keeps the
+        // device tabs and their pages: the new runtime takes them (`restoreDeviceTabs`).
+        if !sameMachine { deviceTabs.reset() }
         // Cards for later keep what was filled in across another route to the same machine.
         if !sameMachine { spade.cards.reset() }
         inboxLayout = .empty; chatLayout = .empty
@@ -283,6 +288,7 @@ import QuartzCore
         self.runtime = runtime
         // The restored inbox's sort, so the live list opens in the order already on screen.
         runtime.start(itemLimit: itemLimit, inboxSort: inboxLayout.sortBy)
+        restoreDeviceTabs()
         if readAheadAllowed { action(["type": "readAhead", "allowed": true]) }
         spadeResume()
         // The thread on screen (the kept one, or one tapped while the old runtime shut down) is
@@ -744,6 +750,7 @@ import QuartzCore
             case .screen(let id, let epoch, let screen):
                 if let target = scoped(id, epoch) { target.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)
+            case .deviceTabs(let patch): if let opened = deviceTabs.apply(patch) { showDeviceTab(opened) }
             case .devices(let patch): devices.apply(patch)
             case .computerAccess(let state): computerAccess.apply(state)
             case .outside(let state): outside.apply(state)

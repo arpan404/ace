@@ -30,8 +30,16 @@ regex = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
+# glibc's `malloc_trim`, to return the memory a replaced index freed.
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
+
+# The benches read a measured process's CPU and peak memory from `wait4` on Linux.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "0.2"
 
 [[bench]]
 name = "checkout"

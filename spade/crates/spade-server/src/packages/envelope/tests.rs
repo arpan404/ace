@@ -12,6 +12,7 @@ fn fixture() -> (Vec<MarketKey>, Envelope) {
     let envelope = Envelope {
         signed: all["signed"].clone(),
         bot_json: all["bot_json"].as_str().unwrap_or_default().to_owned(),
+        files: std::collections::BTreeMap::new(),
     };
     (keys, envelope)
 }

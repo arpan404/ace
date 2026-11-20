@@ -10,6 +10,7 @@ export {
   visualizationDocument,
   visualizationUrl,
   inlineVisualizationUrl,
+  panelUrl,
   visualizationWindow,
   styleKitVersion,
   themeMessage,
@@ -20,7 +21,13 @@ export {
   type HtmlThemeMessage,
   type ThemeProperty,
 } from "./document.ts";
-export { heightFromTitle, visualizationPartition } from "./scripts.ts";
+export {
+  heightFromTitle,
+  panelMessageBytes,
+  panelMessageFromTitle,
+  panelText,
+  visualizationPartition,
+} from "./scripts.ts";
 export {
   measuredLayoutProblems,
   phoneWidth,
@@ -32,3 +39,23 @@ export {
   unreadableTextPx,
   type PreviewMeasurement,
 } from "./preview.ts";
+export {
+  panelActionBudget,
+  panelConfirm,
+  panelConfirmArmMs,
+  panelConfirmPressed,
+  panelFaulted,
+  panelInit,
+  panelMayAct,
+  panelPingMs,
+  panelPonged,
+  panelStallMs,
+  panelState,
+  panelStrikes,
+  panelTheme,
+  panelTick,
+  panelWatch,
+  readPanelMessage,
+  type PanelConfirm,
+  type PanelWatch,
+} from "./panel.ts";

@@ -9,6 +9,7 @@ import { checkSkill, type SkillInspection } from "./skill.ts";
 import { checkSuit, type SuitInspection } from "./suit.ts";
 
 export { flaggedFile } from "./skill.ts";
+export { panelPageTexts } from "./panels.ts";
 export type { BotInspection, PluginInspection, SkillInspection, SuitInspection };
 export type Inspection = SuitInspection | SkillInspection | PluginInspection | BotInspection;
 

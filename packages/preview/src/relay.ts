@@ -23,21 +23,41 @@ const cap = (value: number | undefined) =>
     .parse(value ?? 256);
 export function attachPreviewRelay(options: {
   channel: PreviewChannel;
-  allowPort: (port: number) => Promise<boolean>;
+  allowPort: (port: number, id: number) => Promise<boolean>;
+  /** Admits an OPEN synchronously, before its socket exists; false resets it unopened. */
+  admitOpen?: (port: number, id: number) => boolean;
+  /**
+   * Asked synchronously as stream `id`'s socket connects, after `allowPort`; false destroys the
+   * socket unconnected, which resets the stream. Nothing runs between this and the connect.
+   */
+  canConnect?: (port: number, id: number) => boolean;
   maxStreams?: number;
+  /** Bytes queued for local sockets across every stream before a DATA resets (the mux's). */
+  maxQueuedBytes?: number;
+  onClosed?: () => void;
+  /**
+   * Stream `id` left the mux, however it ended (refused streams' too): synchronously, so its
+   * slot is free before the peer can hear its RESET and open again.
+   */
+  onStreamClosed?: (id: number) => void;
 }) {
   return createMux({
     channel: options.channel,
     allowPort: options.allowPort,
     maxStreams: cap(options.maxStreams),
     timer: systemTimer,
+    ...(options.onClosed ? { onClosed: options.onClosed } : {}),
+    ...(options.admitOpen ? { admitOpen: options.admitOpen } : {}),
+    ...(options.onStreamClosed ? { onStreamRemoved: options.onStreamClosed } : {}),
+    // The mux asks again as the socket connects, before READY: the connect may have moved to the
+    // other loopback family after the first check.
+    ...(options.canConnect ? { canConnect: options.canConnect } : {}),
+    ...(options.maxQueuedBytes === undefined ? {} : { maxQueuedBytes: options.maxQueuedBytes }),
     socketFactory: (port) => {
       const socket = new Socket({ allowHalfOpen: true });
       return {
-        socket: previewSocket(socket, systemTimer),
-        connect: () => {
-          socket.connect(loopbackConnection(port));
-        },
+        socket: previewSocket(socket),
+        connect: () => socket.connect(loopbackConnection(port)),
       };
     },
   });
@@ -87,7 +107,7 @@ async function createNodeLoopback(options: Parameters<PreviewLoopbackRuntime["li
       }
       socket.setTimeout(0);
       if (bytes < chunk.length) socket.unshift(chunk.subarray(bytes));
-      options.openSocket(previewSocket(socket, systemTimer));
+      options.openSocket(previewSocket(socket));
     };
     socket.on("error", () => socket.destroy());
     socket.on("data", authenticate);

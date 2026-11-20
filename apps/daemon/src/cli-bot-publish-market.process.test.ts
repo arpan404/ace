@@ -88,6 +88,8 @@ async function world() {
     ACE_THREAD_ID: "",
     ACE_NO_INPUT: "",
     ACE_MARKET_SIGNER_TOKEN: signerToken,
+    // Where `ace bot publish` reads the published version it compares contracts with.
+    ACE_MARKET_URL: market.origin,
   };
   const cli = (args: string[]) => invoke(home, args, env);
   /** A maintainer's `ace market maintainer VERB …` against this Worker. */

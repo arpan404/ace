@@ -22,6 +22,10 @@
 
 #[path = "support/content.rs"]
 mod content;
+// Shared with the other bench, which uses another part of it.
+#[allow(dead_code)]
+#[path = "support/host.rs"]
+mod host;
 #[path = "support/measure.rs"]
 mod measure;
 #[path = "support/report.rs"]
@@ -40,7 +44,6 @@ mod wire;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use report::Report;
@@ -125,10 +128,10 @@ fn bench(options: &Options, report: &mut Report) -> Result<(), Box<dyn Error>> {
             thousands(tree.shape.big_files)
         ),
     );
-    report.fact("load", load_average());
-    report.fact("memory", memory());
+    report.fact("load", host::load_average());
+    report.fact("memory", host::memory());
     report.fact("cache", cache_conditions(&tree));
-    report.fact("machine", machine());
+    report.fact("machine", host::machine());
     let binary = binary();
     report.fact("binary", binary.display().to_string());
 
@@ -219,39 +222,6 @@ fn target_dir() -> PathBuf {
     }
 }
 
-/// The machine's load average, as `sysctl` prints it.
-fn load_average() -> String {
-    match Command::new("sysctl").args(["-n", "vm.loadavg"]).output() {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .trim_start_matches('{')
-            .trim_end_matches('}')
-            .trim()
-            .to_owned(),
-        Ok(_) => "unknown".to_owned(),
-        Err(error) => format!("unknown: {error}"),
-    }
-}
-
-/// What the machine is, so the numbers have a context.
-fn machine() -> String {
-    let cpu = Command::new("sysctl")
-        .args(["-n", "machdep.cpu.brand_string"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-        .unwrap_or_default();
-    let cores = std::thread::available_parallelism()
-        .map(|cores| cores.get())
-        .unwrap_or(0);
-    if cpu.is_empty() {
-        format!("{cores} cores")
-    } else {
-        format!("{cpu}, {cores} cores")
-    }
-}
-
 /// How warm the OS's cache should be for this run: a tree it just wrote is warm, and a reused
 /// tree is as old as its completion marker, with its entries read once by the inventory check.
 fn cache_conditions(tree: &tree::Tree) -> String {
@@ -282,47 +252,4 @@ fn age_phrase(age: Duration) -> String {
     } else {
         format!("{} days", seconds / 86_400)
     }
-}
-
-/// Free and inactive memory in MiB, the two numbers that say whether the OS has cache to spare.
-fn memory() -> String {
-    match memory_mib() {
-        Some((free, inactive)) => format!("{free} MiB free, {inactive} MiB inactive"),
-        None => "unknown".to_owned(),
-    }
-}
-
-/// Free and inactive memory in MiB, from `vm_stat`'s page counts.
-fn memory_mib() -> Option<(u64, u64)> {
-    let page = sysctl_number("hw.pagesize")?;
-    let output = Command::new("vm_stat").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut free = None;
-    let mut inactive = None;
-    for line in text.lines() {
-        let Some((label, value)) = line.split_once(':') else {
-            continue;
-        };
-        let Ok(pages) = value.trim().trim_end_matches('.').parse::<u64>() else {
-            continue;
-        };
-        match label.trim() {
-            "Pages free" => free = Some(pages.saturating_mul(page) / (1024 * 1024)),
-            "Pages inactive" => inactive = Some(pages.saturating_mul(page) / (1024 * 1024)),
-            _ => {}
-        }
-    }
-    Some((free?, inactive?))
-}
-
-/// One integer from `sysctl`.
-fn sysctl_number(name: &str) -> Option<u64> {
-    let output = Command::new("sysctl").args(["-n", name]).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
 }

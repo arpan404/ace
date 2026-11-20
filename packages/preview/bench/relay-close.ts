@@ -66,7 +66,7 @@ export async function benchmarkCreditExhaustedCloses(count: number): Promise<num
       };
       accept?.(socket);
       await exhausted;
-      socket.destroy();
+      socket.destroy("reset");
       await new Promise<void>((resolve) => setImmediate(resolve));
       const stats = proxy.stats();
       if (stats.streams !== 0 || stats.bufferedBytes !== 0)

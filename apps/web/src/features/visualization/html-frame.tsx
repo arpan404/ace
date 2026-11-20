@@ -1,13 +1,32 @@
 import { useEffect, useRef, useState } from "react";
-import { HtmlHeightMessage, type HtmlMode, type HtmlStyleKit } from "@ace/protocol";
+import {
+  HtmlHeightMessage,
+  type HtmlMode,
+  type HtmlStyleKit,
+  type PanelHostMessage,
+} from "@ace/protocol";
 import {
   heightFromTitle,
   inlineVisualizationUrl,
+  panelMessageFromTitle,
+  panelTheme,
+  panelUrl,
   themeMessage,
   visualizationPartition,
   visualizationUrl,
   type HtmlTheme,
 } from "@ace/html";
+
+/**
+ * A package panel's channel (ADR 0200 §5.2), in place of a visualization's height alone: the
+ * same frame and sandbox, with typed messages each way. The caller reads every message.
+ */
+export interface PanelChannel {
+  /** A message the page's outer document relayed, unread: the caller checks it. */
+  onMessage(raw: unknown): void;
+  /** The page loaded: how to send it a message, until it unloads (`undefined` then). */
+  onReady(send: ((message: PanelHostMessage) => void) | undefined): void;
+}
 
 interface SurfaceProps {
   /** The sandboxed document, built once per page so theme changes never reload it. */
@@ -19,6 +38,7 @@ interface SurfaceProps {
   /** Height changes ease in rather than land at once. */
   ease: boolean;
   onHeight(height: number): void;
+  panel: PanelChannel | undefined;
 }
 
 /**
@@ -49,10 +69,16 @@ export function HtmlFrame(props: {
    */
   settled: boolean;
   onHeight(height: number): void;
+  /** A package panel's page: built as a panel, filling its place, with its channel. */
+  panel?: PanelChannel | undefined;
 }) {
   // A new document only for new HTML, mode or fit; the theme then updates live. Inline, the
   // frame is sized to its page, so that document never shows a scrollbar (`inlineVisualizationUrl`).
-  const build = props.fill ? visualizationUrl : inlineVisualizationUrl;
+  const build: typeof visualizationUrl = props.panel
+    ? (html, theme) => panelUrl(html, theme)
+    : props.fill
+      ? visualizationUrl
+      : inlineVisualizationUrl;
   const [built, setBuilt] = useState(() => ({
     html: props.html,
     mode: props.mode,
@@ -76,9 +102,14 @@ export function HtmlFrame(props: {
       height={height}
       ease={props.settled}
       onHeight={props.onHeight}
+      panel={props.panel}
     />
   );
 }
+
+/** The theme as the page takes it: a panel's own message, or a visualization's. */
+const themeFor = (panel: PanelChannel | undefined, theme: HtmlTheme) =>
+  panel ? panelTheme(theme) : themeMessage(theme);
 
 /** Content height changes ease in, so a page that grows (a tab, a step) doesn't jump. */
 const resizes = "transition-[height] duration-200 ease-out motion-reduce:transition-none";
@@ -87,11 +118,12 @@ const surface = (ease: boolean) => (ease ? resizes : "");
 function IframeSurface(props: SurfaceProps) {
   const frame = useRef<HTMLIFrameElement>(null);
   const theme = useRef(props.theme);
-  const { onHeight } = props;
+  const { onHeight, panel } = props;
   useEffect(() => {
     let pending: number | undefined;
     const resized = (event: MessageEvent<unknown>) => {
       if (event.source !== frame.current?.contentWindow || event.origin !== "null") return;
+      if (panel) return panel.onMessage(event.data);
       const parsed = HtmlHeightMessage.safeParse(event.data);
       if (!parsed.success) return;
       if (pending !== undefined) cancelAnimationFrame(pending);
@@ -102,14 +134,19 @@ function IframeSurface(props: SurfaceProps) {
       window.removeEventListener("message", resized);
       if (pending !== undefined) cancelAnimationFrame(pending);
     };
-  }, [onHeight]);
+  }, [onHeight, panel]);
   // An opaque-origin frame can only be addressed with "*"; only the outer bridge reads it.
-  const send = () => frame.current?.contentWindow?.postMessage(themeMessage(theme.current), "*");
+  const post = (message: unknown) => frame.current?.contentWindow?.postMessage(message, "*");
+  const send = () => {
+    if (panel) panel.onReady(post);
+    else post(themeMessage(theme.current));
+  };
+  useEffect(() => () => panel?.onReady(undefined), [panel]);
   useEffect(() => {
     if (theme.current === props.theme) return;
     theme.current = props.theme;
-    frame.current?.contentWindow?.postMessage(themeMessage(props.theme), "*");
-  }, [props.theme]);
+    frame.current?.contentWindow?.postMessage(themeFor(panel, props.theme), "*");
+  }, [props.theme, panel]);
   return (
     <iframe
       ref={frame}
@@ -137,24 +174,28 @@ function WebviewSurface(props: SurfaceProps) {
   const view = useRef<HTMLElement>(null);
   const ready = useRef(false);
   const theme = useRef(props.theme);
-  const { onHeight, source, title } = props;
+  const { onHeight, source, title, panel } = props;
   useEffect(() => {
     const container = host.current;
     if (!container) return;
     const element = document.createElement("webview");
+    const post = (message: unknown) =>
+      runInGuest(element, `postMessage(${JSON.stringify(message)}, "*")`);
     element.setAttribute("partition", visualizationPartition);
     element.setAttribute("src", source);
     element.setAttribute("title", title);
     element.style.cssText = "display:flex;width:100%;height:100%;border:0";
-    const send = () =>
-      runInGuest(element, `postMessage(${JSON.stringify(themeMessage(theme.current))}, "*")`);
     const domReady = () => {
       ready.current = true;
-      send();
+      if (panel) panel.onReady(post);
+      else post(themeMessage(theme.current));
     };
     const titled = (event: Event) => {
       const value: unknown = Reflect.get(event, "title");
-      const height = typeof value === "string" ? heightFromTitle(value) : undefined;
+      if (typeof value !== "string") return;
+      // A panel's outer document reports its messages through its title, numbered.
+      if (panel) return panel.onMessage(panelMessageFromTitle(value));
+      const height = heightFromTitle(value);
       if (height !== undefined) onHeight(height);
     };
     element.addEventListener("dom-ready", domReady);
@@ -167,14 +208,15 @@ function WebviewSurface(props: SurfaceProps) {
       element.remove();
       view.current = null;
       ready.current = false;
+      panel?.onReady(undefined);
     };
-  }, [source, title, onHeight]);
+  }, [source, title, onHeight, panel]);
   useEffect(() => {
     if (theme.current === props.theme) return;
     theme.current = props.theme;
     if (ready.current && view.current)
-      runInGuest(view.current, `postMessage(${JSON.stringify(themeMessage(props.theme))}, "*")`);
-  }, [props.theme]);
+      runInGuest(view.current, `postMessage(${JSON.stringify(themeFor(panel, props.theme))}, "*")`);
+  }, [props.theme, panel]);
   return (
     <div
       ref={host}

@@ -5,6 +5,7 @@
 
 pub mod brief;
 pub mod notable;
+pub mod notice;
 pub mod settings;
 pub mod spend;
 
@@ -40,6 +41,8 @@ pub enum Category {
     Summary,
     /// Only for the digest: a decision, a drafted goal.
     Record,
+    /// A bot's own notice (`notify`): proactive, with its own rate on top (`notice`).
+    Notice,
 }
 
 /// How a notice reaches the person.
@@ -65,6 +68,8 @@ pub enum Why {
     Dnd,
     Quiet,
     Budget,
+    /// The bot sent its most notices for the hour (`notice::PER_HOUR`).
+    Rate,
     /// It belongs in the digest only.
     Record,
 }

@@ -73,6 +73,9 @@ const PUBLISHED_V1: &[(&str, Option<Effect>)] = &[
     ("pr_comment", Some(SendAsPerson)),
     ("issue_comment", Some(SendAsPerson)),
     ("send_message", Some(SendAsPerson)),
+    // Added in 0.0.25 (ADR 0200 phase 2).
+    ("package_suggest", Some(Read)),
+    ("notify", Some(WriteLocal)),
 ];
 
 /// The published rows [`breaks`] checks: `call_tool`'s varies, so only its presence counts.

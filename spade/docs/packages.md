@@ -10,22 +10,24 @@ recipe still installs as an unlinked copy the person owns.
 `bot.json`, read by `spade_core::package::read` (and `readRecipe` in `@ace/marketplace`, which
 must agree). Version 3 adds, beside version 2's fields:
 
-| Field      | What it is                                                                                                                                                                                      |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `requires` | `{runtime: "1", spade: "0.0.25"}`; a build that can't meet them refuses with "Needs a newer Spade"                                                                                              |
-| `uses`     | Runtime modules (`task`, `memory`, `files`, `web`, `apps`, `agents`, `ui`, `schedule`, …)                                                                                                       |
-| `triggers` | `message`, `mention {in}`, `schedule {name, instruction, schedule}`, `event {name, instruction, event}` (`thread.finished`, `thread.failed`, `thread.needs_you`), `webhook {name, instruction}` |
-| `effects`  | `{effect, why, hosts?, grant?}` with `effect` one of `network`, `publish`, `send_as_person`, `pay`, `change_access`                                                                             |
-| `limits`   | `spend_alert {usd_per_day}`, `workers_at_once`, `workspace_mb`: an alert line and bounds, never a stop                                                                                          |
-| `pricing`  | `{kind: "free"}` only; missing reads as free                                                                                                                                                    |
-| `tests`    | `tests/<name>.json` scenario files in the package                                                                                                                                               |
+| Field       | What it is                                                                                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `requires`  | `{runtime: "1", spade: "0.0.25"}`; a build that can't meet them refuses with "Needs a newer Spade"                                                                                               |
+| `uses`      | Runtime modules (`task`, `memory`, `files`, `web`, `apps`, `agents`, `ui`, `schedule`, …)                                                                                                        |
+| `triggers`  | `message`, `mention {in}`, `schedule {name, instruction, schedule}`, `event {name, instruction, event}` (`thread.finished`, `thread.failed`, `thread.needs_you`), `webhook {name, instruction}`  |
+| `effects`   | `{effect, why, hosts?, grant?}` with `effect` one of `network`, `publish`, `send_as_person`, `pay`, `change_access`                                                                              |
+| `limits`    | `spend_alert {usd_per_day}`, `workers_at_once`, `workspace_mb`: an alert line and bounds, never a stop                                                                                           |
+| `pricing`   | `{kind: "free"}` only; missing reads as free                                                                                                                                                     |
+| `contracts` | Typed calls the person's other bots may make to it: `{name, summary, input, output, effects, examples}`, or `file: contracts/<name>.json` in place of the schemas ([contracts.md](contracts.md)) |
+| `tests`     | `tests/<name>.json` scenario files in the package                                                                                                                                                |
+| `surfaces`  | Cards (`cards/<name>.json`) and panels (`panels/<id>/index.html` with a title, a state schema and declared actions), [surfaces.md](surfaces.md)                                                  |
 
 Version 2's `routines` read as schedule triggers. Refused whole: anything named or shaped like a
 secret; `publisher`, `signature`, `hash`, `package` or a string `version` (identity is the signed
 manifest's); `mcpServers`, `hooks`, `commands` and other executions (those are plugins'); the
 `credential` effect; a grant other than `drive_site`, `drive_app` or `tool` (and any grant under a
-send, payment or access change); any price but free. Fields this build doesn't know (`surfaces`
-and `contracts` until phase 2) are kept by name and grant nothing.
+send, payment or access change); any price but free. Fields this build doesn't know are kept by
+name and grant nothing.
 
 ## Effects: switches and a ceiling
 
@@ -117,7 +119,9 @@ person turned off while an update waited stays off.
 - `POST /v1/agents` with `recipe` (the published `bot.json`), `envelope {signed, bot_json}` (the
   market's signed version manifest as served, and `bot.json`'s exact text), `package {source,
 name, version, hash}` (checked against the envelope, refused without one), `switches {key:
-bool}` (missing is off), `grants`, `from_recipe`, `start_routines`: makes the linked bot. Schedule, event and webhook triggers start paused unless
+bool}` (missing is off), `grants`, `from_recipe`, `start_routines`, `pages {path: text}` (each
+  declared panel's page, kept by hash in the same write as the bot; a panel without its page
+  refuses the install): makes the linked bot. Schedule, event and webhook triggers start paused unless
   `start_routines`. A failure part-way removes the bot and whatever its switches made.
 - `GET /v1/agents/{id}/package`: `{package}` with `version`, `previous`, `withdrawn {reason}`,
   `updating`, `held {version}`, `template_update {version}` (a bot from an ace template whose
@@ -130,7 +134,8 @@ bool}` (missing is off), `grants`, `from_recipe`, `start_routines`: makes the li
   `name`, `task`, `face`, `personality` each `same`, `replace` or `kept` (the person or the bot
   changed it), routine steps (`add` paused, `replace`, `remove`, `kept`), `notes_kept`,
   `asks_more` (effect keys that start off) and `off`.
-- `POST /v1/agents/{id}/package {recipe, envelope, package, transaction}` (the envelope as
+- `POST /v1/agents/{id}/package {recipe, envelope, package, transaction, pages}` (pages as for
+  an install, kept once the step is accepted; the envelope as
   above; a local bot's without one; a template bot's with only `package`, which must be exactly
   the version `template_update` offers): applies an update or a rollback, the same path both
   ways. While the bot works or waits on the person it isn't refused:
@@ -149,6 +154,34 @@ bool}` (missing is off), `grants`, `from_recipe`, `start_routines`: makes the li
 The person's conversation, notes they wrote, knowledge, workspace files, connections, grants and
 settings are never in a plan. `workers_at_once` bounds the bot's workers under
 `SPADE_WORKERS_AT_ONCE`, and `spend_alert` becomes the floor of its spend alert.
+
+## A bot suggests a package
+
+`package_suggest {package, why}` (`spade.v1` module `agents`, since 0.0.25; ADR 0200 §8, §10
+phase 2) shows the person a suggest card in the bot's chat, a question card of kind `suggest`
+(ADR 0154). The bot names only the package and its reason; it can't install, choose a version or
+set a switch, and an argument other than those two is refused.
+
+- Spade asks ace's marketplace for the version the market lists now (`spadeBot {name}` on
+  `marketplace.request`, a read): the daemon fetches and checks it as a review does (signature,
+  withdrawn list, ace's checks, the device's scan) and hands back the signed version manifest and
+  `bot.json`'s exact text. Only the signed market counts; a git catalog's entry is never
+  suggested.
+- Spade believes it only when the manifest's signature verifies with the market keys it ships,
+  covers those `bot.json` bytes and names that package (`envelope::verify`, as an install does).
+  A name the market doesn't list, a withdrawn or refused version and a signature it can't verify
+  are refused to the bot, and no card is shown.
+- The card holds only what Spade read there: the name, face and blurb from `bot.json`, the
+  publisher from the signed manifest, the listed version, and what it would ask to do (each
+  declared effect, app and schedule in a few words). The bot's reason is the only text of its
+  own.
+- The card waits like a question. Review install opens the Marketplace's normal install review
+  (`?market=bot/<name>/review`), with its switches; nothing is installed without it. When a bot
+  made from that market package is installed (`POST /v1/agents` with its envelope, from anywhere),
+  Spade answers every open suggest card for it: a waiting one wakes its turn, one left for later
+  arrives as a late answer, and the bot reads the new bot's name. Later and Not now are the card's
+  own; an answer posted to it is refused. Open cards are kept in the setting
+  `package_suggest:open` (at most 200), so a restart keeps them answerable.
 
 ## Reviews and moves
 
@@ -203,7 +236,7 @@ The market's signer (`ace market maintainer sign`, on a maintainer's machine, ne
 which can't run Spade) runs a version 3 package's `tests` the same way before it signs it: offline
 on Spade's program with the scripted model, from the bytes the market stored. A version whose
 tests fail is refused for good, with each failure a finding in the report the publisher reads on
-their entry's page; a signer without Spade's program leaves it pending. A publisher's own report
+their entry's page; a signer without Spade's program leaves it pending. Before the tests it compares the version's contracts with the latest signed version before it and refuses for good one that breaks their callers ([contracts.md](contracts.md)); `ace bot publish` makes the same comparison against the market before it uploads. A publisher's own report
 proves nothing, so none is recorded in the signed manifest.
 
 `ace bot dev` reaches the person's Spade through the daemon, or a development Spade directly by
@@ -263,12 +296,14 @@ when all pass, 1 otherwise, 2 for a wrong command line.
 }
 ```
 
-- `given`: a `message`, or a `trigger` naming one of the package's schedule, event or webhook
-  triggers (its routine runs now).
+- `given`: a `message`, a `trigger` naming one of the package's schedule, event or webhook
+  triggers (its routine runs now), or a contract `call {contract, input, from?}` from another of
+  the person's bots, answered with `contract_return {call: "cc.scenario", output}`
+  ([contracts.md](contracts.md)).
 - `model`: one step per model call, `say` then `calls`; the last step only says something.
 - `tools`: fake results by tool name, one or a list taken in turn; only tools that reach outside.
 - `expect`: `calls` (ran, in this order), `not_called`, `effects` (asked for, as the gate read
   the calls), `refused` (the gate refused them), `cards` (words in a shown card's title),
-  `reply_contains`. A refused call fails the scenario unless `refused` names it; an expected call
+  `reply_contains`, and with a given call `output` (fields the call's output holds). A refused call fails the scenario unless `refused` names it; an expected call
   that answered an error fails it; a card that didn't fit fails it. Unknown fields are a problem,
   so a typo never passes silently.

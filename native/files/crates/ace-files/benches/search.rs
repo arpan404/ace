@@ -15,6 +15,10 @@
 //! of matches. The table also goes to
 //! `target/bench/search.md`.
 
+// Shared with the other bench, which uses another part of it.
+#[allow(dead_code)]
+#[path = "support/host.rs"]
+mod host;
 #[path = "support/search_manifest.rs"]
 mod search_manifest;
 #[path = "support/search_runs.rs"]
@@ -97,12 +101,15 @@ fn run() -> Result<(), Box<dyn Error>> {
         })
         .collect();
     let mut out = format!(
-        "{} files, {:.0} MB, {} runs per cell (median), binary {}, {}\n",
+        "{} files, {:.0} MB, {} runs per cell (median), binary {}, {}\nmachine {}, load {}, memory {}\n",
         tree.files,
         tree.bytes as f64 / 1e6,
         options.runs,
         binary.display(),
         rg_version(&options.rg),
+        host::machine(),
+        host::load_average(),
+        host::memory(),
     );
     println!("{out}");
     // Warm the cache with one full pass of each tool before the warm pass.
