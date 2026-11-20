@@ -344,9 +344,10 @@ function liveThreadStatus(state: ThreadState): ThreadStatus {
     0,
   );
   // ace's own work waiting on the person elsewhere (a bot asked from this thread, ADR 0198).
-  const heldHuman = runningTaskKeys(state).filter(
-    (key) => lookup(state.tasks, key)?.waitingForPerson === true,
-  ).length;
+  const waitingOn = state.personTasks;
+  const heldHuman = waitingOn
+    ? runningTaskKeys(state).filter((key) => lookup(waitingOn, key) === true).length
+    : 0;
   const human = pending.length + externalHuman + heldHuman;
   if (human > 0) return { state: "needs_you", interactions: human };
   const working = records.filter((record) => {

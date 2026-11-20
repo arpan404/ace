@@ -153,7 +153,7 @@ Three limits above are lifted.
 - **Other machines' simulators and emulators** are listed under Devices, from each machine's own
   `devices.request` `list` through its client, marked "on ‹machine›".
 - **A bot waiting on the person shows in ace's Inbox.** The ask's background row is marked as
-  waiting on the person (core fact `background.waiting`, `waitingForPerson` on the task), and a
+  waiting on the person (core fact `background.waiting`, kept in core's thread state, off the wire), and a
   thread with such a row reads `needs_you`, as a waiting thread does. It clears when the bot goes
   back to work, answers or stops.
 - **Devices travel with bot and club asks.** The thread ask carries the devices named with it,

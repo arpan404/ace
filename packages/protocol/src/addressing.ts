@@ -29,7 +29,28 @@ export const SpadeFaceJson = z
   .meta({ "x-ace-constraint": "At most 24 fields." });
 export type SpadeFaceJson = z.infer<typeof SpadeFaceJson>;
 
-export const Addressee = z.discriminatedUnion("kind", [
+/**
+ * Who the person addressed: a bot, a club or another thread's agent. Declared, not inferred, as
+ * `Speaker` is: items and commands carry it, and an inferred shape there grows the wire unions'
+ * declared types past what TypeScript will write out.
+ */
+export type Addressee =
+  | {
+      kind: "bot";
+      id: string;
+      name: string;
+      avatar?: SpadeFaceJson | undefined;
+      machine?: { id: HostId; name: string } | undefined;
+    }
+  | {
+      kind: "club";
+      id: string;
+      name: string;
+      faces: { id: string; avatar?: SpadeFaceJson | undefined }[];
+      machine?: { id: HostId; name: string } | undefined;
+    }
+  | { kind: "agent"; threadId: ThreadId; title: string; provider?: ProviderKind | undefined };
+export const Addressee: z.ZodType<Addressee> = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("bot"),
     id: spadeId,
@@ -55,7 +76,6 @@ export const Addressee = z.discriminatedUnion("kind", [
     provider: ProviderKind.optional(),
   }),
 ]);
-export type Addressee = z.infer<typeof Addressee>;
 
 /** What goes with the message: a summary of this thread, or only the person's words. */
 export const AddressedShare = z.enum(["thread", "message"]);

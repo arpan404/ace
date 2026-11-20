@@ -4601,7 +4601,6 @@ Example:
 | wakesAgent | no | `false` |  |
 | listening | no | array | {"maxItems":16,"items":{"type":"integer","minimum":1,"maximum":65535}} |
 | blocksPrompts | no | `true` |  |
-| waitingForPerson | no | `true` |  |
 | outputPath | no | string |  |
 | toolCallId | no | [ItemId.json](schema/ItemId.json) |  |
 | childAgentId | no | [AgentId.json](schema/AgentId.json) |  |
@@ -4615,16 +4614,17 @@ Example:
 ```json
 {
   "agentId": "example",
+  "childAgentId": "example",
+  "endedAt": 3,
   "id": "example",
   "internal": true,
   "kind": "monitor",
+  "outputPath": "example",
   "raw": [],
-  "startedAt": 1,
+  "startedAt": 7,
   "status": "stopped",
-  "stoppable": false,
+  "stoppable": true,
   "title": "example",
-  "toolCallId": "example",
-  "waitingForPerson": true,
   "wakesAgent": false
 }
 ```

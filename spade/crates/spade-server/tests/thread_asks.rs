@@ -203,7 +203,10 @@ async fn a_thread_s_context_pack_makes_the_turn_untrusted_and_reaches_the_bot_as
         Some(pack),
     );
     ask(&spade, &body).await?;
-    assert_eq!(answer(&spade, "ace.t.2").await?["status"], "answered");
+    assert_eq!(
+        until_settled(&spade, "ace.t.2").await?["status"],
+        "answered"
+    );
     let events = spade.events(&conversation(&research)).await?;
     let message = events
         .iter()

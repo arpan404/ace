@@ -230,7 +230,7 @@ function fold(
       listenBackground(state, fact, events);
       break;
     case "background.waiting":
-      waitBackground(state, fact, events);
+      waitBackground(state, fact);
       break;
     case "background.ended":
       endBackground(state, fact, ctx, events);

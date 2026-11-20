@@ -261,14 +261,11 @@ export function listenBackground(
 export function waitBackground(
   state: ThreadState,
   fact: Extract<Fact, { type: "background.waiting" }>,
-  events: EventPayload[],
 ): void {
   const task = get(state.tasks, fact.task);
   if (task?.status !== "running" || task.owner !== "ace") return;
-  if ((task.waitingForPerson === true) === fact.waiting) return;
-  if (fact.waiting) task.waitingForPerson = true;
-  else delete task.waitingForPerson;
-  emit(events, { type: "background_task.started", task: structuredClone(task) });
+  if (fact.waiting) put((state.personTasks ??= dictionary<true>()), fact.task, true);
+  else if (state.personTasks) delete state.personTasks[fact.task];
 }
 
 export function endBackground(
@@ -284,6 +281,7 @@ export function endBackground(
   // A task ace lost track of takes later terminal evidence; its end time stays when it was lost.
   const lost = task.status === "unknown" && !uncertain && fact.status !== "unknown";
   if (task.status !== "running" && !uncertain && !lost) return;
+  if (state.personTasks) delete state.personTasks[fact.task];
   if (fact.uncertain) put((state.uncertainTasks ??= dictionary<true>()), fact.task, true);
   else if (state.uncertainTasks) delete state.uncertainTasks[fact.task];
   const endedAt = lost && task.endedAt !== undefined ? task.endedAt : ctx.now;
