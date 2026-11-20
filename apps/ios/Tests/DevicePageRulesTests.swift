@@ -37,7 +37,13 @@ extension PageJourney: @retroactive CustomTestStringConvertible {
     func aJourneyThroughSeveralNavigationsReachesTheMachineOnlyWhereTheRulesAllow(_ journey: PageJourney) async throws {
         let run = try #require(await PageRulesRun.start(in: Self.window), "no network address to stand for a public site")
         defer { run.stop() }
-        let reached = await run.run(journey)
+        let (reached, publicSite) = await run.run(journey)
+        if let publicSees = journey.publicSees {
+            let (path, methods) = publicSees(PageJourney.Bases(machine: "", publicSite: "", id: journey.id))
+            // First that what is refused was asked for at all: the replay reached the public site.
+            let seen = publicSite.filter { $0.path.hasPrefix(path) }.map(\.method)
+            #expect(seen == methods, "the public site saw \(publicSite)")
+        }
         #expect(reached == journey.reaches, "reached the machine with \(reached)")
     }
 

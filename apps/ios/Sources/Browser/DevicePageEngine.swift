@@ -31,13 +31,30 @@ enum DevicePageEngine {
     /// Blocks every loopback request (pages, fetches, websockets, frames) unless the top-level page
     /// is itself on a loopback host. A top-level navigation to loopback is that page, so an OAuth
     /// flow that leaves for a provider and redirects back to `localhost` still loads.
+    ///
+    /// Inside a loopback page, a subresource a child frame asks for is blocked too unless that
+    /// frame is on a loopback host (`unless-frame-url`, the frame the request loads in), so a
+    /// public frame in a localhost app can't reach the machine with a fetch, an image or a
+    /// websocket. Documents are left out: a child frame's own document load is matched against
+    /// the frame before it navigates (a new frame's `about:blank`), so it would block a localhost
+    /// app's own frames; its navigations are the navigation policy's (`allowsSubframe`) instead.
     static func ruleList() -> String {
-        let rules: [[String: Any]] = loopbackPatterns.map { pattern in
+        let topRules: [[String: Any]] = loopbackPatterns.map { pattern in
             ["trigger": ["url-filter": pattern, "unless-top-url": loopbackPatterns], "action": ["type": "block"]]
         }
+        let frameRules: [[String: Any]] = loopbackPatterns.map { pattern in
+            ["trigger": ["url-filter": pattern, "load-context": ["child-frame"], "resource-type": subresourceTypes,
+                         "unless-frame-url": loopbackPatterns],
+             "action": ["type": "block"]]
+        }
+        let rules = topRules + frameRules
         let data = (try? JSONSerialization.data(withJSONObject: rules, options: [.sortedKeys])) ?? Data("[]".utf8)
         return String(decoding: data, as: UTF8.self)
     }
+
+    /// Every resource type but a document (and a popup, which the device tab never opens).
+    static let subresourceTypes = ["image", "style-sheet", "script", "font", "raw", "svg-document", "media", "ping",
+                                   "fetch", "websocket", "other"]
 
     /// Whether `host` is the machine's loopback: `localhost`, a name under it, `127.0.0.0/8` or
     /// `::1` (bracketed or not). Pure.
@@ -75,7 +92,16 @@ enum DevicePageEngine {
         return loopbackNavigationAllowed(method: method ?? "GET", initiatorIsLoopback: isLoopbackHost(sourceHost))
     }
 
-    static let ruleListIdentifier = "ace.device-tab.loopback.v1"
+    /// Whether a child frame's navigation may go ahead: anything not to loopback does; one to
+    /// loopback only when the frame that started it is on a loopback host, whatever its method,
+    /// as the desktop app refuses a frame's loopback request without a loopback initiator. No
+    /// person navigates a child frame, so a GET from a public frame is no person's link. Pure.
+    static func allowsSubframe(to url: URL?, sourceHost: String?) -> Bool {
+        guard isLoopbackHost(url?.host(percentEncoded: false)) else { return true }
+        return isLoopbackHost(sourceHost)
+    }
+
+    static let ruleListIdentifier = "ace.device-tab.loopback.v2"
 
     /// The compiled rule list, made once for the app.
     @MainActor private static var compiled: WKContentRuleList?

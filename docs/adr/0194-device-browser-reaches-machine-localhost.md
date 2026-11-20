@@ -261,7 +261,23 @@ loopback requests from pages that aren't themselves on a loopback host:
   name every host `isMachineLoopbackHost` accepts as WebKit serializes a request's URL, a
   trailing dot (`localhost.`) and userinfo (`user@localhost`) included; both are tested against
   one table (`machine-loopback-urls.json`), and real web views on the simulator load each spelling
-  from a public page and from a localhost one.
+  from a public page and from a localhost one. The top URL alone would let a public frame inside
+  a localhost page through, so a second rule blocks a child frame's loopback subresources
+  (fetches, images, scripts, websockets, everything but a document) `unless-frame-url` is
+  loopback, the frame the request loads in. A child frame's own navigation is left to the
+  navigation policy below, which lets one to loopback through only when the frame that started
+  it (`sourceFrame`'s security origin) is on loopback, whatever its method, as the desktop app
+  refuses a frame's request without a loopback initiator. Documents stay out of the frame rule
+  because WebKit matches a frame's document load against the frame before it navigates (a new
+  frame's `about:blank`), which would block a localhost app's own frames. Real web views on the
+  iOS 26.1 simulator check a public frame in a localhost page fetching, loading an image,
+  posting a form and navigating itself to localhost (none arrive) beside the same from a
+  localhost frame (all arrive). The cost, seen on the same simulator: a localhost page's frame
+  with no URL of its own (`srcdoc`, `about:blank`) is matched as that URL, so its loopback
+  subresources are blocked although its document is the localhost app's. Letting `about:` frame
+  URLs through would undo the rule, since a public frame can make a blank frame of its own and
+  script it, so a localhost app that loads from the machine inside such frames doesn't work in
+  a phone's device tab.
 
 Neither rule can judge a top-level navigation: its own URL is the top-level URL, so a public page
 could still submit a form to a service on the machine. Each app's navigation policy therefore

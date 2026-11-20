@@ -96,17 +96,20 @@ struct DevicePageView: UIViewRepresentable {
         status?.failed = false; status?.refused = false
     }
 
-    /// Main-frame navigations to the machine's loopback follow `allowsMainFrame`; frames and
-    /// subresources are the rule list's. Redirects come through here again with their method.
+    /// Main-frame navigations to the machine's loopback follow `allowsMainFrame`, child frames
+    /// follow `allowsSubframe`; subresources are the rule list's. Redirects come through here
+    /// again with their method.
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-        guard navigationAction.targetFrame?.isMainFrame ?? true else { decisionHandler(.allow); return }
         // The source frame is the page on screen even for a load the app asked for (iOS 26), so
         // it can't tell the person's navigations from the page's, and nothing here tries to.
         // Read it so a missing one is nil, not a crash, though the header says it never is.
         let source = navigationAction.value(forKey: "sourceFrame") as? WKFrameInfo
-        let allowed = DevicePageEngine.allowsMainFrame(to: navigationAction.request.url, method: navigationAction.request.httpMethod,
-                                                       sourceHost: source?.securityOrigin.host)
+        let url = navigationAction.request.url
+        let allowed = navigationAction.targetFrame?.isMainFrame ?? true
+            ? DevicePageEngine.allowsMainFrame(to: url, method: navigationAction.request.httpMethod,
+                                               sourceHost: source?.securityOrigin.host)
+            : DevicePageEngine.allowsSubframe(to: url, sourceHost: source?.securityOrigin.host)
         if !allowed { status?.refused = true }
         decisionHandler(allowed ? .allow : .cancel)
     }

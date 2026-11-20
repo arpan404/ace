@@ -195,6 +195,8 @@ struct PageRulesScenario: Sendable {
     /// Where the person's own load starts, given the same bases and the page's path; the page
     /// itself unless given (a public URL that redirects, say).
     var start: (@Sendable (_ machine: String, _ publicBase: String, _ hit: String) -> String)?
+    /// A page the scenario frames, at `/inner/<id>` on both servers, given the same bases.
+    var inner: (@Sendable (_ machine: String, _ publicBase: String, _ hit: String) -> String)?
     /// The name as a path segment: letters, digits and dashes only, so it sits in any quoted HTML.
     var id: String {
         String(name.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" })
@@ -229,7 +231,44 @@ extension PageRulesScenario {
         // The person's own load goes through each redirect to localhost, whatever its status: it
         // is a GET, and so is every redirect of it.
         personRedirect(302), personRedirect(303), personRedirect(307), personRedirect(308),
+    ] + framedRequests + [
+        // The frame rule's known cost (ADR 0194): a frame with no URL of its own is matched as
+        // `about:srcdoc`, so even a localhost page's own is refused. Letting `about:` frames
+        // through would let a public frame reach the machine from a blank frame it makes.
+        PageRulesScenario(name: "a localhost page's srcdoc frame is refused localhost too", origin: .loopback, html: { machine, _, hit in
+            "<iframe srcdoc=\"<img src='\(machine)\(hit)'>\"></iframe>"
+        }, reaches: nil),
     ]
+
+    /// A frame inside a localhost page asking the machine's localhost, as a public frame and as a
+    /// localhost one: the localhost top page lets nothing through for the public frame.
+    static let framedRequests: [PageRulesScenario] = [PageRulesScenario.Origin.publicSite, .loopback].flatMap { origin in
+        [
+            framed(origin, "fetching localhost", reaches: "GET") { machine, hit in
+                "<script>fetch('\(machine)\(hit)').catch(() => {})</script>"
+            },
+            framed(origin, "loading an image from localhost", reaches: "GET") { machine, hit in
+                "<img src='\(machine)\(hit)'>"
+            },
+            framed(origin, "posting a form to localhost", reaches: "POST") { machine, hit in
+                "<form method='post' action='\(machine)\(hit)'><input name='a' value='1'></form><script>document.forms[0].submit()</script>"
+            },
+            framed(origin, "navigating itself to localhost", reaches: "GET") { machine, hit in
+                "<script>location.href = '\(machine)\(hit)'</script>"
+            },
+        ]
+    }
+
+    /// A localhost page framing a page on `origin` that does `request`; it reaches the machine
+    /// (with `reaches`) only from a localhost frame.
+    private static func framed(_ origin: Origin, _ request: String, reaches: String?,
+                               _ html: @escaping @Sendable (_ machine: String, _ hit: String) -> String) -> PageRulesScenario {
+        let frame = origin == .publicSite ? "a public frame" : "a localhost frame"
+        return PageRulesScenario(name: "\(frame) in a localhost page \(request)", origin: .loopback, html: { machine, publicBase, hit in
+            // The framed page is `/inner/<id>`, beside the hit `/hit/<id>`.
+            "<iframe src='\(origin == .publicSite ? publicBase : machine)\(hit.replacingOccurrences(of: "/hit/", with: "/inner/"))'></iframe>"
+        }, reaches: origin == .publicSite ? nil : reaches, inner: { machine, _, hit in html(machine, hit) })
+    }
 
     /// The person opens a public address that redirects to localhost with `status`.
     private static func personRedirect(_ status: Int) -> PageRulesScenario {
@@ -356,6 +395,7 @@ final class PageBook: @unchecked Sendable {
         let hit = "/hit/\(scenario.id)"
         let page = "/page/\(scenario.id)"
         book.put(page, scenario.html(machineBase, publicBase, hit))
+        if let inner = scenario.inner { book.put("/inner/\(scenario.id)", inner(machineBase, publicBase, hit)) }
         let base = scenario.origin == .publicSite ? publicBase : machineBase
         let start = URL(string: scenario.start?(machineBase, publicBase, hit) ?? base + page)!
         view.load(URLRequest(url: start))
@@ -368,12 +408,13 @@ final class PageBook: @unchecked Sendable {
         return machine.seen.first(path: hit)?.method
     }
 
-    /// Every method the journey's hit reached the machine with, in order, once its steps ran.
-    func run(_ journey: PageJourney) async -> [String] {
+    /// Every method the journey's hit reached the machine with, in order, once its steps ran, and
+    /// the requests the public site saw meanwhile.
+    func run(_ journey: PageJourney) async -> (machine: [String], publicSite: [SeenRequest]) {
         let rules: WKContentRuleList? = await withCheckedContinuation { continuation in
             DevicePageEngine.loopbackRules { continuation.resume(returning: $0) }
         }
-        guard let rules else { return ["no rule list"] }
+        guard let rules else { return (["no rule list"], []) }
         let view = DevicePageEngine.webView(hostId: "page-rules-check")
         view.configuration.userContentController.add(rules)
         view.frame = CGRect(x: 0, y: 0, width: 320, height: 480)
@@ -391,8 +432,9 @@ final class PageBook: @unchecked Sendable {
             }
             try? await Task.sleep(for: .milliseconds(journey.settleMs))
         }
-        return machine.seen.all.filter { $0.path.hasPrefix(bases.hit) && (journey.counted ?? $0.method) == $0.method }
+        let hits = machine.seen.all.filter { $0.path.hasPrefix(bases.hit) && (journey.counted ?? $0.method) == $0.method }
             .map(\.method)
+        return (hits, publicSite.seen.all)
     }
 
     func stop() {
@@ -427,6 +469,9 @@ struct PageJourney: Sendable {
     var settleMs = 1200
     /// Only hits with this method are counted, when given.
     var counted: String?
+    /// When given, the public site must have seen these requests (path prefix and method), in
+    /// order: the journey's refusal means nothing unless the request it refuses was made.
+    var publicSees: (@Sendable (Bases) -> (path: String, methods: [String]))?
     var id: String { String(name.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }) }
 }
 
@@ -445,7 +490,10 @@ extension PageJourney {
         // again: the person's reload resends a page's POST, which is never the person's own.
         PageJourney(name: "a public form the person's reload resubmits through a 307 to localhost is refused", pages: { b in
             ["/page/\(b.id)": form("\(b.publicSite)/resubmit/\(b.id)?to=\(b.machine)\(b.hit)")]
-        }, steps: [.load { b in "\(b.publicSite)/page/\(b.id)" }, .reload], reaches: []),
+        }, steps: [.load { b in "\(b.publicSite)/page/\(b.id)" }, .reload], reaches: [], publicSees: { b in
+            // The form's POST and the reload's replay of it, which the server sends on with a 307.
+            ("/resubmit/\(b.id)", ["POST", "POST"])
+        }),
         // The person's load is still under way (its answer takes a second) when the page on
         // screen posts a form that a 307 sends on to localhost: the post stays the page's.
         PageJourney(name: "a public form posted while the person's own load is under way is refused", pages: { b in
