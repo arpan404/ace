@@ -27,7 +27,8 @@ private struct AccountPoll: Decodable {
     let status: String
     let session: AccountGrant?
 }
-private enum AccountFailure: Error { case request, expired, invalid }
+/// `refused`: a 403, such as Delete account from a session the backend won't let delete it.
+private enum AccountFailure: Error { case request, expired, invalid, refused }
 
 private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask,
@@ -131,6 +132,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
                     do { result = try await call("login/\(flow.id)", token: flow.secret) }
                     catch AccountFailure.expired { throw AccountFailure.expired }
                     catch AccountFailure.invalid { throw AccountFailure.invalid }
+                    catch AccountFailure.refused { throw AccountFailure.refused }
                     catch {
                         try Task.checkCancellation()
                         self.error = "Connection interrupted. Retrying sign-in…"
@@ -189,6 +191,10 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         } catch AccountFailure.expired {
             forget()
             error = "Your session ended. Sign in again to delete your account."
+        } catch AccountFailure.refused {
+            // Only a session this phone signed in to itself may delete the account; one from
+            // before ace kept that apart can't, until the person signs in again.
+            error = "Sign out and sign in again on this phone, then delete your account."
         } catch { self.error = "Couldn't delete your account. Reconnect and try again." }
         return false
     }
@@ -253,6 +259,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         let (bytes, response) = try await http.bytes(for: request)
         guard let response = response as? HTTPURLResponse else { throw AccountFailure.request }
         if response.statusCode == 401 || response.statusCode == 410 { throw AccountFailure.expired }
+        if response.statusCode == 403 { throw AccountFailure.refused }
         if (400..<500).contains(response.statusCode) && response.statusCode != 429 { throw AccountFailure.invalid }
         guard (200..<300).contains(response.statusCode) else { throw AccountFailure.request }
         var data = Data()
