@@ -347,7 +347,10 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * How this client's last connection ended (`ClientCloseReport`), for the daemon's log. A
        * report that doesn't parse is dropped, never the hello. Older daemons ignore it.
        */
-      lastClose: ClientCloseReport.optional().catch(undefined),
+      lastClose: ClientCloseReport.optional().catch(undefined).meta({
+        "x-ace-json-input": ClientCloseReport.optional(),
+        "x-ace-constraint": "A report that doesn't parse is read as none; the hello still stands.",
+      }),
     })
     .refine(
       (hello) =>
