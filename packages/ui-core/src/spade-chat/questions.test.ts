@@ -325,4 +325,27 @@ describe("a connect card (ADR 0131, amendment 1)", () => {
     });
     expect(c.said()).toContain("card q1 waiting");
   });
+
+  test("a call held on a Reconnect card reads as waiting on the person, not as working", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: [{ id: "c1", name: "call_tool" }],
+    });
+    c.stored({ type: "tool_started", reply: "r1", call_id: "c1", name: "call_tool" });
+    expect(c.view().working?.moving).toBe(true);
+    c.stored({
+      type: "question_asked",
+      reply: "r1",
+      call_id: "c1",
+      question: "Reconnect Linear",
+      questions: [linear("reconnect", { connector: "linear", retry: true })],
+    });
+    const view = c.view();
+    expect(view.asking).toBe(true);
+    expect(view.working).toMatchObject({ label: "Waiting for you", moving: false });
+  });
 });

@@ -31,6 +31,13 @@ const tools: Record<string, ToolWords> = {
     doing: "Asking you a question",
     done: "Asked you a question",
   },
+  // Asking for the person's apps (ADR 0131, amendment 1).
+  apps_find: { base: "look for an app", doing: "Looking for an app", done: "Looked for an app" },
+  app_connect_request: {
+    base: "ask you to connect an app",
+    doing: "Asking you to connect an app",
+    done: "Asked you to connect an app",
+  },
   skill_load: { base: "load a skill", doing: "Reading a skill", done: "Read a skill" },
   skill_propose: {
     base: "suggest a skill",

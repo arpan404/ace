@@ -14,6 +14,7 @@ import {
   RaisedCard,
 } from "./spade-card.tsx";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
+import { ConnectProgress } from "./spade-connect-progress.tsx";
 import { connectProgress, useConnectApp } from "./use-connect-app.ts";
 
 /**
@@ -173,16 +174,12 @@ export function ConnectAppCard(props: {
           </div>
         )}
         {progress ? (
-          <p aria-live="polite" className="flex items-baseline gap-2 text-ui text-foreground">
-            <span className="min-w-0">{progress}</span>
-            <button
-              type="button"
-              onClick={flow.cancel}
-              className="shrink-0 rounded-sm font-medium text-muted-foreground focus-ring hover:text-foreground hover:underline"
-            >
-              Cancel
-            </button>
-          </p>
+          <ConnectProgress
+            phase={flow.phase}
+            name={ask.name}
+            onCancel={flow.cancel}
+            className="text-ui text-foreground"
+          />
         ) : (
           !failure && (
             <p className="text-xs leading-4 text-subtle-foreground">

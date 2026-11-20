@@ -199,6 +199,9 @@ const connectorShape = z.object({
     .catch("failed"),
 });
 
+/** A sign-in page the browser may open: https, or http on this machine's loopback. */
+const signInPage = /^(https:\/\/|http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\/)/i;
+
 /** Only https: the page goes straight to the person's browser. */
 const webPage = z.string().regex(/^https:\/\//i);
 
@@ -269,8 +272,9 @@ export function parseSpadeConnectStart(body: string): SpadeConnectStart | undefi
   const connector = parseSpadeConnectorValue(record.connector);
   if (connector) return { kind: "connected", connector };
   const url = record.sign_in_url;
-  // Only https: the address goes straight to the person's browser.
-  if (typeof record.id === "string" && typeof url === "string" && /^https:\/\//i.test(url))
+  // Only https, or http on this machine (a server the person marked as their own, which Spade
+  // alone lets sign in there): the address goes straight to the person's browser.
+  if (typeof record.id === "string" && typeof url === "string" && signInPage.test(url))
     return { kind: "sign_in", id: record.id, url };
   const device = deviceOf({ ...spadeRecord(record.device), state: "waiting" });
   if (typeof record.id === "string" && device)

@@ -19,8 +19,11 @@ import { useSpadeClient } from "./spade-machine.tsx";
 export type ConnectPhase =
   | { kind: "idle" }
   | { kind: "starting" }
-  /** Signing in in the browser; Spade waits for it to come back. */
-  | { kind: "waiting"; id: string }
+  /**
+   * Signing in in the browser; Spade waits for it to come back. `blocked`: the browser blocked
+   * the tab, so the sign-in at `url` is offered as a link to open.
+   */
+  | { kind: "waiting"; id: string; url: string; blocked: boolean }
   /** A device sign-in: the code to enter on the app's page. */
   | { kind: "device"; id: string; code: string; url: string }
   | { kind: "connected"; connector: SpadeConnector }
@@ -65,12 +68,12 @@ export function useConnectApp(props: {
     }
     return false;
   });
-  const started = (start: SpadeConnectStart) => {
+  const started = (start: SpadeConnectStart, blocked: boolean) => {
     switch (start.kind) {
       case "connected":
         return done(start.connector);
       case "sign_in":
-        return setPhase({ kind: "waiting", id: start.id });
+        return setPhase({ kind: "waiting", id: start.id, url: start.url, blocked });
       case "device":
         return setPhase({ kind: "device", id: start.id, code: start.code, url: start.url });
     }
@@ -83,7 +86,7 @@ export function useConnectApp(props: {
         ? connect(client, { catalogue: target.catalogue, ...(token ? { token } : {}) })
         : reconnect(client, target.reconnect, token ? { token } : {});
     const begun = await beginConnect(request, !token);
-    if (begun.kind === "started") return started(begun.started);
+    if (begun.kind === "started") return started(begun.started, begun.blocked);
     setPhase({
       kind: "failed",
       message:
@@ -125,13 +128,20 @@ export function useConnectApp(props: {
   };
 }
 
+/** The sign-in to open by hand, when the browser blocked its tab. */
+export function blockedSignIn(phase: ConnectPhase): string | undefined {
+  return phase.kind === "waiting" && phase.blocked ? phase.url : undefined;
+}
+
 /** The one line a connection in progress shows, or undefined when nothing is under way. */
 export function connectProgress(phase: ConnectPhase, name: string): string | undefined {
   switch (phase.kind) {
     case "starting":
       return `Opening ${name}…`;
     case "waiting":
-      return `Finish signing in to ${name} in your browser. This updates by itself.`;
+      return phase.blocked
+        ? `Your browser didn't open ${name}'s sign-in. Open it, and this updates by itself.`
+        : `Finish signing in to ${name} in your browser. This updates by itself.`;
     case "device":
       return `Enter ${phase.code} on ${name}'s page to finish signing in.`;
     default:

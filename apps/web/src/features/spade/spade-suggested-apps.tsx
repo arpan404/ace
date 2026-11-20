@@ -15,6 +15,7 @@ import {
   useSpadeConnectors,
 } from "./spade-connector-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
+import { ConnectProgress } from "./spade-connect-progress.tsx";
 import { connectProgress, useConnectApp } from "./use-connect-app.ts";
 
 /** The most apps suggested at once. */
@@ -55,6 +56,12 @@ export function SuggestedApps(props: {
       // Already the bot's: nothing to suggest.
       return !connectors.some((each) => each.catalogue === entry.id && hasIt(each));
     })
+    // Apps connected already lead: one click and no sign-in. Otherwise Spade's order.
+    .sort(
+      (a, b) =>
+        Number(connectors.some((each) => each.catalogue === b.id)) -
+        Number(connectors.some((each) => each.catalogue === a.id)),
+    )
     .slice(0, MOST);
   if (shown.length === 0) return null;
   return (
@@ -193,18 +200,12 @@ function SuggestedApp(props: {
           </div>
         </form>
       )}
-      {progress && (
-        <p aria-live="polite" className="flex items-baseline gap-2 pl-11 text-xs text-foreground">
-          <span className="min-w-0">{progress}</span>
-          <button
-            type="button"
-            onClick={flow.cancel}
-            className="shrink-0 rounded-sm font-medium text-muted-foreground focus-ring hover:underline"
-          >
-            Cancel
-          </button>
-        </p>
-      )}
+      <ConnectProgress
+        phase={flow.phase}
+        name={entry.name}
+        onCancel={flow.cancel}
+        className="pl-11 text-xs text-foreground"
+      />
       {failure && (
         <p role="alert" className="pl-11 text-xs text-destructive">
           {failure}

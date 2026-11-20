@@ -49,23 +49,37 @@ export async function beginConnect(
   start: () => Promise<SpadeConnectStart>,
   browser: boolean,
 ): Promise<
-  { kind: "started"; started: SpadeConnectStart } | Exclude<ConnectOutcome, { kind: "done" }>
+  | { kind: "started"; started: SpadeConnectStart; blocked: boolean }
+  | Exclude<ConnectOutcome, { kind: "done" }>
 > {
   const begun = start();
-  try {
-    if (browser)
+  // Settled whatever happens to the tab, so a blocked tab never hides the sign-in Spade started.
+  const answered = begun.then(
+    (started) => ({ started }),
+    (error: unknown) => ({ error }),
+  );
+  let blocked = false;
+  if (browser)
+    try {
       await openExternalWhenReady(
         begun.then((started) => {
           if (started.kind !== "sign_in") throw new NothingToOpen();
           return started.url;
         }),
       );
-    return { kind: "started", started: await begun };
-  } catch (error) {
-    if (error instanceof NothingToOpen) return { kind: "started", started: await begun };
-    const failed = outcome(error);
-    return failed.kind === "done" ? { kind: "failed", message: "Try again." } : failed;
-  }
+    } catch {
+      // No tab (the browser blocked it): the sign-in is offered as a link to click instead.
+      blocked = true;
+    }
+  const settled = await answered;
+  if ("started" in settled)
+    return {
+      kind: "started",
+      started: settled.started,
+      blocked: blocked && settled.started.kind === "sign_in",
+    };
+  const failed = outcome(settled.error);
+  return failed.kind === "done" ? { kind: "failed", message: "Try again." } : failed;
 }
 
 /** A connection made in one request (a token): nothing opens. */

@@ -51,7 +51,11 @@ fn score(entry: &Entry, asked: &[String]) -> u32 {
     for word in asked {
         if word == &entry.id || word == &name || names.contains(word) {
             score += 20;
-        } else if entry.words.iter().any(|w| w == word) {
+        } else if entry
+            .words
+            .iter()
+            .any(|w| w == word || w.strip_suffix('s') == Some(word.as_str()))
+        {
             score += 3;
         } else if category_words(entry.category).contains(&word.as_str()) {
             score += 1;
@@ -144,6 +148,8 @@ mod tests {
 
     #[test]
     fn a_need_without_an_app_name_finds_apps_by_what_they_are_for() {
+        // A plural on either side matches: "bug reports" finds an app listing "bugs".
+        assert!(ids("sort new bug reports into issues").contains(&"linear".to_owned()));
         let tickets = ids("triage the bug tickets in our sprint");
         assert!(tickets.contains(&"linear".to_owned()), "{tickets:?}");
         assert!(tickets.contains(&"atlassian".to_owned()), "{tickets:?}");
