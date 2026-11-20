@@ -1,4 +1,4 @@
-import { configure, fireEvent, waitFor } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { bytes, expand, renderTree, row } from "./tree-test-support.tsx";
@@ -86,4 +86,23 @@ test("dragging a selected row moves every selected row", async () => {
   expect(tree.querySelector(`[data-path="${src}cursor.ts"]`)).toBeNull();
   expect(await row(tree, "apps/cursor.ts")).toBeTruthy();
   expect(await row(tree, "apps/resume.ts")).toBeTruthy();
+});
+
+test("rows dragged from another checkout's tree never move this checkout's files", async () => {
+  const { client, tree, beside } = await renderTree({ beside: "thread-other-checkout" });
+  if (!beside) throw new Error("No second tree");
+  const before = await bytes({ client }, "README.md");
+  const dataTransfer = transfer();
+  fireEvent.dragStart(await row(beside, "README.md"), { dataTransfer });
+  const apps = await row(tree, "apps/");
+  fireEvent.dragOver(apps, { dataTransfer });
+  expect(dataTransfer.dropEffect).toBe("none");
+  fireEvent.drop(apps, { dataTransfer });
+  expect(await screen.findAllByText(/Files can't be dragged between checkouts/)).not.toHaveLength(
+    0,
+  );
+  expect(await row(tree, "README.md")).toBeTruthy();
+  expect(await bytes({ client }, "README.md")).toBe(before);
+  await expand(tree, ["apps/"]);
+  expect(tree.querySelector('[data-path="apps/README.md"]')).toBeNull();
 });

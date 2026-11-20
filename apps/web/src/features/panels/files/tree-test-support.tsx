@@ -2,7 +2,7 @@ import { ClientProvider } from "@ace/client-react";
 import { coldStartReplay, FakeDaemon, ScenarioPlayer } from "@ace/fake-daemon";
 import type { Mention } from "@ace/protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, waitFor, within } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { DaemonConnectionContext } from "@/boot/connection.tsx";
 import { fakeConnection } from "@/boot/fake.ts";
@@ -59,23 +59,25 @@ function treeMemory(): TreeMemory {
 }
 
 function TreeHost(props: {
+  threadId?: string;
   outputs: TreeOutputs;
   memory: TreeMemory;
   marks: ReadonlyMap<string, RowMark> | undefined;
 }) {
   const { outputs, memory } = props;
+  const thread = props.threadId ?? threadId;
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(() => memory.read().expanded);
   const [current, setCurrent] = useState(() => memory.read().current);
   const [operation, setOperation] = useState<FileOperationDialog>();
   useEffect(
-    () => receiveComposerMentions(threadId, (mentions) => outputs.mentions.push(mentions)),
-    [outputs],
+    () => receiveComposerMentions(thread, (mentions) => outputs.mentions.push(mentions)),
+    [outputs, thread],
   );
   return (
     <>
       <FileTree
-        threadId={threadId}
+        threadId={thread}
         current={current}
         onOpen={(path, how) => {
           outputs.opened.push({ path, how });
@@ -103,7 +105,7 @@ function TreeHost(props: {
       {operation && (
         <FileOperations
           key={JSON.stringify(operation)}
-          threadId={threadId}
+          threadId={thread}
           operation={operation}
           onClose={() => setOperation(undefined)}
           onChanged={() => {}}
@@ -113,13 +115,21 @@ function TreeHost(props: {
   );
 }
 
-/** Render the cold-start thread's Files tree alone and wait for its first rows. */
-export async function renderTree(options: { marks?: ReadonlyMap<string, RowMark> } = {}) {
+/**
+ * Render the cold-start thread's Files tree alone and wait for its first rows. With `beside`,
+ * a second thread's tree (its own checkout) renders next to it, as two Files tabs show.
+ */
+export async function renderTree(
+  options: { marks?: ReadonlyMap<string, RowMark>; beside?: string } = {},
+) {
   let now = 1_000;
   const daemon = new FakeDaemon({ clock: () => (now += 1) });
   new ScenarioPlayer(daemon, coldStartReplay()).runThrough("turn-2");
+  if (options.beside)
+    new ScenarioPlayer(daemon, coldStartReplay(options.beside)).runThrough("turn-2");
   const client = fakeClient(daemon);
   const folders = folderFixture(client, threadId);
+  if (options.beside) folderFixture(client, options.beside);
   await client.start();
   const outputs: TreeOutputs = {
     opened: [],
@@ -128,6 +138,14 @@ export async function renderTree(options: { marks?: ReadonlyMap<string, RowMark>
     mentions: [],
     uploads: [],
   };
+  const besideOutputs: TreeOutputs = {
+    opened: [],
+    operations: [],
+    searched: [],
+    mentions: [],
+    uploads: [],
+  };
+  const besideMemory = treeMemory();
   const queries = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } });
   const memory = treeMemory();
   const connection = fakeConnection(daemon);
@@ -138,7 +156,19 @@ export async function renderTree(options: { marks?: ReadonlyMap<string, RowMark>
           <LayoutProvider>
             <TooltipProvider>
               <ToastProvider>
-                <TreeHost key={key} outputs={outputs} memory={memory} marks={options.marks} />
+                <section data-thread={threadId}>
+                  <TreeHost key={key} outputs={outputs} memory={memory} marks={options.marks} />
+                </section>
+                {options.beside && (
+                  <section data-thread={options.beside}>
+                    <TreeHost
+                      threadId={options.beside}
+                      outputs={besideOutputs}
+                      memory={besideMemory}
+                      marks={undefined}
+                    />
+                  </section>
+                )}
               </ToastProvider>
             </TooltipProvider>
           </LayoutProvider>
@@ -148,20 +178,30 @@ export async function renderTree(options: { marks?: ReadonlyMap<string, RowMark>
   );
   let mounts = 0;
   const view = render(host(mounts));
-  const tree = await screen.findByRole("tree", { name: "Checkout files" });
-  await within(tree).findByRole("treeitem", { name: "README.md" });
+  const treeOf = async (thread: string) => {
+    const section = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(`section[data-thread="${thread}"]`);
+      if (!found) throw new Error(`No tree for ${thread}`);
+      return found;
+    });
+    const found = await within(section).findByRole("tree", { name: "Checkout files" });
+    await within(found).findByRole("treeitem", { name: "README.md" });
+    return found;
+  };
+  const tree = await treeOf(threadId);
+  const beside = options.beside ? await treeOf(options.beside) : undefined;
   return {
     daemon,
     client,
     tree,
     folders,
     outputs,
+    /** The second thread's tree, with `beside`. */
+    beside,
     /** Mount a fresh tree in its place, as the Files tab does when it opens a file. */
     async remount() {
       view.rerender(host(++mounts));
-      const next = await screen.findByRole("tree", { name: "Checkout files" });
-      await within(next).findByRole("treeitem", { name: "README.md" });
-      return next;
+      return treeOf(threadId);
     },
   };
 }
