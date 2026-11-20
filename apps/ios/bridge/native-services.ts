@@ -334,7 +334,7 @@ export class NativeServices {
       }
       const spadeRequest = NativeSpadeRequest.safeParse(raw);
       if (spadeRequest.success && this.spade) {
-        const deps = { id: () => host.uuid() };
+        const deps = { id: () => host.uuid(), now: this.now };
         const outcome = await answerSpade(
           this.owner,
           this.spade,
