@@ -18,6 +18,7 @@ import {
   type EditorStatus,
   type EditorStatusActions,
 } from "./editor-status.ts";
+import { tabFocus, useTabMovesFocus } from "./tab-focus.ts";
 
 /*
  * The editor's status line: where the caret is, what is selected, and the file's indentation,
@@ -37,6 +38,7 @@ export function EditorStatusLine({
   actions: EditorStatusActions;
 }) {
   const plain = "plain";
+  const tabMovesFocus = useTabMovesFocus();
   const props = {
     ...status,
     onIndent: actions.setIndent,
@@ -50,6 +52,14 @@ export function EditorStatusLine({
       className="flex h-6 shrink-0 items-center gap-0.5 border-t bg-background px-1.5 text-xs text-muted-foreground tabular-nums"
     >
       <span className="mr-auto truncate px-1.5">{positionText(status)}</span>
+      {/* Announced as it changes; the word turns the mode off, as VS Code's does. */}
+      <span aria-live="polite" className="contents">
+        {tabMovesFocus && (
+          <button type="button" className={trigger} onClick={() => tabFocus.set(false)}>
+            Tab moves focus
+          </button>
+        )}
+      </span>
       <Menu>
         <MenuTrigger aria-label={`Indentation: ${indentText(props.indent)}`} className={trigger}>
           {indentText(props.indent)}
