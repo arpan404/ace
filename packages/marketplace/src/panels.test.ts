@@ -49,6 +49,19 @@ const files = (extra: Record<string, string>) =>
 const messages = (extra: Record<string, string>) =>
   checkBot(files(extra)).problems.map((problem) => `${problem.path}: ${problem.message}`);
 
+function scan(pageText: string) {
+  const archive = files({ "panels/watchlist/index.html": pageText });
+  const checked = checkFiles("spade-bot", "flight-watcher", archive);
+  return scanEntry({
+    type: "spade-bot",
+    name: "flight-watcher",
+    files: archive,
+    listing: checked.listing,
+    inspection: checked.inspection,
+    context: { entries: [], verified: [] },
+  });
+}
+
 describe("a package's panels at the market", () => {
   it("pass with their one page in its folder", () => {
     expect(messages({ "panels/watchlist/index.html": page })).toEqual([]);
@@ -76,18 +89,6 @@ describe("a package's panels at the market", () => {
   });
 
   it("hold a version with a panel for a maintainer and block a page reaching out", () => {
-    const scan = (pageText: string) => {
-      const archive = files({ "panels/watchlist/index.html": pageText });
-      const checked = checkFiles("spade-bot", "flight-watcher", archive);
-      return scanEntry({
-        type: "spade-bot",
-        name: "flight-watcher",
-        files: archive,
-        listing: checked.listing,
-        inspection: checked.inspection,
-        context: { entries: [], verified: [] },
-      });
-    };
     const clean = scan(page);
     expect(clean.runnable).toBe(true);
     expect(

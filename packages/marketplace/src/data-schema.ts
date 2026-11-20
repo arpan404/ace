@@ -66,13 +66,13 @@ function node(value: unknown, at: string, depth: number, problems: string[]): vo
     ["description", 500],
     ["title", 120],
   ] as const) {
-    const text = value[key];
-    if (text !== undefined && (typeof text !== "string" || chars(text) > most))
+    const about = value[key];
+    if (about !== undefined && (typeof about !== "string" || chars(about) > most))
       problems.push(`${at}.${key} is text of at most ${most} characters`);
   }
   if (kind === "object") object(value, at, depth, problems);
   else if (kind === "array") array(value, at, depth, problems);
-  else if (kind === "string") text(value, at, problems);
+  else if (kind === "string") words(value, at, problems);
   else if (kind === "number" || kind === "integer") number(value, at, problems);
 }
 
@@ -121,14 +121,14 @@ function array(value: Fields, at: string, depth: number, problems: string[]): vo
   node(value["items"], `${at}.items`, depth + 1, problems);
 }
 
-function text(value: Fields, at: string, problems: string[]): void {
-  const words = value["enum"];
-  if (words !== undefined) {
+function words(value: Fields, at: string, problems: string[]): void {
+  const listed = value["enum"];
+  if (listed !== undefined) {
     const ok =
-      Array.isArray(words) &&
-      words.length >= 1 &&
-      words.length <= mostWords &&
-      words.every((word) => typeof word === "string" && word !== "" && chars(word) <= wordChars);
+      Array.isArray(listed) &&
+      listed.length >= 1 &&
+      listed.length <= mostWords &&
+      listed.every((word) => typeof word === "string" && word !== "" && chars(word) <= wordChars);
     if (!ok)
       problems.push(
         `${at}.enum lists 1 to ${mostWords} words, each at most ${wordChars} characters`,
