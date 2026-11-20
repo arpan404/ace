@@ -570,6 +570,7 @@
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
+        "ws": "^8.18.3",
         "zod": "^4.3.6",
       },
       "devDependencies": {
@@ -582,7 +583,6 @@
         "@ace/relay": "workspace:*",
         "@ace/screen": "workspace:*",
         "@types/ws": "^8.18.1",
-        "ws": "^8.18.3",
       },
     },
     "packages/client-react": {
