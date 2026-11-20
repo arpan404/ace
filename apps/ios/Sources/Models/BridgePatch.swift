@@ -119,6 +119,9 @@ struct RowLook: Codable, Sendable, Equatable {
     /// "waiting", "limited", "background", "finished", "idle" or "syncing". The lock screen
     /// counts by it. Nil from older bridges.
     var state: String? = nil
+    /// Where its work went (ADR 0191): the row reads "Moved to Studio" and opens it there.
+    struct Moved: Codable, Sendable, Equatable { let hostId: String; let name: String; let threadId: String }
+    var moved: Moved? = nil
     /// The word takes its tone's colour unless the row mutes; waiting never does.
     var loud: Bool { !muted && tone != "waiting" }
 }
