@@ -28,8 +28,11 @@ export function usePointerSelection(options: {
   affinity: Affinity;
   /** Records every caret's side of a hard break after the click moved them. */
   onBefore(affinity: Affinity): void;
-  /** A click in the gutter on a line; true when it was taken (a fold opened or closed). */
-  onGutter?: ((line: number) => boolean) | undefined;
+  /**
+   * A click in the gutter on a line, `x` pixels from its left edge; true when it was taken (a
+   * fold opened or closed, a layer selected the line).
+   */
+  onGutter?: ((line: number, at: { x: number; shiftKey: boolean }) => boolean) | undefined;
 }) {
   const { state, cell, gutter, layout } = options;
   const drag = useRef<
@@ -77,7 +80,8 @@ export function usePointerSelection(options: {
     options.focus();
     // The gutter sticks to the scroller's left edge, wherever the text has scrolled to.
     const edge = options.element.current?.parentElement?.getBoundingClientRect().left ?? 0;
-    if (event.clientX - edge < gutter && options.onGutter?.(position.line)) return;
+    const x = event.clientX - edge;
+    if (x < gutter && options.onGutter?.(position.line, { x, shiftKey: event.shiftKey })) return;
     const selections = doc.selections();
     const current = selections[doc.primarySelection()];
     if (event.shiftKey && event.altKey && current) {

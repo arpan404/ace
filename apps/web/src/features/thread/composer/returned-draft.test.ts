@@ -1,4 +1,9 @@
-import { attachmentMarker, formatMessageQuotes, takeAttachmentMarkers } from "@ace/ui-core";
+import {
+  attachmentMarker,
+  formatCodeAnnotations,
+  formatMessageQuotes,
+  takeAttachmentMarkers,
+} from "@ace/ui-core";
 import { expect, test } from "vitest";
 import { draftFromMessage } from "./returned-draft.ts";
 
@@ -39,4 +44,42 @@ test("a file sent without a place comes back attached, with no marker", () => {
   });
   expect(draft.text).toBe("hello");
   expect(draft.attachments).toEqual([{ sha256: "s1", name: "a.txt" }]);
+});
+
+test("a message with code annotations comes back with them as the draft's, not in its words", () => {
+  const code = formatCodeAnnotations([
+    {
+      id: "c1",
+      number: 1,
+      path: "src/total.ts",
+      start: { line: 1, column: 2 },
+      end: { line: 2, column: 0 },
+      excerpt: "let sum = 0;\n",
+      comment: "Start at the first price",
+      intent: "fix",
+    },
+  ]);
+  const draft = draftFromMessage({
+    input: [{ type: "text", text: `Please\n\n${code ?? ""}` }],
+    mentions: [],
+    files: [],
+  });
+  expect(draft.text).toBe("Please");
+  expect(
+    draft.annotations?.code?.map(({ path, start, end, comment, intent }) => ({
+      path,
+      start,
+      end,
+      comment,
+      intent,
+    })),
+  ).toEqual([
+    {
+      path: "src/total.ts",
+      start: { line: 1, column: 2 },
+      end: { line: 2, column: 0 },
+      comment: "Start at the first price",
+      intent: "fix",
+    },
+  ]);
 });

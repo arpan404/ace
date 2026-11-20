@@ -16,3 +16,5 @@ export {
   type EditorStatus,
   type EditorStatusActions,
 } from "./editor-status.ts";
+export { useEditorAnnotations, type EditorAnnotationsOptions } from "./annotate.tsx";
+export type { EditorLayer, EditorLayerView } from "./layer.ts";
