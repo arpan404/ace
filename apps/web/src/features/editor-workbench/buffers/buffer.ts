@@ -477,6 +477,9 @@ export class Buffer implements TextBuffer {
         this.#conflictMine = "";
         if (text === theirs.text && !newer) this.#markClean();
         else this.#unclean();
+        // The clash changed even when the dirty flag did not: views reading snapshots on events
+        // would keep showing the notice.
+        this.#emit({ type: "state" });
         void this.#persist();
       },
     };
