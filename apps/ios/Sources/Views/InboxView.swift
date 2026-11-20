@@ -324,7 +324,7 @@ struct InboxView: View {
 
     /// Open from a transfer's line goes to that machine's thread.
     private var otherMachines: OtherMachines {
-        OtherMachines(client: { inbox.client($0) }, open: { key in
+        OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }, open: { key in
             guard inbox.client(key.machineId)?.inbox[key.id] != nil else { return false }
             openThread(key)
             return true

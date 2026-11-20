@@ -1,4 +1,5 @@
 import { transferRunning } from "@ace/client";
+import { fleetRefusal } from "./device-pairing.ts";
 import type {
   DeviceScope,
   FleetLink,
@@ -93,6 +94,44 @@ export function scopeChangeRefusal(code: string, machine: string): string | unde
   if (code === "invalid_message" || code === "unsupported")
     return `${machine} runs an older ace that can't allow projects from here. Update ace there, or unlink and link them again in Settings › Fleet.`;
   return undefined;
+}
+
+/** The offer `allowProjectsOffer` makes. */
+export type AllowProjectsOffer = ReturnType<typeof allowProjectsOffer>;
+
+/**
+ * The one sentence the Allow projects step says for `offer`: `machine` is where the work would
+ * go, `sender` the machine it comes from. A refused change says why instead.
+ */
+export function allowProjectsWords(input: {
+  offer: AllowProjectsOffer;
+  machine: string;
+  sender: string;
+  /** The code a refused scope change answered, once it did. */
+  refused?: string | undefined;
+}): string {
+  const { offer, machine, sender, refused } = input;
+  if (refused !== undefined)
+    return scopeChangeRefusal(refused, machine) ?? fleetRefusal(refused, machine);
+  const why = `${machine} doesn't take projects from ${sender} yet`;
+  switch (offer) {
+    case "viewOnly":
+      return `${sender}'s link can only view on ${machine}, so it can't take projects; unlink and link them again in Settings › Fleet.`;
+    case "held":
+      return `${machine} takes projects from ${sender} now.`;
+    case "settings":
+      return `${why}; allow them on ${machine} in Settings › Fleet.`;
+    default:
+      return `${why}.`;
+  }
+}
+
+/** A link made while this window couldn't grant Projects there: how to allow them later. */
+export function linkedWithoutProjects(machine: string): { title: string; words: string } {
+  return {
+    title: `Linked without Projects on ${machine}`,
+    words: `This device can't grant Projects on ${machine}, so work can't move there yet. Allow projects on ${machine}'s page in Settings › Fleet.`,
+  };
 }
 
 /** Where the work goes on the other machine. */

@@ -50,8 +50,11 @@ export const TransferAction = z.discriminatedUnion("kind", [
     subject: SubjectInput,
     machine: z.object({ hostId: text, name: text }).optional(),
   }),
-  z.object({ kind: z.literal("choose"), hostId: text }),
+  /** `sender`: this machine's name as the phone calls it, for the Allow projects step. */
+  z.object({ kind: z.literal("choose"), hostId: text, sender: text.optional() }),
   z.object({ kind: z.literal("back") }),
+  /** That machine takes projects from this one now: on to the options, with links read again. */
+  z.object({ kind: z.literal("allowed") }),
   z.object({
     kind: z.literal("send"),
     includeChanges: z.boolean(),
@@ -163,15 +166,23 @@ export class NativeTransfers {
         break;
       }
       case "choose": {
-        const machine = this.#links.machines.find(
-          (each) => each.hostId === action.hostId && !each.reason,
-        );
-        if (this.#sheet?.step.kind === "machines" && machine)
-          this.#sheet.step = { kind: "options", machine };
+        const machine = this.#links.machines.find((each) => each.hostId === action.hostId);
+        if (this.#sheet?.step.kind !== "machines" || !machine) break;
+        // Offline can't be helped from here; Projects not allowed says how to allow them.
+        if (!machine.reason) this.#sheet.step = { kind: "options", machine };
+        else if (machine.reason === "Projects not allowed")
+          this.#sheet.step = { kind: "allow", machine, sender: action.sender ?? "this machine" };
         break;
       }
       case "back":
-        if (this.#sheet?.step.kind === "options") this.#sheet.step = { kind: "machines" };
+        if (this.#sheet?.step.kind === "options" || this.#sheet?.step.kind === "allow")
+          this.#sheet.step = { kind: "machines" };
+        break;
+      case "allowed":
+        if (this.#sheet?.step.kind === "allow") {
+          this.#sheet.step = { kind: "options", machine: this.#sheet.step.machine };
+          void this.#readMachines();
+        }
         break;
       case "send": {
         const step = this.#sheet?.step;

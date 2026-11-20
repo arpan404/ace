@@ -16,17 +16,21 @@ async function mac(options: { links?: boolean } = {}) {
   return app.start();
 }
 
-test("the machines list keeps offline and not-allowed machines with the reason, and none of them can be chosen", async () => {
+test("the machines list keeps offline and not-allowed machines with the reason, and an offline one can't be chosen", async () => {
   const app = await mac();
   expect(app.machines()?.machines).toEqual([
-    { hostId: "build", name: "Build server", reason: null },
-    { hostId: "studio", name: "Studio", reason: "Offline" },
-    { hostId: "laptop", name: "Old laptop", reason: "Projects not allowed" },
+    { hostId: "build", name: "Build server", deviceId: "fleet-this-mac-on-build", reason: null },
+    { hostId: "studio", name: "Studio", deviceId: "fleet-this-mac-on-studio", reason: "Offline" },
+    {
+      hostId: "laptop",
+      name: "Old laptop",
+      deviceId: "fleet-this-mac-on-laptop",
+      reason: "Projects not allowed",
+    },
   ]);
   app.act({ kind: "open", subject: forecast });
   await app.sheetAt("machines");
   app.act({ kind: "choose", hostId: "studio" });
-  app.act({ kind: "choose", hostId: "laptop" });
   expect(app.step$()?.kind).toBe("machines");
   app.act({ kind: "choose", hostId: "build" });
   expect(await app.sheetAt("options")).toMatchObject({
