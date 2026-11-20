@@ -181,8 +181,9 @@ export class TranslationState {
     const known = this.agents.get(id);
     if (known) return known;
     // Some agents (Antigravity) send session/update for a new session before answering
-    // session/new. Until the root has an id, the session being opened is the root, not a child.
-    if (!this.root.nativeId && this.openingSession()) {
+    // session/new. While one is being opened, an unknown session is that root, not a child,
+    // including a fresh session after the agent's process restarted.
+    if (this.openingSession()) {
       this.bindRoot(id, facts);
       return this.root;
     }
