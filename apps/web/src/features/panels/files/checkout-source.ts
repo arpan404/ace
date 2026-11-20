@@ -146,9 +146,12 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
     async read(threadId, path, signal) {
       guard(path);
       const media = mediaOf(path);
+      const image = imageType(path);
+      // Pictures and players read whole, to the media budget; the text limit is for source.
+      const maxSize = media || image ? mediaViewLimit : viewLimit;
       const read = await readFile(
         client,
-        { threadId: ThreadId.parse(threadId), path, maxSize: media ? mediaViewLimit : viewLimit },
+        { threadId: ThreadId.parse(threadId), path, maxSize },
         options(signal),
       ).catch((error: unknown) => {
         throw checkoutError(error);
@@ -160,7 +163,6 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
       if (read.kind === "large") return { kind: "large", size: read.size, version };
       const bytes = read.bytes;
       const size = bytes.length;
-      const image = imageType(path);
       if (image) return { kind: "image", blob: new Blob([bytes], { type: image }), size, version };
       if (media) {
         const type = mediaType(media);
