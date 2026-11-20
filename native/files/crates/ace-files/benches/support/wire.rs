@@ -119,13 +119,23 @@ impl Wire {
     /// Spawn the binary with its stdio piped, a thread decoding its stdout and a thread writing
     /// its stdin.
     pub fn start(binary: &Path) -> Result<Wire, WireError> {
-        let mut child = Command::new(binary)
+        let mut command = Command::new(binary);
+        command.stderr(Stdio::inherit());
+        Wire::spawn(command)
+    }
+
+    /// [`Wire::start`] for a command the caller built, such as the binary wrapped in
+    /// `/usr/bin/time`; the caller decides where its stderr goes.
+    pub fn spawn(mut command: Command) -> Result<Wire, WireError> {
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
             .spawn()
             .map_err(|error| {
-                WireError::failed(format!("cannot start {}: {error}", binary.display()))
+                WireError::failed(format!(
+                    "cannot start {}: {error}",
+                    command.get_program().to_string_lossy()
+                ))
             })?;
         let stdin = child
             .stdin
