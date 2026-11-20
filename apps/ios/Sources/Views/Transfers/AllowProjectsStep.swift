@@ -66,13 +66,13 @@ struct AllowProjectsStep: View {
     }
 
     private func act(_ next: Next) {
-        if next == .proceed { model.transfer(["kind": "allowed"]); return }
+        if next == .proceed { model.transfer(["kind": "allowed", "hostId": step.machine.hostId]); return }
         guard let there else { return }
         allowing = true
         Task {
             let answer = await there.setLinkProjects(deviceId: step.machine.deviceId, allowed: true, machine: step.machine.name)
             allowing = false
-            if answer.ok { model.transfer(["kind": "allowed"]) } else { refused = answer.message ?? "\(step.machine.name) didn't change the link." }
+            if answer.ok { model.transfer(["kind": "allowed", "hostId": step.machine.hostId]) } else { refused = answer.message ?? "\(step.machine.name) didn't change the link." }
         }
     }
 }

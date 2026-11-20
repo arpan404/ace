@@ -1,4 +1,5 @@
 import "./test-host.ts";
+import { FakeDaemon } from "@ace/fake-daemon";
 import { CommandId, DeviceId } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { answerFleet, type NativeFleetRequest } from "./fleet-admin.ts";
@@ -66,7 +67,7 @@ test("choosing a machine that doesn't take projects says why and allows them the
     (await ask({ op: "allowOffer", deviceId: DeviceId.parse(deviceId), sender: "MacBook" })).offer,
   ).toBe("held");
 
-  app.act({ kind: "allowed" });
+  app.act({ kind: "allowed", hostId: "laptop" });
   expect(await app.sheetAt("options")).toMatchObject({ action: "Continue on Old laptop" });
   // Read again, the laptop takes work from here now.
   await until(
@@ -112,4 +113,27 @@ test("Linked machines says which machines take this one's projects", async () =>
     projects: false,
     projectsLine: "Old laptop doesn't take projects from MacBook.",
   });
+});
+
+test("a late Allow projects answer for one machine never moves another machine's step on", async () => {
+  const app = linkedMac();
+  closers.push(app.close);
+  // A second machine that doesn't take this one's projects.
+  app.daemon.linkTo(new FakeDaemon({ clock: () => 1_000, hostId: "desk", displayName: "Desk" }), {
+    projects: false,
+  });
+  await app.start();
+  app.act({ kind: "open", subject: forecast });
+  await app.sheetAt("machines");
+  app.act({ kind: "choose", hostId: "laptop", sender: "MacBook" });
+  await app.sheetAt("allow");
+  // The person backs out and chooses Desk while the laptop's Allow is still on its way.
+  app.act({ kind: "back" });
+  app.act({ kind: "choose", hostId: "desk", sender: "MacBook" });
+  await app.sheetAt("allow", (step) => (step.machine as { hostId: string }).hostId === "desk");
+  app.act({ kind: "allowed", hostId: "laptop" });
+  expect(app.step$()).toMatchObject({ kind: "allow", machine: { hostId: "desk" } });
+  // Desk's own answer goes on to Desk's options.
+  app.act({ kind: "allowed", hostId: "desk" });
+  expect(await app.sheetAt("options")).toMatchObject({ machine: { hostId: "desk" } });
 });

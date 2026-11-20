@@ -53,8 +53,12 @@ export const TransferAction = z.discriminatedUnion("kind", [
   /** `sender`: this machine's name as the phone calls it, for the Allow projects step. */
   z.object({ kind: z.literal("choose"), hostId: text, sender: text.optional() }),
   z.object({ kind: z.literal("back") }),
-  /** That machine takes projects from this one now: on to the options, with links read again. */
-  z.object({ kind: z.literal("allowed") }),
+  /**
+   * `hostId` takes projects from this one now: on to its options, with links read again. Only
+   * the Allow projects step still showing that machine moves on; a late answer for another
+   * machine the person backed out of changes nothing.
+   */
+  z.object({ kind: z.literal("allowed"), hostId: text }),
   z.object({
     kind: z.literal("send"),
     includeChanges: z.boolean(),
@@ -179,7 +183,10 @@ export class NativeTransfers {
           this.#sheet.step = { kind: "machines" };
         break;
       case "allowed":
-        if (this.#sheet?.step.kind === "allow") {
+        if (
+          this.#sheet?.step.kind === "allow" &&
+          this.#sheet.step.machine.hostId === action.hostId
+        ) {
           this.#sheet.step = { kind: "options", machine: this.#sheet.step.machine };
           void this.#readMachines();
         }
