@@ -2,7 +2,6 @@ import { BrowserOriginError } from "@ace/browser/policy";
 import { encodeDownloadChunk } from "@ace/browser/stream";
 import { moveEngine, type EnginePreferencePort } from "@ace/browser/engine-move";
 import {
-  BrowserCommand,
   BrowserOpen,
   BrowserState,
   type BrowserClientMessage,
@@ -102,40 +101,37 @@ export function fakeBrowserSession(
       let result: unknown;
       switch (message.type) {
         case "browser.engine.move": {
-          // The daemon's own move (ADR 0193), on this fixture's browser.
+          // The daemon's own move (ADR 0194), on this fixture's browser.
           if (!options.engine) throw new Error("Engine moves aren't available on this machine");
-          const request = { requestId: message.requestId, threadId: message.threadId };
+          const open = async (at: { threadId: string; workspaceId: string }) =>
+            BrowserState.parse(
+              await this.run({
+                type: "browser.open",
+                requestId: message.requestId,
+                options: BrowserOpen.parse(at),
+              }),
+            );
           result = await moveEngine(
             {
               hasActiveSession: (threadId) => {
                 const view = browser.view(threadId);
                 return view !== undefined && !view.closed;
               },
-              open: async (open) =>
-                BrowserState.parse(
-                  await this.run({
-                    type: "browser.open",
-                    requestId: message.requestId,
-                    options: BrowserOpen.parse(open),
-                  }),
-                ),
-              closeThread: async () => {
-                await this.run({ ...request, type: "browser.close" });
-              },
-              execute: (_threadId, command) =>
-                this.run({
-                  ...request,
-                  type: "browser.execute",
-                  command: BrowserCommand.parse(command),
-                }),
-              setPrivate: (threadId, tabId, value) => {
-                browser.setPrivate(threadId, tabId, value);
-                return BrowserState.parse(browser.view(threadId));
+              open,
+              // As the daemon: the tabs move with the browser, or stay where they were.
+              rehost: async (at, engine) => {
+                if (engine === "embedded" && !browser.desktop)
+                  return {
+                    ok: false,
+                    error: new Error("Desktop browser backend unavailable"),
+                    restored: await open(at),
+                  };
+                browser.rehost(at.threadId, engine);
+                return { ok: true, state: await open(at) };
               },
             },
             options.engine,
             message,
-            { kind: "human", connectionId },
           );
           break;
         }

@@ -139,20 +139,6 @@ export class FakeHeadless implements BrowserBackend {
     };
   }
 }
-/** ace's Chrome, faked, counting every page load it's asked for. */
-export class CountingHeadless extends FakeHeadless {
-  readonly loads: string[] = [];
-  override async open(request: BackendOpen) {
-    const session = await super.open(request);
-    return {
-      ...session,
-      navigate: async (url: string, timeout: number, signal?: AbortSignal) => {
-        this.loads.push(url);
-        await session.navigate(url, timeout, signal);
-      },
-    };
-  }
-}
 /** Runs the real Fetch guard around a controlled document loader. */
 export class GuardedHeadless extends FakeHeadless {
   private load: (url: string) => Promise<string | undefined>;

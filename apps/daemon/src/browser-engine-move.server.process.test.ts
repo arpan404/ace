@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { backendFixture, CountingHeadless } from "@ace/browser/testing";
+import { backendFixture } from "@ace/browser/testing";
+import { TabbedHeadless } from "@ace/browser/testing-tabs";
 import { BrowserBackendPreference } from "@ace/protocol";
 import { SettingsService } from "@ace/settings";
 import { BrowserClient } from "./browser-test-client.ts";
@@ -17,7 +18,7 @@ afterEach(async () => {
 async function daemon() {
   const home = await mkdtemp(join(tmpdir(), "ace-engine-move-"));
   const settings = new SettingsService({ dataDir: home });
-  const headless = new CountingHeadless();
+  const headless = new TabbedHeadless();
   const machine = await backendFixture({
     headlessBackend: headless,
     // As the daemon's browser service reads it: the thread's resolved `browser.backend`.

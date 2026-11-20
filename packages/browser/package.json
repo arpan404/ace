@@ -22,6 +22,7 @@
     "./engine-check": "./src/engine-check.ts",
     "./engine-move": "./src/engine-move.ts",
     "./testing": "./src/backend-test-support.ts",
+    "./testing-tabs": "./src/tabbed-test-support.ts",
     "./conformance": "./src/conformance/index.ts"
   },
   "scripts": {

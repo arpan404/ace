@@ -1,20 +1,20 @@
-import { BrowserTabsResult, type BrowserEngineMoved, type BrowserState } from "@ace/protocol";
-import type { Actor } from "./session.ts";
+import type { BrowserEngineMoved, BrowserState } from "@ace/protocol";
+import type { BrowserTabRecord } from "./tab-store.ts";
 
 /*
- * "Engine for this thread" (ADR 0193): the thread's browser runs in the desktop app (`embedded`)
+ * "Engine for this thread" (ADR 0194): the thread's browser runs in the desktop app (`embedded`)
  * or in ace's Chrome (`headless`). The daemon owns a move so devices asking at once can't close
  * a browser another is restoring or load its pages twice: moves of one thread run one at a time,
- * and a move that finds the browser already there leaves it alone.
+ * and a move that finds the browser already there leaves it alone. The thread's setting is
+ * written only once its browser opened on the new engine, so a daemon that stops mid-move
+ * reopens the thread's tabs where they were.
  */
 
 export type BrowserEngine = "embedded" | "headless";
 export type EnginePreference = BrowserEngine | "auto";
 
-/** The thread's `browser.backend` setting, as the daemon keeps it. */
+/** Where the daemon keeps each thread's `browser.backend`. */
 export interface EnginePreferencePort {
-  /** The thread's engine as it reads now, to put back if a move fails; undefined if unreadable. */
-  read(threadId: string): Promise<EnginePreference | undefined>;
   write(threadId: string, value: EnginePreference): Promise<void>;
 }
 
@@ -24,26 +24,37 @@ export interface EngineMove {
   engine: BrowserEngine;
 }
 
+/**
+ * A browser moved with its tabs, or the reason it couldn't open there and its state back on the
+ * engine it was on (`restored`, absent when that failed too).
+ */
+export type RehostResult =
+  | { ok: true; state: BrowserState }
+  | { ok: false; error: unknown; restored: BrowserState | undefined };
+
 /** What a move needs of the browser service. */
 export interface EngineMoveHost {
   hasActiveSession(threadId: string): boolean;
+  /** The thread's browser, live and untouched when it is open. */
   open(options: { threadId: string; workspaceId: string }): Promise<BrowserState>;
-  closeThread(threadId: string, actor?: Actor): Promise<void>;
-  execute(threadId: string, command: unknown, actor?: Actor): Promise<unknown>;
-  setPrivate(threadId: string, tabId: string, value: boolean): BrowserState;
+  /** Closes the open browser and opens it on `engine` with its tabs, or back where it was. */
+  rehost(
+    options: { threadId: string; workspaceId: string },
+    engine: BrowserEngine,
+  ): Promise<RehostResult>;
 }
 
-const navigateMs = 30_000;
-
-/** Only plain HTTP(S) addresses load again; blank tabs and start pages stay behind. */
-function reloadable(url: unknown): url is string {
-  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return false;
-  try {
-    const parsed = new URL(url);
-    return !parsed.username && !parsed.password;
-  } catch {
-    return false;
-  }
+/**
+ * The tabs a move carries: the browser's own, or for an engine with one page and no tabs, that
+ * page when it is a web page.
+ */
+export function carriedTabs(
+  records: BrowserTabRecord[],
+  state: BrowserState,
+  newId: () => string,
+): BrowserTabRecord[] {
+  if (records.length || state.tabs || !/^https?:\/\//i.test(state.url)) return records;
+  return [{ tabId: newId(), position: 0, url: state.url, title: "", lastActiveAt: 0 }];
 }
 
 /** The daemon says the desktop app's engine can't open now (no desktop app registered). */
@@ -54,137 +65,56 @@ function desktopMissing(state: BrowserState): boolean {
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-type Restore = { url: string; private: boolean };
-
-/** A browser's pages: its tabs, or its one page when the engine has no tabs. */
-function pages(
-  state: BrowserState,
-): { tabId: string | undefined; url: string; private?: boolean | undefined }[] {
-  return state.tabs ?? [{ tabId: state.activeTabId, url: state.url }];
+/** Web pages the browser had that didn't come back on the new engine. */
+function missing(before: BrowserState, after: BrowserState): BrowserEngineMoved["failed"] {
+  const now = new Set((after.tabs ?? []).map((tab) => tab.tabId));
+  return (before.tabs ?? [])
+    .filter((tab) => /^https?:\/\//i.test(tab.url) && !now.has(tab.tabId))
+    .slice(0, 64)
+    .map((tab) => ({ url: tab.url.slice(0, 8192), reason: "It didn't open on the new engine" }));
 }
 
 /**
- * Loads `restores` into a browser that just opened, the tab at `activeUrl` shown. One page
- * failing skips that tab; the failures come back for the caller to name.
- */
-async function reload(
-  host: EngineMoveHost,
-  threadId: string,
-  actor: Actor,
-  state: BrowserState,
-  restores: readonly Restore[],
-  activeUrl: string | undefined,
-): Promise<BrowserEngineMoved["failed"]> {
-  const tabsNow = pages(state);
-  const [only] = tabsNow;
-  // A fresh browser's only tab is still blank: the first address goes there instead of beside it.
-  let blank =
-    tabsNow.length === 1 && only && (only.url === "about:blank" || only.url === "")
-      ? only
-      : undefined;
-  const created: { url: string; tabId: string }[] = [];
-  const failed: BrowserEngineMoved["failed"] = [];
-  for (const restore of restores) {
-    const into = blank;
-    blank = undefined;
-    try {
-      let tabId: string | undefined;
-      if (into) {
-        await host.execute(
-          threadId,
-          {
-            action: "navigate",
-            url: restore.url,
-            timeout: navigateMs,
-            ...(into.tabId ? { tabId: into.tabId } : {}),
-          },
-          actor,
-        );
-        tabId = into.tabId;
-      } else {
-        const opened = BrowserTabsResult.parse(
-          await host.execute(
-            threadId,
-            { action: "tabs", operation: "open", url: restore.url },
-            actor,
-          ),
-        );
-        if ("pending_dialog" in opened) throw new Error("A page is waiting for an answer");
-        tabId = opened.tabId ?? opened.activeTabId;
-      }
-      if (tabId === undefined) continue;
-      created.push({ url: restore.url, tabId });
-      if (restore.private) host.setPrivate(threadId, tabId, true);
-    } catch (error) {
-      failed.push({ url: restore.url.slice(0, 8192), reason: message(error).slice(0, 2048) });
-    }
-  }
-  const shown =
-    (activeUrl !== undefined && created.find((tab) => tab.url === activeUrl)?.tabId) ||
-    created.at(-1)?.tabId;
-  if (shown)
-    await host.execute(threadId, { action: "tabs", operation: "select", tabId: shown }, actor);
-  return failed.slice(0, 64);
-}
-
-/**
- * Keeps the engine for the thread and moves its open browser there. A tab agents were kept out
- * of stays that way. One page failing to load skips that tab, never the move. A desktop engine
- * the daemon says is missing is refused before anything changes; if the new engine still won't
- * open, the thread's previous engine and pages come back and the move throws.
+ * Keeps the engine for the thread and moves its open browser there with its tabs. A desktop
+ * engine the daemon says is missing is refused before anything changes; if the new engine
+ * won't open, the browser opens again where it was, the setting untouched, and the move throws.
  */
 export async function moveEngine(
   host: EngineMoveHost,
   preference: EnginePreferencePort,
   move: EngineMove,
-  actor: Actor,
 ): Promise<BrowserEngineMoved> {
   const { threadId, workspaceId, engine } = move;
-  // Without a browser the choice waits for the next open; there is nothing to reload.
+  const at = { threadId, workspaceId };
+  // Without a browser the choice waits for the next open; there is nothing to move.
   if (!host.hasActiveSession(threadId)) {
     await preference.write(threadId, engine);
     return { failed: [] };
   }
-  // `open` returns the live session untouched, so the tabs never lag.
-  const snapshot = await host.open({ threadId, workspaceId });
+  const snapshot = await host.open(at);
   if (snapshot.backend === engine && !snapshot.closed) {
     await preference.write(threadId, engine);
     return { state: snapshot, failed: [] };
   }
   if (engine === "embedded" && desktopMissing(snapshot))
     throw new Error("The desktop app isn't running on this machine, so its browser can't open.");
-  // Unreadable settings put back the engine the browser is on now.
-  const previous =
-    (await preference.read(threadId).catch(() => undefined)) ??
-    (snapshot.backend === "embedded" || snapshot.backend === "headless"
-      ? snapshot.backend
-      : undefined);
-  const prior = pages(snapshot);
-  const restores = prior
-    .filter((tab) => reloadable(tab.url))
-    .map((tab) => ({ url: tab.url, private: tab.private === true }));
-  const activeUrl = prior.find((tab) => tab.tabId === snapshot.activeTabId)?.url;
-  // The choice is kept before the close, so the reopen uses the new engine.
-  await preference.write(threadId, engine);
-  await host.closeThread(threadId, actor);
-  let fresh: BrowserState;
-  try {
-    fresh = await host.open({ threadId, workspaceId });
-  } catch (error) {
-    // The settings can't clear a thread-layer value, so a thread that only inherited its
-    // engine keeps the inherited value written back here.
-    if (previous) await preference.write(threadId, previous);
-    const back = await host.open({ threadId, workspaceId });
-    await reload(host, threadId, actor, back, restores, activeUrl);
+  const moved = await host.rehost(at, engine);
+  if (!moved.ok)
     throw new Error(
-      `Couldn't open the browser there, so it stayed where it was. ${message(error)}`,
-      {
-        cause: error,
-      },
+      moved.restored
+        ? `Couldn't open the browser there, so it stayed where it was. ${message(moved.error)}`
+        : `Couldn't open the browser there, and it didn't open again where it was. ${message(moved.error)}`,
+      { cause: moved.error },
     );
+  try {
+    await preference.write(threadId, engine);
+  } catch (error) {
+    // The choice wasn't kept: the browser goes back to the engine its setting still names.
+    if (snapshot.backend === "embedded" || snapshot.backend === "headless")
+      await host.rehost(at, snapshot.backend);
+    throw error;
   }
-  const failed = await reload(host, threadId, actor, fresh, restores, activeUrl);
-  return { state: await host.open({ threadId, workspaceId }), failed };
+  return { state: moved.state, failed: missing(snapshot, moved.state) };
 }
 
 /** Moves of one thread, one at a time: a second waits for the first, then finds it done. */
@@ -194,9 +124,9 @@ export class EngineMoves {
   constructor(host: EngineMoveHost) {
     this.#host = host;
   }
-  run(move: EngineMove, preference: EnginePreferencePort, actor: Actor) {
+  run(move: EngineMove, preference: EnginePreferencePort) {
     const before = this.#tails.get(move.threadId) ?? Promise.resolve();
-    const run = before.then(() => moveEngine(this.#host, preference, move, actor));
+    const run = before.then(() => moveEngine(this.#host, preference, move));
     const tail = run.catch(() => {});
     this.#tails.set(move.threadId, tail);
     void tail.then(() => {

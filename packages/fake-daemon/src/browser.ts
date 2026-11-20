@@ -658,6 +658,14 @@ export class FakeBrowser {
       this.changed();
     }
   }
+  /** The thread's open browser moves to another engine with its tabs (an engine move). */
+  rehost(threadId: string, backend: "embedded" | "headless"): void {
+    const entry = this.entries.get(threadId);
+    if (!entry?.view || entry.view.closed) throw new Error("Browser closed");
+    entry.generation++;
+    entry.view = { ...entry.view, backend };
+    this.changed();
+  }
   close(threadId: string): void {
     this.annotations.end(threadId, "stopped");
     const entry = this.entries.get(threadId);

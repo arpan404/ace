@@ -208,14 +208,6 @@ export class FakeServicesWire {
           return preference === "embedded" || preference === "headless" ? preference : "auto";
         },
         engine: {
-          read: async (threadId) => {
-            const value = this.settings.resolve("browser.backend", {
-              threadId: ThreadId.parse(threadId),
-            });
-            return value === "auto" || value === "embedded" || value === "headless"
-              ? value
-              : undefined;
-          },
           write: async (threadId, value) => {
             const set = this.settings.handle(
               {

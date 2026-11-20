@@ -34,7 +34,14 @@ import type { AgentScreenshot } from "./session-images.ts";
 import { defaultCursorStyle, type CursorStyle } from "@ace/browser-annotate";
 import type { ViewerSink } from "./viewer-sink.ts";
 import { BrowserSubscriptions } from "./subscriptions.ts";
-import { EngineMoves, type EngineMove, type EnginePreferencePort } from "./engine-move.ts";
+import {
+  EngineMoves,
+  type BrowserEngine,
+  type EngineMove,
+  type EnginePreferencePort,
+  carriedTabs,
+  type RehostResult,
+} from "./engine-move.ts";
 
 /** How long an agent's cursor glides before its click lands: long enough to follow by eye. */
 const defaultGlideMs = 220;
@@ -88,6 +95,10 @@ export class BrowserService {
   /** Per `auto` session: move its pages from the desktop to ace's Chromium. */
   private handOffs = new Map<string, () => Promise<void>>();
   private engineMoves = new EngineMoves(this);
+  /** A move's engine for its reopen, before the move commits it to the thread's setting. */
+  private engineOverrides = new Map<string, BrowserEngine>();
+  /** A move's tabs, handed straight to its reopen (the tab store keeps them across a restart). */
+  private handedTabs = new Map<string, BrowserTabRecord[]>();
   get hasActiveSessions(): boolean {
     return this.sessions.size > 0 || this.opening.size > 0 || this.recoveries.size > 0;
   }
@@ -224,7 +235,10 @@ export class BrowserService {
       profile:
         requested.profile ?? (await this.options.profilePreference?.(requested)) ?? "persistent",
     };
-    const preference = (await this.options.backendPreference?.(options)) ?? "auto";
+    const preference =
+      this.engineOverrides.get(options.threadId) ??
+      (await this.options.backendPreference?.(options)) ??
+      "auto";
     const lossPolicy = (await this.options.backendLoss?.(options)) ?? "pause";
     const embedded = this.embedded;
     // A desktop that can't draw (its screen locked) is no place for an `auto` page.
@@ -660,6 +674,8 @@ export class BrowserService {
    * unreadable store restores none.
    */
   private restoredTabs(threadId: string): BrowserTabRecord[] {
+    const handed = this.handedTabs.get(threadId);
+    if (handed) return handed;
     try {
       const own = (this.options.tabStore?.load(threadId) ?? []).toSorted(
         (a, b) => a.position - b.position,
@@ -970,11 +986,85 @@ export class BrowserService {
     return this.get(threadId).stopRecording(actor);
   }
   /**
-   * Moves the thread's browser to another engine for a person (ADR 0193), one move per thread at
+   * Moves the thread's browser to another engine for a person (ADR 0194), one move per thread at
    * a time: `preference` is where the daemon keeps the thread's `browser.backend`.
    */
-  moveEngine(move: EngineMove, preference: EnginePreferencePort, actor: Actor) {
-    return this.engineMoves.run(move, preference, actor);
+  moveEngine(move: EngineMove, preference: EnginePreferencePort) {
+    return this.engineMoves.run(move, preference);
+  }
+  /**
+   * Moves the thread's open browser to `engine` with its tabs (ADR 0194): it closes as a daemon
+   * shutdown does, its tabs kept in the tab store, and opens on `engine` with them. When that
+   * open fails, the tabs open again on the engine the browser was on. Nothing here writes the
+   * thread's setting, so a daemon that stops mid-move reopens the tabs where the setting says.
+   */
+  async rehost(
+    options: { threadId: string; workspaceId: string },
+    engine: BrowserEngine,
+  ): Promise<RehostResult> {
+    const { threadId } = options;
+    await this.recoveries.get(threadId);
+    const session = this.sessions.get(threadId) ?? (await this.opening.get(threadId));
+    const live = session && !session.state.closed ? session : undefined;
+    const tabs = live ? carriedTabs(live.tabRecords(), live.state, () => `tab-${this.id()}`) : [];
+    const was = live?.state.backend;
+    const shown = live?.state.activeTabId;
+    if (tabs.length)
+      try {
+        this.options.tabStore?.save(threadId, tabs);
+      } catch (error) {
+        this.options.onError?.(error);
+      }
+    if (session) {
+      await session.close();
+      if (this.sessions.get(threadId) === session) this.sessions.delete(threadId);
+    }
+    try {
+      return { ok: true, state: await this.openWith(options, engine, tabs, shown) };
+    } catch (error) {
+      const back = was === "embedded" || was === "headless" ? was : undefined;
+      const restored = await this.openWith(options, back, tabs, shown).catch(() => undefined);
+      return { ok: false, error, restored };
+    }
+  }
+  /**
+   * Opens the thread's browser on `engine` (its setting when undefined) with `tabs`, the tab
+   * that was shown shown again when it came back.
+   */
+  private async openWith(
+    options: { threadId: string; workspaceId: string },
+    engine: BrowserEngine | undefined,
+    tabs: BrowserTabRecord[],
+    shown: string | undefined,
+  ): Promise<BrowserState> {
+    const { threadId } = options;
+    if (engine) this.engineOverrides.set(threadId, engine);
+    if (tabs.length) this.handedTabs.set(threadId, tabs);
+    let state: BrowserState;
+    try {
+      state = await this.open(options);
+    } finally {
+      this.engineOverrides.delete(threadId);
+      this.handedTabs.delete(threadId);
+    }
+    // An engine with one page and no tabs takes the first page into its blank view.
+    const [first] = tabs;
+    if (!state.tabs && first && (state.url === "about:blank" || state.url === "")) {
+      await this.execute(
+        threadId,
+        { action: "navigate", url: first.url, timeout: 30_000 },
+        { kind: "human", connectionId: "" },
+      );
+      return this.state(threadId);
+    }
+    if (!shown || state.activeTabId === shown || !state.tabs?.some((tab) => tab.tabId === shown))
+      return state;
+    await this.execute(
+      threadId,
+      { action: "tabs", operation: "select", tabId: shown },
+      { kind: "human", connectionId: "" },
+    );
+    return this.state(threadId);
   }
   async closeThread(threadId: string, actor?: Actor, signal?: AbortSignal): Promise<void> {
     // Agent closure must not revoke policies or start recovery cleanup before ownership is checked.

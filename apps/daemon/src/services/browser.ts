@@ -277,10 +277,10 @@ export function createBrowserSession(context: SocketContext): SocketService {
     local: context.local === true,
     // Subscribes naming a media connection go to ace-media (D1) while it serves.
     media: { owner: () => mediaOwner(context), delivery: () => options.mediaDelivery?.() },
-    // An engine move keeps the thread's choice as the person's settings write would (ADR 0193).
+    // An engine move keeps the thread's choice as the person's settings write would (ADR 0194).
     ...(options.settings
       ? {
-          engine: engineSetting(options.settings, options.store, async () => {
+          engine: engineSetting(options.settings, async () => {
             const refused = await settingWriteRefusal("browser.backend", {
               device: context.device(),
               unproven: context.personProven?.() !== true,

@@ -317,7 +317,6 @@ export function connectBrowser(
                     engine: message.engine,
                   },
                   options.engine,
-                  { kind: "human", connectionId: options.connectionId },
                 ),
               );
             } finally {
