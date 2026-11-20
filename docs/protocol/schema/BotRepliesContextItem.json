@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/BotRepliesContextItem.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "keys": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array"
+    },
+    "type": {
+      "const": "bot_replies",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "keys"
+  ],
+  "type": "object"
+}

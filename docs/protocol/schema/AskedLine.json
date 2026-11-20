@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/AskedLine.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "about": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "devices": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DeviceContextItem.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "share": {
+      "$ref": "https://ace.local/protocol/v1/AddressedShare.json"
+    },
+    "shares": {
+      "default": [],
+      "items": {
+        "maxLength": 120,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "to": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AddressedTo.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "words": {
+      "maxLength": 16384,
+      "type": "string"
+    }
+  },
+  "required": [
+    "about",
+    "to",
+    "share"
+  ],
+  "type": "object"
+}

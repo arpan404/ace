@@ -199,6 +199,66 @@
         "intentId"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "acpAgentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "bridgeDigest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "executableDigest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "installationId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "previousBridgeDigest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "previousExecutableDigest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "registry.approve-update",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "acpAgentId",
+        "installationId",
+        "instanceId",
+        "executableDigest",
+        "previousExecutableDigest",
+        "generation"
+      ],
+      "type": "object"
     }
   ]
 }

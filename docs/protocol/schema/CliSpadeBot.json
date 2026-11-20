@@ -72,7 +72,8 @@
       "enum": [
         "idle",
         "working",
-        "waiting"
+        "waiting",
+        "paused"
       ],
       "type": "string"
     },

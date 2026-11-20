@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/ModelsLoadRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "models.load",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "instance"
+  ],
+  "type": "object"
+}

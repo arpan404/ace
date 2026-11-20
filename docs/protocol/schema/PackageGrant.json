@@ -1,0 +1,73 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageGrant.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "maxLength": 253,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "drive_site",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "host"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "app": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "drive_app",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "app"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "additionalProperties": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "tool",
+          "type": "string"
+        },
+        "tool": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "tool"
+      ],
+      "type": "object"
+    }
+  ]
+}
