@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "vitest";
 import { antigravityQuirks, createAcpAdapter } from "@ace/adapter-acp";
 import { AcpIdentity } from "@ace/protocol";
 import { INTERRUPT_GRACE_MS } from "../liveness/stop.ts";
+import type { EngineOptions } from "./index.ts";
 import { cleanupRecovery, fixture } from "./recovery-test-support.ts";
 import { scriptFrames } from "./test-support.ts";
 
@@ -22,10 +23,7 @@ const server = fileURLToPath(
 );
 
 /** An Antigravity thread on the ACP double, recording each session it opens and what it took. */
-async function antigravity(
-  first = "antigravity-shell",
-  beforeSend?: Parameters<typeof fixture>[2]["beforeSend"],
-) {
+async function antigravity(first = "antigravity-shell", beforeSend?: EngineOptions["beforeSend"]) {
   const frames = scriptFrames();
   const h = await fixture([], frames, {
     provider: "antigravity",

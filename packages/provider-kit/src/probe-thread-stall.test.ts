@@ -50,7 +50,7 @@ const launch = async () => ({ command: "/bin/tool", args: ["--version"], env: {}
 
 test("a probe whose worker is stuck in its spawn ends at its deadline once the worker is ended", async () => {
   const { thread, workers, graceEnds } = stuckThread();
-  let deadline = () => {};
+  let deadline: (() => void) | undefined;
   const probe = probeOutput("tool", ["--version"], {
     resolve: launch,
     thread,
@@ -61,7 +61,7 @@ test("a probe whose worker is stuck in its spawn ends at its deadline once the w
   });
   const failed = expect(probe).rejects.toThrow("Probe timed out");
   await expect.poll(() => workers.length).toBe(1);
-  deadline();
+  deadline?.();
   // The stop it is sent goes unread; past the grace the worker itself is ended.
   expect(workers[0]?.terminated).toBe(false);
   graceEnds();
