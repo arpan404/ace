@@ -4,6 +4,9 @@ import { Connection } from "./connection.ts";
 import { defaultLimits, type TransportEvents } from "./types.ts";
 import { WireCodec } from "./wire-codec.ts";
 
+/** Lets the credential promise and the hello it sends run. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 /** A connection on manual time that records every hello it sends. */
 function recorded() {
   const timers: { delay: number; run: () => void; live: boolean }[] = [];
@@ -43,12 +46,10 @@ function recorded() {
     () => {},
     () => {},
   );
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   return {
     link,
     hellos,
     at: (ms: number) => void (now = ms),
-    settle,
     welcome: () =>
       events?.message(
         JSON.stringify({ type: "welcome", hostId: "host", protocolVersion: 1, headSeq: 0 }),
@@ -67,7 +68,7 @@ function recorded() {
 test("the hello after a relayed drop tells the daemon how the last connection ended", async () => {
   const c = recorded();
   c.link.start();
-  await c.settle();
+  await settle();
   expect(c.hellos[0]).not.toHaveProperty("lastClose");
   c.at(1_000);
   c.welcome();
@@ -75,7 +76,7 @@ test("the hello after a relayed drop tells the daemon how the last connection en
   c.close(1006, "receive failed (NSPOSIXErrorDomain 40)");
   c.at(9_000);
   c.retry();
-  await c.settle();
+  await settle();
   expect(c.hellos[1]?.lastClose).toEqual({
     code: 1006,
     reason: "receive failed (NSPOSIXErrorDomain 40)",
@@ -89,17 +90,17 @@ test("the hello after a relayed drop tells the daemon how the last connection en
 test("a welcome settles the report: the next drop reports itself, not the one before", async () => {
   const c = recorded();
   c.link.start();
-  await c.settle();
+  await settle();
   c.welcome();
   c.close(1006, "first");
   c.retry();
-  await c.settle();
+  await settle();
   c.at(10_000);
   c.welcome();
   c.at(12_500);
   c.close(1000, "second");
   c.retry();
-  await c.settle();
+  await settle();
   expect(c.hellos[2]?.lastClose).toMatchObject({
     code: 1000,
     reason: "second",
