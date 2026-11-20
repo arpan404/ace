@@ -3,7 +3,8 @@ import { z } from "zod";
 /*
  * A packaged bot's panels (ADR 0200 §5.2, spade/docs/surfaces.md): sandboxed pages its package
  * ships, opened beside its conversation on the web and desktop. Spade lists them with the page
- * each shows, by hash, and the actions it may send; the bot sets their state with `panel_update`
+ * each shows, by hash, the actions it may send and those only the person may send; the bot sets
+ * their state with `panel_update`
  * and the latest state is folded from the conversation, so a panel follows it live. Phones show
  * the bot's cards instead. Read leniently, as every event is.
  */
@@ -16,6 +17,11 @@ export interface SpadePanel {
   page: string | undefined;
   /** The actions its page may send, by name. */
   actions: readonly string[];
+  /**
+   * Those only the person may send, each with its words: ace asks on its own line outside the
+   * page, and only their press there sends it (ADR 0200 §5.2, amendment 1).
+   */
+  confirm: readonly { name: string; label: string }[];
   /** The state its bot last set, as Spade had it when listed. */
   state: unknown;
 }
@@ -36,12 +42,15 @@ const Listed = z.object({
               .nullish()
               .catch(undefined),
             actions: z.array(z.string()).catch([]),
+            // Unread, none: Spade then refuses such an action from the page, so it never goes
+            // without the person.
+            confirm: z.array(z.object({ name: z.string(), label: z.string() })).catch([]),
             state: z.unknown().optional(),
           })
           .safeParse(item);
         if (!read.success) return [];
-        const { id, title, page, actions, state } = read.data;
-        return [{ id, title: title || id, page: page ?? undefined, actions, state }];
+        const { id, title, page, actions, confirm, state } = read.data;
+        return [{ id, title: title || id, page: page ?? undefined, actions, confirm, state }];
       }),
     ),
 });
@@ -60,6 +69,7 @@ export const spadePanelEvents = [
     surface: z.string().min(1),
     action: z.string(),
     label: z.string().catch(""),
+    by: z.enum(["page", "person"]).catch("page"),
   }),
 ] as const;
 

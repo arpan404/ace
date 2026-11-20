@@ -5,8 +5,8 @@ import { segment, spadeHttp, type SpadeTarget } from "../spade-requests.ts";
 
 /*
  * A packaged bot's panels (ADR 0200 §5.2) from its Spade: the list for its conversation, a
- * panel's page by hash (cached for good, since a hash names one page), and an action the person
- * sent from one.
+ * panel's page by hash (cached for good, since a hash names one page), and an action sent from
+ * one.
  */
 
 export const panelsKey = ["spade", "panels"] as const;
@@ -50,12 +50,15 @@ export function usePanelPage(hash: string | undefined) {
   });
 }
 
-/** Sends the person's action, keyed so a retry lands once. */
+/**
+ * Sends a panel's action, keyed so a retry lands once: the page's, or the person's when they
+ * pressed Confirm on ace's own line (`confirmed`).
+ */
 export function sendPanelAction(
   target: SpadeTarget,
   conversation: string,
   panel: string,
-  action: { key: string; name: string; value?: unknown },
+  action: { key: string; name: string; value?: unknown; confirmed: boolean },
 ): Promise<string> {
   return spadeHttp(
     target,
@@ -66,6 +69,7 @@ export function sendPanelAction(
         key: action.key,
         action: action.name,
         ...(action.value === undefined ? {} : { value: action.value }),
+        ...(action.confirmed ? { confirmed: true } : {}),
       },
     },
   );

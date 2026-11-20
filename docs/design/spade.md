@@ -138,6 +138,14 @@ Spade is one of ace's places. It adds no navigation of its own.
   Marketplace's install review over the page; Later and Not now as ghost words. Installed, it
   settles to one quiet line with the face ("Installed Flight watcher"); left for later, one line
   with Review.
+- **Panel confirm** (an action a package's panel declares `confirm`, ADR 0200 §5.2 amendment 1):
+  ace's own line at the foot of the panel, under the page and outside its frame, parted from it
+  by one hairline: one sentence in `text-ui` foreground saying what goes ("Watched trips asks to
+  send “Book this fare” with KTM-DEL."), then Cancel (secondary) and Confirm (primary) at the
+  right, text buttons with no icons, tints or timers. Nothing the page draws can sit on it or
+  press it. Confirm takes a press only once the line has shown for 600 ms. Confirmed or
+  cancelled, the line goes; the conversation shows "You confirmed Book this fare" as a quiet line,
+  where an action the page sent by itself reads "The panel sent Stop watching".
 - **A bot's notice** (`notify`, ADR 0200 §4.2): the bot's bubble where it sent it, a bare bell
   before its title (500), the body under it, both plain text (nothing in them is a link), then
   one quiet line saying where it went: "Sent as a notification", "Held for your morning brief:

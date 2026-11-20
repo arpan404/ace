@@ -20,14 +20,16 @@ import { useSpadeClient } from "../spade-machine.tsx";
 import { message } from "../spade-screen-parts.tsx";
 import type { RosterBot } from "../use-spade-roster.ts";
 import { sendPanelAction, usePanelPage } from "./panels-api.ts";
-import { usePanelHost } from "./use-panel-host.ts";
+import { usePanelHost, type PanelConfirmLine as PanelConfirmLineType } from "./use-panel-host.ts";
 
 /*
  * A packaged bot's panel beside its conversation (ADR 0200 §5.2, docs/design/spade.md): the page
  * its package ships, in ace's visualization sandbox, under the panel's title with the bot's
  * accent rule. One per bot (the side place holds one), at most four live in a window, each live
- * only while it shows. What the page sends that its panel declares goes to the bot as the
- * person's input; a page that throws or stalls three times stops, and says so.
+ * only while it shows. What the page sends that its panel declares goes to the bot as the page's
+ * input, never the person's. An action the panel declares `confirm` waits on ace's own line under
+ * the page, where only the person's real press on Confirm sends it as theirs (amendment 1). A page
+ * that throws or stalls three times stops, and says so.
  */
 
 /** A window's live panels: the most recently shown four. */
@@ -49,6 +51,33 @@ function useSize(element: HTMLElement | null) {
   return size;
 }
 
+/**
+ * ace's own line under the page for an action only the person may send: what goes, in words, and
+ * Cancel and Confirm. It is outside the page, which can neither draw over it nor press it.
+ */
+function PanelConfirmLine(props: { line: PanelConfirmLineType }) {
+  const { line } = props;
+  return (
+    <div
+      role="group"
+      aria-label="Confirm the panel's action"
+      className="flex shrink-0 flex-col gap-2 border-t border-border px-4 py-3"
+    >
+      <p aria-live="polite" className="text-ui break-words text-foreground">
+        {line.words}
+      </p>
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="secondary" onClick={line.cancel}>
+          Cancel
+        </Button>
+        <Button size="sm" variant="primary" onClick={(event) => line.press(event.nativeEvent)}>
+          Confirm
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function BotPanelView(props: {
   bot: RosterBot;
   conversation: string;
@@ -67,19 +96,24 @@ export function BotPanelView(props: {
   const [element, setElement] = useState<HTMLElement | null>(null);
   const live = useLiveFrame(`${bot.machine.key}/${bot.id}/${panel.id}`, element, livePanels);
   const size = useSize(element);
+  const deliver = (name: string, value: unknown, confirmed: boolean) =>
+    void sendPanelAction(client, props.conversation, panel.id, {
+      key: crypto.randomUUID(),
+      name,
+      value,
+      confirmed,
+    }).catch((error: unknown) =>
+      toast.error({ title: `Couldn't send that to ${bot.name}`, description: message(error) }),
+    );
   const host = usePanelHost({
+    title: panel.title,
     actions: panel.actions,
+    confirm: panel.confirm,
     state: props.state,
     theme,
     size,
-    onAction: (name, value) =>
-      void sendPanelAction(client, props.conversation, panel.id, {
-        key: crypto.randomUUID(),
-        name,
-        value,
-      }).catch((error: unknown) =>
-        toast.error({ title: `Couldn't send that to ${bot.name}`, description: message(error) }),
-      ),
+    onAction: (name, value) => deliver(name, value, false),
+    onConfirmed: (name, value) => deliver(name, value, true),
   });
   // A page that wouldn't pass the sandbox's checks is never built.
   const valid = useMemo(
@@ -156,6 +190,7 @@ export function BotPanelView(props: {
       <div ref={setElement} className="relative min-h-0 flex-1">
         {body}
       </div>
+      {host.confirm && <PanelConfirmLine line={host.confirm} />}
     </section>
   );
 }
