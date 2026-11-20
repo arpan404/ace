@@ -24,6 +24,7 @@ import { createAutomationsSession } from "./automations.ts";
 import { createWorkspaceActionsSession } from "./workspace-actions.ts";
 import { createTerminalSession } from "./terminal.ts";
 import { createThreadOrganizationSession } from "./thread-organization.ts";
+import { createThreadAddressSession } from "./thread-address.ts";
 import { createRecoverySession } from "./recovery.ts";
 import { createDevicesSession } from "./devices.ts";
 import { createThreadTransitionsSession } from "./thread-transitions.ts";
@@ -85,6 +86,7 @@ export const socketServiceFactories = [
   createIconsSession,
   createMediaConnectSession,
   createThreadOrganizationSession,
+  createThreadAddressSession,
   createWorkspaceActionsSession,
   createProjectsSession,
   createTransfersSession,

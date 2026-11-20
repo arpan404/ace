@@ -242,6 +242,9 @@ export function daemonHandle({
     get spade() {
       return services.spade;
     },
+    get threadAsks() {
+      return services.threadAsks;
+    },
     get spadeRemote() {
       return services.spadeRemote;
     },

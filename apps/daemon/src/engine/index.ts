@@ -10,6 +10,7 @@ import { activeRun, delegationsInFlight, turnOrigin } from "./turn-origin.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { GuestThreads } from "./guest-threads.ts";
 import { HostThreads } from "./host-threads.ts";
+import { ThreadPosts } from "./thread-posts.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
 import type { EngineOptions } from "./engine-options.ts";
 import { reclaimIdleSlot } from "./slot-reclaim.ts";
@@ -90,6 +91,7 @@ export class Engine {
   readonly guests: GuestThreads;
   /** Threads the daemon holds for its own processes, such as Spade (ADR 0121). */
   readonly hosts: HostThreads;
+  readonly posts: ThreadPosts;
   private registry: AdapterRegistry;
   private clock: EngineClock;
   private batchScheduler: Pick<EngineClock, "setTimer">;
@@ -142,6 +144,7 @@ export class Engine {
       () => this.clock.now(),
     );
     this.hosts = new HostThreads(this.repo, () => this.clock.now());
+    this.posts = new ThreadPosts(this.repo, () => this.clock.now());
     this.guests = new GuestThreads(
       this.repo,
       () => this.clock.now(),

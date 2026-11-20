@@ -88,6 +88,7 @@ const starts: Record<ServiceName, ServiceDefinition["start"]> = {
   parcels: loadOnStart(() => import("../parcels/service.ts"), "startParcels"),
   externalMcp: loadOnStart(() => import("./external-mcp.ts"), "startExternalMcp"),
   spade: loadOnStart(() => import("./spade.ts"), "startSpade"),
+  threadAddress: loadOnStart(() => import("./thread-address.ts"), "startThreadAddress"),
   previewClient: startPreviewClient,
   backgroundPorts: startBackgroundPorts,
   threadOrganization: startThreadOrganization,
@@ -108,11 +109,17 @@ export function readyServices(
 ): asserts services is Partial<Services> & Pick<Services, "handler"> {
   const handler = requireService(services.handler, "engine");
   services.handler = {
-    handle: (command, store) =>
-      services.asks?.resolve(command) ??
-      services.browserHelp?.resolve(command) ??
-      services.marketAgent?.requests.resolve(command) ??
-      handler.handle(command, store),
+    handle: (command, store) => {
+      // Stop in a thread also stops what its bots and clubs are answering (ADR 0194).
+      if (command.payload.type === "thread.interrupt")
+        void services.threadAsks?.stopThread(command.payload.threadId);
+      return (
+        services.asks?.resolve(command) ??
+        services.browserHelp?.resolve(command) ??
+        services.marketAgent?.requests.resolve(command) ??
+        handler.handle(command, store)
+      );
+    },
   };
 }
 export type { ServiceContext };
