@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Popover, PopoverContent } from "@/components/ui/popover.tsx";
 import { WordChoice } from "@/components/ui/word-choice.tsx";
-import { MarkerNumber, TagBadge } from "./marker.tsx";
+import { MarkerNumber, PlaceBadge } from "./marker.tsx";
 
 type Anchor = PopoverPrimitive.Positioner.Props["anchor"];
 type Intent = CodeAnnotationIntent | "note";
@@ -67,7 +67,7 @@ export function CommentPopover(props: {
       >
         <div className="flex items-center gap-1.5 pl-1">
           {props.number !== undefined && <MarkerNumber number={props.number} />}
-          <TagBadge tag={props.lines} />
+          <PlaceBadge text={props.lines} />
           <WordChoice<Intent>
             label="What you want"
             value={intent}

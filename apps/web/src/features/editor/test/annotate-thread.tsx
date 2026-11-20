@@ -69,11 +69,11 @@ function Annotated(props: { file: File; editorRef: RefObject<EditorHandle | null
   const layer = useEditorAnnotations({ threadId, path: file.path, side: file.side, newId: nextId });
   return (
     <CodeEditor
-      ref={editorRef}
+      ref={editorRef ?? null}
       path={file.path}
       label={`Editor ${file.path}`}
       text={file.text}
-      readOnly={file.readOnly}
+      readOnly={file.readOnly ?? false}
       layer={layer}
       commitAfter={20}
       highlightDelay={60_000}

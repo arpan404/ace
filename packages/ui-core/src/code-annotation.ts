@@ -165,6 +165,11 @@ export interface ParsedCodeAnnotation {
   comment: string;
   code: string;
   outdated: boolean;
+  /** The exact range, 0-based as the record keeps it, when the block said it. */
+  start?: CodeAnnotation["start"] | undefined;
+  end?: CodeAnnotation["end"] | undefined;
+  cut?: boolean | undefined;
+  side?: "old" | undefined;
 }
 
 const blockPattern = /<code_annotations version="1"[^>\n]*>[\s\S]*?<\/code_annotations>/;
@@ -206,7 +211,16 @@ export function parseCodeAnnotations(block: string): ParsedCodeAnnotation[] | un
     }
     if (!current) continue;
     const intent = /^Intent: (question|explain|fix)\./.exec(line);
-    if (intent) {
+    const selection = /^Selection: line (\d+) column (\d+) to line (\d+) column (\d+)$/.exec(line);
+    if (selection) {
+      const [, startLine, startColumn, endLine, endColumn] = selection.map(Number);
+      current.start = { line: (startLine ?? 1) - 1, column: (startColumn ?? 1) - 1 };
+      current.end = { line: (endLine ?? 1) - 1, column: (endColumn ?? 1) - 1 };
+      inComment = false;
+    } else if (line.startsWith("Version: the file before")) {
+      current.side = "old";
+      inComment = false;
+    } else if (intent) {
       current.intent = intentNames[intent[1] ?? ""];
       inComment = false;
     } else if (line.startsWith("Comment: ")) {
@@ -216,6 +230,7 @@ export function parseCodeAnnotations(block: string): ParsedCodeAnnotation[] | un
       current.comment += `\n${line.slice(2)}`;
     } else if (/^Code( \(its first lines\))?:$/.test(line)) {
       inComment = false;
+      if (line !== "Code:") current.cut = true;
       const fence = lines[at + 1] ?? "";
       if (!/^`{3,}$/.test(fence)) continue;
       const end = lines.indexOf(fence, at + 2);
@@ -252,6 +267,31 @@ export function splitCodeAnnotationParts(parts: readonly ContentPart[]): {
   }
   if (!kept.length && code) kept.push({ type: "text", text: "" });
   return { parts: kept, code };
+}
+
+/**
+ * A sent block's annotations as records again, for Edit on a message that didn't go: each gets
+ * a fresh id, its range from the block's Selection (else its whole lines).
+ */
+export function returnedCodeAnnotations(
+  parsed: readonly ParsedCodeAnnotation[],
+  id: (index: number) => string,
+): CodeAnnotation[] {
+  return readCodeAnnotations(
+    parsed.map((item, index) => ({
+      id: id(index),
+      number: index + 1,
+      path: item.path,
+      start: item.start ?? { line: item.first - 1, column: 0 },
+      end: item.end ?? { line: item.last, column: 0 },
+      excerpt: item.code,
+      ...(item.cut ? { cut: true } : {}),
+      comment: item.comment,
+      ...(item.intent ? { intent: item.intent } : {}),
+      ...(item.outdated ? { outdated: true } : {}),
+      ...(item.side ? { side: item.side } : {}),
+    })),
+  );
 }
 
 /** Records from storage one by one: an unreadable one is dropped, never the rest. */

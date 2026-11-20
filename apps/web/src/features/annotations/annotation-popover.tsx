@@ -1,4 +1,5 @@
 import { ImageIcon, PencilSimpleIcon, TrashIcon } from "@ace/icons";
+import { codeIntentWords, codeLines, type CodeAnnotation } from "@ace/ui-core";
 import type { RefObject } from "react";
 import { ImageUrl } from "@/components/attachment-bytes.tsx";
 import type { ImageSource } from "@/components/attachment-format.ts";
@@ -6,11 +7,12 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Popover, PopoverContent } from "@/components/ui/popover.tsx";
 import { useOpenAfterMount } from "@/lib/pending-open.tsx";
 import { part } from "@/lib/suit-part.ts";
+import { codeBadge, firstCodeLine } from "./annotation-card.tsx";
 import { changeSummary } from "./annotation-words.ts";
 import type { AnnotationItem, DraftAnnotationsState } from "./draft-annotations.ts";
-import { MarkerNumber, TagBadge } from "./marker.tsx";
+import { MarkerNumber, PlaceBadge, TagBadge } from "./marker.tsx";
 import { badgeFor, regionContents } from "./region-summary.ts";
-import type { AnnotationSessionPort } from "./store.ts";
+import { useCodeEditors, type AnnotationSessionPort, type CodeEditorPort } from "./store.ts";
 
 /**
  * The annotation chip's list, as a popover from its count (`annotation-chip.tsx`): each
@@ -30,6 +32,7 @@ export function AnnotationList(props: {
 }) {
   const { annotations, session, anchor } = props;
   const { mounted, open } = useOpenAfterMount(props.open);
+  const editors = useCodeEditors(props.threadId ?? "");
   const remove = (id: string) => {
     annotations.remove(id);
     session?.remove(id);
@@ -65,6 +68,15 @@ export function AnnotationList(props: {
                 threadId={props.threadId}
                 session={session}
                 onRemove={remove}
+              />
+            ))}
+            {annotations.code.map((annotation) => (
+              <CodeRow
+                key={annotation.id}
+                annotation={annotation}
+                editor={editors.findLast((each) => each.path === annotation.path)}
+                onEdit={() => props.onOpenChange(false)}
+                onRemove={annotations.remove}
               />
             ))}
           </ul>
@@ -124,6 +136,61 @@ function Row(props: {
         <IconButton
           icon={TrashIcon}
           label={`Remove annotation ${number}`}
+          tip="Remove"
+          size="sm"
+          onClick={() => props.onRemove(annotation.id)}
+        />
+      </div>
+    </li>
+  );
+}
+
+/** A code annotation: its file and lines, its first line of code, what the person wants. */
+function CodeRow(props: {
+  annotation: CodeAnnotation;
+  editor: CodeEditorPort | undefined;
+  /** The comment opens in the file: the list gives way to it. */
+  onEdit(): void;
+  onRemove(id: string): void;
+}) {
+  const { annotation, editor } = props;
+  const { number } = annotation;
+  const excerpt = firstCodeLine(annotation.excerpt);
+  const words = annotation.comment || (annotation.intent ? codeIntentWords[annotation.intent] : "");
+  return (
+    <li {...part("list-row")} className="flex items-start gap-2.5 rounded-md p-2">
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <MarkerNumber number={number} />
+          <PlaceBadge text={codeBadge({ path: annotation.path, ...codeLines(annotation) })} />
+          {annotation.outdated && <span className="text-xs text-subtle-foreground">Outdated</span>}
+        </div>
+        {excerpt && (
+          <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{excerpt}</p>
+        )}
+        {words && (
+          <p className="mt-1 line-clamp-3 text-ui wrap-break-word whitespace-pre-wrap text-foreground">
+            {words}
+          </p>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <IconButton
+          icon={PencilSimpleIcon}
+          label={`Edit annotation ${number} on ${annotation.path}`}
+          tip="Edit in the file"
+          size="sm"
+          disabled={!editor}
+          reason={editor ? undefined : "Open the file to edit it"}
+          onClick={() => {
+            if (!editor) return;
+            props.onEdit();
+            editor.edit(annotation.id);
+          }}
+        />
+        <IconButton
+          icon={TrashIcon}
+          label={`Remove annotation ${number} on ${annotation.path}`}
           tip="Remove"
           size="sm"
           onClick={() => props.onRemove(annotation.id)}

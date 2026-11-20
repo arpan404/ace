@@ -1,17 +1,22 @@
-import type { ParsedBrowserAnnotations } from "@ace/ui-core";
+import type { ParsedBrowserAnnotations, ParsedCodeAnnotation } from "@ace/ui-core";
 import { ChatTeardropTextIcon } from "@ace/icons";
-import { displayAddress } from "@ace/ui-core";
+import { codeIntentWords, displayAddress } from "@ace/ui-core";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { annotationCount, changeSummary } from "./annotation-words.ts";
-import { MarkerNumber, TagBadge } from "./marker.tsx";
+import { MarkerNumber, PlaceBadge, TagBadge } from "./marker.tsx";
 import { badgeFor, regionContents } from "./region-summary.ts";
 
 /**
- * A sent message's browser annotations in the transcript: folded to their count, open to each
- * marker's element, page text and comment, grouped under the page they were pinned on.
+ * A sent message's annotations in the transcript: folded to their count, open to each browser
+ * marker's element, page text and comment, grouped under the page they were pinned on, then
+ * each code annotation's file and lines, its first line of code and the comment.
  */
-export function AnnotationsCard(props: { annotations: ParsedBrowserAnnotations }) {
-  const { items } = props.annotations;
+export function AnnotationsCard(props: {
+  annotations?: ParsedBrowserAnnotations | undefined;
+  code?: readonly ParsedCodeAnnotation[] | undefined;
+}) {
+  const items = props.annotations?.items ?? [];
+  const code = props.code ?? [];
   const pages = [...new Set(items.map((item) => item.url))];
   return (
     <Disclosure
@@ -20,7 +25,7 @@ export function AnnotationsCard(props: { annotations: ParsedBrowserAnnotations }
       summary={
         <span className="flex items-center gap-1.5">
           <ChatTeardropTextIcon aria-hidden size={14} />
-          {annotationCount(items.length)}
+          {annotationCount(items.length + code.length)}
         </span>
       }
     >
@@ -65,7 +70,52 @@ export function AnnotationsCard(props: { annotations: ParsedBrowserAnnotations }
             </ol>
           </section>
         ))}
+        {code.length > 0 && <CodeList code={code} />}
       </div>
     </Disclosure>
   );
 }
+
+/** The code annotations of a sent message, in their order. */
+function CodeList(props: { code: readonly ParsedCodeAnnotation[] }) {
+  return (
+    <ol aria-label="Annotations on code" className="flex flex-col gap-1.5">
+      {props.code.map((item) => (
+        <li key={item.number} className="flex min-w-0 items-start gap-2">
+          <span className="mt-0.5 flex min-w-0 shrink-0 items-center gap-1.5">
+            <MarkerNumber number={item.number} />
+            <PlaceBadge text={codeBadge(item)} />
+          </span>
+          <span className="min-w-0 flex-1 text-ui">
+            {firstCodeLine(item.code) && (
+              <span className="block truncate font-mono text-xs text-muted-foreground">
+                {firstCodeLine(item.code)}
+              </span>
+            )}
+            {(item.comment || item.intent) && (
+              <span className="block whitespace-pre-wrap text-foreground">
+                {item.comment || (item.intent ? codeIntentWords[item.intent] : "")}
+              </span>
+            )}
+            {item.outdated && (
+              <span className="block text-xs text-subtle-foreground">Outdated</span>
+            )}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** `total.ts:12–18`: the file's name and the lines, as a badge reads. */
+export function codeBadge(item: { path: string; first: number; last: number }): string {
+  const name = item.path.split("/").at(-1) ?? item.path;
+  return `${name}:${item.last > item.first ? `${item.first}–${item.last}` : item.first}`;
+}
+
+/** The first line of code that has any, as a row's excerpt. */
+export const firstCodeLine = (code: string) =>
+  code
+    .split("\n")
+    .find((line) => line.trim())
+    ?.trim() ?? "";
