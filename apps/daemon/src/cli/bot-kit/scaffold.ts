@@ -35,7 +35,62 @@ interface Starter {
   readonly reply: string;
   readonly skill: string;
   readonly more?: (name: string) => ScaffoldFile[];
+  /** A panel it ships (ADR 0200 §5.2): its declaration and its one page. */
+  readonly panel?: { readonly declared: Record<string, unknown>; readonly page: string };
 }
+
+/** The watcher's panel: what it watches, each with a Stop button that tells the bot. */
+const watchPage = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Watching</title>
+<style>
+  body { margin: 0; padding: 16px; font: 14px/1.45 var(--font-sans, system-ui); color: var(--foreground); }
+  h1 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+  ul { margin: 0; padding: 0; list-style: none; }
+  li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .value { color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  button { font: inherit; color: var(--foreground); background: transparent; border: 1px solid var(--border); border-radius: var(--radius, 6px); padding: 3px 10px; cursor: pointer; }
+  button:hover { background: var(--hover); }
+  .empty { color: var(--muted-foreground); }
+</style>
+</head>
+<body>
+<h1>Watching</h1>
+<ul id="items"></ul>
+<p class="empty" id="empty">Nothing yet. Tell the bot what to watch.</p>
+<script>
+  // ace sends this page its state (what the bot set with panel_update) and the person's theme;
+  // acePanel.act sends one of the actions bot.json declares back to the bot.
+  const list = document.getElementById("items");
+  const empty = document.getElementById("empty");
+  function row(item) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = item.name;
+    const value = document.createElement("span");
+    value.className = "value";
+    value.textContent = item.value || "";
+    const stop = document.createElement("button");
+    stop.textContent = "Stop";
+    stop.addEventListener("click", () => acePanel.act("stop_watching", item.name));
+    li.append(name, value, stop);
+    return li;
+  }
+  function show(state) {
+    const items = (state && state.items) || [];
+    list.replaceChildren(...items.map(row));
+    empty.hidden = items.length > 0;
+  }
+  addEventListener("ace:state", (event) => show(event.detail));
+  show(acePanel.state);
+</script>
+</body>
+</html>
+`;
 
 function starter(name: string, kind: CliBotStarter): Starter {
   switch (kind) {
@@ -89,7 +144,42 @@ function starter(name: string, kind: CliBotStarter): Starter {
         },
         message: "Watch the price of the blue kettle.",
         reply: "I'll watch the blue kettle and tell you when its price changes.",
-        skill: "How to watch: keep each thing's last value in your notes, and compare with it.",
+        skill:
+          "How to watch: keep each thing's last value in your notes, and compare with it. After each check, set your Watching panel with panel_update.",
+        panel: {
+          declared: {
+            id: "watching",
+            kind: "panel",
+            file: "panels/watching/index.html",
+            title: "Watching",
+            state: {
+              type: "object",
+              properties: {
+                items: {
+                  type: "array",
+                  maxItems: 50,
+                  items: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string", maxLength: 80 },
+                      value: { type: "string", maxLength: 40 },
+                    },
+                    required: ["name"],
+                  },
+                },
+              },
+              required: ["items"],
+            },
+            actions: [
+              {
+                name: "stop_watching",
+                label: "Stop watching",
+                value: { type: "string", maxLength: 80 },
+              },
+            ],
+          },
+          page: watchPage,
+        },
         more: () => [
           {
             path: "tests/morning-check.json",
@@ -98,6 +188,28 @@ function starter(name: string, kind: CliBotStarter): Starter {
               given: { trigger: "Morning check" },
               model: [{ say: "Nothing changed this morning." }],
               expect: { reply_contains: ["nothing changed"] },
+            }),
+          },
+          {
+            path: "tests/panel.json",
+            text: json({
+              name: "Sets its Watching panel",
+              given: { message: "Watch the price of the blue kettle." },
+              model: [
+                {
+                  calls: [
+                    {
+                      tool: "panel_update",
+                      arguments: {
+                        surface: "watching",
+                        data: { items: [{ name: "Blue kettle", value: "39 USD" }] },
+                      },
+                    },
+                  ],
+                },
+                { say: "Watching the blue kettle." },
+              ],
+              expect: { calls: ["panel_update"], reply_contains: ["blue kettle"] },
             }),
           },
         ],
@@ -139,6 +251,7 @@ export function scaffold(name: string, kind: CliBotStarter): ScaffoldFile[] {
     triggers: it.triggers,
     skills: [skill],
     effects: it.effects,
+    ...(it.panel ? { surfaces: [it.panel.declared] } : {}),
     tests,
     pricing: { kind: "free" },
   };
@@ -179,6 +292,11 @@ export function scaffold(name: string, kind: CliBotStarter): ScaffoldFile[] {
     "- `bot.json`: the manifest: name, task, triggers, the effects it may use and why, its tests.",
     `- \`${skill}/SKILL.md\`: a skill only this bot uses.`,
     `- \`${card}\`: a card the bot shows with \`card_show\`, as data ace draws.`,
+    ...(it.panel
+      ? [
+          `- \`${String(it.panel.declared["file"])}\`: its panel, a page beside its conversation on the web and desktop. The bot sets what it shows with \`panel_update\`; its Stop button sends \`stop_watching\` back.`,
+        ]
+      : []),
     ...tests.map((test) => `- \`${test}\`: a scenario test, run offline by \`ace bot test\`.`),
     "",
     "## Working on it",
@@ -197,6 +315,7 @@ export function scaffold(name: string, kind: CliBotStarter): ScaffoldFile[] {
     { path: `${skill}/SKILL.md`, text: skillText },
     { path: card, text: json(it.card) },
     { path: "tests/first-message.json", text: json(first) },
+    ...(it.panel ? [{ path: String(it.panel.declared["file"]), text: it.panel.page }] : []),
     ...more,
   ];
 }

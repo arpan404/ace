@@ -1,5 +1,5 @@
 import { PackagePlan } from "@ace/protocol/marketplace";
-import { parseSpadePackage } from "@ace/ui-core/spade-chat";
+import { parseSpadePackage, updateSentences } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { z } from "zod";
@@ -13,7 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { updateSentences } from "@/features/marketplace/index.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { fault } from "./spade-profile-actions.ts";
 import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";

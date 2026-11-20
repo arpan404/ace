@@ -1,9 +1,11 @@
 import type { MarketProblem } from "@ace/protocol/marketplace";
 import type { ArchiveFile } from "../archive.ts";
+import { contractFileReader } from "../contract-files.ts";
 import { text } from "../listing.ts";
 import type { Recipe } from "@ace/protocol/marketplace";
 import { readRecipe } from "../recipe.ts";
 import { checkSkill, folderSecretProblems, type SkillInspection } from "./skill.ts";
+import { panelProblems } from "./panels.ts";
 
 /** A recipe's facts for its review, with each skill folder it holds checked as a skill. */
 export interface BotInspection {
@@ -64,7 +66,10 @@ export function checkBot(
     problems.push({ path: "bot.json", message: "bot.json is missing or isn't text" });
     return { inspection: undefined, problems };
   }
-  const read = readRecipe(bot, new Set(folders.map((folder) => `skills/${folder.name}`)), options);
+  const read = readRecipe(bot, new Set(folders.map((folder) => `skills/${folder.name}`)), {
+    ...options,
+    files: contractFileReader(files),
+  });
   problems.push(...read.problems);
   // A package that doesn't read is still held to a package's rules, so all its problems show.
   const raw = written(bot);
@@ -85,6 +90,7 @@ export function checkBot(
           : `${file.path} isn't part of a recipe (bot.json and skills/<name>/ only)`,
       });
   }
+  if (packaged) problems.push(...panelProblems(raw["surfaces"], rest));
   const tests =
     read.recipe?.tests ??
     (Array.isArray(raw["tests"])

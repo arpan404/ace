@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { samplePackage, signedVersion, signedWithdrawn } from "@ace/marketplace/testing";
+import { folder, samplePackage, signedVersion, signedWithdrawn } from "@ace/marketplace/testing";
 import { fakeMarket, fakeSpade, marketplaceHarness } from "./test-support.ts";
 
 /*
@@ -112,6 +112,61 @@ describe("agent packages", () => {
       }),
     ]);
     expect(await installedBot()).toMatchObject({ linked: true, version: "1.0.0" });
+  });
+
+  it("send a package's panel pages to Spade beside its manifest", async () => {
+    const page =
+      '<!doctype html><html><head><title>Trips</title></head><body><script>addEventListener("ace:state", () => {});</script></body></html>';
+    const files = [
+      ...samplePackage({
+        surfaces: [
+          { id: "trips", kind: "panel", file: "panels/trips/index.html", title: "Watched trips" },
+        ],
+      }),
+      ...folder({ "panels/trips/index.html": page }),
+    ];
+    market.publish(
+      signedVersion({ type: "spade-bot", name: "flight-watcher", version: "1.0.0", files }),
+      files,
+    );
+    await harness.ask({ op: "refresh" }, "sources");
+    await install();
+    expect(spade.made).toEqual([
+      expect.objectContaining({ pages: { "panels/trips/index.html": page } }),
+    ]);
+  });
+
+  it("send a contract's schema file beside the signed bot.json, and the manifest with it written in", async () => {
+    const schemas = {
+      input: {
+        type: "object",
+        properties: { from: { type: "string", maxLength: 3 } },
+        required: ["from"],
+      },
+      output: { type: "object", properties: { fare: { type: "number" } }, required: ["fare"] },
+    };
+    const path = "contracts/cheapest-fare.json";
+    const text = JSON.stringify(schemas);
+    const contract = { name: "cheapest_fare", summary: "The cheapest fare.", effects: [] };
+    const files = [
+      ...samplePackage({ contracts: [{ ...contract, file: path }] }),
+      ...folder({ [path]: text }),
+    ];
+    market.publish(
+      signedVersion({ type: "spade-bot", name: "flight-watcher", version: "1.0.0", files }),
+      files,
+    );
+    await harness.ask({ op: "refresh" }, "sources");
+    await install();
+    expect(spade.made).toEqual([
+      expect.objectContaining({
+        // Spade checks the file against the signed manifest and writes it in the same way.
+        recipe: expect.objectContaining({ contracts: [{ ...contract, ...schemas }] }),
+        envelope: expect.objectContaining({ files: { [path]: text } }),
+      }),
+    ]);
+    const listed = await harness.ask({ op: "spadeBot", name: "flight-watcher" }, "spadeBot");
+    expect(listed.contractFiles).toEqual({ [path]: text });
   });
 
   it("update the same bot after a review that says what stays, and roll back with the market gone", async () => {

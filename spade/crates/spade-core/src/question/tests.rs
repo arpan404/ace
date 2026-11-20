@@ -375,6 +375,7 @@ fn a_typed_message_answers_the_waiting_card_and_the_card_shows_its_answer() {
             name: "Other".into(),
             depth: 1,
             machine: None,
+            contract: None,
         });
     }
     let fresh = &events[..4];

@@ -387,7 +387,13 @@ impl Store {
             params![recipe_key(id)],
         )?;
         // The package it is linked to, and the ceiling its maker's package held it to (ADR 0200).
-        for key in [package_key(id), made_under_key(id), style_key(id)] {
+        // Which pages its panels show; a page no bot shows any more is collected later.
+        for key in [
+            package_key(id),
+            made_under_key(id),
+            style_key(id),
+            crate::panels::panels_key(id),
+        ] {
             tx.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
         }
         tx.execute(

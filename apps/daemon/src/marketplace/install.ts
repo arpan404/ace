@@ -9,9 +9,9 @@ import {
 } from "@ace/marketplace";
 import { type PackageLinkId, type PackagePlan, type Recipe } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
-import type { BotInspection } from "@ace/marketplace/checks";
+import { panelPageTexts, type BotInspection } from "@ace/marketplace/checks";
 import { Transaction } from "./journal.ts";
-import { bytesJson, bytesText } from "./package-diff.ts";
+import { bytesJson, bytesText, contractTexts } from "./package-diff.ts";
 import type { PluginFilesInput } from "./prepare.ts";
 import type { PreparedEntry, PreparedReview } from "./review.ts";
 import { approvedForBots, type MarketStore, type StoredInstall } from "./store.ts";
@@ -64,7 +64,17 @@ export interface MadeBot {
 export interface PackageInput {
   /** `bot.json` as the signed bytes have it: Spade reads it with its own reader. */
   manifest: unknown;
-  signed?: { package: PackageLinkId; signedManifest: unknown; botJson: string } | undefined;
+  signed?:
+    | {
+        package: PackageLinkId;
+        signedManifest: unknown;
+        botJson: string;
+        /** Its contracts' schema files, by path, exactly as signed (ADR 0200 §7). */
+        contractFiles?: Record<string, string> | undefined;
+      }
+    | undefined;
+  /** Its panels' pages (ADR 0200 §5.2), by path: Spade keeps them by hash with the bot. */
+  pages?: Record<string, string> | undefined;
 }
 
 /** What the daemon asks of Spade, through its link (`POST /v1/agents` with `recipe`). */
@@ -367,6 +377,7 @@ async function installIn(
     recipe.version === 3
       ? {
           manifest: bytesJson(review.checked.files),
+          pages: panelPageTexts(recipe.surfaces, review.checked.files),
           signed:
             review.signedManifest === undefined
               ? undefined
@@ -379,6 +390,7 @@ async function installIn(
                   },
                   signedManifest: review.signedManifest,
                   botJson: bytesText(review.checked.files),
+                  contractFiles: contractTexts(review.checked.files),
                 },
         }
       : undefined;

@@ -56,12 +56,13 @@ export function nextNear(previous: boolean, inInner: boolean, inOuter: boolean):
 
 /**
  * Whether the visualization in `element` should hold a live page. Without a provider (or an
- * IntersectionObserver, as in tests) every frame is live.
+ * IntersectionObserver, as in tests) every frame is live. `own` is a pool of the caller's in
+ * place of the transcript's (a window's package panels, ADR 0200 §5.2).
  */
-export function useLiveFrame(id: string, element: HTMLElement | null): boolean {
+export function useLiveFrame(id: string, element: HTMLElement | null, own?: LiveFrames): boolean {
   const frames = useContext(LiveFramesContext);
   const [fallback] = useState(() => new LiveFrames(Number.POSITIVE_INFINITY));
-  const pool = frames ?? fallback;
+  const pool = own ?? frames ?? fallback;
   useEffect(() => {
     if (!element || typeof IntersectionObserver === "undefined") {
       pool.near(id, true);

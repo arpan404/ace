@@ -405,6 +405,17 @@
           "maxLength": 1000000,
           "type": "string"
         },
+        "contractFiles": {
+          "additionalProperties": {
+            "maxLength": 40960,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "type": "object"
+        },
         "op": {
           "const": "spadeBot",
           "type": "string"

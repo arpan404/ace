@@ -10,6 +10,11 @@ import type {
 } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
 import {
+  spadeContractAsk,
+  spadeContractResult,
+  type SpadeContractOutcome,
+} from "./contract-words.ts";
+import {
   spadeCardQuestions,
   spadeConnectOf,
   type SpadeQuestion,
@@ -224,6 +229,21 @@ export type SpadeEntry =
       result: string;
       at?: number;
     }
+  /**
+   * A call this bot made to another bot's contract (ADR 0200 §7): one line where it was made,
+   * settled in place when its result arrives. `result` is the output's fields, or why not.
+   */
+  | {
+      kind: "contract";
+      key: string;
+      job: string;
+      bot: string;
+      machine?: string | undefined;
+      contract: string;
+      outcome: SpadeContractOutcome | undefined;
+      result: string;
+      at?: number;
+    }
   /** The person handed the computer back: Spade's narration, and the names as plain data. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /** A card asked outside the open reply: where it arrived. */
@@ -364,6 +384,8 @@ export interface SpadeConversationState {
   waitingSince: number | undefined;
   /** Open wakes and the names their words use (ADR 0160, 0161). */
   capabilities: SpadeCapabilityState;
+  /** The latest state the bot set on each of its panels (ADR 0200 §5.2), by panel id. */
+  panels: Map<string, unknown>;
 }
 
 /** What a `status` frame said, and the last `seq` folded when it came. */
@@ -420,6 +442,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     waited: 0,
     waitingSince: undefined,
     capabilities: emptySpadeCapabilities(),
+    panels: new Map(),
   };
 }
 
@@ -532,7 +555,10 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       steer(state, {
         kind: "user",
         key,
-        text: event.text,
+        // A contract call reads as what it asks, never as raw input (ADR 0200 §7).
+        text: event.from_agent?.contract
+          ? spadeContractAsk(event.from_agent.contract.contract, event.from_agent.contract.input)
+          : event.text,
         images: event.images,
         ...(event.documents.length ? { documents: event.documents } : {}),
         ...(event.voice ? { voice: event.voice } : {}),
@@ -822,6 +848,19 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         reply: event.reply,
       });
       return true;
+    case "contract_called":
+      steer(state, {
+        kind: "contract",
+        key,
+        job: event.job,
+        bot: event.name || "Another bot",
+        ...(event.machine_name ? { machine: event.machine_name } : {}),
+        contract: event.contract,
+        outcome: undefined,
+        result: "",
+        ...stamp(stored),
+      });
+      return true;
     case "job_finished": {
       state.jobs.delete(event.job);
       const stopped = state.stopping.delete(event.job);
@@ -834,6 +873,20 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       const line = state.entries[at];
       if (line?.kind === "helper") {
         state.entries[at] = { ...line, outcome, result: event.content ?? "" };
+        return true;
+      }
+      // A contract call's line settles with what came back; its result opens a reply, as any.
+      const call = state.entries.findIndex(
+        (entry) => entry.kind === "contract" && entry.job === event.job,
+      );
+      const asked = state.entries[call];
+      if (asked?.kind === "contract") {
+        const read = spadeContractResult(event.content ?? "");
+        state.entries[call] = {
+          ...asked,
+          outcome: stopped ? "stopped" : read.outcome,
+          result: read.result,
+        };
         return true;
       }
       // Its result goes to Spade like a message: what Spade says about it reads below it.
@@ -970,6 +1023,18 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.entries[at] = { ...placed, ...next };
       return true;
     }
+    case "panel_updated":
+      state.panels.set(event.surface, event.data);
+      return true;
+    case "panel_action":
+      // Where it came in: the page's own, or the person's confirm.
+      steer(state, {
+        kind: "quiet",
+        key,
+        quiet: { kind: "panel-action", label: event.label || event.action, by: event.by },
+        ...stamp(stored),
+      });
+      return true;
     case "club_added":
       steer(state, {
         kind: "club-added",

@@ -33,6 +33,7 @@ import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
+import { SpadeContractLine } from "./spade-contract-line.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { SpadeOutsideBubble } from "./spade-outside-bubble.tsx";
@@ -104,6 +105,8 @@ export function SpadeChat(props: {
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   /** Press a choice on a card the bot showed (ADR 0200 §5.1); resolves with why when refused. */
   onCardChoice?: SpadeCardChoose | undefined;
+  /** A card's `open` that names one of the bot's panels (ADR 0200 §5.2): open it beside the chat. */
+  onOpenPanel?: ((panel: string) => void) | undefined;
   /** A file chip: open that file of the bot's workspace. */
   onOpenFile(path: string): void;
   proposals?: readonly SpadeProposal[];
@@ -186,6 +189,7 @@ export function SpadeChat(props: {
     onAnswerOutside: props.onAnswerOutside,
     onQuestion: props.onQuestion,
     onCardChoice: props.onCardChoice,
+    onOpenPanel: props.onOpenPanel,
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
     onSetUpModel: props.onSetUpModel,
@@ -300,6 +304,7 @@ interface Handlers {
   /** Reply to a card of questions; resolves with what to say under it when refused. */
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   onCardChoice: SpadeCardChoose | undefined;
+  onOpenPanel: ((panel: string) => void) | undefined;
   onOpenFile(path: string): void;
   onRetry: ((reply: string) => Promise<boolean>) | undefined;
   onSetUpModel: (() => void) | undefined;
@@ -329,6 +334,7 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
         ? "mt-(--chat-run-gap)"
         : "mt-(--chat-turn-gap)";
     case "helper":
+    case "contract":
     case "quiet":
     case "task-changed":
     case "named":
@@ -338,6 +344,7 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
       // stack under the words they follow.
       return previous.kind === "run" ||
         previous.item.kind === "helper" ||
+        previous.item.kind === "contract" ||
         previous.item.kind === "quiet" ||
         previous.item.kind === "task-changed" ||
         previous.item.kind === "named" ||
@@ -526,6 +533,7 @@ function RunItem(props: {
           onChoose={
             handlers.onCardChoice ?? (() => Promise.resolve("Choices work in the bot's own chat."))
           }
+          onOpenPanel={handlers.onOpenPanel}
         />
       );
     case "ask":
@@ -709,6 +717,17 @@ function Single(props: {
         </div>
       );
     }
+    case "contract":
+      return (
+        <div className={space}>
+          <SpadeContractLine
+            text={item.text}
+            result={item.result}
+            open={item.open}
+            since={item.at}
+          />
+        </div>
+      );
     default:
       return null;
   }

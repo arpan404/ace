@@ -1,0 +1,77 @@
+{
+  "$id": "https://ace.local/protocol/v1/PanelPageMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "number"
+        },
+        "type": {
+          "const": "ace.html.height",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "height"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "ace.panel.action",
+          "type": "string"
+        },
+        "value": {}
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "ace.panel.fault",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "n": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "ace.panel.pong",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "n"
+      ],
+      "type": "object"
+    }
+  ]
+}

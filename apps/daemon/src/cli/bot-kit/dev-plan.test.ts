@@ -67,6 +67,16 @@ describe("what a save asks for", () => {
     });
   });
 
+  it("is each new contract, since other bots may now call it", () => {
+    const contract = (name: string) => ({ name, summary: "A fare.", input: {}, output: {} });
+    const offering = { ...before, contracts: [contract("cheapest_fare")] };
+    const more = { ...before, contracts: [contract("cheapest_fare"), contract("fare_history")] };
+    expect(asksMore({ plan: { asks_more: [] } }, offering, more).more).toEqual([
+      "the contract fare_history, which your other bots may call",
+    ]);
+    expect(asksMore({ plan: { asks_more: [] } }, more, offering).more).toEqual([]);
+  });
+
   it("with no manifest applied in this run, is only what the plan says", () => {
     expect(asksMore({ plan: { asks_more: ["network"] } }, undefined, before)).toEqual({
       effects: ["network"],

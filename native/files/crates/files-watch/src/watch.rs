@@ -299,6 +299,38 @@ impl Events {
     }
 }
 
+/// Test-only: the receiving end of an [`Events`] made by [`Events::collecting`].
+#[cfg(test)]
+pub(crate) struct Collected(Receiver<Command>);
+
+#[cfg(test)]
+impl Events {
+    /// An `Events` whose events a test reads back, with no worker behind it.
+    pub(crate) fn collecting() -> (Events, Collected) {
+        let (sender, commands) = mpsc::sync_channel(CHANNEL);
+        let events = Events {
+            sender,
+            overflow: Arc::new(AtomicBool::new(false)),
+            failure: Arc::new(Mutex::new(None)),
+        };
+        (events, Collected(commands))
+    }
+}
+
+#[cfg(test)]
+impl Collected {
+    /// Every path the events named until `quiet` passes with none arriving.
+    pub(crate) fn paths(&self, quiet: Duration) -> Vec<std::path::PathBuf> {
+        let mut paths = Vec::new();
+        while let Ok(command) = self.0.recv_timeout(quiet) {
+            if let Command::Event(Ok(event)) = command {
+                paths.extend(event.paths);
+            }
+        }
+        paths
+    }
+}
+
 /// Owns the backend and turns its events into batches.
 struct Worker {
     root: Root,
@@ -657,12 +689,15 @@ impl Worker {
             &batch,
             std::time::SystemTime::now(),
         );
+        // Folders the rebuild could not watch (the kernel's watch budget ran out) would stay silent
+        // for good: the poller takes over the whole root, started before the caller walks, and
+        // says so. The rescan still goes out, so the caller reads the tree as it is.
         if let Batch::Rescan { dir } = &batch
             && let Err(error) = self
                 .backend
                 .rescan(&self.root, &self.excluder, dir.as_deref())
         {
-            self.warn(format!("cannot rebuild watches: {error}"));
+            self.switch_to_polling(&error);
         }
         (self.sink)(batch);
     }
@@ -890,5 +925,144 @@ mod tests {
                 "the folder focused while the queue was full is never checked, saw {seen:?}"
             );
         }
+    }
+
+    /// A watcher whose sink blocks on its first warning until the returned guard is dropped, with
+    /// its queue filled behind it, so every OS event from then on is lost and becomes an overflow.
+    /// Returns the watcher, what it delivered, and the guard.
+    #[cfg(target_os = "linux")]
+    fn stalled(
+        root: &std::path::Path,
+        options: WatchOptions,
+    ) -> (
+        Watcher,
+        Arc<Mutex<Vec<Batch>>>,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
+        static GATE: Mutex<()> = Mutex::new(());
+        let held = GATE.lock().unwrap_or_else(PoisonError::into_inner);
+        let batches = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&batches);
+        let (entered, blocked) = std::sync::mpsc::channel();
+        let entered = Mutex::new(Some(entered));
+        let watcher = Watcher::start(
+            Root::open(root).unwrap(),
+            options,
+            Box::new(move |batch| {
+                if matches!(batch, Batch::Warning(_))
+                    && let Some(entered) = entered
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .take()
+                {
+                    let _ = entered.send(());
+                    drop(GATE.lock().unwrap_or_else(PoisonError::into_inner));
+                }
+                recorded
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(batch);
+            }),
+        )
+        .unwrap();
+        // An OS watch error makes the worker warn, which holds it in the sink, and rescan the root.
+        watcher
+            .control
+            .try_send(Command::Event(Err(notify::Error::io(
+                std::io::Error::other("read failed"),
+            ))))
+            .unwrap();
+        blocked.recv_timeout(Duration::from_secs(10)).unwrap();
+        while watcher
+            .control
+            .try_send(Command::Poke {
+                folder: String::new(),
+                rearm: false,
+            })
+            .is_ok()
+        {}
+        (watcher, batches, held)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn wait_until(batches: &Mutex<Vec<Batch>>, what: &str, wanted: impl Fn(&[Batch]) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let seen = batches
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            if wanted(&seen) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "{what}, saw {seen:?}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_folder_recreated_while_events_were_lost_is_watched_after_the_rescan() {
+        // The overflow lost the deletion and the creation of `src/cache`. The kernel dropped the
+        // old folder's watch, and the rescan that follows must watch the new folder rather than
+        // trust that the path still has one.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/cache")).unwrap();
+        let (watcher, batches, held) = stalled(dir.path(), WatchOptions::default());
+        std::fs::remove_dir(dir.path().join("src/cache")).unwrap();
+        std::fs::create_dir(dir.path().join("src/cache")).unwrap();
+        // Let the reader see the kernel drop the old watch before the worker runs again.
+        std::thread::sleep(Duration::from_millis(300));
+        drop(held);
+        wait_until(&batches, "the lost events must rescan the root", |seen| {
+            seen.iter()
+                .any(|batch| matches!(batch, Batch::Rescan { dir: None }))
+        });
+        std::fs::write(dir.path().join("src/cache/new.txt"), b"x").unwrap();
+        wait_until(
+            &batches,
+            "a file in the recreated folder must be reported",
+            |seen| {
+                seen.iter().any(|batch| {
+                    matches!(batch, Batch::Changes(changes)
+                        if changes.iter().any(|change| change.path == "src/cache/new.txt"))
+                })
+            },
+        );
+        assert_eq!(watcher.mode(), Mode::Native);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn running_out_of_watches_while_rebuilding_them_switches_to_polling() {
+        // Lost events rescan the root, and the folder made meanwhile needs a watch the budget no
+        // longer has: staying native would leave that folder silent for good.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("a")).unwrap();
+        std::fs::create_dir(dir.path().join("b")).unwrap();
+        let (watcher, batches, held) =
+            crate::linux::with_watch_budget(3, || stalled(dir.path(), WatchOptions::default()));
+        assert_eq!(
+            watcher.mode(),
+            Mode::Native,
+            "the root, a and b fit the budget"
+        );
+        // Below `a`, which no one has open, so only the rescan can find it.
+        std::fs::create_dir(dir.path().join("a/c")).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        drop(held);
+        wait_until(&batches, "the watcher must say it now polls", |seen| {
+            seen.iter().any(
+                |batch| matches!(batch, Batch::Warning(message) if message.contains("polling")),
+            )
+        });
+        assert_eq!(watcher.mode(), Mode::Polling);
+        std::fs::write(dir.path().join("a/c/new.txt"), b"x").unwrap();
+        wait_until(&batches, "the poller must report the folder", |seen| {
+            seen.iter().any(|batch| {
+                matches!(batch, Batch::Changes(changes)
+                    if changes.iter().any(|change| change.path == "a/c/new.txt"))
+            })
+        });
     }
 }

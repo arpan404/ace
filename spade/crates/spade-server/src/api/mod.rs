@@ -7,6 +7,7 @@ mod brains;
 mod cards;
 mod computer;
 mod connectors;
+mod contracts;
 mod digests;
 mod endpoints;
 mod files;
@@ -17,6 +18,7 @@ mod memory;
 mod moves;
 mod oversight;
 mod packages;
+mod panels;
 mod plugins;
 mod questions;
 mod reach;
@@ -89,7 +91,7 @@ pub fn router(state: AppState) -> Router {
             "/agents",
             get(agents::list)
                 .post(agents::create)
-                .layer(DefaultBodyLimit::max(agents::AGENT_BODY)),
+                .layer(DefaultBodyLimit::max(agents::PACKAGE_BODY)),
         )
         .route(
             "/agents/{id}",
@@ -153,6 +155,12 @@ pub fn router(state: AppState) -> Router {
             "/conversations/{id}/cards/{card}/actions",
             post(cards::choose),
         )
+        .route("/conversations/{id}/panels", get(panels::list))
+        .route(
+            "/conversations/{id}/panels/{surface}/actions",
+            post(panels::act),
+        )
+        .route("/panels/pages/{hash}", get(panels::page))
         .route(
             "/conversations/{id}/questions/{call_id}",
             post(questions::reply),
@@ -194,6 +202,7 @@ pub fn router(state: AppState) -> Router {
         .merge(media::routes())
         .merge(teams::routes())
         .merge(packages::routes())
+        .merge(contracts::routes())
         .merge(thread_asks::routes())
         .merge(moves::routes())
         .merge(wakes::routes())

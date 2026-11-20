@@ -225,6 +225,7 @@ mod tests {
                 name: "Other".into(),
                 depth: 1,
                 machine: None,
+                contract: None,
             }),
             from_routine: None,
             from_group: None,
@@ -250,6 +251,7 @@ mod tests {
                     name: "Lead".into(),
                     depth: 1,
                     machine: None,
+                    contract: None,
                 });
             }
             message

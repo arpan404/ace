@@ -22314,6 +22314,7 @@ Example:
   "name": [],
   "recipe": {
     "blurb": "example",
+    "contracts": [],
     "effects": [],
     "face": {},
     "format": "spade-bot",
@@ -22321,7 +22322,6 @@ Example:
     "name": "example",
     "plugins": [],
     "skills": [],
-    "tests": [],
     "version": 2
   },
   "routines": [],
@@ -25637,6 +25637,9 @@ Example:
     "format": "spade-bot",
     "name": "example",
     "requires": {},
+    "style": {
+      "accent": "#61Ce1d"
+    },
     "task": "example",
     "version": 3
   }
@@ -25925,6 +25928,7 @@ Example:
 | op | yes | `"spadeBot"` |  |
 | signed | yes | any JSON value |  |
 | botJson | yes | string | {"maxLength":1000000} |
+| contractFiles | no | object | {"propertyNames":{"type":"string","maxLength":80},"additionalProperties":{"type":"string","maxLength":40960}} |
 
 Example:
 
@@ -29439,6 +29443,31 @@ Example:
 }
 ```
 
+## PackageContract
+
+[JSON Schema](schema/PackageContract.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"pattern":"^[a-z][a-z0-9_]{0,63}$"} |
+| summary | yes | string | {"minLength":1,"maxLength":200,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| input | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+| output | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+| effects | no | array | {"default":[],"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/PackageEffectWord.json"}} |
+| examples | no | array | {"default":[],"maxItems":8,"items":{"type":"object","properties":{"input":{},"output":{}},"required":["input","output"],"additionalProperties":false}} |
+
+Example:
+
+```json
+{
+  "examples": [],
+  "input": {},
+  "name": "nq",
+  "output": {},
+  "summary": "example"
+}
+```
+
 ## PackageEffect
 
 [JSON Schema](schema/PackageEffect.json), input validation.
@@ -29641,6 +29670,50 @@ Example:
 
 ```json
 {}
+```
+
+## PackageSurface
+
+[JSON Schema](schema/PackageSurface.json), input validation.
+
+### card
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"card"` |  |
+| id | yes | string | {"maxLength":40} |
+| file | yes | string | {"maxLength":200} |
+
+Example:
+
+```json
+{
+  "file": "example",
+  "id": "example",
+  "kind": "card"
+}
+```
+
+### panel
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"panel"` |  |
+| id | yes | string | {"maxLength":40} |
+| file | yes | string | {"maxLength":200} |
+| title | yes | string | {"minLength":1,"maxLength":60,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| state | no | any JSON value |  |
+| actions | no | array | {"maxItems":16,"items":{"type":"object","properties":{"name":{"type":"string","maxLength":40},"label":{"type":"string","minLength":1,"maxLength":40,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"value":{},"confirm":{"type":"boolean"}},"required":["name"]}} |
+
+Example:
+
+```json
+{
+  "file": "example",
+  "id": "example",
+  "kind": "panel",
+  "title": "example"
+}
 ```
 
 ## PackageTrigger
@@ -29894,6 +29967,159 @@ Example:
 
 ```json
 "sDBpf8"
+```
+
+## PanelInit
+
+[JSON Schema](schema/PanelInit.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.init"` |  |
+| runtime | yes | `"1"` |  |
+| tokens | yes | object | {"propertyNames":{"type":"string","maxLength":40},"additionalProperties":{"type":"string","maxLength":400}} |
+| scheme | yes | ["light","dark"] |  |
+| reduceMotion | yes | boolean |  |
+| size | yes | object | {"properties":{"width":{"type":"integer","minimum":0,"maximum":100000},"height":{"type":"integer","minimum":0,"maximum":100000}},"required":["width","height"],"additionalProperties":false} |
+
+Example:
+
+```json
+{
+  "reduceMotion": true,
+  "runtime": "1",
+  "scheme": "dark",
+  "size": {
+    "height": 8,
+    "width": 3
+  },
+  "tokens": {},
+  "type": "ace.panel.init"
+}
+```
+
+## PanelPageMessage
+
+[JSON Schema](schema/PanelPageMessage.json), input validation.
+
+### ace.html.height
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.html.height"` |  |
+| height | yes | number | {"minimum":1,"maximum":10000} |
+
+Example:
+
+```json
+{
+  "height": 1,
+  "type": "ace.html.height"
+}
+```
+
+### ace.panel.action
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.action"` |  |
+| name | yes | string | {"minLength":1,"maxLength":40} |
+| value | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "name": "example",
+  "type": "ace.panel.action",
+  "value": null
+}
+```
+
+### ace.panel.fault
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.fault"` |  |
+
+Example:
+
+```json
+{
+  "type": "ace.panel.fault"
+}
+```
+
+### ace.panel.pong
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.pong"` |  |
+| n | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "n": 8,
+  "type": "ace.panel.pong"
+}
+```
+
+## PanelPing
+
+[JSON Schema](schema/PanelPing.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.ping"` |  |
+| n | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "n": 6,
+  "type": "ace.panel.ping"
+}
+```
+
+## PanelState
+
+[JSON Schema](schema/PanelState.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.state"` |  |
+| data | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "type": "ace.panel.state"
+}
+```
+
+## PanelTheme
+
+[JSON Schema](schema/PanelTheme.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace.panel.theme"` |  |
+| tokens | yes | object | {"propertyNames":{"type":"string","maxLength":40},"additionalProperties":{"type":"string","maxLength":400}} |
+| scheme | yes | ["light","dark"] |  |
+
+Example:
+
+```json
+{
+  "scheme": "light",
+  "tokens": {},
+  "type": "ace.panel.theme"
+}
 ```
 
 ## ParcelAnswer
@@ -35061,8 +35287,10 @@ Example:
 | triggers | no | array | {"default":[],"maxItems":40,"items":{"$ref":"https://ace.local/protocol/v1/PackageTrigger.json"}} |
 | effects | no | array | {"default":[],"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/PackageEffect.json"}} |
 | limits | no | [PackageLimits.json](schema/PackageLimits.json) |  |
+| contracts | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageContract.json"}} |
 | tests | no | array | {"default":[],"maxItems":64,"items":{"type":"string","pattern":"^tests\\/[A-Za-z0-9._-]+\\.json$"}} |
 | style | no | object | {"properties":{"accent":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"required":["accent"],"additionalProperties":false} |
+| surfaces | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageSurface.json"}} |
 
 Example:
 
@@ -35075,6 +35303,9 @@ Example:
   },
   "name": "example",
   "needs": {},
+  "style": {
+    "accent": "#ABDDCF"
+  },
   "task": "example",
   "uses": [],
   "version": 3

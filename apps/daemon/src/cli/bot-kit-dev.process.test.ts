@@ -220,3 +220,54 @@ it.skipIf(!run)(
   },
   30_000,
 );
+
+const page = (heading: string) =>
+  `<!doctype html><html><head><title>Trips</title></head><body><h1>${heading}</h1><script>addEventListener("ace:state", () => {});</script></body></html>\n`;
+
+it.skipIf(!run)(
+  "a saved panel page is the page the development bot's panel shows",
+  async () => {
+    const folder = join(root, "panel-watcher");
+    await mkdir(join(folder, "panels", "trips"), { recursive: true });
+    await writeFile(
+      join(folder, "bot.json"),
+      manifest({
+        name: "Panel watcher",
+        surfaces: [{ id: "trips", kind: "panel", file: "panels/trips/index.html", title: "Trips" }],
+      }),
+    );
+    await writeFile(join(folder, "panels", "trips", "index.html"), page("Trips"));
+    const dev = openCli(
+      join(root, "ace"),
+      ["bot", "dev", folder, "--spade", data, "--yes", "--json"],
+      env(),
+    );
+    const next = lines(dev.child);
+    const Panels = z.object({
+      panels: z.array(z.object({ id: z.string(), page: z.string().nullable() })),
+    });
+    const Listed = z.object({
+      agents: z.array(z.looseObject({ id: z.string(), conversation: z.string() })),
+    });
+    try {
+      const bot = String((await next((line) => line["step"] === "installed"))["bot"]);
+      const listed = Listed.parse((await api("GET", "/v1/agents")).body).agents;
+      const chat = listed.find((agent) => agent.id === bot)?.conversation ?? "";
+      const shown = async () =>
+        Panels.parse((await api("GET", `/v1/conversations/${chat}/panels`)).body).panels[0]?.page;
+      const first = await shown();
+      expect(first).toMatch(/^[0-9a-f]{64}$/);
+
+      // Saving the page alone is an update that brings the new page.
+      await writeFile(join(folder, "panels", "trips", "index.html"), page("Trips this week"));
+      await next((line) => line["step"] === "updated");
+      const second = await shown();
+      expect(second).toMatch(/^[0-9a-f]{64}$/);
+      expect(second).not.toBe(first);
+    } finally {
+      dev.child.kill("SIGINT");
+      await dev.exited;
+    }
+  },
+  30_000,
+);

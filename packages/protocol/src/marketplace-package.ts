@@ -98,6 +98,70 @@ export const PackageRequires = z.strictObject({
   spade: z.string().max(40).optional(),
 });
 
+/**
+ * A card or panel a package ships (ADR 0200 §5). A panel's `state` and each action's `value` are
+ * data schemas, a bounded JSON Schema subset `@ace/marketplace` reads strictly
+ * (`readSchema`); here they are kept as written.
+ */
+export type PackageSurface =
+  | { kind: "card"; id: string; file: string }
+  | {
+      kind: "panel";
+      id: string;
+      file: string;
+      title: string;
+      state?: unknown;
+      actions?:
+        | {
+            name: string;
+            label?: string | undefined;
+            value?: unknown;
+            confirm?: boolean | undefined;
+          }[]
+        | undefined;
+    };
+// Named rather than inferred: recipes ride in many wire messages, whose inferred type would
+// otherwise grow past what the compiler writes out.
+export const PackageSurface: z.ZodType<PackageSurface> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("card"), id: z.string().max(40), file: z.string().max(200) }),
+  z.object({
+    kind: z.literal("panel"),
+    id: z.string().max(40),
+    file: z.string().max(200),
+    title: trimmedText(1, 60),
+    state: z.unknown().optional(),
+    actions: z
+      .array(
+        z.object({
+          name: z.string().max(40),
+          label: trimmedText(1, 40).optional(),
+          value: z.unknown().optional(),
+          confirm: z.boolean().optional(),
+        }),
+      )
+      .max(16)
+      .optional(),
+  }),
+]);
+
+/**
+ * A contract another of the person's bots may call (ADR 0200 §7): its input and output schemas
+ * in the bounded subset `@ace/marketplace`'s `readSchema` checks, the effects a call may use
+ * (within the package's), and examples. Schema only: the subset's rules are the reader's.
+ */
+export const PackageContract = z.strictObject({
+  name: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
+  summary: trimmedText(1, 200),
+  input: z.record(z.string(), z.unknown()),
+  output: z.record(z.string(), z.unknown()),
+  effects: z.array(PackageEffectWord).max(5).default([]),
+  examples: z
+    .array(z.strictObject({ input: z.unknown(), output: z.unknown() }))
+    .max(8)
+    .default([]),
+});
+export type PackageContract = z.infer<typeof PackageContract>;
+
 /** The version 3 fields a read recipe carries; a version 2 recipe has none of them. */
 export const packageFields = {
   requires: PackageRequires.optional(),
@@ -105,11 +169,13 @@ export const packageFields = {
   triggers: z.array(PackageTrigger).max(40).default([]),
   effects: z.array(PackageEffect).max(32).default([]),
   limits: PackageLimits.optional(),
+  contracts: z.array(PackageContract).max(16).optional(),
   tests: z
     .array(z.string().regex(/^tests\/[A-Za-z0-9._-]+\.json$/))
     .max(64)
     .default([]),
   style: z.strictObject({ accent: z.string().regex(/^#[0-9a-fA-F]{6}$/) }).optional(),
+  surfaces: z.array(PackageSurface).max(16).optional(),
 };
 
 /** A linked bot's package and version, from the signed manifest (ADR 0200 §3.9). */

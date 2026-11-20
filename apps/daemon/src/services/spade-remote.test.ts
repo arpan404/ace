@@ -35,6 +35,8 @@ const studio = profile("studio", "studio-host", 2);
 function daemon(input: {
   answer: (body: MachineCallRequest) => unknown;
   scopes?: readonly DeviceScope[];
+  /** Whether the socket holds ace's local token, as Spade's own does; a paired device doesn't. */
+  hostCredential?: boolean;
 }) {
   const calls: MachineCallRequest[] = [];
   const transport: MachineTransport = async (target, body) => {
@@ -62,6 +64,7 @@ function daemon(input: {
   const session = createSpadeRemoteSession({
     options: { spadeRemote: remote },
     authorize: (scope) => (input.scopes ?? ["read", "operate"]).includes(scope),
+    hostCredential: () => input.hostCredential ?? true,
     connected: () => true,
     send: (message) => sent.push(ServerMessage.parse(message)),
     tasks,
@@ -173,6 +176,26 @@ test("without operate, Spade's socket can't reach other machines", async () => {
     requestId: "m",
     machines: [],
   });
+  expect(calls).toEqual([]);
+});
+
+test("a paired device with operate can't send a request as this machine's Spade", async () => {
+  const { ask, calls } = daemon({
+    answer: () => ({ status: 200, body: { status: "accepted" } }),
+    hostCredential: false,
+  });
+  const forged = {
+    op: "contract_call",
+    key: "cc.c_1.p1",
+    to: "a_watcher",
+    contract: "cheapest_fare",
+    input: { from: "KTM", to: "DEL", month: "2027-01" },
+    from: { id: "a_planner", name: "Trip planner" },
+    depth: 1,
+  };
+  expect(
+    await ask({ type: "spade.remote", requestId: "r", machine: "desk-host", request: forged }),
+  ).toMatchObject({ result: { kind: "error", code: "forbidden" } });
   expect(calls).toEqual([]);
 });
 

@@ -1,3 +1,4 @@
+import { botJsonOf, breaksReason, contractBreaks, latestPublished } from "./published.ts";
 import { addWithdrawals, label, versionPath, type SignerIo } from "./signer-io.ts";
 import {
   MarketScanContextBody,
@@ -9,6 +10,7 @@ import {
   type MarketScanReport,
   type Withdrawal,
 } from "@ace/protocol/marketplace";
+import type { ArchiveFile } from "./archive.ts";
 import { checkArchive } from "./checks/index.ts";
 import { disposition, scanEntry, type ScanContext } from "./scan/index.ts";
 import { failedTestsReport, hasBotTests, testsReason, type BotTestRunner } from "./signer-tests.ts";
@@ -125,6 +127,23 @@ export async function signPending(
         continue;
       }
     }
+    // A bot package may not break the bots that call its contracts (ADR 0200 §7): a version
+    // whose contracts break the latest signed one's is refused for good, with each change.
+    if (version.type === "spade-bot") {
+      const compared = await compareContracts(io, version, checked.files, trusted);
+      if ("refused" in compared) {
+        report.refused.push({ version: label(version), problems: [compared.refused] });
+        continue;
+      }
+      if (compared.reason) {
+        const body = scan ? { reason: compared.reason, scan } : { reason: compared.reason };
+        const answer = await io.put(versionPath("blocks", version), body);
+        if (answer.status >= 200 && answer.status < 300)
+          report.blocked.push({ version: label(version), reason: compared.reason });
+        else report.failed.push({ what: label(version), ...answer });
+        continue;
+      }
+    }
     if (hasBotTests(checked.inspection)) {
       const tests = await runTests(options.testBot, checked.files);
       if ("refused" in tests) {
@@ -178,6 +197,34 @@ export async function signPending(
       report.failed.push({ what: "the withdrawn list", status: answer.status, text: answer.text });
   }
   return report;
+}
+
+/**
+ * The latest signed version of the same package before this one, and what this one's contracts
+ * break for its callers: a reason to refuse, none, or why it couldn't be read (then nothing is
+ * signed this run).
+ */
+async function compareContracts(
+  io: SignerIo,
+  version: { name: string; version: string },
+  files: readonly ArchiveFile[],
+  trusted: MarketKeySet,
+): Promise<{ reason: string | undefined } | { refused: string }> {
+  try {
+    const previous = await latestPublished(
+      { read: (path) => (io.read ?? io.get)(path), object: (hash) => io.object(hash) },
+      version.name,
+      { before: version.version, keys: trusted },
+    );
+    if (!previous) return { reason: undefined };
+    const breaks = contractBreaks(previous.bot, botJsonOf(files));
+    return { reason: breaks.length ? breaksReason(previous.version, breaks) : undefined };
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    return {
+      refused: `Its contracts couldn't be compared with its last version: ${why}`.slice(0, 500),
+    };
+  }
 }
 
 /** A package's tests, or why they couldn't run here: then nothing is signed or refused. */
