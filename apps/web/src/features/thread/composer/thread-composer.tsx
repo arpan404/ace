@@ -63,6 +63,7 @@ import {
 } from "./continue-in-thread.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useStopKey } from "./stop-key.ts";
+import { chooseShare, shareChoice } from "../mentions/index.ts";
 
 /** The send pipeline's code: fetched when a composer mounts, so the first Enter never waits on it. */
 let sender: Promise<typeof import("./send-message.ts")> | undefined;
@@ -83,6 +84,44 @@ const wideEnoughToFocus = () =>
  * works and the draft is empty, and never while a question waits. ↑ in an empty composer brings back
  * the last message sent. The unsent draft is kept per thread.
  */
+/**
+ * Beside the message its agent gets, the same words go to the bots, clubs and agents it names,
+ * and ace records the devices it names (ADR 0198). A failure is said; the message itself went.
+ */
+function addressFrom(
+  client: ReturnType<typeof useClient>,
+  threadId: string,
+  about: string,
+  draft: Draft,
+  toast: { error(message: { title: string; description: string }): void },
+): void {
+  const to = draft.addressees ?? [];
+  const devices = draft.devices ?? [];
+  if (!to.length && !devices.length) return;
+  const share = shareChoice(threadId);
+  chooseShare(threadId, "thread");
+  void client
+    .command({
+      type: "thread.address",
+      threadId: ThreadId.parse(threadId),
+      about,
+      input: draft.input ?? [{ type: "text", text: draft.text }],
+      to,
+      devices,
+      share,
+      files: draft.mentions.map((mention) => mention.path).slice(0, 16),
+    })
+    .then((result) => {
+      if (!result.ok) throw new Error(result.error);
+    })
+    .catch(() =>
+      toast.error({
+        title: "Not sent to the bots",
+        description: "The agent has the message. Mention them again to retry.",
+      }),
+    );
+}
+
 export function ThreadComposer({
   composer,
   ...props
@@ -244,6 +283,7 @@ export function ThreadComposer({
       notify: (title, description) => toast.error({ title, description }),
     });
     if (ok && sent) setSpent({ commandId, turn: sent });
+    if (ok) addressFrom(client, props.thread.id, commandId, draft, toast);
     return ok;
   };
 

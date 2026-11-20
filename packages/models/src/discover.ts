@@ -1,4 +1,6 @@
-import { discoveredModels } from "./discovered-models.ts";
+import { discoveredModels, withPermissionModes } from "./discovered-models.ts";
+import { acpPermissionModes } from "@ace/provider-kit/permission-modes";
+import { negotiatedProbeAllowed, perModelProbe, withPerModelOptions } from "./acp-model-probe.ts";
 import { CursorHostSlots } from "@ace/adapter-cursor/slots";
 import { discoverClaudeModels } from "@ace/adapter-claude/models";
 import {
@@ -21,7 +23,27 @@ import type { DiscoverModels, ModelInstance } from "./types.ts";
 import type { CatalogModel } from "@ace/protocol";
 
 const InitializeReply = z.object({ protocolVersion: z.literal(1) }).passthrough();
+/** How an ACP agent's metadata-only probe runs, resolved by its owner when the probe starts. */
+export type AcpProbeLaunch = {
+  command: string;
+  args: readonly string[];
+  env: NodeJS.ProcessEnv;
+  /** A folder the probe's session opens in: ace's own neutral one, never a project. */
+  cwd: string;
+  /**
+   * `needs-session`: the agent hides modes in this folder (Gemini in a folder it does not
+   * trust), so the probe's modes are not the agent's and are not kept.
+   */
+  modes: "reported" | "needs-session";
+  /** Removes the probe's own folder, once the agent has stopped. */
+  release?(): Promise<void>;
+};
 export type DiscoveryOptions = {
+  /**
+   * Launches an ACP agent's probe: initialize and session/new, never a prompt, then the process
+   * stops. Without it, ACP rows load only from their sessions.
+   */
+  acpProbe?(instance: ModelInstance, signal: AbortSignal): Promise<AcpProbeLaunch>;
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   cursorSlots?: CursorHostSlots;
   /** Selected launch environment stays local to supervised SDK workers, never catalog rows. */
@@ -74,8 +96,11 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         (entry) => diagnostic?.({ rejectedModels: [entry] }),
       );
     }
-    // Unprofiled session/new is executable startup behavior, not a metadata query.
-    if (instance.provider === "acp") return [];
+    // The catalog decides when an ACP agent may be probed (`acp-probe-gate.ts`).
+    const acp =
+      instance.provider === "acp"
+        ? await (options.acpProbe ?? unavailableProbe)(instance, signal)
+        : undefined;
     if (instance.provider === "claude")
       return normalizeClaude(
         await discoverClaudeModels({
@@ -121,18 +146,24 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       case "antigravity":
         break;
     }
-    const proc = spawn({
-      command: instance.executable,
-      args,
-      cwd: instance.cwd,
-      env: {
-        ...instance.env,
-        // Unset over the daemon environment the process would otherwise inherit.
-        ...Object.fromEntries((instance.unsetEnv ?? []).map((key) => [key, undefined])),
-      },
-      name: "model-discovery",
-      maxOutputBytes: 4 * 1024 * 1024,
-    });
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn({
+        command: acp?.command ?? instance.executable,
+        args: acp ? [...acp.args] : args,
+        cwd: acp?.cwd ?? instance.cwd,
+        env: acp?.env ?? {
+          ...instance.env,
+          // Unset over the daemon environment the process would otherwise inherit.
+          ...Object.fromEntries((instance.unsetEnv ?? []).map((key) => [key, undefined])),
+        },
+        name: "model-discovery",
+        maxOutputBytes: 4 * 1024 * 1024,
+      });
+    } catch (error) {
+      await acp?.release?.();
+      throw error;
+    }
     const abort = () => {
       // The stops awaited below report a tree that survives one.
       void proc.stop({ graceMs: 0 }).catch(() => {});
@@ -183,18 +214,38 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
           { signal },
         ),
       );
-      void initialized;
+      // A reviewed agent's row is loaded unasked only while the agent it reports is the one
+      // that profile covers: one that changed since its row registered opens no session.
+      if (!negotiatedProbeAllowed(instance, initialized))
+        throw new Error("ACP agent changed since its catalog row registered");
       const peer = rpc;
       const session = await openWithSignIn(
         peer,
         instance.signInMethod,
-        () => peer.request("session/new", { cwd: instance.cwd, mcpServers: [] }, { signal }),
+        () =>
+          peer.request(
+            "session/new",
+            { cwd: acp?.cwd ?? instance.cwd, mcpServers: [] },
+            { signal },
+          ),
         signal,
       );
-      return normalizeAcp(session, instance);
+      const probed = perModelProbe(instance.provider)
+        ? await withPerModelOptions(session, (method, params) =>
+            peer.request(method, params, { signal }),
+          )
+        : session;
+      const models = normalizeAcp(probed, instance);
+      if (acp?.modes === "needs-session") return models;
+      return withPermissionModes(
+        models,
+        acpPermissionModes(session, { provider: instance.provider }),
+      );
     }
     try {
-      const rows = await readModels();
+      const read = await readModels();
+      // An ACP agent may list no models (it runs its own default): a loaded, empty row.
+      const rows = acp && !read.length ? discoveredModels(read, []) : read;
       const exit = await proc.stop({ graceMs: 0 });
       if (exit.reason === "output-limit") throw new Error("Model metadata output exceeded limit");
       signal.throwIfAborted();
@@ -202,7 +253,15 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
     } finally {
       rpc?.close();
       signal.removeEventListener("abort", abort);
-      await proc.stop({ graceMs: 0 });
+      try {
+        await proc.stop({ graceMs: 0 });
+      } finally {
+        await acp?.release?.();
+      }
     }
   };
+}
+
+function unavailableProbe(): Promise<never> {
+  return Promise.reject(new Error("ACP model probe unavailable"));
 }

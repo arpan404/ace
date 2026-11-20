@@ -740,8 +740,8 @@ function PreparationPage(props: {
         base: landed?.branch ? { ref: landed.branch } : props.copyFrom ? undefined : base,
         effort: launchModel.effort,
         serviceTier: launchModel.serviceTier,
-        // Before the provider's modes are read, only a mode picked here is sent; otherwise the
-        // daemon applies the project's or its own default.
+        // Only a mode picked here is sent, as picked; the daemon applies the defaults and says
+        // when a mode runs looser than asked.
         permission: createAccess,
         input: draft.input,
         text: draft.text,

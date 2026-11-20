@@ -67,7 +67,7 @@ export function mentionName(part: Mention): string {
 
 export type ReferenceSegment =
   | { kind: "text"; text: string }
-  | { kind: "mention"; name: string; mention: Mention["kind"] };
+  | { kind: "mention"; name: string; mention: Mention["kind"]; icon?: string | undefined };
 
 /**
  * The words of a message with mentions as chips in place. Mentions are kept as opaque markers
@@ -96,7 +96,14 @@ export function referenceSegments(parts: readonly ContentPart[]): ReferenceSegme
     if (index % 2 === 0) return value ? [{ kind: "text", text: value }] : [];
     const part = parts[Number(value)];
     return part?.type === "mention"
-      ? [{ kind: "mention", name: mentionName(part), mention: part.kind }]
+      ? [
+          {
+            kind: "mention",
+            name: mentionName(part),
+            mention: part.kind,
+            ...(part.icon ? { icon: part.icon } : {}),
+          },
+        ]
       : [];
   });
 }

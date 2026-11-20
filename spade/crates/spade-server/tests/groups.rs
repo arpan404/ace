@@ -454,3 +454,91 @@ async fn a_group_names_the_member_that_waits_for_the_person_by_id_live_and_liste
     assert_eq!(listed["groups"][0]["waiting_member"]["id"], research["id"]);
     Ok(())
 }
+
+/// `count` bots on the shared fake, named Bot1, Bot2, …
+async fn many_bots(spade: &Spade, count: usize) -> Result<Vec<Value>> {
+    let mut bots = Vec::new();
+    for n in 1..=count {
+        bots.push(spade.new_agent(&format!("Bot{n}"), "").await?);
+    }
+    Ok(bots)
+}
+
+#[tokio::test]
+async fn a_club_holds_32_bots() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let bots = many_bots(&spade, 32).await?;
+    let members = |bots: &[Value]| -> Vec<Value> {
+        bots.iter().map(|b| json!({ "agent": b["id"] })).collect()
+    };
+    // 32 with the lead among them.
+    let (status, body) = spade
+        .post(
+            "/v1/groups",
+            json!({ "name": "Big", "members": members(&bots), "lead": bots[0]["id"] }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(body["group"]["members"].as_array().map(Vec::len), Some(32));
+    let extra = spade.new_agent("Bot33", "").await?;
+    let mut too_many = bots.clone();
+    too_many.push(extra);
+    let (status, body) = spade
+        .post(
+            "/v1/groups",
+            json!({ "name": "Bigger", "members": members(&too_many), "lead": bots[0]["id"] }),
+        )
+        .await?;
+    assert_eq!(status, 400, "{body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_club_message_naming_30_members_runs_only_the_lead_who_hands_it_on() -> Result {
+    let spade = Spade::start(vec![Script::reply("I'll ask each of them.")], Vec::new()).await?;
+    let _titles = quiet_titles(&spade).await?;
+    let bots = many_bots(&spade, 30).await?;
+    let members: Vec<Value> = bots.iter().map(|b| json!({ "agent": b["id"] })).collect();
+    let (status, body) = spade
+        .post(
+            "/v1/groups",
+            json!({ "name": "Big", "members": members, "lead": bots[0]["id"] }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    let team = body["group"].clone();
+    let everyone: Vec<String> = (1..=30).map(|n| format!("@Bot{n}")).collect();
+    post(
+        &spade,
+        &team,
+        &format!("{} what's your status?", everyone.join(" ")),
+    )
+    .await?;
+    spade
+        .wait_for_count(&conversation(&team), "group_message", 2)
+        .await?;
+    // One model turn ran: the lead's, told who else was named.
+    let turns: Vec<_> = spade
+        .fake
+        .seen()
+        .into_iter()
+        .filter(|s| s.body["stream"] == true)
+        .collect();
+    assert_eq!(turns.len(), 1);
+    let lead_events = spade.events(&conversation(&bots[0])).await?;
+    let asked = lead_events
+        .iter()
+        .find(|e| e["type"] == "user_message")
+        .map(|e| e["text"].as_str().unwrap_or("").to_owned())
+        .unwrap_or_default();
+    assert!(asked.contains("the person named 29 members"), "{asked}");
+    for bot in &bots[1..] {
+        let events = spade.events(&conversation(bot)).await?;
+        assert!(
+            !events.iter().any(|e| e["type"] == "user_message"),
+            "{} was not run",
+            bot["name"]
+        );
+    }
+    Ok(())
+}

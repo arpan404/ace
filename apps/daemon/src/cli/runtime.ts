@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { setPriority } from "node:os";
 import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { readHistoryInstances } from "../history.ts";
@@ -20,6 +21,9 @@ export async function runtimeCommand(args: Args, config: Config) {
   const priority = raiseDaemonPriority({
     platform: process.platform,
     setPriority: (value) => setPriority(value),
+    ...(process.platform === "linux"
+      ? { limits: readProc("/proc/self/limits"), status: readProc("/proc/self/status") }
+      : {}),
   });
   // A daemon that cannot start (for example, another one holds the lock) failed; the
   // request itself was valid, so it is not a refusal.
@@ -101,4 +105,13 @@ function addressInUse(error: unknown): boolean {
     cause = cause.cause;
   }
   return false;
+}
+
+/** A /proc file's text, or undefined where it cannot be read. */
+function readProc(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
 }

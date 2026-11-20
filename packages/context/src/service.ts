@@ -9,6 +9,7 @@ import {
   type ContextResult,
   type ContextDiagnostic,
   type ThreadRefContextItem,
+  type DeviceContextItem,
   ResolvedThreadReference,
 } from "@ace/protocol";
 import { ContextError, requireContext } from "./errors.ts";
@@ -34,6 +35,16 @@ export interface ContextServiceOptions extends UploadOptions {
     owner: string,
     reference: ThreadRefContextItem,
   ): Promise<ResolvedThreadReference>;
+  /**
+   * The words of Spade bots' replies a `bot_replies` item names (ADR 0198), framed untrusted by
+   * the daemon; undefined when none of them is this thread's.
+   */
+  botReplies?(thread: string, keys: readonly string[]): string | undefined;
+  /**
+   * What the agent reads of a device the person named (ADR 0198); undefined when its machine is
+   * gone, and the item is left out.
+   */
+  device?(thread: string, item: DeviceContextItem): Promise<string | undefined>;
   /** Lookup captured native-image metadata only; a client reference never authorizes file IO. */
   imageReference?(thread: string, reference: string, itemId?: string): Attachment | undefined;
   workspace(thread: string): string | undefined | Promise<string | undefined>;
@@ -302,6 +313,30 @@ export class ContextService {
           mimeType: "text/plain",
           text: `${reference.summary}\nPointer: ${JSON.stringify(reference.pointer)}`,
         });
+      // Devices the person named, as the daemon checks them now.
+      for (const item of context.items ?? []) {
+        if (item.type !== "device") continue;
+        const text = await this.options.device?.(thread, item);
+        if (text)
+          prepared.push({
+            path: `ace://device/${encodeURIComponent(item.id)}`,
+            name: `Device ${item.name}`,
+            mimeType: "text/plain",
+            text,
+          });
+      }
+      // Bots' replies the agent hasn't heard ride with the person's next message, untrusted.
+      for (const item of context.items ?? []) {
+        if (item.type !== "bot_replies") continue;
+        const text = this.options.botReplies?.(thread, item.keys);
+        if (text)
+          prepared.push({
+            path: `ace://thread/${thread}/bot-replies`,
+            name: "Spade bots' replies",
+            mimeType: "text/plain",
+            text,
+          });
+      }
       prepared.push(...(await prepareFiles(lease.blobs, capabilities)));
       // Binary mentions take the attached-file route: images and PDFs reach providers natively.
       const budget = {

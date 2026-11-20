@@ -67,8 +67,8 @@ export async function browserTabContext(input: {
 }): Promise<{ parts: ContentPart[]; context: MessageContext }> {
   const items = input.context.items ?? [];
   const browser = items.filter(
-    (item): item is Exclude<MessageContextItem, { type: "thread_ref" }> =>
-      item.type !== "thread_ref",
+    (item): item is Extract<MessageContextItem, { type: "browser_tab" | "browser_annotations" }> =>
+      item.type === "browser_tab" || item.type === "browser_annotations",
   );
   if (!browser.length) return { parts: [], context: input.context };
   const texts: string[] = [];
@@ -121,7 +121,10 @@ export async function browserTabContext(input: {
     parts: [{ type: "text", text: `\n\n${texts.join("\n\n")}` }],
     context: {
       ...input.context,
-      items: items.filter((item) => item.type === "thread_ref"),
+      // What isn't a browser tab (thread references, bots' replies, devices) is composed later.
+      items: items.filter(
+        (item) => item.type !== "browser_tab" && item.type !== "browser_annotations",
+      ),
       attachments: [...input.context.attachments, ...attachments],
     },
   };

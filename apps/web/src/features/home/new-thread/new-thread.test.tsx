@@ -383,7 +383,7 @@ test("files and @ mentions work before the thread exists and arrive with it", as
   await made.open("/new?project=relay");
   const field = await prompt();
   await userEvent.type(field, "Explain @replay");
-  const files = await screen.findByRole("listbox", { name: "Files and threads" });
+  const files = await screen.findByRole("listbox", { name: "Mention" });
   expect(within(files).getAllByRole("option")[0]?.textContent).toContain("replay.ts");
   await userEvent.keyboard("{Enter}");
 

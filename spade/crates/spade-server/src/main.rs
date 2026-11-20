@@ -426,7 +426,7 @@ async fn run() -> Result<(), Failure> {
         keys: keychain.clone(),
         clock: spade_connect::system_clock(),
         random: Arc::new(spade_connect::OsRandom),
-        catalogue: spade_connect::catalogue::shipped(),
+        catalogue: dev_catalogue(spade_connect::catalogue::shipped()),
         timeout: Duration::from_secs(60),
         relist: spade_connect::RELIST,
         addresses: spade_connect::Addresses::system(),
@@ -583,6 +583,40 @@ async fn run() -> Result<(), Failure> {
     served.map_err(other)?;
     tracing::info!("spade stopped");
     Ok(())
+}
+
+/// The shipped catalogue, with entries from `SPADE_DEV_CATALOGUE` (a JSON list of entries, by id)
+/// put in place of the shipped ones and marked local, so a development run signs in to a fake app
+/// on this machine. Debug builds only: a release never reads it.
+fn dev_catalogue(shipped: Vec<spade_connect::Entry>) -> Vec<spade_connect::Entry> {
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var("SPADE_DEV_CATALOGUE")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+    {
+        let read = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<Vec<spade_connect::Entry>>(&text).map_err(|e| e.to_string())
+            });
+        match read {
+            Ok(dev) => {
+                let mut entries: Vec<spade_connect::Entry> = shipped
+                    .into_iter()
+                    .filter(|entry| !dev.iter().any(|d| d.id == entry.id))
+                    .collect();
+                entries.extend(dev.into_iter().map(|entry| spade_connect::Entry {
+                    local: true,
+                    ..entry
+                }));
+                entries.sort_by_key(|entry| entry.name.to_lowercase());
+                tracing::warn!(%path, "development catalogue entries are in use");
+                return entries;
+            }
+            Err(error) => tracing::warn!(%error, %path, "SPADE_DEV_CATALOGUE was not read"),
+        }
+    }
+    shipped
 }
 
 /// Resolves on Ctrl-C, or on SIGTERM from the service manager or an updater.

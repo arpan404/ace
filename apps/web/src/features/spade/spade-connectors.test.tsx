@@ -51,7 +51,7 @@ test("signing in to an app opens its page in the browser, and its row follows th
   const section = await connectors();
   expect(await section.findByText("Waiting for you to finish signing in")).toBeTruthy();
   spade.connectors.finishSignIn("linear", "me@example.com");
-  expect(await section.findByText("Connected as me@example.com")).toBeTruthy();
+  expect(await section.findByText("Working · me@example.com")).toBeTruthy();
 });
 
 test("a token goes to Spade in one request, and Disconnect removes the app", async () => {
@@ -65,7 +65,7 @@ test("a token goes to Spade in one request, and Disconnect removes the app", asy
     { catalogue: "linear", token: "lin-key-1" },
   ]);
   const section = await connectors();
-  expect(await section.findByText("Connected")).toBeTruthy();
+  expect(await section.findByText("Working")).toBeTruthy();
   await userEvent.click(section.getByRole("button", { name: "Disconnect Linear" }));
   await waitFor(() => expect(spade.sent("DELETE", "/v1/connectors/linear")).toHaveLength(1));
   await waitFor(() => expect(section.queryByText("Linear")).toBeNull());
@@ -90,7 +90,7 @@ test("a server added by address reaches local addresses only when the person say
     ]),
   );
   const section = await connectors();
-  expect(await section.findByText("Connected · On your own network")).toBeTruthy();
+  expect(await section.findByText("Working · On your own network")).toBeTruthy();
 });
 
 test("an app that registers no clients by itself asks for the person's client ID", async () => {
@@ -127,7 +127,7 @@ test("an app whose sign-in ended reconnects from its row", async () => {
   });
   const tab = browserTab();
   const section = await connectors();
-  expect(await section.findByText("Signed out")).toBeTruthy();
+  expect(await section.findByText("Needs reconnect")).toBeTruthy();
   await userEvent.click(section.getByRole("button", { name: "Reconnect" }));
   await waitFor(() => expect(spade.sent("POST", "/v1/connectors/linear/connect")).toHaveLength(1));
   await waitFor(() => expect(tab.location.replace).toHaveBeenCalled());
@@ -151,11 +151,11 @@ test("an app whose sign-in ends later shows it without a reload", async () => {
       });
     });
     const section = await connectors();
-    expect(await section.findByText("Connected")).toBeTruthy();
+    expect(await section.findByText("Working")).toBeTruthy();
     // Spade finds the sign-in expired while the page stays open.
     Object.assign(spade.connectors.connectors[0] ?? {}, { state: "needs_reconnect" });
     await vi.advanceTimersByTimeAsync(31_000);
-    expect(await section.findByText("Signed out")).toBeTruthy();
+    expect(await section.findByText("Needs reconnect")).toBeTruthy();
   } finally {
     vi.useRealTimers();
   }
@@ -180,8 +180,8 @@ test("an app still signing in can't be given to a bot yet", async () => {
   await feed("Garden");
   const apps = await appsOf("Garden");
   await userEvent.click(await apps.findByRole("button", { name: "Add an app" }));
-  expect(disabled(await screen.findByRole("menuitem", { name: "Sentry" }))).toBe(true);
-  expect(disabled(screen.getByRole("menuitem", { name: "Linear" }))).toBe(false);
+  expect(disabled(await screen.findByRole("menuitem", { name: "Use Sentry" }))).toBe(true);
+  expect(disabled(screen.getByRole("menuitem", { name: "Use Linear" }))).toBe(false);
 });
 
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
@@ -220,7 +220,7 @@ test("a bot's profile gives it an app from the connected ones, saved at once and
   await apps.findByRole("button", { name: "Add an app" });
   expect(apps.queryByRole("button", { name: /^Remove/ })).toBeNull();
   await userEvent.click(apps.getByRole("button", { name: "Add an app" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Linear" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Use Linear" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/agents/garden/connectors")).toEqual([
       { all: false, connectors: ["linear"] },
@@ -300,7 +300,7 @@ test("a device sign-in shows its code in the app's row, with Copy code and Open,
     );
     spade.connectors.finishSignIn("github", "octo@example.com");
     await followed();
-    expect(await section.findByText("Connected as octo@example.com")).toBeTruthy();
+    expect(await section.findByText("Working · octo@example.com")).toBeTruthy();
     expect(section.queryByRole("button", { name: "Copy code" })).toBeNull();
   }));
 
@@ -355,7 +355,7 @@ test("an app through Spade Cloud signs in in the browser and its row says it sig
   spade.connectors.finishSignIn("asana", "me@example.com");
   const section = await connectors();
   expect(
-    await section.findByText("Connected as me@example.com · Signs in through Spade Cloud"),
+    await section.findByText("Working · me@example.com · Signs in through Spade Cloud"),
   ).toBeTruthy();
 });
 
@@ -397,9 +397,7 @@ test("an app through Spade Cloud that can't renew while signed out of ace says s
   });
   const section = await connectors();
   expect(
-    await section.findByText(
-      "Connected · Sign in to ace to keep it signed in through Spade Cloud.",
-    ),
+    await section.findByText("Working · Sign in to ace to keep it signed in through Spade Cloud."),
   ).toBeTruthy();
   await userEvent.click(section.getByRole("button", { name: "Sign in to ace" }));
   expect(await screen.findByRole("heading", { name: "Profile" })).toBeTruthy();

@@ -16,7 +16,7 @@ import { AgentLaunchOptions, ThreadPrepareCommand } from "./agent-control.ts";
 import { RunTrigger } from "./thread.ts";
 import { QueueCommands, FollowUpBehavior } from "./queue.ts";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
-import { MessageContext } from "./context.ts";
+import { DeviceContextItem, MessageContext } from "./context.ts";
 import {
   AgentId,
   RunId,
@@ -29,6 +29,7 @@ import {
 } from "./ids.ts";
 import { InteractionResolution } from "./interactions.ts";
 import { ContentPart, MessageOrigin } from "./items.ts";
+import { Addressee, AddressedShare } from "./addressing.ts";
 import { ProviderKind } from "./provider.ts";
 
 import { ReviewCommands } from "./review.ts";
@@ -121,6 +122,25 @@ export const CommandPayload = z.discriminatedUnion("type", [
      * older sender): as before.
      */
     runId: RunId.nullable().optional(),
+  }),
+  /**
+   * The person's message to Spade bots, clubs or other threads' agents (ADR 0198), beside the
+   * `thread.send` that gave it to this thread's agent (`about`, that send's id). A follow-up
+   * (`followUp`) went to the bots alone: `about` is the message it follows up. `share` says
+   * whether the thread's context pack goes with it.
+   */
+  z.object({
+    type: z.literal("thread.address"),
+    threadId: ThreadId,
+    about: z.string().min(1).max(256),
+    input: z.array(ContentPart).min(1).max(64),
+    to: z.array(Addressee).max(8),
+    /** Devices the message names, recorded for its chips; the agent gets them as context. */
+    devices: z.array(DeviceContextItem).max(8).default([]),
+    share: AddressedShare,
+    /** The files the message names, whose paths go in the context pack. */
+    files: z.array(z.string().min(1).max(4096)).max(16).default([]),
+    followUp: z.literal(true).optional(),
   }),
   z.object({
     type: z.literal("thread.interrupt"),

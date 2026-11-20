@@ -9,11 +9,17 @@ interface NativeTool {
   status: ToolStatus;
   shell: boolean;
 }
+const terminal = new Set(["succeeded", "failed", "cancelled", "declined"]);
 /** Pure native settlement, indexed by live tools rather than prior notifications. */
 export class ShellSettlement {
   readonly quirks: AcpQuirks;
   readonly tools = new Map<string, NativeTool>();
   readonly unsettled = new Set<string>();
+  /** Root tools that started or still ran after the prompt answered: work with no prompt open. */
+  readonly afterPrompt = new Set<string>();
+  /** The root session's id, once known. */
+  root = "";
+  promptOpen = false;
   constructor(quirks: AcpQuirks) {
     this.quirks = quirks;
   }
@@ -28,19 +34,48 @@ export class ShellSettlement {
     mergeToolData(tool.data, update);
     tool.status = toolStatus(update, tool.status);
     tool.shell = toolDetail(tool.data, this.quirks).kind === "shell";
-    if (["succeeded", "failed", "cancelled", "declined"].includes(tool.status)) {
-      this.tools.delete(key);
-      this.unsettled.delete(key);
-    } else this.tools.set(key, tool);
+    if (terminal.has(tool.status)) this.forget(key);
+    else {
+      this.tools.set(key, tool);
+      if (!this.promptOpen && owner === this.root && !this.unsettled.has(key))
+        this.afterPrompt.add(key);
+    }
   }
+  knows(owner: string, id: string): boolean {
+    return this.tools.has(JSON.stringify([owner, id]));
+  }
+  /** The person answered (or ace cancelled) the request for a tool: a refusal settles it, an allow starts it. */
+  answered(owner: string, id: string, refused: boolean): void {
+    const key = JSON.stringify([owner, id]);
+    const tool = this.tools.get(key);
+    if (!tool) return;
+    if (refused) this.forget(key);
+    else tool.status = "running";
+  }
+  promptStarted(): void {
+    this.promptOpen = true;
+  }
+  /** `reason` is the prompt's stop reason, or "" when the prompt failed. */
   promptEnded(owner: string, reason: string): void {
+    this.promptOpen = false;
     for (const [key, tool] of this.tools) {
       if (tool.owner !== owner && reason !== "cancelled") continue;
-      if (tool.shell && shellSurvivesPrompt(this.quirks.provider, reason)) this.unsettled.add(key);
+      if (tool.shell && shellSurvivesPrompt(this.quirks.provider, reason, tool.status))
+        this.unsettled.add(key);
       else if (!this.unsettled.has(key)) this.tools.delete(key);
     }
   }
+  forget(key: string): void {
+    this.tools.delete(key);
+    this.unsettled.delete(key);
+    this.afterPrompt.delete(key);
+  }
+  /** A shell outlived its prompt with no proof it ended: new input is refused (ADR 0109). */
   get blocked(): boolean {
     return this.unsettled.size > 0;
+  }
+  /** Work the agent does after its prompt answered: new input waits for it, never refused. */
+  get busy(): boolean {
+    return this.afterPrompt.size > 0;
   }
 }

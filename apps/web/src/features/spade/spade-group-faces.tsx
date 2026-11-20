@@ -22,9 +22,14 @@ type Member = { away: boolean; bot?: Pick<SpadeAgent, "state" | "status" | "prob
 const stateOf = (member: Member): BotFaceState =>
   member.bot && !member.away ? botFaceStateOf(member.bot) : "idle";
 
+/** The smallest stack that says how many more there are: below it the count wouldn't read. */
+const countsFrom = 40;
+
 /**
  * A group's face: up to three members' faces stacked in one square, each cut from the next by
- * the colour under it (`--faces-cut`, the panel's by default); an away member's dimmed. Decorative, like a bot's face: its row names it.
+ * the colour under it (`--faces-cut`, the panel's by default); an away member's dimmed. With more
+ * than three members, a stack of 40px or more shows two faces and how many more ("+12") in the
+ * third place. Decorative, like a bot's face: its row names it.
  */
 export function GroupFaces(props: {
   members: readonly {
@@ -38,8 +43,10 @@ export function GroupFaces(props: {
   size: number;
   className?: string | undefined;
 }) {
-  const shown = props.members.slice(0, 3);
   const { size } = props;
+  const counted = props.members.length > 3 && size >= countsFrom;
+  const shown = props.members.slice(0, counted ? 2 : 3);
+  const more = props.members.length - shown.length;
   if (shown.length < 2) {
     const [only] = shown;
     return only ? (
@@ -54,15 +61,16 @@ export function GroupFaces(props: {
     );
   }
   const face = Math.round(size * 0.6);
+  const slots = counted ? 3 : shown.length;
   return (
     <span
       aria-hidden
-      data-group-faces={shown.length}
+      data-group-faces={slots}
       className={cn("relative shrink-0", props.className)}
       style={{ width: size, height: size }}
     >
       {shown.map((member, index) => {
-        const place = places[shown.length]?.[index] ?? { left: 0, top: 0 };
+        const place = places[slots]?.[index] ?? { left: 0, top: 0 };
         return (
           <span
             key={`${member.machineKey ?? ""}/${member.agent}`}
@@ -78,6 +86,21 @@ export function GroupFaces(props: {
           </span>
         );
       })}
+      {counted && (
+        <span
+          data-group-more={more}
+          className="absolute grid place-items-center rounded-full bg-secondary font-medium text-muted-foreground tabular-nums shadow-[0_0_0_1.5px_var(--faces-cut,var(--sidebar-panel))]"
+          style={{
+            left: (places[3]?.[2]?.left ?? 0) * size,
+            top: (places[3]?.[2]?.top ?? 0) * size,
+            width: face,
+            height: face,
+            fontSize: Math.max(10, Math.round(face * 0.36)),
+          }}
+        >
+          {`+${more}`}
+        </span>
+      )}
     </span>
   );
 }

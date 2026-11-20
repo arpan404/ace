@@ -393,6 +393,7 @@ mod tests {
                 from_agent: None,
                 from_routine: None,
                 from_group: None,
+                from_thread: None,
             })
         };
         let events = vec![

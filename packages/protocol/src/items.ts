@@ -12,7 +12,8 @@ import {
   HandoffModel,
   InheritedItem,
 } from "./thread-transitions.ts";
-import { Attachment } from "./context.ts";
+import { Attachment, DeviceContextItem } from "./context.ts";
+import { AddressedShare, AddressedTo, MessageVia, Speaker } from "./addressing.ts";
 import { z } from "zod";
 import { AgentId, CommandId, InteractionId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind, RawPayload } from "./provider.ts";
@@ -51,6 +52,33 @@ export const ContentPart = z.discriminatedUnion("type", [
   }),
 ]);
 export type ContentPart = z.infer<typeof ContentPart>;
+
+/**
+ * ace's line under a message the person sent with `@` mentions (ADR 0198): who else it went to,
+ * what went with it, and where each stands. `about` is the person's `thread.send` (its message
+ * carries it as `origin.commandId`), or, for a follow-up, the message it follows up. A follow-up
+ * went only to the bots: its words live here, not in the agent's transcript.
+ */
+export interface AskedLine {
+  about: string;
+  to: AddressedTo[];
+  /** Devices the message named for the work, as the person's chips show them. */
+  devices: DeviceContextItem[];
+  share: AddressedShare;
+  /** What went with the message, in the person's words ("the title and project", "2 files"). */
+  shares: string[];
+  /** A follow-up's words, as the person wrote them. */
+  words?: string | undefined;
+}
+/** Declared, not inferred, as `Speaker` is: notices carry it. */
+export const AskedLine: z.ZodType<AskedLine> = z.object({
+  about: z.string().min(1).max(256),
+  to: z.array(AddressedTo).max(8),
+  devices: z.array(DeviceContextItem).max(8).default([]),
+  share: AddressedShare,
+  shares: z.array(z.string().min(1).max(120)).max(8).default([]),
+  words: z.string().max(16_384).optional(),
+});
 
 /** Provenance of provider input, retained on its canonical transcript item. */
 export const MessageOrigin = z.object({
@@ -93,6 +121,8 @@ export const MessageOrigin = z.object({
   lossy: z.boolean().optional(),
   /** A `restart` continuation resuming a turn its provider dropped on its own, not a restart. */
   afterExit: z.boolean().optional(),
+  /** A `person` message sent from another thread by `@` its agent (ADR 0198): that thread. */
+  via: MessageVia.optional(),
 });
 export type MessageOrigin = z.infer<typeof MessageOrigin>;
 
@@ -138,6 +168,8 @@ export const AgentItem = z.discriminatedUnion("type", [
     origin: MessageOrigin.optional(),
     notAnswered: z.literal("stopped").optional(),
     mergedContext: MergedForkContext.optional(),
+    /** A reply a Spade bot gave in this thread: the bot's words, never the agent's (ADR 0198). */
+    speaker: Speaker.optional(),
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({
@@ -193,6 +225,8 @@ export const AgentItem = z.discriminatedUnion("type", [
     toolCallId: ItemId.optional(),
     /** Uncorrelated daemon measurement, retained rather than discarded. */
     measurement: StepMeasurement.optional(),
+    /** ace's line under a message sent with `@` bots, clubs or agents (ADR 0198). */
+    asked: AskedLine.optional(),
     text: z.string(),
     source: TextSource.optional(),
     raw: z.array(RawPayload).default([]),

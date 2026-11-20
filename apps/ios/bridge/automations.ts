@@ -23,6 +23,9 @@ import {
   sidebarRow,
   triggerErrorCopy,
   githubHint,
+  projectAutomationsLine,
+  projectAutomationsReadFailed,
+  projectSchedules,
   type AutomationEntry,
 } from "@ace/ui-core/automations";
 import { type NewThreadAgents } from "@ace/ui-core/mobile";
@@ -77,6 +80,14 @@ export const AutomationsThreadLineRequest = z.object({
   threadId: id,
   zone: Zone,
 });
+/** The Summary's foot line: the project's schedules and when the next one starts. */
+export const AutomationsProjectLineRequest = z.object({
+  type: z.literal("automations.projectLine"),
+  workspaceId: id,
+  /** The project's folder, which older automations name instead of its id. */
+  workspacePath: z.string().min(1).max(4096).optional(),
+  zone: Zone,
+});
 /** Run now (with a note), Pause or Resume, Retry a stopped trigger, Delete. */
 export const AutomationsWriteRequest = z.object({
   type: z.literal("automations.write"),
@@ -95,6 +106,7 @@ export const NativeAutomationRequest = z.union([
   AutomationsDuplicateRequest,
   AutomationsRestoreRequest,
   AutomationsThreadLineRequest,
+  AutomationsProjectLineRequest,
   FormOpen,
   FormPreview,
   FormSave,
@@ -266,6 +278,8 @@ export class NativeAutomations {
       }
       case "automations.threadLine":
         return this.#threadLine(request.threadId, request.zone ?? this.#deps.zone(), signal);
+      case "automations.projectLine":
+        return this.#projectLine(request, request.zone ?? this.#deps.zone(), signal);
       case "automations.form.open":
         return formOpen(request, this.#deps);
       case "automations.form.preview":
@@ -305,6 +319,32 @@ export class NativeAutomations {
         actions: line.actions.map(lineAction),
       },
     };
+  }
+
+  /**
+   * The project's schedules as the Summary's one line, null when it has none. A failed read
+   * says so in words, to be tried again, as the web's line does.
+   */
+  async #projectLine(
+    request: z.infer<typeof AutomationsProjectLineRequest>,
+    zone: string,
+    signal: AbortSignal,
+  ): Promise<Reply> {
+    const [reply, running] = await Promise.all([
+      this.#deps.owner.request({ type: "automation.list" }, { signal, ...timeout }),
+      this.#running(signal),
+    ]);
+    if (!reply.ok) return { ok: true, line: null, failed: projectAutomationsReadFailed };
+    const entries = projectSchedules(automationLists(reply).person, {
+      id: request.workspaceId,
+      path: request.workspacePath,
+    });
+    const line = projectAutomationsLine(entries, {
+      now: this.#deps.now(),
+      localZone: zone,
+      running,
+    });
+    return { ok: true, line, failed: null };
   }
 
   async #page(zone: string, signal: AbortSignal): Promise<Reply> {

@@ -73,6 +73,7 @@ export async function fakeCli(path: string): Promise<string> {
     script,
     `
 import { createInterface } from 'node:readline';
+import { appendFileSync } from 'node:fs';
 const mode = process.env.FAKE_PROVIDER;
 const payload = JSON.parse(process.env.FAKE_PAYLOAD ?? '{}');
 if (mode === 'opencode' && process.argv.includes('auth')) {
@@ -90,6 +91,8 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
   let signedIn = process.env.FAKE_NEEDS_SIGN_IN !== '1';
   createInterface({input: process.stdin}).on('line', line => {
     const request = JSON.parse(line);
+    // Each request the process got, with session/new's folder, for tests that bound what ran.
+    if (process.env.FAKE_METHOD_LOG) appendFileSync(process.env.FAKE_METHOD_LOG, JSON.stringify(request.params?.value === undefined ? [request.method, request.params?.cwd] : [request.method, request.params?.cwd, request.params.value]) + String.fromCharCode(10));
     if (mode === 'hang') return;
     if (mode === 'pi') {
       if (!['get_available_models','get_state'].includes(request.type)) process.exit(9);
@@ -102,7 +105,12 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
       console.log(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:request.request_id,response:payload}}));
       return;
     }
-    if (!['initialize','initialized','model/list','session/new','authenticate','cursor/list_available_models'].includes(request.method)) process.exit(9);
+    if (!['initialize','initialized','model/list','session/new','session/set_config_option','authenticate','cursor/list_available_models'].includes(request.method)) process.exit(9);
+    if (request.method === 'session/set_config_option') {
+      const own = payload.perModel?.[request.params.value];
+      console.log(JSON.stringify(own ? {jsonrpc:'2.0',id:request.id,result:{configOptions:own}} : {jsonrpc:'2.0',id:request.id,error:{code:-32602,message:'unknown model'}}));
+      return;
+    }
     if (request.method === 'authenticate') {
       signedIn = request.params.methodId === 'oauth-personal';
       console.log(JSON.stringify({jsonrpc:'2.0',id:request.id,result:{}}));
@@ -119,7 +127,7 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
       return;
     }
     let result;
-    if (request.method === 'initialize') result = mode === 'codex' ? {} : {protocolVersion:1};
+    if (request.method === 'initialize') result = mode === 'codex' ? {} : process.env.FAKE_AGENT_VERSION ? {protocolVersion:1,agentInfo:{name:'fake',version:process.env.FAKE_AGENT_VERSION}} : {protocolVersion:1};
     if (request.method === 'model/list') {
       if (!request.params.includeHidden || request.params.limit !== 100) process.exit(8);
       result = Array.isArray(payload) ? payload[request.params.cursor ? 1 : 0] : payload;

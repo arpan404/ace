@@ -1,4 +1,5 @@
 export * from "./extension-catalog.ts";
+export * from "./close-report.ts";
 export * from "./skill-library.ts";
 export * from "./contained-path.ts";
 export * from "./spade.ts";
@@ -23,6 +24,7 @@ export * from "./events.ts";
 export * from "./ids.ts";
 export * from "./interactions.ts";
 export * from "./items.ts";
+export * from "./addressing.ts";
 export * from "./provider.ts";
 export * from "./thread.ts";
 export * from "./thread-place.ts";

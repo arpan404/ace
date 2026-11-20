@@ -13,6 +13,7 @@ import type { ReactNode } from "react";
 import { writeJson, type KeyValueStorage } from "@ace/ui-core";
 import {
   bootAppearanceKey,
+  changesAppearance,
   loadAppearance,
   resolveAppearance,
   saveAppearance,
@@ -53,6 +54,12 @@ export interface Environment {
   windowBackground?: ((value: { mode: Mode; light: string; dark: string }) => void) | undefined;
   /** `?suit=off` this session (`suitsOffForSession`): the chosen theme shows, never a Suit. */
   suitsOff?: boolean | undefined;
+  /**
+   * Another window of the app changed `storage` (the browser's `storage` event): the key it
+   * changed, null when it cleared everything. The look follows, so every window (the desktop's
+   * menu-bar popover, a second tab) shows the theme, Suit and accent chosen in any of them.
+   */
+  onStorage?: ((listener: (key: string | null) => void) => () => void) | undefined;
 }
 
 interface ThemeValue {
@@ -124,7 +131,22 @@ export function ThemeProvider(props: { environment: Environment; children: React
   const [appearance, setAppearance] = useState(() => loadAppearance(storage));
   const system = useSystemPreferences(matchMedia, softwareRendering);
   const suitsOff = props.environment.suitsOff ?? false;
-  const { applied, trying, reportSuits } = useAppliedSuit(storage, appearance.suit, suitsOff);
+  const { applied, trying, reportSuits, recache } = useAppliedSuit(
+    storage,
+    appearance.suit,
+    suitsOff,
+  );
+  // Another window changed the look: its choice, and the Suit it applied (recorded in the boot
+  // cache), show here too, before this window's own read of the Suit lands.
+  const { onStorage } = props.environment;
+  useEffect(
+    () =>
+      onStorage?.((key) => {
+        if (changesAppearance(key)) setAppearance(loadAppearance(storage));
+        if (key === null || key === bootAppearanceKey) recache();
+      }),
+    [onStorage, storage, recache],
+  );
   // A Suit shows once its bundled fonts have loaded, so a switch never flashes a fallback face.
   const [fontLoader] = useState(() => browserFontLoader(root?.ownerDocument));
   const suit = useSuitFontsReady(applied, fontLoader);

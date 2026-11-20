@@ -54,7 +54,12 @@ export function ProfileHead(props: { bot: RosterBot }) {
 }
 
 /** The face as a button: a popover of faces and pictures; what the person chose saves on close. */
-function FaceButton(props: { bot: RosterBot; children: React.ReactNode }) {
+export function FaceButton(props: {
+  bot: RosterBot;
+  children: React.ReactNode;
+  /** Its accessible name; "Change face" when absent. */
+  label?: string;
+}) {
   const { bot } = props;
   const edit = useEditBot(bot);
   const worn = useWornPairs(bot.id);
@@ -85,7 +90,7 @@ function FaceButton(props: { bot: RosterBot; children: React.ReactNode }) {
       }}
     >
       <PopoverTrigger
-        aria-label="Change face"
+        aria-label={props.label ?? "Change face"}
         className="relative rounded-full focus-ring before:absolute before:-inset-1.5 before:-z-1 before:rounded-full before:transition-colors before:duration-(--motion-fast) hover:before:bg-hover aria-expanded:before:bg-active"
       >
         {props.children}

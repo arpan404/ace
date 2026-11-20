@@ -4,6 +4,7 @@ import type {
   RegistryInstallation,
   RegistryInstallPlan,
   RegistryInstallProgress,
+  RegistryPendingUpdate,
   RegistryResult,
 } from "@ace/protocol";
 import { registryFailure } from "./acp-registry.ts";
@@ -20,6 +21,8 @@ type RegistryClient = Pick<ClientApi, "registry">;
 export interface RegistryView {
   agents: RegistryAgent[];
   installations: RegistryInstallation[];
+  /** Agents that changed since the person approved them, waiting for their approval. */
+  updates: RegistryPendingUpdate[];
   fetchedAt: number | undefined;
   /** Older than the daemon's freshness window, or never downloaded. */
   stale: boolean;
@@ -59,9 +62,11 @@ export async function readRegistry(
 ): Promise<RegistryView> {
   const options = signal ? { signal } : {};
   const agents: RegistryAgent[] = [];
-  let page = listing(
+  // The first page carries the updates: the daemon checks every agent for it.
+  const first = listing(
     await client.registry({ type: "registry.list", offset: 0, limit: 50 }, options),
   );
+  let page = first;
   agents.push(...page.agents);
   while (page.nextOffset !== undefined && page.nextOffset < 2048) {
     page = listing(
@@ -72,6 +77,7 @@ export async function readRegistry(
   return {
     agents,
     installations: page.installations,
+    updates: first.updates ?? [],
     fetchedAt: page.fetchedAt,
     stale: page.stale,
     refreshFailed: page.error === "refresh_failed",
@@ -119,6 +125,32 @@ export async function installAgent(
     { type: "registry.install-intent", digest: plan.digest, intentId },
     { timeoutMs: installWaitMs },
   );
+  const error = refused(reply.result);
+  if (error) throw error;
+  if (!("installation" in reply.result)) throw new RegistryError("Unexpected registry reply");
+  return reply.result.installation;
+}
+
+/**
+ * The person approves an agent's update: exactly the update the daemon listed and they saw (its
+ * files, what it replaces, its generation), for the same agent, so its threads keep running.
+ * The daemon refuses one that changed since.
+ */
+export async function approveAgentUpdate(
+  client: RegistryClient,
+  update: RegistryPendingUpdate,
+): Promise<RegistryInstallation> {
+  const reply = await client.registry({
+    type: "registry.approve-update",
+    acpAgentId: update.acpAgentId,
+    installationId: update.installationId,
+    instanceId: update.instanceId,
+    executableDigest: update.executableDigest,
+    ...(update.bridgeDigest ? { bridgeDigest: update.bridgeDigest } : {}),
+    previousExecutableDigest: update.previousExecutableDigest,
+    ...(update.previousBridgeDigest ? { previousBridgeDigest: update.previousBridgeDigest } : {}),
+    generation: update.generation,
+  });
   const error = refused(reply.result);
   if (error) throw error;
   if (!("installation" in reply.result)) throw new RegistryError("Unexpected registry reply");

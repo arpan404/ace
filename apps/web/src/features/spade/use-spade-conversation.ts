@@ -18,7 +18,9 @@ const keptConversations = new KeptFollows<ConversationFollow>();
 export type QuestionReply =
   | { answers: readonly SpadeAnswer[] }
   | { defer: true }
-  | { dismiss: true };
+  | { dismiss: true }
+  /** A connect card: the person connected the app as this connector (ADR 0131, amendment 1). */
+  | { connected: string; everyone: boolean };
 
 export const followDeps: FollowDeps = {
   frame: (callback) =>
@@ -127,7 +129,12 @@ export function useSpadeConversation(conversation: string) {
      * question and the rule it broke, in Spade's words (`SpadeRequestError`'s message).
      */
     question(callId: string, body: QuestionReply): Promise<string> {
-      return spadeHttp(client, "POST", `${path}/questions/${segment(callId)}`, { body });
+      const card = `${path}/questions/${segment(callId)}`;
+      if ("connected" in body)
+        return spadeHttp(client, "POST", `${card}/connected`, {
+          body: { connector: body.connected, everyone: body.everyone },
+        });
+      return spadeHttp(client, "POST", card, { body });
     },
   };
 }

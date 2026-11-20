@@ -448,6 +448,7 @@ mod history {
             name: name.into(),
             risk: None,
             background,
+            effect: None,
         })
     }
 

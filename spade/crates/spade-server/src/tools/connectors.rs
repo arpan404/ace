@@ -43,17 +43,27 @@ impl ToolSource for ConnectorSource {
             }
         };
         let is_main = agent.kind == crate::engine::MAIN;
-        self.hub
-            .tools_for(&agent.id, is_main)
-            .into_iter()
-            .map(|tool| {
-                Arc::new(ConnectorCall {
-                    def: def(&tool),
-                    tool,
-                    hub: self.hub.clone(),
-                }) as Arc<dyn Tool>
-            })
-            .collect()
+        let mut tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(super::apps::AppsFind::new(
+                self.hub.clone(),
+                agent.id.clone(),
+                is_main,
+            )),
+            Arc::new(super::apps::AppConnectRequest),
+        ];
+        tools.extend(
+            self.hub
+                .tools_for(&agent.id, is_main)
+                .into_iter()
+                .map(|tool| {
+                    Arc::new(ConnectorCall {
+                        def: def(&tool),
+                        tool,
+                        hub: self.hub.clone(),
+                    }) as Arc<dyn Tool>
+                }),
+        );
+        tools
     }
 }
 
@@ -146,6 +156,10 @@ impl Tool for ConnectorCall {
         Box::pin(async move {
             match hub.call(&connector, &name, arguments).await {
                 Ok(result) => super::ace::output(Ok(result)),
+                Err(error @ CallError::NeedsReconnect(_)) => ToolOutput {
+                    reconnect: Some(connector),
+                    ..output(error)
+                },
                 Err(error) => output(error),
             }
         })
@@ -159,7 +173,9 @@ fn output(error: CallError) -> ToolOutput {
             ToolOutput::error(format!("Not run: {why}. It is safe to try again."))
         }
         CallError::MaybeRan(why) => ToolOutput::maybe_ran(format!("{MAYBE_RAN} ({why})")),
-        error @ CallError::NeedsReconnect(_) => ToolOutput::error(format!("Not run: {error}.")),
+        error @ CallError::NeedsReconnect(_) => ToolOutput::error(format!(
+            "Not run: {error}. Ask them with app_connect_request; never ask for a key in the chat."
+        )),
         CallError::Failed(why) => ToolOutput::error(why),
     }
 }

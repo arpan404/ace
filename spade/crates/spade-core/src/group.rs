@@ -123,6 +123,104 @@ pub fn open_asks(events: &[Event]) -> Vec<OpenAsk> {
     open
 }
 
+/// What one run has said so far (ADR 0198, an ask from an ace thread): every bot's message
+/// posted in it, in order; its asks still open; how asks that ended without an answer ended; and
+/// whether the person stopped it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RunView {
+    pub replies: Vec<(GroupBot, String)>,
+    pub open: Vec<OpenAsk>,
+    /// Any ask was made in the run.
+    pub asked: bool,
+    /// The words of each ask that ended `failed`, `refused` or `gave_up`, in order.
+    pub failures: Vec<String>,
+    pub stopped: bool,
+}
+
+/// [`RunView`] for run `run`, from a group's events.
+pub fn run_view(events: &[Event], run: &str) -> RunView {
+    let mut view = RunView::default();
+    for event in events {
+        match event {
+            Event::Known(Known::GroupMessage {
+                run: r,
+                text,
+                from: Some(bot),
+                ..
+            }) if r == run => view.replies.push((bot.clone(), text.clone())),
+            Event::Known(Known::GroupAsked { run: r, .. }) if r == run => view.asked = true,
+            Event::Known(Known::GroupAnswered {
+                run: r,
+                to,
+                outcome,
+                detail,
+                ..
+            }) if r == run && matches!(outcome.as_str(), "failed" | "refused" | "gave_up") => {
+                view.failures.push(
+                    detail
+                        .clone()
+                        .unwrap_or_else(|| format!("{} could not answer.", to.name)),
+                );
+            }
+            Event::Known(Known::GroupStopped { run: r }) if r == run => view.stopped = true,
+            _ => {}
+        }
+    }
+    view.open = open_asks(events)
+        .into_iter()
+        .filter(|o| o.run == run)
+        .collect();
+    view
+}
+
+/// The most bots a club holds, the lead counted (ADR 0132, amended by ADR 0197).
+pub const MOST_MEMBERS: usize = 32;
+/// The most members one message of the person's asks at once. Past it, the lead is asked and
+/// hands each named member its part, so a big club never runs every member on one message.
+pub const MOST_ASKED: usize = 4;
+
+/// Who a message of the person's goes to: `ask`, as indexes into the members, and the members it
+/// named that the lead is left to hand on (`via_lead`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Routing {
+    pub ask: Vec<usize>,
+    pub via_lead: Vec<usize>,
+}
+
+/// Routes a message: to the members it mentions while they are at most [`MOST_ASKED`], else to
+/// the lead with the named members left to it; with no mention, to the lead. `lead` is `None`
+/// when the lead can't be asked here (it is on another machine): then at most [`MOST_ASKED`]
+/// mentioned members are asked, the rest left out.
+pub fn route(mentioned: &[usize], lead: Option<usize>) -> Routing {
+    if mentioned.len() <= MOST_ASKED && !mentioned.is_empty() {
+        return Routing {
+            ask: mentioned.to_vec(),
+            via_lead: Vec::new(),
+        };
+    }
+    match lead {
+        Some(lead) => Routing {
+            ask: vec![lead],
+            via_lead: mentioned.iter().copied().filter(|&m| m != lead).collect(),
+        },
+        None => Routing {
+            ask: mentioned.iter().copied().take(MOST_ASKED).collect(),
+            via_lead: Vec::new(),
+        },
+    }
+}
+
+/// What the lead reads after the person's words when it is to hand the message on.
+pub fn hand_on_note(names: &[&str]) -> String {
+    format!(
+        "(Spade: the person named {} members, more than one message asks at once: {}. As the \
+lead, hand each of them the part that is theirs with group_ask, a few at a time, and answer with \
+what they say.)",
+        names.len(),
+        names.join(", ")
+    )
+}
+
 /// The members a message mentions with `@Name` (any case; the longest name wins where one name
 /// begins another), as indexes into `names`, in the order first mentioned, each once.
 pub fn mentions(text: &str, names: &[&str]) -> Vec<usize> {
@@ -162,9 +260,9 @@ pub fn recent(events: &[Event], me: &GroupBot, before_run: &str) -> (String, boo
     let messages: Vec<(&Option<GroupBot>, &String)> = events
         .iter()
         .filter_map(|event| match event {
-            Event::Known(Known::GroupMessage { run, text, from }) if run != before_run => {
-                Some((from, text))
-            }
+            Event::Known(Known::GroupMessage {
+                run, text, from, ..
+            }) if run != before_run => Some((from, text)),
             _ => None,
         })
         .collect();

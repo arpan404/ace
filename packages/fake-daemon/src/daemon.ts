@@ -18,7 +18,7 @@ import { automaticTarget } from "@ace/accounts/availability";
 import { providerCommandDisabled } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
 import { SettingsValues, ProviderConfigurations, ProjectCommand } from "@ace/protocol";
-import { stricterOffer } from "@ace/provider-kit/access-modes";
+import { nearestOffer } from "@ace/provider-kit/access-modes";
 import type { AccessMode, AccessModeOffer } from "@ace/protocol";
 import {
   fakePermissionCapabilities,
@@ -652,7 +652,7 @@ export class FakeDaemon implements Host {
       SettingsValues.shape["access.defaultMode"].parse(
         this.services.settings.resolve("access.defaultMode", {}),
       );
-    return stricterOffer(wanted, offers ?? fakeAccessModes(provider))?.mode ?? null;
+    return nearestOffer(wanted, offers ?? fakeAccessModes(provider))?.mode ?? null;
   }
   apply(threadId: string, facts: readonly Fact[], agoMs = 0): void {
     const host = this.thread(threadId);

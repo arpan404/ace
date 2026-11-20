@@ -28,7 +28,7 @@ test("a bot's Memory adds, edits in place and deletes its notes through Spade", 
   // Its own notes only: the shared ones live in About you.
   const list = within(await dialog.findByRole("list", { name: "Travel's memory" }));
   expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
-    "Prefers window seatsDelete",
+    "Prefers window seatsWhere it's fromDelete",
   ]);
 
   await userEvent.type(await addField(dialog), "Flies from Manchester{Enter}");
@@ -185,7 +185,7 @@ test("suggested notes wait under Suggested: Keep moves one into the notes, Dismi
   ).toEqual(["Flies from LeedsDismissKeep", "Likes trainsDismissKeep"]);
   const kept = within(dialog.getByRole("list", { name: "Travel's memory" }));
   expect(kept.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
-    "Prefers window seatsDelete",
+    "Prefers window seatsWhere it's fromDelete",
   ]);
 
   await userEvent.click(suggested.getByRole("button", { name: "Keep: Flies from Leeds" }));
