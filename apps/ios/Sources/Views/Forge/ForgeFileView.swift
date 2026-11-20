@@ -83,7 +83,7 @@ struct ForgeFileView: View {
                 withAnimation { self.pick = nil; pickNote = nil }
             })
             .transition(.opacity)
-        } else if let desk, composing == nil, desk.message != nil || !desk.batch.isEmpty {
+        } else if let desk, composing == nil, desk.message != nil || !desk.batch.ids.isEmpty {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                 if let message = desk.message {
                     Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
@@ -206,7 +206,7 @@ struct ForgeFileView: View {
             if desk == nil { desk = ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: read.number, repository: read.repository)) }
             // A pick names lines of the version it was made on; another head names other code.
             if read.headSha != file?.headSha { pick = nil }
-            desk?.keepBatch(at: read.headSha)
+            desk?.batch.keep(at: read.headSha)
             file = read
             failure = nil
         } catch is CancellationError {

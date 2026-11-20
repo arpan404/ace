@@ -184,7 +184,7 @@ struct ForgeReviewOutcome: Decodable, Sendable, Equatable {
 }
 
 /// Which pull request a review write is on.
-struct ForgePullTarget: Sendable, Equatable {
+struct ForgePullTarget: Sendable, Hashable {
     let project: String
     let number: Int
     let repository: ForgeRepository

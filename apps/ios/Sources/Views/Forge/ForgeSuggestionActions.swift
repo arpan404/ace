@@ -16,7 +16,7 @@ struct ForgeSuggestionActions: View {
                 Button("Commit suggestion") { commit() }
                     .fontWeight(.semibold)
                     .accessibilityIdentifier("forge.suggestion.commit.\(comment.commentId)")
-                let batched = desk.batched(comment.commentId, at: suggestion.headSha)
+                let batched = desk.batch.contains(comment.commentId, at: suggestion.headSha)
                 Button(batched ? "Remove from batch" : "Add to batch") {
                     withAnimation { desk.toggleBatch(comment.commentId, suggestion) }
                 }
@@ -58,14 +58,14 @@ struct ForgeSuggestionBatchBar: View {
     let compose: (ForgeCompose) -> Void
 
     var body: some View {
-        let count = desk.batch.count
+        let count = desk.batch.ids.count
         if count > 0 {
             HStack(spacing: AceTheme.Spacing.sm) {
                 Text(count == 1 ? "1 suggestion in batch" : "\(count) suggestions in batch")
                     .monospacedDigit()
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                 Spacer(minLength: AceTheme.Spacing.sm)
-                Button("Clear") { withAnimation { desk.clearBatch() } }
+                Button("Clear") { withAnimation { desk.batch.clear() } }
                     .accessibilityIdentifier("forge.batch.clear")
                 Button(count == 1 ? "Commit suggestion" : "Commit \(count) suggestions") { commit() }
                     .buttonStyle(.textAction(.prominent))
@@ -80,11 +80,11 @@ struct ForgeSuggestionBatchBar: View {
     }
 
     private func commit() {
-        guard let head = desk.batchHead else { return }
-        let desk = desk, ids = desk.batch
+        guard let head = desk.batch.head else { return }
+        let desk = desk, ids = desk.batch.ids
         compose(ForgeCompose(
             title: ids.count == 1 ? "Commit suggestion" : "Commit \(ids.count) suggestions",
-            text: desk.batchMessage, placeholder: "Commit message",
+            text: desk.batch.message, placeholder: "Commit message",
             primary: .init(label: "Commit changes") { message in
                 await desk.commitSuggestions(ids, at: head, message: message)
             }))
