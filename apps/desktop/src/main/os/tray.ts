@@ -1,6 +1,7 @@
 import { Menu, Tray, nativeImage, type NativeImage, type Rectangle } from "electron";
 import type { DaemonStatus } from "../../shared/contract.ts";
 import { noWork, type WorkSummary } from "../link/thread-watch.ts";
+import { withAgentPointer } from "./tray-glyph.ts";
 
 export interface TrayActions {
   open(): void;
@@ -19,7 +20,8 @@ export interface TrayActions {
  * The menu-bar (macOS) or notification-area icon while ace keeps running in the background:
  * daemon status, the needs-you count, Open, Pause new work, Quit (the daemon this app started
  * keeps running, ADR 0186) and Quit ace completely (it stops too). On macOS a click opens the
- * popover (os/tray-popover.ts) and a right-click this menu.
+ * popover (os/tray-popover.ts) and a right-click this menu, and while an agent uses an app the
+ * agent's pointer shows beside the icon.
  */
 export class StatusTray {
   private tray: Tray | undefined;
@@ -30,6 +32,9 @@ export class StatusTray {
   private actions: TrayActions;
   private iconPath: string;
   private menu: Menu | undefined;
+  /** An agent is using an app on this computer (the daemon's `computer.using`). */
+  private usingApps = false;
+  private images: { plain?: NativeImage; pointer?: NativeImage } = {};
 
   /** `iconPath` is the 1x template image; its `@2x` sibling is picked up beside it. */
   constructor(actions: TrayActions, iconPath: string) {
@@ -39,8 +44,7 @@ export class StatusTray {
 
   show(): void {
     if (this.tray) return;
-    this.tray = new Tray(icon(this.iconPath));
-    this.tray.setToolTip("ace");
+    this.tray = new Tray(this.image());
     const tray = this.tray;
     tray.on("click", (_event, bounds) => {
       if (process.platform !== "darwin") return this.actions.open();
@@ -59,10 +63,18 @@ export class StatusTray {
     this.shown = undefined;
   }
 
-  update(patch: { status?: DaemonStatus; summary?: WorkSummary }): void {
+  update(patch: { status?: DaemonStatus; summary?: WorkSummary; usingApps?: boolean }): void {
     if (patch.status) this.status = patch.status;
     if (patch.summary) this.summary = patch.summary;
+    if (patch.usingApps !== undefined) this.usingApps = patch.usingApps;
     this.render();
+  }
+
+  /** The icon, with the agent's pointer beside it while an agent uses an app (macOS). */
+  private image(): NativeImage {
+    const plain = (this.images.plain ??= icon(this.iconPath));
+    if (!this.usingApps || process.platform !== "darwin") return plain;
+    return (this.images.pointer ??= agentPointerIcon(plain));
   }
 
   private render(): void {
@@ -82,9 +94,12 @@ export class StatusTray {
     const running = this.status?.state === "running";
     // A running daemon carries a message only when it runs without something (safe mode).
     const note = running ? this.status?.message : undefined;
-    const shown = JSON.stringify([state, needsYou, paused, running, note]);
+    const usingApps = this.usingApps;
+    const shown = JSON.stringify([state, needsYou, paused, running, note, usingApps]);
     if (shown === this.shown) return;
     this.shown = shown;
+    tray.setImage(this.image());
+    tray.setToolTip(usingApps ? "ace: an agent is using an app" : "ace");
     if (process.platform === "darwin") tray.setTitle(needsYou ? ` ${needsYou}` : "");
     this.menu = Menu.buildFromTemplate([
       { label: state, enabled: false },
@@ -117,6 +132,27 @@ function icon(path: string): NativeImage {
   if (image.isEmpty()) return fallbackIcon();
   if (process.platform === "darwin") image.setTemplateImage(true);
   return image;
+}
+
+/**
+ * The menu-bar template with ace's agent pointer drawn beside it (`withAgentPointer`), from its
+ * sharpest representation; the icon as it is if its pixels can't be read.
+ */
+function agentPointerIcon(image: NativeImage): NativeImage {
+  const scaleFactor = Math.max(1, ...image.getScaleFactors());
+  const size = image.getSize();
+  const width = Math.round(size.width * scaleFactor);
+  const height = Math.round(size.height * scaleFactor);
+  const data = image.toBitmap({ scaleFactor });
+  if (data.length !== width * height * 4) return image;
+  const drawn = withAgentPointer({ width, height, data });
+  const composed = nativeImage.createFromBitmap(drawn.data, {
+    width: drawn.width,
+    height: drawn.height,
+    scaleFactor,
+  });
+  composed.setTemplateImage(true);
+  return composed;
 }
 
 /** Windows: the colour app tile (`appPaths().trayIcon`) at the notification area's size. */

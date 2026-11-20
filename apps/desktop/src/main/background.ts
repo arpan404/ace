@@ -173,6 +173,7 @@ export class Background {
         this.work = summary;
         this.reviewLifetime();
       },
+      onAppsInUse: (threads) => this.tray.update({ usingApps: threads > 0 }),
     });
   }
 
