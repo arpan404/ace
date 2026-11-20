@@ -1,4 +1,4 @@
-# 0193: The daemon owns a browser engine move
+# 0194: The daemon owns a browser engine move
 
 Status: accepted. Date: 2026-11-19. Proposed in issue #2013. Builds on
 [ADR 0055](0055-browser-backends.md) and [ADR 0069](0069-shared-native-browser.md); the engine
@@ -32,24 +32,40 @@ other was restoring, or load its pages twice (#2013, found in the Codex review o
    browser to move it.
 2. **Moves of one thread run one at a time.** `BrowserService.moveEngine` queues per thread; a
    move that finds the browser already on its engine only keeps the setting.
-3. **A failed open undoes the move.** When the new engine won't open, the thread's previous
-   engine is written back (the engine the browser was on when settings can't be read), the
-   browser opens there with its pages, and the request fails with the reason.
-4. **The setting is written as a person's write would be.** The daemon writes the thread layer's
+3. **The move commits only once the browser opened on the new engine.** The daemon closes the
+   browser as a shutdown does, its tabs kept in the tab store, and opens it on the new engine
+   with those tabs (same ids, private tabs still private, the shown tab shown). Only then does
+   it write the thread's `browser.backend`. A daemon that stops mid-move has written nothing, so
+   its next open brings the tabs back on the engine the setting still names.
+4. **A failed open leaves the browser where it was.** When the new engine won't open, the tabs
+   open again on the engine the browser was on and the request fails with the reason; the
+   setting was never changed. If writing the setting fails after the move, the browser goes
+   back too.
+5. **The setting is written as a person's write would be.** The daemon writes the thread layer's
    `browser.backend` and asks the same refusal as a settings write (ADR 0190), so an agent's
    device can't move engines.
+6. **A client keeps working with an older daemon.** Phones and desktops update at different
+   times. When the daemon answers `browser.engine.move` with `unsupported`, `@ace/client` makes
+   the move itself as before (`browser-engine-here.ts`): keep the setting, snapshot, close,
+   reopen and load the pages, or only keep the setting when the client sees no browser open.
 
 ## Consequences
 
-- Web and the iPhone make one request; their move code shrank to reading its result.
-- A client newer than its daemon gets the older daemon's refusal of an unknown request and shows
-  that the engine couldn't switch; there is no client-side fallback.
+- Web and the iPhone make one request against a current daemon.
+- The client-side steps stay, for older daemons only. With such a daemon two devices switching
+  at once can still step on each other; the fallback goes once older daemons no longer connect.
+- A move rides the restart restore path, so every tab comes back, not only web pages; a tab that
+  doesn't is named in the reply's `failed`.
 - Only moves are serialized: an agent opening or closing the thread's browser mid-move is not
   held off, as before.
 
 ## Tests
 
 - `packages/browser/src/engine-move.process.test.ts`: two devices moving at once end with one
-  browser on the engine and its page loaded once; a failed open leaves engine, setting and page.
+  browser on the engine and its page loaded once; a failed open brings every tab back with the
+  shown and private ones as they were; a daemon that stops mid-move reopens the tabs on the old
+  engine; a move queued behind a failed one still moves.
 - `apps/daemon/src/browser-engine-move.server.process.test.ts`: the same through the daemon's
   socket with real settings.
+- `packages/client/src/browser-engine-here.test.ts`: against a daemon that answers
+  `unsupported`, the client makes the move itself.
