@@ -31,11 +31,14 @@ import { useEditorFind } from "./use-editor-find.ts";
 import { editorWindow } from "./row-window.ts";
 import { ScrollAnchor } from "./use-anchor.ts";
 import { useVisibleLines } from "./use-visible-lines.ts";
+import { useEditorLayer } from "./use-layer.ts";
 import { useWrap, type WrapEdits } from "./use-wrap.ts";
 import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
 const paddingRight = 24;
+/** The gutter's right edge, where a line's fold control sits. */
+const foldControl = 16;
 /** Rulers are off unless the caller asks for them. */
 const noRulers: readonly number[] = [];
 
@@ -63,6 +66,11 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const scopeRef = useRef<((replacements: EditBatch["replacements"]) => void) | undefined>(
     undefined,
   );
+  /** A layer drawn over the text (annotations) carries its ranges through every edit. */
+  const layerRef = useRef<((replacements: EditBatch["replacements"]) => void) | undefined>(
+    undefined,
+  );
+  const replacedRef = useRef<((before: string, after: string) => void) | undefined>(undefined);
   /** Each caret's side of a hard break, as VS Code keeps it; secondary carets keep their own. */
   const [affinity, setAffinity] = useState<Affinity>(noAffinity);
   /** A language picked in the status line: a name, null for plain text, undefined the file's. */
@@ -81,6 +89,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     onApplied: (batch) => {
       appliedRef.current?.after(batch);
       scopeRef.current?.(batch.replacements);
+      layerRef.current?.(batch.replacements);
       foldRef.current?.(batch.spans);
       // An edit or an undo replaces the document's selections: a side measured against the old
       // carets means nothing once their positions and order have changed.
@@ -223,7 +232,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   useEffect(() => {
     if (props.text === seenText.current) return;
     seenText.current = props.text;
-    if (state.doc && state.doc.text() !== props.text) state.replaceText(props.text);
+    const before = state.doc?.text();
+    if (before === undefined || before === props.text) return;
+    state.replaceText(props.text);
+    replacedRef.current?.(before, props.text);
   }, [props.text, state]);
 
   const {
@@ -287,6 +299,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const onKeyDown = (event: Parameters<typeof navigationKeys>[0]) => {
     // The mirrored line is for screen readers between keystrokes; a key starts from an empty box.
     if (field.current && !/^(Shift|Control|Alt|Meta)$/.test(event.key)) field.current.value = "";
+    if (props.layer?.onKey?.(event, layer.view)) return;
     if (input.onKeyDown(event)) return;
     navigationKeys(event);
   };
@@ -315,8 +328,35 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
   }, [tokenKey, state.highlighter]);
 
+  const layer = useEditorLayer({
+    layer: props.layer,
+    state,
+    layout,
+    lineAt,
+    firstLine: first,
+    lastLine: last - 1,
+    firstRow,
+    lastRow,
+    gutter,
+    cell,
+    readOnly,
+    host,
+    select: (selections) => {
+      setAffinity(noAffinity);
+      state.select(selections);
+    },
+    focus: () => field.current?.focus({ preventScroll: true }),
+  });
+  useLayoutEffect(() => {
+    layerRef.current = layer.edited;
+    replacedRef.current = layer.replaced;
+  });
+
   const pointer = usePointerSelection({
-    onGutter: (line) => {
+    onGutter: (line, at) => {
+      // A layer takes presses on the line number; the fold control keeps the gutter's right edge.
+      if (at.x < gutter - foldControl && props.layer?.onGutter?.(line, at.shiftKey, layer.view))
+        return true;
       if (!folding.isFolded(line) && !folding.isFoldable(line)) return false;
       folding.toggle(line);
       return true;
@@ -421,6 +461,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           onPointerCancel={pointer.onPointerUp}
           onDoubleClick={pointer.onDoubleClick}
           onClick={pointer.onTripleClick}
+          onContextMenu={(event) => {
+            if (props.layer?.onContextMenu?.(event, layer.view)) event.preventDefault();
+          }}
         >
           <div
             ref={host}
@@ -517,6 +560,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 }
               />
             </div>
+            {doc && props.layer ? props.layer.render(layer.view) : null}
           </div>
         </div>
         {doc ? (

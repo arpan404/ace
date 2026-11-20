@@ -1,4 +1,5 @@
 import { browserAnnotationLimit, type BrowserAnnotation } from "@ace/protocol";
+import { codeAnnotationLimit, type CodeAnnotation } from "./code-annotation.ts";
 import type { ComposerToken } from "./composer-tokens.ts";
 import { messageQuoteLimit, type MessageQuote } from "./message-quotes.ts";
 
@@ -12,6 +13,8 @@ export interface DraftAnnotations {
     crop?: { sha256: string; name: string } | undefined;
   }[];
   pages: readonly { url: string; sha256: string; name: string }[];
+  /** Ranges of code marked in the editor, each with the person's note. */
+  code?: readonly CodeAnnotation[] | undefined;
 }
 /**
  * A file of an unsent message the daemon already holds. What it is and a small still of an
@@ -56,6 +59,7 @@ export function isEmptyDraft(draft: ComposerDraft | undefined): boolean {
     !draft ||
     (!messageHasContent(draft.text, draft.attachments.length) &&
       !draft.annotations?.items.length &&
+      !draft.annotations?.code?.length &&
       !draft.quotes?.length)
   );
 }
@@ -64,11 +68,12 @@ export function isEmptyDraft(draft: ComposerDraft | undefined): boolean {
 export function boundedAnnotations(
   annotations: DraftAnnotations | undefined,
 ): DraftAnnotations | undefined {
-  if (!annotations?.items.length) return undefined;
+  if (!annotations?.items.length && !annotations?.code?.length) return undefined;
   const items = annotations.items.slice(0, browserAnnotationLimit);
   const urls = new Set(items.map((item) => item.annotation.url));
   const pages = annotations.pages.filter((page) => urls.has(page.url)).slice(0, urls.size);
-  return { items, pages };
+  const code = annotations.code?.slice(0, codeAnnotationLimit);
+  return code?.length ? { items, pages, code } : { items, pages };
 }
 
 export function findDraft(entries: DraftEntries, key: string): ComposerDraft | undefined {

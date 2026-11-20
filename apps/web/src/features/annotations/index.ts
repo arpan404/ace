@@ -19,3 +19,7 @@ export { withAnnotations } from "./hand-off.ts";
 export { AnnotationChip, preloadAnnotationChip } from "./annotation-chip.tsx";
 export { annotationCount } from "./annotation-words.ts";
 export { AnnotationsCard } from "./annotation-card.tsx";
+export { CommentPopover } from "./comment-popover.tsx";
+export { MarkerNumber } from "./marker.tsx";
+export { useCodeAnnotations, useCodeEditorPort } from "./use-code-annotations.ts";
+export type { CodeAnnotationInput, CodeAnnotationMove } from "./code-drafts.ts";

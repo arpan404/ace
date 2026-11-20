@@ -1,5 +1,7 @@
 import type { BrowserAnnotation } from "@ace/protocol";
+import type { CodeAnnotation } from "@ace/ui-core";
 import { useSyncExternalStore } from "react";
+import type { CodeAnnotationInput, CodeAnnotationMove } from "./code-drafts.ts";
 
 /*
  * Where the two halves of annotating meet for one thread: the composer that holds the draft's
@@ -16,11 +18,26 @@ export interface ComposerAnnotationPort {
    * before it arrives still carries it.
    */
   page(url: string, name: string, capture: Promise<File | undefined>): void;
+  /** Drop a browser or code annotation. */
   remove(id: string): void;
   clear(): void;
   /** Send the composer's message, as the page bar's Send asks. */
   submit(): void;
   annotations(): readonly BrowserAnnotation[];
+  /** The draft's code annotations, in order. */
+  code(): readonly CodeAnnotation[];
+  /** Add or update a code annotation; a new one is numbered after the rest. */
+  saveCode(annotation: CodeAnnotationInput): void;
+  /** Carry ranges through edits to their file. */
+  moveCode(moves: readonly CodeAnnotationMove[]): void;
+  /** Hear each change to the code annotations. */
+  subscribe(listener: () => void): () => void;
+}
+
+/** An editor showing a file of the thread, which can reopen one of its annotations. */
+export interface CodeEditorPort {
+  path: string;
+  edit(id: string): void;
 }
 
 /** The browser tab's side: the page that can show the markers. */
@@ -60,6 +77,42 @@ export const composerPorts = new Ports<ComposerAnnotationPort>();
 /** Where the person last dragged each thread's annotate bar, for the next page they annotate. */
 export const barPositions = new Map<string, { x: number; y: number }>();
 export const sessionPorts = new Ports<AnnotationSessionPort>();
+
+/** The editors open on each thread's files, newest last. */
+class EditorPorts {
+  private ports = new Map<string, CodeEditorPort[]>();
+  private listeners = new Set<() => void>();
+  private lists = new Map<string, readonly CodeEditorPort[]>();
+  register(threadId: string, port: CodeEditorPort): () => void {
+    this.ports.set(threadId, [...(this.ports.get(threadId) ?? []), port]);
+    this.notify(threadId);
+    return () => {
+      this.ports.set(
+        threadId,
+        (this.ports.get(threadId) ?? []).filter((each) => each !== port),
+      );
+      this.notify(threadId);
+    };
+  }
+  /** The newest editor showing `path`. */
+  find = (threadId: string, path: string): CodeEditorPort | undefined =>
+    (this.ports.get(threadId) ?? []).findLast((port) => port.path === path);
+  list = (threadId: string): readonly CodeEditorPort[] => this.lists.get(threadId) ?? none;
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+  private notify(threadId: string) {
+    this.lists.set(threadId, [...(this.ports.get(threadId) ?? [])]);
+    for (const listener of this.listeners) listener();
+  }
+}
+const none: readonly CodeEditorPort[] = [];
+export const codeEditors = new EditorPorts();
+
+export function useCodeEditors(threadId: string): readonly CodeEditorPort[] {
+  return useSyncExternalStore(codeEditors.subscribe, () => codeEditors.list(threadId));
+}
 
 export function useComposerPort(threadId: string): ComposerAnnotationPort | undefined {
   return useSyncExternalStore(composerPorts.subscribe, () => composerPorts.get(threadId));
