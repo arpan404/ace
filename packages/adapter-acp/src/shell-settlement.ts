@@ -33,10 +33,22 @@ export class ShellSettlement {
       this.unsettled.delete(key);
     } else this.tools.set(key, tool);
   }
+  /** The person answered (or ace cancelled) the request for a tool: a refusal settles it, an allow starts it. */
+  answered(owner: string, id: string, refused: boolean): void {
+    const key = JSON.stringify([owner, id]);
+    const tool = this.tools.get(key);
+    if (!tool) return;
+    if (refused) {
+      this.tools.delete(key);
+      this.unsettled.delete(key);
+    } else tool.status = "running";
+  }
+  /** `reason` is the prompt's stop reason, or "" when the prompt failed. */
   promptEnded(owner: string, reason: string): void {
     for (const [key, tool] of this.tools) {
       if (tool.owner !== owner && reason !== "cancelled") continue;
-      if (tool.shell && shellSurvivesPrompt(this.quirks.provider, reason)) this.unsettled.add(key);
+      if (tool.shell && shellSurvivesPrompt(this.quirks.provider, reason, tool.status))
+        this.unsettled.add(key);
       else if (!this.unsettled.has(key)) this.tools.delete(key);
     }
   }
