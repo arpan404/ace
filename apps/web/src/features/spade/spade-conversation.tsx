@@ -47,6 +47,8 @@ import { questionAnchor } from "./spade-question-bubble.tsx";
 import { SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
+import { stopSpeaking } from "./spade-speech.ts";
+import { BotVoiceContext, useBotSpeech, useSpokenReplies } from "./use-spoken-replies.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 import { useSkillProposals } from "./use-skill-proposals.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
@@ -167,7 +169,18 @@ export function Conversation(props: {
   const computer = useBotComputer(bot, conversation.side, open);
   // Stopping lasts until nothing is open: the reply, its background jobs and the task's next step.
   if (stopping && !open) setStopping(false);
+  // Its replies are read aloud while Speak replies is on, or after the person spoke.
+  const speech = useBotSpeech(bot.machine.key, bot.id);
+  const spoken = useSpokenReplies({
+    conversation: bot.conversation,
+    entries: view.entries,
+    caughtUp: view.caughtUp,
+    voice: speech.voice,
+    speakReplies: speech.speakReplies,
+  });
   const stop = () => {
+    // Stop also stops it talking, at once.
+    stopSpeaking();
     setStopping(true);
     conversation.stop().catch((error: unknown) => {
       setStopping(false);
@@ -320,6 +333,8 @@ export function Conversation(props: {
           setSent((count) => count + 1);
           return conversation.send(outgoing);
         }}
+        onSpoken={spoken.arm}
+        main={bot.kind === "main"}
       />
     </div>
   );
@@ -355,6 +370,7 @@ export function Conversation(props: {
   );
 
   return (
+    <BotVoiceContext value={speech.voice}>
     <ConversationScreen
       actions={
         // Covered by the profile, the chat comes back by the profile's own ‹ Chat.
@@ -427,5 +443,6 @@ export function Conversation(props: {
         )}
       </div>
     </ConversationScreen>
+    </BotVoiceContext>
   );
 }
