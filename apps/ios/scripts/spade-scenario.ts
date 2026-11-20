@@ -235,7 +235,9 @@ export function spadeScenario(daemon: FakeDaemon, scenario: SpadeScenario): void
  */
 function reseed(): void {
   if (api) {
-    api.agents = api.agents.filter((agent) => seeded.has(agent.id));
+    // In place: parts of the fixture hold this very list, so a new one would leave them behind.
+    for (let at = api.agents.length - 1; at >= 0; at--)
+      if (!seeded.has(api.agents[at]?.id ?? "")) api.agents.splice(at, 1);
     seedSetup(api);
   }
   const builder = api?.agents.find((agent) => agent.id === "builder");
