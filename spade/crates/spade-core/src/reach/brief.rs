@@ -139,7 +139,7 @@ pub fn build(
     waiting.sort_by_key(|w| w.since_ms);
     waiting.truncate(MOST_WAITING);
     today.sort_by_key(|p| p.at_ms);
-    spend.bots.sort_by(|a, b| b.micros.cmp(&a.micros));
+    spend.bots.sort_by_key(|b| std::cmp::Reverse(b.micros));
     Brief {
         from_ms,
         to_ms,

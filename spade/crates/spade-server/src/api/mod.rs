@@ -17,6 +17,7 @@ mod moves;
 mod oversight;
 mod plugins;
 mod questions;
+mod reach;
 mod recipes;
 mod routines;
 mod routing;
@@ -176,6 +177,7 @@ pub fn router(state: AppState) -> Router {
         .merge(moves::routes())
         .merge(wakes::routes())
         .merge(digests::routes())
+        .merge(reach::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()

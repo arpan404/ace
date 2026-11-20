@@ -61,6 +61,35 @@ impl Store {
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
+
+    /// What `conversation` spent in each of the `hours` hours before `to_ms`, oldest first: the
+    /// last entry is `[to_ms - 1h, to_ms)`. One read of the window's rows (ADR 0194).
+    pub fn spent_by_hour(&self, conversation: &str, to_ms: i64, hours: usize) -> Result<Vec<u64>> {
+        const HOUR_MS: i64 = 3_600_000;
+        let count = i64::try_from(hours).unwrap_or(0);
+        let from_ms = to_ms - count * HOUR_MS;
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(&format!(
+            "SELECT (?3 - 1 - at_ms) / {HOUR_MS}, COALESCE(SUM(cost_micros), 0) FROM spend
+             WHERE conversation_id = ?1 AND at_ms >= ?2 AND at_ms < ?3
+             AND conversation_id NOT IN {}
+             GROUP BY 1",
+            crate::gate::ARRIVING_CONVERSATIONS
+        ))?;
+        let mut by_hour = vec![0_u64; hours];
+        let rows = statement.query_map(params![conversation, from_ms, to_ms], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (ago, spent) = row?;
+            if let Ok(ago) = usize::try_from(ago)
+                && ago < hours
+            {
+                by_hour[hours - 1 - ago] = u64::try_from(spent).unwrap_or(0);
+            }
+        }
+        Ok(by_hour)
+    }
 }
 
 #[cfg(test)]
@@ -90,6 +119,23 @@ mod tests {
         assert_eq!(later.get("main"), None);
         // The bot's total still counts every role.
         assert_eq!(store.spent_by("a", 0)?, 1_550);
+        Ok(())
+    }
+
+    #[test]
+    fn spend_reads_by_the_hour_before_a_time_oldest_first() -> Result<()> {
+        const HOUR: i64 = 3_600_000;
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("temp dir: {e}"));
+        let store = Store::open(&dir.path().join("spade.sqlite"))?;
+        let to = 10 * HOUR;
+        store.record_spend("a", "m", 5, to - 1)?;
+        store.record_spend("a", "m", 7, to - HOUR + 1)?;
+        store.record_spend("a", "m", 11, to - HOUR - 1)?;
+        store.record_spend("a", "m", 13, to - 3 * HOUR)?;
+        store.record_spend("a", "m", 99, to)?;
+        store.record_spend("a", "m", 99, to - 4 * HOUR)?;
+        store.record_spend("b", "m", 99, to - 1)?;
+        assert_eq!(store.spent_by_hour("a", to, 3)?, vec![13, 11, 12]);
         Ok(())
     }
 }

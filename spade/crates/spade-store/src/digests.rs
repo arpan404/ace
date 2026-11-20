@@ -32,11 +32,19 @@ pub fn digests_key(agent: &str) -> String {
     format!("{DIGESTS}:{agent}")
 }
 
+/// A digest's kinds: what the schedule counts from. A row of another kind sits beside them in
+/// the bot's chat: the morning brief and a spend alert (ADR 0194).
+const DIGEST_KINDS: &str = "('task', 'tree')";
+/// The morning brief's kind.
+pub const BRIEF: &str = "brief";
+/// A spend alert's kind.
+pub const SPEND_ALERT: &str = "spend";
+
 /// A digest to store.
 #[derive(Debug, Clone)]
 pub struct NewDigest<'a> {
     pub agent: &'a str,
-    /// `task` or `tree`.
+    /// `task` or `tree`, or [`BRIEF`] or [`SPEND_ALERT`].
     pub kind: &'a str,
     /// Made by the schedule, so it moves it; one made on request doesn't.
     pub scheduled: bool,
@@ -139,7 +147,10 @@ impl Store {
     /// Where `agent`'s last scheduled digest ended; `None` when it has none.
     pub fn last_scheduled_digest(&self, agent: &str) -> Result<Option<i64>> {
         Ok(self.lock()?.query_row(
-            "SELECT MAX(to_ms) FROM digests WHERE agent_id = ?1 AND scheduled = 1",
+            &format!(
+                "SELECT MAX(to_ms) FROM digests
+                 WHERE agent_id = ?1 AND scheduled = 1 AND kind IN {DIGEST_KINDS}"
+            ),
             params![agent],
             |row| row.get(0),
         )?)
@@ -148,8 +159,19 @@ impl Store {
     /// Where `agent`'s last digest of any kind ended; `None` when it has none.
     pub fn last_digest(&self, agent: &str) -> Result<Option<i64>> {
         Ok(self.lock()?.query_row(
-            "SELECT MAX(to_ms) FROM digests WHERE agent_id = ?1",
+            &format!(
+                "SELECT MAX(to_ms) FROM digests WHERE agent_id = ?1 AND kind IN {DIGEST_KINDS}"
+            ),
             params![agent],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// Where the last morning brief ended, of any bot; `None` before the first.
+    pub fn last_brief(&self) -> Result<Option<i64>> {
+        Ok(self.lock()?.query_row(
+            "SELECT MAX(to_ms) FROM digests WHERE kind = ?1",
+            params![BRIEF],
             |row| row.get(0),
         )?)
     }
