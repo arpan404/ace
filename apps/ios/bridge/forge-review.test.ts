@@ -368,3 +368,27 @@ test("a push between reading the pull request and its review state leaves sugges
   expect(written.message).toMatch(/^The branch moved since you looked/);
   expect(sent.filter((payload) => payload.type === "forge.hosted.review")).toEqual([]);
 });
+
+test("a suggestion commit the daemon lost track of may have landed: it is said to be uncertain, never refused", async () => {
+  const { ask } = await connected(undefined, undefined, () =>
+    Promise.resolve({ commandId: "c1", ok: false, error: "action_outcome_uncertain" }),
+  );
+  const shown = await timeline(ask, pr245);
+  const written = await review(
+    ask,
+    {
+      kind: "suggestions.apply",
+      headSha: threadComment(shown, "RT_2456")?.suggestion?.headSha,
+      commentIds: [2456],
+      message: "Apply suggestion",
+    },
+    pr245,
+  );
+  expect(written).toEqual({
+    type: "forge.write",
+    ok: false,
+    uncertain: true,
+    message:
+      "GitHub didn't confirm the commit. It may have gone through: refresh to check before trying again.",
+  });
+});

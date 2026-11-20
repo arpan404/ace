@@ -32,3 +32,6 @@ export const suggestionBatchMessage = "Apply suggestions from code review";
 /** A commit asked at a head the branch has since moved from: refused, nothing written. */
 export const suggestionHeadMovedText =
   "The branch moved since you looked, so nothing was committed. Refresh to see the new commits, then commit the suggestion again.";
+/** A commit whose answer was lost: it may have landed, so it is checked before any retry. */
+export const suggestionUncertainText =
+  "GitHub didn't confirm the commit. It may have gone through: refresh to check before trying again.";

@@ -11,6 +11,8 @@ import {
   lockedText,
   reviewLostText,
   suggestionHeadMovedText,
+  suggestionUncertainText,
+  uncertainWriteCodes,
 } from "@ace/ui-core";
 import { z } from "zod";
 import { capabilitySource } from "./forge-features.ts";
@@ -116,6 +118,14 @@ export async function writeReview(
   try {
     const result = await owner.command(command);
     reads.forget(request.project);
+    // Lost track of, not refused: it may have reached GitHub, so it is reconciled, never redone.
+    if (!result.ok && uncertainWriteCodes.has(result.error ?? ""))
+      return {
+        type: "forge.write",
+        ok: false,
+        message: action.kind === "suggestions.apply" ? suggestionUncertainText : reviewLostText,
+        uncertain: true,
+      };
     if (!result.ok)
       return refuse(
         action.kind === "suggestions.apply" && result.error === "forge_head_moved"
