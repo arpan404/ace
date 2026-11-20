@@ -38,6 +38,9 @@ export const nodeOnlySuites = [
   "apps/daemon/src/machine-credential.process.test.ts",
   // Its owner and its paired devices' keys (ADR 0190), on a backend of their own.
   "apps/daemon/src/machine-owner.process.test.ts",
+  // `ace bot publish` and the maintainer's signer against the market Worker (ADR 0200 §8, §9):
+  // the same harness, so the same reason.
+  "apps/daemon/src/cli-bot-publish-market.process.test.ts",
   // Content-only market installs and turning a skill on for bots (ADR 0178 §12.8): the person's
   // standing is proven against ace's account backend, which runs under Miniflare on Node.
   "apps/daemon/src/marketplace-content-install.process.test.ts",
