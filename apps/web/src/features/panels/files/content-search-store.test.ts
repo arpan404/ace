@@ -76,6 +76,12 @@ test("a thread with a Files tab open keeps its search however many threads come 
   expect(contentSearchStore(fake.client, "open").state.query.pattern).toBe("kept");
 });
 
+/** What a save through ace tells every client: the path it wrote. */
+const saved = (path: string): FilesServerMessage => ({
+  type: "files.changed",
+  change: { id: `change-${path}`, op: "write", path, version: null },
+});
+
 /** A client whose searches finish at once with no matches, and whose pushes the test sends. */
 function emptyClient() {
   const listeners = new Set<(message: FilesServerMessage) => void>();
@@ -98,11 +104,7 @@ function emptyClient() {
   const push = (message: FilesServerMessage) => {
     for (const listener of listeners) listener(message);
   };
-  const saved = (path: string): FilesServerMessage => ({
-    type: "files.changed",
-    change: { id: `change-${path}`, op: "write", path, version: null },
-  });
-  return { client, searches, push, saved };
+  return { client, searches, push };
 }
 
 test("a search with no results runs again when a file under its folder is saved, not elsewhere", async () => {
@@ -112,13 +114,13 @@ test("a search with no results runs again when a file under its folder is saved,
   await vi.waitFor(() => expect(store.state.status).toBe("done"));
   expect(fake.searches).toHaveLength(1);
 
-  fake.push(fake.saved("docs/notes.md"));
+  fake.push(saved("docs/notes.md"));
   await vi.advanceTimersByTimeAsync(250);
   expect(fake.searches).toHaveLength(1);
 
   // Several saves in a row run one search, once they pause.
-  fake.push(fake.saved("src/deep/new.ts"));
-  fake.push(fake.saved("src/other.ts"));
+  fake.push(saved("src/deep/new.ts"));
+  fake.push(saved("src/other.ts"));
   await vi.advanceTimersByTimeAsync(250);
   expect(fake.searches).toHaveLength(2);
 });
