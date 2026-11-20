@@ -2,6 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { codeFileReference } from "@ace/ui-core/file-references";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { DeckTarget } from "@/lib/workspace/index.ts";
+import type { ReferenceOpen } from "./markit-view.tsx";
 import {
   fileMentionLabel,
   openFileMention,
@@ -82,11 +83,13 @@ export function useFileLinks(input: {
   );
 
   const open = useCallback(
-    (target: string) => {
+    (target: string, how: ReferenceOpen) => {
       if (!workspace) return;
       const follow = (mention: FileMention, resolution: MentionResolution) => {
         if (resolution.kind !== "none")
-          openFileMention(workspace.deck, mention.reference, resolution);
+          openFileMention(workspace.deck, mention.reference, resolution, {
+            focus: how.keyboard,
+          });
       };
       const known = answers.current.get(target);
       if (known) return follow(known.mention, known.resolution);

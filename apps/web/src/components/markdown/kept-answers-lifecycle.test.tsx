@@ -200,8 +200,8 @@ function LinkedAnswer(props: { client: ClientApi; store: WorkspaceStore; text: s
   });
   const callbacks: MarkitCallbacks = {
     ...quiet,
-    onReference: (reference) => {
-      if (reference.kind === "file") links.open(reference.target);
+    onReference: (reference, how) => {
+      if (reference.kind === "file") links.open(reference.target, how);
     },
     drawn: links.drawn,
   };

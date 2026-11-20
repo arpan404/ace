@@ -31,6 +31,22 @@ test("a bare filename in an answer opens its one checkout file in Files at the l
   await waitFor(() => expect(source.textContent).toContain("export class RelaySocket {"));
   // Line 3 (1-based) is revealed: the editor jumps there and announces the move.
   expect(await within(source).findByText("Line 3, column 1")).toBeTruthy();
+  // Opened from the keyboard, the keyboard follows into the editor.
+  await waitFor(() => expect(source.contains(document.activeElement)).toBe(true));
+}, 30_000);
+
+test("a pointer click on a mention is a glance: the file shows and the chat keeps focus", async () => {
+  const feed = await answer("The reconnect lives in `socket.ts:3`.");
+  const link = await within(feed).findByRole("link", { name: "socket.ts:3" });
+  await userEvent.click(link);
+
+  const side = await screen.findByRole("region", { name: "Thread panel" });
+  const source = await within(side).findByRole("region", {
+    name: "Source of apps/web/src/relay/socket.ts",
+  });
+  expect(await within(source).findByText("Line 3, column 1")).toBeTruthy();
+  expect(source.contains(document.activeElement)).toBe(false);
+  expect(feed.contains(document.activeElement)).toBe(true);
 }, 30_000);
 
 test("a path in running text links too, while unknown and shared names stay plain", async () => {

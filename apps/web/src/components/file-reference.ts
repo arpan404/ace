@@ -144,13 +144,15 @@ async function checkoutFile(
 
 /**
  * Follow a resolved mention: the file in the thread's Deck at its line, as a glance (the chat
- * keeps focus); for a name several files share, the Deck's explorer filtered to it; a file
- * outside the checkout beside the thread.
+ * keeps focus) unless `focus` (a keyboard open) moves the keyboard into the editor; for a name
+ * several files share, the Deck's explorer filtered to it; a file outside the checkout beside
+ * the thread.
  */
 export function openFileMention(
   deck: DeckTarget,
   reference: FileReference,
   resolution: Exclude<MentionResolution, { kind: "none" }>,
+  options: { focus?: boolean | undefined } = {},
 ): void {
   if (resolution.kind === "outside")
     return deck.actions.open(
@@ -165,7 +167,7 @@ export function openFileMention(
       }),
     );
   if (resolution.kind === "file")
-    return openInDeck(deck, resolution.path, { line: reference.line });
+    return openInDeck(deck, resolution.path, { line: reference.line, focus: options.focus });
   findInDeck(deck, reference.path.split(/[\\/]/).at(-1) ?? reference.path);
 }
 
