@@ -54,7 +54,10 @@
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/presentations"
       ],
-      "secrets": ["SPADE_CLOUD_GOOGLE_CLIENT_ID", "SPADE_CLOUD_GOOGLE_CLIENT_SECRET"],
+      "secrets": [
+        "SPADE_CLOUD_GOOGLE_CLIENT_ID",
+        "SPADE_CLOUD_GOOGLE_CLIENT_SECRET"
+      ],
       "console": "https://console.cloud.google.com/auth/clients/create",
       "where": "Google Cloud console > Google Auth Platform > Clients > Create Client, type Web application, in one project for all seven apps.",
       "notes": [
@@ -68,16 +71,18 @@
       "id": "figma",
       "name": "Figma",
       "kind": "approval",
-      "status": "not-started",
-      "started": null,
+      "status": "submitted",
+      "started": "2026-11-19",
       "order": 20,
       "minutes": 10,
-      "blocked_on": null,
+      "blocked_on": "Figma paused new MCP clients; the access request is on file for when they resume",
       "ask": "We build Spade, the assistant in ace, an open-source MCP client that runs on people's own computers. We'd like Spade listed in Figma's MCP catalog so our users can connect Figma's remote MCP server. Spade identifies itself with a client ID metadata document and signs in through a loopback redirect.",
       "channel": "Figma's MCP client waitlist form",
       "console": "https://form.asana.com/?k=kBG-ejRQTdY8x_H6a4vM3Q&d=10497086658021",
       "client_document": "https://acehq.dev/oauth/spade.json",
-      "redirects": ["http://127.0.0.1/v1/connectors/callback"],
+      "redirects": [
+        "http://127.0.0.1/v1/connectors/callback"
+      ],
       "notes": [
         "Figma: \"only clients listed in the catalog can connect\" (https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/).",
         "Once Figma says yes, remove \"waits_for\": \"maker_approval\" from Figma's entry in spade/config/connectors.json and release."
@@ -87,8 +92,8 @@
       "id": "vercel",
       "name": "Vercel",
       "kind": "approval",
-      "status": "not-started",
-      "started": null,
+      "status": "submitted",
+      "started": "2026-11-19",
       "order": 21,
       "minutes": 10,
       "blocked_on": null,
@@ -96,22 +101,54 @@
       "channel": "Vercel's MCP client review form",
       "console": "https://forms.gle/FQ3nYPbovoHvbfmz9",
       "client_document": "https://acehq.dev/oauth/spade.json",
-      "redirects": ["http://127.0.0.1/v1/connectors/callback"],
+      "redirects": [
+        "http://127.0.0.1/v1/connectors/callback"
+      ],
       "form": [
-        { "field": "Primary Contact Name", "answer": "<your name>" },
-        { "field": "Primary Contact Email", "answer": "{contact}" },
-        { "field": "Company/Organization Name", "answer": "ace" },
-        { "field": "Company/Organization URL", "answer": "{homepage}" },
-        { "field": "MCP Client Name", "answer": "{name}" },
-        { "field": "MCP Client Description", "answer": "{description}" },
-        { "field": "MCP Client Documentation Link(s)", "answer": "https://acehq.dev/mcp" },
-        { "field": "Transport Support", "answer": "Streamable HTTP" },
+        {
+          "field": "Primary Contact Name",
+          "answer": "<your name>"
+        },
+        {
+          "field": "Primary Contact Email",
+          "answer": "{contact}"
+        },
+        {
+          "field": "Company/Organization Name",
+          "answer": "ace"
+        },
+        {
+          "field": "Company/Organization URL",
+          "answer": "{homepage}"
+        },
+        {
+          "field": "MCP Client Name",
+          "answer": "{name}"
+        },
+        {
+          "field": "MCP Client Description",
+          "answer": "{description}"
+        },
+        {
+          "field": "MCP Client Documentation Link(s)",
+          "answer": "https://acehq.dev/mcp"
+        },
+        {
+          "field": "Transport Support",
+          "answer": "Streamable HTTP"
+        },
         {
           "field": "MCP Client OAuth Redirect URI(s)",
           "answer": "{redirect} (loopback: Spade listens on a free port on 127.0.0.1, as RFC 8252 allows)"
         },
-        { "field": "Server Logo", "answer": "https://acehq.dev/icon-512.png" },
-        { "field": "Wordmark", "answer": "<wordmark URL>" },
+        {
+          "field": "Server Logo",
+          "answer": "https://acehq.dev/icon-512.png"
+        },
+        {
+          "field": "Wordmark",
+          "answer": "<wordmark URL>"
+        },
         {
           "field": "Client test setup instructions",
           "answer": "Install ace from https://acehq.dev/download and open it. In Spade, go to Settings > Spade > Connectors > Connect an app, choose Vercel and sign in with your Vercel account. Then open a project: ask Spade to show one of your Vercel projects and its latest deployment."
@@ -140,7 +177,9 @@
       "channel": "A post on Pipedrive's developer community",
       "console": "https://devcommunity.pipedrive.com/",
       "client_document": "https://acehq.dev/oauth/spade.json",
-      "redirects": ["http://127.0.0.1/v1/connectors/callback"],
+      "redirects": [
+        "http://127.0.0.1/v1/connectors/callback"
+      ],
       "notes": [
         "Once Pipedrive says yes, remove \"waits_for\": \"maker_approval\" from Pipedrive's entry in spade/config/connectors.json and release."
       ]
@@ -158,7 +197,9 @@
       "channel": "Ramp's redirect URI allowlist request",
       "console": "https://docs.ramp.com/developer-api/v1/mcp-redirect-whitelist-request",
       "client_document": "https://acehq.dev/oauth/spade.json",
-      "redirects": ["http://127.0.0.1/v1/connectors/callback"],
+      "redirects": [
+        "http://127.0.0.1/v1/connectors/callback"
+      ],
       "notes": [
         "Ramp: \"custom clients and gateways must have their exact redirect URI allowlisted\" (https://support.ramp.com/ramp-mcp/).",
         "Once Ramp says yes, remove \"waits_for\": \"maker_approval\" from Ramp's entry in spade/config/connectors.json and release."
@@ -173,8 +214,12 @@
       "order": 30,
       "minutes": 20,
       "blocked_on": null,
-      "apps": ["canva"],
-      "redirects": ["https://cloud.acehq.dev/v1/oauth/callback/canva"],
+      "apps": [
+        "canva"
+      ],
+      "redirects": [
+        "https://cloud.acehq.dev/v1/oauth/callback/canva"
+      ],
       "scopes": [
         "profile:read",
         "design:meta:read",
@@ -193,7 +238,10 @@
         "help:answers:read",
         "help:answers:write"
       ],
-      "secrets": ["SPADE_CLOUD_CANVA_CLIENT_ID", "SPADE_CLOUD_CANVA_CLIENT_SECRET"],
+      "secrets": [
+        "SPADE_CLOUD_CANVA_CLIENT_ID",
+        "SPADE_CLOUD_CANVA_CLIENT_SECRET"
+      ],
       "console": "https://www.canva.com/developers/apps",
       "where": "Canva Developer Portal > Your apps > Create an app > Outside Canva, then Configuration > Integration methods > Canva MCP on.",
       "notes": [
@@ -209,8 +257,12 @@
       "order": 31,
       "minutes": 10,
       "blocked_on": null,
-      "apps": ["slack"],
-      "redirects": ["https://cloud.acehq.dev/v1/oauth/callback/slack"],
+      "apps": [
+        "slack"
+      ],
+      "redirects": [
+        "https://cloud.acehq.dev/v1/oauth/callback/slack"
+      ],
       "scopes": [
         "search:read.public",
         "search:read.private",
@@ -230,7 +282,10 @@
         "files:read",
         "files:write"
       ],
-      "secrets": ["SPADE_CLOUD_SLACK_CLIENT_ID", "SPADE_CLOUD_SLACK_CLIENT_SECRET"],
+      "secrets": [
+        "SPADE_CLOUD_SLACK_CLIENT_ID",
+        "SPADE_CLOUD_SLACK_CLIENT_SECRET"
+      ],
       "console": "https://api.slack.com/apps",
       "where": "Slack API > Your Apps > Create New App > From a manifest, or bun run docs:connectors slack --yes.",
       "notes": [
@@ -247,10 +302,17 @@
       "order": 32,
       "minutes": 15,
       "blocked_on": null,
-      "apps": ["box"],
-      "redirects": ["https://cloud.acehq.dev/v1/oauth/callback/box"],
+      "apps": [
+        "box"
+      ],
+      "redirects": [
+        "https://cloud.acehq.dev/v1/oauth/callback/box"
+      ],
       "scopes": [],
-      "secrets": ["SPADE_CLOUD_BOX_CLIENT_ID", "SPADE_CLOUD_BOX_CLIENT_SECRET"],
+      "secrets": [
+        "SPADE_CLOUD_BOX_CLIENT_ID",
+        "SPADE_CLOUD_BOX_CLIENT_SECRET"
+      ],
       "console": "https://developer.box.com/guides/box-mcp/remote/",
       "where": "Box Admin Console > Integrations > Box MCP server > Configure > Additional Configuration > Add Integration Credentials (Box's guide doesn't give the console's address).",
       "notes": [
@@ -267,8 +329,12 @@
       "order": 33,
       "minutes": 25,
       "blocked_on": null,
-      "apps": ["zoom"],
-      "redirects": ["https://cloud.acehq.dev/v1/oauth/callback/zoom"],
+      "apps": [
+        "zoom"
+      ],
+      "redirects": [
+        "https://cloud.acehq.dev/v1/oauth/callback/zoom"
+      ],
       "scopes": [
         "meeting:read:search",
         "meeting:write:meeting",
@@ -278,7 +344,10 @@
         "cloud_recording:read:list_user_recordings",
         "cloud_recording:read:content"
       ],
-      "secrets": ["SPADE_CLOUD_ZOOM_CLIENT_ID", "SPADE_CLOUD_ZOOM_CLIENT_SECRET"],
+      "secrets": [
+        "SPADE_CLOUD_ZOOM_CLIENT_ID",
+        "SPADE_CLOUD_ZOOM_CLIENT_SECRET"
+      ],
       "console": "https://marketplace.zoom.us/",
       "where": "Zoom App Marketplace > Develop > Build app > General app (user-managed OAuth) > Create.",
       "notes": [
@@ -294,8 +363,18 @@
       "order": 50,
       "minutes": 5,
       "blocked_on": null,
-      "redirects": ["http://127.0.0.1/v1/connectors/callback/github"],
-      "scopes": ["repo", "read:org", "read:user", "user:email", "gist", "notifications", "project"],
+      "redirects": [
+        "http://127.0.0.1/v1/connectors/callback/github"
+      ],
+      "scopes": [
+        "repo",
+        "read:org",
+        "read:user",
+        "user:email",
+        "gist",
+        "notifications",
+        "project"
+      ],
       "console": "https://github.com/settings/applications/new",
       "where": "GitHub > Settings > Developer settings > OAuth Apps > New OAuth App, signed in as the account or organisation that should own it.",
       "client_id_file": "spade/config/connector-apps.json",
@@ -316,10 +395,19 @@
       "order": 51,
       "minutes": 10,
       "blocked_on": null,
-      "apps": ["asana"],
-      "redirects": ["https://cloud.acehq.dev/v1/oauth/callback/asana"],
-      "scopes": ["default"],
-      "secrets": ["SPADE_CLOUD_ASANA_CLIENT_ID", "SPADE_CLOUD_ASANA_CLIENT_SECRET"],
+      "apps": [
+        "asana"
+      ],
+      "redirects": [
+        "https://cloud.acehq.dev/v1/oauth/callback/asana"
+      ],
+      "scopes": [
+        "default"
+      ],
+      "secrets": [
+        "SPADE_CLOUD_ASANA_CLIENT_ID",
+        "SPADE_CLOUD_ASANA_CLIENT_SECRET"
+      ],
       "console": "https://app.asana.com/0/my-apps",
       "where": "Asana developer console > Create new app > MCP app, then OAuth and Manage distribution in the sidebar.",
       "notes": [
@@ -335,13 +423,22 @@
       "order": 52,
       "minutes": 10,
       "blocked_on": null,
-      "apps": ["hubspot"],
-      "redirects": ["https://cloud.acehq.dev/v1/oauth/callback/hubspot"],
+      "apps": [
+        "hubspot"
+      ],
+      "redirects": [
+        "https://cloud.acehq.dev/v1/oauth/callback/hubspot"
+      ],
       "scopes": [],
-      "secrets": ["SPADE_CLOUD_HUBSPOT_CLIENT_ID", "SPADE_CLOUD_HUBSPOT_CLIENT_SECRET"],
+      "secrets": [
+        "SPADE_CLOUD_HUBSPOT_CLIENT_ID",
+        "SPADE_CLOUD_HUBSPOT_CLIENT_SECRET"
+      ],
       "console": "https://app.hubspot.com/l/mcp-auth-apps/",
       "where": "HubSpot > Development > MCP Connectors > Create MCP connector.",
-      "notes": ["No scopes to enter: HubSpot sets its own, and the broker asks for none."]
+      "notes": [
+        "No scopes to enter: HubSpot sets its own, and the broker asks for none."
+      ]
     },
     {
       "id": "front",
@@ -352,10 +449,19 @@
       "order": 53,
       "minutes": 15,
       "blocked_on": null,
-      "apps": ["front"],
-      "redirects": ["https://cloud.acehq.dev/v1/oauth/callback/front"],
-      "scopes": ["feature:mcp"],
-      "secrets": ["SPADE_CLOUD_FRONT_CLIENT_ID", "SPADE_CLOUD_FRONT_CLIENT_SECRET"],
+      "apps": [
+        "front"
+      ],
+      "redirects": [
+        "https://cloud.acehq.dev/v1/oauth/callback/front"
+      ],
+      "scopes": [
+        "feature:mcp"
+      ],
+      "secrets": [
+        "SPADE_CLOUD_FRONT_CLIENT_ID",
+        "SPADE_CLOUD_FRONT_CLIENT_SECRET"
+      ],
       "console": "https://dev.frontapp.com/docs/create-and-manage-apps",
       "where": "Front > Settings > Company > Developer: create the app, then Features > Add feature > Front MCP, with OAuth on.",
       "notes": [

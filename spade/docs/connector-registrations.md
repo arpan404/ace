@@ -14,8 +14,8 @@ Slack can: `bun run docs:connectors slack --yes` creates the app from its manife
 
 | Registration | Kind | Status | Minutes | Blocked on |
 | --- | --- | --- | --- | --- |
-| Figma | maker approval | Not started | 10 |  |
-| Vercel | maker approval | Not started | 10 |  |
+| Figma | maker approval | Submitted | 10 | Figma paused new MCP clients; the access request is on file for when they resume |
+| Vercel | maker approval | Submitted | 10 |  |
 | Pipedrive | maker approval | Not started | 15 |  |
 | Ramp | maker approval | Not started | 10 |  |
 | Canva | ace cloud app | Not started | 20 |  |
@@ -30,7 +30,9 @@ Slack can: `bun run docs:connectors slack --yes` creates the app from its manife
 
 ## 1. Figma
 
-Kind: maker approval. Status: not started. About 10 minutes.
+Kind: maker approval. Status: submitted. Started 2026-11-19. About 10 minutes.
+
+**Blocked on:** Figma paused new MCP clients; the access request is on file for when they resume.
 
 Send to: [Figma's MCP client waitlist form](https://form.asana.com/?k=kBG-ejRQTdY8x_H6a4vM3Q&d=10497086658021). The message, ready to send, is written to `tools/connector-registrations/out/outreach/figma.md`.
 
@@ -53,7 +55,7 @@ Notes:
 
 ## 2. Vercel
 
-Kind: maker approval. Status: not started. About 10 minutes.
+Kind: maker approval. Status: submitted. Started 2026-11-19. About 10 minutes.
 
 Send to: [Vercel's MCP client review form](https://forms.gle/FQ3nYPbovoHvbfmz9). The answers are written to `tools/connector-registrations/out/outreach/vercel.md`.
 
