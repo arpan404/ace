@@ -171,16 +171,40 @@ bot. The market's seed lists the same folders.
 
 ADR 0200 §9, in ADR 0178's grammar:
 
-| Command                              | What it does                                                                                                                                                                                                                                                          |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ace bot init NAME [--template T]`   | A package that passes check and test as written: `bot.json`, `README.md`, `skills/<name>/SKILL.md`, `cards/<card>.json`, `tests/`. Templates `blank`, `watcher`, `club-member`                                                                                        |
-| `ace bot check [PATH]`               | `@ace/marketplace`'s checks with `readRecipe`, the reader that agrees with this one; every problem at its place, exit 1. Warns (never refuses) on a `why` under four words and on no tests                                                                            |
-| `ace bot test [PATH]`                | Runs `spade --bot-test PATH` with a bare environment and prints its report; exit 1 when a scenario fails                                                                                                                                                              |
-| `ace bot dev [PATH] [--spade DIR]`   | Installs the package through `POST /v1/agents`, claiming no identity, so it is linked to the local package `local/<name>`, its declared switches on once the person said yes; then each save is checked and posted as an update; a save that asks for more asks again |
-| `ace bot publish [PATH] --version V` | `check`, then `test`, then `ace market publish spade-bot PATH`                                                                                                                                                                                                        |
+| Command                              | What it does                                                                                                                                                                                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ace bot init NAME [--template T]`   | A package that passes check and test as written: `bot.json`, `README.md`, `skills/<name>/SKILL.md`, `cards/<card>.json`, `tests/`. Templates `blank`, `watcher`, `club-member`                                                                                                                    |
+| `ace bot init --from BOT`            | One of the person's bots as a package folder, from `GET /v1/agents/{id}/package-draft` (below): `bot.json`, a README of what to finish and a starter scenario. Each `why` and the blurb say TODO, which `check` warns on                                                                          |
+| `ace bot check [PATH]`               | `@ace/marketplace`'s checks with `readRecipe`, the reader that agrees with this one; every problem at its place, exit 1. Warns (never refuses) on a `why` under four words and on no tests                                                                                                        |
+| `ace bot test [PATH]`                | Runs `spade --bot-test PATH` with a bare environment and prints its report; exit 1 when a scenario fails                                                                                                                                                                                          |
+| `ace bot dev [PATH] [--spade DIR]`   | Installs the package through `POST /v1/agents`, claiming no identity, so it is linked to the local package `local/<name>`, its declared switches on once the person said yes; then each save is checked and posted as an update; a save that asks for more asks again. One bot per folder (below) |
+| `ace bot publish [PATH] --version V` | `check`, then `test`, then `ace market publish spade-bot PATH`                                                                                                                                                                                                                                    |
 
 `ace bot dev` reaches the person's Spade through the daemon, or a development Spade directly by
 its data folder (`server.json` and `token`). It is the person's: an agent's shell is refused.
+
+A development bot belongs to its folder. Its install keeps the folder's key in `from_recipe`
+(`{source: "local", name: "<folder>@<digest of its full path>", version: "dev"}`), and each run
+finds the bot by that key, not by the manifest's name: renaming the bot in `bot.json` renames the
+same bot (a local package moves freely between its own versions, `local/<name>` included), and the
+same folder copied elsewhere makes a second one. A bot linked to a local package is a development
+bot: its list row and Running row say "Development" after its name, its profile under it, and its
+package line says it updates from its folder; it offers no Marketplace Update or Roll back.
+`GET /v1/running` marks its row `development: true`.
+
+### From one of the person's bots
+
+`GET /v1/agents/{id}/package-draft` answers `{recipe, left_out}`: the bot as a version 3 manifest,
+the way `GET /v1/agents/{id}/recipe` answers a version 2 one. It holds the name, task, face (a
+character, never a picture), personality, model kind (`fast` or `capable`), a `message` trigger and
+each routine as a `schedule`, `event` or `webhook` trigger (a webhook's address and secret stay),
+the marketplace skills it used, the plugins and catalogue apps it is allowed, and one effect per
+word its calls needed, read from the last 20,000 events of its conversation: each `tool_started`'s
+`effect` and each `call_reviewed`'s `raised`, through `ceiling::needs` (reads and its own writes
+need none, a driving step needs `network`), each with `why: "TODO: …"`. Never a grant, key, token,
+model id, conversation, note, knowledge or workspace file; a draft shaped like a secret is refused.
+Spade itself, and a bot whose link names another source than `spade` (a template) or `local` (a
+development bot), are refused: someone else's package is its maker's to change.
 
 ### Scenarios
 

@@ -14,6 +14,7 @@ The format is `spade/docs/packages.md`; the tools a bot has are `spade/docs/runt
 | Command                                                                   | What it does                                                             | Who runs it                                                                      |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
 | `ace bot init NAME [--template blank\|watcher\|club-member] [--path DIR]` | Makes a package that already passes check and test                       | You                                                                              |
+| `ace bot init --from BOT [--path DIR]`                                    | Makes a package of one of the person's own bots                          | You                                                                              |
 | `ace bot check [PATH]`                                                    | The market's checks, with Spade's own reader: every problem at its place | You                                                                              |
 | `ace bot test [PATH]`                                                     | Runs `tests/*.json` on Spade's engine with a scripted model, offline     | You                                                                              |
 | `ace bot dev [PATH]`                                                      | Installs it here as a development bot, updated on every save             | The person                                                                       |
@@ -26,7 +27,7 @@ Add `--json` to read results as data. Exit codes: 0 done, 1 a problem to fix (ea
 ## Steps
 
 1. **Ask what it's for**, in one or two questions at most: what starts its work (they write to it, a time of day, an ace event, a mention in a club) and what it may do outside its own folder (read the web, change things in apps, send in their name, publish).
-2. **Start from a template.** `ace bot init "Fare watcher" --template watcher`. `blank` answers messages, `watcher` adds a morning routine, a `network` effect and a card, `club-member` answers mentions.
+2. **Start from a template, or from their bot.** `ace bot init "Fare watcher" --template watcher`. `blank` answers messages, `watcher` adds a morning routine, a `network` effect and a card, `club-member` answers mentions. When the person already has a bot that does the job, start from it instead: `ace bot init --from "Fare watcher"` writes its task, face, personality, routines as triggers, the skills and apps it uses, and every effect its calls had. Each effect's `why` and the blurb say `TODO`: write them, and take out any effect the task doesn't need. Its conversation, notes, knowledge, workspace files, keys and grants stay with the bot; the README lists what else didn't carry over. A bot installed from someone else's package is refused: its maker's package is the one to change.
 3. **Write `bot.json`.** Keep it plain JSON, no comments. The fields that matter most:
    - `task`: the standing instructions, in the second person ("You watch…"). Say what to do, when to speak up, and what never to do. At most 4000 characters.
    - `triggers`: `message`, `mention {in}`, `schedule {name, instruction, schedule}` ("daily at 7:00", "weekdays at 8:00" or cron), `event {name, instruction, event}` (`thread.finished`, `thread.failed`, `thread.needs_you`), `webhook {name, instruction}`. Routines arrive paused; the person turns them on.
@@ -67,7 +68,7 @@ Add `--json` to read results as data. Exit codes: 0 done, 1 a problem to fix (ea
    `given` is a `message` or a `trigger` (a schedule, event or webhook trigger's name). `model` is what the scripted model answers, one step per model call: words in `say`, then `calls`; the last step only says something. `tools` are fake results for tools that would reach outside (web, shell, sends, app tools); they never run. `expect` may name `calls` (in order), `not_called`, `effects` asked for, `refused` (calls the gate must refuse), `cards` (words in a shown card's title) and `reply_contains`. A call the gate refuses fails the scenario unless `expect.refused` names it.
 
 6. **Check and test until both pass:** `ace bot check`, then `ace bot test`. Fix each `path: sentence` where it points. A scenario's failure says what happened instead ("web_fetch ran and answered an error: …"); read it before changing the test.
-7. **Hand it over.** Tell the person the folder and to run `ace bot dev` there: it installs the bot here with every declared effect as a switch they approve once, routines paused, then applies each save. A save that adds an effect, a trigger kind or an app asks them again.
+7. **Hand it over.** Tell the person the folder and to run `ace bot dev` there: it installs the bot here with every declared effect as a switch they approve once, routines paused, then applies each save. A save that adds an effect, a trigger kind or an app asks them again. The development bot shows "Development" in their list and belongs to the folder: renaming it in `bot.json` renames the same bot, while copying the folder elsewhere makes a second one.
 8. **Publish only when asked.** `ace bot publish --version 1.0.0 --draft` runs the check and the tests, then uploads a draft and prints its scan. Publishing the draft (`ace market draft publish ID`) may be the person's to approve.
 
 ## When something fails
@@ -75,6 +76,7 @@ Add `--json` to read results as data. Exit codes: 0 done, 1 a problem to fix (ea
 | You see                                                           | Do                                                                                |
 | ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `effects[0].why says in a sentence why it needs this`             | Add the `why`: one sentence the review shows                                      |
+| `effects[0].why still says TODO`                                  | Write what the bot does with it, or take the effect out                           |
 | `X was refused: … doesn't declare …`                              | Declare the effect, or name the tool in `expect.refused` if refusing is the point |
 | `X ran and answered an error: The arguments do not fit this tool` | Give the call the tool's real arguments (`spade/docs/runtime.md`)                 |
 | `A card didn't fit and wasn't shown: …`                           | Fix the card's blocks at the place named                                          |

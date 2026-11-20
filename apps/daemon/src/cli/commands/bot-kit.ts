@@ -63,7 +63,7 @@ export const botKitCommands: readonly CommandSpec[] = [
     words: ["bot", "check"],
     summary: "The market's checks on a package, with every problem at its place; no account",
     description:
-      "The same reader Spade and the market use. Problems print as path: sentence and exit 1. Warnings (a thin why on an effect, no scenario tests) don't fail the check.",
+      "The same reader Spade and the market use. Problems print as path: sentence and exit 1. Warnings (a thin why on an effect, a TODO left to write, no scenario tests) don't fail the check.",
     group: "spade-market",
     offline: true,
     args: [pathArg],
@@ -90,7 +90,7 @@ export const botKitCommands: readonly CommandSpec[] = [
     words: ["bot", "dev"],
     summary: "Install the package here as a development bot, and update it on every save",
     description:
-      "It installs once, linked to the local package of its name (local/<name>), its routines paused. Each save is checked and applied as an update at the bot's next quiet moment. A save that asks for more (an effect, a trigger kind, an app) asks you again. Ctrl-C to stop watching; the bot stays.",
+      "It installs once, linked to the local package of its name (local/<name>), its routines paused, and shows Development in your list. Each save is checked and applied as an update at the bot's next quiet moment. A save that asks for more (an effect, a trigger kind, an app) asks you again. The bot belongs to the folder: renaming it in bot.json renames the same bot, and another folder makes another bot. Ctrl-C to stop watching; the bot stays.",
     group: "spade-market",
     mutates: true,
     args: [pathArg],
