@@ -9,7 +9,6 @@
 //! watch asks for creates, deletes, renames, writes and attribute changes, nothing else, and turns
 //! them into the same `notify` events the rest of the crate already translates.
 
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
@@ -26,6 +25,7 @@ use rustix::event::{EventfdFlags, PollFd, PollFlags, eventfd, poll};
 use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
 use rustix::io::Errno;
 
+use super::registry::Registry;
 use crate::error::Error;
 use crate::watch::Events;
 
@@ -54,16 +54,17 @@ const BUFFER: usize = 64 * 1024;
 /// One inotify instance with its reader thread. Dropping it stops the thread.
 pub(crate) struct Inotify {
     fd: Arc<OwnedFd>,
-    /// The folder each watch descriptor stands for. The kernel names events by descriptor, and
-    /// a folder watched again under a new path (after a rename) keeps its descriptor.
-    paths: Arc<Mutex<HashMap<i32, PathBuf>>>,
+    /// The root's absolute path, which the registry's relative paths are joined to.
+    root: Arc<PathBuf>,
+    /// The folder each watch descriptor stands for, shared with the reader.
+    registry: Arc<Mutex<Registry>>,
     stop: Arc<OwnedFd>,
     reader: Option<JoinHandle<()>>,
 }
 
 impl Inotify {
-    /// Starts an instance that hands its events to `events`.
-    pub(crate) fn start(events: Events) -> Result<Inotify, Error> {
+    /// Starts an instance over the folder at `root` that hands its events to `events`.
+    pub(crate) fn start(root: &Path, events: Events) -> Result<Inotify, Error> {
         let unsupported = |error: Errno| Error::Unsupported(format!("inotify: {error}"));
         let fd = Arc::new(
             inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK).map_err(unsupported)?,
@@ -71,17 +72,24 @@ impl Inotify {
         let stop = Arc::new(
             eventfd(0, EventfdFlags::CLOEXEC | EventfdFlags::NONBLOCK).map_err(unsupported)?,
         );
-        let paths = Arc::new(Mutex::new(HashMap::new()));
+        let registry = Arc::new(Mutex::new(Registry::default()));
+        let root = Arc::new(root.to_path_buf());
         let reader = {
-            let (fd, stop, paths) = (Arc::clone(&fd), Arc::clone(&stop), Arc::clone(&paths));
+            let (fd, stop, registry, root) = (
+                Arc::clone(&fd),
+                Arc::clone(&stop),
+                Arc::clone(&registry),
+                Arc::clone(&root),
+            );
             std::thread::Builder::new()
                 .name("files-watch inotify".to_owned())
-                .spawn(move || read_loop(&fd, &stop, &paths, events))
+                .spawn(move || read_loop(&fd, &stop, &registry, &root, events))
                 .map_err(|error| Error::Unsupported(format!("inotify reader: {error}")))?
         };
         Ok(Inotify {
             fd,
-            paths,
+            root,
+            registry,
             stop,
             reader: Some(reader),
         })
@@ -90,13 +98,14 @@ impl Inotify {
     /// Watches one folder, not what is below it. The watch budget running out is the one error
     /// the caller acts on; any other failure leaves the folder unwatched, as a folder that went
     /// away or may not be read.
-    pub(crate) fn watch(&self, path: &Path) -> Result<bool, Error> {
-        match inotify::add_watch(&*self.fd, path, mask()) {
+    pub(crate) fn watch(&self, rel: &str) -> Result<bool, Error> {
+        let path = absolute(&self.root, rel);
+        match inotify::add_watch(&*self.fd, &path, mask()) {
             Ok(descriptor) => {
-                self.paths
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(descriptor, path.to_path_buf());
+                let displaced = self.registry().bind(descriptor, rel);
+                if let Some(displaced) = displaced {
+                    let _ = inotify::remove_watch(&*self.fd, displaced);
+                }
                 Ok(true)
             }
             Err(Errno::NOSPC) => Err(Error::Unsupported(format!(
@@ -105,6 +114,34 @@ impl Inotify {
             ))),
             Err(_) => Ok(false),
         }
+    }
+
+    /// Whether a live watch covers the folder at `rel`.
+    pub(crate) fn watches(&self, rel: &str) -> bool {
+        self.registry().watches(rel)
+    }
+
+    /// Removes the watches on `rel` and every folder below it. A folder that left the checkout,
+    /// or moved into an excluded tree, keeps its kernel watch otherwise: the watch follows the
+    /// folder, so its writes would arrive under the old path and the watch would stay spent.
+    pub(crate) fn forget(&self, rel: &str) {
+        let descriptors = self.registry().remove_subtree(rel);
+        for descriptor in descriptors {
+            let _ = inotify::remove_watch(&*self.fd, descriptor);
+        }
+    }
+
+    fn registry(&self) -> std::sync::MutexGuard<'_, Registry> {
+        self.registry.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// The absolute path of the folder at `rel`, `""` being the root.
+fn absolute(root: &Path, rel: &str) -> PathBuf {
+    if rel.is_empty() {
+        root.to_path_buf()
+    } else {
+        root.join(rel)
     }
 }
 
@@ -121,7 +158,8 @@ impl Drop for Inotify {
 fn read_loop(
     fd: &OwnedFd,
     stop: &OwnedFd,
-    paths: &Mutex<HashMap<i32, PathBuf>>,
+    registry: &Mutex<Registry>,
+    root: &Path,
     mut events: Events,
 ) {
     let mut buffer = vec![std::mem::MaybeUninit::<u8>::uninit(); BUFFER];
@@ -161,17 +199,18 @@ fn read_loop(
             };
             let flags = event.events();
             let named = {
-                let mut paths = paths.lock().unwrap_or_else(PoisonError::into_inner);
+                let mut registry = registry.lock().unwrap_or_else(PoisonError::into_inner);
                 if flags.contains(ReadFlags::IGNORED) {
                     // The kernel dropped this watch: its folder went away or was unmounted.
-                    paths.remove(&event.wd());
+                    registry.dropped(event.wd());
                     continue;
                 }
-                paths
-                    .get(&event.wd())
+                registry
+                    .path_of(event.wd())
+                    .map(|folder| absolute(root, folder))
                     .map(|folder| match event.file_name() {
                         Some(name) => folder.join(OsStr::from_bytes(name.to_bytes())),
-                        None => folder.clone(),
+                        None => folder,
                     })
             };
             for translated in translate(flags, named, event.cookie(), &mut pairs) {

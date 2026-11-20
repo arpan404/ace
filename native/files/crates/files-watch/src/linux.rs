@@ -10,8 +10,8 @@
 //! [`inotify::Inotify`], which asks the kernel for changes only, never for opens and reads.
 
 mod inotify;
+mod registry;
 
-use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::sync::Arc;
 
@@ -28,7 +28,6 @@ use crate::watch::Events;
 /// A set of per-folder inotify watches.
 pub(crate) struct Folders {
     watcher: inotify::Inotify,
-    watched: BTreeSet<String>,
 }
 
 impl Folders {
@@ -39,8 +38,7 @@ impl Folders {
         events: Events,
     ) -> Result<Folders, Error> {
         let mut folders = Folders {
-            watcher: inotify::Inotify::start(events)?,
-            watched: BTreeSet::new(),
+            watcher: inotify::Inotify::start(root.path(), events)?,
         };
         folders.add_tree(root, excluder, "")?;
         Ok(folders)
@@ -142,7 +140,7 @@ impl Folders {
     ) -> Result<(), Error> {
         let mut stack = vec![dir.to_owned()];
         while let Some(folder) = stack.pop() {
-            if self.watched.contains(&folder) {
+            if self.watcher.watches(&folder) {
                 continue;
             }
             self.add(root, &folder)?;
@@ -167,42 +165,17 @@ impl Folders {
 
     /// Adds one non-recursive watch. The inotify budget running out is the one error the
     /// caller has to act on by switching to polling; a folder we may not watch is skipped.
-    fn add(&mut self, root: &Root, rel: &str) -> Result<(), Error> {
-        if !self.watched.insert(rel.to_owned()) {
+    fn add(&mut self, _root: &Root, rel: &str) -> Result<(), Error> {
+        if self.watcher.watches(rel) {
             return Ok(());
         }
-        let path = if rel.is_empty() {
-            root.path().to_path_buf()
-        } else {
-            root.path().join(rel)
-        };
-        match self.watcher.watch(&path) {
-            Ok(true) => Ok(()),
-            Ok(false) => {
-                self.watched.remove(rel);
-                Ok(())
-            }
-            Err(error) => {
-                self.watched.remove(rel);
-                Err(error)
-            }
-        }
+        self.watcher.watch(rel).map(|_| ())
     }
 
-    /// Drops the watches at and below a path. The range scan keeps this proportional to the
-    /// folders that go away, not to the whole tree.
+    /// Drops the watches at and below a path that went away, or moved somewhere this watch does
+    /// not cover; a folder renamed inside the checkout is watched again under its new name.
     fn forget(&mut self, path: &str) {
-        self.watched.remove(path);
-        let prefix = format!("{path}/");
-        let gone: Vec<String> = self
-            .watched
-            .range(prefix.clone()..)
-            .take_while(|watched| watched.starts_with(&prefix))
-            .cloned()
-            .collect();
-        for watched in gone {
-            self.watched.remove(&watched);
-        }
+        self.watcher.forget(path);
     }
 
     /// The immediate children of `dir`, minus everything the excludes keep out. A symbolic
