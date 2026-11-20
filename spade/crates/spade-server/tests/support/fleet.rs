@@ -266,6 +266,16 @@ async fn secure(spade: &Spade, home: &std::path::Path, key: &std::path::Path) ->
 /// linked into the fleet yet (`link` does that): until then it hears inbox requests but can
 /// reach no other machine.
 pub async fn restart(fleet: &Arc<Fleet>, host: &str, spade: Spade) -> Result<Spade> {
+    restart_scripted(fleet, host, spade, vec![Script::reply("unused")]).await
+}
+
+/// [`restart`], its model answering with `scripts`.
+pub async fn restart_scripted(
+    fleet: &Arc<Fleet>,
+    host: &str,
+    spade: Spade,
+    scripts: Vec<Script>,
+) -> Result<Spade> {
     let home = lock(&fleet.homes)
         .iter()
         .find(|(h, _)| h == host)
@@ -274,7 +284,7 @@ pub async fn restart(fleet: &Arc<Fleet>, host: &str, spade: Spade) -> Result<Spa
     let spade = spade
         .restart_with(
             Vec::new(),
-            vec![Script::reply("unused")],
+            scripts,
             Options {
                 ace_home: Some(home.clone()),
                 ids: Some(Arc::new(MachineIds("r", AtomicU64::new(0)))),

@@ -1,28 +1,43 @@
 //! Pause and resume (ADR 0200 §6.1). Pause is Stop, then hold: the bot's turn, jobs and workers
 //! end now, its services stop, and from then on nothing of it fires. A due wake stays open and
 //! armed, a routine's due slot stays due, a message to it is stored and waits. Resume ends the
-//! hold: each wake that came due fires once, each routine catches up once, and what waited is
-//! answered in order. The pause is stored before anything stops, so it holds through a restart;
-//! so is each wake met while it holds, in the same record, so a restart before Resume loses none.
+//! hold: each wake that came due fires once, each routine catches up once, the services Pause
+//! stopped start again, and what waited is answered in order. The pause is stored before anything
+//! stops, so it holds through a restart; so is each wake met while it holds, in the same record,
+//! so a restart before Resume loses none. A wake met whose write fails is kept here and written
+//! again until it lands, and Resume fires it all the same: it never fires while paused, and is
+//! never lost.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use spade_core::service;
 use spade_core::wake::{CancelledBy, Cause, Purpose};
 use spade_store::StoreError;
 
 use super::Engine;
 
-/// The setting the paused bots are kept in: `{agent: {"at_ms", "held"}}`.
-const PAUSED_BOTS: &str = "paused_bots";
+mod moving;
+
+pub(super) use moving::merged as merged_pauses;
+
+/// The setting the paused bots are kept in: `{agent: {"at_ms", "held", "services", "routines"}}`.
+pub(super) const PAUSED_BOTS: &str = "paused_bots";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Stored {
-    at_ms: i64,
+pub(super) struct Stored {
+    pub(super) at_ms: i64,
     /// Wakes met while it was paused, fired once on Resume.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    held: Vec<Met>,
+    pub(super) held: Vec<Met>,
+    /// The services Pause stopped, by id: started again on Resume.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) services: Vec<String>,
+    /// Routine slots it held as it moved here (`moving`): turned back on at them on Resume.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    routines: Vec<moving::HeldSlot>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,7 +48,7 @@ struct Paused {
 
 /// A wake its condition met (or the person woke) while its bot was paused: fired on resume.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Met {
+pub(super) struct Met {
     wake: String,
     cause: Cause,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -46,14 +61,20 @@ struct Met {
 #[derive(Default)]
 pub(super) struct Shared {
     paused: Mutex<Option<HashMap<String, Paused>>>,
+    /// Wakes met while their bot was paused whose write failed, by agent: written again until
+    /// it lands, and fired on Resume either way.
+    unsaved: Mutex<HashMap<String, Vec<Met>>>,
 }
+
+/// The longest wait between writes of a met wake that failed to store.
+const LONGEST_RETRY: Duration = Duration::from_secs(30);
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 impl Engine {
-    fn stored_pauses(&self) -> Result<HashMap<String, Stored>, StoreError> {
+    pub(super) fn stored_pauses(&self) -> Result<HashMap<String, Stored>, StoreError> {
         Ok(self
             .store
             .setting(PAUSED_BOTS)?
@@ -115,7 +136,7 @@ impl Engine {
 
     /// Changes the stored pauses with `change`, read and written under the agent lock in one
     /// write: what it changes lands whole, or not at all.
-    fn change_pauses(
+    pub(super) fn change_pauses(
         &self,
         change: impl FnOnce(&mut HashMap<String, Stored>),
     ) -> Result<(), StoreError> {
@@ -128,7 +149,7 @@ impl Engine {
     }
 
     /// Forgets the folded pauses, so they are read from storage again.
-    fn forget_pauses(&self) {
+    pub(super) fn forget_pauses(&self) {
         *lock(&self.pause_hold.paused) = None;
     }
 
@@ -138,13 +159,25 @@ impl Engine {
         let Some(found) = self.store.agent(agent)? else {
             return Ok(None);
         };
-        if self.paused_since(agent).is_some() {
+        // A bot a move holds frozen is neither paused nor resumed: the move carries it as it is.
+        if self.paused_since(agent).is_some() || self.frozen(&found.conversation) {
             return Ok(Some(false));
         }
         let at_ms = self.now_ms();
+        // The services it runs now, stored with the pause: Resume starts them again, after a
+        // restart too.
+        let services = self.running_services(&found.conversation)?;
         self.change_pauses(|stored| {
             let held = Vec::new();
-            stored.insert(agent.to_owned(), Stored { at_ms, held });
+            stored.insert(
+                agent.to_owned(),
+                Stored {
+                    at_ms,
+                    held,
+                    services,
+                    routines: Vec::new(),
+                },
+            );
         })?;
         if let Some(paused) = self.pauses().as_mut() {
             paused.insert(
@@ -171,14 +204,21 @@ impl Engine {
         let Some(found) = self.store.agent(agent)? else {
             return Ok(None);
         };
-        if self.paused_since(agent).is_none() {
+        if self.paused_since(agent).is_none() || self.frozen(&found.conversation) {
             return Ok(Some(false));
         }
-        let held = self
+        let (mut held, services, slots) = self
             .stored_pauses()?
             .remove(agent)
-            .map(|stored| stored.held)
+            .map(|stored| (stored.held, stored.services, stored.routines))
             .unwrap_or_default();
+        // Met while it was paused but never stored: fired all the same.
+        let unsaved = lock(&self.pause_hold.unsaved).remove(agent);
+        for met in unsaved.into_iter().flatten() {
+            if !held.iter().any(|m| m.wake == met.wake) {
+                held.push(met);
+            }
+        }
         // Open in memory from here, so the held wakes fire and what they start runs.
         if let Some(paused) = self.pauses().as_mut() {
             paused.remove(agent);
@@ -187,6 +227,10 @@ impl Engine {
         for met in held {
             self.fire_wake(&id, &met.wake, met.cause, met.what.as_deref(), met.data);
         }
+        // The services Pause stopped start again now, not at the next turn.
+        self.start_paused_services(&id, agent, &services);
+        // Routines it held as it moved here come back on at their slots.
+        self.turn_on_held_slots(agent, &slots);
         if let Err(error) = self.change_pauses(|stored| {
             stored.remove(agent);
         }) {
@@ -222,6 +266,7 @@ impl Engine {
     /// step); the bot's sleeps and waits are kept, held until it resumes; its services stop.
     /// Whether anything ended.
     pub(super) fn hold_wakes(self: &Arc<Self>, id: &str) -> bool {
+        self.remember_stopped_services(id);
         let mut any = false;
         for open in self.wakes(id).unwrap_or_default() {
             if matches!(open.purpose, Purpose::Sleep | Purpose::Wait) {
@@ -241,20 +286,14 @@ impl Engine {
     /// Resume, after a restart too. One due by time needs nothing stored: the timer finds it
     /// again. Whether it was held.
     pub(super) fn hold_firing(
-        &self,
+        self: &Arc<Self>,
         id: &str,
         wake: &str,
         cause: Cause,
         what: Option<&str>,
         data: &[String],
     ) -> bool {
-        let agent = self.pauses().as_ref().and_then(|paused| {
-            paused
-                .iter()
-                .find(|(_, p)| p.conversation == id)
-                .map(|(agent, _)| agent.clone())
-        });
-        let Some(agent) = agent else {
+        let Some(agent) = self.paused_agent_of(id) else {
             return false;
         };
         if matches!(cause, Cause::Time | Cause::Timeout) {
@@ -266,16 +305,135 @@ impl Engine {
             what: what.map(str::to_owned),
             data: data.to_vec(),
         };
-        let held = self.change_pauses(|stored| {
-            if let Some(pause) = stored.get_mut(&agent)
-                && !pause.held.iter().any(|m| m.wake == met.wake)
-            {
-                pause.held.push(met);
-            }
-        });
-        if let Err(error) = held {
-            tracing::error!(%error, %agent, %wake, "a wake met while paused could not be held");
+        if let Err(error) = self.store_met(&agent, &met) {
+            tracing::error!(%error, %agent, %wake, "a wake met while paused could not be held yet");
+            self.keep_unsaved(&agent, met);
         }
         true
+    }
+
+    /// Adds `met` to `agent`'s stored pause, once; nothing while it isn't paused.
+    fn store_met(&self, agent: &str, met: &Met) -> Result<(), StoreError> {
+        self.change_pauses(|stored| {
+            if let Some(pause) = stored.get_mut(agent)
+                && !pause.held.iter().any(|m| m.wake == met.wake)
+            {
+                pause.held.push(met.clone());
+            }
+        })
+    }
+
+    /// A met wake whose write failed: kept here, so Resume fires it, and written again with
+    /// waits up to [`LONGEST_RETRY`] until it lands or Resume has taken it.
+    fn keep_unsaved(self: &Arc<Self>, agent: &str, met: Met) {
+        {
+            let mut unsaved = lock(&self.pause_hold.unsaved);
+            let list = unsaved.entry(agent.to_owned()).or_default();
+            if list.iter().any(|m| m.wake == met.wake) {
+                return;
+            }
+            list.push(met.clone());
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let (weak, agent) = (Arc::downgrade(self), agent.to_owned());
+        runtime.spawn(async move {
+            let mut wait = Duration::from_millis(250);
+            loop {
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(LONGEST_RETRY);
+                let Some(engine) = weak.upgrade() else { return };
+                let still_unsaved = lock(&engine.pause_hold.unsaved)
+                    .get(&agent)
+                    .is_some_and(|list| list.iter().any(|m| m.wake == met.wake));
+                if !still_unsaved {
+                    return;
+                }
+                match engine.store_met(&agent, &met) {
+                    Ok(()) => {
+                        let mut unsaved = lock(&engine.pause_hold.unsaved);
+                        if let Some(list) = unsaved.get_mut(&agent) {
+                            list.retain(|m| m.wake != met.wake);
+                            if list.is_empty() {
+                                unsaved.remove(&agent);
+                            }
+                        }
+                        return;
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, %agent, "a wake met while paused is still not held");
+                    }
+                }
+            }
+        });
+    }
+
+    /// The ids of the services `id` runs now.
+    fn running_services(&self, id: &str) -> Result<Vec<String>, StoreError> {
+        Ok(service::running(self.load(id)?.iter())
+            .into_iter()
+            .map(|s| s.service)
+            .collect())
+    }
+
+    /// Pause's sweep is about to stop `id`'s services: any started since the pause was stored
+    /// are added to it, so Resume starts them again too.
+    fn remember_stopped_services(&self, id: &str) {
+        let Some(agent) = self.paused_agent_of(id) else {
+            return;
+        };
+        let running = match self.running_services(id) {
+            Ok(running) if !running.is_empty() => running,
+            Ok(_) => return,
+            Err(error) => {
+                tracing::warn!(%error, %agent, "a paused bot's services could not be read");
+                return;
+            }
+        };
+        let added = self.change_pauses(|stored| {
+            if let Some(pause) = stored.get_mut(&agent) {
+                for service in running {
+                    if !pause.services.contains(&service) {
+                        pause.services.push(service);
+                    }
+                }
+            }
+        });
+        if let Err(error) = added {
+            tracing::warn!(%error, %agent, "the services a pause stopped could not be noted");
+        }
+    }
+
+    /// Resume: each service Pause stopped starts again, held to the verdict that started it,
+    /// unless it runs already (a Resume a crash cut short) or another of its name took its
+    /// place.
+    fn start_paused_services(self: &Arc<Self>, id: &str, agent: &str, stopped: &[String]) {
+        if stopped.is_empty() || self.services().is_none() {
+            return;
+        }
+        let Ok(events) = self.load(id) else {
+            return;
+        };
+        let all = service::services(events.iter());
+        for wanted in stopped {
+            let Some(found) = all.iter().find(|s| &s.service == wanted) else {
+                continue;
+            };
+            if found.running() {
+                continue;
+            }
+            self.start_again(id, agent, found);
+        }
+    }
+
+    /// The paused bot whose conversation is `id`.
+    fn paused_agent_of(&self, id: &str) -> Option<String> {
+        self.pauses().as_ref().and_then(|paused| {
+            paused
+                .iter()
+                .find(|(_, p)| p.conversation == id)
+                .map(|(agent, _)| agent.clone())
+        })
     }
 }

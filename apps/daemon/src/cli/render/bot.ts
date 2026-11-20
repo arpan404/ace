@@ -82,6 +82,10 @@ export function botActionWords(result: CliBotAction): string {
     return result.changed
       ? `Paused ${name}. Nothing of it fires until you resume it: ace bot resume ${result.bot}.`
       : `${name} was paused already.`;
+  if (result.action === "unarchive")
+    return result.changed
+      ? `Unarchived ${name}. The routines that were on are on again; the rest stay paused.`
+      : `${name} wasn't archived.`;
   return result.changed
     ? `Resumed ${name}. What came due while it was paused runs once now.`
     : `${name} wasn't paused.`;

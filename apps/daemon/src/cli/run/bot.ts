@@ -47,4 +47,5 @@ export const botHandlers: Handlers = {
   "bot.stop": (context) => act(context, "stop"),
   "bot.pause": (context) => act(context, "pause"),
   "bot.resume": (context) => act(context, "resume"),
+  "bot.unarchive": (context) => act(context, "unarchive"),
 };

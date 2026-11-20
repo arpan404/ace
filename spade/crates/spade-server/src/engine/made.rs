@@ -26,11 +26,6 @@ fn may_key(agent: &str) -> String {
 fn made_by_key(agent: &str) -> String {
     format!("made_by:{agent}")
 }
-/// A made bot the person undid after it had acted: kept, stopped, its routines paused.
-fn archived_key(agent: &str) -> String {
-    format!("archived:{agent}")
-}
-
 #[derive(Deserialize)]
 struct Standing {
     name: String,
@@ -128,12 +123,7 @@ impl Engine {
             .flatten()
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .unwrap_or(Value::Null);
-        let archived = self
-            .store
-            .setting(&archived_key(&agent.id))
-            .ok()
-            .flatten()
-            .is_some();
+        let archived = self.archived(&agent.id);
         [
             (
                 "may_create_bots",
@@ -317,17 +307,7 @@ impl Engine {
             self.store.set_setting(&made_by_key(id), None)?;
             return Ok(Undone::Removed);
         }
-        let _ = self.stop(&agent.conversation);
-        for kind in [spade_store::ROUTINE, spade_store::HEARTBEAT] {
-            for mut routine in self.store.routines_of(id, kind)? {
-                if !routine.paused {
-                    routine.paused = true;
-                    routine.next_due_ms = None;
-                    self.store.update_routine(&routine)?;
-                }
-            }
-        }
-        self.store.set_setting(&archived_key(id), Some("1"))?;
+        self.archive_bot(id, &agent.conversation)?;
         Ok(Undone::Archived)
     }
 

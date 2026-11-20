@@ -5,6 +5,7 @@
 mod adopt;
 mod agents;
 mod apps;
+mod archive;
 mod autonomy;
 mod bots;
 mod brain;
@@ -66,6 +67,7 @@ mod try_again;
 mod turn;
 mod turn_log;
 mod types;
+mod updating;
 mod wake_sources;
 mod wakes;
 mod workers;
@@ -276,6 +278,8 @@ pub struct Engine {
     moves: moves::Shared,
     /// Bots the person paused, and the wakes met meanwhile (ADR 0200 §6.1, `pause`).
     pause_hold: pause::Shared,
+    /// Bots whose package update or rollback is being applied (ADR 0200 §6.2, `updating`).
+    updating: updating::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -285,9 +289,9 @@ pub struct Engine {
     /// which hold it there to order a Stop against it. Only with the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
     helper_start_hold: Mutex<Option<HelperStartHold>>,
-    /// Run, blocking, just before a wake or a service is admitted and stored; none outside
-    /// tests, which hold it there to order a Stop or a job's end against it. Only with the
-    /// `test-hooks` feature.
+    /// Run, blocking, just before a wake or a service is admitted and stored, and as a package
+    /// step starts; none outside tests, which hold it there to order a Stop or a job's end
+    /// against it, or to read a bot mid-update. Only with the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
     registration_hold: Mutex<Option<RegistrationHold>>,
 }
@@ -402,6 +406,7 @@ impl Engine {
             reach: reach::Shared::default(),
             moves: moves::Shared::default(),
             pause_hold: pause::Shared::default(),
+            updating: updating::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
@@ -528,6 +533,7 @@ impl Engine {
     pub(crate) fn activity(&self, id: &str) -> Result<Activity, StoreError> {
         let mut own = self.own_activity(id)?;
         own.state = spade_core::running::held(own.state, self.paused(id));
+        own.state = spade_core::running::updating(own.state, self.is_updating(id));
         Ok(self.roll_up(id, own))
     }
 
@@ -646,6 +652,7 @@ impl Engine {
                 .as_ref()
                 .map(|open| spade_core::wake::words(open, |ms| self.short_time(ms))),
             State::Paused => Some(roster::PAUSED.to_owned()),
+            State::Updating => Some(roster::UPDATING.to_owned()),
             State::Working if self.held(id) => Some(computer::PAUSED_FOR_YOU.to_owned()),
             State::Working => Some(
                 self.live(id)
@@ -1140,7 +1147,8 @@ impl Engine {
             .unwrap_or_else(|p| p.into_inner()) = Some(hold);
     }
 
-    /// Has every wake and service run `hold` (blocking) just before it is admitted and stored.
+    /// Has every wake and service run `hold` (blocking) just before it is admitted and stored,
+    /// and every package update or rollback (`package_step`) once its bot reads updating.
     #[cfg(feature = "test-hooks")]
     pub fn hold_registrations(&self, hold: RegistrationHold) {
         *self

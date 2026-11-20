@@ -73,7 +73,8 @@
         "idle",
         "working",
         "waiting",
-        "paused"
+        "paused",
+        "updating"
       ],
       "type": "string"
     },

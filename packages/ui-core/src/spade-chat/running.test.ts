@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { parseSpadeAgentValue, spadeBotRow } from "./index.ts";
 import {
   parseSpadeRunning,
   spadeBytes,
@@ -51,6 +52,47 @@ describe("the running view reads Spade's rows leniently", () => {
     expect(bot?.reads).toBe("paused");
     expect(bot?.actions).toEqual(["resume"]);
     expect(bot && spadeRunningWakeWords(bot, clock)).toBe("Held: Morning check, 8:20 AM");
+  });
+
+  test("a bot being updated reads updating, sorts with the working and is never at rest", () => {
+    const bots =
+      parseSpadeRunning(
+        JSON.stringify({
+          bots: [
+            wireRow("b_idle", { name: "Archive" }),
+            wireRow("b_up", {
+              name: "Fares",
+              state: "updating",
+              reads: "working",
+              doing: "Updating",
+              actions: ["pause"],
+            }),
+          ],
+        }),
+      ) ?? [];
+    const ordered = spadeRunningOrder(bots);
+    expect(ordered.map((bot) => [bot.id, bot.state, bot.reads, bot.doing])).toEqual([
+      ["b_up", "updating", "working", "Updating"],
+      ["b_idle", "idle", "idle", "Idle"],
+    ]);
+  });
+
+  test("a bot being updated reads at work in the list, though its goal reads done", () => {
+    const agent = parseSpadeAgentValue({
+      id: "a_1",
+      name: "Fares",
+      conversation: "c_1",
+      state: "updating",
+      working: true,
+      task_progress: { state: "done", items_total: 1, items_closed: 1, items_verified: 1 },
+    });
+    if (!agent) throw new Error("no agent");
+    const place = {
+      machine: { key: "primary", name: "This Mac", primary: true },
+      away: false,
+      unavailable: false,
+    };
+    expect(spadeBotRow({ ...agent, ...place })).toEqual({ state: "working", line: "Updating" });
   });
 
   test("an unknown state reads idle, an unknown action is dropped, a row with no id is left out", () => {

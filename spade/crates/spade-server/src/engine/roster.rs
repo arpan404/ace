@@ -235,6 +235,8 @@ pub const RETRYING: &str = "Retrying";
 pub const WAITING_FOR_YOU: &str = "Waiting for you";
 /// The person paused the bot (ADR 0200 §6.1).
 pub const PAUSED: &str = "Paused";
+/// A package update or rollback is being applied to it (ADR 0200 §6.2).
+pub const UPDATING: &str = "Updating";
 pub const IN_BACKGROUND: &str = "Working in the background";
 /// A worker of the bot waits on the person (ADR 0161).
 pub const WORKER_WAITING: &str = "A worker is waiting for you";

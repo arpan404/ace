@@ -1,7 +1,7 @@
 use super::*;
 use crate::event::{Event, FailureKind, Known};
 
-use State::{Idle, Paused, Sleeping, Waiting, Working};
+use State::{Idle, Paused, Sleeping, Updating, Waiting, Working};
 
 #[test]
 fn a_node_reads_the_strongest_of_its_own_state_and_anything_under_it() {
@@ -50,6 +50,28 @@ fn a_paused_bot_reads_paused_unless_it_still_waits_on_the_person_or_is_being_sto
     }
 }
 
+#[test]
+fn a_bot_being_updated_reads_updating_and_counts_as_working_never_at_rest() {
+    let cases = [
+        (Idle, Updating),
+        (Sleeping, Updating),
+        // A paused bot rolled back reads updating while the rollback is applied.
+        (Paused, Updating),
+        (Working, Working),
+        (Waiting, Waiting),
+    ];
+    for (own, expected) in cases {
+        assert_eq!(updating(own, true), expected, "{own:?} being updated");
+        assert_eq!(updating(own, false), own, "{own:?} not being updated");
+    }
+    assert_eq!(reads(Updating, None), Reads::Working);
+    assert_eq!(reads(Updating, Some("it broke")), Reads::Working);
+    // A parent with an updating worker under it reads working's rank, never idle or paused.
+    assert_eq!(rolled(Idle, Updating), Updating);
+    assert_eq!(rolled(Paused, Updating), Updating);
+    assert_eq!(rolled(Updating, Waiting), Waiting);
+}
+
 fn facts(id: &str, name: &str, state: State) -> Facts {
     Facts {
         id: id.to_owned(),
@@ -62,6 +84,7 @@ fn facts(id: &str, name: &str, state: State) -> Facts {
         waiting_for: None,
         failure: None,
         paused_at_ms: None,
+        archived: false,
         uses: Uses::default(),
         spend: Spend::default(),
         network: Network::default(),
@@ -130,7 +153,7 @@ fn a_row_says_its_state_in_words() {
 }
 
 #[test]
-fn a_paused_bot_offers_resume_and_a_running_one_stop_and_pause() {
+fn a_paused_bot_offers_resume_a_running_one_stop_and_pause_and_an_archived_one_unarchive() {
     let mut paused_waiting = facts("b_1", "Mail", Waiting);
     paused_waiting.paused_at_ms = Some(1);
     let mut paused = facts("b_2", "Post", Paused);
@@ -139,11 +162,19 @@ fn a_paused_bot_offers_resume_and_a_running_one_stop_and_pause() {
     let idle = facts("b_4", "Notes", Idle);
     let mut serving = facts("b_5", "Site", Idle);
     serving.uses.services = 1;
-    let actions: Vec<(String, Vec<&str>)> =
-        rows(vec![paused_waiting, paused, working, idle, serving])
-            .into_iter()
-            .map(|r| (r.name, r.actions))
-            .collect();
+    let mut archived = facts("b_6", "Undone", Idle);
+    archived.archived = true;
+    let actions: Vec<(String, Vec<&str>)> = rows(vec![
+        paused_waiting,
+        paused,
+        working,
+        idle,
+        serving,
+        archived,
+    ])
+    .into_iter()
+    .map(|r| (r.name, r.actions))
+    .collect();
     assert_eq!(
         actions,
         vec![
@@ -152,6 +183,7 @@ fn a_paused_bot_offers_resume_and_a_running_one_stop_and_pause() {
             ("Post".to_owned(), vec!["resume"]),
             ("Notes".to_owned(), vec!["pause"]),
             ("Site".to_owned(), vec!["stop", "pause"]),
+            ("Undone".to_owned(), vec!["pause", "unarchive"]),
         ]
     );
 }
