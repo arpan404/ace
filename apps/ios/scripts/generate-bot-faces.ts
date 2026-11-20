@@ -97,7 +97,8 @@ function emitTieredPieces(byTier: Record<FaceTier, SwiftPiece[]>, indent: string
     out.push(...emit(ms, indent));
   } else if (km === kl) {
     if (ms.length === 0) out.push(`${indent}if tier != .s {`, ...emit(mm, inner), `${indent}}`);
-    else if (mm.length === 0) out.push(`${indent}if tier == .s {`, ...emit(ms, inner), `${indent}}`);
+    else if (mm.length === 0)
+      out.push(`${indent}if tier == .s {`, ...emit(ms, inner), `${indent}}`);
     else {
       out.push(
         `${indent}if tier == .s {`,
@@ -111,7 +112,11 @@ function emitTieredPieces(byTier: Record<FaceTier, SwiftPiece[]>, indent: string
     out.push(`${indent}if tier == .l {`, ...emit(ml, inner), `${indent}}`);
   } else {
     out.push(`${indent}switch tier {`);
-    for (const [tier, mid] of [["s", ms], ["m", mm], ["l", ml]] as const) {
+    for (const [tier, mid] of [
+      ["s", ms],
+      ["m", mm],
+      ["l", ml],
+    ] as const) {
       if (mid.length === 0) out.push(`${indent}case .${tier}: break`);
       else out.push(`${indent}case .${tier}:`, ...emit(mid, inner));
     }
@@ -207,7 +212,11 @@ function emitPieceSwitch(
   signature: string,
   entries: [string, Record<FaceTier, SwiftPiece[]>][],
 ): string[] {
-  const lines = [`    static func ${signature} -> [BotFacePiece] {`, "        var pieces: [BotFacePiece] = []", "        switch kind {"];
+  const lines = [
+    `    static func ${signature} -> [BotFacePiece] {`,
+    "        var pieces: [BotFacePiece] = []",
+    "        switch kind {",
+  ];
   for (const [kind, byTier] of entries) {
     if (byTier.s.length === 0 && byTier.m.length === 0 && byTier.l.length === 0) continue;
     lines.push(`        case .${kind}:`, ...emitTieredPieces(byTier, "            "));

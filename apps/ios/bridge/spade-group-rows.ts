@@ -31,7 +31,9 @@ function characterOf(avatar: SpadeAvatar, id: string): BotFace {
 }
 
 /** A bot's own face. */
-export const botFace = (agent: Pick<SpadeAgent, "id" | "kind" | "name" | "avatar">): SpadeFaceRow => {
+export const botFace = (
+  agent: Pick<SpadeAgent, "id" | "kind" | "name" | "avatar">,
+): SpadeFaceRow => {
   const main = agent.kind === "main" || agent.avatar.kind === "spade";
   return {
     main,

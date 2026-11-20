@@ -101,7 +101,12 @@ test("a bot's chosen character face travels through the list and profile", async
 
   const answer = await ask({ type: "spade.profile", agentId: "scout" });
   if (!("profile" in answer)) throw new Error(JSON.stringify(answer));
-  expect(answer.profile.face).toEqual({ main: false, initial: "S", away: false, character: chosen });
+  expect(answer.profile.face).toEqual({
+    main: false,
+    initial: "S",
+    away: false,
+    character: chosen,
+  });
 });
 
 test("Spade's own Library starts with what every bot knows about the person", async () => {
