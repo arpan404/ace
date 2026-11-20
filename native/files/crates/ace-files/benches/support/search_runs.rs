@@ -50,7 +50,8 @@ pub struct Sample {
     pub cpu: Option<Duration>,
     /// Peak resident bytes; none without `/usr/bin/time`.
     pub peak_rss: Option<u64>,
-    /// Matching lines seen: ace's line matches, `rg`'s output lines.
+    /// What the run found: matching lines for an uncapped query; matches for a capped one (ace's
+    /// summary, `rg --only-matching`'s lines), since both caps count matches.
     pub lines: u64,
 }
 
@@ -127,8 +128,11 @@ fn ace_search(wire: &mut Wire, root: &Path, query: &Query) -> Result<Sample, Box
                 sample.first.get_or_insert(at - started);
                 sample.lines += file.lines.len() as u64;
             }
-            Some((at, EventPayload::SearchDone { .. })) => {
+            Some((at, EventPayload::SearchDone { summary })) => {
                 sample.total = at - started;
+                if query.cap > 0 {
+                    sample.lines = summary.matches;
+                }
                 return Ok(sample);
             }
             Some((_, EventPayload::SearchFailed { code, message })) => {
@@ -233,6 +237,10 @@ pub fn rg_args(query: &Query) -> Vec<String> {
     }
     if query.word {
         args.push("--word-regexp".to_owned());
+    }
+    // ace's cap counts matches, so a capped rg prints one line per match and stops at as many.
+    if query.cap > 0 {
+        args.push("--only-matching".to_owned());
     }
     args.push("--regexp".to_owned());
     args.push(query.pattern.clone());

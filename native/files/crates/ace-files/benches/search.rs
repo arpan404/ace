@@ -10,7 +10,9 @@
 //! every sample of a cold pass (`sync && sudo purge` on macOS,
 //! `sync && echo 3 | sudo tee /proc/sys/vm/drop_caches` on Linux); without it only the warm pass
 //! runs. The tree is described in `support/search_tree.rs`; each sample starts a fresh process
-//! of each tool, alternating, and runs them one at a time. The table also goes to
+//! of each tool, alternating, and runs them one at a time. The count columns are matching lines
+//! for an uncapped query and matches for a capped one, where both tools stop at the same number
+//! of matches. The table also goes to
 //! `target/bench/search.md`.
 
 #[path = "support/search_manifest.rs"]
@@ -32,8 +34,10 @@ use std::time::Duration;
 
 use search_runs::{Query, Sample};
 
-/// The daemon's default match cap, which the capped query runs into.
+/// The daemon's default match cap.
 const DAEMON_CAP: u64 = 2000;
+/// The most matches the protocol lets a client ask for (`FILE_SEARCH_MAX_MATCHES`).
+const PROTOCOL_CAP: u64 = 5000;
 
 fn main() {
     if let Err(error) = run() {
@@ -56,8 +60,16 @@ fn queries() -> Vec<Query> {
         query("common literal", "ConfigHandler", false, false, false, 0),
         query("case-insensitive", "errorhandler", false, true, false, 0),
         query("regex", r"fn \w+_(load|save)\(", true, false, false, 0),
-        query("whole word", "index", false, false, true, 0),
-        query("cap (2000)", "the", false, false, false, DAEMON_CAP),
+        query("whole word, uncapped", "index", false, false, true, 0),
+        query(
+            "whole word, cap 5000",
+            "index",
+            false,
+            false,
+            true,
+            PROTOCOL_CAP,
+        ),
+        query("the, cap 2000", "the", false, false, false, DAEMON_CAP),
     ]
 }
 
@@ -139,7 +151,7 @@ impl Bench<'_> {
         if compare.is_some() {
             table += " before total ms | before CPU s |";
         }
-        table += " rg first ms | rg total ms | ace/rg | ace CPU s | rg CPU s | ace RSS MB | rg RSS MB | ace lines | rg lines |\n|---|---:|---:|";
+        table += " rg first ms | rg total ms | ace/rg | ace CPU s | rg CPU s | ace RSS MB | rg RSS MB | ace count | rg count |\n|---|---:|---:|";
         if compare.is_some() {
             table += "---:|---:|";
         }
