@@ -62,14 +62,14 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
   const recent = useRecentFiles(props.threadId);
   const edited = useEditedPaths(props.threadId);
   const deck = useDeck(props.threadId);
-  const open = deck.openEditors;
+  const openEditors = deck.openEditors;
   const listId = useId();
   const rows = useMemo<Row[]>(
     () =>
       query
         ? quickOpenRows(query, search.data ?? [], recent, edited)
-        : emptyQuickOpenRows({ open, changed: edited, recent }),
-    [query, search.data, recent, edited, open],
+        : emptyQuickOpenRows({ open: openEditors, changed: edited, recent }),
+    [query, search.data, recent, edited, openEditors],
   );
   const current = Math.min(active, Math.max(0, rows.length - 1));
 

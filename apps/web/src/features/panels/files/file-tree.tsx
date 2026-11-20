@@ -71,6 +71,11 @@ export function FileTree(props: {
   onScroll?(scrollTop: number): void;
   /** Shown under the tree: an upload in progress or what stopped it. */
   footer?: ReactNode;
+  /**
+   * The explorer's first section, above the filter: the Deck's Open editors (workbench spec 29),
+   * which draws and folds itself.
+   */
+  openEditors?: ReactNode;
 }) {
   const online = useConnectionState() === "ready";
   const { query, onQuery: setQuery } = props;
@@ -269,81 +274,85 @@ export function FileTree(props: {
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col" {...drag.area}>
-      <FileTreeSearch
-        query={query}
-        onQuery={setQuery}
-        pending={searching && search.pending}
-        folder={currentFolder}
-        disabled={!online}
-        onOperation={props.onOperation}
-        onUpload={props.onUpload}
-        onFirstRow={() => focusRow(navigable[0]?.key)}
-        onEnter={() => {
-          const first = rows.find((row) => row.kind === "file");
-          if (first) props.onOpen(first.key, "keep");
-        }}
-      />
-      <div ref={attachScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2">
-        <div
-          ref={list}
-          role="tree"
-          aria-label={searching ? "Matching files" : "Checkout files"}
-          data-part="file-tree"
-          data-variant="files"
-          aria-busy={searching && search.pending}
-          aria-multiselectable
-          className={cn(
-            "flex flex-col rounded-md",
-            drag.dropTarget === "" && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
-          )}
-        >
-          <LongRows
-            items={rows}
-            virtualAbove={virtualAbove}
-            handle={rowsHandle}
-            rowKey={(row) => row.key}
-            estimate={32}
-            render={(row, index) => (
-              <FileTreeRowView
-                row={row}
-                index={index}
-                current={currentPath}
-                focusable={row.key === focusable}
-                searching={searching}
-                query={query}
-                online={online}
-                dropTarget={drag.dropTarget}
-                drag={searching ? undefined : drag}
-                selected={selection.has(row.key)}
-                cut={cutKeys.has(row.key)}
-                place={positions.get(row.key)}
-                onPick={pick}
-                onActivate={activate}
-                onKeyDown={onRowKey}
-                onFocus={setFocusKey}
-                onRefocus={focusRow}
-                commands={commands}
-                onHoverStart={hoverStart}
-                onHoverEnd={hoverEnd}
-                onRetry={tree.retry}
-                onMore={tree.showMore}
-                renaming={!searching && rename.key === row.key ? rename : undefined}
-              />
-            )}
-          />
-        </div>
-        <TreeStatus
-          online={online}
-          searching={searching}
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Outside the tree's drop area: a drop there isn't an upload into the checkout. */}
+      {props.openEditors}
+      <div className="flex min-h-0 flex-1 flex-col" {...drag.area}>
+        <FileTreeSearch
           query={query}
-          search={search}
-          results={results}
-          empty={!rows.length}
+          onQuery={setQuery}
+          pending={searching && search.pending}
+          folder={currentFolder}
+          disabled={!online}
+          onOperation={props.onOperation}
+          onUpload={props.onUpload}
+          onFirstRow={() => focusRow(navigable[0]?.key)}
+          onEnter={() => {
+            const first = rows.find((row) => row.kind === "file");
+            if (first) props.onOpen(first.key, "keep");
+          }}
         />
-        <RootMenu commands={commands} follows={follows} onFollows={setFollows} />
+        <div ref={attachScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2">
+          <div
+            ref={list}
+            role="tree"
+            aria-label={searching ? "Matching files" : "Checkout files"}
+            data-part="file-tree"
+            data-variant="files"
+            aria-busy={searching && search.pending}
+            aria-multiselectable
+            className={cn(
+              "flex flex-col rounded-md",
+              drag.dropTarget === "" && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
+            )}
+          >
+            <LongRows
+              items={rows}
+              virtualAbove={virtualAbove}
+              handle={rowsHandle}
+              rowKey={(row) => row.key}
+              estimate={32}
+              render={(row, index) => (
+                <FileTreeRowView
+                  row={row}
+                  index={index}
+                  current={currentPath}
+                  focusable={row.key === focusable}
+                  searching={searching}
+                  query={query}
+                  online={online}
+                  dropTarget={drag.dropTarget}
+                  drag={searching ? undefined : drag}
+                  selected={selection.has(row.key)}
+                  cut={cutKeys.has(row.key)}
+                  place={positions.get(row.key)}
+                  onPick={pick}
+                  onActivate={activate}
+                  onKeyDown={onRowKey}
+                  onFocus={setFocusKey}
+                  onRefocus={focusRow}
+                  commands={commands}
+                  onHoverStart={hoverStart}
+                  onHoverEnd={hoverEnd}
+                  onRetry={tree.retry}
+                  onMore={tree.showMore}
+                  renaming={!searching && rename.key === row.key ? rename : undefined}
+                />
+              )}
+            />
+          </div>
+          <TreeStatus
+            online={online}
+            searching={searching}
+            query={query}
+            search={search}
+            results={results}
+            empty={!rows.length}
+          />
+          <RootMenu commands={commands} follows={follows} onFollows={setFollows} />
+        </div>
+        {props.footer}
       </div>
-      {props.footer}
     </div>
   );
 }
