@@ -42,6 +42,8 @@ export {
   type TrendRow,
 } from "./trending.ts";
 export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe } from "./recipe.ts";
+export { panelFile, panelFiles, surfaceProblems } from "./surfaces.ts";
+export { schemaProblems } from "./data-schema.ts";
 export {
   effectKey,
   grantedEffects,

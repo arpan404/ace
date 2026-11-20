@@ -90,7 +90,7 @@ pub fn router(state: AppState) -> Router {
             "/agents",
             get(agents::list)
                 .post(agents::create)
-                .layer(DefaultBodyLimit::max(agents::AGENT_BODY)),
+                .layer(DefaultBodyLimit::max(agents::PACKAGE_BODY)),
         )
         .route(
             "/agents/{id}",

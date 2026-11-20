@@ -78,6 +78,8 @@ export function installBody(input: {
   readonly folder: string;
   readonly switches: Readonly<Record<string, boolean>>;
   readonly transaction: string;
+  /** Its panels' pages by path (ADR 0200 §5.2), sent beside the manifest. */
+  readonly pages?: Readonly<Record<string, string>>;
 }) {
   return {
     recipe: input.recipe,
@@ -90,6 +92,7 @@ export function installBody(input: {
     grants: { connectors: [], plugins: [], skills: [] },
     switches: input.switches,
     start_routines: false,
+    ...(input.pages && Object.keys(input.pages).length > 0 ? { pages: input.pages } : {}),
   };
 }
 

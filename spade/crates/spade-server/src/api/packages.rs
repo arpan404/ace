@@ -5,7 +5,7 @@
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
@@ -20,7 +20,12 @@ use crate::packages::{self, PackageError, apply::Step, held::Asked};
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/agents/{id}/package", get(read).post(update))
+        .route(
+            "/agents/{id}/package",
+            get(read)
+                .post(update)
+                .layer(DefaultBodyLimit::max(super::agents::PACKAGE_BODY)),
+        )
         .route("/agents/{id}/package/plan", post(plan))
         .route("/agents/{id}/package/template", get(template_update))
         .route("/agents/{id}/package/effects", put(switch))

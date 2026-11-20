@@ -48,7 +48,7 @@ pub fn pages(
         };
         if html.len() > MOST_PAGE_BYTES {
             return Err(PackageError::Invalid(format!(
-                "{} is larger than 2 MB",
+                "{} is larger than 1 MB",
                 panel.file
             )));
         }

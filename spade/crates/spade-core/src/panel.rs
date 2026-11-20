@@ -21,7 +21,7 @@ pub const MOST_STATE_BYTES: usize = 64 * 1024;
 /// An action's value, as JSON.
 pub const MOST_VALUE_BYTES: usize = 8 * 1024;
 /// A panel's page.
-pub const MOST_PAGE_BYTES: usize = 2 * 1024 * 1024;
+pub const MOST_PAGE_BYTES: usize = 1024 * 1024;
 
 /// What the bot reads when `panel_update` is refused: every problem, one per line.
 pub fn refusal(problems: &[Problem]) -> String {

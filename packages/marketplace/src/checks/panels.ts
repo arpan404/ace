@@ -12,7 +12,7 @@ import { panelFiles } from "../surfaces.ts";
  */
 
 /** A panel page's largest size, as Spade keeps it (`spade_core::panel::MOST_PAGE_BYTES`). */
-export const mostPanelBytes = 2 * 1024 * 1024;
+export const mostPanelBytes = 1024 * 1024;
 
 /** What's wrong with the panel pages of a package whose `bot.json` declares `surfaces`. */
 export function panelProblems(surfaces: unknown, files: readonly ArchiveFile[]): MarketProblem[] {
@@ -37,11 +37,28 @@ export function panelProblems(surfaces: unknown, files: readonly ArchiveFile[]):
       continue;
     }
     if (file && file.content.byteLength > mostPanelBytes) {
-      problems.push({ path, message: `${path} is larger than 2 MB` });
+      problems.push({ path, message: `${path} is larger than 1 MB` });
       continue;
     }
     for (const diagnostic of validateHtml(page).diagnostics)
       problems.push({ path, message: `${path}: ${diagnostic.message}` });
   }
   return problems;
+}
+
+/**
+ * The text of each panel page a package's `bot.json` declares, by path, as Spade takes them
+ * beside the manifest (`pages` on install and update). A page that isn't text is left out, and
+ * Spade refuses the step for it.
+ */
+export function panelPageTexts(
+  surfaces: unknown,
+  files: readonly ArchiveFile[],
+): Record<string, string> {
+  const pages: Record<string, string> = {};
+  for (const path of panelFiles(surfaces).values()) {
+    const page = text(files.find((file) => file.path === path)?.content);
+    if (page !== undefined) pages[path] = page;
+  }
+  return pages;
 }
