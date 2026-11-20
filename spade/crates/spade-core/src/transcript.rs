@@ -319,6 +319,9 @@ impl Transcript {
             | Known::Arrived { .. }
             | Known::CardShown(_)
             | Known::CardAction { .. }
+            | Known::ContractCalled(_)
+            | Known::ContractMisfit { .. }
+            | Known::ContractEnded { .. }
             | Known::NoticeSent { .. }
             | Known::TaskParked { .. } => {}
         }

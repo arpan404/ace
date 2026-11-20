@@ -112,6 +112,10 @@ pub fn outcome_unknown(is_error: bool, uncertain: bool, content: &str) -> bool {
 
 /// How a finished job reads to the model.
 pub fn job_result(job: &str, name: &str, content: &str, is_error: bool) -> String {
+    // A contract call's result arrives as a `<contract_result>` (ADR 0200 §7).
+    if name == crate::contract::CONTRACT_CALL {
+        return crate::contract::job_text(job, content, is_error);
+    }
     let status = if is_error { "error" } else { "ok" };
     format!(
         "<job_result job=\"{job}\" tool=\"{name}\" status=\"{status}\">\n{content}\n</job_result>"
@@ -186,10 +190,14 @@ pub fn person_text(
         None => text,
     };
     if let Some(from) = from_agent {
-        text = format!(
-            "<bot_message from=\"{}\" id=\"{}\">\n{text}\n</bot_message>",
-            from.name, from.id
-        );
+        text = match &from.contract {
+            // A contract call (ADR 0200 §7): its input, framed as the calling bot's request.
+            Some(request) => crate::contract::framed(request, &from.name, &from.id),
+            None => format!(
+                "<bot_message from=\"{}\" id=\"{}\">\n{text}\n</bot_message>",
+                from.name, from.id
+            ),
+        };
     }
     if let Some(from) = from_routine {
         text = crate::routine::framed(from, &text);

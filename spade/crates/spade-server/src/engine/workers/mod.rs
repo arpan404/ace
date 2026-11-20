@@ -234,10 +234,41 @@ impl Engine {
     /// task never done meanwhile.
     pub(super) fn roll_up(&self, id: &str, own: Activity) -> Activity {
         let children = self.worker_children(id);
-        if children.is_empty() && !own.ace_waiting && !own.ace_working {
+        // The callees of its open contract calls (ADR 0200 §6.2).
+        let callees: Vec<String> = own
+            .calls
+            .iter()
+            .filter_map(|bot| self.store.agent(bot).ok().flatten())
+            .map(|agent| agent.conversation)
+            .collect();
+        // A callee on another machine waits on the person, as that machine last said.
+        let remote = (!own.remote_calls.is_empty()).then(|| {
+            if self.remote_waiting(&own.remote_calls) {
+                State::Waiting
+            } else {
+                State::Working
+            }
+        });
+        if children.is_empty()
+            && callees.is_empty()
+            && remote.is_none()
+            && !own.ace_waiting
+            && !own.ace_working
+        {
             return own;
         }
         let mut activity = own;
+        if !callees.is_empty() || remote.is_some() {
+            let states = callees
+                .iter()
+                .map(|callee| self.node_state(callee, 0))
+                .chain(remote);
+            let state = spade_core::contract::caller_state(activity.state, states);
+            if state == State::Waiting && activity.state != State::Waiting {
+                activity.waiting_for = Some("callee");
+            }
+            activity.state = state;
+        }
         let mut under = ace_state(&activity);
         let mut working = 0;
         for child in &children {

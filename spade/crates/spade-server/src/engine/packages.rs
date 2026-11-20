@@ -136,6 +136,14 @@ impl Engine {
             if let Ok(Some(agent)) = self.store.agent_for_conversation(conversation) {
                 self.held_by(&agent, MOST_MAKERS, &mut held);
             }
+            // A contract call open in it holds it to the contract's effects too (ADR 0200 §7).
+            for (name, effects) in self.call_ceilings(conversation) {
+                held.push(Held {
+                    name,
+                    allows: effects.into_iter().collect(),
+                    by: None,
+                });
+            }
         }
         held
     }

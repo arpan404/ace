@@ -650,3 +650,30 @@ async fn a_moved_bot_keeps_the_accent_the_person_chose() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_moved_bot_keeps_its_calls_turned_off() -> Result {
+    let (_fleet, laptop, studio) = pair().await?;
+    let bot = furnished(&laptop).await?;
+    let (status, body) = laptop
+        .put(
+            &format!("/v1/agents/{bot}/contracts"),
+            json!({ "incoming": false }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+
+    let (status, started) = move_bot(&laptop, &studio, &bot, "mv_calls", "host-studio").await?;
+    assert_eq!(status, 202, "{started}");
+    assert_eq!(
+        move_ends(&laptop, &bot).await?,
+        Value::Null,
+        "the move took"
+    );
+
+    // A move never turns the person's other bots' calls back on (ADR 0200 §7).
+    let (status, body) = studio.get(&format!("/v1/agents/{bot}/contracts")).await?;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["incoming"], false, "{body}");
+    Ok(())
+}

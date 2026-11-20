@@ -106,6 +106,9 @@ Other bots, clubs, workers, helpers and ace's coding agents.
 | `worker_stop` | `write_local` | 0.0.24 |
 | `helper` | `write_local` | 0.0.24 |
 | `delegate` | `network` (ace's) | 0.0.24 |
+| `contracts_find` | `read` | 0.0.25 |
+| `contract_call` | `write_local` | 0.0.25 |
+| `contract_return` | `write_local` | 0.0.25 |
 | `package_suggest` | `read` | 0.0.25 |
 
 ## `ui`

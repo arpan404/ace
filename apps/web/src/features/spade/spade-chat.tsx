@@ -33,6 +33,7 @@ import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
+import { SpadeContractLine } from "./spade-contract-line.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { SpadeOutsideBubble } from "./spade-outside-bubble.tsx";
@@ -329,6 +330,7 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
         ? "mt-(--chat-run-gap)"
         : "mt-(--chat-turn-gap)";
     case "helper":
+    case "contract":
     case "quiet":
     case "task-changed":
     case "named":
@@ -338,6 +340,7 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
       // stack under the words they follow.
       return previous.kind === "run" ||
         previous.item.kind === "helper" ||
+        previous.item.kind === "contract" ||
         previous.item.kind === "quiet" ||
         previous.item.kind === "task-changed" ||
         previous.item.kind === "named" ||
@@ -709,6 +712,17 @@ function Single(props: {
         </div>
       );
     }
+    case "contract":
+      return (
+        <div className={space}>
+          <SpadeContractLine
+            text={item.text}
+            result={item.result}
+            open={item.open}
+            since={item.at}
+          />
+        </div>
+      );
     default:
       return null;
   }

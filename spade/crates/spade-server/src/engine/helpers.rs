@@ -301,6 +301,7 @@ impl Engine {
                 name: agent.name,
                 depth: 0,
                 machine: None,
+                contract: None,
             });
         }
         let reply = events

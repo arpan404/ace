@@ -7,6 +7,13 @@
       "maxLength": 300,
       "type": "string"
     },
+    "contracts": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PackageContract.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "effects": {
       "default": [],
       "items": {

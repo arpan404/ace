@@ -3880,6 +3880,10 @@
       "bytes": 632,
       "sha256": "cd958bc1b5485813264b7d6aad88adb36a5a106b387b4546b1821628a82517ae"
     },
+    "schema/PackageContract.json": {
+      "bytes": 1353,
+      "sha256": "214c9ba1a9499d8a07019ba6462a416487a3155b9db7841a749983e1232c992d"
+    },
     "schema/PackageEffect.json": {
       "bytes": 910,
       "sha256": "aa272698d7d5f1679000f0d989cbaf588643936537ab02b3547dd1ba8ce06925"
@@ -4569,8 +4573,8 @@
       "sha256": "56549ee3cb5c0441b782e3de8a87e4cfc8504d7310fc9ad34b0d59dba575ea45"
     },
     "schema/Recipe.json": {
-      "bytes": 6514,
-      "sha256": "f759c205583ce07b2140669f719ebc746c11b8dee6a21cea390573e9e23c8226"
+      "bytes": 6679,
+      "sha256": "d4f6fb9a310a4cd67a70f7a168354ba76a12a2badd2c563d0d3d33217c7633ae"
     },
     "schema/RecipeConnectorId.json": {
       "bytes": 193,
@@ -6677,10 +6681,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1360531,
-      "sha256": "1dd68f09ddfb4f9b4887a2c7cb824332494fdf9db033f038954e44344760722b"
+      "bytes": 1361712,
+      "sha256": "beeed4fa409783d2cd4d65ff7cb40dbbcb8f9a367ea7ff656a379188eb7c4d5e"
     }
   },
-  "input": "697a97e5ee81f6ceac9807ff1c71d1e55f783cf8f887d3c46e1cd44f1c45fe42",
+  "input": "877354e5a9feb44da4d8ca252a75aadd0e3b7103d62c1bd20844a885c938ed8f",
   "version": 1
 }
