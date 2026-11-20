@@ -80,6 +80,10 @@
     "toolCallId": {
       "$ref": "https://ace.local/protocol/v1/ItemId.json"
     },
+    "waitingForPerson": {
+      "const": true,
+      "type": "boolean"
+    },
     "wakesAgent": {
       "const": false,
       "type": "boolean"

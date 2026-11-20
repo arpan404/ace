@@ -28,18 +28,18 @@ Example:
     "task": {
       "agentId": "example",
       "blocksPrompts": true,
-      "childAgentId": "example",
-      "endedAt": 1,
+      "endedAt": 6,
       "id": "example",
       "internal": true,
       "kind": "shell",
       "listening": [],
       "outputPath": "example",
-      "startedAt": 6,
+      "startedAt": 3,
       "status": "failed",
       "stoppable": false,
       "title": "example",
-      "toolCallId": "example"
+      "toolCallId": "example",
+      "waitingForPerson": true
     },
     "type": "background_task.started"
   },
@@ -637,14 +637,15 @@ Example:
 {
   "task": {
     "agentId": "example",
+    "childAgentId": "example",
+    "endedAt": 0,
     "id": "example",
     "kind": "shell",
-    "outputPath": "example",
-    "raw": [],
-    "startedAt": 9,
+    "startedAt": 3,
     "status": "failed",
-    "stoppable": true,
-    "title": "example"
+    "stoppable": false,
+    "title": "example",
+    "waitingForPerson": true
   },
   "type": "background_task.started"
 }

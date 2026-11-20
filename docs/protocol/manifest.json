@@ -13,8 +13,8 @@
       "sha256": "8ea6d922e4be1d66aae4b17f6817df20ffd835d5992efb6fa5217e7049515cf3"
     },
     "events.md": {
-      "bytes": 22292,
-      "sha256": "a7aa9c388794e9b93e7bfbd79ccb3981c526af702a12ef367c3f4a4ab2535c90"
+      "bytes": 22327,
+      "sha256": "1fa775f0939dee72c65a764b98372a7204b8d74f42e666380e0e209ec07b4b4d"
     },
     "forge.md": {
       "bytes": 139530,
@@ -261,8 +261,8 @@
       "sha256": "54c9562a0eb7bd5bd898634f3968da6262f71a1a59550d067046216daa3b83b8"
     },
     "schema/Addressee.json": {
-      "bytes": 2160,
-      "sha256": "1ce7ad90b015422182e7f88a41741684513a3bc2c5ff0418af4c969f6942d586"
+      "bytes": 2964,
+      "sha256": "5797825dc7b11aae007439b48bf55519b675be162b352ef80f195f7338b9c370"
     },
     "schema/Admission.json": {
       "bytes": 675,
@@ -565,8 +565,8 @@
       "sha256": "c0c8968636dd8f24857ad4f2dc6fdcb924450235a26f1722b2fc11888fa07b13"
     },
     "schema/BackgroundTask.json": {
-      "bytes": 1933,
-      "sha256": "2adeb372f6fc76261e468c6fe14f5ef29edeb9c093d32cfc20c97265dccfba38"
+      "bytes": 2011,
+      "sha256": "5a080079a76f41873dbf9e205d984de53fa95879ac0e45b09dbd66d565ad974a"
     },
     "schema/BackgroundTaskId.json": {
       "bytes": 166,
@@ -995,6 +995,34 @@
     "schema/CliBotAction.json": {
       "bytes": 579,
       "sha256": "922169330012b41e633758ea99e512766573611236b9c026d87995d23edf50be"
+    },
+    "schema/CliBotCall.json": {
+      "bytes": 887,
+      "sha256": "be1293a75d0668af807b6f5464b1cc04a344b0489704ff04c5db3f4668cb3598"
+    },
+    "schema/CliBotCheck.json": {
+      "bytes": 678,
+      "sha256": "14c35e3c22a2acd0d9f8a86aa555a8707f7ad87843dfc958ad7aab27990f5a62"
+    },
+    "schema/CliBotDev.json": {
+      "bytes": 621,
+      "sha256": "74268c800be97a6784509d3d27b407430000b1a9282df24f377eb7388def8a20"
+    },
+    "schema/CliBotInit.json": {
+      "bytes": 510,
+      "sha256": "d2e689f3d33715f63a8bdedebdf97bbb255f34424eb1eadf849e1ce7497c4f30"
+    },
+    "schema/CliBotScenario.json": {
+      "bytes": 622,
+      "sha256": "434ffe952836a4e969c8a52311e5cfa33230f7f0465256fd409521efed0c9b55"
+    },
+    "schema/CliBotStarter.json": {
+      "bytes": 208,
+      "sha256": "a3bc46cb7e054ddc6f61808d81623e6cd308e85b88a40b99e963d1993d7329e5"
+    },
+    "schema/CliBotTest.json": {
+      "bytes": 608,
+      "sha256": "2d34455ee722892e8f3afad6658a8dea2c63a53cd574d8a90b89ba855d39512f"
     },
     "schema/CliCleanupReceipt.json": {
       "bytes": 1208,
@@ -5517,8 +5545,8 @@
       "sha256": "89e3d8265f6c932cdec0f480808eed5efc1b4d4fd6c7d627ee689dea98a96a79"
     },
     "schema/Speaker.json": {
-      "bytes": 1090,
-      "sha256": "6d511076b05267a8fe0f7fdda2bb104e428464d8b396d70a8c829018d6d0f933"
+      "bytes": 1424,
+      "sha256": "0133d235fda5a79926d2017991142df7b9e3ba5f613afbb7124b6ac526e1cc85"
     },
     "schema/StartedBy.json": {
       "bytes": 245,
@@ -6649,10 +6677,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1355146,
-      "sha256": "762fc7e951505841e72d6e9933e53dddd39c2eca7f629079275cfe463d7cd341"
+      "bytes": 1358922,
+      "sha256": "637f16bb7ce1177747ec31ff32fc37fc506d2bf17256ea019d3c9bb3b2b426c7"
     }
   },
-  "input": "df4889f2f61bba05b99b5bd8d59c1b55a5f947132bcf29db74400bffa6ec7fc2",
+  "input": "e17358c5288a950d275629d4e073451f5bd05164b69e10c77c15cb0b9911ddc2",
   "version": 1
 }

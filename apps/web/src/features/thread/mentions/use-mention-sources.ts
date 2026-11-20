@@ -115,6 +115,57 @@ async function machineSimulators(client: ClientApi): Promise<AppDevice[]> {
     .slice(0, 64);
 }
 
+/** A simulator, emulator or phone a machine's devices list, as a picker row. */
+function appRow(device: AppDevice, machine: PickerDevice["machine"]): PickerDevice {
+  const physical = device.serial !== undefined && device.platform === "android";
+  return {
+    id: device.id,
+    name: device.name,
+    kind: physical ? "phone" : device.platform === "ios" ? "simulator" : "emulator",
+    machine,
+    os: device.runtime,
+    model: physical ? undefined : device.name,
+    online: device.state === "booted",
+  };
+}
+
+/** A bot as a picker row; one on another machine says which in its line. */
+function botRow(bot: SpadeAgent, where?: MentionElsewhere): MentionBot {
+  const detail = botDetail({
+    id: bot.id,
+    name: bot.name,
+    task: bot.task,
+    main: bot.kind === "main",
+  });
+  return {
+    id: bot.id,
+    name: bot.name,
+    avatar: bot.avatar,
+    detail: where ? `${detail} · on ${where.name}` : detail,
+    ...(where ? { machine: where } : {}),
+  };
+}
+
+/** A club as a picker row; one on another machine says which in its line. */
+function clubRow(club: SpadeGroup, where?: MentionElsewhere): MentionClub {
+  const detail = clubDetail({
+    id: club.id,
+    name: club.name,
+    members: club.members.map((m) => m.name),
+  });
+  return {
+    id: club.id,
+    name: club.name,
+    detail: where ? `${detail} · on ${where.name}` : detail,
+    members: club.members.map((member) => ({
+      agent: member.agent,
+      avatar: member.avatar,
+      away: member.away,
+    })),
+    ...(where ? { machine: where } : {}),
+  };
+}
+
 /** Every machine of the fleet, this one first, then their paired devices and simulators. */
 export function useMentionDevices(open: boolean): MentionDevice[] {
   return useDevices(open, useMachines());
@@ -170,18 +221,6 @@ function useDevices(open: boolean, machines: readonly Machine[]): MentionDevice[
       online: machine.status === "online",
     });
   }
-  const appRow = (device: AppDevice, machine: PickerDevice["machine"]): PickerDevice => {
-    const physical = device.serial !== undefined && device.platform === "android";
-    return {
-      id: device.id,
-      name: device.name,
-      kind: physical ? "phone" : device.platform === "ios" ? "simulator" : "emulator",
-      machine,
-      os: device.runtime,
-      model: physical ? undefined : device.name,
-      online: device.state === "booted",
-    };
-  };
   if (hereRef) for (const device of snapshot.devices) rows.push(appRow(device, hereRef));
   // Each other machine's simulators and emulators, as its own devices list them.
   machines.forEach((machine, index) => {
@@ -254,11 +293,11 @@ export function useMentionSources(input: {
       queryKey: ["mentions", "spade", "elsewhere", other.where.id],
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         if (!spade) return { bots: [], clubs: [] };
-        const [bots, clubs] = await Promise.all([
+        const [listed, clubsThere] = await Promise.all([
           spade.readBots(other.client, signal).catch(() => []),
           spade.readClubs(other.client, signal).catch(() => []),
         ]);
-        return { bots, clubs };
+        return { bots: listed, clubs: clubsThere };
       },
       enabled: open && !!spade,
       staleTime: 10_000,
@@ -266,39 +305,6 @@ export function useMentionSources(input: {
     })),
   });
   const devices = useDevices(open, machines);
-  const botRow = (bot: SpadeAgent, where?: MentionElsewhere): MentionBot => {
-    const detail = botDetail({
-      id: bot.id,
-      name: bot.name,
-      task: bot.task,
-      main: bot.kind === "main",
-    });
-    return {
-      id: bot.id,
-      name: bot.name,
-      avatar: bot.avatar,
-      detail: where ? `${detail} · on ${where.name}` : detail,
-      ...(where ? { machine: where } : {}),
-    };
-  };
-  const clubRow = (club: SpadeGroup, where?: MentionElsewhere): MentionClub => {
-    const detail = clubDetail({
-      id: club.id,
-      name: club.name,
-      members: club.members.map((m) => m.name),
-    });
-    return {
-      id: club.id,
-      name: club.name,
-      detail: where ? `${detail} · on ${where.name}` : detail,
-      members: club.members.map((member) => ({
-        agent: member.agent,
-        avatar: member.avatar,
-        away: member.away,
-      })),
-      ...(where ? { machine: where } : {}),
-    };
-  };
   return {
     agents,
     bots: [

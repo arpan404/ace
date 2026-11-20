@@ -1538,11 +1538,14 @@ Example:
 
 ```json
 {
-  "detail": "example",
-  "state": "sending",
+  "state": "queued",
   "to": {
     "id": "example",
     "kind": "club",
+    "machine": {
+      "id": "example",
+      "name": "example"
+    },
     "name": "example"
   }
 }
@@ -1560,6 +1563,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":128} |
 | name | yes | string | {"minLength":1,"maxLength":120} |
 | avatar | no | [SpadeFaceJson.json](schema/SpadeFaceJson.json) |  |
+| machine | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["id","name"]} |
 
 Example:
 
@@ -1580,6 +1584,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":128} |
 | name | yes | string | {"minLength":1,"maxLength":120} |
 | faces | no | array | {"default":[],"maxItems":3,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"avatar":{"$ref":"https://ace.local/protocol/v1/SpadeFaceJson.json"}},"required":["id"]}} |
+| machine | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["id","name"]} |
 
 Example:
 
@@ -4596,6 +4601,7 @@ Example:
 | wakesAgent | no | `false` |  |
 | listening | no | array | {"maxItems":16,"items":{"type":"integer","minimum":1,"maximum":65535}} |
 | blocksPrompts | no | `true` |  |
+| waitingForPerson | no | `true` |  |
 | outputPath | no | string |  |
 | toolCallId | no | [ItemId.json](schema/ItemId.json) |  |
 | childAgentId | no | [AgentId.json](schema/AgentId.json) |  |
@@ -4609,17 +4615,16 @@ Example:
 ```json
 {
   "agentId": "example",
-  "childAgentId": "example",
-  "endedAt": 3,
   "id": "example",
   "internal": true,
   "kind": "monitor",
-  "outputPath": "example",
   "raw": [],
-  "startedAt": 7,
+  "startedAt": 1,
   "status": "stopped",
-  "stoppable": true,
+  "stoppable": false,
   "title": "example",
+  "toolCallId": "example",
+  "waitingForPerson": true,
   "wakesAgent": false
 }
 ```
@@ -9461,6 +9466,154 @@ Example:
   "bot": "example",
   "changed": false,
   "name": "example"
+}
+```
+
+## CliBotCall
+
+[JSON Schema](schema/CliBotCall.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| tool | yes | string |  |
+| effect | no | string,null |  |
+| outcome | yes | union | {"anyOf":[{"type":"string","const":"ran"},{"type":"object","properties":{"refused":{"type":"string"}},"required":["refused"]},{"type":"object","properties":{"failed":{"type":"string"}},"required":["failed"]}]} |
+
+Example:
+
+```json
+{
+  "effect": "example",
+  "outcome": "ran",
+  "tool": "example"
+}
+```
+
+## CliBotCheck
+
+[JSON Schema](schema/CliBotCheck.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string |  |
+| hash | yes | string |  |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| warnings | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliProblem.json"}} |
+
+Example:
+
+```json
+{
+  "bytes": 5,
+  "files": 8,
+  "hash": "example",
+  "name": "example",
+  "warnings": []
+}
+```
+
+## CliBotDev
+
+[JSON Schema](schema/CliBotDev.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| step | yes | ["installed","updated","unchanged","waiting","refused"] |  |
+| bot | yes | string |  |
+| name | yes | string |  |
+| hash | yes | string |  |
+| why | no | array | {"items":{"type":"string"}} |
+
+Example:
+
+```json
+{
+  "bot": "example",
+  "hash": "example",
+  "name": "example",
+  "step": "refused",
+  "why": []
+}
+```
+
+## CliBotInit
+
+[JSON Schema](schema/CliBotInit.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string |  |
+| name | yes | string |  |
+| template | yes | [CliBotStarter.json](schema/CliBotStarter.json) |  |
+| files | yes | array | {"items":{"type":"string"}} |
+
+Example:
+
+```json
+{
+  "files": [],
+  "name": "example",
+  "path": "example",
+  "template": "club-member"
+}
+```
+
+## CliBotScenario
+
+[JSON Schema](schema/CliBotScenario.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| file | yes | string |  |
+| name | yes | string |  |
+| passed | yes | boolean |  |
+| failures | yes | array | {"items":{"type":"string"}} |
+| calls | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliBotCall.json"}} |
+
+Example:
+
+```json
+{
+  "calls": [],
+  "failures": [],
+  "file": "example",
+  "name": "example",
+  "passed": true
+}
+```
+
+## CliBotStarter
+
+[JSON Schema](schema/CliBotStarter.json), input validation.
+
+Type: ["blank","watcher","club-member"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"club-member"
+```
+
+## CliBotTest
+
+[JSON Schema](schema/CliBotTest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string,null |  |
+| passed | yes | boolean |  |
+| problems | yes | array | {"items":{"type":"string"}} |
+| scenarios | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliBotScenario.json"}} |
+
+Example:
+
+```json
+{
+  "name": "example",
+  "passed": false,
+  "problems": [],
+  "scenarios": []
 }
 ```
 
@@ -44252,6 +44405,7 @@ Example:
 | name | yes | string | {"minLength":1,"maxLength":120} |
 | avatar | no | [SpadeFaceJson.json](schema/SpadeFaceJson.json) |  |
 | club | no | object | {"properties":{"id":{"type":"string","minLength":1,"maxLength":128},"name":{"type":"string","minLength":1,"maxLength":120}},"required":["id","name"]} |
+| machine | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["id","name"]} |
 | about | yes | string | {"minLength":1,"maxLength":256} |
 | ask | no | string | {"minLength":1,"maxLength":160} |
 
@@ -44260,6 +44414,7 @@ Example:
 ```json
 {
   "about": "example",
+  "ask": "example",
   "id": "example",
   "kind": "bot",
   "name": "example"
