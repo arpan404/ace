@@ -53,6 +53,8 @@ export function seedFakeAgentCards(here: FakeSpadeApi) {
     id: "fares",
     name: "Fare watch",
     task: "Watch fares for the trips I name and tell me about real drops.",
+    // Its package's accent (ADR 0200 §5.3): its face ring, its row and its cards' rule.
+    style: { accent: "#2f7bea", chosen: false },
     avatar: {
       kind: "character",
       v: 1,

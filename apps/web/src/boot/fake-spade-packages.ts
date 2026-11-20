@@ -11,6 +11,7 @@ export function seedFakePackages(here: FakeSpadeApi, now: number): void {
     name: "Fare watch",
     task: "Watch fares to Lisbon and Porto for May. Tell me only about a real drop.",
     model: "openrouter/openai/gpt-6.1-mini",
+    style: { accent: "#0f8a8a", chosen: false },
     avatar: {
       kind: "character",
       v: 1,
