@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { attachPreviewRelay } from "@ace/preview";
-import type { ServerMessage } from "@ace/protocol";
+import { HostId, type ServerMessage } from "@ace/protocol";
 import { AcePorts } from "./ace-ports.ts";
 import { createTunnelHost, type TunnelAttachment } from "./host.ts";
 import { machinePortWatch } from "./port-feed.ts";
@@ -79,7 +79,7 @@ test("a device the relay refuses while its welcome is being sent hears the refus
   const served = serveRelayTunnel(relay.channel, tunnelHost(), {
     device: "phone",
     operate: () => true,
-    welcome: { type: "welcome", hostId: "host", protocolVersion: 1, headSeq: 0 },
+    welcome: { type: "welcome", hostId: HostId.parse("host"), protocolVersion: 1, headSeq: 0 },
     attached: (held) => {
       attachment = held;
     },

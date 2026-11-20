@@ -1,10 +1,6 @@
-import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
+import urlCases from "./machine-loopback-urls.json" with { type: "json" };
 import { isMachineLoopbackHost } from "./machine-loopback.ts";
-
-const urlCases = JSON.parse(
-  readFileSync(new URL("./machine-loopback-urls.json", import.meta.url), "utf8"),
-) as { url: string; loopback: boolean }[];
 
 test.each([
   ["localhost", true],
