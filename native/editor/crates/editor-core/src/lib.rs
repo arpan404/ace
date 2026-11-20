@@ -14,7 +14,9 @@ mod document;
 mod error;
 mod find;
 mod history;
+mod indent;
 mod position;
+mod replace;
 mod selection;
 mod transaction;
 
@@ -22,6 +24,7 @@ pub use buffer::LineEnding;
 pub use document::Document;
 pub use error::Error;
 pub use find::FindQuery;
+pub use indent::{Indent, detect_indent};
 pub use position::{Position, Range};
 pub use selection::Selection;
 pub use transaction::{Applied, Change, LineEdit, Replacement, Transaction};

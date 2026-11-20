@@ -190,3 +190,18 @@ export function selectedLineSpan(selections: readonly Selection[]): string | und
   }
   return end >= 0 ? `${start + 1}-${end + 1}` : undefined;
 }
+
+/** Whether two cursor lists are the same cursors in the same order. */
+export function sameSelections(a: readonly Selection[], b: readonly Selection[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((one, index) => {
+      const other = b[index];
+      return (
+        !!other &&
+        comparePositions(one.anchor, other.anchor) === 0 &&
+        comparePositions(one.head, other.head) === 0
+      );
+    })
+  );
+}

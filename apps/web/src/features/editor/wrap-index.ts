@@ -16,7 +16,7 @@
  */
 
 import type { LineEdit } from "@ace/editor";
-import { wholeLineRow, wrapLine, type WrapRows } from "./wrap.ts";
+import { noRows, wholeLineRow, wrapLine, type WrapRows } from "./wrap.ts";
 
 /** The text the index wraps: the open document, asked one line at a time. */
 export interface WrapText {
@@ -91,6 +91,10 @@ export class WrapIndex implements RowLayout {
   /** A new generation each time a node is freed or handed out, which retires stale work. */
   #stamp = new Int32Array(64);
   #priority = new Uint32Array(64);
+  /** 1 = the line is inside a folded region and draws no rows. */
+  #hidden = new Uint8Array(64);
+  /** The nodes now hidden, so the next fold change can show them again. */
+  #hiddenNodes = new Set<number>();
   #root = 0;
   #used = 0;
   #seed = 0;
@@ -127,6 +131,8 @@ export class WrapIndex implements RowLayout {
         this.#sum[node] = this.#sizeOf(node);
       });
       this.#dirtyCount = 0;
+      // A hidden line has no rows: the sums above it are rebuilt without them.
+      if (this.#hiddenNodes.size) for (const node of this.#hiddenNodes) this.#settle(node);
       return true;
     }
     this.#walk((node) => {
@@ -202,9 +208,39 @@ export class WrapIndex implements RowLayout {
     return this.#pending.length - this.#from;
   }
 
+  /**
+   * Hides the lines in each `[from, to)` range (folded regions) and shows every line hidden
+   * before. A hidden line keeps its measured rows but draws none, and stays hidden as the lines
+   * around it move; costs the hidden lines' count, once per fold change, never per keystroke.
+   */
+  setHidden(ranges: readonly { from: number; to: number }[]): void {
+    const previous = this.#hiddenNodes;
+    this.#hiddenNodes = new Set();
+    for (const node of previous) {
+      this.#hidden[node] = 0;
+    }
+    const next: number[] = [];
+    for (const { from, to } of ranges)
+      for (let line = Math.max(0, from); line < Math.min(to, this.#length); line++) {
+        const node = this.#nodeAt(line);
+        if (node === 0 || this.#hidden[node] === 1) continue;
+        this.#hidden[node] = 1;
+        this.#hiddenNodes.add(node);
+        next.push(node);
+      }
+    for (const node of previous) if (this.#hidden[node] !== 1) this.#settle(node);
+    for (const node of next) this.#settle(node);
+  }
+
+  /** Whether a line is inside a folded region. */
+  isHidden(line: number): boolean {
+    return this.#hidden[this.#nodeAt(line)] === 1;
+  }
+
   rowsOf(line: number): WrapRows {
     const node = this.#nodeAt(line);
     if (node === 0) return wholeLineRow;
+    if (this.#hidden[node] === 1) return noRows;
     const known = this.#rows.get(node);
     if (known) return known;
     const rows = this.#measure(node);
@@ -349,6 +385,8 @@ export class WrapIndex implements RowLayout {
     this.#count[node] = 1;
     this.#sum[node] = 1;
     this.#queued[node] = 0;
+    this.#hidden[node] = 0;
+    this.#hiddenNodes.delete(node);
     this.#priority[node] = priority(++this.#seed);
     this.#rows.delete(node);
     if (this.#columns === Infinity) {
@@ -382,6 +420,9 @@ export class WrapIndex implements RowLayout {
     const priorities = new Uint32Array(size);
     priorities.set(this.#priority);
     this.#priority = priorities;
+    const hidden = new Uint8Array(size);
+    hidden.set(this.#hidden);
+    this.#hidden = hidden;
   }
 
   #split(node: number, count: number): [number, number] {
@@ -432,6 +473,8 @@ export class WrapIndex implements RowLayout {
       this.#dirty[node] = 0;
       this.#queued[node] = 0;
       this.#stamp[node] = (this.#stamp[node] ?? 0) + 1;
+      this.#hidden[node] = 0;
+      this.#hiddenNodes.delete(node);
       this.#rows.delete(node);
       this.#free.push(node);
     }
@@ -569,8 +612,9 @@ export class WrapIndex implements RowLayout {
     return node === 0 ? 0 : (this.#size[node] ?? 0);
   }
 
+  /** The rows a line draws: none while it is folded away. */
   #countOf(node: number): number {
-    return node === 0 ? 0 : (this.#count[node] ?? 0);
+    return node === 0 || this.#hidden[node] === 1 ? 0 : (this.#count[node] ?? 0);
   }
 
   #sumOf(node: number): number {

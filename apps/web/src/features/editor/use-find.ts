@@ -10,6 +10,8 @@ export interface FindResults {
 
 /** How long a query waits after the last keystroke before the core searches. */
 const findDelay = 80;
+/** The most matches one search returns: the count reads "10000+" past it. */
+export const matchLimit = 10_000;
 const idle: FindResults = { matches: [], status: "idle" };
 
 /**
@@ -27,16 +29,22 @@ export function useFindResults(
     regex?: boolean;
     caseSensitive?: boolean;
     wholeWord?: boolean;
+    /** Search only inside these ranges (find in selection); undefined searches everything. */
+    within?: readonly Range[] | undefined;
   },
 ): FindResults {
-  const { active, query, regex = false, caseSensitive = true, wholeWord = false } = options;
+  const { active, query, regex = false, caseSensitive = true, wholeWord = false, within } = options;
   const [result, setResult] = useState<{ key: string; found: FindResults }>();
-  const key = `${version}\u0000${query}\u0000${regex}\u0000${caseSensitive}\u0000${wholeWord}`;
+  const scope = within ? within.map(rangeKey).join(",") : "";
+  const key = `${version}\u0000${query}\u0000${regex}\u0000${caseSensitive}\u0000${wholeWord}\u0000${scope}`;
   useEffect(() => {
     if (!doc || !active || !query) return;
     const timer = setTimeout(() => {
       try {
-        const matches = doc.find(findQuery({ query, regex, caseSensitive, wholeWord }), 10_000);
+        const request = findQuery({ query, regex, caseSensitive, wholeWord });
+        const matches = within
+          ? doc.findWithin(request, within, matchLimit)
+          : doc.find(request, matchLimit);
         setResult({ key, found: { matches, status: "ready" } });
       } catch (error) {
         // A rejected pattern is the only failure the core reports; anything else is a bug, but
@@ -46,7 +54,12 @@ export function useFindResults(
       }
     }, findDelay);
     return () => clearTimeout(timer);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies, react-hooks/exhaustive-deps -- the scope's ranges are in the key.
   }, [doc, active, query, regex, caseSensitive, wholeWord, key]);
   if (!active || !query) return idle;
   return result?.key === key ? result.found : { matches: [], status: "pending" };
+}
+
+function rangeKey(range: Range): string {
+  return `${range.start.line}:${range.start.column}-${range.end.line}:${range.end.column}`;
 }
