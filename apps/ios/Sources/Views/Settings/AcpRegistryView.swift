@@ -10,7 +10,15 @@ struct RegistryRowData: Decodable, Identifiable, Equatable {
     let tone: String?
     let unavailable: Bool
 }
+/// An agent that changed since the person approved it; ace won't run it until they approve.
+struct RegistryUpdateData: Decodable, Identifiable, Equatable {
+    let installationId: String
+    let title: String
+    let detail: String
+    var id: String { installationId }
+}
 struct RegistryScreenData: Decodable, Equatable {
+    let updates: [RegistryUpdateData]
     let rows: [RegistryRowData]
     let age: String
     let empty: String?
@@ -34,9 +42,29 @@ struct AcpRegistryView: View {
     @State private var refreshing = false
     @State private var refreshProblem: String?
     @State private var revalidated = false
+    @State private var approving: String?
+    @State private var approveProblem: String?
     var body: some View {
         List {
             Group {
+                if let screen, !screen.updates.isEmpty {
+                    Section {
+                        ForEach(screen.updates) { update in
+                            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+                                VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                                    Text(update.title).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                                    Text(update.detail).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                                }
+                                Spacer(minLength: AceDesign.Space.related)
+                                Button("Approve update") { Task { await approve(update) } }
+                                    .buttonStyle(.borderless)
+                                    .disabled(approving != nil)
+                                    .frame(minHeight: AceDesign.Size.tap)
+                            }
+                        }
+                        if let approveProblem { ServiceProblem(message: approveProblem) }
+                    } header: { InsetHeader("Waiting for your approval") }
+                }
                 Section {
                     NavigationLink { ManualAcpAgentView(model: model) } label: {
                         InsetRow("Add by command", systemImage: "terminal", subtitle: "For an agent the registry doesn't list")
@@ -96,6 +124,14 @@ struct AcpRegistryView: View {
                 Task { await refresh() }
             }
         } catch { if !Task.isCancelled, screen == nil { problem = error.localizedDescription } }
+    }
+    private func approve(_ update: RegistryUpdateData) async {
+        approving = update.installationId; approveProblem = nil
+        do {
+            let answer = try await model.manage(["type": "acp.registry.approve-update", "installationId": update.installationId], as: RegistryAnswer.self)
+            if let next = answer.screen { screen = next }
+        } catch { approveProblem = error.localizedDescription }
+        approving = nil
     }
     private func refresh() async {
         guard !refreshing else { return }

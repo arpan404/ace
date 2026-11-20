@@ -115,3 +115,46 @@ test("add by command is offered but never binds, as the web does against a daemo
     SettingsManageRequest.parse({ type: "acp.manual.add", name: "Mine", command: "fake-acp" }),
   ).toThrow();
 });
+
+test("an agent that updated itself waits above the registry until the person approves it on the phone", async () => {
+  const { ask, daemon } = await open();
+  const registry = daemon.services.registry;
+  const identity = {
+    acpAgentId: "local:kiro",
+    installationId: "kiro-1",
+    instanceId: "kiro-1:default",
+  };
+  registry.installations.push({
+    ...identity,
+    version: "1.0.0",
+    profileRevision: "generic-v1",
+    source: "user-local",
+    evidence: "user_local_binding",
+  });
+  registry.updates = [
+    {
+      ...identity,
+      changed: ["native_cli"],
+      executableDigest: "c".repeat(64),
+      bridgeDigest: "d".repeat(64),
+      observedAt: 1,
+    },
+  ];
+  const listed = await ask({ type: "acp.registry", query: "" });
+  expect(listed.screen.updates).toEqual([
+    {
+      installationId: "kiro-1",
+      title: expect.stringMatching(/changed$/),
+      detail: "The CLI it drives was updated. ace won't run it until you approve.",
+    },
+  ]);
+  const approved = await ask({ type: "acp.registry.approve-update", installationId: "kiro-1" });
+  expect(approved).toMatchObject({ ok: true, screen: { updates: [] } });
+  expect(
+    registry.installations.find((entry) => entry.installationId === "kiro-1")?.approvals,
+  ).toHaveLength(1);
+  expect(await ask({ type: "acp.registry.approve-update", installationId: "kiro-1" })).toEqual({
+    ok: false,
+    problem: "This update is already approved.",
+  });
+});

@@ -8,10 +8,13 @@ import {
   registryPublisher,
   registrySetup,
   registryStanding,
+  registryUpdateSentence,
   searchRegistry,
   type PlanFact,
 } from "@ace/ui-core/acp-registry";
+import { providerDisplayName } from "@ace/ui-core";
 import {
+  approveAgentUpdate,
   planInstall,
   readRegistry,
   refreshRegistry,
@@ -41,6 +44,8 @@ export const RegistryScreenRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("acp.registry.progress"), session }),
   z.object({ type: z.literal("acp.registry.cancel"), session }),
   z.object({ type: z.literal("acp.manual") }),
+  /** The person approves an agent's listed update (ADR 0044 amendment). */
+  z.object({ type: z.literal("acp.registry.approve-update"), installationId: agentId }),
 ]);
 export type RegistryScreenRequest = z.infer<typeof RegistryScreenRequest>;
 
@@ -57,7 +62,18 @@ export interface RegistryRow {
   unavailable: boolean;
 }
 
+/** An agent that changed since the person approved it, waiting for them to approve its update. */
+export interface RegistryUpdateRow {
+  installationId: string;
+  /** "Gemini CLI changed". */
+  title: string;
+  /** What changed, and that ace won't run it until they approve. */
+  detail: string;
+}
+
 export interface RegistryScreen {
+  /** Agents waiting for approval, shown above the registry with Approve update. */
+  updates: RegistryUpdateRow[];
   rows: RegistryRow[];
   /** "Updated 5m ago", or that this is the saved list. */
   age: string;
@@ -109,6 +125,14 @@ export function registryScreen(view: RegistryView, query: string, now: number): 
         ? `No agents match “${query.trim()}”.`
         : null;
   return {
+    updates: view.updates.map((update) => ({
+      installationId: update.installationId,
+      title: `${
+        view.agents.find((agent) => agent.acpAgentId === update.acpAgentId)?.name ??
+        providerDisplayName("acp", update.acpAgentId)
+      } changed`,
+      detail: registryUpdateSentence(update),
+    })),
     rows: [...rows.filter((entry) => !entry.unavailable), ...rows.filter((e) => e.unavailable)],
     age:
       view.refreshFailed && view.agents.length > 0
@@ -306,6 +330,15 @@ export async function answerRegistryScreen(
         return await install(owner, request, signal);
       case "acp.manual":
         return { ok: true, manual: manualScreen() };
+      case "acp.registry.approve-update": {
+        const view = await readRegistry(owner, signal);
+        const update = view.updates.find(
+          (entry) => entry.installationId === request.installationId,
+        );
+        if (!update) return { ok: false, problem: "This update is already approved." };
+        await approveAgentUpdate(owner, update);
+        return { ok: true, screen: registryScreen(await readRegistry(owner, signal), "", now) };
+      }
     }
   } catch (error) {
     return failed(error);

@@ -4,6 +4,7 @@ import { SettingNote } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { AcpAgents } from "./acp-registry/registry-section.tsx";
+import { AgentUpdates } from "./acp-registry/agent-updates.tsx";
 import { listState, latestVersion } from "./provider-list-state.ts";
 import { ProvidersGroup } from "./providers-group.tsx";
 import {
@@ -44,6 +45,7 @@ export function ProviderSettings() {
   const updates = installed.filter(hasUpdate).length;
   return (
     <>
+      <AgentUpdates />
       <ProvidersGroup
         label="Installed"
         aside={installed.length || undefined}
