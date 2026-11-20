@@ -1,6 +1,6 @@
-# 0193: Each thread has one editor, and every file opens there
+# 0193: Each thread has one Deck, and every file opens there
 
-Status: proposed. Date: 2026-11-19. Decided by: pending the owner. Builds on
+Status: accepted. Date: 2026-11-19. Decided by: the owner. Builds on
 [ADR 0178](0178-rust-files-and-editor-core.md) (Rust files and editor core). The spec, audit and
 mockup are in [docs/editor/workbench.md](../editor/workbench.md).
 
@@ -28,19 +28,21 @@ Files explorer kept for quick lookups, and a better UX than today's.
   two tab models.
 - **The editor as the main column, the chat in the panel.** Inverts ace's chat-first layout for
   every thread, including those that never open a file.
-- **One editor per thread as a panel tab; every open goes there; a glance is a preview tab.**
-  Chosen: one home per file, the explorer is the editor's own sidebar (so today's Files lookup keeps
+- **One Deck per thread as a panel tab; every open goes there; a glance is a preview tab.**
+  Chosen: one home per file, the explorer is the Deck's own sidebar (so today's Files lookup keeps
   its feel at panel widths), and the panel system needs no new cases.
 
 ## Decision
 
-1. **A thread with a checkout has one Editor panel tab, a singleton kind.** It holds an explorer
+1. **A thread with a checkout has one Deck panel tab, a singleton kind.** The panel tab is named
+   Deck (ace's names come from cards: open files are the cards in a thread's deck); "editor" names
+   the text-editing component inside it. It holds an explorer
    (Files and Search), an editor area of groups in a split tree, each with its own tab strip, and
    one status line. It replaces the pinned Files tab and every per-file panel tab; files never
    appear in the panel strip.
 2. **Every checkout-file opener goes through one function into the focused group.** A glance
    (single click, search hit, chat mention, agent tool row) opens or replaces the group's one
-   preview tab; a deliberate open keeps the tab. Beside the chat the editor is compact (one group,
+   preview tab; a deliberate open keeps the tab. Beside the chat the Deck is compact (one group,
    explorer stepped aside); that is the quick one-file view, not a second component.
 3. **One buffer per path per thread, owned by a buffer registry, not by views.** Views of the same
    path in several groups share it. Only each group's active editor renders, and only its visible
@@ -65,8 +67,8 @@ Files explorer kept for quick lookups, and a better UX than today's.
   works; splits and keyboard flows without touching the panel system.
 - Harder: the registry, draft store and merge are new moving parts with their own failure modes
   (storage full, a merge with no base version after eviction; the spec defines both).
-- Required: a client-side migration of stored per-file tabs; an `editor` keymap scope whose ⌘1–⌘9
-  may shadow "Open thread 1–9" while focus is in the editor (open question in the spec); a web perf
+- Required: a client-side migration of stored per-file tabs; a `deck` keymap scope whose ⌘1–⌘9
+  focus groups and shadow "Open thread 1–9" only while focus is in the Deck; a web perf
   test holding the budgets in the spec.
 - Accepted: freeing a hidden saved buffer drops its undo history; layouts do not sync across
   devices.
@@ -78,6 +80,6 @@ Files explorer kept for quick lookups, and a better UX than today's.
 - Registry tests: two views share one buffer; eviction order and cap; drafts survive a reload and
   are removed on save.
 - Rust tables for the three-way merge.
-- One process test: a chat mention opens a preview tab in the thread's editor; an external write
+- One process test: a chat mention opens a preview tab in the thread's Deck; an external write
   to an unsaved file raises the merge line; reload restores layout and drafts.
 - A `test:slow` web perf test for the spec's budgets (100 tabs, two groups).
