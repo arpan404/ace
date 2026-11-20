@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import type { ProjectGitPolicy } from "@ace/git";
 import { join } from "node:path";
 import {
@@ -357,12 +358,12 @@ export class OutgoingTransfers {
         if (this.liveStage(record) === "handing") {
           this.deps.log("Moving thread still waiting for its target", {
             transferId,
-            error: String(error),
+            error: logError(error),
           });
           retry = true;
           return;
         }
-        const failure =
+        let failure =
           error instanceof TransferError
             ? error
             : error instanceof MachineFailure && error.kind === "refused"
@@ -370,7 +371,11 @@ export class OutgoingTransfers {
                   error.refusal ?? "machine_refused",
                   error.message.slice(0, 512) || "The other machine refused the transfer.",
                 )
-              : new TransferError("transfer_failed", "The transfer stopped unexpectedly.");
+              : undefined;
+        if (!failure) {
+          this.deps.log("Unexpected transfer failure", { transferId, error: logError(error) });
+          failure = new TransferError("transfer_failed", "The transfer stopped unexpectedly.");
+        }
         await this.finish(record, {
           phase: "failed",
           error: { code: failure.code, message: failure.message },

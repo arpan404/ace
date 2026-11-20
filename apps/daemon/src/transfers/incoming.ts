@@ -381,6 +381,17 @@ export class IncomingTransfers {
       call.method === "remote" && call.remote
         ? await this.sameOrigin(call.remote.normalized)
         : this.earlierCopy(device, call);
+    let parentError: IncomingTransfer["error"];
+    // A live move must have somewhere to land before the source stops its agent.
+    if (call.live && !reused) {
+      try {
+        const parent = await this.deps.projects.parent(call.parent);
+        await parent.close();
+      } catch (error) {
+        if (!(error instanceof TransferError)) throw error;
+        parentError = failure(error);
+      }
+    }
     // A sweep still removing the files of an expired transfer with this id finishes first, so
     // it never removes the files of the transfer this begin starts.
     // So does recovery's removal of strays, which decides from the live rows as they stand: a
@@ -397,6 +408,15 @@ export class IncomingTransfers {
     // a transfer needs, meanwhile. Nothing starts once closing began.
     if (this.closed) throw new TargetRefusal("unavailable", "This machine is shutting down.");
     this.still(device, check);
+    // Answer with a transfer failure so the sender can show the reason without starting an upload.
+    if (parentError)
+      return {
+        transferId: call.transferId,
+        state: "failed",
+        method: call.method,
+        offset: 0,
+        error: parentError,
+      };
     const record: IncomingRecord = {
       transferId: call.transferId,
       deviceId: device.id,
