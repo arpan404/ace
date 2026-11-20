@@ -205,8 +205,8 @@ inbox's signature (`x-ace-from-host: ace:thread`, `x-ace-from-name`, `x-ace-inbo
   the context pack before their own context. `context` (a summary of the thread, at most 16 000
   characters) makes the turn untrusted; without it the words are the person's own.
 - `GET /v1/thread-asks/{key}?wait_ms=` (at most 25 000) → `{status: "pending" | "answered" |
-  "stopped" | "failed" | "unknown", replies: [{bot: {id, name, avatar}, text}], writing:
-  [{bot, text}], answering: [{id, name, status?}], waiting: [{id, name}], text?}`. It waits for a
+"stopped" | "failed" | "unknown", replies: [{bot: {id, name, avatar}, text}], writing:
+[{bot, text}], answering: [{id, name, status?}], waiting: [{id, name}], text?}`. It waits for a
   change: a reply, a status, a member's turn. A club's `replies` are every member's message in that
   run, in order.
 - `POST /v1/thread-asks/{key}/stop` → `{status: "stopped" | "not_running" | "unknown"}`.
