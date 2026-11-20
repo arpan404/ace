@@ -60,6 +60,20 @@ it("a tool running after the prompt's reply holds the root working until it sett
   expect(h.state.status.state).toBe("done");
 });
 
+it("a tool first reported after the prompt's reply is work holding the next prompt until it settles", () => {
+  const h = harness();
+  h.ready();
+  end(h);
+  h.update({ sessionUpdate: "tool_call", toolCallId: "late", kind: "read", status: "in_progress" });
+  // The session takes no new prompt while it runs, and says so: a Stop can end it.
+  expect(Object.values(h.state.tasks)).toMatchObject([
+    { kind: "other", stoppable: false, blocksPrompts: true, status: "running" },
+  ]);
+  h.update({ sessionUpdate: "tool_call_update", toolCallId: "late", status: "completed" });
+  expect(Object.values(h.state.tasks)).toMatchObject([{ status: "completed" }]);
+  expect(h.state.status.state).toBe("done");
+});
+
 it("a child cancelled directly is given up as interrupted when it stays silent past the grace", () => {
   const h = harness();
   h.ready();

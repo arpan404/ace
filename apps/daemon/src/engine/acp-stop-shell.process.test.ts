@@ -22,7 +22,7 @@ const server = fileURLToPath(
 );
 
 /** An Antigravity thread on the ACP double, recording each session it opens and what it took. */
-async function antigravity() {
+async function antigravity(first = "antigravity-shell") {
   const frames = scriptFrames();
   const h = await fixture([], frames, {
     provider: "antigravity",
@@ -69,13 +69,14 @@ async function antigravity() {
     },
     { installed: true, auth: "logged_in", loginHint: "", version: "1.2.1" },
   );
-  const id = await h.create("antigravity-shell");
+  const id = await h.create(first);
   const running = () =>
     Object.values(h.store.snapshotThread(id).backgroundTasks).filter(
       (task) => task.status === "running",
     );
   await expect.poll(() => running().length).toBe(1);
-  expect(h.store.getThread(id)?.status).toMatchObject({ state: "waiting" });
+  // Waiting on the shell, or working on the late tool: never done while it runs.
+  expect(h.store.getThread(id)?.status.state).not.toBe("done");
   const send = (text: string) =>
     h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text }] }).ok;
   return { h, id, sessions, running, send };
@@ -125,4 +126,19 @@ test("a message the shell kept out still leaves the close to come, and then reac
   ).toBe(true);
   await h.engine.flush();
   await expect.poll(() => sessions[1]?.prompts).toEqual(["while it runs"]);
+});
+
+test("a Stop over a tool first reported after the reply, which holds the next prompt, closes the session too", async () => {
+  const { h, id, sessions, running, send } = await antigravity("late-tool");
+  expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
+  await h.engine.flush();
+  expect(running()).toHaveLength(1);
+  expect(sessions.map((session) => session.closed)).toEqual([false]);
+
+  h.clock.advance(h.clock.now() + INTERRUPT_GRACE_MS);
+  await expect.poll(() => sessions[0]?.closed).toBe(true);
+  await expect.poll(() => running().length).toBe(0);
+  expect(send("next")).toBe(true);
+  await h.engine.flush();
+  await expect.poll(() => sessions[1]?.prompts).toEqual(["next"]);
 });
