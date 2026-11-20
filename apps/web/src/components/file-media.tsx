@@ -123,21 +123,23 @@ function usePrefixRead<T>(
   const [loaded, setLoaded] = useState<{
     client: typeof client;
     source: FileSource;
+    limit: number | undefined;
     value: Loaded<T>;
   }>();
   useEffect(() => {
     const abort = new AbortController();
+    const settle = (value: Loaded<T>) => {
+      if (!abort.signal.aborted) setLoaded({ client, source, limit, value });
+    };
     read(client, source, abort.signal, limit).then(
-      (value) => {
-        if (!abort.signal.aborted) setLoaded({ client, source, value: { state: "ready", value } });
-      },
-      (error: unknown) => {
-        if (!abort.signal.aborted) setLoaded({ client, source, value: failed(error) });
-      },
+      (value) => settle({ state: "ready", value }),
+      (error: unknown) => settle(failed(error)),
     );
     return () => abort.abort();
   }, [read, client, source, limit]);
-  return loaded?.client === client && loaded.source === source ? loaded.value : loading;
+  // A result read for another file, connection or limit is not this one's.
+  const current = loaded?.client === client && loaded.source === source && loaded.limit === limit;
+  return current ? loaded.value : loading;
 }
 
 /** The first `limit` bytes of a file as text. */

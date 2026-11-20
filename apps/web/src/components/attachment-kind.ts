@@ -217,6 +217,9 @@ export function describeFile(file: FileFacts): Described {
   // A file an answer links by path has no MIME type or daemon kind, so its name decides.
   if (showsAsImage(file, ext, mime))
     return { kind: "image", label: upper || "Image", preview: "image" };
+  // A picture the daemon refused stays download-only, whatever player its name points at.
+  if (file.kind === "binary" && mime.startsWith("image/"))
+    return { kind: "image", label: upper || "Image", preview: "none" };
   // Text the daemon validated, or what claims to be text before it has looked.
   const textual =
     file.kind === "text" ||

@@ -14,15 +14,15 @@ it("bytes with NULs or invalid UTF-8 read as binary", () => {
   expect(readsAsText(decoded([0x50, 0x4b, 0x03, 0x04, 0xff, 0xfe]))).toBe(false);
 });
 
-/** A daemon streaming one linked file in 4 KB chunks, counting downloads and chunks sent. */
-function streaming(bytes: Uint8Array) {
+/** A daemon streaming one linked file in pieces (64 KB, as the real one sends), counting them. */
+function streaming(bytes: Uint8Array, piece = 64 * 1024) {
   const seen = { downloads: 0, chunks: 0 };
   const client = {
     async *downloadFile() {
       seen.downloads += 1;
-      for (let at = 0; at < bytes.length; at += 4096) {
+      for (let at = 0; at < bytes.length; at += piece) {
         seen.chunks += 1;
-        yield bytes.slice(at, at + 4096);
+        yield bytes.slice(at, at + piece);
       }
     },
   } as unknown as ClientApi;
@@ -39,12 +39,49 @@ it("an unknown linked text file is shown from the one read that sniffed it", asy
   expect(seen.downloads).toBe(1);
 });
 
-it("an unknown linked binary stops downloading once its first bytes show it", async () => {
-  const binary = new Uint8Array(1024 * 1024).fill(0);
-  const { client, seen } = streaming(binary);
+it("an unknown linked binary stops downloading after the first piece the daemon sends", async () => {
+  const { client, seen } = streaming(new Uint8Array(1024 * 1024));
   const prefix = await readTextPrefixIfText(client, link, new AbortController().signal, 2 << 20);
   expect(prefix).toBeUndefined();
-  expect(seen.chunks).toBeLessThanOrEqual(2);
+  expect(seen.chunks).toBe(1);
+});
+
+it("a small display limit never shrinks the sniff below 8 KB", async () => {
+  const bytes = new Uint8Array(16 * 1024);
+  bytes.fill(0x61, 0, 1024);
+  const { client } = streaming(bytes);
+  expect(await readTextPrefixIfText(client, link, new AbortController().signal, 1024)).toBe(
+    undefined,
+  );
+});
+
+it("an 8 KB file ending in half a character reads as binary", async () => {
+  const bytes = new Uint8Array(8 * 1024).fill(0x61);
+  bytes[bytes.length - 1] = 0xc3;
+  const { client } = streaming(bytes);
+  expect(await readTextPrefixIfText(client, link, new AbortController().signal)).toBe(undefined);
+});
+
+it("a character split by the 8 KB mark in a longer file still reads as text", async () => {
+  const text = `${"a".repeat(8 * 1024 - 1)}é and more`;
+  const { client } = streaming(new TextEncoder().encode(text), 1000);
+  const prefix = await readTextPrefixIfText(client, link, new AbortController().signal);
+  expect(prefix?.text).toBe(text);
+});
+
+it("the same bytes read the same from a link and from a local file", async () => {
+  // 8 KB of two-byte characters, then a NUL past the sniff.
+  const bytes = new TextEncoder().encode(`${"é".repeat(4096)}\u0000tail`);
+  const { client } = streaming(bytes);
+  const signal = new AbortController().signal;
+  const linked = await readTextPrefixIfText(client, link, signal);
+  const local = await readTextPrefixIfText(
+    client,
+    { kind: "file", file: new File([bytes], "x") },
+    signal,
+  );
+  expect(linked).toBeDefined();
+  expect(local).toEqual(linked);
 });
 
 it("a short unknown text file reads whole and untruncated", async () => {

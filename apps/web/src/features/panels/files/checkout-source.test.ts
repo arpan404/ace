@@ -40,8 +40,12 @@ function holding(bytes: Uint8Array): ClientApi {
 test("a checkout image over the text limit is still read whole for the image viewer", async () => {
   const png = new Uint8Array(3 * 1024 * 1024);
   png.set([137, 80, 78, 71, 13, 10, 26, 10]);
+  png[png.length - 1] = 0x42;
   const read = await daemonCheckout(holding(png)).read("thread", "docs/screenshot.png");
-  expect(read.kind).toBe("image");
+  if (read.kind !== "image") throw new Error(`read as ${read.kind}`);
+  const bytes = new Uint8Array(await read.blob.arrayBuffer());
+  expect(bytes.length).toBe(png.length);
+  expect(bytes).toEqual(png);
 });
 
 test("a checkout source file over the text limit still says it is too large", async () => {

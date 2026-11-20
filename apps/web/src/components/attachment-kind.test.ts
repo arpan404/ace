@@ -33,6 +33,11 @@ describe("describeFile", () => {
     expect(describeFile({ name, mimeType, kind: "binary" }).preview).toBe("none");
   });
 
+  it("a refused picture named like a video still offers only Download", () => {
+    const file = { name: "capture.mp4", mimeType: "image/png", kind: "binary" } as const;
+    expect(describeFile(file).preview).toBe("none");
+  });
+
   it("a declared text type wins over an image name", () => {
     expect(describeFile({ name: "notes.png", mimeType: "text/plain" }).preview).toBe("text");
   });
