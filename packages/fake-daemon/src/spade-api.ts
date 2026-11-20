@@ -898,6 +898,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
         body.may_create_bots === "no"
       )
         agent.may_create_bots = body.may_create_bots;
+      // As Spade: the person's accent (ADR 0200 §5.3), one colour or its face's.
+      if (body.style && typeof body.style === "object") {
+        if (agent.kind === "main") return problem(409, "Spade has no accent of its own.");
+        const accent = (body.style as Json).accent;
+        if (accent !== null && !(typeof accent === "string" && /^#[0-9a-f]{6}$/i.test(accent)))
+          return problem(400, "style.accent is one colour, like #2f7bea");
+        agent.style = { accent: accent === null ? null : accent.toLowerCase(), chosen: true };
+      }
       // As Spade: a task change is kept with who made it and why.
       if (typeof body.task === "string")
         this.tasks.change(

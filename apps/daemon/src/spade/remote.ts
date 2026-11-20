@@ -65,8 +65,15 @@ export class SpadeRemote {
     return listed.flatMap((entry) => (entry ? [entry] : []));
   }
 
-  /** One inbox request for Spade on the machine with that host id, and how it went. */
-  async send(hostId: string, request: SpadeInboxRequest): Promise<SpadeRemoteOutcome> {
+  /**
+   * One inbox request for Spade on the machine with that host id, and how it went. `signal` ends
+   * a long poll early, as when this daemon closes.
+   */
+  async send(
+    hostId: string,
+    request: SpadeInboxRequest,
+    signal?: AbortSignal,
+  ): Promise<SpadeRemoteOutcome> {
     const machine = this.deps.directory.named(hostId);
     if (!machine)
       return { kind: "error", code: "unknown_machine", message: "No linked machine has that id." };
@@ -76,7 +83,7 @@ export class SpadeRemote {
           machine,
           await this.deps.origin(),
           { op: "spade", request },
-          { timeoutMs: inboxMs, maxBytes: answerBytes },
+          { timeoutMs: inboxMs, maxBytes: answerBytes, ...(signal ? { signal } : {}) },
         ),
       );
       if (!answer.success)

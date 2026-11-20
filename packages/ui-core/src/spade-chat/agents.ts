@@ -110,7 +110,27 @@ export interface SpadeAgent {
   archived: boolean;
   /** The agent package it is linked to (ADR 0200 §3.9), shown in its profile. */
   package?: SpadePackage | undefined;
+  /**
+   * Its accent (ADR 0200 §5.3): its package's `style.accent`, or the person's choice (`chosen`),
+   * where `accent` undefined means its face's colour. Undefined when it has none.
+   */
+  style?: SpadeAgentStyle | undefined;
 }
+
+export interface SpadeAgentStyle {
+  accent: string | undefined;
+  chosen: boolean;
+}
+
+const styleShape = z.object({
+  accent: z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/i)
+    .transform((hex) => hex.toLowerCase())
+    .nullish()
+    .catch(undefined),
+  chosen: z.boolean().catch(false).default(false),
+});
 
 const avatarShape = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("spade") }),
@@ -232,8 +252,15 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     madeBy: madeByShape.safeParse(record.made_by).data,
     archived: record.archived === true,
     package: parseSpadePackage(record.package),
+    style: main ? undefined : spadeAgentStyle(record.style),
     raw: record,
   };
+}
+
+function spadeAgentStyle(raw: unknown): SpadeAgentStyle | undefined {
+  const parsed = styleShape.safeParse(raw).data;
+  if (!parsed || (!parsed.accent && !parsed.chosen)) return undefined;
+  return { accent: parsed.accent ?? undefined, chosen: parsed.chosen };
 }
 
 /** `GET /v1/agents`: the agents as Spade orders them; undefined when the body has no list. */

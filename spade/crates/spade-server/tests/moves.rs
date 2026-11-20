@@ -621,3 +621,32 @@ async fn a_moved_bot_keeps_its_package_link_and_installed_version() -> Result {
     assert_eq!(arrived["package"]["version"], "1.0.0", "{arrived}");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_moved_bot_keeps_the_accent_the_person_chose() -> Result {
+    let (_fleet, laptop, studio) = pair().await?;
+    let bot = furnished(&laptop).await?;
+    let (status, body) = laptop
+        .patch(
+            &format!("/v1/agents/{bot}"),
+            json!({ "style": { "accent": "#8b5cf6" } }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+
+    let (status, started) = move_bot(&laptop, &studio, &bot, "mv_style", "host-studio").await?;
+    assert_eq!(status, 202, "{started}");
+    assert_eq!(
+        move_ends(&laptop, &bot).await?,
+        Value::Null,
+        "the move took"
+    );
+
+    let arrived = listed(&studio, &bot).await?.ok_or("not on the studio")?;
+    assert_eq!(
+        arrived["style"],
+        json!({ "accent": "#8b5cf6", "chosen": true }),
+        "{arrived}"
+    );
+    Ok(())
+}

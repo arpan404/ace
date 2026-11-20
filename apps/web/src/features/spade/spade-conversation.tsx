@@ -201,6 +201,7 @@ export function Conversation(props: {
       id: bot.id,
       name: bot.name,
       avatar: bot.avatar,
+      style: bot.style,
       others: new Map(
         props.roster
           .filter((other) => other.machine.key === bot.machine.key)

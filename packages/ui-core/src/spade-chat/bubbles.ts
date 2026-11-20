@@ -41,7 +41,7 @@ type SpadeBubbleOf =
       /** Not stored by Spade yet. */
       sending: boolean;
       /** Written in an ace thread (ADR 0198): the line above links back to it. */
-      fromThread?: { id: string; title: string } | undefined;
+      fromThread?: { id: string; title: string; machine?: string | undefined } | undefined;
     }
   /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
   | { kind: "routine"; key: string; name: string; label: string }

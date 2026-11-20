@@ -61,6 +61,7 @@ mod security;
 mod self_edit;
 mod services;
 mod speech;
+mod style;
 mod thread_asks;
 mod trim;
 mod try_again;

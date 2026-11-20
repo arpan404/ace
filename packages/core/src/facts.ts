@@ -178,6 +178,8 @@ export type Fact =
     }
   /** The ports a running task's processes listen on now; empty when none (ADR 0109). */
   | { type: "background.listening"; task: Key; ports: number[] }
+  /** ace's own task waits on the person elsewhere, or no longer does (ADR 0198). */
+  | { type: "background.waiting"; task: Key; waiting: boolean }
   | {
       type: "background.ended";
       task: Key;

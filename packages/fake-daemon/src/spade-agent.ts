@@ -36,6 +36,8 @@ export interface FakeSpadeAgent {
   arrived?: Json | null;
   /** The agent package it is linked to (ADR 0200 §3.9). */
   package?: Json | null;
+  /** Its accent (ADR 0200 §5.3): `{accent, chosen}`, as Spade shows it; null for none. */
+  style?: { accent: string | null; chosen: boolean } | null;
   /**
    * A bot made from an ace template: the newer template version this Spade ships, as
    * `GET …/package/template` answers it (`{package, recipe, plan, effects}`).

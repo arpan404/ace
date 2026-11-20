@@ -51,7 +51,8 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Rows.** 64px, a 40px face, the name in 14/20 at 500 and one line in 13/20. No time, no glyph
   at the end: the order already says what is recent. A development bot (ADR 0200 §9, linked to a
   package folder by `ace bot dev`) has one quiet word after its name, "Development", in 13/20 at
-  400 in the subtle ink: no badge, no chip, no tint. Its Running row says the same.
+  400 in the subtle ink: no badge, no chip, no tint. Its Running row says the same. A bot with an accent (§7) has a 2×16px
+  rule in it at the row's left edge; other rows have none.
 - **Order.** Spade first, then needs you, then working, failed, finished and not seen, then the rest.
 - **Row states.**
 
@@ -178,7 +179,12 @@ Spade is one of ace's places. It adds no navigation of its own.
   and Forget all behind a confirm; the person's own words are never in it.
 - **Personality** (a section of Details, after Runs with): Tone (its own way, Concise, Warm,
   Formal, Playful), Humour and Emoji switches, off until turned on. Saved as each changes, taken
-  from the next turn.
+  from the next turn. Then **Accent** (not for Spade): "Its face's colour", then the curated
+  colours (Blue, Teal, Green, Orange, Magenta, Violet) that hold 3:1 on the page, raised and panel
+  surfaces of both schemes of the theme or Suit on screen; one that doesn't is left out, and with
+  none left one sentence says so. A package's colour shows chosen (as "Its package's colour" when
+  it isn't a curated one) until the person picks; their pick is kept through updates. A bot with
+  an accent rings its 96px head face in it, 2px with a 4px gap.
 - **Computer:** the surfaces it used (screen, browser, terminal) live at panel size, Activity in
   words (only exceptions stand out), and Take over only while it drives (it is at work and the
   surface is live, never live alone: Spade keeps a surface live a while after its last use);
@@ -244,6 +250,16 @@ and checked switches. The bubble is the accent, not each bot's colour: face colo
 the status hues, and a bubble that changed per chat would make the person look like the bot. On
 Ink, ace's default accent, the bubble is solid ink. Faces keep their own colours: they are the
 bots' marks.
+
+**A bot's accent** (ADR 0200 §5.3) is one colour from its package's `style.accent` or the
+person's choice in its profile. It marks only the bot's own things: its profile face's ring, its
+list row's rule, its cards' title rule and, when panels arrive, its panel's header. Never a fill,
+a tinted background, status, an approval, the Working line or a waiting marker. Each scheme is
+checked against the live theme or Suit's surfaces at 3:1; one that fails is drawn in the face's
+pair colour instead. A card's title rule always has a colour (the face's when the bot has no
+accent); the ring and the row rule appear only for a bot with an accent, so a list of ordinary
+bots stays neutral. Spade itself and a bot with a picture face have no pair colour, so they fall
+back to nothing.
 
 ## 8. Tokens
 

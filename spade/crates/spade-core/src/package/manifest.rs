@@ -112,6 +112,13 @@ pub struct Style {
     pub accent: String,
 }
 
+/// `hex` as an accent: one `#rrggbb` colour, lower-cased; `None` for anything else.
+pub fn accent(hex: &str) -> Option<String> {
+    let well_formed =
+        hex.len() == 7 && hex.starts_with('#') && hex[1..].chars().all(|c| c.is_ascii_hexdigit());
+    well_formed.then(|| hex.to_ascii_lowercase())
+}
+
 /// What starts its work (ADR 0200 §3.5).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -459,17 +466,9 @@ impl Reader<'_> {
     fn style(&mut self) -> Option<Style> {
         let style = self.fields.get("style")?;
         let accent = style.get("accent").and_then(Value::as_str);
-        match accent {
-            Some(hex)
-                if hex.len() == 7
-                    && hex.starts_with('#')
-                    && hex[1..].chars().all(|c| c.is_ascii_hexdigit()) =>
-            {
-                Some(Style {
-                    accent: hex.to_ascii_lowercase(),
-                })
-            }
-            _ => {
+        match accent.and_then(self::accent) {
+            Some(accent) => Some(Style { accent }),
+            None => {
                 self.problem("style.accent is one colour, like #2F7BEA");
                 None
             }

@@ -20,7 +20,12 @@ const groupEvent = z.discriminatedUnion("type", [
     from: spadeGroupBotShape.nullish().catch(undefined),
     /** The person wrote it in an ace thread (ADR 0198). */
     thread: z
-      .object({ id: z.string().min(1), title: z.string().catch("") })
+      .object({
+        id: z.string().min(1),
+        title: z.string().catch(""),
+        /** The person's other machine the thread is on; absent for this machine's. */
+        machine: z.string().max(256).optional().catch(undefined),
+      })
       .nullish()
       .catch(undefined),
   }),
@@ -55,7 +60,7 @@ export type SpadeGroupItem =
       kind: "person";
       key: string;
       text: string;
-      fromThread?: { id: string; title: string } | undefined;
+      fromThread?: { id: string; title: string; machine?: string | undefined } | undefined;
     }
   | { kind: "member"; key: string; bot: SpadeGroupBot; text: string }
   /** A handoff, a queued ask, one that failed, Stop: a short muted line. */
@@ -173,7 +178,15 @@ function foldEvent(state: SpadeGroupState, event: GroupEvent, key: string): bool
         kind: "person",
         key,
         text: event.text,
-        ...(event.thread ? { fromThread: { id: event.thread.id, title: event.thread.title } } : {}),
+        ...(event.thread
+          ? {
+              fromThread: {
+                id: event.thread.id,
+                title: event.thread.title,
+                ...(event.thread.machine ? { machine: event.thread.machine } : {}),
+              },
+            }
+          : {}),
       });
       return true;
     }
@@ -230,7 +243,7 @@ export type SpadeGroupRow =
       text: string;
       sending: boolean;
       /** Written in an ace thread (ADR 0198): the line above links back to it. */
-      fromThread?: { id: string; title: string } | undefined;
+      fromThread?: { id: string; title: string; machine?: string | undefined } | undefined;
     }
   | {
       kind: "member";

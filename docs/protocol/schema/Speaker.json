@@ -43,6 +43,23 @@
       "const": "bot",
       "type": "string"
     },
+    "machine": {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/HostId.json"
+        },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
     "name": {
       "maxLength": 120,
       "minLength": 1,

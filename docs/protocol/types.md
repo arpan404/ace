@@ -1538,11 +1538,14 @@ Example:
 
 ```json
 {
-  "detail": "example",
-  "state": "sending",
+  "state": "queued",
   "to": {
     "id": "example",
     "kind": "club",
+    "machine": {
+      "id": "example",
+      "name": "example"
+    },
     "name": "example"
   }
 }
@@ -1560,6 +1563,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":128} |
 | name | yes | string | {"minLength":1,"maxLength":120} |
 | avatar | no | [SpadeFaceJson.json](schema/SpadeFaceJson.json) |  |
+| machine | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["id","name"]} |
 
 Example:
 
@@ -1580,6 +1584,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":128} |
 | name | yes | string | {"minLength":1,"maxLength":120} |
 | faces | no | array | {"default":[],"maxItems":3,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"avatar":{"$ref":"https://ace.local/protocol/v1/SpadeFaceJson.json"}},"required":["id"]}} |
+| machine | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["id","name"]} |
 
 Example:
 
@@ -44410,6 +44415,7 @@ Example:
 | name | yes | string | {"minLength":1,"maxLength":120} |
 | avatar | no | [SpadeFaceJson.json](schema/SpadeFaceJson.json) |  |
 | club | no | object | {"properties":{"id":{"type":"string","minLength":1,"maxLength":128},"name":{"type":"string","minLength":1,"maxLength":120}},"required":["id","name"]} |
+| machine | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["id","name"]} |
 | about | yes | string | {"minLength":1,"maxLength":256} |
 | ask | no | string | {"minLength":1,"maxLength":160} |
 
@@ -44418,6 +44424,7 @@ Example:
 ```json
 {
   "about": "example",
+  "ask": "example",
   "id": "example",
   "kind": "bot",
   "name": "example"
