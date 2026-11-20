@@ -1,26 +1,23 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
-import { bytes, expand, menuPick, openExplorer, row, tabNames } from "./explorer-test-support.ts";
+import { openExplorer } from "./explorer-test-support.ts";
+import { bytes, expand, menuPick, renderTree, row } from "./tree-test-support.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
 afterEach(() => vi.restoreAllMocks());
 
-test("a file row's menu opens it in a new tab and keeps the tab it came from", async () => {
-  const { panel, tree } = await openExplorer();
-  await userEvent.click(await row(tree, "README.md"));
-  await within(panel).findByRole("tab", { name: "README.md", selected: true });
-  const tree2 = within(panel).getByRole("tree", { name: "Checkout files" });
-  await expand(tree2, ["apps/", "apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
-  await menuPick(await row(tree2, "apps/web/src/relay/socket.ts"), /^Open in new tab/);
-  await within(panel).findByRole("tab", { name: "socket.ts", selected: true });
-  // The preview README.md came from stays: a new tab never replaces one.
-  expect(tabNames(panel)).toContain("README.md");
+test("a file row's menu opens it in a new tab", async () => {
+  const { tree, outputs } = await renderTree();
+  await expand(tree, ["apps/", "apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
+  await menuPick(await row(tree, "apps/web/src/relay/socket.ts"), /^Open in new tab/);
+  // A new tab never replaces the preview it came from (tree-open.test.tsx, in the app).
+  expect(outputs.opened).toEqual([{ path: "apps/web/src/relay/socket.ts", how: "tab" }]);
 });
 
 test("Shift+F10 opens a row's menu, each action showing its shortcut", async () => {
-  const { tree } = await openExplorer();
+  const { tree } = await renderTree();
   (await row(tree, "README.md")).focus();
   await userEvent.keyboard("{Shift>}{F10}{/Shift}");
   const menu = await screen.findByRole("menu");
@@ -30,7 +27,7 @@ test("Shift+F10 opens a row's menu, each action showing its shortcut", async () 
 });
 
 test("a folder row's New file starts in that folder", async () => {
-  const { tree } = await openExplorer();
+  const { tree } = await renderTree();
   await menuPick(await row(tree, "apps/"), "New file…");
   const dialog = await screen.findByRole("dialog", { name: "New file" });
   expect(within(dialog).getByRole<HTMLInputElement>("textbox", { name: "Path" }).value).toBe(
@@ -39,24 +36,24 @@ test("a folder row's New file starts in that folder", async () => {
 });
 
 test("Duplicate copies a file beside it as 'name copy' with the same contents", async () => {
-  const { app, tree } = await openExplorer();
-  const before = await bytes(app, "README.md");
+  const { client, tree } = await renderTree();
+  const before = await bytes({ client }, "README.md");
   await menuPick(await row(tree, "README.md"), "Duplicate");
   expect(await row(tree, "README copy.md")).toBeTruthy();
-  expect(await bytes(app, "README copy.md")).toBe(before);
+  expect(await bytes({ client }, "README copy.md")).toBe(before);
   await menuPick(await row(tree, "README.md"), "Duplicate");
   expect(await row(tree, "README copy 2.md")).toBeTruthy();
 });
 
 test("Duplicate copies a folder and everything in it", async () => {
-  const { app, tree } = await openExplorer();
+  const { client, tree } = await renderTree();
   await expand(tree, ["apps/", "apps/web/", "apps/web/src/"]);
   await menuPick(await row(tree, "apps/web/src/relay/"), "Duplicate");
   const copy = await row(tree, "apps/web/src/relay copy/");
   await userEvent.click(copy);
   await row(tree, "apps/web/src/relay copy/socket.ts");
-  expect(await bytes(app, "apps/web/src/relay copy/socket.ts")).toBe(
-    await bytes(app, "apps/web/src/relay/socket.ts"),
+  expect(await bytes({ client }, "apps/web/src/relay copy/socket.ts")).toBe(
+    await bytes({ client }, "apps/web/src/relay/socket.ts"),
   );
 });
 
@@ -66,7 +63,7 @@ test("Copy path copies the checkout path and Copy relative path the path inside 
     configurable: true,
     value: { writeText: (text: string) => (written.push(text), Promise.resolve()) },
   });
-  const { tree } = await openExplorer();
+  const { tree } = await renderTree();
   await expand(tree, ["apps/"]);
   await menuPick(await row(tree, "apps/web/"), "Copy relative path");
   await waitFor(() => expect(written.at(-1)).toBe("apps/web"));
@@ -74,11 +71,11 @@ test("Copy path copies the checkout path and Copy relative path the path inside 
   await waitFor(() => expect(written.at(-1)).toMatch(/^\/.+\/apps\/web$/));
 });
 
-test("Mention in chat puts the file in the thread's message", async () => {
-  const { tree } = await openExplorer();
+test("Mention in chat hands the file to the thread's composer", async () => {
+  const { tree, outputs } = await renderTree();
   await menuPick(await row(tree, "README.md"), "Mention in chat");
-  const message = screen.getByRole("combobox", { name: "Message" });
-  await waitFor(() => expect(message.textContent).toContain("@README.md"));
+  // What the composer then does with it is files.test.tsx's, in the app.
+  expect(outputs.mentions).toEqual([[{ path: "README.md" }]]);
 });
 
 test("Find in folder searches file contents inside that folder", async () => {
@@ -96,7 +93,7 @@ test("Find in folder searches file contents inside that folder", async () => {
 });
 
 test("Collapse folders below folds the folders inside and leaves the folder open", async () => {
-  const { tree } = await openExplorer();
+  const { tree } = await renderTree();
   await expand(tree, ["apps/", "apps/web/", "apps/web/src/"]);
   await menuPick(await row(tree, "apps/"), "Collapse folders below");
   await waitFor(() => expect(tree.querySelector('[data-path="apps/web/src/"]')).toBeNull());
@@ -105,8 +102,8 @@ test("Collapse folders below folds the folders inside and leaves the folder open
 });
 
 test("the tree's empty space acts on the checkout's root", async () => {
-  const { panel } = await openExplorer();
-  const empty = panel.querySelector<HTMLElement>('[data-part="tree-root"]');
+  await renderTree();
+  const empty = document.querySelector<HTMLElement>('[data-part="tree-root"]');
   if (!empty) throw new Error("No empty tree space");
   await menuPick(empty, "New folder…");
   const dialog = await screen.findByRole("dialog", { name: "New folder" });
@@ -119,10 +116,10 @@ test("the tree's empty space acts on the checkout's root", async () => {
 });
 
 test("Reveal shows the file in the machine's file manager when ace runs on this computer", async () => {
-  const { app, tree } = await openExplorer();
+  const { client, tree } = await renderTree();
   const opened: unknown[] = [];
-  const request = app.client.request.bind(app.client);
-  vi.spyOn(app.client, "request").mockImplementation((input, options) => {
+  const request = client.request.bind(client);
+  vi.spyOn(client, "request").mockImplementation((input, options) => {
     if (input.type === "workspace.request" && input.operation.op === "host.open")
       opened.push(input.operation);
     return request(input, options);
