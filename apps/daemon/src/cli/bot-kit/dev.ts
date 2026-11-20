@@ -101,8 +101,8 @@ export async function devStep(root: string, io: DevIo, state: State): Promise<Cl
   const listed = await io.exchange("GET", "/v1/agents");
   if (listed.status !== 200) throw new CliFailure("failed", said(listed));
   const name = String(now.recipe["name"]);
-  const key = devFolderKey(folder);
-  state.bot ??= devBotOf(json(listed), key);
+  const folderKey = devFolderKey(folder);
+  state.bot ??= devBotOf(json(listed), folderKey);
   const hash = now.checked.hash;
   if (!state.bot) {
     const ok = await io.confirm(
@@ -119,7 +119,7 @@ export async function devStep(root: string, io: DevIo, state: State): Promise<Cl
       "/v1/agents",
       installBody({
         recipe: now.recipe,
-        folder: key,
+        folder: folderKey,
         switches: allOn(now.keys),
         transaction: `dev-${randomUUID()}`,
       }),

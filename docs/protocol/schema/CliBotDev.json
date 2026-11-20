@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliBotDev.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bot": {
+      "type": "string"
+    },
+    "hash": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "step": {
+      "enum": [
+        "installed",
+        "updated",
+        "unchanged",
+        "waiting",
+        "refused"
+      ],
+      "type": "string"
+    },
+    "why": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "step",
+    "bot",
+    "name",
+    "hash"
+  ],
+  "type": "object"
+}

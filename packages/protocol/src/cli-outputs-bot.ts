@@ -10,12 +10,17 @@ import { CliProblem } from "./cli-output.ts";
 export const CliBotStarter = z.enum(["blank", "watcher", "club-member"]);
 export type CliBotStarter = z.infer<typeof CliBotStarter>;
 
-/** `ace bot init`: the folder made and every file written in it. */
+/**
+ * `ace bot init`: the folder made and every file written in it; the template it started from, or
+ * with `--from`, the bot's id and what of the bot a package couldn't carry.
+ */
 export const CliBotInit = z.object({
   path: z.string(),
   name: z.string(),
-  template: CliBotStarter,
+  template: CliBotStarter.optional(),
+  from: z.string().optional(),
   files: z.array(z.string()),
+  left_out: z.array(z.string()).optional(),
 });
 export type CliBotInit = z.infer<typeof CliBotInit>;
 
