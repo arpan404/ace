@@ -36,7 +36,12 @@ export const antigravityQuirks: AcpQuirks = {
   experimental: true,
   clientMeta: {},
   toolKind(update) {
-    const name = string(update["name"]) || string(update["title"]);
+    // Identity fields first; the display title is the last resort, and it names a tool only
+    // when it is exactly one of the tool names below.
+    const name =
+      string(update["name"]) ||
+      string(object(update["rawInput"])["_toolName"]) ||
+      string(update["title"]);
     if (name.startsWith("chrome_devtools/")) return "browser";
     if (object(update["_meta"])["is_mcp_tool_call"]) return "mcp";
     return Object.hasOwn(names, name) ? names[name] : undefined;

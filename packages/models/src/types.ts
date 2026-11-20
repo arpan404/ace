@@ -28,6 +28,13 @@ export const ModelInstance = z
     profileRevision: z.string().max(256).optional(),
     installationVersion: z.string().max(256).optional(),
     loginRevision: z.string().min(1).max(256),
+    /**
+     * ACP agents only: when the catalog may open a metadata-only probe session (initialize and
+     * session/new, never a prompt). `automatic`: a reviewed profile, probed the first time a
+     * read asks for this row. `on-request`: an unprofiled agent, probed only when the person asks
+     * for this row's models. Absent: sessions alone report the row.
+     */
+    modelProbe: z.enum(["automatic", "on-request"]).optional(),
     /** The ACP method the person signed in with, selected again when the agent asks for one. */
     signInMethod: z.string().min(1).max(128).optional(),
     executable: z.string().max(4096).default(""),
@@ -75,7 +82,13 @@ export type DiscoverModels = (
   instance: ModelInstance,
   signal: AbortSignal,
   diagnostic?: (metadata: DiscoveryDiagnostics) => void,
-) => Promise<readonly CatalogModel[] & { sources?: readonly ModelSourceStatus[] }>;
+) => Promise<
+  readonly CatalogModel[] & {
+    sources?: readonly ModelSourceStatus[];
+    /** Session modes the probe's opened session reported (ACP agents). */
+    permissionModes?: readonly NativePermissionMode[];
+  }
+>;
 export type CacheEntry = {
   permissionModes?: readonly NativePermissionMode[] | undefined;
   provider: ModelInstance["provider"];
@@ -107,6 +120,12 @@ export interface ModelCatalogApi {
   /** Account revocation removes retained choices and drains obsolete writes before deletion. */
   invalidate(filter?: ModelFilter): Promise<void>;
   refresh(filter?: ModelFilter): Promise<ModelInstanceStatus[]>;
+  /**
+   * The person asked for one row's models (Load models): the only request that starts an ACP
+   * agent that is not already loading. Its caller admits only the person. Optional for embedded
+   * catalogs.
+   */
+  load?(instance: string): Promise<ModelInstanceStatus[]>;
   /**
    * Wait for the accounts in `filter` that have never loaded a model list, or loaded an empty one
    * that is due for discovery, as lazy discovery loads them: a discovery already running is

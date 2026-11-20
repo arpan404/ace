@@ -1,4 +1,6 @@
+import type { SystemPressure } from "@ace/diagnostics/pressure";
 import type { DaemonProcess } from "./child.ts";
+import type { StallReading } from "./grace.ts";
 import type { EndpointWatch } from "./readiness.ts";
 import type { FreezeSignal } from "./watchdog.ts";
 import type { AdmissionFacts, Health, LocalDaemon } from "./probe.ts";
@@ -56,6 +58,19 @@ export interface SupervisorPorts {
   maintenance(daemon: LocalDaemon): Promise<AdmissionFacts>;
   timers: { set(delayMs: number, callback: () => void): () => void };
   now(): number;
+  /**
+   * How loaded the machine is now (`@ace/diagnostics/pressure-read`). Read only when a decision
+   * needs it: missed health checks, a start past its budget, a restart. Without it (and without
+   * `stall`) the daemon is stopped after its missed checks as before.
+   */
+  pressure?: (() => Promise<SystemPressure>) | undefined;
+  /** The stall the daemon with this pid is in now, as its own watchdog wrote it; else undefined. */
+  stall?: ((pid: number) => Promise<StallReading | undefined>) | undefined;
+  /**
+   * A mark that changes whenever the starting daemon with this pid writes something (its log, its
+   * startup record, a stall report): a start still getting somewhere is not stopped as not ready.
+   */
+  startupProgress?: ((pid: number) => Promise<string | undefined>) | undefined;
   /** The app's one main-thread beat, so health checks need no beat of their own. */
   freezes?: FreezeSignal | undefined;
   /** Every supervisor decision is logged with the facts behind it, so restarts can be explained. */

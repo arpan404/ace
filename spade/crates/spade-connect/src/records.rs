@@ -65,6 +65,9 @@ pub struct Record {
     #[serde(default)]
     pub needs_reconnect: bool,
     pub added_ms: i64,
+    /// When a bot last ran one of its tools, to the minute ([`crate::USED_EVERY_MS`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used_ms: Option<i64>,
 }
 
 /// Which connectors a bot may use.

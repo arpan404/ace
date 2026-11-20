@@ -60,7 +60,11 @@ for (const empty of [false, true])
         onExit: () => {},
       });
       expect(session.nativeSessionId).toBeTruthy();
-      expect(requests).toEqual([
+      // Opening settles the session's environment over ace's plugin RPC; nothing else is sent,
+      // so no input (no prompt or message) reaches the model.
+      const environment = "/api/rpc/ace.agent.environment/settle";
+      expect(requests.filter((request) => request.path === environment)).toHaveLength(1);
+      expect(requests.filter((request) => request.path !== environment)).toEqual([
         {
           path: "/api/session",
           body: {

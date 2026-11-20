@@ -1,6 +1,7 @@
 import { daemonMcpCapabilities } from "./services/mcp-capabilities.ts";
 import { createAcpAdapter, genericQuirks } from "@ace/adapter-acp";
 import { acpModelInstanceId } from "./acp-model-instance.ts";
+import { acpAccount, acpCatalogInstance, ensureAcpAccount } from "./acp-catalog.ts";
 import {
   acpAgentCli,
   geminiTrustEnv,
@@ -22,7 +23,6 @@ import { claudeToolSearchFacts } from "@ace/adapter-claude/tool-search";
 import type { EngineOptions, AdapterRegistry } from "./engine/index.ts";
 import type { Services } from "./services/types.ts";
 import type { DaemonOptions } from "./services/options.ts";
-import { createAcpInstance } from "@ace/accounts";
 import { homedir } from "node:os";
 import type { Store } from "./store.ts";
 export function acpEngineOptions(input: {
@@ -35,11 +35,13 @@ export function acpEngineOptions(input: {
   accounts?: Services["accounts"];
   accountRegistry?: Services["accountRegistry"];
   userHome?: string;
+  /** ace's data folder, which holds the catalog's probe folder (`acp-catalog.ts`). */
+  dataDir: string;
   capabilities?: McpCapability[];
   /** The checkout a worktree ace created was made from; undefined for any other folder. */
   worktreeSource?: (path: string) => string | undefined;
   report(error: unknown): void;
-}): Pick<EngineOptions, "sessionContext"> {
+}): Pick<EngineOptions, "sessionContext" | "sessionCatalog"> {
   input.registry.register(
     createAcpAdapter(genericQuirks, {
       acceptsIdentity: (identity) => input.agents.has(identity),
@@ -55,39 +57,61 @@ export function acpEngineOptions(input: {
     }),
     { installed: true, auth: "unknown", loginHint: "Use the agent's own CLI login" },
   );
+  const accountFor = (identity: AcpIdentity) => acpAccount(input, identity);
+  const catalogInstance = (
+    identity: AcpIdentity,
+    loginRevision: string,
+    plan: Awaited<ReturnType<AgentRegistry["resolve"]>>,
+  ): InstanceInput =>
+    acpCatalogInstance(
+      identity,
+      loginRevision,
+      {
+        command: plan.command,
+        args: plan.args,
+        version: plan.version,
+        ...(plan.profile ? { profileRevision: plan.profile.revision } : {}),
+      },
+      input.dataDir,
+    );
   return {
+    /**
+     * A generic agent's catalog row exists before its model is chosen. Approved agents register
+     * theirs at start (`registerApprovedAcpAgents`); this covers an agent whose row could not
+     * be registered then. Checked without a read, so opening a session starts no probe.
+     */
+    async sessionCatalog(threadId) {
+      const thread = input.store.getThread(threadId);
+      if (thread?.provider !== "acp") return;
+      const identity = AcpIdentity.parse(thread);
+      const id = acpModelInstanceId(identity);
+      if (input.models.hasInstance(id)) return;
+      const account = accountFor(identity);
+      const plan = await input.agents.resolve(identity, account.env);
+      if (input.models.hasInstance(id)) return;
+      input.models.registerInstance(catalogInstance(identity, account.loginRevision, plan));
+    },
     async sessionContext(threadId, signal) {
       const thread = input.store.getThread(threadId);
+      // An Antigravity session reports its models and levels into its account's catalog row,
+      // as registered (with its login) when the session opens.
+      if (thread?.provider === "antigravity") {
+        const instance = input.models.registered(
+          input.store.atomic((db) =>
+            String(
+              db.prepare("SELECT instance_id FROM engine_sessions WHERE thread_id=?").get(threadId)
+                ?.instance_id ?? "antigravity-cli-default",
+            ),
+          ),
+        );
+        return instance
+          ? { onSessionMetadata: sessionMetadataWriter(input, instance, signal) }
+          : {};
+      }
       if (thread?.provider !== "acp") return {};
       const identity = AcpIdentity.parse(thread);
-      if (
-        input.accounts &&
-        input.accountRegistry &&
-        !input.accountRegistry.get(identity.instanceId)
-      ) {
-        const installation = input.agents.inventory
-          .list()
-          .find(
-            (entry) =>
-              entry.installationId === identity.installationId &&
-              entry.acpAgentId === identity.acpAgentId &&
-              entry.instanceId === identity.instanceId,
-          );
-        if (!installation) throw new Error("Approved ACP installation unavailable");
-        await input.accountRegistry.register(
-          createAcpInstance({
-            identity,
-            label: identity.acpAgentId.slice(0, 128),
-            userHome: input.userHome ?? homedir(),
-            installation,
-          }),
-        );
-      }
-      const account = input.options.acpEnvironment?.(identity) ??
-        input.accounts?.acpEnvironment(identity) ?? {
-          env: process.env,
-          loginRevision: "default-local",
-        };
+      await ensureAcpAccount(input, identity);
+      const account = accountFor(identity);
       const resolved = await input.agents.resolve(identity, account.env);
       const root = thread.rootAgentId;
       if (!root) throw new Error("ACP MCP caller unavailable");
@@ -154,46 +178,13 @@ export function acpEngineOptions(input: {
         serverInstructions: acpShowsServerInstructions(cli),
         session: lease.session,
       };
-      const instance: InstanceInput = {
-        id: acpModelInstanceId(identity),
-        provider: "acp",
-        ...identity,
-        loginRevision: account.loginRevision,
-        executable: plan.command,
-        cwd,
-        args: [...plan.args],
-        // Generic ACP never uses catalog-driven process discovery. Keep the launch
-        // environment only on its daemon-local plan, outside model metadata.
-        env: {},
-        profileRevision: plan.profile?.revision ?? "generic-v1",
-        installationVersion: plan.version,
-      };
+      const instance = catalogInstance(identity, account.loginRevision, plan);
       try {
         input.models.registerInstance(instance);
       } catch (error) {
         lease.end();
         throw error;
       }
-      let metadataPending: { value: unknown } | undefined;
-      let metadataFlight = false;
-      const drainMetadata = async () => {
-        if (metadataFlight) return;
-        metadataFlight = true;
-        try {
-          while (metadataPending && !signal.aborted) {
-            const value = metadataPending.value;
-            metadataPending = undefined;
-            try {
-              await input.models.updateFromSession(instance, value);
-            } catch (error) {
-              input.report(error);
-            }
-          }
-        } finally {
-          metadataPending = undefined;
-          metadataFlight = false;
-        }
-      };
       // Rendered once here, where the agent's listing is known, so its guidance stays stable.
       const injected = acpInjection(connection, cli === "antigravity" ? "antigravity" : "acp");
       return {
@@ -207,12 +198,44 @@ export function acpEngineOptions(input: {
           instructions: injected.developerInstructions,
           end: lease.end,
         },
-        onSessionMetadata(metadata) {
-          if (signal.aborted) return;
-          metadataPending = { value: metadata };
-          void drainMetadata().catch((error: unknown) => input.report(error));
-        },
+        onSessionMetadata: sessionMetadataWriter(input, instance, signal),
       };
     },
+  };
+}
+
+/**
+ * Writes a live session's metadata into its catalog row, newest first: a report that arrives
+ * while one is being written replaces any still waiting.
+ */
+function sessionMetadataWriter(
+  input: { models: ModelCatalog; report(error: unknown): void },
+  instance: InstanceInput,
+  signal: AbortSignal,
+): (metadata: unknown) => void {
+  let pending: { value: unknown } | undefined;
+  let flight = false;
+  const drain = async () => {
+    if (flight) return;
+    flight = true;
+    try {
+      while (pending && !signal.aborted) {
+        const value = pending.value;
+        pending = undefined;
+        try {
+          await input.models.updateFromSession(instance, value);
+        } catch (error) {
+          input.report(error);
+        }
+      }
+    } finally {
+      pending = undefined;
+      flight = false;
+    }
+  };
+  return (metadata) => {
+    if (signal.aborted) return;
+    pending = { value: metadata };
+    void drain().catch((error: unknown) => input.report(error));
   };
 }

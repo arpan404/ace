@@ -1,4 +1,6 @@
 import { followLoginPath } from "../login-path-handoff.ts";
+import { isAgentDevice } from "../answer-gate.ts";
+import { reauthSentence } from "../marketplace/fresh-sign-in.ts";
 import { join } from "node:path";
 import {
   AgentCatalog,
@@ -23,10 +25,13 @@ export async function startAgentRegistry(context: ServiceContext): Promise<void>
   const registry = await AgentRegistry.open({
     catalog,
     root: join(root, "installations"),
+    // Launches run copies of the approved files from here, not files an agent can rewrite.
+    pinned: join(root, "pinned"),
     target,
     storage: fileInventoryStorage(join(root, "inventory.json"), id),
     digests: fileDigestMemory(join(root, "digests.json"), id),
     env: followLoginPath(options.loginPath, { ...process.env, ...options.providerStatus?.env }),
+    now,
     ...(options.acpManagers ? { managers: options.acpManagers } : {}),
   });
   resources.own(() => registry.close());
@@ -35,8 +40,21 @@ export async function startAgentRegistry(context: ServiceContext): Promise<void>
   }
   services.agentRegistry = registry;
 }
-export function createAgentRegistrySession(context: SocketContext): SocketService {
-  const { options, authorize, send, tasks } = context;
+// What runs is the person's to approve (ADR 0044): an agent's device never binds, installs or
+// approves an update, its own included, whatever its credential's scopes. Nor does a socket
+// that hasn't proved the person (ADR 0190): the host token, which any process of theirs can
+// read, and a paired device's bearer token alone, carry admin without proving who asks.
+const personOnly = (type: RegistryRequest["type"]): boolean =>
+  type === "registry.bind" ||
+  type === "registry.install-intent" ||
+  type === "registry.approve-update";
+/** What the registry's socket service reads of its socket. */
+export type AgentRegistrySessionContext = Pick<
+  SocketContext,
+  "authorize" | "send" | "tasks" | "device" | "connected" | "personProven"
+> & { options: Pick<SocketContext["options"], "agentRegistry" | "acpCatalog"> };
+export function createAgentRegistrySession(context: AgentRegistrySessionContext): SocketService {
+  const { options, authorize, send, tasks, device } = context;
   let pending = 0;
   return {
     async handle(message) {
@@ -49,6 +67,7 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
           "registry.install-plan",
           "registry.install-intent",
           "registry.install-cancel",
+          "registry.approve-update",
         ].includes(message.type)
       )
         return false;
@@ -74,6 +93,14 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
         failure("operate scope required");
         return true;
       }
+      if (scope === "admin" && isAgentDevice(device())) {
+        failure("Only the person can approve agents: agents can't.");
+        return true;
+      }
+      if (personOnly(request.type) && context.personProven?.() !== true) {
+        failure(reauthSentence);
+        return true;
+      }
       if (!options.agentRegistry) {
         failure("Agent registry unavailable");
         return true;
@@ -87,6 +114,8 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
         .handle(request)
         .then(
           (result) => {
+            if (request.type === "registry.approve-update" && result.result.ok)
+              options.acpCatalog?.updated(request);
             if (!context.connected()) return;
             if (!authorize(scope) || (scope === "admin" && !authorize("operate"))) return;
             if (Buffer.byteLength(JSON.stringify(result)) > 1024 * 1024)

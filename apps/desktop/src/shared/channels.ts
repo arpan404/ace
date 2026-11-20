@@ -25,8 +25,11 @@ import {
   NativeAppearance,
   NotifyRequest,
   OpenInEditor,
+  MicrophonePermission,
   PermissionPane,
   Permissions,
+  SpadeTalkPhase,
+  SpadeTalkState,
   RevealPath,
   ThemeSource,
   WindowBackground,
@@ -172,6 +175,10 @@ export const requests = {
   "settings.shortcutHint": { request: None, result: z.string().max(500).nullable() },
   "permissions.status": { request: None, result: Permissions },
   "permissions.open": { request: PermissionPane, result: z.boolean() },
+  /** The app's microphone permission, asking the person first where the OS has not yet. */
+  "permissions.microphone": { request: None, result: MicrophonePermission },
+  /** What the push-to-talk shortcut still needs on this desktop, in a sentence; null: nothing. */
+  "settings.talkShortcutHint": { request: None, result: z.string().max(500).nullable() },
   "browser.place": { request: BrowserPlacement, result: BrowserPlacementReceipt },
   /** The shown view's picture, held in its place while an app overlay covers it. */
   "browser.snapshot": { request: BrowserThread, result: BrowserSnapshot },
@@ -233,6 +240,17 @@ export const requests = {
   /** Open a live stream; its frames and end arrive as `spade.live` events. */
   "spade.live.open": { request: SpadeLiveOpen, result: None },
   "spade.live.close": { request: SpadeLiveClose, result: None },
+  /**
+   * The menu-bar popover (macOS): open the app window (on a thread or page when given) and
+   * close the popover; fit the popover to its page's height; close it (Esc); quit, or quit
+   * completely.
+   */
+  "tray.open": { request: DeepLink.nullable(), result: None },
+  "tray.fit": { request: z.number().int().min(40).max(1200), result: None },
+  "tray.hide": { request: None, result: None },
+  "tray.quit": { request: z.object({ completely: z.boolean() }), result: None },
+  /** How the push-to-talk turn goes, for the floating indicator. */
+  "spade.talkState": { request: SpadeTalkState, result: None },
 } as const;
 export type RequestChannel = keyof typeof requests;
 export type RequestOf<C extends RequestChannel> = z.input<(typeof requests)[C]["request"]>;
@@ -269,6 +287,8 @@ export const events = {
   "spade.live": SpadeLiveEvent,
   /** Spade's files changed (it started, stopped or restarted): ask `spade.endpoint` again. */
   "spade.endpoint.changed": None,
+  /** The push-to-talk shortcut was pressed (or its indicator's Cancel). */
+  "spade.talk": SpadeTalkPhase,
 } as const;
 export type EventChannel = keyof typeof events;
 export type EventOf<C extends EventChannel> = z.output<(typeof events)[C]>;

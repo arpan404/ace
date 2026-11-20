@@ -1,4 +1,6 @@
 import {
+  parseSpadeLocalServers,
+  type SpadeLocalServer,
   parseSpadeAgent,
   parseSpadeAgents,
   parseSpadeEndpoint,
@@ -6,6 +8,8 @@ import {
   parseSpadeModels,
   parseSpadeSearchSettings,
   parseSpadeSubscriptions,
+  parseSpadeTaskHistory,
+  parseSpadeUndone,
   parseSpadeTranscription,
   type SpadeAgent,
   type SpadeEndpoint,
@@ -13,8 +17,15 @@ import {
   type SpadeModelInfo,
   type SpadeModels,
   type SpadeSubscription,
+  type SpadeTaskVersion,
 } from "@ace/ui-core/spade-chat";
-import { segment, spadeBody, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
+import {
+  segment,
+  spadeBody,
+  spadeHttp,
+  spadePostBlob,
+  type SpadeTarget,
+} from "./spade-requests.ts";
 
 /*
  * Spade's agent, endpoint and model routes (ADR 0126, 0127), each answer parsed with
@@ -45,16 +56,22 @@ export interface SpadeAgentDraft {
   model: string;
   /** Absent: Spade picks a face. */
   avatar?: SpadeAvatarChoice;
+  /** How it talks (`spadePersonalityBody`); `null` leaves it to the bot. */
+  personality?: Record<string, unknown> | null;
 }
 
 /**
  * A new bot. From a template (ADR 0132) the model may be left out (the template's kind picks
  * it), and its routines are made in `time_zone`, an IANA zone.
  */
-export type SpadeNewAgent = Omit<SpadeAgentDraft, "model"> & {
+export type SpadeNewAgent = Omit<SpadeAgentDraft, "model" | "name"> & {
+  /** Absent with `naming`: the bot names itself in its first reply. */
+  name?: string;
   model?: string;
   template?: string;
   time_zone?: string;
+  /** Made from one message: the bot chooses its name and face as it starts. */
+  naming?: boolean;
 };
 
 /**
@@ -90,10 +107,36 @@ export async function createAgent(
 export async function editAgent(
   target: SpadeTarget,
   id: string,
-  change: Partial<SpadeAgentDraft>,
+  change: Partial<SpadeAgentDraft> & {
+    /** The person's one line on a task change (Undo, a restore), kept in its history. */
+    task_why?: string;
+    /** Whether it may make bots for the person (ADR 0161, amendment 1). */
+    may_create_bots?: "yes" | "ask" | "no";
+  },
 ): Promise<SpadeAgent> {
   const body = await spadeHttp(target, "PATCH", `/v1/agents/${segment(id)}`, { body: change });
   return sure(parseSpadeAgent(body), "agent");
+}
+
+/** Each version of the bot's task, newest first, with who changed it and why. */
+export async function readTaskHistory(
+  target: SpadeTarget,
+  id: string,
+  options: Signal = {},
+): Promise<SpadeTaskVersion[]> {
+  const body = await spadeHttp(target, "GET", `/v1/agents/${segment(id)}/task/history`, options);
+  return sure(parseSpadeTaskHistory(body), "task history");
+}
+
+/**
+ * Undo on a bot another bot made (ADR 0161, amendment 1): `removed` when it never acted outside
+ * itself, else `archived` (kept, stopped, its routines paused).
+ */
+export async function undoMade(target: SpadeTarget, id: string): Promise<"removed" | "archived"> {
+  const body = await spadeHttp(target, "POST", `/v1/agents/${segment(id)}/undo-made`, {
+    body: {},
+  });
+  return sure(parseSpadeUndone(body), "undo");
 }
 
 /** Deletes the agent and its conversation. */
@@ -162,6 +205,32 @@ export async function addEndpoint(
   return sure(parseSpadeEndpoint(body), "new endpoint");
 }
 
+/** Model servers on this computer (Ollama, LM Studio): running or not, and their models. */
+export async function readLocalServers(
+  target: SpadeTarget,
+  signal?: AbortSignal,
+): Promise<SpadeLocalServer[]> {
+  const body = await spadeHttp(target, "GET", "/v1/endpoints/local", { signal });
+  return parseSpadeLocalServers(body);
+}
+
+/**
+ * Uses one of a local server's models: Spade adds the server as an endpoint the first time (no
+ * key) and saves the model. Answers the `endpoint/model` a picker sets.
+ */
+export async function pickLocalModel(
+  target: SpadeTarget,
+  server: string,
+  model: string,
+): Promise<string> {
+  const body = await spadeHttp(target, "POST", `/v1/endpoints/local/${segment(server)}`, {
+    body: { model },
+  });
+  const value = (JSON.parse(body) as { value?: unknown }).value;
+  if (typeof value !== "string") throw new Error("Spade's answer didn't make sense.");
+  return value;
+}
+
 export async function editEndpoint(
   target: SpadeTarget,
   id: string,
@@ -225,6 +294,21 @@ export async function setTranscriptionModel(
   model: string | null,
 ): Promise<void> {
   await spadeHttp(target, "PUT", "/v1/settings", { body: { transcription_model: model } });
+}
+
+/** `endpoint/model` that reads replies aloud; null: the system's own voices (ADR 0134). */
+export async function setSpeechModel(target: SpadeTarget, model: string | null): Promise<void> {
+  await spadeHttp(target, "PUT", "/v1/settings", { body: { speech_model: model } });
+}
+
+/** `words` read aloud by the speech model's endpoint, in `voice`: the audio, whole. */
+export function speakWords(
+  target: SpadeTarget,
+  words: string,
+  voice: string | undefined,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return spadePostBlob(target, "/v1/speech", { text: words, ...(voice ? { voice } : {}) }, signal);
 }
 
 /** A recording's words, from the transcription model's endpoint. */

@@ -10,6 +10,7 @@ pub mod grants;
 pub mod read_only;
 pub mod settings;
 pub mod toolchains;
+pub mod undo;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -642,26 +643,45 @@ impl Security {
     }
 
     /// What must happen before work nobody reviews (a contained command or file write): the
-    /// workspace not reserved, and a checkpoint of it when one is due (at most once a minute).
-    /// Blocking work for the caller to run first; its error means the work must not run
-    /// unreviewed.
-    pub fn before_unreviewed(&self, bot: &str) -> Box<dyn FnOnce() -> Result<(), String> + Send> {
+    /// workspace not reserved, and a checkpoint of it when one is due (at most once a minute, and
+    /// before the first such work of each turn, `turn` being its reply). Blocking work for the
+    /// caller to run first; its error means the work must not run unreviewed.
+    pub fn before_unreviewed(
+        &self,
+        bot: &str,
+        turn: Option<&str>,
+    ) -> Box<dyn FnOnce() -> Result<(), String> + Send> {
         let workspace = self.workspaces.join(bot);
         let (checkpoints, maintenance) = (self.checkpoints.clone(), self.maintenance.clone());
         let (id, now, bot) = (self.ids.next("cp"), self.clock.now_ms(), bot.to_owned());
+        let turn = turn.map(str::to_owned);
         Box::new(move || {
             if reserved(&maintenance, &bot) {
                 return Err(RESERVED.to_owned());
             }
-            if !workspace.is_dir() || !checkpoints.due(&bot, now) {
+            if !checkpoints.due_in(&bot, now, turn.as_deref()) {
                 return Ok(());
+            }
+            // A bot's first file-changing work makes its folder: its empty folder is what
+            // undoing that work goes back to, so it is made now and checkpointed like any other.
+            if !workspace.is_dir() {
+                match std::fs::create_dir_all(&workspace) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => {
+                        return Err(format!("the bot's folder couldn't be made: {error}"));
+                    }
+                }
             }
             checkpoints
                 .take(&bot, &workspace, &id, now, "auto")
-                .map(|_| ())
                 .map_err(|error| {
                     format!("a checkpoint of the workspace couldn't be taken: {error}")
-                })
+                })?;
+            if let Some(turn) = &turn {
+                checkpoints.taken_in(&bot, turn);
+            }
+            Ok(())
         })
     }
 
@@ -687,6 +707,36 @@ impl Security {
                 reason,
             )
             .map_err(|why| SecurityError::Store(format!("the checkpoint failed: {why}")))
+    }
+
+    /// What undoing work that started at `started_at` would do: the checkpoint taken just before
+    /// it ([`undo::before`]) and what putting it back reverts. `None` when no checkpoint is that
+    /// old (the work came before any, or its checkpoint is past the bounds).
+    pub fn undo_preview(
+        &self,
+        bot: &str,
+        started_at: i64,
+    ) -> Result<Option<(checkpoints::Checkpoint, undo::Changes)>, SecurityError> {
+        let workspace = self.workspace(bot)?;
+        let all = self.checkpoints.list(bot);
+        let Some(checkpoint) = undo::before(&all, started_at).cloned() else {
+            return Ok(None);
+        };
+        let changes = undo::changes(&self.checkpoints.copy_of(bot, &checkpoint.id), &workspace)
+            .map_err(|why| {
+                SecurityError::Store(format!("the files couldn't be compared: {why}"))
+            })?;
+        Ok(Some((checkpoint, changes)))
+    }
+
+    /// What restoring checkpoint `id` would revert now.
+    pub fn changes_since(&self, bot: &str, id: &str) -> Result<undo::Changes, SecurityError> {
+        let workspace = self.workspace(bot)?;
+        if !self.checkpoints.list(bot).iter().any(|c| c.id == id) {
+            return Err(SecurityError::NotFound);
+        }
+        undo::changes(&self.checkpoints.copy_of(bot, id), &workspace)
+            .map_err(|why| SecurityError::Store(format!("the files couldn't be compared: {why}")))
     }
 
     /// Puts checkpoint `id` back in the bot's workspace, after a checkpoint of how it is now;

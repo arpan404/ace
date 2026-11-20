@@ -83,6 +83,13 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       quit: () => call("app.quit"),
       reload: () => call("app.reload"),
     },
+    /** The menu-bar popover's own requests; refused from any other page. */
+    tray: {
+      open: (link: RequestOf<"tray.open">) => call("tray.open", link),
+      fit: (height: number) => call("tray.fit", height),
+      hide: () => call("tray.hide"),
+      quit: (completely: boolean) => call("tray.quit", { completely }),
+    },
     daemon: {
       connection: () => call("daemon.connection"),
       /** The connection this page will most likely get, without waiting for the daemon. */
@@ -177,12 +184,14 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       get: () => call("settings.get"),
       update: (patch: RequestOf<"settings.update">) => call("settings.update", patch),
       shortcutHint: () => call("settings.shortcutHint"),
+      talkShortcutHint: () => call("settings.talkShortcutHint"),
       onChange: (listener: (value: EventOf<"settings.changed">) => void) =>
         subscribe("settings.changed", listener),
     },
     permissions: {
       status: () => call("permissions.status"),
       open: (pane: RequestOf<"permissions.open">) => call("permissions.open", pane),
+      microphone: () => call("permissions.microphone"),
     },
     browser: {
       onShortcut: (listener: (value: EventOf<"browser.shortcut">) => void) =>
@@ -243,6 +252,10 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
         subscribe("spade.live", listener),
       onEndpointChanged: (listener: () => void) =>
         subscribe("spade.endpoint.changed", () => listener()),
+      /** Push to talk to the main Spade: the shortcut's presses. */
+      onTalk: (listener: (phase: EventOf<"spade.talk">) => void) =>
+        subscribe("spade.talk", listener),
+      talkState: (state: RequestOf<"spade.talkState">) => call("spade.talkState", state),
     },
     diagnostics: {
       /**

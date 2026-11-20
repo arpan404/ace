@@ -84,6 +84,8 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/settings/remote/$machine_/apps": ["/settings/remote/machine-missing/apps", "settings"],
   "/settings/remote/every-machine": ["/settings/remote/every-machine", "settings"],
   "/settings/remote/map": ["/settings/remote/map", "settings"],
+  // The desktop's menu-bar popover, drawn without the app's frame (no page for a Suit).
+  "/tray": null,
 };
 
 /** Pages finer than their route's: a pull request's Code tab is its review. */

@@ -20,7 +20,7 @@ import {
   shell,
   type WebContents,
 } from "electron";
-import type { AppInfo, DeepLink, DesktopSettings } from "../shared/contract.ts";
+import type { AppInfo, DeepLink, DesktopSettings, SpadeTalkState } from "../shared/contract.ts";
 import { Background } from "./background.ts";
 import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
@@ -44,6 +44,8 @@ import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activa
 import { appearance, createHandlers } from "./handlers.ts";
 import { bundledToolchains } from "./system/toolchains.ts";
 import { emit, registerHandlers } from "./ipc.ts";
+import { talkPress, talkShortcutOf, withTalkDefault } from "./spade-talk.ts";
+import { talkIndicator } from "./spade-talk-indicator.ts";
 import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
 import { terminalCommand, terminalCommandCheck } from "./os/cli-command.ts";
@@ -54,6 +56,7 @@ import { linuxInstall, relaunchCommand } from "./os/linux-sandbox.ts";
 import { relaunchAfterExit } from "./os/relaunch-after-exit.ts";
 import { findElevation, LinuxSandboxSetup, readSandboxFacts } from "./os/linux-sandbox-setup.ts";
 import { linuxTrayHost, runProgram } from "./os/tray-host.ts";
+import { TrayPopover } from "./os/tray-popover.ts";
 import { hyprlandShortcutHint } from "./os/hyprland-shortcut.ts";
 import { installAppImageEntry, nodeAppImageEntryFiles } from "./os/appimage-entry.ts";
 import { claimAceLinks } from "./os/link-handler.ts";
@@ -243,6 +246,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
 
   // Device tabs on remote machines' threads, and each machine's localhost proxy (ADR 0194).
   const localhost = machineLocalhost({ log: (message) => log("info", message) });
+  /** The menu-bar popover (macOS), once the page is served. */
+  let popover: TrayPopover | undefined;
   const background = new Background({
     userData: app.getPath("userData"),
     trayIcon: paths.trayIcon,
@@ -254,6 +259,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     open: (link) => open(link),
     quitAll: () => app.quit(),
     quitCompletely: () => quitCompletely(),
+    popover:
+      process.platform === "darwin"
+        ? (icon) => {
+            if (!popover) return false;
+            popover.toggle(icon);
+            return true;
+          }
+        : undefined,
     log: (message) => log("warn", message),
     mark: operation.run,
     trayHost:
@@ -411,6 +424,31 @@ function main(target: DaemonTarget, crashDumps: string): void {
   /** Set by the sandbox notice's Restart; used only once the quit goes ahead. */
   let relaunch: { execPath: string; args: string[] } | undefined;
 
+  /*
+   * Push to talk to the main Spade (ADR 0134, amended): a press goes to the page, which opens
+   * the main Spade and listens without the window coming forward; the indicator floats over
+   * whatever the person is in, and follows what the page says of the turn.
+   */
+  let talkState: SpadeTalkState = "off";
+  const indicator = talkIndicator({
+    cancel: () => emit(contents(), "spade.talk", "cancel"),
+  });
+  function pushToTalk(): void {
+    if (!window || window.isDestroyed()) {
+      // No window to listen in: one opens, and hears the press once it has loaded.
+      open();
+      window?.webContents.once("did-finish-load", () => emit(contents(), "spade.talk", "start"));
+      return;
+    }
+    emit(contents(), "spade.talk", talkPress(talkState));
+  }
+  const spadeTalk = {
+    report(state: SpadeTalkState) {
+      talkState = state;
+      indicator.set(state);
+    },
+  };
+
   /** Show the window (creating it if needed) and follow a deep link. */
   function open(link?: DeepLink): void {
     if (!app.isReady()) {
@@ -507,16 +545,19 @@ function main(target: DaemonTarget, crashDumps: string): void {
         }
       : {}),
     shortcuts: {
-      register: (accelerator) =>
-        globalShortcut.register(accelerator, () => open({ kind: "new-thread" })),
+      register: (accelerator, action) =>
+        globalShortcut.register(accelerator, () =>
+          action === "new-thread" ? open({ kind: "new-thread" }) : pushToTalk(),
+        ),
       unregister: (accelerator) => globalShortcut.unregister(accelerator),
     },
     warn: (message) => log("warn", message),
+    platform: process.platform,
   });
   function applySettings(next: DesktopSettings): void {
     background.settingsChanged(next);
     applyToOs(next);
-    emit(contents(), "settings.changed", next);
+    emit(contents(), "settings.changed", withTalkDefault(next, process.platform));
   }
 
   // Deep links: `ace://` on every platform, folders from "Open in ace", and the dock.
@@ -724,6 +765,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
           accelerator: settings.get().globalShortcut,
           run: runProgram(trayCheckMs),
         }),
+      talkShortcutHint: () =>
+        hyprlandShortcutHint({
+          env: process.env,
+          accelerator: talkShortcutOf(settings.get(), process.platform),
+          run: runProgram(trayCheckMs),
+        }),
+      spadeTalk,
       sandbox: {
         current: () => sandbox?.current() ?? { state: "hidden" },
         setup: () => sandbox?.setup() ?? Promise.resolve({ state: "hidden" }),
@@ -748,6 +796,24 @@ function main(target: DaemonTarget, crashDumps: string): void {
       updateKeymap: (next) => {
         bindings = next;
         installMenu();
+      },
+      tray: {
+        open: (link, sender) => {
+          if (!popover?.owns(sender)) return;
+          popover.hide();
+          open(link);
+        },
+        fit: (height, sender) => {
+          if (popover?.owns(sender)) popover.fit(height);
+        },
+        hide: (sender) => {
+          if (popover?.owns(sender)) popover.hide();
+        },
+        quit: (completely, sender) => {
+          if (!popover?.owns(sender)) return;
+          if (completely) quitCompletely();
+          else app.quit();
+        },
       },
     });
     const installMenu = () =>
@@ -777,9 +843,23 @@ function main(target: DaemonTarget, crashDumps: string): void {
         ),
       );
     installMenu();
+    if (process.platform === "darwin") {
+      const panel = new TrayPopover({
+        rendererUrl,
+        preload: paths.preload,
+        info: JSON.stringify(info),
+        now: Date.now,
+      });
+      popover = panel;
+      // With the tray icon up (Keep running in background), the popover loads once the daemon
+      // runs, so its first click opens it with its data.
+      void daemonRunning.then(() => {
+        if (settings.get().background) panel.prepare();
+      });
+    }
     registerHandlers({
       rendererUrl,
-      isAppWindow: (sender) => sender === window?.webContents,
+      isAppWindow: (sender) => sender === window?.webContents || (popover?.owns(sender) ?? false),
       handlers,
       mark: operation.run,
     });

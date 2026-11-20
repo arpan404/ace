@@ -18,6 +18,11 @@ const groupEvent = z.discriminatedUnion("type", [
     run,
     text: z.string().catch(""),
     from: spadeGroupBotShape.nullish().catch(undefined),
+    /** The person wrote it in an ace thread (ADR 0198). */
+    thread: z
+      .object({ id: z.string().min(1), title: z.string().catch("") })
+      .nullish()
+      .catch(undefined),
   }),
   z.object({
     type: z.literal("group_asked"),
@@ -46,7 +51,12 @@ const groupEvent = z.discriminatedUnion("type", [
 type GroupEvent = z.infer<typeof groupEvent>;
 
 export type SpadeGroupItem =
-  | { kind: "person"; key: string; text: string }
+  | {
+      kind: "person";
+      key: string;
+      text: string;
+      fromThread?: { id: string; title: string } | undefined;
+    }
   | { kind: "member"; key: string; bot: SpadeGroupBot; text: string }
   /** A handoff, a queued ask, one that failed, Stop: a short muted line. */
   | { kind: "line"; key: string; text: string };
@@ -152,7 +162,12 @@ function foldEvent(state: SpadeGroupState, event: GroupEvent, key: string): bool
       }
       const mine = state.pending.findIndex((message) => message.text === event.text);
       if (mine >= 0) state.pending = state.pending.filter((_, index) => index !== mine);
-      state.items.push({ kind: "person", key, text: event.text });
+      state.items.push({
+        kind: "person",
+        key,
+        text: event.text,
+        ...(event.thread ? { fromThread: { id: event.thread.id, title: event.thread.title } } : {}),
+      });
       return true;
     }
     case "group_asked":
@@ -202,7 +217,14 @@ function answeredLine(name: string, outcome: string, detail: string | undefined)
 
 /** One row of a group's chat; a member's carries where it sits in its run of messages. */
 export type SpadeGroupRow =
-  | { kind: "person"; key: string; text: string; sending: boolean }
+  | {
+      kind: "person";
+      key: string;
+      text: string;
+      sending: boolean;
+      /** Written in an ace thread (ADR 0198): the line above links back to it. */
+      fromThread?: { id: string; title: string } | undefined;
+    }
   | {
       kind: "member";
       key: string;
@@ -243,6 +265,7 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
         key: item.key,
         text: item.text,
         sending: index >= state.items.length,
+        ...(item.fromThread ? { fromThread: item.fromThread } : {}),
       };
     if (item.kind === "line") return item;
     const before = items[index - 1];

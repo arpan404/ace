@@ -9,7 +9,12 @@ import type {
   SpadeStoppedKind,
 } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
-import { spadeCardQuestions, type SpadeQuestion, type SpadeQuestionStanding } from "./questions.ts";
+import {
+  spadeCardQuestions,
+  spadeConnectOf,
+  type SpadeQuestion,
+  type SpadeQuestionStanding,
+} from "./questions.ts";
 import {
   emptySpadeCapabilities,
   foldSpadeCapability,
@@ -84,6 +89,11 @@ export type SpadeReplyPart =
       weight?: SpadeStepWeight;
       /** Where a command ran and how it went, once Spade says (`command_ran`). */
       ran?: SpadeCommandRan;
+      /**
+       * What the tool declared it does, as Spade's gate read it (`send_as_person`, `pay`,
+       * `publish`, `change_access`, `network`…), from its `tool_started`.
+       */
+      effect?: string;
     }
   /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
@@ -164,12 +174,32 @@ export type SpadeEntry =
       fromRoutine?: { id: string; name: string; label: string; heartbeat: boolean };
       /** Sent here from a group the bot is in (ADR 0132). */
       fromGroup?: { id: string; name: string };
+      /** Written by the person in an ace thread (ADR 0198). */
+      fromThread?: { id: string; title: string };
       /** When Spade stored it; a message not stored yet has none. */
       at?: number;
+      /** The notes Spade recalled for it, by id: what the reply to it had in mind (ADR 0128). */
+      recalled?: readonly string[];
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
   | { kind: "compacted"; key: string }
+  /** The bot rewrote its own task (`task_update`): what it was, what it is, and its one line. */
+  | { kind: "task-changed"; key: string; task: string; previous: string; why: string; at?: number }
+  /** It made a standing bot for the person: one line with Open and Undo. */
+  | { kind: "made"; key: string; bot: string; name: string; task: string; at?: number }
+  /** It added a bot to a club it is in. */
+  | {
+      kind: "club-added";
+      key: string;
+      club: string;
+      clubName: string;
+      bot: string;
+      botName: string;
+      at?: number;
+    }
+  /** The bot named itself or changed its face; `first` when it was its first name. */
+  | { kind: "named"; key: string; name: string; face: boolean; first: boolean; at?: number }
   /** A background job ended; its result went to Spade. */
   | {
       kind: "job";
@@ -504,6 +534,10 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ...(event.from_group
           ? { fromGroup: { id: event.from_group.id, name: event.from_group.name } }
           : {}),
+        ...(event.from_thread
+          ? { fromThread: { id: event.from_thread.id, title: event.from_thread.title } }
+          : {}),
+        ...recalledOf(event.context),
         ...stamp(stored),
       });
       return true;
@@ -646,6 +680,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         patchCall(state, event.reply, event.call_id, (part) =>
           part.weight === "destructive" || part.weight === weight ? undefined : { ...part, weight },
         );
+      const effect = event.effect ?? undefined;
+      if (effect)
+        patchCall(state, event.reply, event.call_id, (part) =>
+          part.effect === effect ? undefined : { ...part, effect },
+        );
       return true;
     }
     case "command_ran":
@@ -693,13 +732,29 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ],
       }));
     case "question_asked": {
-      // Asked again (a replay): the card already stands where it was first asked.
-      if (updateQuestion(state, event.call_id, (card) => card)) return false;
+      // A call that stopped to ask the person (its sign-in to reconnect) runs no longer: the bot
+      // waits on them, as for any question.
+      if (state.running.delete(event.call_id))
+        setCall(state, event.reply, event.call_id, undefined, "waiting");
+      const questions = spadeCardQuestions(event.questions, event.question);
+      // A call held on a Reconnect card that was refused again asks again, in the same place.
+      const again = spadeConnectOf(questions)?.retry === true;
+      const known = updateQuestion(state, event.call_id, (card) =>
+        again && card.standing !== "waiting"
+          ? { ...card, questions, standing: "waiting", answers: undefined, typed: false }
+          : card,
+      );
+      if (known) {
+        if (again && state.open?.reply === event.reply)
+          state.question = { reply: event.reply, callId: event.call_id };
+        // Asked again as a replay: the card already stands where it was first asked.
+        return again;
+      }
       const card: { kind: "question"; key: string } & SpadeQuestionCard = {
         kind: "question",
         key,
         callId: event.call_id,
-        questions: spadeCardQuestions(event.questions, event.question),
+        questions,
         standing: "waiting",
         answers: undefined,
         typed: false,
@@ -848,6 +903,54 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       if (state.title === event.title) return false;
       state.title = event.title;
       return true;
+    case "agent_configured": {
+      // Only the bot's own rewrites show; the person's edits are theirs, already seen.
+      const change = event.change;
+      if (!change || change.by !== "bot") return false;
+      steer(state, {
+        kind: "task-changed",
+        key,
+        task: event.task,
+        previous: change.previous,
+        why: change.why,
+        ...stamp(stored),
+      });
+      return true;
+    }
+    case "bot_made":
+      steer(state, {
+        kind: "made",
+        key,
+        bot: event.bot,
+        name: event.name,
+        task: event.task,
+        ...stamp(stored),
+      });
+      return true;
+    case "club_added":
+      steer(state, {
+        kind: "club-added",
+        key,
+        club: event.club,
+        clubName: event.club_name,
+        bot: event.bot,
+        botName: event.bot_name,
+        ...stamp(stored),
+      });
+      return true;
+    case "profile_changed": {
+      if (event.by !== "bot") return false;
+      const first = !state.entries.some((entry) => entry.kind === "named");
+      steer(state, {
+        kind: "named",
+        key,
+        name: event.name,
+        face: event.face,
+        first,
+        ...stamp(stored),
+      });
+      return true;
+    }
   }
 }
 
@@ -892,6 +995,14 @@ const sameMessage = (
 function helperEntry(state: SpadeConversationState, job: string) {
   const line = state.entries.find((entry) => entry.kind === "helper" && entry.job === job);
   return line?.kind === "helper" ? line : undefined;
+}
+
+/** The note ids a message's fixed context recalled (`- [n_4] …` lines); nothing for none. */
+function recalledOf(context: string | null | undefined): { recalled?: readonly string[] } {
+  const ids = [...(context ?? "").matchAll(/^- \[(n_[A-Za-z0-9_-]+)\]/gm)].flatMap((m) =>
+    m[1] ? [m[1]] : [],
+  );
+  return ids.length ? { recalled: [...new Set(ids)] } : {};
 }
 
 /** When Spade stored an event, for the entry it makes; nothing when the event had no time. */

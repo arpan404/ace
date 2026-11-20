@@ -2,7 +2,12 @@ import { bridgeSubagents } from "./bridge-negotiation.ts";
 import { object } from "./data.ts";
 import { z } from "zod";
 import type { Capabilities, AcpSessionSupport } from "@ace/protocol";
-import type { CompatibilityProfile, SelectorState } from "@ace/agent-registry";
+import {
+  profileFit,
+  type CompatibilityProfile,
+  type ProfileFit,
+  type SelectorState,
+} from "@ace/agent-registry";
 import type { AcpQuirks } from "./quirks/types.ts";
 const Initialize = z
   .object({
@@ -35,6 +40,20 @@ export type Negotiated = {
   httpMcp: boolean;
   sseMcp: boolean;
   subagentSessions: boolean;
+  /** How a saved session reopens: session/resume (no replay) when advertised, else session/load. */
+  resumeMethod: "session/resume" | "session/load" | undefined;
+  /** The profile the session runs under: none when the agent's version is outside its range. */
+  profile: CompatibilityProfile | undefined;
+  /**
+   * How the profile covers the version the agent runs: `compatible` is in its range but not a
+   * version ace verified it on.
+   */
+  profileFit: ProfileFit | undefined;
+  /**
+   * The agent reported another version than the approved one. In its profile's range it keeps
+   * the profile; outside it, it runs as generic ACP.
+   */
+  versionChanged?: { approved: string; reported: string; runsAs: "profile" | "generic" };
   raw: unknown;
 };
 export function negotiate(
@@ -42,23 +61,47 @@ export function negotiate(
   quirks: AcpQuirks,
   version?: string,
   profile?: CompatibilityProfile,
+  approvedFit?: ProfileFit,
 ): Negotiated {
   const response = Initialize.parse(raw);
   if (quirks.provider === "antigravity" && response.agentInfo?.name !== "antigravity-acp")
     throw new Error("Unexpected Antigravity ACP identity");
-  if (
-    quirks.provider === "acp" &&
-    version &&
-    response.agentInfo?.version &&
-    response.agentInfo.version !== version
-  )
-    throw new Error("ACP version changed; review a new installation plan");
+  // The profile and how it fits come from ace's own record of the approved artifact (ADR 0044,
+  // amendment on agents that update themselves): the version ace recorded, and the fit the
+  // registry gave it. What the agent reports at `initialize` is its own claim, so it can only
+  // take the profile away: outside the profile's range the session runs as generic ACP (standard
+  // negotiation only); inside it, the profile stays but unverified. It never verifies a profile.
+  const reported = response.agentInfo?.version;
+  const changed = quirks.provider === "acp" && version && reported && reported !== version;
+  const running = changed ? reported : (version ?? reported);
+  let fit: ProfileFit | undefined;
+  if (profile) {
+    // A launch with no version at all (none approved, none reported) has nothing to check against.
+    fit = approvedFit ?? (version ? profileFit(profile, version) : "verified");
+    // Only a report ace has no record to compare with, or one that differs from it, is judged.
+    const judged = changed ? reported : version ? undefined : reported;
+    if (fit && judged) fit = profileFit(profile, judged) ? "compatible" : undefined;
+  }
+  if (!fit) profile = undefined;
+  const versionChanged = changed
+    ? { approved: version, reported, runsAs: profile ? ("profile" as const) : ("generic" as const) }
+    : undefined;
   const advertised = response.agentCapabilities;
-  const existing = quirks.capabilities(version ?? response.agentInfo?.version);
+  const existing = quirks.capabilities(running);
   const generic = quirks.provider === "acp";
   const subagentSessions = bridgeSubagents(raw, profile);
+  const resumeMethod =
+    object(advertised.sessionCapabilities)["resume"] != null
+      ? ("session/resume" as const)
+      : advertised.loadSession === true
+        ? ("session/load" as const)
+        : undefined;
   return {
+    resumeMethod,
     raw,
+    profile,
+    profileFit: profile ? fit : undefined,
+    ...(versionChanged ? { versionChanged } : {}),
     subagentSessions,
     systemPromptAppend: advertisesSystemPromptAppend(raw),
     httpMcp: !profile?.denyHttpMcp && advertised.mcpCapabilities?.http === true,
@@ -66,8 +109,7 @@ export function negotiate(
     capabilities: {
       ...existing,
       subagentTranscripts: generic ? subagentSessions : existing.subagentTranscripts,
-      resume:
-        !profile?.denyResume && advertised.loadSession === true && (generic || existing.resume),
+      resume: !profile?.denyResume && resumeMethod !== undefined && (generic || existing.resume),
       imageInput: advertised.promptCapabilities?.image === true && (generic || existing.imageInput),
       attachmentInput: {
         format: "acp",

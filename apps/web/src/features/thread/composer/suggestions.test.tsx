@@ -35,6 +35,13 @@ vi.mock("@ace/client-react", () => ({
   useSidebarIndex: () => [],
 }));
 vi.mock("@/features/panels/index.ts", () => ({ useMentionTabs: () => [] }));
+// Bots, clubs, agents and devices come from their own modules; this list is about files.
+vi.mock("../mentions/index.ts", async () => ({
+  ...(await vi.importActual<typeof import("../mentions/mention-rows.ts")>(
+    "../mentions/mention-rows.ts",
+  )),
+  useMentionSources: () => ({ agents: [], bots: [], clubs: [], devices: [] }),
+}));
 
 import { buildingWaitMs, indexStillBuilding, useSuggestions } from "./suggestions.tsx";
 

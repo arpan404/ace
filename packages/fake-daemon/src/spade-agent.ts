@@ -51,4 +51,8 @@ export interface FakeSpadeAgent {
   continuing?: boolean;
   /** The bot that made it (ADR 0161); null or absent for the person's own. */
   parent?: { id: string; name: string } | null;
+  /** Whether it may make bots, who made it, and whether Undo archived it (ADR 0161, amendment 1). */
+  may_create_bots?: "yes" | "ask" | "no";
+  made_by?: { id: string; name: string; apps: string[] } | null;
+  archived?: boolean;
 }

@@ -237,7 +237,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
         answering={view.busy}
         blocked={line.ready ? undefined : line.sentence}
         placeholder={`Message ${group.name}`}
-        mentionNames={members.map((member) => member.name)}
+        mentionNames={members.map((member) => ({ name: member.name, avatar: member.avatar }))}
         onStop={stop}
         stopping={stopping}
         // A group with nothing said yet offers to ask one member.

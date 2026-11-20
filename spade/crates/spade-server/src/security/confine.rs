@@ -300,7 +300,7 @@ impl Confine for Security {
         if matches!(kind, Kind::Plugin { .. }) || !Security::contains(self) {
             return None;
         }
-        Some(self.before_unreviewed(&self.bot_of(home)?))
+        Some(self.before_unreviewed(&self.bot_of(home)?, None))
     }
 }
 

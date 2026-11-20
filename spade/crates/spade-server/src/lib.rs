@@ -9,6 +9,7 @@ pub mod engine;
 pub mod home;
 pub mod images;
 pub mod learning;
+pub mod local_models;
 pub mod media;
 pub mod plugins;
 pub mod presets;

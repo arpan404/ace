@@ -45,6 +45,7 @@
     "./project-groups": "./src/project-groups.ts",
     "./thread-place": "./src/thread-place.ts",
     "./thread-title": "./src/thread-title.ts",
+    "./mention-shares": "./src/mention-shares.ts",
     "./chat-list": "./src/chat-list.ts",
     "./host-care": "./src/host-care.ts",
     "./machine-update": "./src/machine-update.ts",
