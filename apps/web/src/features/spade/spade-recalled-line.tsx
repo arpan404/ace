@@ -119,7 +119,7 @@ function CorrectNote(props: { id: string; text: string; onDone(): void }) {
     }
   };
   return (
-    <li className="flex flex-col gap-1.5 py-1">
+    <li className="flex w-md max-w-full flex-col gap-1.5 py-1">
       <label htmlFor={fieldId} className="sr-only">
         Correct the note
       </label>
