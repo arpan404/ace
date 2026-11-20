@@ -33,8 +33,10 @@ import XCTest
         let openThere = app.buttons["Open on \(name)"].firstMatch
         XCTAssertTrue(openThere.waitForExistence(timeout: 10), "the moved row's menu offers Open on \(name)")
         screenshot("0b-moved-menu")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).tap()
-        XCTAssertTrue(app.waitForInbox(timeout: 15))
+        // Outside the menu and its preview, beside them: the menu closes and nothing opens.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: openThere)
+        wait(for: [gone], timeout: 10)
 
         app.revealRow(row).tap()
 
