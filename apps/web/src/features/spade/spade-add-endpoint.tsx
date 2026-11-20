@@ -80,7 +80,10 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
   const [needsKey, setNeedsKey] = useState(true);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const locals = useLocalServers(true).data ?? [];
   const choose = (next: string) => {
+    const local = locals.find((candidate) => localChoice(candidate) === next);
+    if (local) return fillLocal(local);
     setFrom(next);
     const preset = props.presets.find((candidate) => candidate.id === next);
     if (!preset) return;
@@ -91,7 +94,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
   };
   // A model server on this computer: its address and format, and no key.
   const fillLocal = (local: SpadeLocalServer) => {
-    setFrom(custom);
+    setFrom(localChoice(local));
     setName(local.name);
     setFormat("openai-chat");
     setUrl(local.baseUrl);
@@ -111,7 +114,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
         ...(Object.keys(extra).length ? { headers: extra } : {}),
         ...(session.trim() ? { session_header: session.trim() } : {}),
         ...(needsKey ? {} : { needs_key: false }),
-        ...(from === custom ? {} : { preset: from }),
+        ...(props.presets.some((preset) => preset.id === from) ? { preset: from } : {}),
       });
       await cache.invalidateQueries({ queryKey: modelsKey });
       props.onClose();
@@ -128,7 +131,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
           <DialogTitle>Add endpoint</DialogTitle>
         </DialogHeader>
         <DialogBody>
-          <LocalServers onUse={fillLocal} />
+          <LocalServers servers={locals} onUse={fillLocal} />
           <Field label="From" htmlFor={ids.from}>
             <Select
               id={ids.from}
@@ -137,6 +140,10 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
               options={[
                 { value: custom, label: "Custom" },
                 ...props.presets.map((preset) => ({ value: preset.id, label: preset.name })),
+                ...locals.map((local) => ({
+                  value: localChoice(local),
+                  label: `${local.name} (on this computer)`,
+                })),
               ]}
               onValueChange={choose}
               className="w-full"
@@ -208,13 +215,19 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
   );
 }
 
+/** A local server's value in the From list, apart from the presets' ids. */
+const localChoice = (local: SpadeLocalServer) => `local:${local.id}`;
+
 /**
  * Model servers on this computer (Ollama, LM Studio), looked for at their usual ports: each one
  * running offers Use, which fills in its address with no key. Nothing found, nothing shown.
  */
-function LocalServers(props: { onUse(local: SpadeLocalServer): void }) {
+function LocalServers(props: {
+  servers: readonly SpadeLocalServer[];
+  onUse(local: SpadeLocalServer): void;
+}) {
   const headingId = useId();
-  const servers = useLocalServers(true).data ?? [];
+  const servers = props.servers;
   if (!servers.some((local) => local.running)) return null;
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-1">
@@ -229,6 +242,11 @@ function LocalServers(props: { onUse(local: SpadeLocalServer): void }) {
               <span className="truncate text-xs text-muted-foreground">
                 {local.endpoint ? "Added already" : spadeLocalServerWords(local)}
               </span>
+              {local.running && local.models.length > 0 && (
+                <span className="truncate text-xs text-subtle-foreground">
+                  {local.models.join(", ")}
+                </span>
+              )}
             </div>
             {local.running && !local.endpoint && (
               <Button variant="ghost" size="sm" onClick={() => props.onUse(local)}>
