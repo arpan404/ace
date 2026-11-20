@@ -121,6 +121,12 @@ export interface ModelCatalogApi {
   invalidate(filter?: ModelFilter): Promise<void>;
   refresh(filter?: ModelFilter): Promise<ModelInstanceStatus[]>;
   /**
+   * The person asked for one row's models (Load models): the only request that starts an ACP
+   * agent that is not already loading. Its caller admits only the person. Optional for embedded
+   * catalogs.
+   */
+  load?(instance: string): Promise<ModelInstanceStatus[]>;
+  /**
    * Wait for the accounts in `filter` that have never loaded a model list, or loaded an empty one
    * that is due for discovery, as lazy discovery loads them: a discovery already running is
    * shared, and one that failed waits out its retry pause instead of running again. Optional for

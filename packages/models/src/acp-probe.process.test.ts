@@ -1,6 +1,6 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { ModelCatalog, createModelDiscovery, openModelStorage } from "./index.ts";
 import type { AcpProbeLaunch } from "./discover.ts";
@@ -41,7 +41,12 @@ const session = {
 /** An ACP agent the catalog may probe, launched as the fake CLI from ace's own probe folder. */
 async function agent(
   modelProbe: "automatic" | "on-request",
-  options: { payload?: unknown; modes?: AcpProbeLaunch["modes"] } = {},
+  options: {
+    payload?: unknown;
+    modes?: AcpProbeLaunch["modes"];
+    /** The version the agent reports in its `initialize` reply. */
+    reports?: string;
+  } = {},
 ) {
   const work = await workspace();
   cleanups.push(work.close);
@@ -58,6 +63,7 @@ async function agent(
     executable: process.execPath,
     cwd: folder,
     profileRevision: modelProbe === "automatic" ? "example-v1" : "generic-v1",
+    installationVersion: "1.0.0",
     modelProbe,
   };
   let spawns = 0;
@@ -75,6 +81,7 @@ async function agent(
         FAKE_PROVIDER: "acp",
         FAKE_PAYLOAD: JSON.stringify(options.payload ?? session),
         FAKE_METHOD_LOG: log,
+        ...(options.reports ? { FAKE_AGENT_VERSION: options.reports } : {}),
       },
       cwd: folder,
       modes: options.modes ?? "reported",
@@ -98,18 +105,20 @@ async function agent(
       .split("\n")
       .filter(Boolean)
       .map((line): [string, string | undefined] => JSON.parse(line));
-  return { row, open, folder, methods, spawns: () => spawns, path: work.path };
+  return { row, open, folder, methods, clock, spawns: () => spawns, path: work.path };
 }
 
-test("a profiled ACP agent's first picker read probes once in ace's folder and never prompts", async () => {
+test("a reviewed ACP agent first starts when the person loads it, once, in ace's folder, never prompting", async () => {
   const { open, folder, methods, spawns } = await agent("automatic");
   const catalog = open();
-  // Opening the catalog and its background pass start nothing.
+  // Opening the catalog, its background pass and reads start nothing: the agent would start
+  // the MCP servers its own configuration names, so its first start is the person's.
   catalog.revalidate();
-  expect(spawns()).toBe(0);
-  expect(catalog.list().models).toEqual([]);
   catalog.list();
   await catalog.loadMissing({ instance: "acp-agent" });
+  expect(spawns()).toBe(0);
+  expect(catalog.list().instances[0]?.modelProbe).toBe("on-request");
+  await catalog.load("acp-agent");
   expect(catalog.list().models.map((model) => model.id)).toEqual(["flash", "pro"]);
   catalog.list();
   await catalog.loadMissing({ instance: "acp-agent" });
@@ -123,7 +132,31 @@ test("a profiled ACP agent's first picker read probes once in ace's folder and n
   expect(status?.permissionModes?.map((mode) => mode.id)).toEqual(["default", "yolo"]);
 });
 
-test("an unprofiled ACP agent starts only when the person asks for that agent's models", async () => {
+test("refresh and sign-in start no agent; the next read loads a reviewed agent's reset row once", async () => {
+  const { open, spawns, clock } = await agent("automatic");
+  const catalog = open();
+  await catalog.load("acp-agent");
+  expect(spawns()).toBe(1);
+  clock.now += 60_000;
+  await catalog.refresh();
+  await catalog.refresh({ instance: "acp-agent" });
+  expect(spawns()).toBe(1);
+  // The reset row keeps its list until the read that loads it again.
+  expect(catalog.list().models.map((model) => model.id)).toEqual(["flash", "pro"]);
+  await catalog.loadMissing();
+  catalog.list();
+  await vi.waitFor(() => expect(spawns()).toBe(2));
+  clock.now += 60_000;
+  // A new login drops the previous login's list at once, and starts nothing itself.
+  await catalog.loginChanged("acp-agent", "login-2");
+  expect(spawns()).toBe(2);
+  expect(catalog.list().models).toEqual([]);
+  await catalog.loadMissing();
+  expect(spawns()).toBe(3);
+  expect(catalog.list().models.map((model) => model.id)).toEqual(["flash", "pro"]);
+});
+
+test("an unprofiled ACP agent starts only when the person loads that agent's models", async () => {
   const { open, spawns, methods } = await agent("on-request");
   const catalog = open();
   catalog.revalidate();
@@ -132,19 +165,50 @@ test("an unprofiled ACP agent starts only when the person asks for that agent's 
   await catalog.loadMissing();
   await catalog.refresh();
   await catalog.refresh({ provider: "acp" });
+  // A refresh naming the row is any operate device's, an agent's included: it starts nothing.
+  await catalog.refresh({ instance: "acp-agent" });
   await catalog.loginChanged("acp-agent", "login-2");
+  catalog.list();
+  await catalog.loadMissing();
   expect(spawns()).toBe(0);
   expect(catalog.list().instances[0]).toMatchObject({ modelProbe: "on-request" });
-  await catalog.refresh({ instance: "acp-agent" });
+  await catalog.load("acp-agent");
   expect(spawns()).toBe(1);
   expect(catalog.list().models.map((model) => model.id)).toEqual(["flash", "pro"]);
   expect((await methods()).map(([method]) => method)).not.toContain("session/prompt");
 });
 
+test("loading an agent again and again starts it at most once a minute", async () => {
+  const { open, spawns, clock } = await agent("on-request");
+  const catalog = open();
+  await catalog.load("acp-agent");
+  for (let attempt = 0; attempt < 5; attempt++) {
+    clock.now += 10_000;
+    await catalog.load("acp-agent");
+  }
+  expect(spawns()).toBe(1);
+  clock.now += 10_000;
+  await catalog.load("acp-agent");
+  expect(spawns()).toBe(2);
+});
+
+test("a reviewed agent that reports a version its profile doesn't cover opens no probe session", async () => {
+  const { open, spawns, methods } = await agent("automatic", { reports: "2.0.0" });
+  const catalog = open();
+  await catalog.load("acp-agent");
+  expect(spawns()).toBe(1);
+  expect((await methods()).map(([method]) => method)).toEqual(["initialize"]);
+  expect(catalog.list().models).toEqual([]);
+  const same = await agent("automatic", { reports: "1.0.0" });
+  const loaded = same.open();
+  await loaded.load("acp-agent");
+  expect(loaded.list().models.map((model) => model.id)).toEqual(["flash", "pro"]);
+});
+
 test("a restart serves the cached ACP row without a probe, whichever folder registers it", async () => {
   const { row, open, spawns } = await agent("automatic");
   const first = open();
-  await first.loadMissing();
+  await first.load("acp-agent");
   await first.close();
   expect(spawns()).toBe(1);
   const second = open();
@@ -167,7 +231,7 @@ test("a row written while the folder was part of ACP identity is kept, not delet
     close: () => storage.close(),
   };
   const first = open(older);
-  await first.loadMissing();
+  await first.load("acp-agent");
   await first.close();
   const second = open();
   expect(second.list().models.map((model) => model.id)).toEqual(["flash", "pro"]);
@@ -178,7 +242,7 @@ test("a row written while the folder was part of ACP identity is kept, not delet
 test("modes a probe sees in an untrusted folder are left for a session to report", async () => {
   const { open } = await agent("automatic", { modes: "needs-session" });
   const catalog = open();
-  await catalog.loadMissing();
+  await catalog.load("acp-agent");
   const status = catalog.list().instances[0];
   expect(catalog.list().models.map((model) => model.id)).toEqual(["flash", "pro"]);
   expect(status?.permissionModes).toEqual([]);
@@ -189,7 +253,7 @@ test("an ACP agent that lists no models loads an empty row and is not probed aga
     payload: { sessionId: "probe", configOptions: [] },
   });
   const catalog = open();
-  await catalog.loadMissing();
+  await catalog.load("acp-agent");
   catalog.list();
   await catalog.loadMissing();
   expect(spawns()).toBe(1);

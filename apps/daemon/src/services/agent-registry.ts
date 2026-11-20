@@ -96,6 +96,8 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
         .handle(request)
         .then(
           (result) => {
+            if (request.type === "registry.approve-update" && result.result.ok)
+              options.acpCatalog?.updated(request);
             if (!context.connected()) return;
             if (!authorize(scope) || (scope === "admin" && !authorize("operate"))) return;
             if (Buffer.byteLength(JSON.stringify(result)) > 1024 * 1024)

@@ -11,6 +11,11 @@ import { catalogKey } from "@/lib/model-catalog.ts";
 export interface RefreshModels {
   /** Discover one provider's models again (every provider's without one). */
   refresh(provider: ProviderKind | undefined, instance?: string): void;
+  /**
+   * Load one row's models because the person asked (Load models): the one request that starts
+   * an ACP agent for its list. The daemon admits it only from the person's own device.
+   */
+  load(instance: string): void;
   /** A refresh this window asked for is running. */
   pending: boolean;
   /** Why it can't refresh: offline, or this device may only read. */
@@ -18,6 +23,7 @@ export interface RefreshModels {
 }
 
 const readOnly = "This device can view models but not refresh them";
+class LoadRefused extends Error {}
 /** Daemons that refused this device a refresh: it only has the read scope. */
 const refused = new WeakSet<ClientApi>();
 
@@ -33,9 +39,20 @@ export function useRefreshModels(): RefreshModels {
   const toast = useToast();
   const [forbidden, setForbidden] = useState(() => refused.has(client));
   const mutation = useMutation({
-    mutationFn: (filter: { provider?: ProviderKind | undefined; instance?: string | undefined }) =>
-      client.request({ type: "models.refresh", filter }),
+    mutationFn: async (
+      request:
+        | { provider?: ProviderKind | undefined; instance?: string | undefined }
+        | { load: string },
+    ) => {
+      if (!("load" in request)) return client.request({ type: "models.refresh", filter: request });
+      const reply = await client.request({ type: "models.load", instance: request.load });
+      // A refusal (not the person's device) is the daemon's own sentence.
+      if ("ok" in reply.result && !reply.result.ok) throw new LoadRefused(reply.result.reason);
+      return reply;
+    },
     onError: (error) => {
+      if (error instanceof LoadRefused)
+        return toast.error({ title: "Couldn't load models", description: error.message });
       const code = daemonErrorCode(error);
       if (code !== "forbidden")
         return toast.error({
@@ -51,6 +68,9 @@ export function useRefreshModels(): RefreshModels {
   return {
     refresh: (provider, instance) => {
       if (daemon.ready && !forbidden) mutation.mutate({ provider, instance });
+    },
+    load: (instance) => {
+      if (daemon.ready && !forbidden) mutation.mutate({ load: instance });
     },
     pending: mutation.isPending,
     reason: forbidden ? readOnly : daemon.reason,

@@ -1,6 +1,6 @@
 import { discoveredModels, withPermissionModes } from "./discovered-models.ts";
 import { acpPermissionModes } from "@ace/provider-kit/permission-modes";
-import { withPerModelOptions } from "./acp-model-probe.ts";
+import { negotiatedProbeAllowed, perModelProbe, withPerModelOptions } from "./acp-model-probe.ts";
 import { CursorHostSlots } from "@ace/adapter-cursor/slots";
 import { discoverClaudeModels } from "@ace/adapter-claude/models";
 import {
@@ -35,6 +35,8 @@ export type AcpProbeLaunch = {
    * trust), so the probe's modes are not the agent's and are not kept.
    */
   modes: "reported" | "needs-session";
+  /** Removes the probe's own folder, once the agent has stopped. */
+  release?(): Promise<void>;
 };
 export type DiscoveryOptions = {
   /**
@@ -144,18 +146,24 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       case "antigravity":
         break;
     }
-    const proc = spawn({
-      command: acp?.command ?? instance.executable,
-      args: acp ? [...acp.args] : args,
-      cwd: acp?.cwd ?? instance.cwd,
-      env: acp?.env ?? {
-        ...instance.env,
-        // Unset over the daemon environment the process would otherwise inherit.
-        ...Object.fromEntries((instance.unsetEnv ?? []).map((key) => [key, undefined])),
-      },
-      name: "model-discovery",
-      maxOutputBytes: 4 * 1024 * 1024,
-    });
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn({
+        command: acp?.command ?? instance.executable,
+        args: acp ? [...acp.args] : args,
+        cwd: acp?.cwd ?? instance.cwd,
+        env: acp?.env ?? {
+          ...instance.env,
+          // Unset over the daemon environment the process would otherwise inherit.
+          ...Object.fromEntries((instance.unsetEnv ?? []).map((key) => [key, undefined])),
+        },
+        name: "model-discovery",
+        maxOutputBytes: 4 * 1024 * 1024,
+      });
+    } catch (error) {
+      await acp?.release?.();
+      throw error;
+    }
     const abort = () => {
       // The stops awaited below report a tree that survives one.
       void proc.stop({ graceMs: 0 }).catch(() => {});
@@ -206,7 +214,10 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
           { signal },
         ),
       );
-      void initialized;
+      // A reviewed agent's row is loaded unasked only while the agent it reports is the one
+      // that profile covers: one that changed since its row registered opens no session.
+      if (!negotiatedProbeAllowed(instance, initialized))
+        throw new Error("ACP agent changed since its catalog row registered");
       const peer = rpc;
       const session = await openWithSignIn(
         peer,
@@ -219,9 +230,11 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
           ),
         signal,
       );
-      const probed = await withPerModelOptions(session, (method, params) =>
-        peer.request(method, params, { signal }),
-      );
+      const probed = perModelProbe(instance.provider)
+        ? await withPerModelOptions(session, (method, params) =>
+            peer.request(method, params, { signal }),
+          )
+        : session;
       const models = normalizeAcp(probed, instance);
       if (acp?.modes === "needs-session") return models;
       return withPermissionModes(
@@ -240,7 +253,11 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
     } finally {
       rpc?.close();
       signal.removeEventListener("abort", abort);
-      await proc.stop({ graceMs: 0 });
+      try {
+        await proc.stop({ graceMs: 0 });
+      } finally {
+        await acp?.release?.();
+      }
     }
   };
 }

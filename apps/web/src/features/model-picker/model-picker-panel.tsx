@@ -524,8 +524,8 @@ export function ModelPickerPanel(props: {
                 favorites={tab === "favorites"}
                 load={
                   unloaded && {
-                    // Named by its own row, so the daemon knows the person asked for this agent.
-                    onLoad: () => refresh.refresh("acp", unloaded.instance),
+                    // The person's own request for this agent's row: only it starts the agent.
+                    onLoad: () => refresh.load(unloaded.instance),
                     disabled:
                       unloaded.refreshing || refresh.pending || refresh.reason !== undefined,
                   }

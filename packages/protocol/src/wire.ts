@@ -198,6 +198,7 @@ import { DeviceAck, DeviceClientMessage, DeviceServerMessage } from "./devices.t
 import { ScreenAck, ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import {
   ModelsListRequest,
+  ModelsLoadRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
   ModelsResult,
@@ -337,6 +338,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ComputerUsingWatch,
   ModelsListRequest,
   ModelsRefreshRequest,
+  ModelsLoadRequest,
   ModelsResolveRequest,
   PresenceUpdate,
   NotificationRegister,

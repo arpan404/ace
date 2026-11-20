@@ -19,10 +19,11 @@ export function openModelStorage(path: string, runtime?: IdleWorkerRuntime): Cat
     );
     const rows = db
       .prepare(
-        "SELECT CASE WHEN length(CAST(payload AS BLOB)) <= 4194304 THEN payload ELSE NULL END AS payload FROM model_catalog LIMIT 65",
+        "SELECT CASE WHEN length(CAST(payload AS BLOB)) <= 4194304 THEN payload ELSE NULL END AS payload FROM model_catalog LIMIT 577",
       )
       .all();
-    if (rows.length > 64) throw new Error("Too many persisted instances");
+    // 64 CLI accounts and 512 ACP agents' rows (`storage-worker.ts`).
+    if (rows.length > 576) throw new Error("Too many persisted instances");
     try {
       entries = rows.map((row) =>
         CachedEntry.parse(

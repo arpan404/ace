@@ -598,9 +598,9 @@ test("an agent that starts only when asked offers Load models, and loads that ag
   const app = harness();
   const services = app.daemon.services;
   const handle = services.handle.bind(services);
-  const refreshes: unknown[] = [];
+  const requests: unknown[] = [];
   services.handle = (message, push) => {
-    if (message.type === "models.refresh") refreshes.push(message.filter);
+    if (message.type === "models.refresh" || message.type === "models.load") requests.push(message);
     return message.type !== "models.list"
       ? handle(message, push)
       : handle(message, (reply) =>
@@ -639,5 +639,10 @@ test("an agent that starts only when asked offers Load models, and loads that ag
   await userEvent.click(agent);
   expect(within(list).getByText("No models yet")).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: "Load models" }));
-  await waitFor(() => expect(refreshes).toEqual([{ provider: "acp", instance: "acp-gemini-row" }]));
+  // The person's own load of that row, never a refresh, which starts no agent.
+  await waitFor(() =>
+    expect(requests).toEqual([
+      expect.objectContaining({ type: "models.load", instance: "acp-gemini-row" }),
+    ]),
+  );
 });

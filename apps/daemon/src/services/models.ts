@@ -211,7 +211,19 @@ export async function startModels(context: ServiceContext): Promise<void> {
 }
 
 import { handleModelRequest } from "../models.ts";
+import { isAgentDevice } from "../answer-gate.ts";
+import { reauthSentence } from "../marketplace/fresh-sign-in.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+
+/**
+ * Why this socket may not load a row's models (start an ACP agent for it), or undefined when it
+ * may: only the person, from a socket that proved it is theirs (ADR 0190), as for other
+ * person-only actions. An agent's device never may, whatever its scopes.
+ */
+function loadRefusal(context: SocketContext): string | undefined {
+  if (isAgentDevice(context.device())) return "Only the person can load an agent's models.";
+  return context.personProven?.() === true ? undefined : reauthSentence;
+}
 export function createModelsSession(context: SocketContext): SocketService {
   const { options, authorize, send, tasks } = context;
   let modelRequests = 0;
@@ -234,6 +246,7 @@ export function createModelsSession(context: SocketContext): SocketService {
       switch (message.type) {
         case "models.list":
         case "models.resolve":
+        case "models.load":
         case "models.refresh": {
           const modelFailure = (reason: string) =>
             send({
@@ -241,9 +254,17 @@ export function createModelsSession(context: SocketContext): SocketService {
               requestId: message.requestId,
               result: { ok: false, reason },
             });
-          const requiredScope = message.type === "models.refresh" ? "operate" : "read";
+          const requiredScope =
+            message.type === "models.refresh" || message.type === "models.load"
+              ? "operate"
+              : "read";
           if (!authorize(requiredScope)) {
             modelFailure(`${requiredScope} scope required`);
+            return true;
+          }
+          const refused = message.type === "models.load" ? loadRefusal(context) : undefined;
+          if (refused) {
+            modelFailure(refused);
             return true;
           }
           if (!options.models) {
@@ -257,7 +278,7 @@ export function createModelsSession(context: SocketContext): SocketService {
           }
           modelRequests++;
           const request =
-            message.type === "models.refresh"
+            message.type === "models.refresh" || message.type === "models.load"
               ? Promise.resolve(options.providerActivation).then(() =>
                   handleModelRequest(catalog, message),
                 )
