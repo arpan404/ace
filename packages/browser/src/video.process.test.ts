@@ -275,11 +275,13 @@ describe.skipIf(!executablePath)("live video from ace's Chrome", () => {
     await keeping.subscribe();
     await f.evaluate(animate);
     await stalled.until(() => stalled.video().some((chunk) => chunk.key));
-    // Well past a full window (a second at 60 fps); one viewer acks each chunk, one none.
+    // Past a full window (a second at 60 fps); one viewer acks each chunk, one none. Checked
+    // well before a chunk can be lost (about 3 s unacked, #2037), after which the stalled viewer
+    // is offered a fresh keyframe.
     await keeping.until(() => {
       const shown = keeping.video().at(-1);
       if (shown) void keeping.ack(shown.sequence);
-      return keeping.video().length >= 2 * videoWindow.frames;
+      return keeping.video().length >= videoWindow.frames + 10;
     });
     expect(stalled.video().length).toBeLessThanOrEqual(videoWindow.frames);
     await f.evaluate("window.animating=false");
