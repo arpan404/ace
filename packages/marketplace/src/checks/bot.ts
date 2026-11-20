@@ -14,6 +14,18 @@ export interface BotInspection {
   notes: string[];
 }
 
+/** `bot.json`'s fields as written, for the checks that apply even when it doesn't read. */
+function written(source: string): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(source);
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 /** What a version 3 package's folder may hold besides `bot.json` and `skills/` (ADR 0200 §3.1). */
 const packageFile =
   /^(?:README\.md|assets\/[^/]+(?:\/[^/]+)*|tests\/[^/]+\.json|(?:cards|panels|contracts)\/.+)$/;
@@ -54,7 +66,9 @@ export function checkBot(
   }
   const read = readRecipe(bot, new Set(folders.map((folder) => `skills/${folder.name}`)), options);
   problems.push(...read.problems);
-  const packaged = read.recipe?.version === 3;
+  // A package that doesn't read is still held to a package's rules, so all its problems show.
+  const raw = written(bot);
+  const packaged = (read.recipe?.version ?? raw["version"]) === 3;
   for (const file of rest) {
     if (file.path === "bot.json" || file.path === "market.json") continue;
     // A package's executables are a skill's scripts, run in the sandbox; nothing else runs.
@@ -71,7 +85,12 @@ export function checkBot(
           : `${file.path} isn't part of a recipe (bot.json and skills/<name>/ only)`,
       });
   }
-  for (const test of read.recipe?.tests ?? [])
+  const tests =
+    read.recipe?.tests ??
+    (Array.isArray(raw["tests"])
+      ? raw["tests"].filter((test): test is string => typeof test === "string")
+      : []);
+  for (const test of tests)
     if (!rest.some((file) => file.path === test))
       problems.push({ path: test, message: `${test} is named in tests but isn't in the package` });
   return read.recipe && problems.length === 0

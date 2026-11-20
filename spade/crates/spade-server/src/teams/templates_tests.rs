@@ -106,6 +106,12 @@ fn a_template_is_a_version_3_package_linked_to_spade_by_its_content() {
         assert_eq!(package.package.name, package.template.id);
         assert_eq!(package.package.hash, content_hash(&package.files));
     }
+    // The market's own hash of the same files (`contentHash(hashFiles(…))` in @ace/marketplace),
+    // so a template's link names its bytes as `ace bot check` and the market do.
+    assert_eq!(
+        content_hash(&[("bot.json", "{\"name\":\"Ä\"}\n"), ("README.md", "# A\n")]),
+        "f52eb44244f768ab15e082a02f9d9d49e2444298b09ff86db047d497dcb8f69b"
+    );
     // The hash changes with any byte, so a corrected template reads as a new version's bytes.
     let files = [("bot.json", "{}"), ("README.md", "# A")];
     let changed = [("bot.json", "{}"), ("README.md", "# B")];

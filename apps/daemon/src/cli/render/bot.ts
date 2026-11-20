@@ -1,6 +1,6 @@
-import type { CliBotAction, CliRunningBot } from "@ace/protocol/cli-outputs";
+import type { CliBotAction, CliBotDev, CliRunningBot } from "@ace/protocol/cli-outputs";
 
-/** Words for `ace bot running|stop|pause|resume` (ADR 0200 §6.3). Pure: value → lines. */
+/** Words for `ace bot running|stop|pause|resume` (ADR 0200 §6.3) and `ace bot dev` (§9). Pure. */
 
 const amber = (text: string, color: boolean) => (color ? `\u001b[33m${text}\u001b[39m` : text);
 const red = (text: string, color: boolean) => (color ? `\u001b[31m${text}\u001b[39m` : text);
@@ -85,4 +85,22 @@ export function botActionWords(result: CliBotAction): string {
   return result.changed
     ? `Resumed ${name}. What came due while it was paused runs once now.`
     : `${name} wasn't paused.`;
+}
+
+/** One step in words; `watching` adds how to stop. Pure. */
+export function devLine(step: CliBotDev, watching: boolean): string {
+  const why = step.why?.length ? `\n  ${step.why.join("\n  ")}` : "";
+  const more = watching ? " Watching for saves; Ctrl-C to stop." : "";
+  switch (step.step) {
+    case "installed":
+      return `Installed ${step.name} as a development bot (${step.version}).${more}`;
+    case "updated":
+      return `Updated ${step.name} to ${step.version}.`;
+    case "unchanged":
+      return `${step.name} is up to date (${step.version}).${more}`;
+    case "waiting":
+      return `${step.name} is working; the update waits for its next quiet moment.${why}`;
+    case "refused":
+      return `Not applied:${why}`;
+  }
 }

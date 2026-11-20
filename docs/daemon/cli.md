@@ -1020,6 +1020,60 @@ Delete an automation.
 
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
 
+### `ace bot init NAME [flags]`
+
+Make a package folder: bot.json, a skill, a card, a scenario test and a README.
+
+Every file is valid as written: the folder passes ace bot check and ace bot test before you change a word. Templates: blank (it answers when you write to it), watcher (a schedule, a network effect and a card), club-member (answers when mentioned in a thread or club).
+
+- `NAME`: The bot's name, like "Fare watcher"
+
+- `--template T`: What it starts as: blank, watcher or club-member
+- `--path PATH`: Where to make it; ./<name> otherwise
+
+    ace bot init "Fare watcher" --template watcher
+    # A bot that checks on a schedule and shows a card
+
+### `ace bot check [PATH]`
+
+The market's checks on a package, with every problem at its place; no account.
+
+The same reader Spade and the market use. Problems print as path: sentence and exit 1. Warnings (a thin why on an effect, no scenario tests) don't fail the check.
+
+- `PATH`: The package's folder; this one when omitted
+
+### `ace bot test [PATH]`
+
+Run the package's scenario tests on Spade's engine with a scripted model, offline.
+
+Each scenario in tests/ runs on a throwaway Spade with spade-testkit's fake model: no network, no real model, nothing of yours. Needs Spade's program: the one this ace ships, or ACE_SPADE_BIN.
+
+- `PATH`: The package's folder; this one when omitted
+
+### `ace bot dev [PATH] [flags]`
+
+Install the package here as a development bot, and update it on every save.
+
+It installs once as local/<folder>, linked to the folder, its routines paused. Each save is checked and applied as an update at the bot's next quiet moment. A save that asks for more (an effect, a trigger kind, an app) asks you again. Ctrl-C to stop watching; the bot stays.
+
+- `PATH`: The package's folder; this one when omitted
+
+- `--spade DIR`: A development Spade's data folder, reached directly instead of through ace
+- `--once`: Install or update once, then stop
+
+### `ace bot publish [PATH] [flags]`
+
+Check and test the package, then publish it free: ace market publish spade-bot PATH.
+
+- `PATH`: The package's folder; this one when omitted
+
+- `--version VERSION`: The version to publish, such as 1.0.0
+- `--name NAME`: The entry's name; the folder's otherwise
+- `--changelog TEXT|-|@FILE`: What changed in this version
+- `--draft`: Stop at the draft and print its id
+- `--unlisted`: Reached by its link, not by search
+- `--wait`: Watch until it is live or blocked
+
 ### `ace market discover`
 
 What's featured, new and trending, and how to find more.

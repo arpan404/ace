@@ -6,7 +6,7 @@ export const spadeNouns: readonly NounSpec[] = [
   { name: "spade", summary: "Spade, ace's assistant, and its bots", group: "spade-market" },
   {
     name: "bot",
-    summary: "What Spade's bots run, and Stop, Pause and Resume",
+    summary: "What Spade's bots run, Stop, Pause and Resume, and the kit to make one",
     group: "spade-market",
   },
   { name: "feature", summary: "Beta features", group: "spade-market" },
