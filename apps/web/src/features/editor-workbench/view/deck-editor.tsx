@@ -76,6 +76,7 @@ export function DeckEditor(props: DeckEditorProps) {
       label={`Source of ${props.path}`}
       statusLine={false}
       marks={dirty ? undefined : props.marks}
+      layer={props.layer}
       line={reveal?.line}
       column={reveal?.column}
       onEdit={edited}

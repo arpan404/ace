@@ -1,6 +1,6 @@
 import type { LineMark } from "@ace/ui-core";
 import type { ReactNode } from "react";
-import type { EditorStatus, EditorStatusActions } from "@/features/editor";
+import type { EditorLayer, EditorStatus, EditorStatusActions } from "@/features/editor";
 import type { TextBuffer } from "../buffers/index.ts";
 import type { DeckBuffers } from "./deck-buffers.ts";
 
@@ -50,6 +50,8 @@ export interface DeckEditorProps {
    * unsaved edits; while it has, the gutter marks the person's own lines against the saved text.
    */
   marks?: ReadonlyMap<number, LineMark> | undefined;
+  /** Drawn over the text: the thread's code annotations (`useEditorAnnotations`). */
+  layer?: EditorLayer | undefined;
 }
 
 /** Everything a group needs from outside the layout. */

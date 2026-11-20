@@ -31,6 +31,7 @@ import {
   type DeckEditorProps,
   type StatusNotice,
 } from "@/features/editor-workbench/index.ts";
+import { useEditorAnnotations } from "@/features/editor";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
@@ -417,7 +418,11 @@ function RevealedEditor(props: DeckEditorProps & { threadId: string }) {
   const version = useSyncExternalStore(subscribe, () => buffer.snapshot().version);
   const marks = useChangeMarks(threadId, editor.path, version);
   const onRevealed = useCallback((token: number) => settleReveal(threadId, token), [threadId]);
-  return <DeckEditor {...editor} reveal={reveal} marks={marks} onRevealed={onRevealed} />;
+  // Annotations ride on every group's editor; views of one file map their ranges once per edit.
+  const layer = useEditorAnnotations({ threadId, path: editor.path });
+  return (
+    <DeckEditor {...editor} reveal={reveal} marks={marks} layer={layer} onRevealed={onRevealed} />
+  );
 }
 
 export default DeckPanel;
