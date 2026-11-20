@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/FileSearchFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "lines": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/FileSearchLine.json"
+      },
+      "maxItems": 5000,
+      "minItems": 1,
+      "type": "array"
+    },
+    "path": {
+      "maxLength": 4096,
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "lines"
+  ],
+  "type": "object"
+}

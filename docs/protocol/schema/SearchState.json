@@ -9,7 +9,8 @@
     "limited",
     "done",
     "failed",
-    "unresponsive"
+    "unresponsive",
+    "moved"
   ],
   "type": "string"
 }

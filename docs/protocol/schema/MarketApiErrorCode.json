@@ -4,6 +4,7 @@
   "enum": [
     "unauthorized",
     "reauth",
+    "person_grant",
     "email_unverified",
     "suspended",
     "forbidden",
