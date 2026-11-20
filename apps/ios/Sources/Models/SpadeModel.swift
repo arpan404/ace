@@ -12,11 +12,30 @@ import Observation
         let ready: Bool
         let canTurnOn: Bool
     }
-    /// A face the phone draws: Spade's mark, else an initial on a disc; away dims it.
+    /// A face the phone draws: Spade's mark when `main`, else its character face; away dims it.
     struct Face: Decodable, Equatable, Sendable, Hashable {
         let main: Bool
+        /// Accessibility fallback when a face stands on its own.
         let initial: String
         let away: Bool
+        let character: BotFace?
+
+        init(main: Bool, initial: String, away: Bool, character: BotFace? = nil) {
+            self.main = main
+            self.initial = initial
+            self.away = away
+            self.character = character
+        }
+
+        private enum CodingKeys: String, CodingKey { case main, initial, away, character }
+
+        init(from decoder: any Decoder) throws {
+            let box = try decoder.container(keyedBy: CodingKeys.self)
+            self.main = try box.decode(Bool.self, forKey: .main)
+            self.initial = try box.decode(String.self, forKey: .initial)
+            self.away = try box.decode(Bool.self, forKey: .away)
+            self.character = try box.decodeIfPresent(BotFace.self, forKey: .character)
+        }
     }
     /// A bot or a group (ADR 0132) in the list: its name, and its state and one line as web's
     /// list says them.
