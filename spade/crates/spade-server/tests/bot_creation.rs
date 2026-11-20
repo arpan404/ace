@@ -258,3 +258,49 @@ async fn with_untrusted_content_in_view_a_task_change_asks_the_person() -> Resul
     assert_eq!(agent(&spade, &id).await?["task"], "Summarise pages I send");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_recurring_task_offers_a_routine_and_the_persons_yes_saves_it() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("n1", "profile_update", json!({ "name": "Ivy" })),
+            Script::reply("I'll sort your inbox and send you a short list.").call(
+                "q1",
+                "ask_user",
+                json!({ "questions": [{ "prompt": "Every morning at 8?", "kind": "confirm" }] }),
+            ),
+            Script::reply("").call(
+                "r1",
+                "routine_save",
+                json!({ "name": "Morning inbox", "instruction": "Sort the inbox and report.",
+                        "schedule": "every day at 8:00", "time_zone": "UTC" }),
+            ),
+            Script::reply("Saved: every morning at 8 I'll sort your inbox."),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let made = from_one_message(&spade, "Sort my inbox every morning").await?;
+    let (id, chat) = ids(&made);
+    spade.wait_for(&chat, "question_asked").await?;
+    // The standing scaffold is what makes the offer: a job that recurs gets a schedule question.
+    let first = system(&spade.fake.seen()[0].body);
+    assert!(first.contains("offer a schedule"), "{first}");
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{chat}/questions/q1"),
+            json!({ "answers": [true] }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    spade.wait_for(&chat, "reply_finished").await?;
+    let events = spade.events(&chat).await?;
+    assert!(
+        !events.iter().any(|e| e["type"] == "approval_requested"),
+        "the person's yes is enough: {events:?}"
+    );
+    let (_, routines) = spade.get(&format!("/v1/agents/{id}/routines")).await?;
+    assert_eq!(routines["routines"][0]["name"], "Morning inbox");
+    assert_eq!(routines["routines"][0]["created_by"], "agent");
+    Ok(())
+}
