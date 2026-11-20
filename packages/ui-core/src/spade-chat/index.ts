@@ -37,6 +37,7 @@ export * from "./wire-capabilities.ts";
 export * from "./fold-capabilities.ts";
 export * from "./quiet.ts";
 export * from "./wakes.ts";
+export * from "./running.ts";
 export * from "./digests.ts";
 export * from "./briefs.ts";
 export * from "./reach.ts";

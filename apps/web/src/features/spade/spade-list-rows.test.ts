@@ -296,3 +296,20 @@ test("while the pointer holds the list, a row that turns busy stays in its place
   expect(names(shown)).toEqual(["Delta", "Alpha", "Beta", "Gamma"]);
   expect(shown.at(-1)?.row.state).toBe("working");
 });
+
+test("a paused bot rests with Paused as its line, never finished, and still reads needs you while it asks", () => {
+  // Paused (ADR 0200 §6.1): at rest, not done and not working; its last word isn't its line.
+  expect(
+    row({ state: "paused", status: "Paused", working: false, last_message: said("Done.") }),
+  ).toEqual({
+    state: "rest",
+    line: "Paused",
+  });
+  // A paused bot whose stopped work left a question open reads waiting, so it needs the person.
+  expect(row({ state: "waiting", waiting_for: "question" }).state).toBe("needs-you");
+  // A Spade from before paused sends only `working: false`: it reads at rest.
+  expect(row({ state: "hibernating", working: false, last_message: said("Hi") })).toEqual({
+    state: "rest",
+    line: "Hi",
+  });
+});

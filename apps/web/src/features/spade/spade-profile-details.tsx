@@ -1,9 +1,9 @@
 import { spadeAgentTaskMax } from "@ace/ui-core/spade-chat";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProfileApps } from "./spade-bot-connectors.tsx";
@@ -63,6 +63,7 @@ export function ProfileDetails(props: { bot: RosterBot }) {
         <ProfileMachine bot={bot} />
         <BotRoles bot={bot} />
       </ProfileSection>
+      {bot.kind === "main" && <ProfileRunning />}
       <ProfilePersonality bot={bot} />
       <ProfileSection label="Voice">
         <VoiceRows bot={voiceKey(bot.machine.key, bot.id)} speechModel={speechModel} />
@@ -76,6 +77,26 @@ export function ProfileDetails(props: { bot: RosterBot }) {
       <ProfileReach bot={bot} />
       <Foot bot={bot} />
     </>
+  );
+}
+
+/**
+ * Spade's own profile opens Running (ADR 0200 §6.3): Spade is what runs the bots, so what runs
+ * is its to show. One row and a text button; no new place in the rail or the list's toolbar.
+ */
+function ProfileRunning() {
+  return (
+    <ProfileSection label="Running">
+      <SettingRow
+        title="What runs"
+        inline
+        description="Every bot's state, spend and next wake, with Stop, Pause and Resume."
+      >
+        <Link to="/spade/running" {...buttonLook({ variant: "ghost" }, pillButton)}>
+          Open
+        </Link>
+      </SettingRow>
+    </ProfileSection>
   );
 }
 

@@ -81,7 +81,8 @@ export const CliSpadeBot = z.object({
   task: z.string(),
   model: z.string(),
   conversation: z.string(),
-  state: z.enum(["idle", "working", "waiting"]),
+  /** `paused`: the person paused it (ADR 0200 §6.1). */
+  state: z.enum(["idle", "working", "waiting", "paused"]),
   waitingFor: z.enum(["approval", "question"]).optional(),
   status: z.string().optional(),
   problem: z.string().optional(),

@@ -50,6 +50,7 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/spade/$agentId": ["/spade/spade", "spade"],
   "/spade/groups/$groupId": ["/spade/groups/group-missing", "spade"],
   "/spade/new": ["/spade/new", "spade"],
+  "/spade/running": ["/spade/running", "spade"],
   "/spade/groups/new": ["/spade/groups/new", "spade"],
   "/usage": ["/usage", "usage"],
   "/setup": ["/setup", "setup"],
