@@ -325,6 +325,7 @@ dependencies = [
 name = "files-watch"
 version = "0.1.0"
 dependencies = [
+ "cap-fs-ext",
  "cap-std",
  "dispatch2",
  "files-safe",

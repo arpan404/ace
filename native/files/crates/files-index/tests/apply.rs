@@ -322,3 +322,31 @@ fn a_path_held_as_both_a_file_and_a_folder_drops_both_and_the_subtree() {
     assert_eq!(paths(&index.search("b/a.rs", 5)), ["b/a.rs"]);
     assert!(index.search("inner", 5).is_empty());
 }
+
+#[test]
+fn a_folder_walked_again_leaves_an_index_no_larger_than_the_one_it_replaces() {
+    // A burst rescans its folder by rebuilding the whole index beside the served one. The copy is
+    // what stays, so slack in it is memory held for as long as the checkout is open.
+    let files: Vec<String> = (0..4_000)
+        .map(|file| format!("src/group_{:02}/module_{file:04}.rs", file % 40))
+        .chain((0..1_000).map(|file| format!("burst/file_{file:04}.txt")))
+        .collect();
+    let names: Vec<&str> = files.iter().map(String::as_str).collect();
+    let fixture = indexed(&names);
+    let before = fixture.index.bytes_used();
+    let rebuilt = fixture
+        .index
+        .rebuilt_folder(
+            &fixture.root,
+            "burst",
+            &IndexOptions::default(),
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+        .expect("the folder is walked again");
+    assert_eq!(rebuilt.len(), fixture.index.len());
+    assert!(
+        rebuilt.bytes_used() <= before + before / 10,
+        "the rebuilt index uses {} bytes where the one it replaces used {before}",
+        rebuilt.bytes_used()
+    );
+}
