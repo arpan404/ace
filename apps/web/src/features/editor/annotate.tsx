@@ -1,6 +1,7 @@
 import { codeIntentComment, type CodeAnnotation } from "@ace/ui-core";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
+  onSide,
   useCodeAnnotations,
   useCodeEditorPort,
   type CodeAnnotationInput,
@@ -55,7 +56,7 @@ function targetSpan(view: EditorLayerView): Span {
  */
 export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorLayer | undefined {
   const { threadId, path, side } = options;
-  const { port, annotations } = useCodeAnnotations(threadId, path);
+  const { port, annotations } = useCodeAnnotations(threadId, path, side);
   const [open, setOpen] = useState<Open>();
   const gutterFrom = useRef<number | undefined>(undefined);
   const newId = options.newId ?? randomId;
@@ -63,10 +64,10 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
   const checked = useRef(new Set<string>());
   const view = useRef<EditorLayerView | undefined>(undefined);
 
-  useCodeEditorPort(threadId, path, (id) => setOpen({ kind: "edit", id }));
+  useCodeEditorPort(threadId, path, side, (id) => setOpen({ kind: "edit", id }));
 
   const mine = (): readonly CodeAnnotation[] =>
-    (port?.code() ?? []).filter((each) => each.path === path);
+    (port?.code() ?? []).filter((each) => each.path === path && onSide(each, side));
 
   // Stored annotations are checked once against the text this editor opened: an agent may have
   // rewritten the file while it was closed.

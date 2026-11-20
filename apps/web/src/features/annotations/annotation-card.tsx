@@ -97,8 +97,12 @@ function CodeList(props: { code: readonly ParsedCodeAnnotation[] }) {
                 {item.comment || (item.intent ? codeIntentWords[item.intent] : "")}
               </span>
             )}
-            {item.outdated && (
-              <span className="block text-xs text-subtle-foreground">Outdated</span>
+            {(item.side === "old" || item.outdated) && (
+              <span className="block text-xs text-subtle-foreground">
+                {[item.side === "old" && "Before the change", item.outdated && "Outdated"]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
             )}
           </span>
         </li>

@@ -37,6 +37,8 @@ export interface ComposerAnnotationPort {
 /** An editor showing a file of the thread, which can reopen one of its annotations. */
 export interface CodeEditorPort {
   path: string;
+  /** A diff's old side; absent for the file as it is. */
+  side?: "old" | undefined;
   edit(id: string): void;
 }
 

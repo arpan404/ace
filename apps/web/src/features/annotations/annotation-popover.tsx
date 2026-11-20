@@ -74,7 +74,9 @@ export function AnnotationList(props: {
               <CodeRow
                 key={annotation.id}
                 annotation={annotation}
-                editor={editors.findLast((each) => each.path === annotation.path)}
+                editor={editors.findLast(
+                  (each) => each.path === annotation.path && each.side === annotation.side,
+                )}
                 onEdit={() => props.onOpenChange(false)}
                 onRemove={annotations.remove}
               />
@@ -163,6 +165,9 @@ function CodeRow(props: {
         <div className="flex min-w-0 items-center gap-1.5">
           <MarkerNumber number={number} />
           <PlaceBadge text={codeBadge({ path: annotation.path, ...codeLines(annotation) })} />
+          {annotation.side === "old" && (
+            <span className="text-xs text-subtle-foreground">Before the change</span>
+          )}
           {annotation.outdated && <span className="text-xs text-subtle-foreground">Outdated</span>}
         </div>
         {excerpt && (

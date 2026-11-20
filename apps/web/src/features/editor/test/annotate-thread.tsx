@@ -19,6 +19,9 @@ import type { EditorHandle } from "../types.ts";
 
 export const threadId = "thread-1";
 
+/** An editor's key: its path, and `#old` for a diff's old side. */
+const keyOf = (file: File) => (file.side === "old" ? `${file.path}#old` : file.path);
+
 export interface File {
   path: string;
   text: string;
@@ -45,7 +48,7 @@ function Thread(props: Props) {
   return (
     <div>
       {props.files.map((file) => (
-        <Annotated key={file.path} file={file} editorRef={props.refs.get(file.path)} />
+        <Annotated key={keyOf(file)} file={file} editorRef={props.refs.get(keyOf(file))} />
       ))}
       <AnnotationChip threadId={threadId} annotations={annotations} />
       <button
@@ -84,7 +87,7 @@ function Annotated(props: { file: File; editorRef: RefObject<EditorHandle | null
 
 /** Opens a thread with these files; each editor's handle by path, and what Send handed off. */
 export async function openThread(files: File[], restored?: DraftAnnotations) {
-  const refs = new Map(files.map((file) => [file.path, createRef<EditorHandle>()]));
+  const refs = new Map(files.map((file) => [keyOf(file), createRef<EditorHandle>()]));
   const sent: string[] = [];
   const drafts: (DraftAnnotations | undefined)[] = [];
   const view = render(
@@ -94,10 +97,11 @@ export async function openThread(files: File[], restored?: DraftAnnotations) {
   );
   for (const file of files) {
     const name = file.path.split("/").at(-1) ?? file.path;
-    await screen.findByRole("textbox", { name });
-    await waitFor(() => expect(refs.get(file.path)?.current).toBeTruthy());
+    await screen.findAllByRole("textbox", { name });
+    await waitFor(() => expect(refs.get(keyOf(file))?.current).toBeTruthy());
   }
-  const editor = (path = files[0]?.path ?? "") => {
+  /** An editor's handle by its path (`path#old` for a diff's old side). */
+  const editor = (path = files[0] ? keyOf(files[0]) : "") => {
     const handle = refs.get(path)?.current;
     if (!handle) throw new Error(`No editor for ${path}`);
     return handle;
