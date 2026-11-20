@@ -1,7 +1,7 @@
-import { configure, fireEvent, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { bytes, expand, openExplorer, row } from "./explorer-test-support.ts";
+import { bytes, expand, renderTree, row } from "./tree-test-support.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -21,8 +21,8 @@ function transfer(files: File[] = []) {
 }
 
 test("dragging a file onto a folder row moves it there", async () => {
-  const { app, tree } = await openExplorer();
-  const before = await bytes(app, "README.md");
+  const { client, tree } = await renderTree();
+  const before = await bytes({ client }, "README.md");
   const dataTransfer = transfer();
   fireEvent.dragStart(await row(tree, "README.md"), { dataTransfer });
   const apps = await row(tree, "apps/");
@@ -30,11 +30,11 @@ test("dragging a file onto a folder row moves it there", async () => {
   expect(dataTransfer.dropEffect).toBe("move");
   fireEvent.drop(apps, { dataTransfer });
   await waitFor(() => expect(tree.querySelector('[data-path="README.md"]')).toBeNull());
-  expect(await bytes(app, "apps/README.md")).toBe(before);
+  expect(await bytes({ client }, "apps/README.md")).toBe(before);
 });
 
 test("a folder held under a drag opens by itself", async () => {
-  const { tree } = await openExplorer();
+  const { tree } = await renderTree();
   const dataTransfer = transfer();
   fireEvent.dragStart(await row(tree, "README.md"), { dataTransfer });
   const apps = await row(tree, "apps/");
@@ -44,7 +44,7 @@ test("a folder held under a drag opens by itself", async () => {
 });
 
 test("a folder never drops into itself, and the empty space below the rows is the root", async () => {
-  const { app, tree } = await openExplorer();
+  const { client, tree } = await renderTree();
   await expand(tree, ["apps/", "apps/server/"]);
   const dataTransfer = transfer();
   fireEvent.dragStart(await row(tree, "apps/server/src/"), { dataTransfer });
@@ -56,26 +56,25 @@ test("a folder never drops into itself, and the empty space below the rows is th
   fireEvent.dragOver(empty, { dataTransfer });
   fireEvent.drop(empty, { dataTransfer });
   await waitFor(() => expect(tree.querySelector('[data-path="src/"]')).toBeTruthy());
-  expect(await bytes(app, "src/replay.ts")).toContain("COLD_START_WINDOW");
+  expect(await bytes({ client }, "src/replay.ts")).toContain("COLD_START_WINDOW");
 });
 
 test("files dropped from outside still upload into the folder", async () => {
-  const { app, tree } = await openExplorer();
+  const { tree, outputs } = await renderTree();
   const dataTransfer = transfer([new File(["dropped"], "dropped.txt")]);
   const apps = await row(tree, "apps/");
   fireEvent.dragOver(apps, { dataTransfer });
   expect(dataTransfer.dropEffect).toBe("copy");
   fireEvent.drop(apps, { dataTransfer });
-  await waitFor(async () => expect(await bytes(app, "apps/dropped.txt")).toBe("dropped"));
+  // The tab uploads what the tree hands it (files.test.tsx follows an upload into the checkout).
+  expect(outputs.uploads).toEqual([{ names: ["dropped.txt"], folder: "apps/" }]);
 });
 
 test("dragging a selected row moves every selected row", async () => {
-  const { panel, tree: first } = await openExplorer();
+  const { tree } = await renderTree();
   const src = "apps/server/src/";
-  await expand(first, ["apps/", "apps/server/", src]);
-  await userEvent.click(await row(first, `${src}cursor.ts`));
-  await within(panel).findByRole("tab", { name: "cursor.ts", selected: true });
-  const tree = within(panel).getByRole("tree", { name: "Checkout files" });
+  await expand(tree, ["apps/", "apps/server/", src]);
+  await userEvent.click(await row(tree, `${src}cursor.ts`));
   const user = userEvent.setup();
   await user.keyboard("{Control>}");
   await user.click(await row(tree, `${src}resume.ts`));
