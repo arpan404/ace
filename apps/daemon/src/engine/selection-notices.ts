@@ -61,3 +61,19 @@ export function refusedOptionsNotice(input: {
     },
   };
 }
+
+/** The transcript line for a live session stopped because its parent's access tightened. */
+export function ceilingStoppedNotice(input: { agent: string; at: number }): Fact {
+  return {
+    type: "item.upsert",
+    agent: input.agent,
+    item: `access-ceiling-stopped:${input.at}`,
+    draft: {
+      type: "notice",
+      level: "warning",
+      code: "access_ceiling_stopped",
+      text: "Stopped: its parent's access changed, and this agent can't run with anything that strict.",
+      complete: true,
+    },
+  };
+}

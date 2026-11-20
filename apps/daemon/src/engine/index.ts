@@ -207,6 +207,7 @@ export class Engine {
         this.wakeQueued();
       },
       interrupted: (id) => this.recovery.holdInterrupted(id),
+      report: (error) => this.report(error),
     });
     this.recovery = new Recovery(
       this.repo,
@@ -374,8 +375,7 @@ export class Engine {
                     ? this.commandPolicy(command, () => handler.handle(command, context))
                     : handler.handle(command, context)),
               );
-        if (result.ok && command.payload.type === "thread.permission.set")
-          this.sessions.accessChanged(this.actors.get(command.payload.threadId), this.report);
+        if (result.ok) this.sessions.commanded(command, (id) => this.actors.get(id), this.report);
         return result;
       },
     };
