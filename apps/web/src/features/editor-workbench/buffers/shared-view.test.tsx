@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, type Ref } from "react";
+import { createRef, useSyncExternalStore, type Ref } from "react";
 import { beforeAll, beforeEach, expect, test } from "vitest";
 import { CodeEditor, type EditorHandle } from "@/features/editor";
 import { createBufferRegistry } from "./registry.ts";
@@ -129,4 +129,49 @@ test("a merge the registry lands shows in the mounted editor, and unmounting kee
   expect(await screen.findByText("theirs")).toBeTruthy();
   unmount();
   expect(buffer.document()?.text()).toBe("a!\nb\nc\ntheirs\n");
+});
+
+/** A view that follows the buffer to a new document, as the Deck's editor does. */
+function LiveView(props: { buffer: TextBuffer; label: string; ref: Ref<EditorHandle> }) {
+  const { buffer } = props;
+  const view = useSyncExternalStore(
+    (changed) => buffer.subscribe(changed),
+    () => buffer.view(),
+  );
+  if (!view) return null;
+  return (
+    <CodeEditor
+      ref={props.ref}
+      document={view}
+      text={view.doc.text()}
+      path={file.path}
+      label={props.label}
+      statusLine={false}
+      highlightDelay={60_000}
+      commitAfter={50}
+      onEdit={() => buffer.edited()}
+    />
+  );
+}
+
+test("a document replaced mid typing run is freed only once its editor lets go", async () => {
+  const { buffer } = await setup("one\n");
+  const handle = createRef<EditorHandle>();
+  render(<LiveView buffer={buffer} label="Editor" ref={handle} />);
+  await waitFor(() => expect(handle.current).toBeTruthy());
+  act(() => handle.current?.focus());
+  act(() =>
+    handle.current?.setSelections([
+      { anchor: { line: 0, column: 3 }, head: { line: 0, column: 3 } },
+    ]),
+  );
+  // The typing run's commit is due shortly; the saved file is read again first, which replaces
+  // the document under the mounted editor.
+  await userEvent.keyboard("!");
+  expect(await buffer.save()).toMatchObject({ kind: "saved" });
+  // A render, effect or due commit that reached the freed document would throw and fail the run.
+  await act(() => buffer.reload());
+  await act(() => new Promise((resolve) => setTimeout(resolve, 120)));
+
+  expect(handle.current?.text()).toBe("one!\n");
 });

@@ -1,6 +1,6 @@
 import { EditorDocument } from "@ace/editor";
-import type { DocumentView } from "@/features/editor";
 import type { Author } from "./attribution.ts";
+import { DocumentViews } from "./document-views.ts";
 import { DraftSlot } from "./draft-slot.ts";
 import { opening } from "./opening.ts";
 import { reconcile, type ReconcileHost } from "./reconcile.ts";
@@ -65,7 +65,7 @@ export class Buffer implements TextBuffer {
 
   readonly #ctx: BufferContext;
   #doc: EditorDocument | undefined;
-  #view: BufferView | undefined;
+  #view: DocumentViews | undefined;
   /** The registry is landing text: the views' edit callbacks are not the person typing. */
   #landing = false;
   #status: BufferStatus = { kind: "loading" };
@@ -102,22 +102,9 @@ export class Buffer implements TextBuffer {
   view(): BufferView | undefined {
     const doc = this.#doc;
     if (!doc) return undefined;
-    if (this.#view?.doc !== doc) {
-      // Each document keeps its own views: one that is still leaving an old document never
-      // counts as a view of the new one.
-      const mounted: DocumentView[] = [];
-      this.#view = {
-        doc,
-        attach: (view) => {
-          mounted.push(view);
-          return () => {
-            const index = mounted.lastIndexOf(view);
-            if (index >= 0) mounted.splice(index, 1);
-          };
-        },
-        views: () => mounted,
-      };
-    }
+    // Each document keeps its own views: one still leaving an old document never counts as a
+    // view of the new one.
+    if (this.#view?.doc !== doc) this.#view = new DocumentViews(doc);
     return this.#view;
   }
 
@@ -509,8 +496,11 @@ export class Buffer implements TextBuffer {
   #free(): void {
     this.#base = undefined;
     this.#conflictMine = "";
-    if (!this.#doc) return;
-    this.#doc.dispose();
+    const doc = this.#doc;
+    if (!doc) return;
+    // Views still showing it free it once the last of them lets go.
+    if (this.#view?.doc === doc) this.#view.release();
+    else doc.dispose();
     this.#doc = undefined;
     this.bytes = 0;
     this.#emit({ type: "document" });

@@ -202,12 +202,17 @@ export function useEditorDocument(options: {
     }, commitAfter);
   }, [doc, commitAfter]);
 
-  useEffect(
-    () => () => {
-      if (commitTimer.current !== undefined) clearTimeout(commitTimer.current);
-    },
-    [],
-  );
+  // A typing run ends with its document: a new one (a re-read) or unmounting commits it now,
+  // while the document's owner still keeps it for this view. Runs before the view detaches.
+  useEffect(() => {
+    if (!doc) return undefined;
+    return () => {
+      if (commitTimer.current === undefined) return;
+      clearTimeout(commitTimer.current);
+      commitTimer.current = undefined;
+      doc.commit();
+    };
+  }, [doc]);
 
   /** What any applied edit changes in this view, whichever view made it: colours, layout, carets. */
   const redraw = useCallback(
