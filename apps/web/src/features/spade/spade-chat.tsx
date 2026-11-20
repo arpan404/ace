@@ -475,12 +475,7 @@ function RunItem(props: {
       );
     case "recalled":
       return (
-        <SpadeRecalledLine
-          notes={item.notes}
-          bot={bot.id}
-          // Its notes are corrected where they live: the bot's Library.
-          onCorrect={() => handlers.onOpenBot?.(bot.id)}
-        />
+        <SpadeRecalledLine notes={item.notes} bot={bot.id} />
       );
     case "files":
       return (

@@ -59,8 +59,8 @@ test("a note says where it came from, and everything from that source can be for
   );
 });
 
-test("a running Ollama is found and its models listed, and Use fills it in with no key", async () => {
-  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+test("Correct this under a reply opens that same note right there to rewrite", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) => {
     withEndpoint(api);
     api.addAgent({
       id: "main",
@@ -69,40 +69,51 @@ test("a running Ollama is found and its models listed, and Use fills it in with 
       avatar: { kind: "spade" },
       model: "openrouter/anthropic/sonnet",
     });
-    api.localServers = [
-      {
-        id: "ollama",
-        name: "Ollama",
-        base_url: "http://127.0.0.1:11434/v1/",
-        running: true,
-        models: ["gemma3:4b", "qwen3:8b"],
-        endpoint: null,
-      },
-      {
-        id: "lmstudio",
-        name: "LM Studio",
-        base_url: "http://127.0.0.1:1234/v1/",
-        running: false,
-        models: [],
-        endpoint: null,
-      },
-    ];
+    const travel = api.addAgent({
+      id: "travel",
+      name: "Travel",
+      model: "openrouter/anthropic/sonnet",
+    });
+    const note = api.notes.add({ text: "Prefers window seats", agent: "travel", source: "bot" });
+    api.provenance.set(note.id, {
+      text: note.text,
+      sources: [],
+      source: "bot",
+      at: Date.now(),
+      trust: "kept",
+    });
+    const c = travel.conversation;
+    api.store(c, {
+      type: "user_message",
+      text: "Book my flight",
+      context: `- [${note.id}] Prefers window seats`,
+    });
+    api.store(c, { type: "reply_started", reply: "r1" });
+    api.store(c, { type: "step_finished", reply: "r1", text: "Booked a window seat." });
+    api.store(c, {
+      type: "reply_finished",
+      reply: "r1",
+      text: "Booked a window seat.",
+      cost_micros: 0,
+    });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Add an endpoint" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Add endpoint" }));
-  const here = within(await dialog.findByRole("region", { name: "On this computer" }));
-  expect(here.getByText("Runs on this computer · 2 models")).toBeTruthy();
-  expect(here.getByText("Not running on this computer")).toBeTruthy();
-  await userEvent.click(here.getByRole("button", { name: "Use" }));
-  await userEvent.click(dialog.getByRole("button", { name: "Add endpoint" }));
-  await waitFor(() =>
-    expect(spade.sent("POST", "/v1/endpoints")).toEqual([
-      {
-        name: "Ollama",
-        format: "openai-chat",
-        base_url: "http://127.0.0.1:11434/v1/",
-        needs_key: false,
-      },
-    ]),
+  const feed = within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
+  await userEvent.click(await feed.findByText("Had a note in mind"));
+  await userEvent.click(
+    await feed.findByRole("button", { name: "Where it's from: Prefers window seats" }),
   );
+  const why = within(await screen.findByRole("dialog", { name: "Where it's from" }));
+  await userEvent.click(await why.findByRole("button", { name: "Correct this" }));
+  // Still in the conversation: the note itself is open to change, nothing else opened.
+  const field = await feed.findByRole("textbox", { name: "Correct the note" });
+  expect((field as HTMLTextAreaElement).value).toBe("Prefers window seats");
+  await userEvent.clear(field);
+  await userEvent.type(field, "Prefers aisle seats");
+  await userEvent.click(feed.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(spade.notes.notes.find((note) => note.agent === "travel")?.text).toBe(
+      "Prefers aisle seats",
+    ),
+  );
+  expect(feed.queryByRole("textbox", { name: "Correct the note" })).toBeNull();
 });
