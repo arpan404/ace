@@ -1,8 +1,8 @@
-import { readFile, lstat, writeFile } from "node:fs/promises";
+import { readFile, lstat, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
-import { launchPluginProcess } from "./index.ts";
+import { launchPluginProcess, withProjectionLock } from "./index.ts";
 import { preparePluginSession } from "./session.ts";
 import { fixture } from "./test-support.ts";
 
@@ -43,7 +43,8 @@ test.each(["claude", "codex", "cursor", "opencode", "acp", "antigravity"] as con
         expect(process.sessionConfig.mcpServers).toContainEqual(
           expect.objectContaining({ name: "ace-sample__tools", command: "node" }),
         );
-      await expect(lstat(join(root, "generated"))).rejects.toMatchObject({ code: "ENOENT" });
+      // The launch's own directory, projection and all, is gone with it.
+      expect(await readdir(root)).toEqual([]);
     } finally {
       await f.close();
     }
@@ -94,42 +95,52 @@ test("OpenCode launch preserves existing runtime MCP servers and instruction pat
   }
 });
 
-test("a projection removal that stalls doesn't hold the exit, and finishes on its own later", async () => {
+test("a relaunch while the last launch's cleanup stalls keeps its own files when that cleanup ends", async () => {
   const f = await fixture();
+  // A filesystem that hangs under the first launch's removal, holding that launch's lock.
+  const stalled = Promise.withResolvers<void>();
   try {
     await f.manager.accept(await f.prepare());
     const root = join(f.root, "session");
-    // A filesystem that hangs: the removal waits until the test lets it through.
-    const stalled = Promise.withResolvers<void>();
-    const prepare: typeof preparePluginSession = async (...args) => {
-      const session = await preparePluginSession(...args);
-      return { ...session, close: () => stalled.promise.then(session.close) };
+    let launches = 0;
+    const prepare: typeof preparePluginSession = async (manager, provider, directory) => {
+      const session = await preparePluginSession(manager, provider, directory);
+      if (launches++ > 0) return session;
+      return {
+        ...session,
+        close: () => withProjectionLock(directory, () => stalled.promise).then(session.close),
+      };
     };
-    const launched = await launchPluginProcess(
-      f.manager,
-      "claude",
-      root,
-      { command: process.execPath, args: ["-e", ""], env: {}, name: "standin" },
-      undefined,
-      { prepare, releaseMs: 50 },
-    );
+    const ids = ["first", "second"];
+    const launch = (args: string[]) =>
+      launchPluginProcess(
+        f.manager,
+        "claude",
+        root,
+        { command: process.execPath, args, env: {}, name: "standin" },
+        undefined,
+        { prepare, releaseMs: 50, id: () => ids.shift() ?? "extra" },
+      );
+    const first = await launch(["-e", ""]);
     const settled = await Promise.race([
-      launched.exited.then(() => "exited"),
+      first.exited.then(() => "exited"),
       new Promise((resolve) => setTimeout(() => resolve("still waiting"), 5_000)),
     ]);
+    // Reported past the cap while its removal still waits.
     expect(settled).toBe("exited");
-    // Reported with its projection still there; the removal completes once it can.
-    await expect(lstat(join(root, "generated"))).resolves.toBeDefined();
-    stalled.resolve();
-    await expect
-      .poll(() =>
-        lstat(join(root, "generated")).then(
-          () => "present",
-          (error) => error.code,
-        ),
-      )
-      .toBe("ENOENT");
+    const second = await launch(["-e", "setInterval(() => {}, 1000)"]);
+    try {
+      const own = join(root, "launch-second", "generated");
+      await expect(lstat(own)).resolves.toBeDefined();
+      stalled.resolve();
+      await expect.poll(() => readdir(root)).toEqual(["launch-second"]);
+      await expect(lstat(own)).resolves.toBeDefined();
+    } finally {
+      await second.stop({ graceMs: 0 });
+    }
+    expect(await readdir(root)).toEqual([]);
   } finally {
+    stalled.resolve();
     await f.close();
   }
 });

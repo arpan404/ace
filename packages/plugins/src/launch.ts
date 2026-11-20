@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { spawnSupervised, type SpawnOptions } from "@ace/provider-kit/process";
 import { launchEnvironment } from "./launch-config.ts";
 import { preparePluginSession } from "./session.ts";
@@ -19,6 +22,22 @@ function within(work: Promise<unknown>, ms: number): Promise<void> {
   });
 }
 
+const launchPrefix = "launch-";
+
+/**
+ * Removes the launch directories under `root` other than `current`'s. A root has one live
+ * launch at a time (the daemon's launcher admits one per root), so any other is an earlier
+ * launch's, exited, whose cleanup stalled or never ran. Best effort, and never awaited.
+ */
+async function sweepEarlierLaunches(root: string, current: string): Promise<void> {
+  const names = await readdir(root).catch(() => []);
+  await Promise.allSettled(
+    names
+      .filter((name) => name.startsWith(launchPrefix) && name !== current)
+      .map((name) => rm(join(root, name), { recursive: true, force: true })),
+  );
+}
+
 export async function launchPluginProcess(
   manager: PluginManager,
   provider: Provider,
@@ -29,11 +48,21 @@ export async function launchPluginProcess(
     /** Writes the session's projection; tests stand in for a filesystem that stalls. */
     prepare?: typeof preparePluginSession;
     releaseMs?: number;
+    id?: () => string;
   } = {},
 ) {
   if (options.killGroupOnExit === false)
     throw new Error("Plugin launches require process-group cleanup on leader exit");
-  const session = await (seams.prepare ?? preparePluginSession)(manager, provider, root);
+  // Each launch projects into a directory of its own, so an earlier launch's cleanup, however
+  // late, removes only its own files and holds only its own lock: never this launch's.
+  const name = `${launchPrefix}${(seams.id ?? randomUUID)()}`;
+  const directory = join(root, name);
+  void sweepEarlierLaunches(root, name);
+  const prepared = await (seams.prepare ?? preparePluginSession)(manager, provider, directory);
+  const session = {
+    ...prepared,
+    close: () => prepared.close().finally(() => rm(directory, { recursive: true, force: true })),
+  };
   try {
     const process = spawn({
       ...options,
