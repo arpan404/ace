@@ -34,6 +34,14 @@ export interface SpadeLastMessage {
   fromAgent: { id: string; name: string } | undefined;
 }
 
+export type SpadeMayCreate = "yes" | "ask" | "no";
+
+const madeByShape = z.object({
+  id: z.string(),
+  name: z.string().catch(""),
+  apps: z.array(z.string()).catch([]).default([]),
+});
+
 export interface SpadeAgent {
   id: string;
   /** `main`: Spade itself, which always exists and can't be deleted. */
@@ -86,6 +94,15 @@ export interface SpadeAgent {
   fullAccess: boolean;
   /** The agent as Spade sent it, fields this client doesn't know included. */
   raw: Record<string, unknown>;
+  /**
+   * Whether it may make bots for the person (ADR 0161, amendment 1): `yes`, `ask` (the person
+   * agrees to each) or `no`. Spade's starts on `yes`, every other bot's on `ask`.
+   */
+  mayCreateBots: SpadeMayCreate;
+  /** The bot that made it, when one did, with the apps it suggested. */
+  madeBy: { id: string; name: string; apps: readonly string[] } | undefined;
+  /** Undo archived it: it had acted, so it was kept, stopped, its routines paused. */
+  archived: boolean;
 }
 
 const avatarShape = z.discriminatedUnion("kind", [
@@ -197,6 +214,16 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     move: parseSpadeMove(record.move),
     arrived: parseSpadeArrival(record.arrived),
     fullAccess: record.autonomy === "full_access",
+    mayCreateBots:
+      record.may_create_bots === "yes" || record.may_create_bots === "no"
+        ? record.may_create_bots
+        : record.may_create_bots === "ask"
+          ? "ask"
+          : main
+            ? "yes"
+            : "ask",
+    madeBy: madeByShape.safeParse(record.made_by).data,
+    archived: record.archived === true,
     raw: record,
   };
 }
@@ -236,3 +263,9 @@ export function splitSpadeModel(ref: string): { endpoint: string; model: string 
 
 export const spadeAgentNameMax = 40;
 export const spadeAgentTaskMax = 4000;
+
+/** `POST /v1/agents/{id}/undo-made`: what Undo did to a made bot; undefined when unreadable. */
+export function parseSpadeUndone(body: string): "removed" | "archived" | undefined {
+  const undone = spadeRecord(spadeJson(body))?.undone;
+  return undone === "removed" || undone === "archived" ? undone : undefined;
+}

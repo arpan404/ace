@@ -142,6 +142,11 @@ Spade is one of ace's places. It adds no navigation of its own.
   click. Under it, the apps its task names that aren't connected ("It may need Gmail and
   Slack." and Connect apps). Then its words, at most one card of questions and a schedule
   question when the job recurs.
+- **Bots it makes** (ADR 0161, amendment 1). "Made a new bot: Research · Finds and summarises
+  sources" as one quiet line where it happened, with Open and Undo. Undo reads Undone, or "Archived:
+  it had already acted, so it's kept and stopped". The new bot is in the list at once. "Added
+  Writer to Ops" says the same of a club. The profile's Making bots section holds May create bots:
+  Yes, Ask me first or No.
 - **Its task changes.** "Updated its task: Also covers Slack" as one quiet line where it happened,
   with See change (the task before, struck through, and now, on `--chat-well`) and Undo, which
   reads Undone once used. A change asked of the person is a request card with the same before

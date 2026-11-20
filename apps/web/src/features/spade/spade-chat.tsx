@@ -40,6 +40,7 @@ import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { SpadeStepsLine } from "./spade-steps-line.tsx";
 import { NamedLine, TaskChangedLine } from "./spade-self-edit-lines.tsx";
+import { ClubAddedLine, MadeLine } from "./spade-made-lines.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
@@ -182,6 +183,7 @@ export function SpadeChat(props: {
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
     keep,
     profile: props.profile,
+    listed: (id) => bot.names.has(id),
   };
   return (
     <div
@@ -296,6 +298,8 @@ interface Handlers {
   /** Where its finished bubbles stay drawn: this Spade connection and conversation. */
   keep: { owner: object; conversation: string };
   profile: RosterBot | undefined;
+  /** Whether a bot is still in the person's list. */
+  listed(id: string): boolean;
 }
 
 /**
@@ -316,13 +320,17 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
     case "quiet":
     case "task-changed":
     case "named":
+    case "made":
+    case "club-added":
       // A helper line reads under the reply that started it; quiet lines
       // stack under the words they follow.
       return previous.kind === "run" ||
         previous.item.kind === "helper" ||
         previous.item.kind === "quiet" ||
         previous.item.kind === "task-changed" ||
-        previous.item.kind === "named"
+        previous.item.kind === "named" ||
+        previous.item.kind === "made" ||
+        previous.item.kind === "club-added"
         ? "mt-1"
         : "mt-(--chat-turn-gap)";
     default:
@@ -623,6 +631,22 @@ function Single(props: {
           <TaskChangedLine item={item} bot={props.handlers.profile} />
         </div>
       ) : null;
+    case "made":
+      return (
+        <div className={space}>
+          <MadeLine
+            item={item}
+            listed={props.handlers.listed(item.bot)}
+            onOpen={props.handlers.onOpenBot}
+          />
+        </div>
+      );
+    case "club-added":
+      return (
+        <div className={space}>
+          <ClubAddedLine item={item} />
+        </div>
+      );
     case "named":
       return props.handlers.profile ? (
         <div className={space}>

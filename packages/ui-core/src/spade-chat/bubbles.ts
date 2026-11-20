@@ -74,6 +74,17 @@ type SpadeBubbleOf =
   | { kind: "quiet"; key: string; quiet: SpadeQuiet }
   /** "Updated its task: …", with the change behind See change and Undo. */
   | { kind: "task-changed"; key: string; task: string; previous: string; why: string }
+  /** "Made a new bot: Research · …", with Open and Undo. */
+  | { kind: "made"; key: string; bot: string; name: string; task: string }
+  /** "Added Writer to Ops". */
+  | {
+      kind: "club-added";
+      key: string;
+      club: string;
+      clubName: string;
+      bot: string;
+      botName: string;
+    }
   /** "Named itself Ivy", the name and face changed in place from the line. */
   | { kind: "named"; key: string; name: string; face: boolean; first: boolean }
   /** The person handed the computer back: one quiet line, its names behind a disclosure. */
@@ -194,7 +205,12 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       });
       continue;
     }
-    if (entry.kind === "task-changed" || entry.kind === "named") {
+    if (
+      entry.kind === "task-changed" ||
+      entry.kind === "named" ||
+      entry.kind === "made" ||
+      entry.kind === "club-added"
+    ) {
       onlyGroups = false;
       bubbles.push(entry);
       continue;

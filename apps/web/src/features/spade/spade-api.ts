@@ -7,6 +7,7 @@ import {
   parseSpadeSearchSettings,
   parseSpadeSubscriptions,
   parseSpadeTaskHistory,
+  parseSpadeUndone,
   parseSpadeTranscription,
   type SpadeAgent,
   type SpadeEndpoint,
@@ -99,6 +100,8 @@ export async function editAgent(
   change: Partial<SpadeAgentDraft> & {
     /** The person's one line on a task change (Undo, a restore), kept in its history. */
     task_why?: string;
+    /** Whether it may make bots for the person (ADR 0161, amendment 1). */
+    may_create_bots?: "yes" | "ask" | "no";
   },
 ): Promise<SpadeAgent> {
   const body = await spadeHttp(target, "PATCH", `/v1/agents/${segment(id)}`, { body: change });
@@ -113,6 +116,17 @@ export async function readTaskHistory(
 ): Promise<SpadeTaskVersion[]> {
   const body = await spadeHttp(target, "GET", `/v1/agents/${segment(id)}/task/history`, options);
   return sure(parseSpadeTaskHistory(body), "task history");
+}
+
+/**
+ * Undo on a bot another bot made (ADR 0161, amendment 1): `removed` when it never acted outside
+ * itself, else `archived` (kept, stopped, its routines paused).
+ */
+export async function undoMade(target: SpadeTarget, id: string): Promise<"removed" | "archived"> {
+  const body = await spadeHttp(target, "POST", `/v1/agents/${segment(id)}/undo-made`, {
+    body: {},
+  });
+  return sure(parseSpadeUndone(body), "undo");
 }
 
 /** Deletes the agent and its conversation. */

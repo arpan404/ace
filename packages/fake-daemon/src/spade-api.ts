@@ -154,6 +154,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly teams: FakeSpadeTeams;
   /** Each bot's goal and plan, and its tree of workers (ADR 0159, 0161). */
   readonly work = new FakeSpadeWork(() => this.agents);
+  /** Made bots that have acted outside themselves: Undo archives them (ADR 0161, amendment 1). */
+  readonly madeActed = new Set<string>();
   /** Each bot's task versions and its own renames. */
   readonly tasks: FakeSpadeTasks;
 
@@ -556,6 +558,18 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ templates: this.teams.templates });
     if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
       return this.routines.agentRoute(request.method, id, sub, body);
+    if (root === "agents" && id && sub === "undo-made" && request.method === "POST") {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      if (!agent.made_by) return problem(409, "only a bot another bot made can be undone");
+      // As Spade: a bot that acted is archived; one that didn't is removed.
+      if (!this.madeActed.has(id)) {
+        this.agents = this.agents.filter((candidate) => candidate !== agent);
+        return reply({ undone: "removed" });
+      }
+      agent.archived = true;
+      return reply({ undone: "archived" });
+    }
     if (root === "agents" && id && sub === "task" && subId === "history") {
       if (!this.agents.some((candidate) => candidate.id === id))
         return problem(404, "No such agent.");
@@ -776,6 +790,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(400, "Spade's name and face can't change.");
       for (const key of ["name", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
+      // As Spade: whether it may make bots (ADR 0161, amendment 1).
+      if (
+        body.may_create_bots === "yes" ||
+        body.may_create_bots === "ask" ||
+        body.may_create_bots === "no"
+      )
+        agent.may_create_bots = body.may_create_bots;
       // As Spade: a task change is kept with who made it and why.
       if (typeof body.task === "string")
         this.tasks.change(

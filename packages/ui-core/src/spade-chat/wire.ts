@@ -314,6 +314,21 @@ const known = z.discriminatedUnion("type", [
       .nullish()
       .catch(undefined),
   }),
+  /** This bot made a standing bot for the person (ADR 0161, amendment 1). */
+  z.object({
+    type: z.literal("bot_made"),
+    bot: z.string(),
+    name: z.string().catch(""),
+    task: z.string().catch(""),
+  }),
+  /** This bot added a bot to a club it is in. */
+  z.object({
+    type: z.literal("club_added"),
+    club: z.string(),
+    club_name: z.string().catch(""),
+    bot: z.string(),
+    bot_name: z.string().catch(""),
+  }),
   /** The bot's name or face changed; `by` is `bot` (it named itself) or `person`. */
   z.object({
     type: z.literal("profile_changed"),

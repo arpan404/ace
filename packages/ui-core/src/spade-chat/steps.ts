@@ -48,6 +48,8 @@ const shownElsewhere = new Set([
   // A bot changing its own task, name or face: its own quiet line (`task-changed`, `named`).
   "task_update",
   "profile_update",
+  // A bot made for the person, or added to a club: their own lines (`made`, `club-added`).
+  "club_add",
 ]);
 
 /** A call that has finished one way or another; one still going is the working line's. */

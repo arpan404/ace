@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProfileApps } from "./spade-bot-connectors.tsx";
 import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
@@ -56,12 +57,50 @@ export function ProfileDetails(props: { bot: RosterBot }) {
         <BotRoles bot={bot} />
       </ProfileSection>
       <ProfileRoutines bot={bot} />
+      <ProfileMakesBots bot={bot} />
       <ProfileApps bot={bot} />
       <ProfilePlugins bot={bot} />
       <ProfileSecurity bot={bot} />
       <ProfileSpending bot={bot} />
       <Foot bot={bot} />
     </>
+  );
+}
+
+const mayWords = { yes: "Yes", ask: "Ask me first", no: "No" } as const;
+
+/**
+ * May create bots (ADR 0161, amendment 1): whether the bot makes bots for the person, and adds
+ * bots to its clubs, by itself, after asking, or never. With anything untrusted in view it asks
+ * whatever this says.
+ */
+function ProfileMakesBots(props: { bot: RosterBot }) {
+  const { bot } = props;
+  const edit = useEditBot(bot);
+  const [problem, setProblem] = useState<string>();
+  return (
+    <ProfileSection label="Making bots">
+      <SettingRow
+        title="May create bots"
+        inline
+        description={problem && <span className="text-destructive">{problem}</span>}
+      >
+        <Select
+          label="May create bots"
+          className="w-36"
+          value={bot.mayCreateBots}
+          options={(["yes", "ask", "no"] as const).map((value) => ({
+            value,
+            label: mayWords[value],
+          }))}
+          onValueChange={(value) => {
+            if (value !== "yes" && value !== "ask" && value !== "no") return;
+            if (value === bot.mayCreateBots) return;
+            void edit({ may_create_bots: value }).then(setProblem);
+          }}
+        />
+      </SettingRow>
+    </ProfileSection>
   );
 }
 

@@ -241,4 +241,3 @@ Decided by the owner (2026-11-19: "a bot can create a new standing bot ... e.g. 
    of, under the same setting and taint rule, and stores `club_added` in the caller's chat. Clubs
    hold up to 32 bots (ADR 0132, amended in ADR 0194); a message names at most four members
    directly, more go to the lead to hand on.
-
