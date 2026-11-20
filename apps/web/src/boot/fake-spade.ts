@@ -6,6 +6,7 @@ import { seedFakeLibrary } from "./fake-spade-library.ts";
 import { seedFakeTranscript } from "./fake-spade-transcript.ts";
 import { seedFakeCapabilities } from "./fake-spade-capabilities.ts";
 import { seedFakeReach } from "./fake-spade-reach.ts";
+import { seedFakeRunning } from "./fake-spade-running.ts";
 import { seedFakeWork } from "./fake-spade-work.ts";
 
 /*
@@ -535,6 +536,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
     rewound = back * 60_000;
   });
   seedFakeReach(here, now);
+  seedFakeRunning(here, now);
   seedFakeCapabilities(
     here,
     (back) => {
