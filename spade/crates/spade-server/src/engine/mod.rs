@@ -47,6 +47,7 @@ mod routing;
 mod search;
 mod security;
 mod services;
+mod speech;
 mod trim;
 mod try_again;
 mod turn;
@@ -74,6 +75,7 @@ pub use knowledge_api::KnowledgeInput;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
 
