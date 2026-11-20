@@ -29,6 +29,9 @@
         "actions": {
           "items": {
             "properties": {
+              "confirm": {
+                "type": "boolean"
+              },
               "label": {
                 "maxLength": 40,
                 "minLength": 1,

@@ -1,12 +1,13 @@
 //! Panels (ADR 0200 §5.2): `panel_update` stores a packaged bot's panel state, checked against
-//! the schema its package declared, and an action the person sends from a panel reaches the bot
-//! once, as their input. The rules are `spade_core::panel`; this stores what they decide.
+//! the schema its package declared, and an action sent from a panel reaches the bot once: as its
+//! page's untrusted input, or as the person's when they confirmed it in ace (amendment 1). The
+//! rules are `spade_core::panel`; this stores what they decide.
 
 use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
-use spade_core::event::{Event, Known};
+use spade_core::event::{Event, Known, PanelSender};
 use spade_core::package::surfaces::{self, Surface};
 use spade_core::panel::{self, Refused};
 use spade_store::StoreError;
@@ -33,12 +34,21 @@ pub struct PanelView {
     pub page: Option<String>,
     /// The actions its page may send, by name.
     pub actions: Vec<String>,
+    /// Those only the person may send, with the words ace's confirm shows for each.
+    pub confirm: Vec<ConfirmView>,
     /// The latest state its bot set, if any.
     pub state: Option<Value>,
 }
 
 /// Kept pages one batch of the collection looks at, in one short transaction.
 const COLLECT_BATCH: usize = 64;
+
+/// An action ace asks the person to confirm before it goes, in their own words.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfirmView {
+    pub name: String,
+    pub label: String,
+}
 
 impl Engine {
     /// Removes the kept panel pages no bot's panels show any more (an uninstalled bot's, a
@@ -142,14 +152,24 @@ impl Engine {
                 title: declared.title.clone(),
                 page: pages.get(&declared.id).cloned(),
                 actions: declared.actions.iter().map(|a| a.name.clone()).collect(),
+                confirm: declared
+                    .actions
+                    .iter()
+                    .filter(|a| a.confirm)
+                    .map(|a| ConfirmView {
+                        name: a.name.clone(),
+                        label: a.label.clone().unwrap_or_else(|| a.name.clone()),
+                    })
+                    .collect(),
                 state: panel::state(&events, &declared.id).cloned(),
             })
             .collect())
     }
 
-    /// The person sent action `action` with `value` from panel `surface` in conversation `id`, as
-    /// request `key`: it reaches the bot once, steering its open reply or starting one. Only an
-    /// action the panel declares, with a value that fits its schema, gets through.
+    /// Action `action` with `value` came from panel `surface` in conversation `id`, sent `by` its
+    /// page or the person, as request `key`: it reaches the bot once, steering its open reply or
+    /// starting one. Only an action the panel declares, with a value that fits its schema, gets
+    /// through, and one it declares `confirm` only when the person confirmed it.
     pub fn act_on_panel(
         self: &Arc<Self>,
         id: &str,
@@ -157,10 +177,11 @@ impl Engine {
         key: &str,
         action: &str,
         value: Option<Value>,
+        by: PanelSender,
     ) -> Result<(), PanelError> {
         let (_, surfaces) = self.panels_for(id)?;
         let event =
-            panel::act(&surfaces, surface, key, action, value).map_err(PanelError::Refused)?;
+            panel::act(&surfaces, surface, key, action, value, by).map_err(PanelError::Refused)?;
         // Checked again under the lock it is stored under, so a request sent twice lands once.
         if let spade_store::Delivered::Stored(_) =
             self.deliver_as(id, &Event::Known(event), None)?

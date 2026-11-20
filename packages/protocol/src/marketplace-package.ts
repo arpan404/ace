@@ -111,7 +111,14 @@ export type PackageSurface =
       file: string;
       title: string;
       state?: unknown;
-      actions?: { name: string; label?: string | undefined; value?: unknown }[] | undefined;
+      actions?:
+        | {
+            name: string;
+            label?: string | undefined;
+            value?: unknown;
+            confirm?: boolean | undefined;
+          }[]
+        | undefined;
     };
 // Named rather than inferred: recipes ride in many wire messages, whose inferred type would
 // otherwise grow past what the compiler writes out.
@@ -129,6 +136,7 @@ export const PackageSurface: z.ZodType<PackageSurface> = z.discriminatedUnion("k
           name: z.string().max(40),
           label: trimmedText(1, 40).optional(),
           value: z.unknown().optional(),
+          confirm: z.boolean().optional(),
         }),
       )
       .max(16)

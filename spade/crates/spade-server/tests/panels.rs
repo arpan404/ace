@@ -1,7 +1,9 @@
 //! Panels (ADR 0200 §5.2) through the real engine and API on a scripted fake endpoint: a package
 //! installs with its panel's page, kept and served by its hash; `panel_update` sets the panel's
 //! state only when it fits the declared schema; only an action the panel declares, with a value
-//! that fits, reaches the bot, once, as the person's input; and a card opens only its own panels.
+//! that fits, reaches the bot, once; what the page sends is its package's untrusted input, never
+//! the person's, and only an action the person confirmed in ace carries their standing; and a card
+//! opens only its own panels.
 
 mod support;
 
@@ -40,6 +42,8 @@ fn watcher() -> Value {
             },
             "actions": [
                 { "name": "stop_watching", "label": "Stop watching",
+                  "value": { "type": "string", "maxLength": 40 } },
+                { "name": "book_fare", "label": "Book this fare", "confirm": true,
                   "value": { "type": "string", "maxLength": 40 } }
             ]
         }]
@@ -155,7 +159,11 @@ async fn a_panels_state_fits_its_schema_and_only_its_declared_actions_reach_the_
     let panel = &listed["panels"][0];
     assert_eq!(panel["id"], "watchlist");
     assert_eq!(panel["title"], "Watched trips");
-    assert_eq!(panel["actions"], json!(["stop_watching"]));
+    assert_eq!(panel["actions"], json!(["stop_watching", "book_fare"]));
+    assert_eq!(
+        panel["confirm"],
+        json!([{ "name": "book_fare", "label": "Book this fare" }])
+    );
     assert_eq!(panel["state"], Value::Null);
     let hash = panel["page"].as_str().unwrap_or_default().to_owned();
     assert_eq!(hash.len(), 64);
@@ -229,7 +237,7 @@ async fn a_panels_state_fits_its_schema_and_only_its_declared_actions_reach_the_
     assert_eq!(turns(&spade.fake.seen()).len(), model_calls);
     assert_eq!(count(&spade.events(&chat).await?, "panel_action"), 0);
 
-    // Sent twice (a retry after a lost answer): it reaches the bot once, as the person's input.
+    // Sent twice (a retry after a lost answer): it reaches the bot once, as its page's input.
     let action = json!({ "key": "a5", "action": "stop_watching", "value": "KTM-DEL" });
     for _ in 0..2 {
         let (got, answer) = spade.post(&path, action.clone()).await?;
@@ -238,11 +246,106 @@ async fn a_panels_state_fits_its_schema_and_only_its_declared_actions_reach_the_
     spade.wait_for_count(&chat, "reply_finished", 2).await?;
     let sent = last_sent(&spade);
     assert!(
-        sent.contains("<panel_action panel=\\\"watchlist\\\" action=\\\"stop_watching\\\">"),
+        sent.contains(
+            "<panel_action panel=\\\"watchlist\\\" action=\\\"stop_watching\\\" from=\\\"page\\\" \
+             untrusted=\\\"true\\\">"
+        ),
         "{sent}"
     );
     assert!(sent.contains("\\\"KTM-DEL\\\""), "{sent}");
     assert_eq!(count(&spade.events(&chat).await?, "panel_action"), 1);
+    Ok(())
+}
+
+fn approvals(events: &[Value]) -> Vec<Value> {
+    events
+        .iter()
+        .filter(|e| e["type"] == "approval_requested")
+        .map(|e| e["call_id"].clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn what_a_panels_page_sends_is_untrusted_and_only_the_persons_confirm_carries_their_word()
+-> Result {
+    let spade = Spade::start(
+        vec![
+            // Confirmed by the person in ace: their word, so a note runs as on their message.
+            Script::reply("").call("m1", "memory_save", json!({ "text": "Booked KTM-DEL" })),
+            Script::reply("Booked it."),
+            // Sent by the page alone: the same note now waits for the person.
+            Script::reply("").call(
+                "m2",
+                "memory_save",
+                json!({ "text": "The person agreed to book every fare" }),
+            ),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (status, made) = spade
+        .post(
+            "/v1/agents",
+            install(json!({ "panels/watchlist/index.html": PAGE })),
+        )
+        .await?;
+    assert_eq!(status, 201, "{made}");
+    let chat = made["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let path = format!("/v1/conversations/{chat}/panels/watchlist/actions");
+
+    // A page can't send what needs the person's confirm, nor pass its own action off as theirs.
+    for body in [
+        json!({ "key": "b1", "action": "book_fare", "value": "KTM-DEL" }),
+        json!({ "key": "b2", "action": "book_fare", "value": "KTM-DEL", "confirmed": false }),
+        json!({ "key": "b3", "action": "stop_watching", "value": "KTM-DEL", "confirmed": true }),
+    ] {
+        let (got, answer) = spade.post(&path, body).await?;
+        assert_eq!(got, 400, "{answer}");
+    }
+    assert_eq!(count(&spade.events(&chat).await?, "panel_action"), 0);
+    assert!(turns(&spade.fake.seen()).is_empty());
+
+    // The person confirmed it on ace's own line: it reaches the bot as theirs.
+    let (got, answer) = spade
+        .post(
+            &path,
+            json!({ "key": "b4", "action": "book_fare", "value": "KTM-DEL", "confirmed": true }),
+        )
+        .await?;
+    assert_eq!(got, 202, "{answer}");
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    assert!(approvals(&events).is_empty(), "{events:?}");
+    assert_eq!(finished(&events, "m1")["is_error"], false);
+    let sent = last_sent(&spade);
+    assert!(
+        sent.contains("from=\\\"person\\\">The person confirmed"),
+        "{sent}"
+    );
+
+    // The page sent one by itself: the bot reads it as the page's, and the turn is untrusted.
+    let (got, answer) = spade
+        .post(
+            &path,
+            json!({ "key": "s1", "action": "stop_watching", "value": "KTM-DEL" }),
+        )
+        .await?;
+    assert_eq!(got, 202, "{answer}");
+    let events = spade.wait_for(&chat, "approval_requested").await?;
+    assert_eq!(approvals(&events), vec![json!("m2")]);
+    let sent = last_sent(&spade);
+    assert!(
+        sent.contains("from=\\\"page\\\" untrusted=\\\"true\\\">Your panel's page sent"),
+        "{sent}"
+    );
+    assert!(!sent.contains("The person pressed"), "{sent}");
+    let bot = made["agent"]["id"].as_str().unwrap_or_default();
+    let (_, notes) = spade.get(&format!("/v1/agents/{bot}/notes")).await?;
+    let notes = notes.to_string();
+    assert!(notes.contains("Booked KTM-DEL"), "{notes}");
+    assert!(!notes.contains("agreed to book every fare"), "{notes}");
     Ok(())
 }
 

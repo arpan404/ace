@@ -3925,8 +3925,8 @@
       "sha256": "c526b656ea3ef0ebde9221d1d3c52fd5d59cef46a3c1bad3da1b0bec3d42f6c4"
     },
     "schema/PackageSurface.json": {
-      "bytes": 1815,
-      "sha256": "3c313efd5e914c9f75dfc533cb244567ae2dfcf121849f060f50afa017e4346f"
+      "bytes": 1893,
+      "sha256": "97a2f60fcdff290ec58138f6b76555278dcd5c50a5c01dcae722b76173c004e0"
     },
     "schema/PackageTrigger.json": {
       "bytes": 2456,
@@ -6705,10 +6705,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1366087,
-      "sha256": "4d05ebd4240583503ceac8a3f6c03d80e19302e8bf471d27a733233cdc25dee9"
+      "bytes": 1366116,
+      "sha256": "90c512e7c6af137341c502002c498faa3a58dcf2e5e316c8eef646ecabdd70b7"
     }
   },
-  "input": "f8944790dc740c5ac3edb1fc2333e5e39799a46811258c18361ef5a8df9afb96",
+  "input": "91cb453b4d176fb550a7f1cd153e3c8e9f635923834aafa0cfe17cf40a8d69f2",
   "version": 1
 }

@@ -1124,6 +1124,15 @@
               },
               {
                 "name": "check_now"
+              },
+              {
+                "name": "book_fare",
+                "label": "Book this fare",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "confirm": true
               }
             ]
           }
@@ -1716,6 +1725,56 @@
         ]
       },
       "refused": "name is a short name"
+    },
+    {
+      "name": "a confirm that is not true or false",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "trips": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "cabin": {
+                        "enum": ["economy", "business"]
+                      },
+                      "booked": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["route"]
+                  }
+                }
+              },
+              "required": ["trips"]
+            },
+            "actions": [
+              {
+                "name": "book_fare",
+                "confirm": "yes"
+              }
+            ]
+          }
+        ]
+      },
+      "refused": "confirm is true or false"
     }
   ]
 }

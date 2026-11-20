@@ -29703,7 +29703,7 @@ Example:
 | file | yes | string | {"maxLength":200} |
 | title | yes | string | {"minLength":1,"maxLength":60,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
 | state | no | any JSON value |  |
-| actions | no | array | {"maxItems":16,"items":{"type":"object","properties":{"name":{"type":"string","maxLength":40},"label":{"type":"string","minLength":1,"maxLength":40,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"value":{}},"required":["name"]}} |
+| actions | no | array | {"maxItems":16,"items":{"type":"object","properties":{"name":{"type":"string","maxLength":40},"label":{"type":"string","minLength":1,"maxLength":40,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"value":{},"confirm":{"type":"boolean"}},"required":["name"]}} |
 
 Example:
 

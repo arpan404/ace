@@ -6,7 +6,8 @@ const schemaProblems = (value: unknown, at: string) => readSchema(value, at).pro
  * A package's `surfaces` (ADR 0200 §5): the cards and panels it ships, read the way Spade reads
  * them (`spade_core::package::surfaces`), with the same sentences, held to it by
  * `package/rules.json`. A panel is `panels/<id>/index.html` with a title, its state's schema and
- * the actions it may send, each with its value's schema. Pure.
+ * the actions it may send, each with its value's schema and whether only the person's confirm in
+ * ace sends it. Pure.
  */
 
 const mostSurfaces = 16;
@@ -103,5 +104,7 @@ function panelProblems(item: Fields, at: string, id: string, file: string, probl
       problems.push(`${where}.label is a few words (at most ${labelChars} characters)`);
     if (fields["value"] !== undefined)
       problems.push(...schemaProblems(fields["value"], `${where}.value`));
+    if (fields["confirm"] !== undefined && typeof fields["confirm"] !== "boolean")
+      problems.push(`${where}.confirm is true or false`);
   });
 }

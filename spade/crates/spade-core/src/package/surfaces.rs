@@ -57,6 +57,10 @@ pub struct PanelAction {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
+    /// Only the person may send it: ace draws its own confirm outside the page, and only a press
+    /// there sends it, with the person's standing (§5.2, amendment 1).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirm: bool,
 }
 
 impl Panel {
@@ -251,7 +255,20 @@ fn read_actions(value: Option<&Value>, at: &str, problems: &mut Vec<String>) -> 
         {
             problems.extend(found);
         }
-        actions.push(PanelAction { name, label, value });
+        let confirm = match item.get("confirm") {
+            None => false,
+            Some(Value::Bool(confirm)) => *confirm,
+            Some(_) => {
+                problems.push(format!("{at}.confirm is true or false"));
+                false
+            }
+        };
+        actions.push(PanelAction {
+            name,
+            label,
+            value,
+            confirm,
+        });
     }
     actions
 }

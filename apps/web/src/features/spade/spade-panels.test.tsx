@@ -10,8 +10,10 @@ beforeEach(() => localStorage.clear());
 /*
  * A packaged bot's panel (ADR 0200 §5.2) on the web: it opens beside the bot's conversation from
  * the header or a card's open action, in ace's sandboxed frame; the person's theme and the bot's
- * state cross in; only an action the panel declares, sent by its own frame, reaches the bot; and
- * a page that throws three times stops, saying so, until the person loads it again.
+ * state cross in; only an action the panel declares, sent by its own frame, reaches the bot, and
+ * as the page's, never the person's; one that needs the person waits on ace's own line, which a
+ * script can't press; and a page that throws three times stops, saying so, until the person loads
+ * it again.
  */
 
 const page =
@@ -25,7 +27,10 @@ function watcher(spade: FakeSpadeApi) {
       id: "watchlist",
       title: "Watched trips",
       html: page,
-      actions: [{ name: "stop_watching", label: "Stop watching" }],
+      actions: [
+        { name: "stop_watching", label: "Stop watching" },
+        { name: "book_fare", label: "Book this fare", confirm: true },
+      ],
     },
   ]);
   spade.store(bot.conversation, { type: "user_message", text: "Watch KTM to DEL" });
@@ -56,7 +61,10 @@ function posted(frame: HTMLIFrameElement) {
   return sent;
 }
 
-const fromFrame = (frame: HTMLIFrameElement, data: unknown, origin = "null") =>
+/** What the frame's outer document relays: a message's JSON text. */
+const fromFrame = (frame: HTMLIFrameElement, message: unknown, origin = "null") =>
+  rawFromFrame(frame, JSON.stringify(message), origin);
+const rawFromFrame = (frame: HTMLIFrameElement, data: unknown, origin = "null") =>
   act(() => {
     window.dispatchEvent(
       new MessageEvent("message", { data, source: frame.contentWindow, origin }),
@@ -86,21 +94,23 @@ test("opens beside the conversation from its header, with the theme and the bot'
   );
 });
 
-test("only a declared action from the panel's own frame reaches the bot, as the person's", async () => {
+test("only a declared action from the panel's own frame reaches the bot, as the page's", async () => {
   const { spade } = await spadeApp("/spade/watcher?panel=watchlist", watcher);
   const frame = await frameOf();
   posted(frame);
   fireEvent.load(frame);
   const path = "/v1/conversations/c-watcher/panels/watchlist/actions";
-  // Not declared, not typed, not from its frame: none of them is sent.
+  // Not declared, not typed, not text, too large, not from its frame: none of them is sent.
   fromFrame(frame, { type: "ace.panel.action", name: "book_it" });
   fromFrame(frame, { type: "ace.panel.call", tool: "send_message" });
   fromFrame(frame, { type: "ace.panel.action", name: "stop_watching", extra: 1 });
+  rawFromFrame(frame, { type: "ace.panel.action", name: "stop_watching" });
+  fromFrame(frame, { type: "ace.panel.action", name: "stop_watching", value: "€".repeat(6000) });
   fromFrame(frame, { type: "ace.panel.action", name: "stop_watching" }, location.origin);
   act(() => {
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: { type: "ace.panel.action", name: "stop_watching" },
+        data: JSON.stringify({ type: "ace.panel.action", name: "stop_watching" }),
         source: window,
         origin: "null",
       }),
@@ -112,8 +122,40 @@ test("only a declared action from the panel's own frame reaches the bot, as the 
       expect.objectContaining({ action: "stop_watching", value: "KTM-DEL" }),
     ]),
   );
+  // The page's, so never with the person's confirm.
+  expect(spade.sent("POST", path)[0]).not.toHaveProperty("confirmed");
   const feed = within(screen.getByRole("feed", { name: "Conversation with Flight watcher" }));
   expect(await feed.findByText("Stop watching")).toBeTruthy();
+  expect(feed.getByText(/The panel sent/)).toBeTruthy();
+  expect(feed.queryByText(/You pressed/)).toBeNull();
+});
+
+test("an action only the person may send waits on ace's line, which a script can't press", async () => {
+  const { spade } = await spadeApp("/spade/watcher?panel=watchlist", watcher);
+  const frame = await frameOf();
+  posted(frame);
+  fireEvent.load(frame);
+  const path = "/v1/conversations/c-watcher/panels/watchlist/actions";
+  fromFrame(frame, { type: "ace.panel.action", name: "book_fare", value: "KTM-DEL" });
+  const line = await screen.findByRole("group", { name: "Confirm the panel's action" });
+  expect(
+    within(line).getByText("Watched trips asks to send “Book this fare” with KTM-DEL."),
+  ).toBeTruthy();
+  // While it waits, the page can't swap what the person is about to confirm.
+  fromFrame(frame, { type: "ace.panel.action", name: "book_fare", value: "LHR-JFK" });
+  expect(within(line).queryByText(/LHR-JFK/)).toBeNull();
+  // A click a script dispatches, long after the line appeared, is not the person's.
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  act(() => within(line).getByRole("button", { name: "Confirm" }).click());
+  await userEvent.click(within(line).getByRole("button", { name: "Confirm" }));
+  expect(spade.sent("POST", path)).toEqual([]);
+  // Cancel sends nothing, and the line goes.
+  await userEvent.click(within(line).getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("group", { name: "Confirm the panel's action" })).toBeNull();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(spade.sent("POST", path)).toEqual([]);
+  const feed = within(screen.getByRole("feed", { name: "Conversation with Flight watcher" }));
+  expect(feed.queryByText("Book this fare")).toBeNull();
 });
 
 test("a page that throws three times is stopped until the person loads it again", async () => {

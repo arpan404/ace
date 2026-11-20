@@ -454,8 +454,9 @@ Two kinds, in this order: cards everywhere first, then panels on web and desktop
   - out of the page: `height`, and `action {name, value}` for an action the panel declares, its
     value checked against that action's schema.
 
-  A panel action reaches the bot as `panel_action`, the person's input in its own conversation,
-  and anything the bot does about it goes through the gate. Nothing else crosses. A page can't
+  A panel action reaches the bot as `panel_action` in its own conversation, and anything the bot
+  does about it goes through the gate. It is the page's input, never the person's, unless the
+  person confirmed it on ace's own line (amendment 1 below). Nothing else crosses. A page can't
   call tools, read the conversation or open a link by itself; a link is a card's `open` action.
 
 - **Follows the Suit.** The page gets the person's theme tokens on `init` and on every change, as
@@ -765,5 +766,56 @@ Process tests through Spade's API, with `spade-testkit`'s fake model and a real 
 - a contract call is delivered once across a restart of either side, and Stop on the caller stops
   the callee's turn;
 - a panel's page can't reach the network or the host page, and only declared actions reach the
-  bot (desktop isolation as 0077 proves it);
+  bot (desktop isolation as 0077 proves it), as its untrusted input; a `confirm` action goes only
+  on a real press of the host's Confirm (amendment 1);
 - `ace bot test` runs a package's scenarios with no network and no real model.
+
+## Amendment 1: a panel never speaks for the person
+
+Accepted 2026-11-20, after a security review of §5.2 as first built. It found that the page's
+check of user activation was the only thing between a panel and the person's standing: the
+page's own script could post an action straight to the outer document, which relayed it, the host
+checked only its declaration and rate, and Spade stored it as the person's input. Code in the
+sandbox could act for the person with nobody there. The review also found the 16 KiB bound was
+measured in UTF-16 units after the browser had copied and the bridge had serialized the whole
+message.
+
+What changes:
+
+- **What a page sends is the page's.** A `panel_action` carries `by`: `page` unless the person
+  confirmed it in ace. The bot reads a page's action as untrusted input from its package's panel,
+  `<panel_action … from="page" untrusted="true">`, told it is not the person's words, consent or
+  an answer to anything it asked them. It taints the turn exactly as another bot's message does
+  (`spade_core::context::untrusted_event`): a write the gate would run, or a note, asks the
+  person, and the reviewer counts it among the untrusted sources, never the person's words. It is
+  its own event, so it can't answer a question or an approval. An action stored before `by` was
+  kept reads as the page's.
+- **An action that needs the person's intent is confirmed outside the page.** A package declares
+  it with `"confirm": true` on the action. The host never sends it as the page asks: it draws one
+  line of its own under the page, the panel's name, the action's label and its value in words
+  ("Watched trips asks to send “Book this fare” with KTM-DEL."), with Cancel and Confirm. Only a
+  press on Confirm that the browser made from real input (`isTrusted`, which a script's click
+  never is) and that lands at least 600 ms after the line appeared sends it, with
+  `confirmed: true`, as the person's. The delay keeps a page from placing a button where Confirm
+  will appear. While a line waits, the page can't swap it for another; Cancel sends nothing. Web
+  and desktop share this control: on both the page is in a frame of another origin (an iframe, or
+  a `<webview>` in its own process) that can't reach the app's document, and the check is the
+  same. Spade refuses a `confirm` action without `confirmed: true`, and refuses `confirmed` on an
+  action that doesn't declare it, so neither an old client nor a forged request can skip it.
+  Any other action whose handling would lead to an outward effect needs no declaration: since it
+  is untrusted input, the gate asks the person on ace's own approval before such a call runs.
+- **The outer bridge checks too, and its transport is bounded.** Messages out of a page are JSON
+  text. The outer document drops anything that isn't a string unread, refuses a string longer
+  than 16 KiB on its length alone, and counts UTF-8 bytes (at most 16,384) before parsing it. It
+  relays an action only while the person is pressing or typing in the page, since activation in a
+  frame activates its ancestors, and it relays the text itself. The host reads only such text,
+  bounded the same way, so a message of six thousand euro signs (18,000 bytes in 6,000 units) is
+  dropped where it used to pass. The page's helper still checks activation, but none of these is
+  what keeps the person's word: the bullets above are.
+
+Tests: the `spade_core::panel` tables (a page can't send a `confirm` action, a confirmed one reads
+as the person's, a page's taints the turn); Spade's process test (the bot's note after a page's
+action waits for the person, after a confirmed one it runs); the host's tests (a script's click on
+Confirm and Cancel send nothing, a real press sends once after the line arms); `@ace/html`'s
+bounds; and the real-Electron isolation test (forged posts with no gesture go nowhere, oversized
+and multibyte messages are dropped, the host's control tells a script's click from a real one).

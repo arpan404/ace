@@ -691,7 +691,11 @@ async fn a_moved_bot_shows_its_panels_page_as_soon_as_it_arrives() -> Result {
                     "name": "Flight watcher", "blurb": "Watches fares.",
                     "task": "You watch flight fares for the person.",
                     "surfaces": [{ "id": "watchlist", "kind": "panel",
-                                   "file": "panels/watchlist/index.html", "title": "Watched trips" }]
+                                   "file": "panels/watchlist/index.html", "title": "Watched trips",
+                                   "actions": [
+                                       { "name": "stop_watching", "label": "Stop watching" },
+                                       { "name": "book_fare", "label": "Book this fare", "confirm": true }
+                                   ] }]
                 },
                 "from_recipe": { "source": "local", "name": "flight-watcher", "version": "dev", "transaction": "install-1" },
                 "grants": { "connectors": [], "plugins": [], "skills": [] },
@@ -730,6 +734,16 @@ async fn a_moved_bot_shows_its_panels_page_as_soon_as_it_arrives() -> Result {
         .await?;
     assert_eq!(status, 200, "{after}");
     assert_eq!(after["panels"][0]["page"], json!(hash), "{after}");
+    // What only the person may send stays theirs there: the same confirm, the same actions.
+    assert_eq!(
+        after["panels"][0]["actions"], before["panels"][0]["actions"],
+        "{after}"
+    );
+    assert_eq!(
+        after["panels"][0]["confirm"],
+        json!([{ "name": "book_fare", "label": "Book this fare" }]),
+        "{after}"
+    );
     let served = studio
         .http
         .get(format!("{}/v1/panels/pages/{hash}", studio.base))

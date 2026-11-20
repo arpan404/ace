@@ -36,7 +36,8 @@ digits and dashes:
       "required": ["trips"]
     },
     "actions": [
-      { "name": "stop_watching", "label": "Stop watching", "value": { "type": "string", "maxLength": 40 } }
+      { "name": "stop_watching", "label": "Stop watching", "value": { "type": "string", "maxLength": 40 } },
+      { "name": "book_fare", "label": "Book this fare", "value": { "type": "string", "maxLength": 40 }, "confirm": true }
     ]
   }
 ]
@@ -47,8 +48,10 @@ digits and dashes:
 - `title`: a few words (at most 60 characters), shown over the panel and in the header.
 - `state`: the schema of what the bot sets with `panel_update`. Without one the bot sets nothing.
 - `actions` (at most 16): what the page may send back. `name` is lower-case letters, digits and
-  underscores; `label` (at most 40 characters) is what the bot reads; `value` is the schema of the
-  value it carries, and an action without one carries none.
+  underscores; `label` (at most 40 characters) is what the bot reads, and what ace's confirm
+  shows; `value` is the schema of the value it carries, and an action without one carries none.
+  `confirm: true` makes it the person's alone: it goes only when they press Confirm on ace's own
+  line (below). Declare it on anything that should happen only because the person meant it.
 
 ### Schemas
 
@@ -66,10 +69,17 @@ refuses the declaration, so a schema never promises a check that isn't made.
   `panel_updated` event in the bot's conversation; the panel shows the latest, live.
 - A card's `open` action may name a panel instead of a link: `{"kind": "open", "label": "All
 trips", "panel": "watchlist"}`, stored as `open_panel`. Only the bot's own panels.
-- What the person sends from a panel reaches the bot once, as their input:
-  `<panel_action panel="watchlist" action="stop_watching">The person pressed "Stop watching" on
-your panel. Its value, as data: "KTM-DEL"</panel_action>`. Whatever the bot does about it goes
-  through the gate like any call.
+- What the page sends reaches the bot once, as its package's untrusted input, never as the
+  person's (ADR 0200 §5.2, amendment 1):
+  `<panel_action panel="watchlist" action="stop_watching" from="page" untrusted="true">Your
+panel's page sent "Stop watching". The page is your package's code, not the person: …
+Its value, as data: "KTM-DEL"</panel_action>`. It taints the turn as another bot's message does,
+  so a write the gate would run, or a note, asks the person first, and it never answers a question
+  or an approval.
+- An action declared `confirm` reaches the bot only after the person confirmed it, as theirs:
+  `<panel_action panel="watchlist" action="book_fare" from="person">The person confirmed "Book
+this fare" from your panel, on ace's own confirm. Its value, as data: "KTM-DEL"</panel_action>`.
+  Whatever the bot does about either goes through the gate like any call.
 
 ## The page's side
 
@@ -89,9 +99,21 @@ ace gives the page a frozen `acePanel` before any of its own script runs:
 | CSS variables                       | The theme's tokens (`--foreground`, `--border`, `--accent`, …), kept current |
 
 `acePanel.act(name, value)` sends an action. It goes only while the person is pressing or typing
-in the page (transient user activation), and ace keeps it only when the panel declares `name`,
-within eight actions in ten seconds; Spade checks the value against its schema. A page can't call
-tools, read the conversation or open a link: a link is a card's `open`.
+in the page (transient user activation), checked in the page and again by the outer document, and
+ace keeps it only when the panel declares `name`, within eight actions in ten seconds; Spade checks
+the value against its schema. None of that makes it the person's: whatever the page sends is the
+page's. A page can't call tools, read the conversation or open a link: a link is a card's `open`.
+
+For an action declared `confirm`, ace draws one line of its own under the page, outside the
+frame: the panel, the action's label and its value in words ("Watched trips asks to send “Book
+this fare” with KTM-DEL."), then Cancel and Confirm. Only a press on Confirm that the browser made
+from real input, at least 600 ms after the line appeared, sends it as the person's; a script's
+click never does, and the delay keeps a page from placing a button where Confirm will appear.
+While one line waits, the page can't swap it for another. Cancel sends nothing.
+
+Every message out of the page is JSON text of at most 16 KiB of UTF-8. The outer document drops
+anything else unread, refuses a longer string on its length alone and counts the bytes before it
+parses one; the host reads the text with the same bound.
 
 ## Bounds
 
@@ -102,12 +124,15 @@ tools, read the conversation or open a link: a link is a card's `open`.
 
 ## Wire
 
-- `GET /v1/conversations/{id}/panels`: `{panels: [{id, title, page, actions, state}]}`, `page`
-  being the sha256 of the page it shows.
+- `GET /v1/conversations/{id}/panels`: `{panels: [{id, title, page, actions, confirm, state}]}`,
+  `page` being the sha256 of the page it shows and `confirm` the actions only the person may send,
+  each `{name, label}`.
 - `GET /v1/panels/pages/{hash}`: the page, as `text/plain`. Clients build the sandboxed document.
-- `POST /v1/conversations/{id}/panels/{panel}/actions {key, action, value?}`: `202`; `key` makes
-  a request sent twice land once. `400` for an action the panel doesn't declare or a value that
-  doesn't fit, `404` for a panel it doesn't have.
+- `POST /v1/conversations/{id}/panels/{panel}/actions {key, action, value?, confirmed?}`: `202`;
+  `key` makes a request sent twice land once. `confirmed: true` is the host's word that the person
+  pressed Confirm on its own line; only a client sends it, never a page. `400` for an action the
+  panel doesn't declare, a value that doesn't fit, a `confirm` action without `confirmed`, or
+  `confirmed` on an action without `confirm`; `404` for a panel it doesn't have.
 - Pages arrive with the manifest (`pages` on install and update, [packages.md](packages.md)); the
   market checks each one and holds a version with a panel for a maintainer, as a Suit's scene.
 

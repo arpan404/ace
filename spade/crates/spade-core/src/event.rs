@@ -770,9 +770,10 @@ pub enum Known {
         call_id: String,
         data: Value,
     },
-    /// The person sent a declared action from panel `surface`, its value checked against the
-    /// action's schema. Stored once per `key`, and read by the bot as the person's input, a
-    /// `<panel_action>`.
+    /// A declared action from panel `surface`, its value checked against the action's schema.
+    /// Stored once per `key`, and read by the bot as a `<panel_action>`: input from its package's
+    /// page, untrusted like another bot's message, unless the person sent it through ace's own
+    /// confirm (§5.2, amendment 1).
     PanelAction {
         surface: String,
         key: String,
@@ -781,6 +782,9 @@ pub enum Known {
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<Value>,
+        /// Who stands behind it; one stored before this was kept is the page's.
+        #[serde(default)]
+        by: PanelSender,
     },
     /// This bot called another bot's contract (ADR 0200 §7) as job `job`: stored once, before the
     /// call is delivered, so its steps can say "Asked Flight watcher: cheapest_fare".
@@ -908,6 +912,16 @@ pub struct TaskChange {
     /// The bot's one line on what changed, or the person's own note; empty when none was given.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub why: String,
+}
+
+/// Who stands behind a panel's action (ADR 0200 §5.2, amendment 1): its page alone, whatever the
+/// page did to send it, or the person, who pressed Confirm on the line ace drew outside the page.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelSender {
+    #[default]
+    Page,
+    Person,
 }
 
 /// The agent that sent a message, and how many bot-to-bot hops led to it (1 when the sender was

@@ -13,8 +13,8 @@ import {
 
 /*
  * A packaged bot's panels in every client's fold (ADR 0200 §5.2): the latest state the bot set
- * follows the conversation live, the person's press shows where they pressed it, and a card's
- * `open` names a panel. Read leniently, as Spade writes them (`spade_core::panel`).
+ * follows the conversation live, an action shows where it came in, as the page's or the person's
+ * confirm, and a card's `open` names a panel. Read leniently, as Spade writes them (`spade_core::panel`).
  */
 
 function conversation() {
@@ -30,7 +30,14 @@ function conversation() {
 const sha = "b".repeat(64);
 const listed = readSpadePanels({
   panels: [
-    { id: "watchlist", title: "Watched trips", page: sha, actions: ["stop_watching"], state: null },
+    {
+      id: "watchlist",
+      title: "Watched trips",
+      page: sha,
+      actions: ["stop_watching", "book_fare"],
+      confirm: [{ name: "book_fare", label: "Book this fare" }],
+      state: null,
+    },
     { id: "broken", title: 7 },
     "not a panel",
   ],
@@ -43,10 +50,18 @@ describe("a bot's panels", () => {
         id: "watchlist",
         title: "Watched trips",
         page: sha,
-        actions: ["stop_watching"],
+        actions: ["stop_watching", "book_fare"],
+        confirm: [{ name: "book_fare", label: "Book this fare" }],
         state: null,
       },
-      { id: "broken", title: "broken", page: undefined, actions: [], state: undefined },
+      {
+        id: "broken",
+        title: "broken",
+        page: undefined,
+        actions: [],
+        confirm: [],
+        state: undefined,
+      },
     ]);
     expect(readSpadePanels("nope")).toEqual([]);
   });
@@ -61,7 +76,7 @@ describe("a bot's panels", () => {
     expect(spadePanelState(panel, c.view().panels)).toEqual({ n: 2 });
   });
 
-  test("say where the person pressed an action, in the conversation", () => {
+  test("say where an action came in, the page's or the person's confirm", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Watch KTM to DEL" });
     c.stored({
@@ -71,11 +86,33 @@ describe("a bot's panels", () => {
       action: "stop_watching",
       label: "Stop watching",
       value: "KTM-DEL",
+      by: "page",
+    });
+    c.stored({
+      type: "panel_action",
+      surface: "watchlist",
+      key: "a2",
+      action: "book_fare",
+      label: "Book this fare",
+      value: "KTM-DEL",
+      by: "person",
+    });
+    // One stored before the sender was kept is the page's.
+    c.stored({
+      type: "panel_action",
+      surface: "watchlist",
+      key: "a3",
+      action: "check_now",
+      label: "Check now",
     });
     const quiet = spadeBubbles(c.view()).flatMap((bubble) =>
       bubble.kind === "quiet" ? [spadeQuietLine(bubble.quiet).label] : [],
     );
-    expect(quiet).toEqual(["You pressed Stop watching"]);
+    expect(quiet).toEqual([
+      "The panel sent Stop watching",
+      "You confirmed Book this fare",
+      "The panel sent Check now",
+    ]);
   });
 
   test("open from a card's action that names one", () => {
