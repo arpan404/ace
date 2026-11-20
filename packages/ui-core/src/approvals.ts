@@ -34,6 +34,9 @@ function personAnswer(kind: ApprovalOption["kind"] | undefined): Omit<ApprovalOu
       return { tone: "denied", text: "Denied by you" };
     case "cancel":
       return { tone: "muted", text: "Cancelled by you" };
+    case "other":
+      // A choice that is neither a grant nor a refusal ("Ask later") claims neither.
+      return { tone: "muted", text: "Answered by you" };
     default:
       return { tone: "approved", text: "Approved by you" };
   }
@@ -49,13 +52,16 @@ export function approvalOutcome(
 ): ApprovalOutcome {
   const resolution = interaction.resolution;
   if (resolution?.kind === "approval") {
-    const answer = personAnswer(optionKind(interaction, resolution.optionId));
+    const kind = optionKind(interaction, resolution.optionId);
+    const answer = personAnswer(kind);
     if (interaction.autoReviewed)
-      return {
-        state: answer.tone === "denied" ? "denied" : "approved",
-        tone: answer.tone,
-        text: answer.tone === "denied" ? "Denied by ace" : "Approved by ace",
-      };
+      return kind === "other"
+        ? { state: "closed", tone: "muted", text: "Answered by ace" }
+        : {
+            state: answer.tone === "denied" ? "denied" : "approved",
+            tone: answer.tone,
+            text: answer.tone === "denied" ? "Denied by ace" : "Approved by ace",
+          };
     return {
       state: answer.tone === "denied" ? "denied" : answer.tone === "muted" ? "closed" : "approved",
       ...answer,

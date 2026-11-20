@@ -1,7 +1,7 @@
 import { retainToolRaw } from "./tool-raw.ts";
 import { finalizeTool } from "./tool-final.ts";
 import { retireTool } from "./completed-tools.ts";
-import { answerRefusesTool } from "./settlement.ts";
+import { answerIsNeutral, answerRefusesTool } from "./settlement.ts";
 import type { Fact } from "@ace/core";
 import { object, raw, string, type Data } from "./data.ts";
 import { decodeResolution, interactionKey, interactionRequest } from "./interactions.ts";
@@ -42,6 +42,11 @@ export function openRequest(
       return true;
     }
     return false;
+  }
+  const call = object(params["toolCall"]);
+  if (tool && nativeTool && Object.keys(call).some((key) => key !== "toolCallId")) {
+    // The request's own call is what approving runs: it replaces what an earlier update said.
+    updateTool(owner, { ...call, toolCallId: nativeTool, sessionUpdate: "tool_call_update" });
   }
   if (!tool && nativeTool) {
     updateTool(owner, {
@@ -99,7 +104,14 @@ export function answerRequest(
     const tool = pending.tool;
     tool.declined = answerRefusesTool(pending.request, resolution, false);
     // A cancelled request never let the tool start: it settles like a decline, as cancelled.
-    tool.status = tool.declined ? "declined" : cancelled ? "cancelled" : "running";
+    // A neutral choice ("Ask later") neither starts nor refuses it: the agent's updates settle it.
+    tool.status = tool.declined
+      ? "declined"
+      : cancelled
+        ? "cancelled"
+        : answerIsNeutral(pending.request, resolution)
+          ? "pending"
+          : "running";
     const settled = tool.status !== "running";
     if (settled) s.liveTools.delete(tool);
     else s.liveTools.add(tool);

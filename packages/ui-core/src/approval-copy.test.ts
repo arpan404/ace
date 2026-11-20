@@ -180,3 +180,33 @@ test("installs, plain pushes and network reads are medium risk; everything else 
   ])
     expect(commandRisk(command), command).toBeUndefined();
 });
+
+test("an option the agent named in its own terms is a plain choice, never Allow or Deny", () => {
+  const copy = approvalCopy({
+    kind: "approval",
+    title: "Run make",
+    options: [
+      { id: "n", kind: "other", label: "Do not run" },
+      { id: "later", kind: "other", label: "Ask later" },
+    ],
+  });
+  expect(copy.decisions).toEqual([]);
+  expect(copy.others.map((choice) => [choice.option.id, choice.label])).toEqual([
+    ["n", "Do not run"],
+    ["later", "Ask later"],
+  ]);
+});
+
+test("a shell request shows the command it carries over the step's earlier one", () => {
+  const copy = approvalCopy(
+    {
+      kind: "approval",
+      title: "Run",
+      target: { tool: "shell", access: "execute", command: "rm -r ./out" },
+      options: [{ id: "once", kind: "allow_once", label: "Allow" }],
+    },
+    { command: "echo ok" },
+  );
+  expect(copy.command).toBe("rm -r ./out");
+  expect(copy.risk).toEqual(commandRisk("rm -r ./out"));
+});

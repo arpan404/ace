@@ -23,7 +23,12 @@ export function decodeContent(value: unknown): ContentPart[] {
       return reference(uri, string(content["name"]), string(content["mimeType"]));
     case "resource": {
       const resource = object(content["resource"]);
-      return reference(string(resource["uri"]), "", string(resource["mimeType"]));
+      return reference(
+        string(resource["uri"]),
+        "",
+        string(resource["mimeType"]),
+        embedded(resource),
+      );
     }
     case "audio":
       return [{ type: "text", text: `[audio${mimeSuffix(string(content["mimeType"]))}]` }];
@@ -31,7 +36,26 @@ export function decodeContent(value: unknown): ContentPart[] {
       return [];
   }
 }
-function reference(uri: string, name: string, mimeType: string): ContentPart[] {
+type FileContent = Extract<ContentPart, { type: "file" }>["content"];
+// The bounds ContentPart.file takes; a larger resource stays in the item's raw frame only.
+const textBound = 128 * 1024;
+const blobBound = 44 * 1024 * 1024;
+/** An embedded resource's own text or bytes, when they fit a file part. */
+function embedded(resource: Record<string, unknown>): FileContent {
+  const text = resource["text"];
+  if (typeof text === "string")
+    return text.length <= textBound ? { encoding: "text", data: text } : undefined;
+  const blob = resource["blob"];
+  if (typeof blob === "string" && blob.length <= blobBound)
+    return { encoding: "base64", data: blob };
+  return undefined;
+}
+function reference(
+  uri: string,
+  name: string,
+  mimeType: string,
+  content?: FileContent,
+): ContentPart[] {
   if (uri.startsWith("file:"))
     try {
       return [
@@ -40,6 +64,7 @@ function reference(uri: string, name: string, mimeType: string): ContentPart[] {
           path: fileURLToPath(uri),
           ...(mimeType ? { mimeType } : {}),
           ...(name ? { name: name.slice(0, 255) } : {}),
+          ...(content ? { content } : {}),
         },
       ];
     } catch {

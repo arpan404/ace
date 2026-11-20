@@ -91,13 +91,16 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
       return { kind, query: string(input["query"] ?? input["Query"]) };
     case "web.fetch":
       return { kind, url: string(input["url"] ?? input["Url"]) };
-    case "mcp":
+    case "mcp": {
+      // The call's MCP metadata names it; only a recognized envelope's fields stand in for it.
+      const envelope = mcpEnvelope(input);
       return {
         kind,
-        server: string(input["providerIdentifier"] ?? mcp["server"]),
-        tool: string(input["toolName"] ?? mcp["tool"]),
+        server: string(mcp["server"]) || string(envelope?.["providerIdentifier"]),
+        tool: string(mcp["tool"]) || string(envelope?.["toolName"]),
         arguments: mcpArguments(input),
       };
+    }
     case "agent.spawn":
       return {
         kind,
@@ -120,12 +123,29 @@ function firstString(input: Data, keys: readonly string[]): string {
   return "";
 }
 
-/** MCP call arguments, unwrapped from the `args` or `arguments` envelope agents send them in. */
+const envelopeFields = new Set(["providerIdentifier", "toolName", "args", "arguments"]);
+/**
+ * The envelope some agents wrap an MCP call in (`{providerIdentifier, toolName, arguments}`, or
+ * a lone `args`/`arguments`), else undefined: a call whose own parameters merely include one of
+ * these names is not an envelope.
+ */
+function mcpEnvelope(input: Data): Data | undefined {
+  const keys = Object.keys(input).filter((key) => key !== "_toolName");
+  if (!keys.length || !keys.every((key) => envelopeFields.has(key))) return undefined;
+  const wrapped = keys.includes("args") || keys.includes("arguments");
+  const named =
+    typeof input["providerIdentifier"] === "string" || typeof input["toolName"] === "string";
+  return wrapped || named ? input : undefined;
+}
+
+/** MCP call arguments: unwrapped from a recognized envelope, else the input as sent. */
 export function mcpArguments(input: Data): unknown {
-  if (Object.hasOwn(input, "args")) return input["args"];
-  const wrapped = input["arguments"];
+  const envelope = mcpEnvelope(input);
+  if (!envelope) return input;
+  if (Object.hasOwn(envelope, "args")) return envelope["args"];
+  const wrapped = envelope["arguments"];
   if (wrapped !== null && typeof wrapped === "object" && !Array.isArray(wrapped)) return wrapped;
-  return input;
+  return Object.hasOwn(envelope, "arguments") ? input : {};
 }
 
 /** The failure text a terminal update carries: a bare string result or its `error` field. */
@@ -141,8 +161,20 @@ const errorLimit = 16 * 1024;
 export function toolTitle(data: Data, detail: ToolDetailDraft): string {
   const title = string(data["title"]);
   if (detail.kind === "file.read" && detail.path && (!title || /^Running [\w.-]+$/.test(title)))
-    return `Read ${detail.path}`;
+    return `Read ${displaySafe(detail.path)}`;
   return title;
+}
+/**
+ * Text ace writes into a generated title, with line breaks, other controls and bidirectional
+ * overrides shown as escapes, so a crafted path cannot fake or hide part of the title. The
+ * original stays in the tool's detail.
+ */
+function displaySafe(text: string): string {
+  return text.replace(
+    // oxlint-disable-next-line no-control-regex -- matching controls is the point
+    /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+    (char) => `\\u{${(char.codePointAt(0) ?? 0).toString(16)}}`,
+  );
 }
 
 export function todos(value: unknown): TodoEntry[] {
