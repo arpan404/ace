@@ -14,7 +14,13 @@ import {
   facePaper,
 } from "@ace/ui-core/bot-face";
 import { botFaceDesignDir, generateBotFaceFiles } from "./generate-bot-faces.ts";
-import { arcToCubics, fmtNum, svgFragmentToPieces, svgPathToSwift } from "./svg-to-swift.ts";
+import {
+  arcToCubics,
+  fmtNum,
+  svgFragmentToPieces,
+  svgPathToSwift,
+  svgShapesToSwiftPath,
+} from "./svg-to-swift.ts";
 
 const hex = (value: string) => `0x${value.slice(1).toUpperCase()}`;
 
@@ -134,5 +140,37 @@ describe("svg-to-swift path and fragment conversion", () => {
       roundCap: true,
       roundJoin: false,
     });
+  });
+
+  it("normalizes counter-clockwise silhouette subpaths (such as fox's right ear) to clockwise winding", () => {
+    const ccw = svgPathToSwift("M 0 0 L 0 10 L 10 10 Z", { clockwise: true });
+    expect(ccw).toEqual([
+      "path.move(to: CGPoint(x: 0, y: 0))",
+      "path.addLine(to: CGPoint(x: 10, y: 10))",
+      "path.addLine(to: CGPoint(x: 0, y: 10))",
+      "path.closeSubpath()",
+    ]);
+
+    const foxLines = svgShapesToSwiftPath(botFaceBodies.fox.shapes("m"));
+    // Each fox subpath (left ear, right ear, head) must have positive signed area (clockwise in
+    // y-down coordinates) so ear-head overlaps never cancel under nonzero fill or clip.
+    const subpaths: { x: number; y: number }[][] = [];
+    for (const line of foxLines) {
+      const m = /path\.(?:move|addLine|addCurve)\(to: CGPoint\(x: ([^,]+), y: ([^)]+)\)/.exec(line);
+      if (!m) continue;
+      const point = { x: Number(m[1]), y: Number(m[2]) };
+      if (line.startsWith("path.move")) subpaths.push([point]);
+      else subpaths.at(-1)?.push(point);
+    }
+    expect(subpaths).toHaveLength(3);
+    for (const pts of subpaths) {
+      let area2 = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i]!;
+        const b = pts[(i + 1) % pts.length]!;
+        area2 += a.x * b.y - b.x * a.y;
+      }
+      expect(area2).toBeGreaterThan(0);
+    }
   });
 });

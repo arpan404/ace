@@ -93,12 +93,12 @@ function parseAttrs(raw: string): Record<string, string> {
   return attrs;
 }
 
-function shapePathLines(tag: string, attrs: Record<string, string>): string[] {
+function shapePathLines(tag: string, attrs: Record<string, string>, clockwise = false): string[] {
   const num = (name: string, fallback = 0) =>
     attrs[name] === undefined ? fallback : Number(attrs[name]);
   switch (tag) {
     case "path":
-      return svgPathToSwift(attrs["d"] ?? "");
+      return svgPathToSwift(attrs["d"] ?? "", clockwise ? { clockwise: true } : undefined);
     case "circle": {
       const cx = num("cx");
       const cy = num("cy");
@@ -139,13 +139,17 @@ function shapePathLines(tag: string, attrs: Record<string, string>): string[] {
   }
 }
 
-/** Extracts pure silhouette geometry (all shapes merged into one Swift `Path`). */
+/**
+ * Extracts pure silhouette geometry (all shapes merged into one Swift `Path`).
+ * Each closed path is oriented clockwise (matching CoreGraphics ellipse/rect winding) so
+ * overlapping elements like fox's ears and head add up instead of punching a hole.
+ */
 export function svgShapesToSwiftPath(markup: string): string[] {
   const lines: string[] = [];
   for (const match of markup.matchAll(/<(path|circle|ellipse|rect|line)\b([^>]*?)\/>/g)) {
     const tag = match[1];
     const attrs = parseAttrs(match[2] ?? "");
-    if (tag) lines.push(...shapePathLines(tag, attrs));
+    if (tag) lines.push(...shapePathLines(tag, attrs, true));
   }
   return lines;
 }

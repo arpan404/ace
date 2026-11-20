@@ -78,6 +78,19 @@ import Testing
         }
     }
 
+    @Test func foxSilhouetteFillsBothEarHeadOverlapsWithoutAHole() {
+        for tier in BotFaceTier.allCases {
+            let fox = BotFaceGeometry.silhouette(.fox, tier: tier)
+            // Left and right ear-head overlap regions must both be inside under nonzero winding.
+            #expect(fox.contains(CGPoint(x: 6, y: 7.5)), "Left ear overlap missing at \(tier)")
+            #expect(fox.contains(CGPoint(x: 18, y: 7.5)), "Right ear overlap missing at \(tier)")
+            #expect(fox.contains(CGPoint(x: 4.2, y: 2.5)))
+            #expect(fox.contains(CGPoint(x: 19.8, y: 2.5)))
+            #expect(fox.contains(CGPoint(x: 12, y: 13)))
+            #expect(!fox.contains(CGPoint(x: 12, y: 1)))
+        }
+    }
+
     @Test func poseSwapsExpressionsAndSuppressesMouthWhenNone() {
         let smileFace = BotFace(mouth: .smile)
         let doneStyle = BotFacePoseStyle.resolve(pose: .done, face: smileFace, restingLid: 0, motion: nil)
