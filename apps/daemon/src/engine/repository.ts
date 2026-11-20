@@ -593,18 +593,18 @@ export class EngineRepository {
     );
   }
   /**
-   * Whether a command for the thread newer than `intent` was carried out or handed to the
-   * provider (its input taken, or awaiting the provider's answer). One still queued, or refused,
-   * changed nothing yet.
+   * What became of the thread's commands newer than `intent`: one was carried out or handed to
+   * the provider (its input taken: done, or acknowledged by the provider), one is still being carried
+   * out, or none did either. One still queued, sent back to the queue or refused changed nothing.
    */
-  actedSince(id: ThreadId, intent: number): boolean {
-    return Boolean(
-      this.store
-        .statement(
-          "SELECT 1 FROM intents WHERE thread_id=? AND id>? AND (status IN ('running','done') OR awaiting=1) LIMIT 1",
-        )
-        .get(id, intent),
-    );
+  commandsSince(id: ThreadId, intent: number): "acted" | "in_flight" | "none" {
+    const row = this.store
+      .statement(
+        "SELECT MAX(status='done' OR acknowledged=1) AS acted, MAX(status='running') AS running FROM intents WHERE thread_id=? AND id>?",
+      )
+      .get(id, intent);
+    if (Number(row?.acted ?? 0)) return "acted";
+    return Number(row?.running ?? 0) ? "in_flight" : "none";
   }
   queuedCount(id: ThreadId): number {
     // Recovery prompts live in Thread.queue; only retained work blocks execution completion.

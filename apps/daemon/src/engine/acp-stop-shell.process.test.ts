@@ -22,12 +22,16 @@ const server = fileURLToPath(
 );
 
 /** An Antigravity thread on the ACP double, recording each session it opens and what it took. */
-async function antigravity(first = "antigravity-shell") {
+async function antigravity(
+  first = "antigravity-shell",
+  beforeSend?: Parameters<typeof fixture>[2]["beforeSend"],
+) {
   const frames = scriptFrames();
   const h = await fixture([], frames, {
     provider: "antigravity",
     capabilities: antigravityQuirks.capabilities("1.2.1"),
     permissionSettings: async () => ({ access: "full-access" as const }),
+    ...(beforeSend ? { beforeSend } : {}),
   });
   const adapter = createAcpAdapter(antigravityQuirks, {
     // The release ace admits, so the session's saved conversation loads again after a close.
@@ -141,4 +145,36 @@ test("a Stop over a tool first reported after the reply, which holds the next pr
   expect(send("next")).toBe(true);
   await h.engine.flush();
   await expect.poll(() => sessions[1]?.prompts).toEqual(["next"]);
+});
+
+test("a send still preparing when the grace ends, then kept out by the shell, still gets the close", async () => {
+  // The send after the Stop is held while it prepares (its Git checkpoint, say).
+  const preparing = Promise.withResolvers<void>();
+  let sends = 0;
+  const { h, id, sessions, send } = await antigravity("antigravity-shell", async () => {
+    if (sends++ === 1) await preparing.promise;
+  });
+  expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
+  await h.engine.flush();
+  expect(send("just in time")).toBe(true);
+  await expect.poll(() => sends).toBe(2);
+
+  // The grace ends while the send is still being carried out: how it ends decides.
+  // (No flush here: it would wait on the send this test holds.)
+  h.clock.advance(h.clock.now() + INTERRUPT_GRACE_MS);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(sessions.map((session) => session.closed)).toEqual([false]);
+  // The shell keeps it out: nothing was taken, so the close comes.
+  preparing.resolve();
+  await expect.poll(() => sessions[0]?.closed).toBe(true);
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "not_sent", pendingCount: 1 });
+  expect(
+    h.command({
+      type: "queue.resume",
+      threadId: id,
+      expectedRevision: h.engine.queue(id).revision,
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  await expect.poll(() => sessions[1]?.prompts).toEqual(["just in time"]);
 });
