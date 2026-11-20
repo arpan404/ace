@@ -44,6 +44,7 @@
     "./process-identity": "./src/process-identity.ts",
     "./process-tree": "./src/process-tree.ts",
     "./process-signal": "./src/process-signal.ts",
+    "./process-lineage": "./src/process-lineage.ts",
     "./process-tree-test-support": "./src/process-tree-test-support.ts",
     "./process-listing": "./src/process-listing.ts",
     "./process-marker": "./src/process-marker.ts",

@@ -40,6 +40,8 @@ export interface WatchIo {
   report?(error: unknown): void;
   /** How many processes the watch remembers at most (4,096 unless a test sets fewer). */
   knownLimit?: number;
+  /** Heard with the processes a tick learned of (macOS records their lineage). */
+  learned?(pids: readonly number[]): void;
 }
 
 export class ProcessWatch {
@@ -50,6 +52,8 @@ export class ProcessWatch {
   private cancel: (() => void) | undefined;
   private closed = false;
   private truncationReported = false;
+  /** Whether a member went unremembered because the watch was full. */
+  private full = false;
   constructor(io: WatchIo) {
     this.io = io;
   }
@@ -82,13 +86,17 @@ export class ProcessWatch {
       this.truncationReported = true;
       this.io.report?.(new Error("The owned process trees outgrew one snapshot; some are unseen"));
     }
+    const fresh: number[] = [];
     for (const member of capture.members) {
       seen.add(member.pid);
       const before = this.known.get(member.pid);
+      if (before?.start !== member.start) fresh.push(member.pid);
       // A reused pid is a new process: what was known about the old one no longer holds.
       if (before && before.start !== member.start) this.known.delete(member.pid);
-      if (!this.known.has(member.pid) && this.known.size >= (this.io.knownLimit ?? knownLimit))
+      if (!this.known.has(member.pid) && this.known.size >= (this.io.knownLimit ?? knownLimit)) {
+        this.full = true;
         continue;
+      }
       this.known.set(member.pid, {
         start: member.start,
         // The first parent seen is the proof of adoption later.
@@ -110,7 +118,13 @@ export class ProcessWatch {
     }
     this.reapAdopted(zombies, groups);
     this.journal(keep);
+    if (fresh.length) this.io.learned?.(fresh);
     return leaders.length > 0 || keep.length > 0;
+  }
+
+  /** Whether every snapshot so far saw its trees whole and remembered all it saw. */
+  complete(): boolean {
+    return !this.truncationReported && !this.full;
   }
 
   /** Every known process that is still running, whatever its parent is now. */

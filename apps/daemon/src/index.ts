@@ -3,6 +3,7 @@ import { namedFetch } from "@ace/client/ace-client";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
 import { stopMembers, type TreeMember } from "@ace/provider-kit/process-tree";
 import { ownProcesses, type OwnedCapture } from "./owned-processes.ts";
+import { systemListing } from "@ace/provider-kit/process-listing";
 import { verifyWindowsRecovery } from "./process-recovery.ts";
 import { FORCED_GRACE_MS, forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
@@ -225,7 +226,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
   // Under the lock: the last run's ending tells an expected restart from a crash.
   let run: DaemonRun | undefined;
   try {
-    run = beginRun(config.dataDir, process.pid, now, processOwner);
+    run = beginRun(config.dataDir, process.pid, now, processOwner, {
+      start: systemListing.info(process.pid)?.start,
+      unique: systemListing.ancestry?.(process.pid)?.unique,
+    });
     const previous = previousRunRecord(run.previous);
     log.log(previous.level, previous.message, logFields([...previous.fields, ...build]));
   } catch (error) {
@@ -363,12 +367,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
    * once its parent exits it belongs to init, where no tree reaches it.
    */
   let ownedTree: OwnedCapture | undefined;
-  /** A stop request's caller and its ancestors: spared, so the caller reads its receipt. */
-  let stopCaller: TreeMember[] = [];
+  /** Whether a capture couldn't see everything: the stop's receipt then says it is unaccounted. */
+  let unaccounted = false;
   const captureOwnedTree = (): OwnedCapture => {
     if (ownedTree) return ownedTree;
     try {
-      ownedTree = owned.capture(stopCaller);
+      ownedTree = owned.capture();
     } catch (error) {
       ownedTree = { members: [], complete: false };
       log.log("warn", "The daemon's child process tree could not be read", logError(error));
@@ -430,20 +434,18 @@ export async function startDaemon(options: DaemonOptions = {}) {
       } catch (error) {
         results.push({ status: "rejected", reason: error });
       }
-      // What outlived its own service's stop: never a clean shutdown while one still runs, or
-      // while part of the tree was never seen.
-      if (!complete)
-        results.push({
-          status: "rejected",
-          reason: new Error("The daemon's process trees were too large to read whole"),
-        });
+      // What outlived its own service's stop: never a clean shutdown while one still runs. A
+      // capture that couldn't see everything makes the stop unaccounted, never a clean success.
+      if (!complete) unaccounted = true;
       // Then once more, now every service has closed: a process started while shutdown ran (a
       // probe already in flight) was after the first capture, and its marker still names it.
       let late: TreeMember[] = [];
       let left: TreeMember[];
       try {
         try {
-          late = owned.capture(stopCaller).members;
+          const again = owned.capture();
+          late = again.members;
+          if (!again.complete) unaccounted = true;
         } catch (error) {
           // The log may be closed by now; an unchecked end is a failed shutdown, not a quiet one.
           results.push({ status: "rejected", reason: error });
@@ -693,9 +695,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
       shutdown: shutdownControl(config.dataDir, {
         id: randomUUID,
         now,
-        caller: (members) => {
-          stopCaller = members;
-        },
+        verifyCaller: (hint, connection) => owned.verifyCaller(hint, connection),
+        caller: (members) => owned.spareCaller(members),
+        unaccounted: () => unaccounted,
         close: () => {
           const closed = closeResources({ source: "stop-request" });
           // The process host ends the process once it has closed, as after a signal.

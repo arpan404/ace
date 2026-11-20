@@ -118,6 +118,7 @@ async function home() {
     turnPids: join(root, "turn-pids"),
     probePids: join(root, "probe-pids"),
     stopPids: join(root, "stop-pids"),
+    otherPids: join(root, "other-pids"),
     stopOutput: join(root, "stop-output"),
   };
   await Promise.all([
@@ -141,11 +142,15 @@ async function home() {
       `#!${process.execPath}`,
       'import { spawn } from "node:child_process";',
       'import { appendFileSync, openSync } from "node:fs";',
-      // A probe that leaves a helper behind and exits before anything can see its tree.
+      // A probe that leaves helpers behind and exits before anything can see its tree: one that
+      // inherits the marker, and an Apple binary in a session of its own, whose environment
+      // macOS hides.
       'if (process.argv.includes("--version")) {',
       '  const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", detached: true });',
       "  helper.unref();",
-      `  appendFileSync(${JSON.stringify(paths.probePids)}, helper.pid + "\\n");`,
+      '  const hidden = spawn("/bin/sleep", ["302"], { stdio: "ignore", detached: true });',
+      "  hidden.unref();",
+      `  appendFileSync(${JSON.stringify(paths.probePids)}, helper.pid + "\\n" + hidden.pid + "\\n");`,
       "}",
       // A turn's work: what an agent's shells start once its turn begins.
       "let started = false;",
@@ -162,6 +167,13 @@ async function home() {
       `      const out = openSync(${JSON.stringify(paths.stopOutput)}, "w");`,
       `      const stop = spawn(process.execPath, [${JSON.stringify(cli)}, "stop", "--json", "--timeout", "30s"], { stdio: ["ignore", out, out], env: process.env });`,
       `      appendFileSync(${JSON.stringify(paths.stopPids)}, stop.pid + "\\n");`,
+      "    }",
+      // An agent that starts another home's daemon from its turn's shell: in the app-server's
+      // own process group, carrying this run's marker.
+      "    if (process.env.ACE_TEST_OTHER_HOME) {",
+      "      const home = process.env.ACE_TEST_OTHER_HOME;",
+      `      const other = spawn(process.execPath, [${JSON.stringify(cli)}, "start"], { stdio: "ignore", env: { ...process.env, ACE_HOME: home, ACE_PORT: "0", ACE_ACCOUNTS_DB: home + "/accounts.sqlite" } });`,
+      `      appendFileSync(${JSON.stringify(paths.otherPids)}, other.pid + "\\n");`,
       "    }",
       "  }",
       "  return write(chunk, ...rest);",
@@ -331,4 +343,49 @@ test.skipIf(process.platform === "win32")(
     expect(recorded(paths.turnPids).filter(alive)).toEqual([]);
   },
   90_000,
+);
+
+test.skipIf(process.platform === "win32")(
+  "another home's daemon started inside a provider's own process group outlives this home's stop",
+  async () => {
+    const paths = await home();
+    const otherHome = join(paths.root, "home-b");
+    await mkdir(otherHome);
+    cleanups.push(async () => {
+      // Home B's daemon, which this test's fake provider started and recorded.
+      for (const pid of recorded(paths.otherPids)) {
+        if (!alive(pid)) continue;
+        process.kill(pid, "SIGTERM");
+        await until(() => !alive(pid), "home B's daemon to stop", 15_000).catch(() =>
+          process.kill(pid, "SIGKILL"),
+        );
+      }
+    });
+    const daemon = await startDaemon(paths, { ACE_TEST_OTHER_HOME: otherHome });
+    const started = await invoke(
+      paths.home,
+      ["run", "Start home B", "--project", join(paths.person, "project"), "--provider", "codex"],
+      "",
+      paths.env,
+    );
+    expect(started.code, started.stderr + started.stdout).toBe(0);
+    await until(() => recorded(paths.otherPids).length > 0, "home B's daemon to start");
+    const [other = 0] = recorded(paths.otherPids);
+    // It runs in the app-server's process group: a signal to that group would reach it.
+    const app = recorded(paths.turnPids)[0] ?? 0;
+    expect(processIdentity(other)?.group).toBe(processIdentity(app)?.group);
+    await until(() => existsSync(join(otherHome, "daemon-endpoint")), "home B to listen", 30_000);
+    await stopDaemon(paths, daemon);
+    // This home's provider is gone; home B's daemon, in that same group, is not.
+    expect(alive(app)).toBe(false);
+    expect(alive(other)).toBe(true);
+    // Home B stops by its own `ace stop`, as it should.
+    const stoppedB = await invoke(otherHome, ["stop", "--json", "--timeout", "20s"], "", {
+      ...paths.env,
+      ACE_HOME: otherHome,
+    });
+    expect(stoppedB.code, stoppedB.stderr).toBe(0);
+    expect(alive(other)).toBe(false);
+  },
+  120_000,
 );

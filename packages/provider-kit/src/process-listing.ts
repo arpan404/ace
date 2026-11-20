@@ -1,5 +1,6 @@
 import { closeSync, openSync, readdirSync, readSync } from "node:fs";
 import { openLibrary, type NativeFunction } from "./bun-ffi.ts";
+import { processIdentity } from "./process-identity.ts";
 
 /*
  * What the kernel says about processes, read in ways whose cost follows what is asked: one
@@ -99,6 +100,15 @@ export interface ProcessListing {
   environment(pid: number): string[] | undefined;
   /** Its arguments, argv[0] first; macOS shows these even for platform binaries. */
   arguments(pid: number): string[] | undefined;
+  /** Every process in process group `group`, whatever its parent or session now. */
+  groupMembers(group: number): number[];
+  /**
+   * macOS: the kernel's unique id for the process, and the unique id of the process that
+   * started it. Unique ids are never reused, and the parent's stays recorded after the process
+   * is orphaned to launchd, so an orphan can be traced to the process that started it even if
+   * it was never seen, runs an Apple binary and hides its environment. Elsewhere: undefined.
+   */
+  ancestry?(pid: number): { unique: string; parentUnique: string } | undefined;
 }
 
 /** What Linux's listing reads, so tests can stand in for /proc. */
@@ -220,6 +230,7 @@ export function linuxListing(proc: ProcFs = systemProcFs): ProcessListing {
     },
     all: pids,
     info,
+    groupMembers: (group) => pids().filter((pid) => info(pid)?.group === group),
     environment(pid) {
       const bytes = proc.read(`/proc/${pid}/environ`, environLimit);
       return bytes ? parseNulList(bytes) : undefined;
@@ -232,13 +243,17 @@ export function linuxListing(proc: ProcFs = systemProcFs): ProcessListing {
 }
 
 type Darwin = Readonly<
-  Record<"proc_listchildpids" | "proc_listallpids" | "proc_pidinfo" | "sysctl", NativeFunction>
+  Record<
+    "proc_listchildpids" | "proc_listallpids" | "proc_listpgrppids" | "proc_pidinfo" | "sysctl",
+    NativeFunction
+  >
 >;
 let darwin: Darwin | undefined;
 function darwinApi(): Darwin {
   if (darwin) return darwin;
   const proc = openLibrary("/usr/lib/libproc.dylib", {
     proc_listchildpids: { args: ["i32", "ptr", "i32"], returns: "i32" },
+    proc_listpgrppids: { args: ["i32", "ptr", "i32"], returns: "i32" },
     proc_listallpids: { args: ["ptr", "i32"], returns: "i32" },
     proc_pidinfo: { args: ["i32", "i32", "u64", "ptr", "i32"], returns: "i32" },
   }).symbols;
@@ -300,6 +315,16 @@ function quietly<T>(read: () => T, otherwise: T): T {
   }
 }
 
+/** PROC_PIDUNIQIDENTIFIERINFO: p_uuid[16], then p_uniqueid and p_puniqueid (u64 each). */
+function darwinAncestry(pid: number): { unique: string; parentUnique: string } | undefined {
+  const buffer = Buffer.alloc(56);
+  if (Number(darwinApi().proc_pidinfo(pid, 17, 0n, buffer, buffer.length)) < 32) return undefined;
+  return {
+    unique: buffer.readBigUInt64LE(16).toString(),
+    parentUnique: buffer.readBigUInt64LE(24).toString(),
+  };
+}
+
 export const darwinListing: ProcessListing = {
   platform: "darwin",
   lister: () => (pid) =>
@@ -315,7 +340,36 @@ export const darwinListing: ProcessListing = {
   info: (pid) => quietly(() => darwinInfo(pid), undefined),
   environment: (pid) => quietly(() => darwinProcArgs(pid)?.env, undefined),
   arguments: (pid) => quietly(() => darwinProcArgs(pid)?.argv, undefined),
+  groupMembers: (group) =>
+    quietly(
+      () => darwinList((buffer) => darwinApi().proc_listpgrppids(group, buffer, buffer.byteLength)),
+      [],
+    ),
+  ancestry: (pid) => quietly(() => darwinAncestry(pid), undefined),
 };
+
+/**
+ * Windows: a process's identity is its creation time (`processIdentity`). Windows has no
+ * process groups and never reparents; provider trees live in kill-on-close Job Objects, and the
+ * inventory records each tree's members with their creation times, so a stop proves them by
+ * those records rather than by walking parents here.
+ */
+export function windowsListing(
+  identify: (pid: number) => { start: string } | undefined,
+): ProcessListing {
+  return {
+    platform: "win32",
+    lister: () => () => [],
+    all: () => [],
+    info(pid) {
+      const identity = quietly(() => identify(pid), undefined);
+      return identity && { start: identity.start, parent: 0, group: pid, zombie: false };
+    },
+    environment: () => undefined,
+    arguments: () => undefined,
+    groupMembers: () => [],
+  };
+}
 
 const nothing: ProcessListing = {
   platform: process.platform,
@@ -324,6 +378,7 @@ const nothing: ProcessListing = {
   info: () => undefined,
   environment: () => undefined,
   arguments: () => undefined,
+  groupMembers: () => [],
 };
 
 export const systemListing: ProcessListing =
@@ -331,7 +386,9 @@ export const systemListing: ProcessListing =
     ? linuxListing()
     : process.platform === "darwin"
       ? darwinListing
-      : nothing;
+      : process.platform === "win32"
+        ? windowsListing((pid) => processIdentity(pid))
+        : nothing;
 
 /** `pid` and every ancestor up to init: the processes a sweep must never signal. */
 export function lineage(pid: number, listing: ProcessListing = systemListing): Set<number> {

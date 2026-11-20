@@ -135,10 +135,13 @@ export function createProbeThread(
     const flight = flights.get(message.data.id);
     if (!flight) return;
     if (message.data.type === "spawned") {
-      const { pid } = message.data;
+      const { pid, unique } = message.data;
       flight.pid = pid;
       try {
-        registerGroup(pid, () => stop(flight), { name: "cli-probe" });
+        registerGroup(pid, () => stop(flight), {
+          name: "cli-probe",
+          ...(unique ? { unique } : {}),
+        });
       } catch {
         // Unrecorded, it must not outlive this probe.
         flight.stopping = true;

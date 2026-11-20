@@ -32,6 +32,7 @@ export {
   stopOwnedGroups,
   ownedGroupLeaders,
   onGroupOwned,
+  guardGroupSignals,
   observeProcessGroups,
   installShutdownHandlers,
   registerGroup,

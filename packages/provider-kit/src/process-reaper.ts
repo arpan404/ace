@@ -6,15 +6,13 @@ import type { ProcessListing } from "./process-listing.ts";
  * exits is handed to the daemon instead of init and stays in its tree, where a shutdown finds
  * it. Those adopted processes become the daemon's zombies when they exit, and only the daemon
  * can reap them. The runtime reaps the children it spawned itself; reaping one of those would
- * steal its exit from the runtime, so a zombie is reaped only with proof it was adopted:
+ * steal its exit from the runtime, so a zombie is reaped only with proof it was adopted: it was
+ * seen earlier, with the same pid AND start time, under another parent (a process never changes
+ * parent except by adoption). Nothing else counts: a process group says nothing, since a child
+ * the runtime spawned may join any group it likes.
  *
- * - it was seen earlier, with the same start time, under another parent (a process never
- *   changes parent except by adoption), or
- * - its process group is neither its own nor the daemon's: a process the daemon spawned starts
- *   in the daemon's group, or in its own when started detached, never in a third one.
- *
- * An adopted process that started its own session and was never seen with its first parent has
- * neither proof; its zombie stays until the daemon exits, a pid and nothing else.
+ * An adopted process never seen with its first parent has no proof; its zombie stays until the
+ * daemon exits, a pid and nothing else.
  */
 
 /** One of the daemon's zombie children, from one kernel read: its group and start time. */
@@ -29,7 +27,7 @@ export type AdoptionEvidence = ReadonlyMap<number, { start: string; parent: numb
  */
 export function provenAdoptions(
   zombies: readonly ZombieChild[],
-  daemon: { pid: number; group: number },
+  daemon: { pid: number },
   owned: ReadonlySet<number>,
   evidence: AdoptionEvidence,
 ): number[] {
@@ -37,8 +35,7 @@ export function provenAdoptions(
     .filter((zombie) => {
       if (owned.has(zombie.pid)) return false;
       const seen = evidence.get(zombie.pid);
-      if (seen?.start === zombie.start && seen.parent !== daemon.pid) return true;
-      return zombie.group !== zombie.pid && zombie.group !== daemon.group;
+      return seen?.start === zombie.start && seen.parent !== daemon.pid;
     })
     .map((zombie) => zombie.pid);
 }

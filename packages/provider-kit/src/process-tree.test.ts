@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { pidfdFailure } from "./process-signal.ts";
 import { captureTree, parseProcessParents, stopMembers } from "./process-tree.ts";
 import { fakeMachine } from "./process-tree-test-support.ts";
 
@@ -127,26 +128,81 @@ test("a stop checks each member just before its signal, so a pid reused mid-batc
   expect(machine.table.get(300)?.start).toBe("stranger");
 });
 
-test("with pidfds, a pid reused after the descriptor opened is never signalled", async () => {
+/**
+ * A machine where pid 300's process exits and a stranger takes its pid right after the third
+ * identity read of 300 (the stop's liveness check, the check before a pidfd opens, the check
+ * after): the last check before its signal, whichever path signals it.
+ */
+function reusedAtTheSignal() {
+  let reads = 0;
   const machine = fakeMachine(
     { 300: { parent: 1, start: "second" } },
     {
-      afterOpen(pid) {
-        // The pinned process exits and a stranger takes its pid before the start is checked.
-        if (machine.table.get(pid)?.start === "second") {
-          machine.end(pid);
-          machine.table.set(pid, { parent: 1, start: "stranger" });
-        }
+      afterIdentity(pid) {
+        if (pid !== 300 || ++reads !== 3) return;
+        machine.end(300);
+        machine.table.set(300, { parent: 1, start: "stranger" });
       },
     },
   );
-  const left = await stopMembers([{ pid: 300, start: "second" }], 500, {
+  return machine;
+}
+
+test("with pidfds, a pid reused between the last check and the signal is never signalled", async () => {
+  const machine = reusedAtTheSignal();
+  await stopMembers([{ pid: 300, start: "second" }], 500, {
+    ...machine.tree,
+    pidfd: machine.pidfd,
+  });
+  // The pidfd pinned the process that was checked; it had gone, so the signal reached nobody.
+  expect(machine.signals).toEqual([]);
+  expect(machine.table.get(300)?.start).toBe("stranger");
+});
+
+test("a pidfd that can't be opened for lack of descriptors never falls back to the bare pid", async () => {
+  const machine = fakeMachine(
+    { 300: { parent: 1, start: "provider" } },
+    { openFailure: () => "unsafe" },
+  );
+  const left = await stopMembers([{ pid: 300, start: "provider" }], 500, {
+    ...machine.tree,
+    pidfd: machine.pidfd,
+  });
+  // Not signalled at all, and reported as still running.
+  expect(machine.signals).toEqual([]);
+  expect(left).toEqual([{ pid: 300, start: "provider" }]);
+});
+
+test("a kernel without pidfds is the one case where the pid is signalled directly", async () => {
+  const machine = fakeMachine(
+    { 300: { parent: 1, start: "provider" } },
+    { openFailure: () => "unsupported" },
+  );
+  const left = await stopMembers([{ pid: 300, start: "provider" }], 500, {
     ...machine.tree,
     pidfd: machine.pidfd,
   });
   expect(left).toEqual([]);
+  expect(machine.signals).toEqual(["SIGTERM 300:provider"]);
+});
+
+test("pidfd_open errors are told apart: gone, unsupported, or unsafe", () => {
+  expect(pidfdFailure(3)).toEqual({ error: "gone" });
+  expect(pidfdFailure(38)).toEqual({ error: "unsupported" });
+  // EMFILE, ENFILE, ENOMEM, and anything unknown.
+  for (const errno of [24, 23, 12, -1]) expect(pidfdFailure(errno)).toEqual({ error: "unsafe" });
+});
+
+test("a stop past its deadline sends no signal and reports what still runs", async () => {
+  const machine = fakeMachine({ 300: { parent: 1, start: "provider" } });
+  const left = await stopMembers(
+    [{ pid: 300, start: "provider" }],
+    500,
+    machine.tree,
+    performance.now() - 1,
+  );
   expect(machine.signals).toEqual([]);
-  expect(machine.table.get(300)?.start).toBe("stranger");
+  expect(left).toEqual([{ pid: 300, start: "provider" }]);
 });
 
 test("a member that ignores SIGTERM is killed, and one that outlives SIGKILL is reported", async () => {

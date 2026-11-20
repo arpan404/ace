@@ -10,6 +10,9 @@ export type FakeProcess = {
   group?: number;
   env?: string[];
   argv?: string[];
+  /** macOS lineage: this process's unique id and its starting parent's. */
+  unique?: string;
+  parentUnique?: string;
   ignores?: "TERM" | "all";
   zombie?: boolean;
 };
@@ -22,6 +25,12 @@ export type FakeHooks = {
   afterSignal?(pid: number, signal: NodeJS.Signals): void;
   /** After a pidfd was opened for a pid. */
   afterOpen?(pid: number): void;
+  /** After a process's identity was read. */
+  afterIdentity?(pid: number): void;
+  /** After a process's environment was read. */
+  afterEnvironment?(pid: number): void;
+  /** What opening a pidfd fails with, instead of succeeding (EMFILE, ENOSYS...). */
+  openFailure?(pid: number): "gone" | "unsupported" | "unsafe" | undefined;
 };
 
 /**
@@ -57,9 +66,12 @@ export function fakeMachine(rows: Record<number, FakeProcess>, hooks: FakeHooks 
     identity(pid) {
       hooks.beforeIdentity?.(pid);
       const row = table.get(pid);
-      return row && !row.zombie
-        ? { start: row.start, parent: row.parent, group: groupOf(pid) }
-        : undefined;
+      const identity =
+        row && !row.zombie
+          ? { start: row.start, parent: row.parent, group: groupOf(pid) }
+          : undefined;
+      hooks.afterIdentity?.(pid);
+      return identity;
     },
     kill: deliver,
     wait: async () => {},
@@ -69,12 +81,14 @@ export function fakeMachine(rows: Record<number, FakeProcess>, hooks: FakeHooks 
   let next = 3;
   const pidfd: PidFds = {
     open(pid) {
+      const failure = hooks.openFailure?.(pid);
+      if (failure) return { error: failure };
       const row = table.get(pid);
-      if (!row) return undefined;
+      if (!row) return { error: "gone" };
       const fd = next++;
       pinned.set(fd, { pid, start: row.start });
       hooks.afterOpen?.(pid);
-      return fd;
+      return { fd };
     },
     send(fd, signal) {
       const target = pinned.get(fd);
@@ -94,8 +108,19 @@ export function fakeMachine(rows: Record<number, FakeProcess>, hooks: FakeHooks 
         row && { start: row.start, parent: row.parent, group: groupOf(pid), zombie: !!row.zombie }
       );
     },
-    environment: (pid) => table.get(pid)?.env,
+    environment(pid) {
+      const env = table.get(pid)?.env;
+      hooks.afterEnvironment?.(pid);
+      return env;
+    },
     arguments: (pid) => table.get(pid)?.argv,
+    groupMembers: (group) => [...table.keys()].filter((pid) => groupOf(pid) === group),
+    ancestry(pid) {
+      const row = table.get(pid);
+      return row?.unique && row.parentUnique
+        ? { unique: row.unique, parentUnique: row.parentUnique }
+        : undefined;
+    },
   };
   return { tree, listing, table, signals, end, pidfd };
 }

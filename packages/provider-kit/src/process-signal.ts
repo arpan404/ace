@@ -1,5 +1,16 @@
 import { constants } from "node:os";
-import { openLibrary, type NativeFunction } from "./bun-ffi.ts";
+import { nativePointer, openLibrary, readInt32, type NativeFunction } from "./bun-ffi.ts";
+
+/** ESRCH, ENOSYS in <errno.h> (Linux). */
+const noSuchProcess = 3;
+const notImplemented = 38;
+
+/** What a failed pidfd_open's errno means for signalling. */
+export function pidfdFailure(errno: number): { error: "gone" | "unsupported" | "unsafe" } {
+  if (errno === noSuchProcess) return { error: "gone" };
+  if (errno === notImplemented) return { error: "unsupported" };
+  return { error: "unsafe" };
+}
 
 /*
  * Signalling a process by evidence (its pid and kernel start time) without hitting another
@@ -16,9 +27,17 @@ import { openLibrary, type NativeFunction } from "./bun-ffi.ts";
  * microseconds.
  */
 
+/**
+ * What opening a pidfd gave: the descriptor, or why not. `gone`: no process holds the pid.
+ * `unsupported`: this kernel has no pidfds (ENOSYS), the one case where kill(2) may stand in.
+ * `unsafe`: anything else (EMFILE, ENFILE, ENOMEM): the process may be there, but it can't be
+ * pinned, so it is not signalled at all.
+ */
+export type PidFdOpen = { fd: number } | { error: "gone" | "unsupported" | "unsafe" };
+
 export interface PidFds {
-  /** A pidfd for whatever process holds `pid` now; undefined when none does. */
-  open(pid: number): number | undefined;
+  /** A pidfd for whatever process holds `pid` now. */
+  open(pid: number): PidFdOpen;
   /** Signal the process the pidfd pins; false once it has exited. */
   send(fd: number, signal: NodeJS.Signals): boolean;
   close(fd: number): void;
@@ -32,21 +51,28 @@ export interface SignalIo {
   pidfd?: PidFds | undefined;
 }
 
-/** Signal `member` if it is still that process: "sent", or "gone" when it isn't any more. */
+/**
+ * Signal `member` if it is still that process: "sent"; "gone" when it isn't any more; "unsafe"
+ * when it may be but couldn't be pinned to be signalled safely, so nothing was sent.
+ */
 export function signalMember(
   member: { pid: number; start: string },
   signal: NodeJS.Signals,
   io: SignalIo,
-): "sent" | "gone" {
-  const fd = io.pidfd?.open(member.pid);
-  if (fd !== undefined) {
-    try {
-      // The pidfd pins one process; its start says whether it is the one we know.
-      if (io.start(member.pid) !== member.start) return "gone";
-      return io.pidfd?.send(fd, signal) ? "sent" : "gone";
-    } finally {
-      io.pidfd?.close(fd);
+): "sent" | "gone" | "unsafe" {
+  if (io.start(member.pid) !== member.start) return "gone";
+  if (io.pidfd) {
+    const opened = io.pidfd.open(member.pid);
+    if ("fd" in opened) {
+      try {
+        // The pidfd pins one process; its start says whether it is the one we know.
+        if (io.start(member.pid) !== member.start) return "gone";
+        return io.pidfd.send(opened.fd, signal) ? "sent" : "gone";
+      } finally {
+        io.pidfd.close(opened.fd);
+      }
     }
+    if (opened.error !== "unsupported") return opened.error;
   }
   if (io.start(member.pid) !== member.start) return "gone";
   try {
@@ -57,7 +83,9 @@ export function signalMember(
   }
 }
 
-type Libc = Readonly<Record<"pidfd_open" | "pidfd_send_signal" | "close", NativeFunction>>;
+type Libc = Readonly<
+  Record<"pidfd_open" | "pidfd_send_signal" | "close" | "__errno_location", NativeFunction>
+>;
 let libc: Libc | null | undefined;
 /** glibc 2.36's pidfd wrappers (every supported distribution has them); null where absent. */
 function linuxPidfdLibc(): Libc | null {
@@ -67,6 +95,7 @@ function linuxPidfdLibc(): Libc | null {
       pidfd_open: { args: ["i32", "u32"], returns: "i32" },
       pidfd_send_signal: { args: ["i32", "i32", "ptr", "u32"], returns: "i32" },
       close: { args: ["i32"], returns: "i32" },
+      __errno_location: { args: [], returns: "ptr" },
     }).symbols;
   } catch {
     libc = null;
@@ -81,8 +110,12 @@ export function systemPidFds(platform: NodeJS.Platform = process.platform): PidF
   if (!native) return undefined;
   return {
     open(pid) {
-      const fd = Number(native.pidfd_open(pid, 0));
-      return Number.isSafeInteger(fd) && fd >= 0 ? fd : undefined;
+      const { pidfd_open, __errno_location } = native;
+      const fd = Number(pidfd_open(pid, 0));
+      if (Number.isSafeInteger(fd) && fd >= 0) return { fd };
+      // Read before any other call can change it.
+      const pointer = nativePointer(__errno_location());
+      return pidfdFailure(pointer === null ? -1 : readInt32(pointer));
     },
     send(fd, signal) {
       return Number(native.pidfd_send_signal(fd, constants.signals[signal], null, 0)) === 0;

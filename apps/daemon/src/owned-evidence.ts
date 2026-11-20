@@ -1,52 +1,36 @@
 import { readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import type { ProcessListing } from "@ace/provider-kit/process-listing";
-import { carriesKeep } from "@ace/provider-kit/process-marker";
 import type { TreeMember } from "@ace/provider-kit/process-tree";
 import { parseRunMarker, RUN_MARKER_FILE } from "./run-marker.ts";
 
 /*
  * Which of a sweep's candidates may be signalled. A candidate comes with evidence that it is
- * this run's (its marker, an owned group's tree, a recorded snapshot row); these rules can only
- * take candidates away, never add one. A candidate is spared when it, or any process above it
- * up to this run's daemon, is:
+ * this run's (its marker, an owned group's tree, a recorded row, its lineage); these rules can
+ * only take candidates away, never add one. A candidate is spared when it is in `spare` (this
+ * daemon's own lineage, and a stop request's verified caller and its shell: those processes
+ * alone, not what they started), or when it, or any process above it up to this run's daemon,
+ * is:
  *
- * - in `spare`: this daemon's own lineage, and the caller of a stop request with its ancestors;
- * - kept: launched to outlive ace (`ACE_PROCESS_KEEP=1`, or a recorded kept pid and start);
- * - another ace daemon. Linux shows a process's environment from when it started, so a daemon
- *   started from this run's agent shell carries this run's marker for its whole life. It, and
- *   everything below it, belong to its own home. A daemon is known by its command line (an ace
- *   entry with `start`, `serve` or `supervise`) or by its home's run marker naming its pid.
+ * - kept: a process ace recorded, by pid and start, as it launched it to outlive ace (the
+ *   updater, an editor, a sign-in browser). An environment variable proves nothing here: any
+ *   process can set one;
+ * - another ace daemon. Linux shows the environment a process started with, so a daemon started
+ *   from this run's agent shell carries this run's marker for its whole life. It, and all below
+ *   it, belong to its own home. It is known only by its own home's run marker naming its pid AND
+ *   kernel start: never by its command line, which anything can imitate. (A daemon from a build
+ *   whose run marker records no kernel start can't be told apart.)
  *
  * Above this run's daemon the walk stops: its own ancestors (a terminal, a service manager, or
  * another daemon this one was started from) say nothing about what is below it.
  */
 
-/** The ace entries a daemon runs from: the dev CLI, a release's ace.mjs and its launcher. */
-function isAceEntry(arg: string): boolean {
-  return (
-    /(?:^|\/)apps\/daemon\/src\/cli\.ts$/.test(arg) ||
-    basename(arg) === "ace.mjs" ||
-    basename(arg) === "ace" ||
-    basename(arg) === "ace.cmd"
-  );
-}
-const daemonCommands = new Set(["start", "serve", "supervise"]);
-
-/** Whether an argument list runs an ace daemon (or the supervisor that runs one). */
-export function runsAceDaemon(argv: readonly string[]): boolean {
-  const entry = argv.findIndex(isAceEntry);
-  if (entry < 0) return false;
-  const command = argv.slice(entry + 1).find((arg) => !arg.startsWith("-"));
-  return command !== undefined && daemonCommands.has(command);
-}
-
 export interface Protection {
   /** This run's daemon: the walk up from a candidate stops there. */
   self: TreeMember | undefined;
-  /** Pids never to signal: this daemon's lineage, a stop request's caller and its ancestors. */
+  /** Pids never to signal: this daemon's lineage, a stop request's verified caller chain. */
   spare: ReadonlySet<number>;
-  /** Processes ace launched to outlive it. */
+  /** Processes ace recorded as it launched them to outlive it. */
   kept: readonly TreeMember[];
   /** Reads a home's run marker; injected so tests can stand in for other homes. */
   readMarker?: (home: string) => unknown;
@@ -60,6 +44,16 @@ const readMarkerFile = (home: string): unknown => {
   }
 };
 
+/** The home a process's start environment names: its ACE_HOME, else its HOME's `.ace`. */
+function homeNamed(environment: readonly string[]): string | undefined {
+  const value = (name: string) =>
+    environment.find((entry) => entry.startsWith(`${name}=`))?.slice(name.length + 1);
+  const home = value("ACE_HOME");
+  if (home) return home;
+  const person = value("HOME");
+  return person ? join(person, ".ace") : undefined;
+}
+
 /** A predicate over candidates: true when the rules allow signalling it. */
 export function signallable(
   listing: ProcessListing,
@@ -68,23 +62,20 @@ export function signallable(
   const kept = new Set(protection.kept.map((member) => `${member.pid}:${member.start}`));
   const readMarker = protection.readMarker ?? readMarkerFile;
   const verdicts = new Map<string, boolean>();
-  /** Whether one process (not its ancestors) stops a sweep. */
-  const shielded = (pid: number, start: string): boolean => {
-    if (protection.spare.has(pid) || kept.has(`${pid}:${start}`)) return true;
+  /** Whether a running ace daemon of some home is exactly this process. */
+  const isDaemon = (pid: number, start: string): boolean => {
     const environment = listing.environment(pid);
-    if (environment && carriesKeep(environment)) return true;
-    const argv = listing.arguments(pid);
-    if (argv && runsAceDaemon(argv)) return true;
-    const home = environment
-      ?.find((entry) => entry.startsWith("ACE_HOME="))
-      ?.slice("ACE_HOME=".length);
-    if (home) {
-      const marker = parseRunMarker(readMarker(home));
-      if (marker?.state === "running" && marker.pid === pid) return true;
-    }
-    return false;
+    const home = environment && homeNamed(environment);
+    if (!home) return false;
+    const marker = parseRunMarker(readMarker(home));
+    return marker?.state === "running" && marker.pid === pid && marker.start === start;
   };
+  /** Whether one process protects itself and all below it. */
+  const shielded = (pid: number, start: string): boolean =>
+    kept.has(`${pid}:${start}`) || isDaemon(pid, start);
   return (member) => {
+    // Spared processes are spared themselves; what they started is judged on its own.
+    if (protection.spare.has(member.pid)) return false;
     const path: string[] = [];
     let verdict = true;
     let current: TreeMember | undefined = member;

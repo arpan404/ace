@@ -48,21 +48,36 @@ export function carriesOwner(environment: readonly string[], id: string): boolea
   return environment.includes(entry);
 }
 
-/** Every process this user can see whose start environment carries `id`'s marker. */
-export function markedProcesses(id: string, listing: ProcessListing): number[] {
+/**
+ * Every process this user can see whose start environment carries `id`'s marker, by identity.
+ * Each is read as identity, environment, identity: the environment counts only when both
+ * identity reads give the same start, so a pid reused around the environment read is never
+ * taken for the marked process. Zombies are left out.
+ */
+export function markedProcesses(
+  id: string,
+  listing: ProcessListing,
+): { pid: number; start: string }[] {
   if (!runId.test(id)) return [];
-  const found: number[] = [];
+  const found: { pid: number; start: string }[] = [];
   for (const pid of listing.all()) {
+    const before = listing.info(pid);
+    if (!before || before.zombie) continue;
     const environment = listing.environment(pid);
-    if (environment && carriesOwner(environment, id)) found.push(pid);
+    if (!environment || !carriesOwner(environment, id)) continue;
+    const after = listing.info(pid);
+    if (after && !after.zombie && after.start === before.start)
+      found.push({ pid, start: before.start });
   }
   return found;
 }
 
 /*
- * The opposite mark: processes ace launches on purpose to outlive it (the updater, an editor it
- * opens, a browser for a sign-in page) carry `ACE_PROCESS_KEEP=1` and no run marker, and their
- * pid and start are recorded. No sweep signals one, nor anything below it.
+ * The opposite: processes ace launches on purpose to outlive it (the updater, an editor it
+ * opens, a browser for a sign-in page) carry no run marker, and ace records their pid and start
+ * as it launches them. Only that record keeps one, and what is below it, from every sweep. They
+ * also carry `ACE_PROCESS_KEEP=1`, for people reading a process list, but the variable proves
+ * nothing: anything can set it.
  */
 export const PROCESS_KEEP_ENV = "ACE_PROCESS_KEEP";
 
@@ -71,11 +86,6 @@ export function keptEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const kept: NodeJS.ProcessEnv = { ...env, [PROCESS_KEEP_ENV]: "1" };
   delete kept[PROCESS_OWNER_ENV];
   return kept;
-}
-
-/** Whether a start environment says ace started it to outlive ace. */
-export function carriesKeep(environment: readonly string[]): boolean {
-  return environment.includes(`${PROCESS_KEEP_ENV}=1`);
 }
 
 /** Where a kept process's pid and start go. */

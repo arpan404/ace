@@ -15,6 +15,8 @@ import {
   markedProcesses,
 } from "./process-marker.ts";
 import { provenAdoptions, type ZombieChild } from "./process-reaper.ts";
+import { LineageBook, lineageDescendants } from "./process-lineage.ts";
+import { windowsListing } from "./process-listing.ts";
 import { captureTree, treeIo } from "./process-tree.ts";
 import { ProcessWatch, type WatchJournal } from "./process-watch.ts";
 import type { TreeMember } from "./process-tree.ts";
@@ -52,7 +54,22 @@ test("the marker sweep finds this run's orphans, not another home's or hidden en
     // An Apple platform binary on macOS: its environment is hidden.
     500: { parent: 1, start: "hidden" },
   });
-  expect(markedProcesses(run, listing)).toEqual([300]);
+  expect(markedProcesses(run, listing)).toEqual([{ pid: 300, start: "orphan" }]);
+});
+
+test("a pid reused while its environment is read is never taken for the marked process", () => {
+  const machine = fakeMachine(
+    { 300: { parent: 1, start: "orphan", env: [`${PROCESS_OWNER_ENV}=${run}`] } },
+    {
+      afterEnvironment(pid) {
+        // The marked orphan exits as its environment is read; a stranger takes its pid.
+        if (pid !== 300 || machine.table.get(300)?.start !== "orphan") return;
+        machine.end(300);
+        machine.table.set(300, { parent: 1, start: "stranger" });
+      },
+    },
+  );
+  expect(markedProcesses(run, machine.listing)).toEqual([]);
 });
 
 test("a macOS process's arguments and environment are read from KERN_PROCARGS2", () => {
@@ -135,8 +152,8 @@ test("only zombies proven adopted are reaped, never the daemon's own children", 
   const zombies: ZombieChild[] = [
     // Seen earlier, with this start, as an app-server's child: adopted when the app-server exited.
     { pid: 301, group: 301, start: "shell" },
-    // In a provider's group, which no process the daemon spawned starts in.
-    { pid: 302, group: 200, start: "grandchild" },
+    // In a sibling's group, with no evidence: a child the runtime spawned may join any group.
+    { pid: 302, group: 200, start: "joined-a-sibling" },
     // The daemon's own detached spawn (an editor launcher): its own group, never seen.
     { pid: 303, group: 303, start: "launcher" },
     // A plain spawn (git): the daemon's group.
@@ -151,7 +168,7 @@ test("only zombies proven adopted are reaped, never the daemon's own children", 
     [305, { start: "an-earlier-process", parent: 200 }],
     [200, { start: "app-server", parent: 50 }],
   ]);
-  expect(provenAdoptions(zombies, daemon, new Set([200]), evidence)).toEqual([301, 302]);
+  expect(provenAdoptions(zombies, daemon, new Set([200]), evidence)).toEqual([301]);
 });
 
 function journal() {
@@ -275,4 +292,52 @@ test("the watch never reaps the runtime's own child that reused a watched pid", 
   watch.tick();
   expect(reaped).toEqual([]);
   expect(machine.table.get(300)?.start).toBe("bun-child");
+});
+
+test("macOS lineage finds an orphan by the process that started it, even never seen", () => {
+  const { listing } = fakeMachine({
+    // The probe that started it has exited; its unique id was recorded as it started.
+    300: { parent: 1, start: "sleep", unique: "1003", parentUnique: "1002" },
+    // What the orphan itself started: found through the orphan.
+    301: { parent: 300, start: "grandchild", unique: "1004", parentUnique: "1003" },
+    // An orphan whose starting parent nobody recorded.
+    400: { parent: 1, start: "unrelated", unique: "2001", parentUnique: "2000" },
+  });
+  expect(lineageDescendants(["1002"], listing)).toEqual([
+    { pid: 300, start: "sleep" },
+    { pid: 301, start: "grandchild" },
+  ]);
+  // Where the platform keeps no lineage, it says so instead of finding nothing.
+  const { platform, lister, all, info, environment, groupMembers } = listing;
+  const withoutLineage = { platform, lister, all, info, environment, groupMembers };
+  expect(
+    lineageDescendants(["1002"], { ...withoutLineage, arguments: listing.arguments }),
+  ).toBeUndefined();
+});
+
+test("a lineage book past its limit can no longer claim to be complete", () => {
+  const recorded: string[] = [];
+  const book = new LineageBook({
+    limit: 2,
+    journal: { recordLineage: (ids) => recorded.push(...ids) },
+  });
+  book.note("1");
+  book.note("2");
+  book.note("2");
+  expect(book.complete()).toBe(true);
+  book.note("3");
+  expect(book.complete()).toBe(false);
+  expect(recorded).toEqual(["1", "2"]);
+});
+
+test("a Windows process's identity is its creation time", () => {
+  const listing = windowsListing((pid) =>
+    pid === 42 ? { start: "133700000000000000" } : undefined,
+  );
+  expect(treeIo(listing).identity(42)).toEqual({
+    start: "133700000000000000",
+    parent: 0,
+    group: 42,
+  });
+  expect(treeIo(listing).identity(43)).toBeUndefined();
 });

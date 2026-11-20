@@ -4,12 +4,15 @@ import { once } from "node:events";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { z } from "zod";
+import { EscapeeJournal } from "@ace/provider-kit/escapee-journal";
+import { processIdentity } from "@ace/provider-kit/process-identity";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { exitCodes } from "./cli/output.ts";
 import { shutdownControl, readShutdownReceipt } from "./shutdown-receipt.ts";
 import { startCli } from "./cli-test-support.ts";
+import { holdsConnection } from "./peer-process.ts";
 
 /*
  * `ace stop` against a stand-in daemon: an HTTP server answering /v1/stop with a real receipt,
@@ -141,6 +144,7 @@ async function family(run: string) {
   const otherHome = join(root, "home-b");
   const otherDaemon = join(otherHome, "release/apps/daemon/src/cli.ts");
   await mkdir(join(otherHome, "release/apps/daemon/src"), { recursive: true });
+  await mkdir(`${otherHome}-none`, { recursive: true });
   await writeFile(
     otherDaemon,
     [
@@ -169,6 +173,9 @@ async function family(run: string) {
       '  kept: start(idle, { ...base, ACE_PROCESS_OWNER: run, ACE_PROCESS_KEEP: "1" }),',
       '  otherDaemon: start([otherDaemon, "start"], { ...base, ACE_PROCESS_OWNER: run, ACE_HOME: otherHome }),',
       "  marked: start(idle, { ...base, ACE_PROCESS_OWNER: run }),",
+      // Provider helpers that only claim protection: the variable, or a daemon's command line.
+      '  claimsKept: start(idle, { ...base, ACE_PROCESS_OWNER: run, ACE_PROCESS_KEEP: "1" }),',
+      '  looksLikeADaemon: start([otherDaemon, "start"], { ...base, ACE_PROCESS_OWNER: run, ACE_HOME: otherHome + "-none" }),',
       "}));",
       "setInterval(() => {}, 1000);",
     ].join("\n"),
@@ -184,9 +191,15 @@ async function family(run: string) {
           kept: z.number(),
           otherDaemon: z.number(),
           marked: z.number(),
+          claimsKept: z.number(),
+          looksLikeADaemon: z.number(),
         })
         .parse(JSON.parse(readFileSync(pids, "utf8")));
-      return { ...value, otherProvider: Number(readFileSync(join(otherHome, "provider"), "utf8")) };
+      return {
+        ...value,
+        otherProvider: Number(readFileSync(join(otherHome, "provider"), "utf8")),
+        imposterProvider: Number(readFileSync(join(`${otherHome}-none`, "provider"), "utf8")),
+      };
     } catch {
       return undefined;
     }
@@ -200,6 +213,13 @@ async function family(run: string) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   const members = recorded();
   if (!members) throw new Error("The stand-in daemon's family did not start");
+  // Home B's daemon is one by its home's run marker, naming its pid and kernel start.
+  const other = processIdentity(members.otherDaemon);
+  if (!other) throw new Error("Home B's daemon is not running");
+  await writeFile(
+    join(otherHome, "daemon-run.json"),
+    JSON.stringify({ state: "running", pid: other.pid, startedAt: 1, start: other.start }),
+  );
   return { daemon, members };
 }
 
@@ -212,12 +232,16 @@ function alive(pid: number): boolean {
   }
 }
 
-test("ace stop ends only what the run's evidence names: not the daemon's other descendants, kept processes or another home's daemon", async () => {
+test("ace stop ends only what the run's evidence names, never its daemon's other descendants, kept processes or another home's daemon, and honours no protection only claimed", async () => {
   const run = "0b9e2c4c-7f3a-4c1e-9a55-2f1d8e6b7a10";
   const { daemon, members } = await family(run);
   const cleanup = Promise.withResolvers<void>();
   cleanups.push(() => cleanup.resolve());
   const { root, closed } = await home(daemon, () => cleanup.promise, run);
+  // The kept process, recorded as ace records one it launches to outlive it.
+  const journal = new EscapeeJournal(join(root, "processes.sqlite"), run);
+  journal.keep(members.kept);
+  journal.close();
   const cli = startCli(root, ["stop", "--json", "--timeout", "10s"]);
   cleanups.push(() => void cli.child.kill("SIGKILL"));
   await closed;
@@ -225,8 +249,20 @@ test("ace stop ends only what the run's evidence names: not the daemon's other d
   daemon.kill("SIGTERM");
   const output = await cli.exited;
   expect(output.code, output.stderr).toBe(0);
-  expect(JSON.parse(output.stdout)).toMatchObject({ stopped: true, leftoversStopped: 1 });
-  expect(alive(members.marked)).toBe(false);
+  expect(JSON.parse(output.stdout)).toMatchObject({ stopped: true });
+  // The marked process, and the helpers whose protection was only claimed (and what is below
+  // the one that looked like a daemon).
+  expect({
+    marked: alive(members.marked),
+    claimsKept: alive(members.claimsKept),
+    looksLikeADaemon: alive(members.looksLikeADaemon),
+    imposterProvider: alive(members.imposterProvider),
+  }).toEqual({
+    marked: false,
+    claimsKept: false,
+    looksLikeADaemon: false,
+    imposterProvider: false,
+  });
   expect({
     updater: alive(members.updater),
     kept: alive(members.kept),
@@ -234,3 +270,41 @@ test("ace stop ends only what the run's evidence names: not the daemon's other d
     otherProvider: alive(members.otherProvider),
   }).toEqual({ updater: true, kept: true, otherDaemon: true, otherProvider: true });
 }, 30_000);
+
+test.skipIf(process.platform !== "darwin" && process.platform !== "linux")(
+  "the daemon tells which local process holds a request's connection, and no other",
+  async () => {
+    const connected = Promise.withResolvers<{ remotePort: number; localPort: number }>();
+    const server = createServer((request) => {
+      connected.resolve({
+        remotePort: request.socket.remotePort ?? 0,
+        localPort: request.socket.localPort ?? 0,
+      });
+      // Held open: the client keeps its end while the check runs.
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    cleanups.push(() => {
+      server.closeAllConnections();
+      server.close();
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing address");
+    const client = spawn(
+      process.execPath,
+      [
+        "-e",
+        `require("node:http").get("http://127.0.0.1:${address.port}/", { agent: false }); setInterval(() => {}, 1000);`,
+      ],
+      { stdio: "ignore" },
+    );
+    cleanups.push(() => {
+      if (running(client)) client.kill("SIGKILL");
+    });
+    const bystander = standIn();
+    const connection = await connected.promise;
+    expect(await holdsConnection(client.pid ?? 0, connection)).toBe(true);
+    expect(await holdsConnection(bystander.pid ?? 0, connection)).toBe(false);
+  },
+  20_000,
+);

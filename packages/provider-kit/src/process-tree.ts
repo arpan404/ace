@@ -176,7 +176,7 @@ export function signalTreeMember(
   member: TreeMember,
   signal: NodeJS.Signals,
   io: TreeIo = systemTreeIo,
-): "sent" | "gone" {
+): "sent" | "gone" | "unsafe" {
   return signalMember(member, signal, {
     start: (pid) => readIdentity(io, pid)?.start,
     kill: (pid, name) => io.kill(pid, name),
@@ -187,8 +187,9 @@ export function signalTreeMember(
 /**
  * Stop the captured members still running: SIGTERM, then SIGKILL after `graceMs`. Each signal
  * is checked against its member's start on its own, just before it goes, never for a batch.
- * Waits end at `deadline` (a `performance.now()` time) when one is given. Resolves with the
- * members still running.
+ * `deadline` (a `performance.now()` time) bounds it all: past it, no further round of signals
+ * starts and no wait continues. Resolves with the members still running, including any that
+ * couldn't be signalled safely.
  */
 export async function stopMembers(
   members: readonly TreeMember[],
@@ -207,9 +208,11 @@ export async function stopMembers(
     )
       await io.wait(25);
   };
-  if (!liveMembers(members, io).length) return [];
+  const late = () => performance.now() >= deadline;
+  if (!liveMembers(members, io).length || late()) return liveMembers(members, io);
   signal("SIGTERM");
   await settle(graceMs);
+  if (late()) return liveMembers(members, io);
   signal("SIGKILL");
   await settle(1_000);
   return liveMembers(members, io);

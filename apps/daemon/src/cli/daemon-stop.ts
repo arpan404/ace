@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { readOwnership } from "@ace/provider-kit/escapee-journal";
 import { readOwnedGroups } from "@ace/provider-kit/process-inventory";
 import { lineage, systemListing, type ProcessListing } from "@ace/provider-kit/process-listing";
+import { lineageDescendants } from "@ace/provider-kit/process-lineage";
 import { markedProcesses } from "@ace/provider-kit/process-marker";
 import { leaveProcessGroup } from "@ace/provider-kit/process-signal";
 import {
@@ -80,11 +81,11 @@ export function stopVerdict(facts: StopFacts, home: string, leftovers = 0): Stop
       message: `${facts.survivors.length} process${facts.survivors.length === 1 ? "" : "es"} the daemon started ${facts.survivors.length === 1 ? "is" : "are"} still running: ${facts.survivors.map((member) => member.pid).join(", ")}`,
       evidence: { receipt, pids: facts.survivors.map((member) => member.pid) },
     };
-  if (!facts.complete)
+  if (!facts.complete || receipt.unaccounted)
     return {
       outcome: "uncertain",
       message:
-        "The daemon stopped, but its process records were too large to check whole; some may still run",
+        "The daemon stopped, but it couldn't account for every process it started; some may still run",
       evidence: { receipt },
     };
   return {
@@ -157,13 +158,16 @@ export async function stopCommand(
   let survivors: TreeMember[] = [];
   if (state === "exited" && daemon) {
     const found = new Map(liveMembers(evidence, io).map((member) => [member.pid, member]));
-    for (const pid of daemon.owner ? markedProcesses(daemon.owner, listing) : []) {
-      const member = found.has(pid) ? undefined : memberOf(pid, io);
-      if (member) found.set(pid, member);
-    }
+    const add = (members: readonly TreeMember[]) => {
+      for (const member of members) if (!found.has(member.pid)) found.set(member.pid, member);
+    };
+    if (daemon.owner) add(markedProcesses(daemon.owner, listing));
     let kept: TreeMember[] = [];
     try {
-      kept = readOwnership(journal, undefined).kept;
+      const records = readOwnership(journal, daemon.owner);
+      kept = records.kept;
+      // macOS: what the run's processes started, traced by lineage from the ids it recorded.
+      add(lineageDescendants(records.lineage, listing) ?? []);
     } catch {
       complete = false;
     }

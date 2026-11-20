@@ -198,8 +198,12 @@ export function accessHttp({
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
           const stop = StopRequest.safeParse((await optionalBody(request)) ?? {});
           if (!stop.success) throw new AccessError(400, "Invalid stop request");
+          const caller = await shutdown.verifyCaller(stop.data.caller, {
+            remotePort: request.socket.remotePort ?? 0,
+            localPort: request.socket.localPort ?? 0,
+          });
           maintenance?.enter("stop");
-          result = shutdown.request(stop.data);
+          result = shutdown.request({ caller });
           response.once("finish", () => shutdown.start());
         } else if (
           (path === "/v1/maintenance" || path === "/v1/maintenance/update") &&

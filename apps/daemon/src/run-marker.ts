@@ -13,11 +13,22 @@ export const RUN_MARKER_FILE = "daemon-run.json";
 
 /** The run's process owner id: every provider process it started carries it (ACE_PROCESS_OWNER). */
 const ProcessOwner = z.string().min(16).max(64).optional();
+/**
+ * The daemon process's kernel start (and macOS unique id): with `pid`, what names the daemon
+ * itself, so another home's sweep can tell this daemon from a process that reused its pid.
+ */
+const KernelStart = z.string().min(1).max(128).optional();
+const KernelUnique = z
+  .string()
+  .regex(/^\d{1,20}$/)
+  .optional();
 const Running = z.object({
   state: z.literal("running"),
   pid: z.number().int(),
   startedAt: z.number(),
   owner: ProcessOwner,
+  start: KernelStart,
+  unique: KernelUnique,
 });
 const Stopped = z.object({
   state: z.literal("stopped"),
@@ -25,6 +36,8 @@ const Stopped = z.object({
   startedAt: z.number(),
   stoppedAt: z.number(),
   owner: ProcessOwner,
+  start: KernelStart,
+  unique: KernelUnique,
   source: z.string(),
   signal: z.string().optional(),
   /** Resources still closing when the shutdown deadline hit; absent for a complete stop. */
@@ -107,10 +120,21 @@ export interface DaemonRun {
 }
 
 /** Call while holding the daemon lock: reads the last run's ending, then marks this one live. */
-export function beginRun(home: string, pid: number, now: () => number, owner?: string): DaemonRun {
+export function beginRun(
+  home: string,
+  pid: number,
+  now: () => number,
+  owner?: string,
+  kernel: { start?: string | undefined; unique?: string | undefined } = {},
+): DaemonRun {
   const previous = readMarker(home);
   const startedAt = now();
-  writeMarker(home, { state: "running", pid, startedAt, ...(owner ? { owner } : {}) });
+  const identity = {
+    ...(owner ? { owner } : {}),
+    ...(kernel.start ? { start: kernel.start } : {}),
+    ...(kernel.unique ? { unique: kernel.unique } : {}),
+  };
+  writeMarker(home, { state: "running", pid, startedAt, ...identity });
   return {
     previous,
     stopped(reason, overran) {
@@ -118,7 +142,7 @@ export function beginRun(home: string, pid: number, now: () => number, owner?: s
         state: "stopped",
         pid,
         startedAt,
-        ...(owner ? { owner } : {}),
+        ...identity,
         stoppedAt: now(),
         source: reason.source,
         ...(reason.signal ? { signal: reason.signal } : {}),
