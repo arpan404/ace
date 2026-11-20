@@ -156,3 +156,69 @@ finds the linked bot it has no install for and fetches the pinned bytes by hash:
 store, else from the bot's source at that version, kept only when they hash to the link's. The
 bot is then an install there: Update, Roll back and withdrawals reach it. A package already
 installed there for another bot is left as it is.
+
+## The ten templates
+
+The templates New bot offers are packages by ace, one folder each in `spade/templates/<id>/`
+(`bot.json`, `README.md`, `tests/`), built into the binary ([teams.md](teams.md), Templates). A bot
+made from one is linked to `{source: "spade", name: <id>, version, hash}`, the hash ADR 0014's over
+the folder's files (the same `ace bot check` prints), so a later Spade's corrected template updates
+it the way any package update does. Unlike another publisher's package, a template's routines
+start when New bot makes it (its switch is on by default), since the person chose to make that
+bot. The market's seed lists the same folders.
+
+## Developer kit
+
+ADR 0200 §9, in ADR 0178's grammar:
+
+| Command                              | What it does                                                                                                                                                                                                                                                          |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ace bot init NAME [--template T]`   | A package that passes check and test as written: `bot.json`, `README.md`, `skills/<name>/SKILL.md`, `cards/<card>.json`, `tests/`. Templates `blank`, `watcher`, `club-member`                                                                                        |
+| `ace bot check [PATH]`               | `@ace/marketplace`'s checks with `readRecipe`, the reader that agrees with this one; every problem at its place, exit 1. Warns (never refuses) on a `why` under four words and on no tests                                                                            |
+| `ace bot test [PATH]`                | Runs `spade --bot-test PATH` with a bare environment and prints its report; exit 1 when a scenario fails                                                                                                                                                              |
+| `ace bot dev [PATH] [--spade DIR]`   | Installs the package through `POST /v1/agents`, claiming no identity, so it is linked to the local package `local/<name>`, its declared switches on once the person said yes; then each save is checked and posted as an update; a save that asks for more asks again |
+| `ace bot publish [PATH] --version V` | `check`, then `test`, then `ace market publish spade-bot PATH`                                                                                                                                                                                                        |
+
+`ace bot dev` reaches the person's Spade through the daemon, or a development Spade directly by
+its data folder (`server.json` and `token`). It is the person's: an agent's shell is refused.
+
+### Scenarios
+
+`spade --bot-test <folder>` reads `bot.json` with `spade_core::package::read` and each file its
+`tests` names with `spade_core::package::scenario::read_scenario`, then runs each on a throwaway
+Spade in a temporary folder: the real engine and install path, `spade-testkit`'s fake model on
+loopback scripted by the scenario (titles and other plain calls get a fixed answer), no keychain,
+ace, app or plugin. The bot is installed linked, every declared switch on, routines paused; each
+approval is answered yes, as the developer would. Tools that would reach outside (`web_search`,
+`web_fetch`, `research`, `shell`, `service_*`, `image_generate`, `git_push`, `pr_comment`,
+`issue_comment`, `send_message`, `delegate`, and any name that isn't one of Spade's) are fakes
+under their real names, read by the gate from the same table, answering the scenario's results.
+Spade's own tools (notes, knowledge, files, plans, cards, routines) run for real in the temporary
+folder. It prints `{name, problems, scenarios: [{file, name, passed, failures, calls}]}` and exits 0
+when all pass, 1 otherwise, 2 for a wrong command line.
+
+```json
+{
+  "name": "Remembers a trip to watch",
+  "given": { "message": "Watch KTM to DEL in March, under $200." },
+  "model": [
+    {
+      "calls": [{ "tool": "web_fetch", "arguments": { "url": "https://api.example-fares.com/" } }]
+    },
+    { "calls": [{ "tool": "memory_save", "arguments": { "text": "KTM-DEL, March, under 200" } }] },
+    { "say": "I'll watch KTM to DEL and tell you when it drops under $200." }
+  ],
+  "tools": { "web_fetch": "KTM-DEL 182 USD" },
+  "expect": { "calls": ["web_fetch", "memory_save"], "reply_contains": ["KTM to DEL"] }
+}
+```
+
+- `given`: a `message`, or a `trigger` naming one of the package's schedule, event or webhook
+  triggers (its routine runs now).
+- `model`: one step per model call, `say` then `calls`; the last step only says something.
+- `tools`: fake results by tool name, one or a list taken in turn; only tools that reach outside.
+- `expect`: `calls` (ran, in this order), `not_called`, `effects` (asked for, as the gate read
+  the calls), `refused` (the gate refused them), `cards` (words in a shown card's title),
+  `reply_contains`. A refused call fails the scenario unless `refused` names it; an expected call
+  that answered an error fails it; a card that didn't fit fails it. Unknown fields are a problem,
+  so a typo never passes silently.

@@ -138,6 +138,13 @@ describe("agent packages", () => {
     expect(refusals(value).some((message) => message.includes(words))).toBe(true);
   });
 
+  it("say once, in Spade's words, that an effect needs its why", () => {
+    for (const entry of [{ effect: "network" }, { effect: "publish", why: "  " }])
+      expect(refusals(effect(entry))).toEqual([
+        "effects[0].why says in a sentence why it needs this",
+      ]);
+  });
+
   it("read a missing price as free", () => {
     const { pricing: _pricing, ...free } = watcher;
     expect(read(free).problems).toEqual([]);

@@ -1,0 +1,30 @@
+{
+  "name": "Answers its first message",
+  "given": {
+    "message": "Tighten this: We are writing to let you know that the meeting has been moved."
+  },
+  "model": [
+    {
+      "calls": [
+        {
+          "tool": "todo",
+          "arguments": {
+            "items": [
+              {
+                "text": "Answer: Tighten this: We are writing to let you know that the meeting has been moved.",
+                "done": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "say": "Tighter: The meeting has moved.."
+    }
+  ],
+  "expect": {
+    "calls": ["todo"],
+    "reply_contains": ["meeting has moved"]
+  }
+}

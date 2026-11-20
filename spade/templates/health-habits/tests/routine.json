@@ -1,0 +1,14 @@
+{
+  "name": "Evening check-in runs and reports",
+  "given": {
+    "trigger": "Evening check-in"
+  },
+  "model": [
+    {
+      "say": "How did today's habits go?"
+    }
+  ],
+  "expect": {
+    "reply_contains": ["How"]
+  }
+}

@@ -1,10 +1,9 @@
 import { chromium, type Browser } from "@playwright/test";
-import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
-import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startPreview } from "./preview-server.ts";
+import { viteBuild } from "./vite-build.ts";
 
 /*
  * The production build in `--mode perf` (ADR 0056), served by `vite preview` and opened in
@@ -28,11 +27,7 @@ function perfBuild(): Promise<string> {
   build ??= (async () => {
     const out = mkdtempSync(join(tmpdir(), "ace-web-perf-"));
     process.once("exit", () => rmSync(out, { recursive: true, force: true }));
-    await promisify(execFile)(
-      "bunx",
-      ["vite", "build", "--mode", "perf", "--outDir", out, "--emptyOutDir"],
-      { cwd: web, maxBuffer: 64 * 1024 * 1024 },
-    );
+    await viteBuild(["--mode", "perf", "--outDir", out, "--emptyOutDir"]);
     return out;
   })();
   return build;

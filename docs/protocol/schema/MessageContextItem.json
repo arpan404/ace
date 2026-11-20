@@ -6,6 +6,12 @@
       "$ref": "https://ace.local/protocol/v1/ThreadRefContextItem.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/BotRepliesContextItem.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/DeviceContextItem.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/BrowserTabContextItem.json"
     },
     {

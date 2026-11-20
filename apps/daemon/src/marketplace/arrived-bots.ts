@@ -70,6 +70,15 @@ function recordOf(bot: LinkedBot, bytes: Bytes, now: number): StoredInstall | un
 }
 
 /**
+ * Linked to a package no source holds: one Spade ships itself (a template, `spade/<id>`) or a
+ * local package (`ace bot dev`, or a version 3 package installed without the market's
+ * signature). Those aren't the Marketplace's installs, here or anywhere.
+ */
+export function sourceless(link: { source: string }): boolean {
+  return link.source === "spade" || link.source === "local";
+}
+
+/**
  * Records every linked bot Spade has that this machine's Marketplace doesn't know of; true when
  * one was recorded. A package already installed here for another bot is left as it is. One whose
  * bytes can't be had now is tried again at the next refresh.
@@ -80,7 +89,7 @@ export async function adoptArrivedBots(ports: ArrivedPorts): Promise<boolean> {
   let changed = false;
   for (const bot of linked) {
     const { package: link } = bot;
-    if (ports.store.install("spade-bot", link.name)) continue;
+    if (sourceless(link) || ports.store.install("spade-bot", link.name)) continue;
     const bytes = await bytesOf(ports, link, link.version, link.hash);
     const record = bytes && recordOf(bot, bytes, ports.now());
     if (!record) continue;

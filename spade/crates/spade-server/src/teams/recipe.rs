@@ -69,6 +69,9 @@ pub struct RecipeInput {
     /// The market's signed manifest and `bot.json` exactly as it signed it (ADR 0200 §3.2).
     /// Without one a version 3 package installs as a local package, claiming no publisher.
     pub envelope: Option<Envelope>,
+    /// A package Spade ships itself (a template, ADR 0200 §3.8): its identity is Spade's own,
+    /// from its built-in bytes, and never comes from an API body.
+    pub shipped: Option<PackageId>,
     /// The person's effect switches, by key; one missing is off.
     pub switches: BTreeMap<String, bool>,
 }
@@ -103,6 +106,9 @@ fn checked(
                 return Err(invalid("package isn't the one the market signed"));
             }
             (recipe, Some(package))
+        }
+        None if input.shipped.is_some() && input.package.is_none() => {
+            (input.recipe.clone(), input.shipped.clone())
         }
         // A claimed identity with nothing that proves it is refused, never stored.
         None if input.package.is_some() => {

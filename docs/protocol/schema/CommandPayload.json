@@ -2301,6 +2301,71 @@
     },
     {
       "properties": {
+        "about": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "devices": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/DeviceContextItem.json"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "files": {
+          "default": [],
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "followUp": {
+          "const": true,
+          "type": "boolean"
+        },
+        "input": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ContentPart.json"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "share": {
+          "$ref": "https://ace.local/protocol/v1/AddressedShare.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "to": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/Addressee.json"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "type": {
+          "const": "thread.address",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "about",
+        "input",
+        "to",
+        "share"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },

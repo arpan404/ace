@@ -147,12 +147,25 @@
           "maxItems": 32,
           "type": "array"
         },
+        "effects": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/MarketEffectRow.json"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
         "face": {
           "additionalProperties": {},
           "propertyNames": {
             "type": "string"
           },
           "type": "object"
+        },
+        "limits": {
+          "$ref": "https://ace.local/protocol/v1/PackageLimits.json"
+        },
+        "linked": {
+          "type": "boolean"
         },
         "model": {
           "enum": [
@@ -176,6 +189,9 @@
           "maxItems": 50,
           "type": "array"
         },
+        "personality": {
+          "$ref": "https://ace.local/protocol/v1/SpadePersonality.json"
+        },
         "routines": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/MarketRoutineRow.json"
@@ -198,9 +214,27 @@
           "maxItems": 64,
           "type": "array"
         },
+        "triggers": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/PackageTrigger.json"
+          },
+          "maxItems": 40,
+          "type": "array"
+        },
         "type": {
           "const": "spade-bot",
           "type": "string"
+        },
+        "unused": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "update": {
+          "$ref": "https://ace.local/protocol/v1/MarketBotUpdate.json"
         }
       },
       "required": [

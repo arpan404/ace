@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryApproval.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "approvedAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "bridgeDigest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "executableDigest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "generation": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "previousBridgeDigest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "previousExecutableDigest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "previousVersion": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "approvedAt",
+    "previousVersion",
+    "version",
+    "previousExecutableDigest",
+    "executableDigest"
+  ],
+  "type": "object"
+}

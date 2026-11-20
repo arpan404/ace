@@ -1,5 +1,5 @@
 import type { ClientApi } from "@ace/client";
-import type { SpadeTemplate } from "@ace/ui-core/spade-chat";
+import { spadeTemplateRoutinesLine, type SpadeTemplate } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
 import { useOpenMarket } from "@/lib/open-market.ts";
 import { BotFace } from "@/components/bot-face.tsx";
@@ -10,6 +10,7 @@ import {
   MenuRadioItem,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
+import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { firstUsableWords } from "./spade-model-options.ts";
@@ -146,6 +147,30 @@ export function StartChips(props: {
       <button type="button" aria-expanded={props.more} onClick={props.onMore} className={word}>
         {props.more ? "Fewer settings" : "More settings"}
       </button>
+    </div>
+  );
+}
+
+/**
+ * A template's routines in one quiet line under its name, with the switch that starts them: on by
+ * default, since the person is making this bot from ace's own template. Nothing for a template
+ * with no routines.
+ */
+export function TemplateRoutines(props: {
+  template: SpadeTemplate;
+  on: boolean;
+  onChange(on: boolean): void;
+}) {
+  const line = spadeTemplateRoutinesLine(props.template.routines);
+  if (!line) return null;
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span>{line}</span>
+      <Switch
+        aria-label={`Start ${props.template.name}'s routines`}
+        checked={props.on}
+        onCheckedChange={props.onChange}
+      />
     </div>
   );
 }

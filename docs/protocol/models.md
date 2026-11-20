@@ -180,6 +180,7 @@ Example:
 | stale | yes | boolean |  |
 | refreshing | yes | boolean |  |
 | error | no | ["discovery_failed","timeout","persistence_failed"] |  |
+| modelProbe | no | ["automatic","on-request"] |  |
 
 Example:
 
@@ -188,6 +189,7 @@ Example:
   "acpAgentId": "example",
   "enabled": true,
   "instance": "example",
+  "modelProbe": "automatic",
   "provider": "pi",
   "refreshing": false,
   "sources": [],
@@ -374,6 +376,26 @@ Example:
 {
   "requestId": "example",
   "type": "models.list"
+}
+```
+
+## ModelsLoadRequest
+
+[JSON Schema](schema/ModelsLoadRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"models.load"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| instance | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "instance": "example",
+  "requestId": "example",
+  "type": "models.load"
 }
 ```
 

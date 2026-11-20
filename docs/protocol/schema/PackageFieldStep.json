@@ -1,0 +1,10 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageFieldStep.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "same",
+    "replace",
+    "kept"
+  ],
+  "type": "string"
+}
