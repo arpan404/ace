@@ -287,12 +287,12 @@ it("a clipboard read an agent started never hands it what the person copied whil
   let clipboard = "the agent's text";
   const reading = Promise.withResolvers<void>();
   const delivered = Promise.withResolvers<void>();
+  // As scrcpy does: authorized before the request goes out, never again when the device answers.
   platform.clipboardRead = async (_device, guard) => {
     guard?.();
     reading.resolve();
     // The device answers only once the test lets it, with what its clipboard holds then.
     await delivered.promise;
-    guard?.();
     return { text: clipboard, truncated: false };
   };
   const read = service.request({ op: "clipboard.get", deviceId }, agent);
@@ -310,6 +310,26 @@ it("a clipboard read an agent started never hands it what the person copied whil
   const result = await outcome;
   expect(JSON.stringify(result)).not.toContain("the person's password");
   expect(result).toMatchObject({ error: { code: "lease_required" } });
+});
+
+it("handing back a device nobody holds leaves an agent's clipboard read in flight to finish", async () => {
+  const { service, platform } = await fixture();
+  // The person hands the agent's device back; it stays the agent's thread's, held by nobody.
+  await service.request({ op: "controller", deviceId, controller: "none" }, person);
+  const reading = Promise.withResolvers<void>();
+  const delivered = Promise.withResolvers<void>();
+  platform.clipboardRead = async (_device, guard) => {
+    guard?.();
+    reading.resolve();
+    await delivered.promise;
+    return { text: "the agent's text", truncated: false };
+  };
+  const read = service.request({ op: "clipboard.get", deviceId }, agent);
+  await reading.promise;
+  // Handing back again changes nothing about who holds it.
+  await service.request({ op: "controller", deviceId, controller: "none" }, person);
+  delivered.resolve();
+  await expect(read).resolves.toEqual({ text: "the agent's text", truncated: false });
 });
 
 it("thirty-two waiting agents leave a separately bounded lane for human input", async () => {

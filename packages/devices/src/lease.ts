@@ -26,6 +26,8 @@ export class ControllerLease {
   release(owner?: string): void {
     if (owner !== undefined && this.actor?.owner !== owner && this.expired?.owner !== owner) return;
     this.expired = undefined;
+    // Releasing a device nobody holds changes no control, and invalidates nothing.
+    if (!this.actor) return;
     this.actor = undefined;
     this.deadline = 0;
     this.epoch++;
