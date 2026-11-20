@@ -284,7 +284,7 @@ impl Engine {
 
     /// Stores a card's answer: a waiting card's in its turn, which wakes; a deferred card's
     /// delivered like a job's result, once.
-    fn land(
+    pub(super) fn land(
         self: &Arc<Self>,
         id: &str,
         standing: Standing,

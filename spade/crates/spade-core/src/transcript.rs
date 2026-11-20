@@ -319,6 +319,7 @@ impl Transcript {
             | Known::Arrived { .. }
             | Known::CardShown(_)
             | Known::CardAction { .. }
+            | Known::NoticeSent { .. }
             | Known::TaskParked { .. } => {}
         }
         if self.open_reply().is_none() {

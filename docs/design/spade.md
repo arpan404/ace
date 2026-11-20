@@ -130,6 +130,19 @@ Spade is one of ace's places. It adds no navigation of its own.
   Cancel; a failure says what fixes it. Connected, it settles to one quiet line with the mark
   ("Connected as ada@example.com"); an app not available yet is the bot's bubble with "Not
   available yet", and nothing waits.
+- **Suggest card** (a bot suggesting a package, ADR 0200 §8): a raised card in the connect
+  card's shape. Its first line is the package's face (32px) and name, with "By <publisher> ·
+  <Bot> suggests it" (the publisher from the market's signed manifest); then its one line, the
+  bot's reason, "It would ask to:" and its asks in a few words each, and one quiet line that
+  nothing is installed until the person reviews it. One primary, Review install, opens the
+  Marketplace's install review over the page; Later and Not now as ghost words. Installed, it
+  settles to one quiet line with the face ("Installed Flight watcher"); left for later, one line
+  with Review.
+- **A bot's notice** (`notify`, ADR 0200 §4.2): the bot's bubble where it sent it, a bare bell
+  before its title (500), the body under it, both plain text (nothing in them is a link), then
+  one quiet line saying where it went: "Sent as a notification", "Held for your morning brief:
+  quiet hours" (or do not disturb, or that it had sent 3 this hour), "Not sent: its
+  notifications are off". No tint, no chip.
 - **Settled cards.** An answered question becomes a quiet bot bubble, the answer the person's own
   bubble. A request becomes one line ("Allowed · curl -s …"); in a run, they fold into the reply's
   steps. Left for later, a card folds to one line in place with Answer, and one pill above the

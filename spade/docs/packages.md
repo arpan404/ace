@@ -150,6 +150,34 @@ The person's conversation, notes they wrote, knowledge, workspace files, connect
 settings are never in a plan. `workers_at_once` bounds the bot's workers under
 `SPADE_WORKERS_AT_ONCE`, and `spend_alert` becomes the floor of its spend alert.
 
+## A bot suggests a package
+
+`package_suggest {package, why}` (`spade.v1` module `agents`, since 0.0.25; ADR 0200 §8, §10
+phase 2) shows the person a suggest card in the bot's chat, a question card of kind `suggest`
+(ADR 0154). The bot names only the package and its reason; it can't install, choose a version or
+set a switch, and an argument other than those two is refused.
+
+- Spade asks ace's marketplace for the version the market lists now (`spadeBot {name}` on
+  `marketplace.request`, a read): the daemon fetches and checks it as a review does (signature,
+  withdrawn list, ace's checks, the device's scan) and hands back the signed version manifest and
+  `bot.json`'s exact text. Only the signed market counts; a git catalog's entry is never
+  suggested.
+- Spade believes it only when the manifest's signature verifies with the market keys it ships,
+  covers those `bot.json` bytes and names that package (`envelope::verify`, as an install does).
+  A name the market doesn't list, a withdrawn or refused version and a signature it can't verify
+  are refused to the bot, and no card is shown.
+- The card holds only what Spade read there: the name, face and blurb from `bot.json`, the
+  publisher from the signed manifest, the listed version, and what it would ask to do (each
+  declared effect, app and schedule in a few words). The bot's reason is the only text of its
+  own.
+- The card waits like a question. Review install opens the Marketplace's normal install review
+  (`?market=bot/<name>/review`), with its switches; nothing is installed without it. When a bot
+  made from that market package is installed (`POST /v1/agents` with its envelope, from anywhere),
+  Spade answers every open suggest card for it: a waiting one wakes its turn, one left for later
+  arrives as a late answer, and the bot reads the new bot's name. Later and Not now are the card's
+  own; an answer posted to it is refused. Open cards are kept in the setting
+  `package_suggest:open` (at most 200), so a restart keeps them answerable.
+
 ## Reviews and moves
 
 The daemon's review passes the running Spade's version to the market reader, so `requires.spade`
