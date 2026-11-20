@@ -110,6 +110,11 @@
         "30c6a0544a3ecd12db611f83caf29f8259ca236094ad9becc8987b3fd578a548"
       ]
     },
+    "make-a-bot": {
+      "version": 1,
+      "hash": "f05b15e1e903c73b1f332ea4f52c8ea46bd03aad1034499718c808f53ad7474e",
+      "previous": []
+    },
     "make-a-suit": {
       "version": 22,
       "hash": "22fe84950a6eb5c528ce743dda4ef405a33406b0f0a97aca14606e7d5330076d",

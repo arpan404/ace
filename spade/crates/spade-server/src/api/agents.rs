@@ -77,8 +77,10 @@ pub(super) struct NewAgent {
     from_recipe: Option<crate::engine::FromRecipe>,
     #[serde(default)]
     grants: Option<crate::teams::RecipeGrants>,
+    /// Its routines start on now. A recipe's or package's are paused unless this says so; an
+    /// ace template's start unless this says no: the person chose to make that bot.
     #[serde(default)]
-    start_routines: bool,
+    start_routines: Option<bool>,
     /// A version 3 package's market identity (ADR 0200 §3.9): the bot it makes stays linked.
     /// Believed only as `envelope` proves it.
     #[serde(default)]
@@ -320,7 +322,7 @@ impl NewAgent {
             recipe: self.recipe.unwrap_or_default(),
             from_recipe: self.from_recipe,
             grants: self.grants.unwrap_or_default(),
-            start_routines: self.start_routines,
+            start_routines: self.start_routines.unwrap_or(false),
             time_zone: self.time_zone,
             package: self.package,
             envelope: self.envelope,
@@ -357,25 +359,26 @@ fn make_bot(
     avatar: Option<AvatarInput>,
 ) -> Result<(AgentView, Option<Vec<String>>), Box<Response>> {
     if let Some(template) = &body.template {
+        // A template is ace's own package: it installs the way a package does, linked to it.
         let model = body
             .model
             .clone()
-            .or_else(|| crate::teams::template_model(&state.engine, template))
-            .unwrap_or_else(|| state.engine.new_bot_default());
-        let named = body.name.as_deref().is_some_and(|n| !n.trim().is_empty());
-        let input = AgentInput {
-            name: body.name.unwrap_or_default(),
-            task: body.task,
+            .or_else(|| crate::teams::template_model(&state.engine, template));
+        let choices = crate::teams::TemplateChoices {
+            name: body.name.clone(),
+            task: body.task.clone(),
             model,
             avatar,
-            naming: false,
+            time_zone: body.time_zone.clone(),
+            switches: (!body.switches.is_empty()).then(|| body.switches.clone()),
+            start_routines: body.start_routines.unwrap_or(true),
         };
         return match crate::teams::from_template(
             &state.engine,
+            state.connectors.as_deref(),
+            state.engine.plugins().map(|p| &**p),
             template,
-            input,
-            named,
-            body.time_zone,
+            choices,
         ) {
             Ok(made) => Ok((made.agent, Some(made.left_out))),
             Err(crate::teams::PortableError::NotFound) => {

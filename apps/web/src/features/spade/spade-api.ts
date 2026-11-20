@@ -69,6 +69,8 @@ export type SpadeNewAgent = Omit<SpadeAgentDraft, "model" | "name"> & {
   name?: string;
   model?: string;
   template?: string;
+  /** A template's routines start on (the default for ace's templates), or stay paused. */
+  start_routines?: boolean;
   time_zone?: string;
   /** Made from one message: the bot chooses its name and face as it starts. */
   naming?: boolean;

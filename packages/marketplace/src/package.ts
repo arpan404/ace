@@ -141,6 +141,10 @@ function effectProblems(raw: unknown, at: string): MarketProblem[] {
       ),
     ];
   const problems: MarketProblem[] = [];
+  const why = entry.data["why"];
+  // Spade's sentence (`spade_core::package::manifest`): the review shows it beside the switch.
+  if (typeof why !== "string" || !why.trim())
+    problems.push(problem(`${at}.why says in a sentence why it needs this`));
   if (entry.data["hosts"] !== undefined && word !== "network")
     problems.push(problem(`${at}: only network names hosts`));
   const grant = AnyRecord.safeParse(entry.data["grant"]);
@@ -167,8 +171,13 @@ function effectProblems(raw: unknown, at: string): MarketProblem[] {
   return problems;
 }
 
+/** Zod's issues as sentences, less an effect's word and why, which its own check says better. */
 function issues(error: z.ZodError): MarketProblem[] {
   return error.issues
+    .filter(
+      (issue) =>
+        !(issue.path[0] === "effects" && (issue.path[2] === "why" || issue.path[2] === "effect")),
+    )
     .slice(0, 20)
     .map((issue) => problem(`${issue.path.join(".") || "bot.json"}: ${issue.message}`));
 }

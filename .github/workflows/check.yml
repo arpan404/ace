@@ -120,6 +120,10 @@ jobs:
           cargo build --locked -j 2 --manifest-path native/screen-helper-windows/Cargo.toml --example wire_fixture
           cargo build --locked -j 2 --manifest-path native/screen-helper-linux/Cargo.toml --example wire_fixture
 
+      - name: Build Spade for the bot kit's tests
+        # `ace bot test|dev|publish` run Spade's own program (ADR 0200 §9); their tests use this build.
+        run: cargo build --locked -j 2 --manifest-path spade/Cargo.toml -p spade-server --bin spade
+
       - name: Native screen behavior tests
         run: |
           cargo test --locked -j 2 --manifest-path native/screen-helper-windows/Cargo.toml

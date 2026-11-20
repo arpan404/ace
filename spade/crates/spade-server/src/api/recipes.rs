@@ -115,6 +115,7 @@ pub(super) async fn create(state: AppState, body: RecipeBody) -> Response {
         time_zone: body.time_zone,
         package: body.package,
         envelope: body.envelope,
+        shipped: None,
         switches: body.switches,
     };
     let made_state = state.clone();

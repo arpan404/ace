@@ -123,5 +123,5 @@ Run each command from `apps/market`.
    Split a database further before it nears 5 GB (D1 stops at 10 GB); ADR 0174 §16 names the
    next cut for each.
 
-After changing `spade/config/templates.json`, rebuild the seed's recipes with
-`node scripts/build-seed.ts` and commit the result.
+The seed's bots are Spade's built-in templates: each `seed/spade-bot/<id>/` holds only its
+`market.json`, and its package files are read from `spade/templates/<id>/`.

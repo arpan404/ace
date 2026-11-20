@@ -4,6 +4,7 @@
 //! The engine owns the decisions that touch conversations (`engine::groups`, `engine::outbox`,
 //! `engine::inbox`); this module holds what they share, the way ace is reached, and the tools.
 
+mod from_template;
 mod portable;
 pub mod proof;
 mod recipe;
@@ -17,13 +18,15 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::{Notify, watch};
 
-pub use portable::{
-    BotFile, Imported, PortableError, duplicate, export, from_template, import, template_model,
-};
+pub use from_template::{TemplateChoices, from_template, template_model};
+pub use portable::{BotFile, Imported, PortableError, duplicate, export, import};
 pub use recipe::{RecipeGrants, RecipeInput, from_recipe};
 pub use recipe_export::{ExportedRecipe, RecipeSources, export_recipe};
 pub use remote::{BoxFuture, Machine, Remote, RemoteError, answer_from, machines_from};
-pub use templates::{Template, TemplateRoutine, templates};
+pub use templates::{
+    SOURCE as TEMPLATE_SOURCE, Template, TemplatePackage, TemplateRoutine, content_hash,
+    package_of, packages as template_packages, templates,
+};
 pub use tools::with_tools;
 
 /// How an ask ended, as the asker reads it.

@@ -23,7 +23,7 @@ import { allowApp } from "./spade-connector-api.ts";
 import { SuggestedApps } from "./spade-suggested-apps.tsx";
 import { SpadeMachineScope, useSpadeClient } from "./spade-machine.tsx";
 import { ConversationSkeleton, PageScroller, useSpadeLine } from "./spade-screen-parts.tsx";
-import { RunsWith, StartChips } from "./spade-new-bot-parts.tsx";
+import { RunsWith, StartChips, TemplateRoutines } from "./spade-new-bot-parts.tsx";
 import { PersonalityRows } from "./spade-profile-personality.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { importAgent, readTemplates } from "./spade-teams-api.ts";
@@ -235,7 +235,13 @@ function NewBotConversation(props: {
   const cache = useQueryClient();
   const navigate = useNavigate();
   const [model, setModel] = useState("");
-  const [template, setTemplate] = useState<SpadeTemplate>();
+  const [template, setChosen] = useState<SpadeTemplate>();
+  // Its routines start unless the person turns them off here: they chose to make this bot.
+  const [startRoutines, setStartRoutines] = useState(true);
+  const setTemplate = (next: SpadeTemplate | undefined) => {
+    setChosen(next);
+    setStartRoutines(true);
+  };
   const [more, setMore] = useState(false);
   // How it talks, when the person chose under More settings; else left to the bot.
   const [personality, setPersonality] = useState<SpadePersonality>();
@@ -254,6 +260,7 @@ function NewBotConversation(props: {
             name: freeName(template.name, props.names),
             task: "",
             template: template.id,
+            ...(template.routines.length ? { start_routines: startRoutines } : {}),
             ...withZone(browserTimeZone()),
             ...(model ? { model } : {}),
             ...voiced(personality),
@@ -282,6 +289,13 @@ function NewBotConversation(props: {
             <h1 className="text-2xl font-semibold tracking-title text-foreground">
               {template ? `What should ${template.name} do first?` : "What should this bot do?"}
             </h1>
+            {template && (
+              <TemplateRoutines
+                template={template}
+                on={startRoutines}
+                onChange={setStartRoutines}
+              />
+            )}
             {more && (
               <>
                 <RunsWith

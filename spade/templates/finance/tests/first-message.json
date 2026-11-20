@@ -1,0 +1,30 @@
+{
+  "name": "Answers its first message",
+  "given": {
+    "message": "What subscriptions am I paying for?"
+  },
+  "model": [
+    {
+      "calls": [
+        {
+          "tool": "todo",
+          "arguments": {
+            "items": [
+              {
+                "text": "Answer: What subscriptions am I paying for?",
+                "done": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "say": "Here are the subscriptions I found, with what each costs."
+    }
+  ],
+  "expect": {
+    "calls": ["todo"],
+    "reply_contains": ["subscriptions"]
+  }
+}
