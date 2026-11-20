@@ -19,11 +19,17 @@ describe("reaching the person", () => {
       quiet: { from: 1320, to: 420 },
       perHour: 2,
       perDay: 30,
+      approvals: "notify",
       brief: { on: false, at: 480 },
       spend: { on: true, factor: 5, floorMicros: 1_000_000 },
       waitingFor: "dnd",
       held: 3,
     });
+    const waiting = JSON.stringify({ settings: { approvals: "wait" } });
+    expect(parseSpadeReach(waiting)?.approvals).toBe("wait");
+    expect(
+      parseSpadeReach(JSON.stringify({ settings: { approvals: "sometimes" } }))?.approvals,
+    ).toBe("notify");
     expect(parseSpadeReach("{}")).toBeUndefined();
     expect([spadeClock(420), spadeMinutes("22:05"), spadeMinutes("25:00")]).toEqual([
       "07:00",

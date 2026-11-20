@@ -10,7 +10,7 @@ person keeps showing where it already does). Builds on [ADR 0154](0154-spade-que
 [ADR 0163](0163-spade-auto-review-only.md) (the person is asked only on a retried refusal or a
 review that can't decide).
 Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): `cap_reached` and cap or budget parks have no level; digests still show spend by role.
-Amended by [ADR 0195](0195-spade-reaches-the-person.md): a built-in, opt-in morning brief at a time of day (reversing "Digests at a fixed time of day" below); notices carry an id, a category and whether they reach the person now; digests gain While you were away.
+Amended by [ADR 0195](0195-spade-reaches-the-person.md): a built-in, opt-in morning brief at a time of day (reversing "Digests at a fixed time of day" below); notices carry an id, a category and whether they reach the person now; digests gain While you were away. Approvals and questions can be set to wait through quiet hours and appear in the brief under Waiting on you.
 
 ## Context
 

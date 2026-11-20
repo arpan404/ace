@@ -136,6 +136,61 @@ the bot, as a web page can.
   `transcription`. Presets name them where providers document them; the person can set them on
   any saved model.
 - Out of scope for now: OCR of scanned PDFs on models without PDF input, legacy Office formats,
-  slides, images inside documents, voice replies from an endpoint and spoken conversation.
+  slides and images inside documents. (Voice replies from an endpoint and spoken conversation
+  were out of scope too; the amendment below brings them in.)
 
 `spade/docs/media.md` describes the API and the limits.
+
+## Amendment, 2026-11-19: voice as a conversation
+
+Decided by: the owner (2026-11-19: finish voice as a conversation on desktop and web; endpoint
+speech and spoken conversation are now in scope). The iPhone app is not part of this.
+
+1. **Spoken replies.** "Speak replies" is a setting for every bot and for each one (its profile's
+   Voice section), off by default. A reply that answers something the person said aloud (a
+   voice message, hands-free, push to talk) is spoken whatever the setting. Speech follows the
+   reply as it streams, sentence by sentence: the first complete sentence is spoken alone, at
+   once, and later ones in small groups. Code blocks, tables and lists longer than three items
+   are never read; each becomes one line ("The code is on screen."). History is never read: only
+   a reply still being written while the chat is on screen. Esc, Stop, or the person starting to
+   talk stops speech at once. The choices are kept on the device, not in Spade: system voices
+   differ from one device to the next.
+
+2. **Two engines, and a voice per bot.** The system's own voices (`speechSynthesis`) are the
+   free default; nothing leaves the device. With a speech model chosen in Settings › Spade
+   (`speech_model`, an `endpoint/model`, next to the transcription model), replies are read by
+   the person's own endpoint through `POST /v1/speech` on Spade, which calls the OpenAI-format
+   `POST /audio/speech` route with that endpoint's key from the keychain and streams the audio
+   back as it arrives. Models gain the `speech` capability. Each bot remembers its voice (a
+   system voice, or the speech model's voice name), else follows the default.
+
+3. **Hands-free conversation.** The composer's filled voice button, drawn but off until now,
+   starts a spoken conversation: listen, notice the end of what was said, send it, speak the
+   reply, listen again. End of speech is found on the device by a voice-activity detector that
+   reads only the microphone's loudness against a learnt noise floor; nothing is recorded until
+   the person talks, and a recording leaves the window only with its words, to the person's own
+   transcription endpoint (or not at all, where the browser transcribes). Talking over the
+   reply stops it (barge-in; while ace speaks, only a voice clearly louder than its echo
+   counts). The state is one quiet line above the composer, in words (Listening, Hearing you,
+   Turning it into words, … is thinking, … is speaking), with End. Thirty seconds with nothing
+   said ends it.
+
+4. **Push to talk on desktop.** A global shortcut, configurable in Settings › Keyboard (⌥Space
+   by default on macOS; none by default on Windows and Linux, where that chord belongs to the
+   system), opens the main Spade and listens without bringing the window forward; a small
+   floating line says how the turn goes, with Cancel. Electron's global shortcuts report a
+   press, never a release, so a press starts and the turn sends when the person stops talking,
+   or on a second press; a press over Spade's answer stops it and listens again. macOS asks for
+   the microphone once (the app now declares its use and the hardened runtime's audio-input
+   entitlement). On Linux Wayland, global shortcuts go through the desktop's GlobalShortcuts
+   portal: on Hyprland the person binds the key in hyprland.conf (Settings shows the line); a
+   compositor without the portal gives no global shortcut at all.
+
+5. **Transcription without fiddling.** On desktop the Web Speech API is not tried (Electron has
+   it without a service behind it). With no transcription model, the mic and the voice button
+   are still there; a press offers, one button per endpoint, the person's models that can
+   transcribe (their saved facts, or a name such models go by in the endpoint's own list), and
+   one plain sentence with Open Models when none can.
+
+Consequences: a speech model is billed per call like transcription. `spade/docs/media.md`
+describes `POST /v1/speech`; `docs/design/spade.md` the composer and settings.

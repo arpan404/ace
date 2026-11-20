@@ -7,7 +7,6 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Deserialize;
 use serde_json::Value;
 
 use super::{AppState, problem};
@@ -37,7 +36,7 @@ async fn settings(State(state): State<AppState>) -> Response {
     }
 }
 
-/// `PUT /v1/reach {notify?, dnd?, quiet?, budget?, brief?, spend?}`: the fields given replace
+/// `PUT /v1/reach {notify?, dnd?, quiet?, approvals?, budget?, brief?, spend?}`: the fields given replace
 /// the stored ones (an object's own fields one by one).
 async fn set_settings(State(state): State<AppState>, Json(body): Json<Value>) -> Response {
     match state.engine.set_reach(&body) {
@@ -66,21 +65,14 @@ async fn agent(State(state): State<AppState>, Path(id): Path<String>) -> Respons
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AgentBody {
-    /// `null` follows the global switch.
-    #[serde(default)]
-    notify: Option<bool>,
-}
-
-/// `PUT /v1/agents/{id}/reach {notify}`.
+/// `PUT /v1/agents/{id}/reach {notify?, approvals?}`: the fields given replace the bot's own
+/// choices; `null` follows the global setting. `approvals` is `notify` or `wait`.
 async fn set_agent(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(body): Json<AgentBody>,
+    Json(body): Json<Value>,
 ) -> Response {
-    match state.engine.set_agent_reach(&id, body.notify) {
+    match state.engine.set_agent_reach(&id, &body) {
         Ok(body) => Json(body).into_response(),
         Err(error) => reach_problem(&error),
     }

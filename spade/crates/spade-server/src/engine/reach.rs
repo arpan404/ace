@@ -141,21 +141,35 @@ impl Engine {
     pub fn agent_reach_json(&self, agent: &str) -> Result<Value, ReachError> {
         self.store.agent(agent)?.ok_or(ReachError::NotFound)?;
         let own: AgentReach = self.read_json(&agent_key(agent))?;
-        Ok(json!({ "notify": own.notify }))
+        Ok(json!({ "notify": own.notify, "approvals": own.approvals }))
     }
 
-    /// One bot's own switch; `None` follows the global one.
-    pub fn set_agent_reach(&self, agent: &str, notify: Option<bool>) -> Result<Value, ReachError> {
+    /// One bot's own choices: the fields `change` names replace the stored ones, `null` makes a
+    /// field follow the global setting again.
+    pub fn set_agent_reach(&self, agent: &str, change: &Value) -> Result<Value, ReachError> {
         self.store.agent(agent)?.ok_or(ReachError::NotFound)?;
-        self.write_json(&agent_key(agent), &AgentReach { notify })?;
+        let Some(change) = change.as_object() else {
+            return Err(ReachError::Invalid(
+                "A bot's choices are an object.".to_owned(),
+            ));
+        };
+        let mut merged = serde_json::to_value(self.read_json::<AgentReach>(&agent_key(agent))?)
+            .unwrap_or_default();
+        for (key, value) in change {
+            merged[key] = value.clone();
+        }
+        let own: AgentReach = serde_json::from_value(merged)
+            .map_err(|e| ReachError::Invalid(format!("Those choices don't read: {e}")))?;
+        self.write_json(&agent_key(agent), &own)?;
         self.agent_reach_json(agent)
     }
 
-    fn bot_on(&self, agent: &str) -> bool {
+    fn bot_reach(&self, agent: &str) -> AgentReach {
+        if agent.is_empty() {
+            return AgentReach::default();
+        }
         self.read_json::<AgentReach>(&agent_key(agent))
-            .ok()
-            .and_then(|own| own.notify)
-            .unwrap_or(true)
+            .unwrap_or_default()
     }
 
     /// Minutes after midnight now, in the person's zone.
@@ -193,13 +207,15 @@ impl Engine {
         let now = self.now_ms();
         let mut sent: Vec<i64> = self.read_json(SENT)?;
         reach::keep_sent(&mut sent, now);
+        let own = self.bot_reach(&out.agent);
         let decided = reach::decide(
             &settings,
             Notice {
                 category: out.category,
                 level: out.level,
                 engaged: out.engaged,
-                bot_on: out.agent.is_empty() || self.bot_on(&out.agent),
+                bot_on: own.notify.unwrap_or(true),
+                approvals: own.approvals.unwrap_or(settings.approvals),
             },
             Moment {
                 now_ms: now,
