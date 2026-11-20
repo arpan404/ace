@@ -23,6 +23,7 @@ afterEach(async () => {
   cleanup = undefined;
 });
 
+const nothing = () => {};
 const root = AgentId.parse("complete-root");
 const child = AgentId.parse("complete-child");
 const reply = (id: string, text: string, agentId: string = root, complete = true): Item => ({
@@ -426,14 +427,14 @@ test("a tail is completed only once the app has shown it, and at the latest afte
   cleanup = h.cleanup;
   oversized(h);
   // The app says when it has drawn the tail; until then the full snapshot isn't asked for.
-  let shown = () => {};
+  let showTail = nothing;
   const asked: string[] = [];
   const tail = gated(h, {
     openTail: {
       ...screenTail,
       shown: (threadId) => {
         asked.push(threadId);
-        return new Promise<void>((resolve) => (shown = resolve));
+        return new Promise<void>((resolve) => (showTail = resolve));
       },
     },
   });
@@ -443,7 +444,7 @@ test("a tail is completed only once the app has shown it, and at the latest afte
   expect(tail.client.cachedThread(h.thread.id)?.filling).toBe(true);
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(tail.held()).toBe(0);
-  shown();
+  showTail();
   await vi.waitFor(() => expect(tail.held()).toBe(1));
   tail.release();
   await endsAsFullSnapshot(h, tail.client);

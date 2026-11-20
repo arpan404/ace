@@ -17,6 +17,8 @@ import {
 } from "./thread-harness.ts";
 
 const idle = () => {};
+/** As `main.ts` says a tail is shown: native has confirmed the open thread's ready. */
+const nativeShowsReady = () => pump.delivered("thread:ready");
 
 /*
  * The thread screen's bridge messages over the real SDK and an in-process fake daemon
@@ -645,8 +647,7 @@ test("a long thread shows its newest screenful first, then the rest of its windo
       facts.endTurn("root"),
     ]);
   // As the app's bridge opens a thread (`main.ts`): from a screenful, the rest once it is shown.
-  const shown = () => pump.delivered("thread:ready");
-  open(connect(fake, { tail: { ...screenTail, shown } }), "long");
+  open(connect(fake, { tail: { ...screenTail, shown: nativeShowsReady } }), "long");
   const first = await until(() => latest("thread.ready"), "the first screen shown");
   // The first screen is the tail alone, in a few frames, not the 200-item window.
   expect(first.count).toBeLessThanOrEqual(screenTail.items);
