@@ -173,9 +173,7 @@ pub fn rg(rg: &Path, root: &Path, query: &Query, scratch: &Path) -> Result<Sampl
     drop(stdout);
     let status = child.wait()?;
     sample.total = started.elapsed();
-    // rg exits 1 when nothing matched. Any other failure counts, unless the bench itself closed
-    // the pipe after the cap: then a broken-pipe exit is the early stop it asked for.
-    if !status.success() && status.code() != Some(1) && !closed_early {
+    if !finished_cleanly(status, closed_early) {
         return Err(format!("rg exited with {status} after {} lines", sample.lines).into());
     }
     if timing() {
@@ -184,6 +182,31 @@ pub fn rg(rg: &Path, root: &Path, query: &Query, scratch: &Path) -> Result<Sampl
         sample.peak_rss = Some(peak_rss);
     }
     Ok(sample)
+}
+
+/// Whether `rg`'s exit is one a sample may keep: success, 1 (no match, which rg also reports when
+/// it stops at a closed pipe), or, once the bench closed the pipe after the cap, the broken-pipe
+/// death that closing causes (SIGPIPE, which `/usr/bin/time` passes on as 141). Status 2 or any
+/// other signal is a failure, whenever it happens.
+fn finished_cleanly(status: std::process::ExitStatus, closed_early: bool) -> bool {
+    if status.success() || status.code() == Some(1) {
+        return true;
+    }
+    closed_early && broken_pipe(status)
+}
+
+#[cfg(unix)]
+fn broken_pipe(status: std::process::ExitStatus) -> bool {
+    use std::os::unix::process::ExitStatusExt;
+
+    /// The signal a write to a closed pipe raises.
+    const SIGPIPE: i32 = 13;
+    status.signal() == Some(SIGPIPE) || status.code() == Some(128 + SIGPIPE)
+}
+
+#[cfg(not(unix))]
+fn broken_pipe(_status: std::process::ExitStatus) -> bool {
+    false
 }
 
 /// The `rg` flags for ace's rules: hidden files searched, `.git` never entered, git's ignore
