@@ -1,6 +1,6 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { configure, screen, waitFor } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { spadeApp, withEndpoint } from "@/test/spade.ts";
@@ -11,7 +11,9 @@ beforeEach(() => localStorage.clear());
 /*
  * A bot linked to an agent package (ADR 0200 §3.9) says in its profile which package and version
  * it came from, offers Update when the Marketplace has a newer one and Roll back to the version
- * it had before, each opening its review; a withdrawn version reads as paused, with the reason.
+ * it had before, each opening its review; a withdrawn version reads as paused, with the reason;
+ * an update accepted while it works says it waits for the turn; and its Security section has
+ * each declared effect as a switch with its reason (ADR 0200 §3.4).
  */
 
 const linked = (link: Record<string, unknown>) => (spade: FakeSpadeApi) => {
@@ -73,4 +75,70 @@ test("a bot whose version was withdrawn reads as paused, with the reason", async
     ),
   ).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^Update to/ })).toBeNull();
+});
+
+test("an update accepted while the bot works says it waits for the bot's turn", async () => {
+  await spadeApp(
+    "/spade/fares?profile=details",
+    linked({ version: "1.0.0", held: { version: "2.0.0" } }),
+  );
+  expect(
+    await screen.findByText(
+      "From flight-watcher 1.0.0 in the Marketplace. Updates when Flight watcher is done with its turn.",
+    ),
+  ).toBeTruthy();
+});
+
+const declared = [
+  {
+    key: "network:hosts:api.example-fares.com",
+    effect: "network",
+    hosts: ["api.example-fares.com"],
+    why: "Reads fares.",
+    on: true,
+  },
+  { key: "publish", effect: "publish", hosts: [], why: "Posts a weekly fare report.", on: false },
+  {
+    key: "send_as_person",
+    effect: "send_as_person",
+    hosts: [],
+    why: "Drafts a mail to your travel agent.",
+    on: false,
+  },
+];
+
+async function securitySection() {
+  const section = (await screen.findByRole("heading", { name: "Security" })).closest("section");
+  if (!section) throw new Error("no Security section");
+  return within(section);
+}
+
+test("a packaged bot's Security section has each declared effect as a switch with its reason", async () => {
+  const { spade } = await spadeApp(
+    "/spade/fares?profile=details",
+    linked({ version: "1.0.0", effects: declared }),
+  );
+  const security = await securitySection();
+  const reach = await security.findByRole("switch", { name: "Reaches api.example-fares.com" });
+  expect(reach.getAttribute("aria-checked")).toBe("true");
+  expect(security.getByText("Reads fares.")).toBeTruthy();
+  expect(
+    security.getByText("Drafts a mail to your travel agent. You decide each time."),
+  ).toBeTruthy();
+  const publish = security.getByRole("switch", { name: "Publishes and posts" });
+  expect(publish.getAttribute("aria-checked")).toBe("false");
+
+  // Turning one on is the person's grant: Spade records it, and the row reads it back.
+  await userEvent.click(publish);
+  await waitFor(() =>
+    expect(
+      security.getByRole("switch", { name: "Publishes and posts" }).getAttribute("aria-checked"),
+    ).toBe("true"),
+  );
+  const stored = spade.agents.find((agent) => agent.id === "fares")?.package as {
+    effects: { key: string; on: boolean }[];
+  };
+  expect(stored.effects.find((effect) => effect.key === "publish")?.on).toBe(true);
+  // Only what the package declared is there to turn on.
+  expect(security.queryByRole("switch", { name: /Can ask you to pay/ })).toBeNull();
 });

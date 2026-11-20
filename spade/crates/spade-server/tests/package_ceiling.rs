@@ -314,3 +314,64 @@ async fn a_bot_whose_install_a_crash_cut_short_is_gone_at_the_next_start() -> Re
     assert!(spade.engine.bot_package(&bot).is_none());
     Ok(())
 }
+
+#[tokio::test]
+async fn an_update_held_while_the_bot_works_keeps_a_switch_the_person_turned_off_meanwhile()
+-> Result {
+    let slow: Vec<Arc<dyn Tool>> = vec![Arc::new(
+        FakeTool::new("pause", Risk::Read, "ok").slow(std::time::Duration::from_millis(1_500)),
+    )];
+    let spade = secured(
+        vec![
+            Script::reply("").call("t1", "pause", json!({})),
+            Script::reply("Checked."),
+            Script::reply("").plain(r#"{"title":"Fares"}"#),
+        ],
+        slow,
+    )
+    .await?;
+    let agent = installed(&spade, hosts_on(), false).await?;
+    let bot = text(&agent["id"]);
+    let conversation = text(&agent["conversation"]);
+    spade.say(&conversation, "Check the fares").await?;
+    spade.wait_for(&conversation, "tool_started").await?;
+    let (status, body) = spade
+        .post(
+            &format!("/v1/agents/{bot}/package"),
+            json!({ "recipe": watcher("2.0.0"), "envelope": sealed("2.0.0"), "transaction": "held-1" }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    // While the update waits, the person turns the hosts off.
+    let hosts = "network:hosts:api.example-fares.com";
+    let (status, body) = spade
+        .put(
+            &format!("/v1/agents/{bot}/package/effects"),
+            json!({ "key": hosts, "on": false }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    spade.wait_for(&conversation, "reply_finished").await?;
+    let mut moved = Value::Null;
+    for _ in 0..400 {
+        let (_, body) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
+        if body["package"]["version"] == "2.0.0" && body["package"]["held"].is_null() {
+            moved = body["package"].clone();
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert_eq!(moved["version"], "2.0.0", "the held update applied");
+    let on: Vec<(String, bool)> = switches_of(&moved);
+    assert!(on.contains(&(hosts.to_owned(), false)), "{on:?}");
+    let (_, security) = spade.get(&format!("/v1/agents/{bot}/security")).await?;
+    let allow = security["network"]["allow"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !allow.contains(&json!("api.example-fares.com")),
+        "{security}"
+    );
+    Ok(())
+}

@@ -209,7 +209,8 @@ type CreateMode = "ok" | "fail" | "drop" | "hang";
  */
 export async function fakeSpade() {
   const made: Record<string, unknown>[] = [];
-  const bots = new Map<string, { from_recipe?: unknown }>();
+  const bots = new Map<string, { from_recipe?: unknown; package?: unknown }>();
+  let version: string | undefined = "0.0.30";
   const allowed = new Map<string, string[]>();
   let createMode: CreateMode = "ok";
   let failPluginWrites = new Set<string>();
@@ -239,7 +240,11 @@ export async function fakeSpade() {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (request.method === "GET" && url.pathname === "/v1/agents")
       return send(response, 200, {
-        agents: [...bots].map(([id, bot]) => ({ id, from_recipe: bot.from_recipe })),
+        agents: [...bots].map(([id, bot]) => ({
+          id,
+          from_recipe: bot.from_recipe,
+          ...(bot.package ? { package: bot.package } : {}),
+        })),
       });
     if (request.method === "POST" && url.pathname === "/v1/agents") {
       const input = body as { from_recipe?: { transaction?: string } };
@@ -304,6 +309,15 @@ export async function fakeSpade() {
       packagePlan = plan;
     },
     connection: () => (running ? { host: "127.0.0.1", port, token } : undefined),
+    /** Spade's version as it reports it; undefined before it has answered. */
+    version: () => version,
+    setVersion(next: string | undefined) {
+      version = next;
+    },
+    /** A bot a move brought here, linked to its package at the version it has (ADR 0187). */
+    arrive(id: string, link: Record<string, unknown>) {
+      bots.set(id, { package: link });
+    },
     setCreate(mode: CreateMode) {
       createMode = mode;
     },
@@ -419,7 +433,7 @@ export async function marketplaceHarness(options: {
         folder: (suit: string) => suits.folder(suit),
       }),
       plugins: () => pluginPort(() => plugins),
-      spade: spadePort(options.spade.connection),
+      spade: spadePort(options.spade.connection, options.spade.version),
       pick: options.pick,
       schedule: () => () => {},
       allowLocalGit: true,

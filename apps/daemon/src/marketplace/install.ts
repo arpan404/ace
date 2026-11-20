@@ -66,6 +66,8 @@ export interface PackageInput {
 /** What the daemon asks of Spade, through its link (`POST /v1/agents` with `recipe`). */
 export interface SpadePort {
   ready(): boolean;
+  /** The running Spade's version, once it has answered; a review checks `requires.spade` by it. */
+  version(): string | undefined;
   createBot(input: {
     recipe: Recipe;
     fromRecipe: { source: string; name: string; version: string };
@@ -89,7 +91,16 @@ export interface SpadePort {
   setPlugins(bot: string, plugins: string[]): Promise<void>;
   /** The bot made under `transaction`, if Spade has one. */
   findBot(transaction: string): Promise<string | undefined>;
+  /** Every bot linked to a package, with the version it has: what a move brings (ADR 0187). */
+  linkedBots(): Promise<LinkedBot[]>;
   deleteBot(id: string): Promise<void>;
+}
+
+/** A bot Spade says is linked to a package, and the version it has. */
+export interface LinkedBot {
+  id: string;
+  package: { source: string; name: string; version: string; hash: string };
+  previous?: { version: string; hash: string } | undefined;
 }
 
 export interface InstallPorts {

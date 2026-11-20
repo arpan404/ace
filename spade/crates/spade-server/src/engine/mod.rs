@@ -461,6 +461,8 @@ impl Engine {
         if let Err(error) = self.resume_groups() {
             tracing::error!(%error, "could not pick up the groups' open asks");
         }
+        // An update held while a bot worked applies to each bot that is still now.
+        crate::packages::held::recover(self);
         // Workers owed a report or a start since the last run get it (ADR 0161).
         self.start_workers();
         // Digests on each bot's schedule (ADR 0165).

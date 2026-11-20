@@ -1,4 +1,7 @@
 import type { MarketBotUpdate, MarketEffectRow, MarketReviewBody } from "@ace/protocol/marketplace";
+import { effectStartsOn, effectWords } from "@ace/ui-core/spade-chat";
+
+export { decidedEachTime, effectWords } from "@ace/ui-core/spade-chat";
 
 /*
  * An agent package's review in plain sentences (ADR 0200 §3.4, §6.1), pure: each declared effect
@@ -8,45 +11,14 @@ import type { MarketBotUpdate, MarketEffectRow, MarketReviewBody } from "@ace/pr
 
 type Bot = Extract<MarketReviewBody, { type: "spade-bot" }>;
 
-/** The person-only effects: declared, they can ask; they never run on a switch. */
-const asksEachTime = new Set(["send_as_person", "pay", "change_access"]);
-
-/** Whether a declared effect still goes to the person every time it is used. */
-export const decidedEachTime = (row: Pick<MarketEffectRow, "effect">) =>
-  asksEachTime.has(row.effect);
-
-/** One declared effect as its switch's words: "Reaches api.example-fares.com". */
-export function effectWords(row: Pick<MarketEffectRow, "effect" | "hosts" | "grant">): string {
-  if (row.hosts?.length) return `Reaches ${row.hosts.join(", ")}`;
-  switch (row.grant?.kind) {
-    case "drive_site":
-      return `Acts in pages on ${row.grant.host} as you`;
-    case "drive_app":
-      return `Acts in ${row.grant.app} as you`;
-    case "tool":
-      return `Uses ${row.grant.tool} without asking`;
-    case undefined:
-      break;
-  }
-  switch (row.effect) {
-    case "network":
-      return "Changes things outside its own folder, in your apps and online";
-    case "publish":
-      return "Publishes and posts";
-    case "send_as_person":
-      return "Can ask you to send things in your name";
-    case "pay":
-      return "Can ask you to pay";
-    case "change_access":
-      return "Can ask you to change sign-ins or access";
-    default:
-      return row.effect;
-  }
-}
-
-/** Each declared effect's switch as the review starts it: on, for the person to turn off. */
-export function effectDefaults(body: Bot): Record<string, boolean> {
-  return Object.fromEntries((body.effects ?? []).map((row) => [row.key, true]));
+/**
+ * Each declared effect's switch as the review starts it (`effectStartsOn`): a package by ace
+ * starts with what it declares; a stranger's starts with only its declared hosts.
+ */
+export function effectDefaults(body: Bot, byAce: boolean): Record<string, boolean> {
+  return Object.fromEntries(
+    (body.effects ?? []).map((row) => [row.key, effectStartsOn(row, byAce)]),
+  );
 }
 
 const dollars = (usd: number) => `$${usd < 1 ? usd.toFixed(2) : usd.toFixed(usd % 1 ? 2 : 0)}`;

@@ -16,7 +16,7 @@ use spade_core::package::link::{Link, PackageId};
 use super::body::Body;
 use super::{AppState, off_thread, problem};
 use crate::packages::envelope::{self, Envelope};
-use crate::packages::{self, PackageError, apply::Step};
+use crate::packages::{self, PackageError, apply::Step, held::Asked};
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -48,7 +48,13 @@ fn answer(result: Result<Link, PackageError>) -> Response {
 }
 
 async fn read(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    off_thread(move || answer(packages::link_of(&state.engine, &id))).await
+    off_thread(move || match packages::link_of(&state.engine, &id) {
+        Ok(link) => {
+            Json(json!({ "package": packages::shown(&state.engine, &id, &link) })).into_response()
+        }
+        Err(error) => refused(&error),
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -141,7 +147,7 @@ fn transaction_ok(transaction: &str) -> bool {
 }
 
 /// `POST /v1/agents/{id}/package {recipe, package, transaction}`: an update or a rollback the
-/// person accepted, one step keyed by its transaction.
+/// person accepted, one step keyed by its transaction; held while the bot works (202).
 async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -151,8 +157,8 @@ async fn update(
         return problem(StatusCode::BAD_REQUEST, "a transaction is a short id");
     }
     off_thread(move || {
-        let applied = proven(&state.engine, &id, &body).and_then(|(manifest, package)| {
-            packages::update(
+        let asked = proven(&state.engine, &id, &body).and_then(|(manifest, package)| {
+            packages::held::ask(
                 &state.engine,
                 &id,
                 Step {
@@ -163,7 +169,14 @@ async fn update(
                 },
             )
         });
-        answer(applied)
+        // While the bot works the step is held for its next still moment: 202, saying so.
+        let (status, link) = match asked {
+            Ok(Asked::Applied(link)) => (StatusCode::OK, link),
+            Ok(Asked::Held(link)) => (StatusCode::ACCEPTED, link),
+            Err(error) => return refused(&error),
+        };
+        let shown = packages::shown(&state.engine, &id, &link);
+        (status, Json(json!({ "package": shown }))).into_response()
     })
     .await
 }

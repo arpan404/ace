@@ -18,7 +18,7 @@ import {
 } from "./install.ts";
 import { learnWithdrawn, readWithdrawn, withdrawalOf, type WithdrawnState } from "./listings.ts";
 import { marketError as error } from "./market-error.ts";
-import { prepareWithBrings, Refused } from "./prepare.ts";
+import { prepareEntry, prepareWithBrings, Refused, type PreparePorts } from "./prepare.ts";
 import { publicInstall } from "./browse.ts";
 import { contentOnlyReview } from "./content-only.ts";
 import { reauthSentence } from "./fresh-sign-in.ts";
@@ -93,27 +93,44 @@ export class OpenReviews {
     if (!source || !source.enabled) return error("not_found", "That source isn't on");
     if (this.#pending.size >= maxPending)
       return error("busy", "Too many reviews are open; finish or cancel one");
-    const plugins = this.#ports.plugins();
-    const scanContext = await this.#scanContext();
-    const ports = {
-      badges: badgesOf(this.#ports.trust.current()),
-      scanContext,
-      http: this.#ports.http(),
-      git: this.#ports.git,
-      keys: this.#ports.keys,
-      withdrawal: (target: WithdrawalTarget) =>
-        withdrawalOf(readWithdrawn(store), source.id, target),
-      preparePlugin: (input: Parameters<PluginPort["prepareFiles"]>[0]) => {
-        if (!plugins) throw new Refused("Plugins aren't ready", { code: "unavailable" });
-        return plugins.prepareFiles(input);
-      },
-    };
+    const ports = await this.#preparePorts(source.id);
     const { entry, brings } = await prepareWithBrings(ports, store, source, type, name, version);
     // Each manifest prepare verified names its publisher: list rows may now show its marks.
     for (const prepared of [entry, ...brings])
       if (prepared.source === "market" && prepared.signed && prepared.publisher)
         store.saveVerifiedPublisher(verifiedKey(prepared), prepared.publisher.id);
     return this.#open(entry, brings, bot ? { bot, rollback: false } : undefined);
+  }
+
+  /** What fetching a version for review uses: the same checks for a review and a fetch. */
+  async #preparePorts(sourceId: string): Promise<PreparePorts> {
+    const { store } = this.#ports;
+    const plugins = this.#ports.plugins();
+    return {
+      badges: badgesOf(this.#ports.trust.current()),
+      scanContext: await this.#scanContext(),
+      http: this.#ports.http(),
+      git: this.#ports.git,
+      keys: this.#ports.keys,
+      spade: this.#ports.spade.version(),
+      withdrawal: (target: WithdrawalTarget) =>
+        withdrawalOf(readWithdrawn(store), sourceId, target),
+      preparePlugin: (input: Parameters<PluginPort["prepareFiles"]>[0]) => {
+        if (!plugins) throw new Refused("Plugins aren't ready", { code: "unavailable" });
+        return plugins.prepareFiles(input);
+      },
+    };
+  }
+
+  /**
+   * One version of a bot package fetched from its source and checked as a review checks it
+   * (signature, hash, withdrawn list, ace's checks, the device's scan), without a review: what a
+   * moved bot's pinned bytes are fetched by (ADR 0200 §3.8). Throws when the source refuses.
+   */
+  async fetchVersion(sourceId: string, name: string, version: string): Promise<PreparedEntry> {
+    const source = this.#ports.store.source(sourceId);
+    if (!source || !source.enabled) throw new Refused("That source isn't on");
+    return prepareEntry(await this.#preparePorts(source.id), source, "spade-bot", name, version);
   }
 
   /**
@@ -128,7 +145,9 @@ export class OpenReviews {
     if (this.#pending.size >= maxPending)
       return error("busy", "Too many reviews are open; finish or cancel one");
     const files = await store.pinned(install.previous.hash, "spade-bot");
-    const checked = checkFiles("spade-bot", install.name, files);
+    const checked = checkFiles("spade-bot", install.name, files, {
+      spade: this.#ports.spade.version(),
+    });
     if (checked.problems.length > 0 || checked.hash !== install.previous.hash)
       return error("refused", "The earlier version no longer passes ace's checks");
     const current = await store.pinned(install.hash, "spade-bot").catch(() => []);

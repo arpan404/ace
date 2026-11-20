@@ -676,6 +676,8 @@ setting; a crash in between leaves the bot paused, and resuming again fires noth
 the timer find the wakes that came
 due by time, lets the routines catch up once (`caught_up`), and answers what waited. Services
 don't restart by themselves. A paused bot can't move to another machine until it is resumed.
+A withdrawn package version pauses its bot with this same pause ([packages.md](packages.md)), and
+any Resume ends it: there is one pause.
 
 The state is the rolled-up one with `paused` below `sleeping`: waiting, working, sleeping,
 paused, idle (`spade_core::running`). A paused bot reads `paused`, its held wakes included, unless

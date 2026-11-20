@@ -440,7 +440,10 @@ impl Engine {
             }
             // The package it is linked to (ADR 0200 §3.9), for its profile.
             if let Some(link) = self.bot_package(&agent.id) {
-                shown.insert("package".into(), crate::packages::view(&link));
+                shown.insert(
+                    "package".into(),
+                    crate::packages::shown(self, &agent.id, &link),
+                );
             }
             shown.insert(
                 "task_state".into(),

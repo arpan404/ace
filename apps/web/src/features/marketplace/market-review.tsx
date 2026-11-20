@@ -125,7 +125,7 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
     body.type === "spade-bot" ? needDefaults(body.needs) : {},
   );
   const [effects, setEffects] = useState(() =>
-    body.type === "spade-bot" ? effectDefaults(body) : {},
+    body.type === "spade-bot" ? effectDefaults(body, review.byAce) : {},
   );
   const [startRoutines, setStartRoutines] = useState(false);
   const [bots, setBots] = useState<readonly string[]>([]);
@@ -225,6 +225,7 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
       {recipe && (
         <RecipeChoices
           recipe={recipe}
+          byAce={review.byAce}
           needs={needs}
           onNeeds={setNeeds}
           effects={effects}

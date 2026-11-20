@@ -48,6 +48,15 @@ pub fn made_under_key(agent: &str) -> String {
     format!("package_ceiling:{agent}")
 }
 
+/// The settings key prefix for an update the person accepted while its bot was working, held
+/// for its next still moment (ADR 0200 §6.1).
+pub const BOT_PACKAGE_HELD: &str = "bot_package_held";
+
+/// One bot's held-update settings key.
+pub fn package_held_key(agent: &str) -> String {
+    format!("{BOT_PACKAGE_HELD}:{agent}")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Agent {
     pub id: String,
@@ -375,6 +384,10 @@ impl Store {
         for key in [package_key(id), made_under_key(id)] {
             tx.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
         }
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![package_held_key(id)],
+        )?;
         tx.execute(
             "DELETE FROM events WHERE conversation_id = ?1",
             params![conversation],
