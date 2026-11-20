@@ -1,6 +1,7 @@
 import type { MarketReviewBody } from "@ace/protocol/marketplace";
 import { Switch } from "@/components/ui/switch.tsx";
 import { part } from "@/lib/suit-part.ts";
+import { effectStartsOn } from "@ace/ui-core/spade-chat";
 import {
   decidedEachTime,
   effectWords,
@@ -12,7 +13,8 @@ import { AppMark } from "./market-stage.tsx";
 /*
  * A bot's part of its review (ADR 0168 §8, ADR 0200 §3.4, §6.1). For an install: what it may do,
  * each declared effect a row with its reason and a switch (nothing is granted until Install, and
- * a send, a payment or an access change still comes to the person each time); its apps as
+ * a send, a payment or an access change still comes to the person each time; from anyone but ace
+ * only its declared hosts start on, `effectStartsOn`); its apps as
  * switches; its routines and other triggers, paused unless Start its routines is on. For an
  * update or a rollback: what changes, what stays because the person changed it, and what it asks
  * for that starts off.
@@ -56,9 +58,13 @@ export function UpdateChoices(props: { recipe: Recipe }) {
   );
 }
 
-/** What it may do: each declared effect as a switch, on until the person turns it off. */
+/**
+ * What it may do: each declared effect as a switch, as `effectDefaults` started it. When a
+ * stranger's package starts some off, one sentence says so.
+ */
 function EffectChoices(props: {
   recipe: Recipe;
+  byAce: boolean;
   effects: Readonly<Record<string, boolean>>;
   onEffects(next: (before: Record<string, boolean>) => Record<string, boolean>): void;
 }) {
@@ -67,6 +73,12 @@ function EffectChoices(props: {
   return (
     <>
       <Head>What it may do</Head>
+      {!props.byAce && rows.some((row) => !effectStartsOn(row, false)) && (
+        <p className="mk-meta">
+          It isn't from ace, so only reaching the sites it names starts on. Turn on what you want it
+          to do.
+        </p>
+      )}
       {rows.map((row) => {
         const words = effectWords(row);
         return (
@@ -93,6 +105,7 @@ function EffectChoices(props: {
 /** A recipe's or package's choices on its install review. */
 export function RecipeChoices(props: {
   recipe: Recipe;
+  byAce: boolean;
   needs: Readonly<Record<string, boolean>>;
   onNeeds(next: (before: Record<string, boolean>) => Record<string, boolean>): void;
   effects: Readonly<Record<string, boolean>>;
@@ -112,7 +125,12 @@ export function RecipeChoices(props: {
   ];
   return (
     <>
-      <EffectChoices recipe={recipe} effects={props.effects} onEffects={props.onEffects} />
+      <EffectChoices
+        recipe={recipe}
+        byAce={props.byAce}
+        effects={props.effects}
+        onEffects={props.onEffects}
+      />
       {recipe.needs.length > 0 && (
         <>
           <Head>Apps</Head>

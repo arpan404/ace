@@ -185,3 +185,16 @@ export function useBotSecurity(agent: string) {
     retry: false,
   });
 }
+
+/**
+ * Turns one effect a bot's package declares on or off (ADR 0200 §3.4): on is the person's grant,
+ * and Spade refuses a key the package didn't declare.
+ */
+export async function setPackageEffect(
+  target: SpadeTarget,
+  agent: string,
+  key: string,
+  on: boolean,
+) {
+  await spadeHttp(target, "PUT", agentPath(agent, "package/effects"), { body: { key, on } });
+}

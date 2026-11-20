@@ -61,18 +61,33 @@ const installed = (version: string) => ({
   linked: true,
 });
 
-test("a package's effects are switches with their reasons, and only those left on are sent", async () => {
+const strong = [
+  ...effects,
+  { key: "publish", effect: "publish" as const, why: "Posts a weekly fare report." },
+  {
+    key: "network:drive_site:www.example-air.com",
+    effect: "network" as const,
+    grant: { kind: "drive_site" as const, host: "www.example-air.com" },
+    why: "Fills in the airline's search form.",
+  },
+];
+
+const checked = (market: HTMLElement, name: string) =>
+  within(market).getByRole("switch", { name }).getAttribute("aria-checked");
+
+test("a stranger's package starts with only its declared hosts on, and only what is left on is sent", async () => {
   const { daemon } = await openApp("/chats?market=bot/flight-watcher/review", {
-    entries: [watcher({ body })],
+    entries: [watcher({ byAce: false, body: { ...body, effects: strong } })],
   });
   const market = await findMarket();
-  const reach = await within(market).findByRole("switch", {
-    name: "Reaches api.example-fares.com",
-  });
-  const send = within(market).getByRole("switch", {
-    name: "Can ask you to send things in your name",
-  });
-  expect(reach.getAttribute("aria-checked")).toBe("true");
+  await within(market).findByRole("switch", { name: "Reaches api.example-fares.com" });
+  expect(checked(market, "Reaches api.example-fares.com")).toBe("true");
+  // Acting as the person, publishing and sending in their name start off.
+  expect(checked(market, "Can ask you to send things in your name")).toBe("false");
+  expect(checked(market, "Publishes and posts")).toBe("false");
+  expect(checked(market, "Acts in pages on www.example-air.com as you")).toBe("false");
+  expect(within(market).getByText(/It isn't from ace, so only reaching the sites/)).toBeTruthy();
+  // A send the person turns on still asks each time.
   expect(within(market).getByText(/You send it\. You decide each time\./)).toBeTruthy();
   expect(
     within(market).getByText("Expected to cost about $0.50 a day on your fast model."),
@@ -80,11 +95,34 @@ test("a package's effects are switches with their reasons, and only those left o
   // Its webhook is a routine too, paused until Start its routines.
   expect(within(market).getByText("When something on this machine posts to it")).toBeTruthy();
 
-  await userEvent.click(send);
+  await userEvent.click(
+    within(market).getByRole("switch", { name: "Can ask you to send things in your name" }),
+  );
   await userEvent.click(within(market).getByRole("button", { name: "Install" }));
   await expect
     .poll(() => daemon.marketplace.accepted[0]?.choices.effects)
-    .toEqual({ "network:hosts:api.example-fares.com": true, send_as_person: false });
+    .toEqual({
+      "network:hosts:api.example-fares.com": true,
+      send_as_person: true,
+      publish: false,
+      "network:drive_site:www.example-air.com": false,
+    });
+});
+
+test("a package by ace starts with what it declares on", async () => {
+  await openApp("/chats?market=bot/flight-watcher/review", {
+    entries: [watcher({ byAce: true, body: { ...body, effects: strong } })],
+  });
+  const market = await findMarket();
+  await within(market).findByRole("switch", { name: "Publishes and posts" });
+  for (const name of [
+    "Reaches api.example-fares.com",
+    "Can ask you to send things in your name",
+    "Publishes and posts",
+    "Acts in pages on www.example-air.com as you",
+  ])
+    expect(checked(market, name)).toBe("true");
+  expect(within(market).queryByText(/It isn't from ace/)).toBeNull();
 });
 
 test("an update says what changes, what stays because you changed it, and what starts off", async () => {
