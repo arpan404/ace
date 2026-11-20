@@ -25,9 +25,13 @@ class FakeSpade {
   posts = 0;
   refuse: { status: number; error: string } | undefined;
   private changed: (() => void)[] = [];
+  /** Each key's answer version, and the version each key's last read saw. */
+  private versions = new Map<string, number>();
+  private seen = new Map<string, number>();
   set(key: string, answer: Record<string, unknown>) {
     const held = this.delivered.get(key);
     if (held) held.answer = answer;
+    this.versions.set(key, (this.versions.get(key) ?? 0) + 1);
     for (const wake of this.changed.splice(0)) wake();
   }
   call: SpadeCall = async (_connection, input, options) => {
@@ -50,13 +54,15 @@ class FakeSpade {
       this.set(key, { status: "stopped", replies: [], text: "Stopped by the person." });
       return respond(200, { status: "stopped" });
     }
-    const before = JSON.stringify(this.delivered.get(key)?.answer);
-    // A long poll: answers once something changed, or when the caller gives up.
+    // A long poll: answers once something changed since the last read, or when the caller
+    // gives up, as Spade's does.
     await new Promise<void>((resolve) => {
-      if (before !== JSON.stringify({ status: "pending", replies: [] })) return resolve();
+      if (options.signal.aborted) return resolve();
+      if ((this.versions.get(key) ?? 0) !== (this.seen.get(key) ?? 0)) return resolve();
       this.changed.push(resolve);
       options.signal.addEventListener("abort", () => resolve(), { once: true });
     });
+    this.seen.set(key, this.versions.get(key) ?? 0);
     const held = this.delivered.get(key);
     return respond(200, held ? held.answer : { status: "unknown" });
   };
@@ -80,6 +86,7 @@ function harness(spade = new FakeSpade(), home = mkdtempSync(join(tmpdir(), "ace
     now: () => clock,
     sleep: (_ms, signal) =>
       new Promise<void>((resolve) => {
+        if (signal.aborted) return resolve();
         wakes.push(resolve);
         signal.addEventListener("abort", () => resolve(), { once: true });
       }),

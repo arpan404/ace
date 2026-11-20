@@ -171,6 +171,7 @@ export class ThreadAsks {
         return;
       }
       const connection = this.ports.spade();
+      const began = this.ports.now();
       const step = connection
         ? ask.delivered
           ? await this.poll(connection, ask, ask.to)
@@ -178,6 +179,11 @@ export class ThreadAsks {
         : "unreachable";
       if (step === "ok") {
         attempt = 0;
+        continue;
+      }
+      // Nothing changed: a long poll that came back at once (Spade restarting) waits a moment.
+      if (step === "same") {
+        if (this.ports.now() - began < 1_000) await this.ports.sleep(1_000, signal);
         continue;
       }
       if (step === "done") return;
@@ -222,7 +228,7 @@ export class ThreadAsks {
     connection: SpadeConnection,
     ask: AskRow,
     to: SpadeTarget,
-  ): Promise<"ok" | "done" | "unreachable"> {
+  ): Promise<"ok" | "same" | "done" | "unreachable"> {
     const answer = await this.request(
       connection,
       "GET",
@@ -274,8 +280,9 @@ export class ThreadAsks {
         this.ports.now(),
       );
       this.show(ask.commandId);
+      return "ok";
     }
-    return "ok";
+    return progress.writing ? "ok" : "same";
   }
 
   private finish(ask: AskRow, state: AskRow["state"], detail: string | undefined): void {
