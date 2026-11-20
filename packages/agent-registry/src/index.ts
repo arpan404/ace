@@ -26,7 +26,14 @@ export {
   accountMigration,
   type CompatibilityProfile,
 } from "./profiles.ts";
-export { sessionSelectors, selectorRequest, type SelectorState } from "./selectors.ts";
+export {
+  sessionSelectors,
+  selectorRequest,
+  listedModels,
+  displayLabel,
+  type SelectorState,
+  type ListedModel,
+} from "./selectors.ts";
 export { fileDigestMemory, fileInventoryStorage } from "./storage.ts";
 export {
   geminiTrustEnv,
