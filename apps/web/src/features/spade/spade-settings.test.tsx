@@ -66,6 +66,7 @@ test("each connected app names the bots Spade lets use it, and leaves out a bot 
   const apps = await screen.findByRole("region", { name: "Connected apps" });
   const line = (app: string) =>
     within(apps).getByText(app).closest("[data-setting-slot]")?.textContent ?? "";
-  await waitFor(() => expect(line("GitHub")).toContain("Connected · Spade, Inbox"));
-  expect(line("Notion")).toMatch(/Connected · Spade(?!, Inbox)/);
+  // Its health on the first line, then the bots that use it.
+  await waitFor(() => expect(line("GitHub")).toMatch(/Working.*Spade, Inbox/));
+  expect(line("Notion")).toMatch(/Working.*Spade(?!, Inbox)/);
 });
