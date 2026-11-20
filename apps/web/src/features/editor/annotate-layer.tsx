@@ -30,6 +30,11 @@ export interface LayerActions {
 }
 
 const quick: readonly CodeAnnotationIntent[] = ["ask", "fix", "explain"];
+/** Where a marker sits in the gutter's annotation strip. */
+const markerLeft = 2;
+/** The last line a span uses: a span ending at a line's start stops on the line before. */
+const lastLine = (span: Span) =>
+  span.end.column === 0 && span.end.line > span.start.line ? span.end.line - 1 : span.end.line;
 const compare = (a: Position, b: Position) => a.line - b.line || a.column - b.column;
 
 /** The primary selection as a span, when it holds any text. */
@@ -146,7 +151,7 @@ export function AnnotationLayer(props: {
   );
   const editing =
     open?.kind === "edit" ? annotations.find((each) => each.id === open.id) : undefined;
-  // Several annotations on one line sit side by side, the newest nearest the code.
+  // Several annotations on one line overlap a little, the newest on top.
   const onLine = new Map<number, number>();
   return (
     <>
@@ -158,7 +163,7 @@ export function AnnotationLayer(props: {
                 <div
                   key={box.key}
                   data-annotated-range={each.number}
-                  className="absolute bg-ring/12 shadow-[inset_0_-1.5px_0_color-mix(in_oklab,var(--ring)_55%,transparent)]"
+                  className="absolute bg-ring/14"
                   style={{ left: box.left, top: box.top, width: box.width, height: lineHeight }}
                 />
               )),
@@ -173,6 +178,31 @@ export function AnnotationLayer(props: {
           ))}
       </div>
       <div className="pointer-events-none sticky left-0 z-[3] h-0" style={{ width: view.gutter }}>
+        {visible
+          .filter((each) => !each.outdated)
+          .map((each) => {
+            // A thin bar beside the numbers spans the lines the annotation covers.
+            const { layout } = view;
+            const last = lastLine(each);
+            const top = Math.max(layout.startOf(each.start.line), view.firstRow);
+            const bottom = Math.min(
+              layout.startOf(last) + Math.max(1, layout.rowsOf(last).length),
+              view.lastRow,
+            );
+            if (bottom <= top) return null;
+            return (
+              <div
+                key={`bar-${each.id}`}
+                aria-hidden
+                className="absolute w-0.5 rounded-full bg-tint/60"
+                style={{
+                  left: markerLeft + 7,
+                  top: top * lineHeight + 4,
+                  height: (bottom - top) * lineHeight - 8,
+                }}
+              />
+            );
+          })}
         {visible
           .filter((each) => each.start.line >= view.firstLine)
           .map((each) => {
@@ -198,7 +228,7 @@ export function AnnotationLayer(props: {
                     "pointer-events-auto absolute grid size-4 place-items-center rounded-full focus-ring",
                     each.outdated && "opacity-70 grayscale",
                   )}
-                  style={{ top, left: view.gutter - 18 - index * 10 }}
+                  style={{ top, left: markerLeft + index * 4 }}
                 >
                   <MarkerNumber number={each.number} />
                 </button>
@@ -297,7 +327,7 @@ function SelectionBar(props: {
       onPointerDown={keep}
       className={cn(
         props.material,
-        "absolute z-[4] flex h-8 items-center gap-0.5 rounded-lg p-1 font-sans shadow-sm",
+        "absolute z-[4] flex h-8 items-center gap-0.5 rounded-lg p-1 font-sans",
       )}
       style={{ left, top: (row + 1) * lineHeight + 4 }}
     >

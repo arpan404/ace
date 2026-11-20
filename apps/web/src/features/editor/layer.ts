@@ -36,6 +36,8 @@ export interface EditorLayerView {
 }
 
 export interface EditorLayer {
+  /** Pixels the layer keeps at the gutter's left for its own marks, before the line numbers. */
+  margin?: number;
   /** Drawn over the rows, inside the scrolled text. */
   render(view: EditorLayerView): ReactNode;
   /** The ranges an edit replaced, as the document applies it and before React draws it. */

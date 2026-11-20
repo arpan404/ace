@@ -129,7 +129,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const name = pathParts(props.path).name;
   const lineCount = doc?.lenLines() ?? 0;
   const height = Math.max(120, viewport.height);
-  const gutter = gutterWidth(lineCount);
+  const gutter = gutterWidth(lineCount) + (props.layer?.margin ?? 0);
   const cell = useCellWidth(scroller);
   const columns = Math.max(
     leastRowCells,

@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { AnnotationsCard } from "@/features/annotations/index.ts";
+import { queuedLine } from "@/features/thread/composer/use-queue.ts";
 import { markers, openThread, select } from "./test/annotate-thread.tsx";
 
 /*
@@ -91,6 +92,10 @@ test("the sent message shows them as one card: file and lines, code, comment", a
   unmount();
 
   const shown = bubbleContent([{ type: "text", text: `Tidy the cart${sent[0] ?? ""}` }]);
+  // Waiting in the queue, the message says how many go with it.
+  expect(queuedLine({ input: [{ type: "text", text: `Tidy the cart${sent[0] ?? ""}` }] })).toBe(
+    "Tidy the cart · 2 annotations",
+  );
   expect(shown.text).toBe("Tidy the cart");
   render(<AnnotationsCard annotations={shown.annotations} code={shown.code} />);
   await userEvent.click(screen.getByText("2 annotations"));

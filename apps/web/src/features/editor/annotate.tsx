@@ -24,6 +24,8 @@ export interface EditorAnnotationsOptions {
 }
 
 const randomId = () => crypto.randomUUID();
+/** The gutter's strip left of the line numbers where the numbered markers sit. */
+const annotationMargin = 20;
 
 /** The line under `line` as a whole-line span: to the next line's start, or the last line's end. */
 function lineSpan(view: EditorLayerView, from: number, to: number): Span {
@@ -159,6 +161,7 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
   };
 
   return {
+    margin: annotationMargin,
     render: (current) => (
       <ViewKeeper view={current} intoRef={view} annotations={annotations} check={check}>
         <AnnotationLayer view={current} annotations={annotations} open={open} actions={actions} />
