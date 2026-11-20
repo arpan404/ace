@@ -79,8 +79,13 @@ impl Registry {
     }
 
     /// The kernel dropped a watch (`IN_IGNORED`): its folder was deleted, or its watch removed.
+    /// Its path is no longer watched, unless a newer folder there already has a watch of its own.
     pub(crate) fn dropped(&mut self, descriptor: i32) {
-        self.by_descriptor.remove(&descriptor);
+        if let Some(path) = self.by_descriptor.remove(&descriptor)
+            && self.by_path.get(&path) == Some(&descriptor)
+        {
+            self.by_path.remove(&path);
+        }
     }
 }
 
@@ -105,6 +110,25 @@ mod tests {
         assert_eq!(registry.bind(9, "cache"), Some(3));
         assert_eq!(registry.path_of(3), None);
         assert_eq!(registry.path_of(9), Some("cache"));
+    }
+
+    #[test]
+    fn a_watch_the_kernel_dropped_leaves_its_path_unwatched() {
+        let mut registry = Registry::default();
+        registry.bind(3, "src/cache");
+        registry.dropped(3);
+        assert!(!registry.watches("src/cache"));
+        assert_eq!(registry.path_of(3), None);
+    }
+
+    #[test]
+    fn a_late_drop_of_an_old_watch_leaves_the_new_folder_watched() {
+        let mut registry = Registry::default();
+        registry.bind(3, "src/cache");
+        registry.bind(9, "src/cache");
+        registry.dropped(3);
+        assert!(registry.watches("src/cache"));
+        assert_eq!(registry.path_of(9), Some("src/cache"));
     }
 
     #[test]

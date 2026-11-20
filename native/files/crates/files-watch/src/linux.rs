@@ -91,7 +91,7 @@ impl Folders {
     /// stack holds its parent's handle, so open handles stay bounded by the tree's depth.
     fn add_tree(&mut self, root: &Root, excluder: &Excluder, dir: &str) -> Result<(), Error> {
         let Ok(top) = root.open_dir(dir) else {
-            return self.add(root, dir);
+            return self.watcher.watch(dir).map(|_| ());
         };
         let mut stack: Vec<(String, Arc<Dir>, Option<OsString>)> =
             vec![(dir.to_owned(), Arc::new(top), None)];
@@ -104,7 +104,10 @@ impl Folders {
                 },
                 None => parent,
             };
-            self.add(root, &folder)?;
+            // Every folder is registered, watched or not: after lost events a path the registry
+            // still lists may hold a new folder whose old watch the kernel has not dropped yet,
+            // and the kernel hands back the existing descriptor for a folder already watched.
+            self.watcher.watch(&folder)?;
             let Ok(entries) = handle.entries() else {
                 continue;
             };
