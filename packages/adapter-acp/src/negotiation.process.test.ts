@@ -10,7 +10,7 @@ const Envelope = z
   .object({ method: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() })
   .passthrough();
 async function open(
-  config: Record<string, boolean>,
+  config: Record<string, unknown>,
   context: Partial<SessionContext> = {},
   agent?: string,
   version?: string,
@@ -54,8 +54,8 @@ test("an agent that updated itself since approval still opens, as generic ACP, a
           z.object({ event: z.literal("acp-version-changed") }).safeParse(frame.data).success,
       ),
     ).toBe(true);
-    // Gemini's legacy model setter is the profile's; generic ACP doesn't use it.
-    expect(h.session.refusedOptions).toEqual(["model"]);
+    // Generic ACP still picks from the legacy model list the agent reports.
+    expect(h.session.refusedOptions).toEqual([]);
   } finally {
     await h.session.close("user");
   }
@@ -423,4 +423,79 @@ test("an agent that needs its sign-in method selected opens once ace selects the
 
 test("without a remembered sign-in, an agent asking for one refuses the session as before", async () => {
   await expect(open({ requireSignIn: true })).rejects.toThrow("Authentication required");
+});
+
+const legacyModels = [
+  { modelId: "model-a", name: "Model A" },
+  { modelId: "model-b", name: "Model B" },
+];
+const sent = (frames: Frame[], method: string) =>
+  frames.filter(
+    (frame) => frame.dir === "send" && Envelope.safeParse(frame.data).data?.method === method,
+  );
+test.each(["empty", "confirm"])(
+  "an unprofiled agent runs a model it listed, chosen through session/set_model (%s reply)",
+  async (legacyReply) => {
+    const h = await open({ legacy: true, legacyModels, legacyReply }, { model: "model-b" });
+    try {
+      expect(h.session.acpSupport).toMatchObject({ modelSelection: true, coverage: "generic" });
+      expect(h.session.refusedOptions).toEqual([]);
+      expect(sent(h.frames, "session/set_model").map((f) => Envelope.parse(f.data).params)).toEqual(
+        [{ sessionId: "synthetic-session", modelId: "model-b" }],
+      );
+      // A value the agent never listed (a catalog-only id) is never sent.
+      await expect(h.session.setModel?.("catalog-only")).rejects.toThrow("unavailable");
+      expect(sent(h.frames, "session/set_model")).toHaveLength(1);
+    } finally {
+      await h.session.close("user");
+    }
+  },
+);
+test("a set_model reply naming another current model is reported, never claimed", async () => {
+  const h = await open({ legacy: true, legacyModels, legacyReply: "other" }, { model: "model-b" });
+  try {
+    expect(h.session.refusedOptions).toEqual(["model"]);
+    await expect(h.session.setModel?.("model-b")).rejects.toThrow("not applied");
+  } finally {
+    await h.session.close("user");
+  }
+});
+test.each(["error", "missing"])(
+  "an agent that rejects session/set_model (%s) stays on its default with no legacy picker left",
+  async (legacyReply) => {
+    const h = await open({ legacy: true, legacyModels, legacyReply }, { model: "model-b" });
+    try {
+      expect(h.session.refusedOptions).toEqual(["model"]);
+      expect(h.session.acpSupport?.modelSelection).toBe(false);
+      expect(
+        h.frames.some(
+          (frame) =>
+            frame.dir === "note" &&
+            z.object({ event: z.literal("acp-legacy-model-rejected") }).safeParse(frame.data)
+              .success,
+        ),
+      ).toBe(true);
+      await expect(h.session.setModel?.("model-a")).rejects.toThrow("unavailable");
+      expect(sent(h.frames, "session/set_model")).toHaveLength(1);
+    } finally {
+      await h.session.close("user");
+    }
+  },
+);
+test("a malformed legacy model list still opens the session and offers only well-formed ids", async () => {
+  const h = await open(
+    {
+      legacy: true,
+      legacyModels: [null, { name: "no id" }, { modelId: "evil\u202eid" }, { modelId: "model-b" }],
+    },
+    { model: "evil\u202eid" },
+  );
+  try {
+    expect(h.session.refusedOptions).toEqual(["model"]);
+    expect(sent(h.frames, "session/set_model")).toHaveLength(0);
+    await h.session.setModel?.("model-b");
+    expect(sent(h.frames, "session/set_model")).toHaveLength(1);
+  } finally {
+    await h.session.close("user");
+  }
 });
