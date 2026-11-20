@@ -56,6 +56,16 @@ function desktopOpener(scope: object): OpenInEditor | undefined {
     : undefined;
 }
 
+/**
+ * Whether this device opens `editorId` itself: the desktop app knows the editor, or a browser
+ * has its URL handler. Any other installed app (a bundle-only editor, an IDE without a URL
+ * scheme) opens through the daemon (`host.open`), which starts it on its own machine.
+ */
+export function opensHere(editorId: string, scope: object = globalThis): boolean {
+  if (desktopOpener(scope)) return Object.hasOwn(desktopEditors, editorId);
+  return editorUrl({ editorId, editorName: "", path: "/" }) !== undefined;
+}
+
 export async function launchEditor(target: LaunchTarget, scope: object = globalThis) {
   const desktop = desktopOpener(scope);
   if (desktop) {
@@ -96,6 +106,26 @@ export function editorIconReader(
     const editor = desktopEditors[editorId];
     if (!editor) return null;
     const icon: unknown = await Promise.resolve(Reflect.apply(read, shell, [editor]));
+    return typeof icon === "string" && pngDataUrl.test(icon) ? icon : null;
+  };
+}
+
+/**
+ * The desktop app's reader of any installed app's icon by the bundle or `.exe` the daemon found
+ * for it, for apps the desktop app has no editor id for; undefined in a browser. Resolves null
+ * when this computer has no such app (the daemon's may be another machine).
+ */
+export function appIconReader(
+  scope: object = globalThis,
+): ((path: string) => Promise<string | null>) | undefined {
+  const ace: unknown = Reflect.get(scope, "ace");
+  if (typeof ace !== "object" || ace === null || !("shell" in ace)) return undefined;
+  const shell: unknown = ace.shell;
+  if (typeof shell !== "object" || shell === null || !("appIcon" in shell)) return undefined;
+  const read: unknown = shell.appIcon;
+  if (typeof read !== "function") return undefined;
+  return async (path) => {
+    const icon: unknown = await Promise.resolve(Reflect.apply(read, shell, [path]));
     return typeof icon === "string" && pngDataUrl.test(icon) ? icon : null;
   };
 }

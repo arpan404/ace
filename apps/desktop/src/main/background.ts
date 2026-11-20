@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { notificationOutbox } from "./link/notification-outbox.ts";
 import { dirname, join } from "node:path";
-import type { BaseWindow, BrowserWindow } from "electron";
+import type { BaseWindow, BrowserWindow, Rectangle } from "electron";
 import type { BrowserPlacement, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import type { BackendConnection } from "./browser/connection.ts";
 import type { EmbeddedViews, PlacementHost } from "./browser/views.ts";
@@ -32,6 +32,8 @@ export interface BackgroundOptions {
   quitAll(): void;
   /** Quit and stop the daemon too (the tray's "Quit ace completely"). */
   quitCompletely(): void;
+  /** macOS: opens or closes the menu-bar popover under the icon (`TrayActions.popover`). */
+  popover?: ((icon: Rectangle) => boolean) | undefined;
   log(message: string): void;
   /** Whether the desktop shows tray icons (`linuxTrayHost`); absent where it always does. */
   trayHost?: (() => Promise<boolean>) | undefined;
@@ -96,6 +98,7 @@ export class Background {
           void options.runtime.pause(paused).catch((error: unknown) => options.log(String(error))),
         quitAll: options.quitAll,
         quitCompletely: options.quitCompletely,
+        ...(options.popover ? { popover: options.popover } : {}),
       },
       options.trayIcon,
     );
@@ -170,6 +173,7 @@ export class Background {
         this.work = summary;
         this.reviewLifetime();
       },
+      onAppsInUse: (threads) => this.tray.update({ usingApps: threads > 0 }),
     });
   }
 

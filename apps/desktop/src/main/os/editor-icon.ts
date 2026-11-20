@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import type { EditorId } from "../../shared/contract.ts";
 
 /*
@@ -56,6 +57,59 @@ export function editorIcons(lookup: IconLookup, platform: NodeJS.Platform) {
   return (editor: EditorId): Promise<string | null> => {
     let icon = cache.get(editor);
     if (!icon) cache.set(editor, (icon = read(editor)));
+    return icon;
+  };
+}
+
+/** Whether `path` is there as `kind`: an app bundle is a folder, an `.exe` a file. */
+export type AppOnDisk = (path: string, kind: "folder" | "file") => Promise<boolean>;
+
+export const appOnDisk: AppOnDisk = async (path, kind) => {
+  try {
+    const found = await stat(path);
+    return kind === "folder" ? found.isDirectory() : found.isFile();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The app `path` belongs to, whose icon the OS draws: on macOS the `.app` bundle holding it (a
+ * launcher inside one counts as its app), on Windows the `.exe` itself. Undefined for anything
+ * else, and on Linux, which has no icon lookup by app.
+ */
+export function appIconSource(
+  path: string,
+  platform: NodeJS.Platform,
+): { path: string; kind: "folder" | "file" } | undefined {
+  if (platform === "darwin") {
+    const bundle = /^(\/.+?\.app)(?:\/|$)/i.exec(path)?.[1];
+    return bundle ? { path: bundle, kind: "folder" } : undefined;
+  }
+  if (platform === "win32" && /^[A-Za-z]:\\.+\.exe$/i.test(path)) return { path, kind: "file" };
+  return undefined;
+}
+
+/**
+ * An installed app's icon by the bundle or `.exe` the daemon found for it (a PNG data URL), or
+ * null when there is no such app on this computer. Each app is looked up once per run.
+ */
+export function appIcons(lookup: IconLookup, platform: NodeJS.Platform, exists: AppOnDisk) {
+  const cache = new Map<string, Promise<string | null>>();
+  const read = async (path: string): Promise<string | null> => {
+    const source = appIconSource(path, platform);
+    if (!source || !(await exists(source.path, source.kind))) return null;
+    try {
+      const image = await lookup.forFile(source.path);
+      return image.isEmpty() ? null : image.toDataURL();
+    } catch {
+      return null;
+    }
+  };
+  return (path: string): Promise<string | null> => {
+    const key = appIconSource(path, platform)?.path ?? path;
+    let icon = cache.get(key);
+    if (!icon) cache.set(key, (icon = read(path)));
     return icon;
   };
 }

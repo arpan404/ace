@@ -227,3 +227,85 @@ describe("the process ace starts", () => {
     await expect(stat(marker)).rejects.toThrow();
   });
 });
+
+describe("opening in a terminal or a bundle-only app", () => {
+  const ghostty = { id: "ghostty", name: "Ghostty", command: "/Applications/Ghostty.app" };
+
+  test("a terminal starts in a file's folder, never handed the file", async () => {
+    const root = await project();
+    const started: HostLaunch[] = [];
+    await openOnHost({
+      place: { kind: "inside", root, path: "src/queue.ts" },
+      app: { kind: "terminal", terminalId: "ghostty" },
+      platform: "darwin",
+      editors: async () => [],
+      terminals: async () => [ghostty],
+      spawn: async (launch) => {
+        started.push(launch);
+      },
+      allowed: () => true,
+      signal: new AbortController().signal,
+    });
+    expect(started).toEqual([
+      { command: "/usr/bin/open", args: ["-a", ghostty.command, join(root, "src")] },
+    ]);
+  });
+
+  test("a Linux terminal gets the folder as its working directory", async () => {
+    const root = await project();
+    expect(
+      hostLaunch({
+        platform: "linux",
+        app: { kind: "terminal", terminalId: "konsole" },
+        target: root,
+        isFile: false,
+        editor: { id: "konsole", name: "Konsole", command: "/usr/bin/konsole" },
+      }),
+    ).toEqual({ command: "/usr/bin/konsole", args: ["--workdir", root] });
+  });
+
+  test("a terminal the machine didn't find is never started", async () => {
+    const root = await project();
+    const opening = openOnHost({
+      place: { kind: "inside", root },
+      app: { kind: "terminal", terminalId: "ghostty" },
+      platform: "darwin",
+      editors: async () => [ghostty],
+      spawn: async () => {
+        throw new Error("started");
+      },
+      allowed: () => true,
+      signal: new AbortController().signal,
+    });
+    // Listed as an editor is not listed as a terminal.
+    await expect(opening).rejects.toThrow("editor_not_found");
+  });
+
+  test("an editor without its own launcher opens the file through `open -a`", () => {
+    expect(
+      hostLaunch({
+        platform: "darwin",
+        app: { kind: "editor", editorId: "xcode" },
+        target: "/p/App.swift",
+        isFile: true,
+        line: 9,
+        editor: { id: "xcode", name: "Xcode", command: "/Applications/Xcode.app" },
+      }),
+    ).toEqual({
+      command: "/usr/bin/open",
+      args: ["-a", "/Applications/Xcode.app", "/p/App.swift"],
+    });
+  });
+
+  test("a bundle path is never run outside macOS", () => {
+    expect(
+      hostLaunch({
+        platform: "linux",
+        app: { kind: "editor", editorId: "xcode" },
+        target: "/p",
+        isFile: false,
+        editor: { id: "xcode", name: "Xcode", command: "/opt/Xcode.app" },
+      }),
+    ).toBeUndefined();
+  });
+});

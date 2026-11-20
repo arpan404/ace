@@ -18,9 +18,11 @@ import {
   type OpenDialogOptions,
 } from "electron";
 import { shell } from "electron";
+import type { WebContents } from "electron";
 import type {
   AppInfo,
   DaemonConnection,
+  DeepLink,
   NativeAppearance,
   VisualizationWindow,
   WindowBackground,
@@ -36,7 +38,7 @@ import type { SandboxNotice } from "../shared/contract.ts";
 import { writeClipboardImage } from "./os/clipboard.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
 import { appIdentities, systemApplication, systemApplicationIcon } from "./os/app-identity.ts";
-import { editorIcons } from "./os/editor-icon.ts";
+import { appIcons, appOnDisk, editorIcons } from "./os/editor-icon.ts";
 import { openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
 import type { SpadeDirect } from "./spade/direct.ts";
@@ -107,6 +109,13 @@ export function createHandlers(options: {
   };
   /** The direct path to Spade on this computer (ADR 0123). */
   spade: SpadeDirect;
+  /** The menu-bar popover (os/tray-popover.ts); each call is refused from any other page. */
+  tray: {
+    open(link: DeepLink | undefined, sender: WebContents | undefined): void;
+    fit(height: number, sender: WebContents | undefined): void;
+    hide(sender: WebContents | undefined): void;
+    quit(completely: boolean, sender: WebContents | undefined): void;
+  };
 }): Handlers {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
@@ -120,13 +129,12 @@ export function createHandlers(options: {
     accountOf,
   });
   followDaemonAccount(runtime, daemonAccount.resume);
-  const editorIcon = editorIcons(
-    {
-      forProtocol: async (url) => (await app.getApplicationInfoForProtocol(url)).icon,
-      forFile: (path) => app.getFileIcon(path, { size: "normal" }),
-    },
-    process.platform,
-  );
+  const iconLookup = {
+    forProtocol: async (url: string) => (await app.getApplicationInfoForProtocol(url)).icon,
+    forFile: (path: string) => app.getFileIcon(path, { size: "normal" }),
+  };
+  const editorIcon = editorIcons(iconLookup, process.platform);
+  const appIcon = appIcons(iconLookup, process.platform, appOnDisk);
   const appIdentity = appIdentities({
     application: (bundleId) => systemApplication(bundleId, process.platform),
     icon: (path) => systemApplicationIcon(path, process.platform),
@@ -160,6 +168,22 @@ export function createHandlers(options: {
       options.reload();
       return undefined;
     },
+    "tray.open": (link, sender) => {
+      options.tray.open(link ?? undefined, sender);
+      return undefined;
+    },
+    "tray.fit": (height, sender) => {
+      options.tray.fit(height, sender);
+      return undefined;
+    },
+    "tray.hide": (_request, sender) => {
+      options.tray.hide(sender);
+      return undefined;
+    },
+    "tray.quit": ({ completely }, sender) => {
+      options.tray.quit(completely, sender);
+      return undefined;
+    },
     "daemon.connection": () => options.connection(),
     "daemon.expected": (remembered) => runtime.expected(remembered ?? undefined),
     "daemon.authorize": (url) => {
@@ -180,6 +204,7 @@ export function createHandlers(options: {
     "shell.reveal": (request) => reveal(request.path),
     "shell.appIdentity": (request) => appIdentity(request.bundleId),
     "shell.editorIcon": (request) => editorIcon(request.editor),
+    "shell.appIcon": (request) => appIcon(request.path),
     "shell.openExternal": async (url) => {
       await shell.openExternal(url);
       return true;
