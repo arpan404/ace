@@ -548,8 +548,7 @@ class AcpSession implements ProviderSession {
     const params = object(request.params);
     if (["cursor/task", "cursor/update_todos", "cursor/generate_image"].includes(request.method))
       return {};
-    if (!interactionRequest(request.method, params, this.quirks.provider === "antigravity"))
-      throw new MethodNotFound();
+    if (!interactionRequest(request.method, params, this.quirks)) throw new MethodNotFound();
     if (this.closed) return { outcome: { outcome: "cancelled" } };
     if (this.pending.has(interactionKey(request.id)))
       throw new Error("Duplicate pending ACP request");
@@ -571,7 +570,7 @@ class AcpSession implements ProviderSession {
     const request = interactionRequest(
       pending.request.method,
       object(pending.request.params),
-      this.quirks.provider === "antigravity",
+      this.quirks,
     );
     if (!request) throw new Error("Interaction request is no longer valid");
     const validated = validateResolution(request, resolution);

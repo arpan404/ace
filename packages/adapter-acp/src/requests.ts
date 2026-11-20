@@ -18,7 +18,7 @@ export function openRequest(
     s.notice(facts, frame, method);
     return true;
   }
-  const request = interactionRequest(method, params, s.quirks.provider === "antigravity");
+  const request = interactionRequest(method, params, s.quirks);
   const nativeTool = string(params["toolCallId"] ?? object(params["toolCall"])["toolCallId"]);
   let tool =
     typeof params["sessionId"] === "string"
@@ -47,9 +47,9 @@ export function openRequest(
       ...object(params["toolCall"]),
       toolCallId: nativeTool,
       sessionUpdate: "tool_call",
-      kind: "other",
+      kind: string(object(params["toolCall"])["kind"]) || "other",
       title: string(object(params["toolCall"])["title"]) || method,
-      status: "pending",
+      status: string(object(params["toolCall"])["status"]) || "pending",
     });
     tool = s.tool(owner, nativeTool);
   }
