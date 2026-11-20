@@ -1415,7 +1415,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"registry.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
-| result | yes | union | {"anyOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":false},"reason":{"type":"string","maxLength":512}},"required":["ok","reason"]},{"type":"object","properties":{"ok":{"type":"boolean","const":true},"agents":{"maxItems":50,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/RegistryAgent.json"}},"installations":{"maxItems":512,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/RegistryInstallation.json"}},"stale":{"type":"boolean"},"refreshing":{"type":"boolean"},"activeInstall":{"$ref":"https://ace.local/protocol/v1/RegistryInstallProgress.json"},"error":{"type":"string","enum":["refresh_failed","cache_failed"]},"source":{"type":"string","maxLength":4096},"digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"fetchedAt":{"type":"number","minimum":0},"schemaVersion":{"type":"string","maxLength":128},"release":{"type":"string","maxLength":256},"nextOffset":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["ok","agents","installations","stale","refreshing","source"]},{"type":"object","properties":{"ok":{"type":"boolean","const":true},"plan":{"$ref":"https://ace.local/protocol/v1/RegistryInstallPlan.json"}},"required":["ok","plan"]},{"type":"object","properties":{"ok":{"type":"boolean","const":true},"installation":{"$ref":"https://ace.local/protocol/v1/RegistryInstallation.json"},"durability":{"type":"string","const":"uncertain"}},"required":["ok","installation"]},{"type":"object","properties":{"ok":{"type":"boolean","const":true},"cancelled":{"type":"boolean"}},"required":["ok","cancelled"]}]} |
+| result | yes | union | {"anyOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":false},"reason":{"type":"string","maxLength":512}},"required":["ok","reason"]},{"type":"object","properties":{"ok":{"type":"boolean","const":true},"agents":{"maxItems":50,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/RegistryAgent.json"}},"installations":{"maxItems":512,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/RegistryInstallation.json"}},"updates":{"maxItems":512,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/RegistryPendingUpdate.json"}},"stale":{"type":"boolean"},"refreshing":{"type":"boolean"},"activeInstall":{"$ref":"https://ace.local/protocol/v1/RegistryInstallProgress.json"},"error":{"type":"string","enum":["refresh_failed","cache_failed"]},"source":{"type":"string","maxLength":4096},"digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"fetchedAt":{"type":"number","minimum":0},"schemaVersion":{"type":"string","maxLength":128},"release":{"type":"string","maxLength":256},"nextOffset":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["ok","agents","installations","stale","refreshing","source"]},{"type":"object","properties":{"ok":{"type":"boolean","const":true},"plan":{"$ref":"https://ace.local/protocol/v1/RegistryInstallPlan.json"}},"required":["ok","plan"]},{"type":"object","properties":{"ok":{"type":"boolean","const":true},"installation":{"$ref":"https://ace.local/protocol/v1/RegistryInstallation.json"},"durability":{"type":"string","const":"uncertain"}},"required":["ok","installation"]},{"type":"object","properties":{"ok":{"type":"boolean","const":true},"cancelled":{"type":"boolean"}},"required":["ok","cancelled"]}]} |
 
 Example:
 
@@ -1737,15 +1737,21 @@ Example:
     "leftOut": [],
     "op": "botRecipe",
     "recipe": {
-      "face": {},
+      "blurb": "example",
       "format": "spade-bot",
       "name": "example",
       "needs": {
-        "connectors": [],
-        "tools": []
+        "connectors": []
+      },
+      "notes": [],
+      "plugins": [],
+      "requires": {},
+      "style": {
+        "accent": "#79F67e"
       },
       "task": "example",
-      "version": 2
+      "tests": [],
+      "version": 3
     }
   },
   "type": "marketplace.result"

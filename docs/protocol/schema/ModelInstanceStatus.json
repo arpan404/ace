@@ -47,6 +47,13 @@
       "minimum": 0,
       "type": "number"
     },
+    "modelProbe": {
+      "enum": [
+        "automatic",
+        "on-request"
+      ],
+      "type": "string"
+    },
     "permissionModes": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"

@@ -3665,6 +3665,24 @@ Example:
 }
 ```
 
+### models.load
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"models.load"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| instance | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "instance": "example",
+  "requestId": "example",
+  "type": "models.load"
+}
+```
+
 ### models.resolve
 
 | Field | Required | Type | Constraints |
@@ -3680,6 +3698,7 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "instance": "example",
+    "preferenceOrder": [],
     "role": "example",
     "selection": "default",
     "tier": "example"
@@ -3701,7 +3720,7 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 7,
+  "inputAgeMs": 8,
   "threadId": null,
   "type": "presence.update"
 }
@@ -3720,10 +3739,10 @@ Example:
 ```json
 {
   "device": {
-    "channel": "fcm",
-    "platform": "phone",
-    "token": "example"
+    "channel": "websocket",
+    "platform": "web"
   },
+  "requestId": "example",
   "type": "notification.register"
 }
 ```
@@ -3739,7 +3758,6 @@ Example:
 
 ```json
 {
-  "requestId": "example",
   "type": "notification.unregister"
 }
 ```
@@ -3774,8 +3792,8 @@ Example:
   "preferences": {
     "agentSays": false,
     "quietHours": {
-      "endMinute": 4,
-      "startMinute": 6,
+      "endMinute": 9,
+      "startMinute": 1,
       "timeZone": "UTC"
     }
   },
@@ -3797,7 +3815,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 0
+  "until": 7
 }
 ```
 
@@ -3813,7 +3831,7 @@ Example:
 
 ```json
 {
-  "afterCursor": 7,
+  "afterCursor": 2,
   "requestId": "example",
   "type": "notification.feed"
 }
@@ -3857,6 +3875,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode a
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
 | framing | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | nextTicket | no | `true` |  |
+| lastClose | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ClientCloseReport.json"},{"x-ace-constraint":"A report that doesn't parse is read as none; the hello still stands.","$ref":"https://ace.local/protocol/v1/ClientCloseReport.json"}]} |
 
 Example:
 
@@ -3864,11 +3883,17 @@ Example:
 {
   "deviceId": "example",
   "framing": [],
-  "grant": "example",
-  "machineCode": "example",
+  "installId": "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e",
+  "lastClose": {
+    "attempt": 6,
+    "cause": "emsgsize",
+    "code": 5,
+    "wasReady": true
+  },
+  "mediaTicket": "-4wRv51fs8BI1DFULNU3ALh7jFSfe4zLHVf7Y_SPkMO",
   "nextTicket": true,
   "protocolVersion": 1,
-  "trims": [],
+  "token": "example",
   "type": "hello"
 }
 ```
@@ -3888,16 +3913,11 @@ Example:
 
 ```json
 {
-  "afterSeq": 8,
   "scope": {
     "kind": "thread",
     "threadId": "example"
   },
   "subscriptionId": "example",
-  "tail": {
-    "bytes": 1026,
-    "items": 4
-  },
   "type": "subscribe"
 }
 ```
@@ -3933,11 +3953,7 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "input": {
-        "action": "read",
-        "id": "8"
-      },
-      "type": "forge.inbox.write",
+      "type": "workspace.identity.unlink",
       "workspaceId": "example"
     }
   },
@@ -3959,8 +3975,8 @@ Example:
 
 ```json
 {
-  "limit": 6,
-  "offset": 5,
+  "limit": 2,
+  "offset": 1,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -3982,7 +3998,7 @@ Example:
 ```json
 {
   "interactionId": "example",
-  "offset": 1,
+  "offset": 3,
   "requestId": "example",
   "threadId": "example",
   "type": "interaction.read"
@@ -4003,8 +4019,8 @@ Example:
 
 ```json
 {
-  "before": 4,
-  "limit": 4,
+  "before": 6,
+  "limit": 6,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -4027,10 +4043,9 @@ Example:
 
 ```json
 {
-  "before": 6,
-  "collection": "interactions",
-  "limit": 10,
-  "maxBytes": 16391,
+  "before": 9,
+  "collection": "backgroundTasks",
+  "limit": 5,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -4051,7 +4066,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 7,
+    "at": 9,
     "id": "example"
   },
   "requestId": "example",
@@ -4126,7 +4141,7 @@ Example:
 ```json
 {
   "grant": "example",
-  "proof": "qhdiuwNRszHXDjmKHtJDfCQoH12PR0VnQdOZlxWG176idEuzaszbV20PUWHB-3kFOSENb5vy1SI4u7som5yVFM",
+  "proof": "dvMT_OI9p7DamBP1lSTOm0FF2DwHJtDINHNdQQOfwolcoeWMzIa0PjQZrNk1u_dGNqUGmVNzLcxqQruTb5gC2Y",
   "requestId": "example",
   "type": "account.standing"
 }
@@ -4144,7 +4159,7 @@ Example:
 
 ```json
 {
-  "proof": "dvMT_OI9p7DamBP1lSTOm0FF2DwHJtDINHNdQQOfwolcoeWMzIa0PjQZrNk1u_dGNqUGmVNzLcxqQruTb5gC2Y",
+  "proof": "qQrPCUdpl_uFBEV3ndfWZkXU7C1uByE5vVJhvO53j2EUn-HC6_PRtK0ytRATekE9IHTKpo6dFglIw5puLbyuIg",
   "requestId": "example",
   "type": "device.standing"
 }

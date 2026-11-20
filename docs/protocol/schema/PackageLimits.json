@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageLimits.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "spend_alert": {
+      "additionalProperties": false,
+      "properties": {
+        "usd_per_day": {
+          "maximum": 10000,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "usd_per_day"
+      ],
+      "type": "object"
+    },
+    "workers_at_once": {
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "workspace_mb": {
+      "maximum": 1000000,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

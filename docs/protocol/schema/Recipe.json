@@ -7,6 +7,14 @@
       "maxLength": 300,
       "type": "string"
     },
+    "effects": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PackageEffect.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
     "face": {
       "additionalProperties": {},
       "propertyNames": {
@@ -18,6 +26,9 @@
     "format": {
       "const": "spade-bot",
       "type": "string"
+    },
+    "limits": {
+      "$ref": "https://ace.local/protocol/v1/PackageLimits.json"
     },
     "model": {
       "default": "capable",
@@ -117,6 +128,9 @@
       "maxItems": 50,
       "type": "array"
     },
+    "personality": {
+      "$ref": "https://ace.local/protocol/v1/SpadePersonality.json"
+    },
     "plugins": {
       "default": [],
       "items": {
@@ -125,6 +139,9 @@
       },
       "maxItems": 16,
       "type": "array"
+    },
+    "requires": {
+      "$ref": "https://ace.local/protocol/v1/PackageRequires.json"
     },
     "routines": {
       "default": [],
@@ -169,14 +186,59 @@
       "maxItems": 32,
       "type": "array"
     },
+    "style": {
+      "additionalProperties": false,
+      "properties": {
+        "accent": {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "accent"
+      ],
+      "type": "object"
+    },
     "task": {
       "default": "",
       "maxLength": 4000,
       "type": "string"
     },
+    "tests": {
+      "default": [],
+      "items": {
+        "pattern": "^tests\\/[A-Za-z0-9._-]+\\.json$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "triggers": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PackageTrigger.json"
+      },
+      "maxItems": 40,
+      "type": "array"
+    },
+    "uses": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PackageModule.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "version": {
-      "const": 2,
-      "type": "number"
+      "anyOf": [
+        {
+          "const": 2,
+          "type": "number"
+        },
+        {
+          "const": 3,
+          "type": "number"
+        }
+      ]
     }
   },
   "required": [
