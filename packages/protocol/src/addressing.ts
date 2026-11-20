@@ -14,11 +14,12 @@ const shownName = z.string().min(1).max(120);
 
 /**
  * A Spade face as Spade's API gives it (`{kind: "character", …}`, `{kind: "image", sha256}`,
- * `{kind: "spade"}`). Kept as Spade sent it, bounded; clients read it with `parseSpadeAvatar`.
+ * `{kind: "spade"}`): one flat object of short fields, kept as Spade sent it; clients read it
+ * with `parseSpadeAvatar`.
  */
 export const SpadeFaceJson = z
-  .json()
-  .refine((value) => JSON.stringify(value).length <= 2048, "A face is at most 2 KiB");
+  .record(z.string().max(32), z.union([z.string().max(256), z.number(), z.boolean(), z.null()]))
+  .refine((value) => Object.keys(value).length <= 24, "A face has at most 24 fields");
 export type SpadeFaceJson = z.infer<typeof SpadeFaceJson>;
 
 export const Addressee = z.discriminatedUnion("kind", [
@@ -76,19 +77,31 @@ export const AddressedTo = z.object({
 });
 export type AddressedTo = z.infer<typeof AddressedTo>;
 
-/** On a reply ace posted in the thread: the bot that said it, and its club when it answered in one. */
-export const Speaker = z.object({
+/**
+ * On a reply ace posted in the thread: the bot that said it, and its club when it answered in one.
+ * Declared, not inferred: messages carry it, and an inferred shape there grows every message's
+ * declared type past what TypeScript will write out.
+ */
+export interface Speaker {
+  kind: "bot";
+  id: string;
+  name: string;
+  avatar?: SpadeFaceJson | undefined;
+  club?: { id: string; name: string } | undefined;
+  /** The person's message it answers, as `AskedLine.about` names it. */
+  about: string;
+  /** The ask it answers, for a follow-up's `thread.address`. */
+  ask?: string | undefined;
+}
+export const Speaker: z.ZodType<Speaker> = z.object({
   kind: z.literal("bot"),
   id: spadeId,
   name: shownName,
   avatar: SpadeFaceJson.optional(),
   club: z.object({ id: spadeId, name: shownName }).optional(),
-  /** The person's message it answers, as `AskedLine.about` names it. */
   about: z.string().min(1).max(256),
-  /** The ask it answers, for a follow-up's `thread.address`. */
   ask: z.string().min(1).max(160).optional(),
 });
-export type Speaker = z.infer<typeof Speaker>;
 
 /** On a message the person sent from another thread (`@` an agent): that thread. */
 export const MessageVia = z.object({

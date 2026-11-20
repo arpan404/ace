@@ -59,18 +59,26 @@ export type ContentPart = z.infer<typeof ContentPart>;
  * carries it as `origin.commandId`), or, for a follow-up, the message it follows up. A follow-up
  * went only to the bots: its words live here, not in the agent's transcript.
  */
-export const AskedLine = z.object({
+export interface AskedLine {
+  about: string;
+  to: AddressedTo[];
+  /** Devices the message named for the work, as the person's chips show them. */
+  devices: DeviceContextItem[];
+  share: AddressedShare;
+  /** What went with the message, in the person's words ("the title and project", "2 files"). */
+  shares: string[];
+  /** A follow-up's words, as the person wrote them. */
+  words?: string | undefined;
+}
+/** Declared, not inferred, as `Speaker` is: notices carry it. */
+export const AskedLine: z.ZodType<AskedLine> = z.object({
   about: z.string().min(1).max(256),
   to: z.array(AddressedTo).max(8),
-  /** Devices the message named for the work, as the person's chips show them. */
   devices: z.array(DeviceContextItem).max(8).default([]),
   share: AddressedShare,
-  /** What went with the message, in the person's words ("the title and project", "2 files"). */
   shares: z.array(z.string().min(1).max(120)).max(8).default([]),
-  /** A follow-up's words, as the person wrote them. */
   words: z.string().max(16_384).optional(),
 });
-export type AskedLine = z.infer<typeof AskedLine>;
 
 /** Provenance of provider input, retained on its canonical transcript item. */
 export const MessageOrigin = z.object({
