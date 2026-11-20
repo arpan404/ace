@@ -324,8 +324,16 @@ export class IntentStore {
       options: row?.options ?? undefined,
     });
   }
+  /**
+   * The provider took this attempt's input: it was handed over and acknowledged. An
+   * acknowledgment of input never handed over came from another run, and proves nothing.
+   */
   acknowledged(id: number): boolean {
-    return this.sql("SELECT acknowledged FROM intents WHERE id=?").get(id)?.acknowledged === 1;
+    return Boolean(
+      this.sql(
+        "SELECT 1 FROM intents WHERE id=? AND acknowledged=1 AND submitted_generation IS NOT NULL",
+      ).get(id),
+    );
   }
   claim(entry: IntentHeader): Intent | undefined {
     return this.store.atomic(() => {
@@ -346,7 +354,8 @@ export class IntentStore {
       this.sql(
         "INSERT INTO engine_state_records VALUES (?, 'engineRecovery', 'root', ?) ON CONFLICT(thread_id,section,key) DO UPDATE SET value=excluded.value",
       ).run(intent.threadId, String(intent.id));
-    this.sql("UPDATE intents SET awaiting=?, ack_target=? WHERE id=?").run(
+    // Each attempt starts unacknowledged: an earlier attempt's acknowledgment isn't this one's.
+    this.sql("UPDATE intents SET awaiting=?, ack_target=?, acknowledged=0 WHERE id=?").run(
       target === undefined ? 0 : 1,
       target ?? null,
       intent.id,
@@ -366,7 +375,7 @@ export class IntentStore {
   }
   defer(intent: IntentHeader): void {
     this.sql(
-      "UPDATE intents SET status='queued',awaiting=0,ack_target=NULL,submitted_generation=NULL,uncertain=0 WHERE id=?",
+      "UPDATE intents SET status='queued',awaiting=0,ack_target=NULL,submitted_generation=NULL,uncertain=0,acknowledged=0 WHERE id=?",
     ).run(intent.id);
   }
   /**
@@ -376,7 +385,10 @@ export class IntentStore {
   requeue(intent: IntentHeader, error: string): void {
     this.sql(`UPDATE intents SET status='queued',delivery='queue',
       payload=json_set(payload,'$.payload.delivery','queue'),awaiting=0,ack_target=NULL,
-      submitted_generation=NULL,uncertain=0,error=? WHERE id=?`).run(error, intent.id);
+      submitted_generation=NULL,uncertain=0,acknowledged=0,error=? WHERE id=?`).run(
+      error,
+      intent.id,
+    );
   }
   mark(intent: IntentHeader, status: string, error?: string): void {
     this.store.atomic(() => {
