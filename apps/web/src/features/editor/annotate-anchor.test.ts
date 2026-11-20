@@ -115,6 +115,28 @@ test("a rewrite around a range finds its code by its exact text, once, or calls 
   expect(findOnce(twice.join("\n"), code.text)).toBeUndefined();
 });
 
+test("a rewrite never moves a range onto another copy of its code", () => {
+  // The annotated "foo" is the second of two; the rewrite changes it and keeps the first.
+  const before = lines("a\nfoo\nb\nfoo\nc");
+  const second = span([3, 0], [3, 3]);
+  const after = lines("a\nfoo\nB\nbar\nc");
+  expect(reanchor(second, { text: "foo" }, before, after, after.join("\n"))).toEqual({
+    ...span([3, 0], [3, 0]),
+    outdated: true,
+  });
+  // Once in each text, but what stands around it on its lines differs: other code.
+  const assigned = lines("top\nlet x = y;\nend");
+  const value = span([1, 8], [1, 9]);
+  const reused = lines("TOP\n\nlet x = q;\nw = y + 1\nend");
+  expect(reanchor(value, { text: "y" }, assigned, reused, reused.join("\n")).outdated).toBe(true);
+  // The same line moved under new code keeps its annotation.
+  const moved = lines("TOP\n\nlet x = y;\nend");
+  expect(reanchor(value, { text: "y" }, assigned, moved, moved.join("\n"))).toEqual({
+    ...span([2, 8], [2, 9]),
+    outdated: false,
+  });
+});
+
 test("at open, a stored range is checked against the file's text", () => {
   const text = "one\ntwo\nthree";
   expect(verify(span([1, 0], [1, 3]), { text: "two" }, lines(text), text)).toEqual({
