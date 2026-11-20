@@ -21,6 +21,8 @@ export interface LegalDocument {
   updated: string;
   /** Machine-readable form of `updated`. */
   updatedIso: string;
+  /** The one-sentence definition a page's Markdown twin opens with; the policies have none. */
+  definition?: string;
   intro: string;
   sections: { heading: string; body: LegalBlock[] }[];
 }
@@ -293,6 +295,8 @@ export const support: LegalDocument = {
     "How to get help with ace, delete your ace account, and what ace does and doesn't see. Email the founders or open an issue on GitHub.",
   updated,
   updatedIso,
+  definition:
+    "ace support is where people who use ace, the free, open-source app that runs coding agents, get help and delete their ace account.",
   intro:
     "ace is built by a small team and open source. Here is where to ask for help, how to delete an account, and answers to the questions we hear most.",
   sections: [
