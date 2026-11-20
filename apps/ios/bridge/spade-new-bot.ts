@@ -6,7 +6,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
 import { initialOf, type SpadeFaceRow } from "./spade-group-rows.ts";
-import { readModelSources } from "./spade-settings.ts";
+import { readModelSources, type Ask } from "./spade-settings.ts";
 import {
   spadeModelChoices,
   spadeModelSetting,
@@ -57,8 +57,6 @@ export type SpadeNewBotAnswer =
       more: number;
     }
   | { ok: true; agentId: string; conversation: string };
-
-type Ask = (method: "GET" | "POST", route: string, body?: unknown) => Promise<string>;
 
 const refused = (title: string, error: unknown): Refusal => ({
   ok: false,

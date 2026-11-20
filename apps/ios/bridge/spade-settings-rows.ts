@@ -94,6 +94,9 @@ export function spadeModelSetting(
   }
 }
 
+/** A choice's weight in the answer, its comma included. */
+const weigh = (choice: SpadeModelChoiceRow) => utf8Bytes(JSON.stringify(choice)) + 1;
+
 /**
  * Every model to pick from, grouped by where it comes from, held to `spadeChoicesBudget`: past
  * it, the longest group's last model goes until the rest fit, and `more` counts what went.
@@ -112,7 +115,6 @@ export function spadeModelChoices(sources: SpadeModelSources): {
           },
         ],
   );
-  const weigh = (choice: SpadeModelChoiceRow) => utf8Bytes(JSON.stringify(choice)) + 1;
   let bytes = groups.reduce(
     (sum, group) =>
       sum +

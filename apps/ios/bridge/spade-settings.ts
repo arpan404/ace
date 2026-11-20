@@ -81,7 +81,7 @@ export type SpadeSettingsAnswer =
       | Record<never, never>
     ));
 
-type Ask = (
+export type Ask = (
   method: "GET" | "POST" | "PUT" | "DELETE",
   route: string,
   body?: unknown,
@@ -190,9 +190,9 @@ export async function answerSpadeSettings(
 }
 
 /** An endpoint as a preset describes it; its key is set on its own, once it is added. */
-async function addFromPreset(ask: Ask, id: string) {
+async function addFromPreset(ask: Ask, presetId: string) {
   const models = sure(parseSpadeModels(await ask("GET", "/v1/models")), "models");
-  const choice = spadePresetChoices(models.presets).find((each) => each.preset.id === id);
+  const choice = spadePresetChoices(models.presets).find((each) => each.preset.id === presetId);
   const preset = choice?.preset;
   if (!choice || !preset?.format)
     throw new Error("This machine's Spade doesn't offer that service any more.");

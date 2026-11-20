@@ -304,9 +304,9 @@ test("Apps lists each connected app with its health and the bots that use it, an
 });
 
 test("while Spade is off, General offers to turn it on and the other pages read nothing from it", async () => {
-  const { ask, api, daemon, spade } = await setUp((fake, daemon) => {
-    daemon.services.settings.write("spade.enabled", false);
-    daemon.spade.status = { state: "off" };
+  const { ask, api, daemon, spade } = await setUp((fake, machine) => {
+    machine.services.settings.write("spade.enabled", false);
+    machine.spade.status = { state: "off" };
     fake.endpoints = [structuredClone(anthropic)];
   });
   await until(() => spade.setting.enabled === false);
