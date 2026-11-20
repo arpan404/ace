@@ -158,6 +158,8 @@ export interface Services {
   acpCatalog?: {
     probe: NonNullable<import("@ace/models").DiscoveryOptions["acpProbe"]>;
     register(installation: import("@ace/protocol").RegistryInstallation): Promise<void>;
+    /** The person approved this agent's update: its row follows the approved version. */
+    updated(identity: import("@ace/protocol").AcpIdentity): void;
   };
   engine?: Engine;
   cursorHosts?: CursorHostSlots;

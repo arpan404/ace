@@ -13,7 +13,13 @@ import { withDaemonMcp, withShippedSkills } from "./provider-mcp.ts";
 import { withNativeTools } from "./native-tools.ts";
 import { cachedToolFiles, nodeFileSystem } from "../native-tools/files.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
-import { acpProbeLauncher, registerAcpAgent, registerApprovedAcpAgents } from "../acp-catalog.ts";
+import {
+  acpAgentUpdated,
+  acpProbeLauncher,
+  followAcpLogins,
+  registerAcpAgent,
+  registerApprovedAcpAgents,
+} from "../acp-catalog.ts";
 import { ManagedWorktrees } from "../managed-worktrees.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerAntigravity } from "./antigravity.ts";
@@ -101,6 +107,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     };
     services.acpCatalog = {
       probe: acpProbeLauncher(catalog),
+      updated(identity) {
+        try {
+          acpAgentUpdated(catalog, identity);
+        } catch (error) {
+          log.log("warn", "ACP catalog update failed", logError(error));
+        }
+      },
       async register(installation) {
         const stored = catalog.agents.inventory
           .all()
@@ -113,6 +126,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           });
       },
     };
+    resources.own(followAcpLogins(catalog));
     // Rows from the stored inventory alone, so the picker lists each approved agent (and any
     // cached models) at once. No agent starts here; a row probes when a read first asks for it.
     void registerApprovedAcpAgents(catalog, (error) =>
