@@ -199,7 +199,7 @@ test("@ offers another conversation in the project and sends its thread referenc
     provider: "opencode",
   });
   await userEvent.type(message, "Compare with @Router");
-  const menu = await screen.findByRole("listbox", { name: "Files and threads" });
+  const menu = await screen.findByRole("listbox", { name: "Mention" });
   await userEvent.click(within(menu).getByRole("option", { name: /Router notes/ }));
   await userEvent.type(message, "before changing this{Enter}");
   await waitFor(() =>

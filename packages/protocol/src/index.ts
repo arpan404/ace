@@ -23,6 +23,7 @@ export * from "./events.ts";
 export * from "./ids.ts";
 export * from "./interactions.ts";
 export * from "./items.ts";
+export * from "./addressing.ts";
 export * from "./provider.ts";
 export * from "./thread.ts";
 export * from "./thread-place.ts";

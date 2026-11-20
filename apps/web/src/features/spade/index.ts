@@ -16,3 +16,8 @@ export { readAgents } from "./spade-api.ts";
 export { usePushToTalk } from "./spade-push-to-talk.ts";
 /** The catalogue of apps and the person's connectors, for the Marketplace's Apps. */
 export { useSpadeConnectors } from "./spade-connector-api.ts";
+
+// For the `@` picker and the transcript's bot replies (ADR 0198).
+export { SpadeFace } from "./spade-face.tsx";
+export { GroupFaces } from "./spade-group-faces.tsx";
+export { readGroups } from "./spade-teams-api.ts";

@@ -173,6 +173,7 @@ impl Engine {
             from_agent,
             from_routine: None,
             from_group,
+            from_thread: None,
         });
         let entry = InboxEntry {
             from_host: sender.host.clone(),
