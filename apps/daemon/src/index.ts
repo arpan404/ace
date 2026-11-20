@@ -58,6 +58,7 @@ import { stopRecorder, type Stopping } from "./stop-record.ts";
 import { beginRun, previousRunRecord, type DaemonRun } from "./run-marker.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
+import { openWhileBusy } from "./busy-open.ts";
 import { runningBuildId, storedTrustBuild } from "./stored-shape.ts";
 
 import { startServer, type ServerOptions } from "./server.ts";
@@ -69,6 +70,8 @@ import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
 import { serviceFactories, readyServices, type ServiceContext } from "./services/composition.ts";
 import { ServiceStartup, systemStartup } from "./services/startup.ts";
+import { loadAwareBudget, pressureFields, pressureVerdict } from "@ace/diagnostics/pressure";
+import { readSystemPressure } from "@ace/diagnostics/pressure-read";
 import { attemptFile, safeModeSkips, startupAttempts } from "./startup-attempts.ts";
 import { crashRecord, installCrashAttribution, repeatedCrashes } from "./service-crashes.ts";
 import { ServiceScope } from "./services/service-scope.ts";
@@ -446,28 +449,52 @@ export async function startDaemon(options: DaemonOptions = {}) {
   try {
     const logDirectory = daemonLogDirectory(config);
     lifetime.signal.throwIfAborted();
+    // Read while the store opens; it sets how long each service may take to start.
+    const pressure = (options.pressure ?? readSystemPressure)().catch(() => undefined);
     const storeBegan = now();
-    const eventStore = openAtStart(
+    const eventStore = await openWhileBusy(
       () =>
-        new Store(
-          join(config.dataDir, "events.sqlite"),
-          (error) => {
-            storage.observe(error);
-            log.log("error", "Event subscriber failed", logError(error));
-          },
-          // Beside the database, outside it: a rolled-back database is named afresh (ADR 0128).
-          {
-            now,
-            lineage: lineageFile(join(config.dataDir, "sequence-mark.json")),
-            storedTrustBuild: storedTrustBuild(
-              process.env.ACE_VERSION,
-              process.argv[1] === undefined ? undefined : runningBuildId(dirname(process.argv[1])),
+        openAtStart(
+          () =>
+            new Store(
+              join(config.dataDir, "events.sqlite"),
+              (error) => {
+                storage.observe(error);
+                log.log("error", "Event subscriber failed", logError(error));
+              },
+              // Beside the database, outside it: a rolled-back database is named afresh (ADR 0128).
+              {
+                now,
+                lineage: lineageFile(join(config.dataDir, "sequence-mark.json")),
+                storedTrustBuild: storedTrustBuild(
+                  process.env.ACE_VERSION,
+                  process.argv[1] === undefined
+                    ? undefined
+                    : runningBuildId(dirname(process.argv[1])),
+                ),
+              },
             ),
-          },
+          config.dataDir,
+          diskSpace,
+          pauseBelow,
         ),
-      config.dataDir,
-      diskSpace,
-      pauseBelow,
+      {
+        // A stop asked for meanwhile ends the wait.
+        sleep: (delayMs) =>
+          new Promise<void>((resolve) => setTimeout(resolve, delayMs)).then(() =>
+            lifetime.signal.throwIfAborted(),
+          ),
+        onBusy: (attempt, delayMs, error) =>
+          log.log(
+            "warn",
+            "The event store is busy; opening it again shortly",
+            logFields([
+              ["attempt", attempt],
+              ["delayMs", delayMs],
+              ...Object.entries(logError(error)),
+            ]),
+          ),
+      },
     );
     log.log(
       "info",
@@ -538,10 +565,26 @@ export async function startDaemon(options: DaemonOptions = {}) {
       : [];
     if (config.safeMode)
       log.log("warn", "Daemon starting in safe mode", logFields([["services", skip]]));
+    const load = await pressure;
+    const verdict = load ? pressureVerdict(load) : undefined;
+    const timeoutMs = verdict
+      ? loadAwareBudget(systemStartup.timeoutMs, verdict)
+      : systemStartup.timeoutMs;
+    if (load && verdict?.heavy)
+      log.log(
+        "warn",
+        "The machine is overloaded; services get longer to start",
+        logFields([
+          ["timeoutMs", timeoutMs],
+          ["pressure", verdict.reasons],
+          ...Object.entries(pressureFields(load)),
+        ]),
+      );
     const startup = new ServiceStartup(
       serviceContext,
       {
         ...systemStartup,
+        timeoutMs,
         onAttempt: attempts.onAttempt,
         inService: (name, work) => scope.run(name, work),
         ...options.startup,

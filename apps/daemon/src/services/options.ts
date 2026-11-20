@@ -64,6 +64,11 @@ export type DaemonOptions = {
   /** Startup deadlines and scheduler are injected at the timer boundary. */
   startup?: Partial<import("./startup.ts").StartupRuntime>;
   /**
+   * How loaded the machine is as the daemon starts; on a heavily loaded one each service's
+   * startup deadline is longer (ADR 0195). Defaults to the real machine's.
+   */
+  pressure?: () => Promise<import("@ace/diagnostics/pressure").SystemPressure>;
+  /**
    * Stops every child process group the daemon still owns, SIGTERM then SIGKILL after
    * `graceMs`, once a shutdown's polite window has passed. Tests substitute it.
    */
