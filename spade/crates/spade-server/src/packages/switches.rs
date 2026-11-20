@@ -33,22 +33,24 @@ pub fn commit(
         Some(security) => {
             let manifest = next.manifest.clone();
             let on = next.on.clone();
+            // A run that reached a host or the network before a switch went off reaches it no
+            // more, and no run is issued the old policy while this commits.
             security
-                .change_with(bot, |current, machine| {
-                    let moved = Moving {
-                        security,
-                        bot,
-                        manifest: &manifest,
-                        machine,
-                    };
-                    moved
-                        .apply(current, &mut next.granted, before, &on)
-                        .map_err(SecurityError::Invalid)?;
-                    Ok(vec![(package_key(bot), Some(link_text(&next)))])
+                .narrowing(|| {
+                    security.change_with(bot, |current, machine| {
+                        let moved = Moving {
+                            security,
+                            bot,
+                            manifest: &manifest,
+                            machine,
+                        };
+                        moved
+                            .apply(current, &mut next.granted, before, &on)
+                            .map_err(SecurityError::Invalid)?;
+                        Ok(vec![(package_key(bot), Some(link_text(&next)))])
+                    })
                 })
                 .map_err(|error| PackageError::Invalid(error.to_string()))?;
-            // A run that reached the network before a switch went off reaches it no more.
-            security.cut_egress(&|bot| security.reaches_nothing(bot));
         }
         None if !touches_security(&next.manifest, &next.granted, before, &next.on) => {
             engine

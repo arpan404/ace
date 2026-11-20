@@ -114,6 +114,10 @@ pub struct Security {
     bots: EngineHandle,
     /// One change to a bot's settings at a time.
     changing: Mutex<()>,
+    /// Orders a run's egress ticket against a narrowing of what bots may reach: a ticket is
+    /// issued under it from the policy read under it, and a narrowing cuts the tickets it
+    /// outdated before it lets go, so no ticket outlives the policy it was issued from.
+    egress: Mutex<()>,
     checkpoints: Arc<checkpoints::Checkpoints>,
     /// Bots whose workspace is reserved for maintenance (a restore): no turn starts, no command
     /// runs and no file tool writes until it is released.
@@ -122,6 +126,8 @@ pub struct Security {
     attestor: attest::Attestor,
     /// What a test runs while a change to how a bot decides is being decided.
     autonomy_hook: Mutex<Option<AutonomyHook>>,
+    /// What a test runs between reading a run's policy and issuing its ticket.
+    issue_hook: Mutex<Option<AutonomyHook>>,
 }
 
 /// What a test runs, with the bot's id, while a change to how that bot decides is being decided.
@@ -192,12 +198,14 @@ impl Security {
             clock: setup.clock,
             bots: setup.bots,
             changing: Mutex::new(()),
+            egress: Mutex::new(()),
             checkpoints: Arc::new(checkpoints::Checkpoints::new(
                 setup.spade_data.join("checkpoints"),
             )),
             maintenance: Arc::default(),
             attestor: attest::Attestor::new(setup.person_key),
             autonomy_hook: Mutex::default(),
+            issue_hook: Mutex::default(),
         })
     }
 
@@ -341,6 +349,23 @@ impl Security {
     fn deciding(&self, bot: &str) {
         let hook = self
             .autonomy_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hook) = hook {
+            hook(bot);
+        }
+    }
+
+    /// Calls `hook` with the bot's id between reading a run's network policy and issuing its
+    /// egress ticket; for tests that must see an issue and a narrowing meet.
+    pub fn hold_ticket_issues(&self, hook: AutonomyHook) {
+        *self.issue_hook.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    }
+
+    fn issuing(&self, bot: &str) {
+        let hook = self
+            .issue_hook
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clone();
@@ -598,13 +623,28 @@ impl Security {
         Ok(current)
     }
 
-    /// Ends every live run's network access for the bots `cut` names (a terminal, a service, a
-    /// command still running), as when their ticket drops: a package's network switch turned off
-    /// takes the egress its bot's runs already had.
-    pub fn cut_egress(&self, cut: &dyn Fn(&str) -> bool) {
+    /// Runs `narrow` (a change that may narrow what bots reach, such as a package's network
+    /// switch turned off) with no egress ticket issued meanwhile, then ends every live run's
+    /// ticket (a terminal, a service, a command still running) whose policy is no longer what
+    /// that bot would be issued now. Such a run reaches nothing more; its next one gets the new
+    /// policy.
+    pub fn narrowing<T>(&self, narrow: impl FnOnce() -> T) -> T {
+        let _issuing = self.egress.lock().unwrap_or_else(|p| p.into_inner());
+        let done = narrow();
         if let Some(proxy) = &self.proxy {
-            proxy.cut(cut);
+            proxy.cut_where(&|bot, policy| !self.issued(bot).contains(policy));
         }
+        done
+    }
+
+    /// The policies a run of `bot`'s is issued now: its commands' and its plugins'. Under a
+    /// package's ceiling without `network` both reach nothing (ADR 0200 §3.4).
+    pub(crate) fn issued(&self, bot: &str) -> [NetworkPolicy; 2] {
+        if self.reaches_nothing(bot) {
+            return [NetworkPolicy::off(), NetworkPolicy::off()];
+        }
+        let held = self.effective(bot);
+        [held.network, held.plugin_network]
     }
 
     /// Takes a grant back; whether it was there.
