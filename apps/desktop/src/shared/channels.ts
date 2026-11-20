@@ -96,6 +96,8 @@ export const requests = {
   "app.quit": { request: None, result: None },
   /** Reload the window with a fresh daemon connection; restarts a daemon that failed. */
   "app.reload": { request: None, result: None },
+  /** The window wrote its pending editor drafts after "drafts.flush": the quit may go on. */
+  "drafts.flushed": { request: None, result: None },
   "daemon.connection": { request: None, result: DaemonConnection },
   /**
    * The connection the page will most likely get, at once, before the daemon answers; the
@@ -216,6 +218,8 @@ export const events = {
   "daemon.status": DaemonStatus,
   "deep-link": DeepLink,
   "keymap.action": z.string().min(1).max(64),
+  /** The app is quitting: write every pending editor draft, then call "drafts.flushed". */
+  "drafts.flush": None,
   "theme.changed": NativeAppearance,
   "window.changed": WindowState,
   "settings.changed": DesktopSettings,
