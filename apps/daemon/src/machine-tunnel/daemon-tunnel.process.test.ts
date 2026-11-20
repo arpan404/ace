@@ -20,7 +20,9 @@ import {
   type TunnelStream,
 } from "@ace/client/machine-tunnel";
 import { nodeTunnelDialer } from "@ace/client/machine-tunnel/node";
+import { accessRequest } from "../client-access.ts";
 import { cleanups, identity, setup } from "../remote-test-support.ts";
+import { token } from "../socket-test-support.ts";
 import { loadIdentity } from "../tls-identity.ts";
 
 /*
@@ -147,6 +149,20 @@ test("turning remote.machineLocalhost off ends open streams on every path", asyn
   await settings.set("remote.machineLocalhost", false, { kind: "global" });
   await Promise.all(streams.map((stream) => stream.closed));
   expect(await refusal(open(direct).open(port))).toBe("tunnel_off");
+}, 30_000);
+
+test("revoking the device reaches it as a refusal on every path, not as a drop", async () => {
+  const port = await echoServer();
+  const { f, direct, relayed, open, credential } = await daemon();
+  const tunnels = [direct, relayed].map((path) => open(path));
+  const streams = await Promise.all(tunnels.map((tunnel) => tunnel.open(port)));
+  await accessRequest(f.server.httpUrl, `/v1/devices/${credential.device.id}`, {
+    method: "DELETE",
+    token,
+  });
+  await Promise.all(streams.map((stream) => stream.closed));
+  // The device heard why: the next open reports it at once instead of retrying the path.
+  for (const tunnel of tunnels) expect(await refusal(tunnel.open(port))).toBe("tunnel_forbidden");
 }, 30_000);
 
 /**

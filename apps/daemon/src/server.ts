@@ -285,6 +285,7 @@ export async function startServer(options: ServerOptions): Promise<{
       .catch(() => options.log?.(new Error("Notification revocation failed")));
     for (const [socket, device] of authenticated)
       if (device.revocable && device.id === id) {
+        for (const service of serviceSessions.get(socket) ?? []) service.revoked?.();
         cleanups.get(socket)?.();
         closer.gracefulClose(
           socket,

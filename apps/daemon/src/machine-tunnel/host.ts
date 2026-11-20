@@ -54,9 +54,18 @@ export interface TunnelHostOptions {
   log?(error: unknown): void;
 }
 
+/** A served tunnel connection, as the path that attached it holds it. */
+export interface TunnelAttachment {
+  /**
+   * End the connection with the machine's refusal: the device hears `code` first, then every
+   * stream resets and the connection closes (a revoked device hears `tunnel_forbidden`).
+   */
+  refuse(code: TunnelRefusalCode): void;
+}
+
 export interface TunnelHost {
   /** Serve a welcomed tunnel connection until it closes. */
-  attach(connection: TunnelConnection): void;
+  attach(connection: TunnelConnection): TunnelAttachment;
   /** A device's authority may have changed: end connections that lost `operate`. */
   recheck(): void;
   close(): void;
@@ -98,7 +107,7 @@ export function createTunnelHost(options: TunnelHostOptions): TunnelHost {
     attach(connection) {
       if (closed) {
         connection.close();
-        return;
+        return { refuse: () => {} };
       }
       const key = `${++serial}`;
       const name = (id: number) => `${key}:${id}`;
@@ -152,9 +161,10 @@ export function createTunnelHost(options: TunnelHostOptions): TunnelHost {
       // Authority is decided before any frame is handled: frames wait in `heldChannel` until
       // the mux subscribes, which only an admitted connection reaches.
       const now = tunnelAccess({ enabled: enabled ?? true, operate: connection.operate() });
+      const attachment: TunnelAttachment = { refuse: (code) => entry.end(code) };
       if (now) {
         entry.end(now);
-        return;
+        return attachment;
       }
       void (async () => {
         const access = tunnelAccess({
@@ -216,6 +226,7 @@ export function createTunnelHost(options: TunnelHostOptions): TunnelHost {
         options.log?.(error);
         entry.end();
       });
+      return attachment;
     },
     recheck() {
       endAll("tunnel_forbidden", (connection) => !connection.operate());

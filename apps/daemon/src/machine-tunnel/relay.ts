@@ -1,6 +1,6 @@
 import type { ServerMessage } from "@ace/protocol";
 import type { HostChannel } from "@ace/relay";
-import type { TunnelHost } from "./host.ts";
+import type { TunnelAttachment, TunnelHost } from "./host.ts";
 
 /**
  * A device's tunnel connection through a relay (ADR 0194): an authorized relay channel whose
@@ -14,12 +14,14 @@ export async function serveRelayTunnel(
     device: string;
     operate(): boolean;
     welcome: Extract<ServerMessage, { type: "welcome" }>;
+    /** The served connection, for the relay to refuse it (a revoked device). */
+    attached?(attachment: TunnelAttachment): void;
   },
 ): Promise<void> {
   await channel.send(options.welcome);
   let frames: ((frame: Uint8Array) => void) | undefined;
   let lost: (() => void) | undefined;
-  host.attach({
+  const attachment = host.attach({
     device: options.device,
     operate: options.operate,
     // One send queue carries both, so a refusal stays ahead of its RESET.
@@ -44,6 +46,7 @@ export async function serveRelayTunnel(
     },
     close: () => channel.close(),
   });
+  options.attached?.(attachment);
   try {
     for await (const frame of channel.frames()) {
       if (frame instanceof Uint8Array) frames?.(frame);

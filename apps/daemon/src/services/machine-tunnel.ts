@@ -1,4 +1,5 @@
 import type { ClientMessage } from "@ace/protocol";
+import type { TunnelAttachment } from "../machine-tunnel/host.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 type Channel = Extract<ClientMessage, { type: "hello" }>["channel"];
@@ -12,6 +13,7 @@ export function createTunnelSession(context: SocketContext): SocketService {
   let channel: Channel;
   let frames: ((frame: Uint8Array) => void) | undefined;
   let lost: (() => void) | undefined;
+  let attachment: TunnelAttachment | undefined;
   const send = (data: string | Uint8Array, binary: boolean) =>
     new Promise<void>((resolve, reject) => {
       if (!context.connected()) {
@@ -38,7 +40,7 @@ export function createTunnelSession(context: SocketContext): SocketService {
         context.socket.close(1011, "service_unavailable");
         return;
       }
-      host.attach({
+      attachment = host.attach({
         device,
         operate: () => context.connected() && context.authorize("operate"),
         sendJson: (message) => send(JSON.stringify(message), false),
@@ -64,6 +66,10 @@ export function createTunnelSession(context: SocketContext): SocketService {
       if (channel !== "tunnel") return false;
       frames?.(new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength));
       return true;
+    },
+    revoked() {
+      // The refusal goes ahead of the close frame, on the same socket.
+      attachment?.refuse("tunnel_forbidden");
     },
     close() {
       lost?.();

@@ -25,7 +25,7 @@ import { mediaHelloAdmission, type MediaTicketClaim } from "./media-relay/admit.
 import { serveRelayMachineCalls } from "./relay-machine-host.ts";
 import type { TransferTarget } from "./transfers/serve.ts";
 import type { MachineTarget } from "./machines/target.ts";
-import type { TunnelHost } from "./machine-tunnel/host.ts";
+import type { TunnelAttachment, TunnelHost } from "./machine-tunnel/host.ts";
 import { serveRelayTunnel } from "./machine-tunnel/relay.ts";
 
 /** The production host composes authenticated relay frames with the same file service. */
@@ -97,8 +97,15 @@ export async function startFilesRelay(
     for (const [channel, admitted] of accountClients) if (!admitted()) channel.close();
   });
   const controller = new AbortController();
+  /** Tunnel channels, refused through their host so the device hears why (ADR 0194). */
+  const tunnels = new Map<HostChannel, TunnelAttachment>();
   const stopRevoked = options.auth.onRevoke((id) => {
-    for (const [channel, device] of clients) if (device === id) channel.close();
+    for (const [channel, device] of clients) {
+      if (device !== id) continue;
+      const tunnel = tunnels.get(channel);
+      if (tunnel) tunnel.refuse("tunnel_forbidden");
+      else channel.close();
+    }
   });
   // A channel opened with a credential since replaced (the install paired again) ends too.
   const stopReplaced = options.auth.onCredentialReplaced((id) => {
@@ -293,8 +300,10 @@ export async function startFilesRelay(
                 protocolVersion: 1,
                 headSeq: options.headSeq(),
               },
+              attached: (attachment) => tunnels.set(channel, attachment),
             });
           } finally {
+            tunnels.delete(channel);
             clients.delete(channel);
             accountClients.delete(channel);
             channel.close();
