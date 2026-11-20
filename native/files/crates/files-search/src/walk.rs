@@ -248,13 +248,14 @@ impl ParallelVisitor for Worker<'_> {
             return WalkState::Continue;
         };
         if entry.file_type().is_some_and(|kind| kind.is_file()) {
-            // Only a file waits its turn: a folder goes on at once, so the walk lists it and every
-            // thread can take its entries, instead of one waiting thread holding a whole subtree.
+            // Only a file waits for a turn, held while it is searched: a folder goes on at once, so
+            // the walk lists it and every thread can take its entries, instead of one waiting
+            // thread holding a whole subtree.
             #[cfg(target_os = "macos")]
-            {
+            let _turn = {
                 let shared = self.shared;
-                self.paced.wait(|| shared.halted());
-            }
+                self.paced.wait(|| shared.halted())
+            };
             self.search(&entry);
         }
         if self.shared.halted() {

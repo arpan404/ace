@@ -14,9 +14,12 @@
 //! adds the CPU time it used to a shared count, and about every [`WINDOW`] that count is compared
 //! with the time the running threads had: threads that were mostly waiting are joined by more,
 //! threads that were mostly on the CPU are not, and a crowd that is all on the CPU shrinks back.
-//! The others wait in [`Paced::wait`] at the start of their next entry. A waiting thread holds the
-//! entry the walk gave it, which may be a folder no other thread will see, so it also goes on as
-//! soon as the running threads stop making progress: the walk can never stall on a parked thread.
+//! A thread takes a turn before it searches a file and gives it back when the file is done; while
+//! as many turns are out as the limit allows, the others wait in [`Paced::wait`], holding the file
+//! the walk gave them. Folders never wait, so no subtree is held back. A waiting thread looks again
+//! every [`RETRY`] rather than being woken by each finished file, which on a tree in memory would
+//! cost a wake-up per file; when the running threads run out of work their turns come back and the
+//! waiting ones take them, so the walk never stalls.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, PoisonError};
@@ -31,8 +34,8 @@ const WINDOW: Duration = Duration::from_millis(100);
 /// How many entries a running thread handles between two looks at its own CPU time.
 const CHECK_EVERY: u32 = 64;
 
-/// How long a parked thread waits for progress before it decides the walk needs it.
-const STALL: Duration = Duration::from_millis(2);
+/// How long a waiting thread waits before it looks for a free turn again.
+const RETRY: Duration = Duration::from_millis(1);
 
 /// Below this share of their time on the CPU, the running threads are mostly waiting on the disk.
 const WAITING: f64 = 0.6;
@@ -77,9 +80,8 @@ struct Window {
 pub(crate) struct Pace {
     threads: usize,
     limit: AtomicUsize,
-    ids: AtomicUsize,
-    /// Entries handled by running threads; a parked thread watches it to see the walk moving.
-    progress: AtomicU64,
+    /// Threads searching a file now; never more than `limit` when one starts.
+    searching: AtomicUsize,
     /// CPU time the running threads reported, in nanoseconds.
     cpu: AtomicU64,
     window: Mutex<Window>,
@@ -93,8 +95,7 @@ impl Pace {
         Pace {
             threads,
             limit: AtomicUsize::new(START.min(threads)),
-            ids: AtomicUsize::new(0),
-            progress: AtomicU64::new(0),
+            searching: AtomicUsize::new(0),
             cpu: AtomicU64::new(0),
             window: Mutex::new(Window {
                 started: Instant::now(),
@@ -105,15 +106,31 @@ impl Pace {
         }
     }
 
-    /// The pacing one walker thread follows. Its place in line is taken at its first entry: the
-    /// walk also builds a visitor for the root that never sees an entry, and it must not hold
-    /// one of the places that run.
+    /// The pacing one walker thread follows.
     pub(crate) fn join(&self) -> Paced<'_> {
         Paced {
             pace: self,
-            id: None,
             handled: 0,
             cpu_seen: None,
+        }
+    }
+
+    /// Takes a turn if fewer threads are searching than the limit allows.
+    fn try_take(&self) -> bool {
+        let mut searching = self.searching.load(Ordering::Acquire);
+        loop {
+            if searching >= self.limit.load(Ordering::Acquire) {
+                return false;
+            }
+            match self.searching.compare_exchange_weak(
+                searching,
+                searching + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(now) => searching = now,
+            }
         }
     }
 
@@ -155,51 +172,65 @@ impl Pace {
 /// One walker thread's place in the pacing.
 pub(crate) struct Paced<'a> {
     pace: &'a Pace,
-    /// This thread's place in line, from its first entry: the first `limit` places run.
-    id: Option<usize>,
     handled: u32,
     /// This thread's CPU time when it last reported it.
     cpu_seen: Option<Duration>,
 }
 
-impl Paced<'_> {
-    /// Called before each entry: returns at once while this thread may run, and otherwise waits
-    /// until it may, the running threads stop making progress, or `halted` says the search is over.
-    pub(crate) fn wait(&mut self, halted: impl Fn() -> bool) {
+/// A turn to search one file, given back when dropped.
+pub(crate) struct Turn<'a> {
+    /// `None` when the search ended before a turn came free.
+    pace: Option<&'a Pace>,
+}
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        if let Some(pace) = self.pace {
+            pace.searching.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+}
+
+impl<'a> Paced<'a> {
+    /// Called before each file: takes a turn, waiting while as many threads are searching as the
+    /// limit allows, or until `halted` says the search is over.
+    pub(crate) fn wait(&mut self, halted: impl Fn() -> bool) -> Turn<'a> {
         let pace = self.pace;
-        let id = *self.id.get_or_insert_with(|| {
-            self.cpu_seen = thread_cpu();
-            pace.ids.fetch_add(1, Ordering::Relaxed)
-        });
-        if id >= pace.limit.load(Ordering::Relaxed) {
-            self.park(id, &halted);
-            // Time spent parked is not time this thread had to search with.
+        if self.cpu_seen.is_none() {
             self.cpu_seen = thread_cpu();
         }
-        pace.progress.fetch_add(1, Ordering::Relaxed);
+        if !pace.try_take() {
+            if !self.park(&halted) {
+                return Turn { pace: None };
+            }
+            // Time spent waiting is not time this thread had to search with.
+            self.cpu_seen = thread_cpu();
+        }
         self.handled += 1;
         if self.handled >= CHECK_EVERY {
             self.handled = 0;
             self.report();
             pace.reconsider(Instant::now());
         }
+        Turn { pace: Some(pace) }
     }
 
-    fn park(&self, id: usize, halted: &impl Fn() -> bool) {
+    /// Waits for a free turn and takes it; false when the search ended first.
+    fn park(&self, halted: &impl Fn() -> bool) -> bool {
         let pace = self.pace;
         let mut guard = pace.parked.lock().unwrap_or_else(PoisonError::into_inner);
-        while id >= pace.limit.load(Ordering::Relaxed) && !halted() {
-            let before = pace.progress.load(Ordering::Relaxed);
+        loop {
+            if halted() {
+                return false;
+            }
+            if pace.try_take() {
+                return true;
+            }
             guard = pace
                 .wake
-                .wait_timeout(guard, STALL)
+                .wait_timeout(guard, RETRY)
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
-            if pace.progress.load(Ordering::Relaxed) == before {
-                // Nothing moved: the running threads are out of work, and this entry may be the
-                // rest of the walk.
-                return;
-            }
         }
     }
 
@@ -274,21 +305,85 @@ mod tests {
     }
 
     #[test]
-    fn a_parked_thread_goes_on_once_the_running_ones_stop_moving() {
-        // The running thread never comes back: its work is done, and the parked thread's entry
-        // may be the rest of the walk.
+    fn a_waiting_thread_takes_the_turn_a_finished_one_gives_back() {
         let pace = Pace::new(START + 1);
         let mut running: Vec<_> = (0..START).map(|_| pace.join()).collect();
-        for paced in &mut running {
-            paced.wait(|| false);
-        }
-        let mut parked = pace.join();
-        let started = Instant::now();
-        parked.wait(|| false);
+        let turns: Vec<_> = running
+            .iter_mut()
+            .map(|paced| paced.wait(|| false))
+            .collect();
+        std::thread::scope(|scope| {
+            let waiting = scope.spawn(|| {
+                let mut paced = pace.join();
+                let turn = paced.wait(|| false);
+                (Instant::now(), turn.pace.is_some())
+            });
+            std::thread::sleep(Duration::from_millis(50));
+            let released = Instant::now();
+            drop(turns);
+            let (started, took) = waiting.join().unwrap_or((released, false));
+            assert!(took, "the waiting thread never got a turn");
+            assert!(
+                started >= released,
+                "a fifth thread searched while four turns were out"
+            );
+            assert!(
+                started.duration_since(released) < Duration::from_secs(1),
+                "the waiting thread stayed parked after the turns came back"
+            );
+        });
+    }
+
+    #[test]
+    fn a_waiting_thread_gives_up_when_the_search_ends() {
+        let pace = Pace::new(START + 1);
+        let mut running: Vec<_> = (0..START).map(|_| pace.join()).collect();
+        let _turns: Vec<_> = running
+            .iter_mut()
+            .map(|paced| paced.wait(|| false))
+            .collect();
+        let mut waiting = pace.join();
+        assert!(waiting.wait(|| true).pace.is_none());
+    }
+}
+
+#[cfg(test)]
+mod limit_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    use super::Pace;
+
+    #[test]
+    fn threads_busy_on_the_cpu_never_let_more_in_than_the_limit() {
+        // Every file takes longer than a parked thread's patience, and keeps its thread on the
+        // CPU: nothing may read that as a stalled walk and let the parked threads in.
+        let pace = Pace::new(8);
+        let inside = AtomicUsize::new(0);
+        let most = AtomicUsize::new(0);
+        let highest_limit = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    let mut paced = pace.join();
+                    for _ in 0..20 {
+                        let _turn = paced.wait(|| false);
+                        highest_limit.fetch_max(pace.limit(), Ordering::Relaxed);
+                        let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
+                        most.fetch_max(now, Ordering::Relaxed);
+                        let until = Instant::now() + Duration::from_millis(3);
+                        while Instant::now() < until {
+                            std::hint::spin_loop();
+                        }
+                        inside.fetch_sub(1, Ordering::SeqCst);
+                    }
+                });
+            }
+        });
+        let (most, limit) = (most.into_inner(), highest_limit.into_inner());
         assert!(
-            started.elapsed() < Duration::from_secs(1),
-            "a parked thread waited {:?} on a walk that had stopped",
-            started.elapsed()
+            most <= limit,
+            "{most} threads searched at once under a limit of at most {limit}"
         );
     }
 }
