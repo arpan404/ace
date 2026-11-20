@@ -21,6 +21,12 @@ describe. Agents run on models from the person's own endpoints.
   conversation and used from its next turn, never mid-turn: a turn's prompt takes the task stored
   before its `reply_started`, placed in the cached top of the prompt, and `reply_started` names
   its model. A restart rebuilds the identical prompt. Name and avatar changes apply at once.
+- **Personality** (`{tone?: concise|warm|formal|playful, humour: bool, emoji: bool}`, humour and
+  emoji off unless chosen) is how the bot talks. Set in the profile, or brought by a template or
+  recipe, it is stored on the row and in the same `agent_configured` event (a task change keeps
+  it), and taken from the next turn as a section of its own after the task, in `<personality>`
+  tags, saying it changes only style, never the task or what the bot may do. With none set there
+  is no section. `PATCH` with `personality: null` clears it.
 - **Delete** first marks the agent as being deleted, under the lock every delivery takes: from
   then on no message or job result reaches it, no turn, job or title starts, and messages answer
   `404`. Its turn and jobs are stopped and given up to 5 seconds to let go; whatever is still
@@ -33,6 +39,45 @@ describe. Agents run on models from the person's own endpoints.
   character face (see Faces).
 - **Titles** and other side jobs use the person's fast model (`PUT /v1/settings`), else the
   agent's own model. Compaction always uses the agent's own model.
+
+### New bots
+
+[ADR 0197](../../docs/adr/0197-spade-bots-start-from-one-message.md). `POST /agents` with
+`naming: true` (and no name) makes a bot called `New bot` whose first message is its task. The
+conversation stores `naming_opened` after its first `agent_configured`; while the turn that
+follows started with naming open, the instructions say the bot has no name yet and ask it to
+choose one and a face with `profile_update` first. Naming stays open until a `profile_changed`
+(the bot's or the person's) or the first `reply_finished`; while it is open and nothing untrusted
+is in view, `profile_update` runs without asking. Otherwise it asks the person.
+
+### A bot's task over time
+
+- `task_update {new_task, why}` rewrites the bot's own task, used from its next turn. It runs at
+  once in a turn with nothing untrusted in view, and otherwise goes to the person as a request
+  (`self_edit::TASK_TAINTED`), in every access level, never covered by "always" or a grant.
+- Every task change is `agent_configured` with `change: {by: "person"|"bot", previous, why?}`
+  (none on a change of model alone, or on events from before). A bot's own change shows in its
+  chat; the person's Undo and Restore are `PATCH /agents/{id} {task, task_why}`.
+- The prompt names whose words the task is: "in the person's own words", or "as you last rewrote
+  it at the person's request" after a `task_update`.
+- `GET /agents/{id}/task/history` answers `{versions: [{seq, at, task, by, why}]}`, newest first;
+  a change of model alone is no version, and `by` is empty for the task a bot was made with.
+- Name and face changes store `profile_changed {name, by, face?}`.
+
+### Bots that bots make
+
+[ADR 0161, amendment 1](../../docs/adr/0161-spade-orchestration-trees.md). `bot_create {kind:
+"standing", name, task, face?, model?, apps?}` makes a top-level bot for the person: the
+auto-review, no apps or plugins, `made_by {id, name, apps}` on its Agent JSON; each of `apps`
+Spade knows and the bot can't use yet is a connect card in its own conversation (filed under
+reply `made`, call `made-app-<n>`), left for later, stored in the same transaction that makes
+the bot. `club_add {club,
+bot}` adds a bot to a club the caller is in. Both run, ask or are refused by the caller's
+`may_create_bots` (`yes` for Spade, `ask` for other bots until the person sets it with
+`PATCH /agents/{id} {may_create_bots}`), and ask whenever untrusted content is in view. The
+maker's chat stores `bot_made` or `club_added`. `POST /agents/{id}/undo-made` answers `{undone:
+"removed"}` when the made bot never acted outside itself, else `{undone: "archived"}` (stopped,
+routines paused, `archived: true`); `409` for a bot the person made.
 
 ### Where Spade lives
 
@@ -181,6 +226,15 @@ Every agent has two tools:
   (it was 3 before ADR 0158). The same holds for asks from other machines.
 
 ## Endpoints and models
+
+**On this computer.** `GET /v1/endpoints/local` looks for Ollama (`http://127.0.0.1:11434/v1/`)
+and LM Studio (`http://127.0.0.1:1234/v1/`) at once, each given 1.5 seconds and reached without a
+proxy: `{"servers": [{id, name, base_url, running, models, endpoint}]}`, `models` from their
+OpenAI `GET /models` (or Ollama's `/api/tags` shape), `endpoint` the person's endpoint at that
+address if any. `POST /v1/endpoints/local/{server} {model}` adds the server as an
+`openai-chat` endpoint with no key the first time (an endpoint already at that address is used),
+saves the model on it and answers `{endpoint, value: "<endpoint>/<model>"}`; `404` for a server
+Spade doesn't know.
 
 The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain (ADR 0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read
 from there on every start, holds presets: endpoint templates and known facts about model ids
@@ -371,24 +425,25 @@ so they survive restarts, and go with their conversation; they are never events,
 model reads changes. The schema step that added them counted every conversation as seen up to
 then.
 
-| Method and path                               | Body                                                                       | Answer                                                     |
-| --------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `GET /agents`                                 |                                                                            | `{"agents":[Agent]}`: main first, then by `last_activity`  |
-| `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?}`                  | `201 {"agent"}`; `model` defaults as below                 |
-| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`                         | `200 {"agent"}`; `409` for the main agent's name or avatar |
-| `DELETE /agents/{id}`                         |                                                                            | `204`; `409` for the main agent                            |
-| `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                         | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |
-| `PUT /main`                                   | `{"enabled": bool}`                                                        | `204`                                                      |
-| `GET /models`                                 |                                                                            | `{"endpoints","presets","fast_model","new_bot_model", …}`  |
-| `POST /endpoints`                             | `{name, format, base_url, headers?, session_header?, needs_key?, preset?}` | `201 {"endpoint"}`                                         |
-| `PATCH /endpoints/{id}`                       | same fields but `preset`                                                   | `200 {"endpoint"}`                                         |
-| `DELETE /endpoints/{id}`                      |                                                                            | `204` (its keychain key goes too); `409 {error, agents}`   |
-| `GET /endpoints/{id}/models`                  |                                                                            | `{"models":[{id, name?, context?, capabilities?}]}`, live  |
-| `POST /endpoints/{id}/models`                 | `{id, name?, context?, capabilities?}`                                     | `200 {"endpoint"}`                                         |
-| `DELETE /endpoints/{id}/models?id=<model id>` |                                                                            | `204`; `404` if not saved                                  |
-| `PUT /settings`                               | any of `fast_model`, `new_bot_model`: `"endpoint/model" \| null`           | `204`                                                      |
-| `PUT`/`DELETE /keys/{endpoint}`               | `{key}`                                                                    | as before (ADR 0119)                                       |
-| `POST /conversations`                         |                                                                            | `410`: create an agent instead                             |
+| Method and path                               | Body                                                                                             | Answer                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `GET /agents`                                 |                                                                                                  | `{"agents":[Agent]}`: main first, then by `last_activity`  |
+| `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?, naming?}`                               | `201 {"agent"}`; `model` defaults as below                 |
+| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`, `personality`, `task_why`, `may_create_bots` | `200 {"agent"}`; `409` for the main agent's name or avatar |
+| `GET /agents/{id}/task/history`               |                                                                                                  | `{"versions":[{seq, at, task, by, why}]}`, newest first    |
+| `DELETE /agents/{id}`                         |                                                                                                  | `204`; `409` for the main agent                            |
+| `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                                               | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |
+| `PUT /main`                                   | `{"enabled": bool}`                                                                              | `204`                                                      |
+| `GET /models`                                 |                                                                                                  | `{"endpoints","presets","fast_model","new_bot_model", …}`  |
+| `POST /endpoints`                             | `{name, format, base_url, headers?, session_header?, needs_key?, preset?}`                       | `201 {"endpoint"}`                                         |
+| `PATCH /endpoints/{id}`                       | same fields but `preset`                                                                         | `200 {"endpoint"}`                                         |
+| `DELETE /endpoints/{id}`                      |                                                                                                  | `204` (its keychain key goes too); `409 {error, agents}`   |
+| `GET /endpoints/{id}/models`                  |                                                                                                  | `{"models":[{id, name?, context?, capabilities?}]}`, live  |
+| `POST /endpoints/{id}/models`                 | `{id, name?, context?, capabilities?}`                                                           | `200 {"endpoint"}`                                         |
+| `DELETE /endpoints/{id}/models?id=<model id>` |                                                                                                  | `204`; `404` if not saved                                  |
+| `PUT /settings`                               | any of `fast_model`, `new_bot_model`: `"endpoint/model" \| null`                                 | `204`                                                      |
+| `PUT`/`DELETE /keys/{endpoint}`               | `{key}`                                                                                          | as before (ADR 0119)                                       |
+| `POST /conversations`                         |                                                                                                  | `410`: create an agent instead                             |
 
 - A new bot's `model`, when the body names none: `new_bot_model` (the person's choice in Settings,
   answered by `GET /models`, set with `PUT /settings`; `null` clears it), else the person's first
@@ -427,7 +482,11 @@ answered, a turn or job ends). Not stored. Older clients ignore the event name.
 
 ## Events
 
-| Type               | Fields                              | Meaning                               |
-| ------------------ | ----------------------------------- | ------------------------------------- |
-| `agent_configured` | `task`, `model`                     | The agent's task or model changed     |
-| `user_message`     | `…, from_agent?: {id, name, depth}` | `from_agent` when another bot sent it |
+| Type               | Fields                                     | Meaning                                  |
+| ------------------ | ------------------------------------------ | ---------------------------------------- |
+| `agent_configured` | `task`, `model`, `personality?`, `change?` | The agent's task, model or voice changed |
+| `naming_opened`    |                                            | The bot names itself as it starts        |
+| `profile_changed`  | `name`, `by`, `face?`                      | Its name or face changed                 |
+| `bot_made`         | `bot`, `name`, `task`, `call`              | It made a standing bot for the person    |
+| `club_added`       | `club`, `club_name`, `bot`, `bot_name`     | It added a bot to a club it is in        |
+| `user_message`     | `…, from_agent?: {id, name, depth}`        | `from_agent` when another bot sent it    |

@@ -70,17 +70,24 @@ pub fn next_step(events: &[Event]) -> Next {
                 turn,
                 |k| matches!(k, Known::ToolStarted { call_id, .. } if call_id == &call.id),
             );
-            let answer = turn.iter().rev().find_map(|event| match event {
-                Event::Known(Known::ApprovalAnswered {
-                    call_id, allowed, ..
-                }) if call_id == &call.id => Some(*allowed),
-                _ => None,
+            // Only an answer to the latest request counts: a call asked again (a file it runs
+            // changed after the person allowed it) waits on the new answer, never the old one.
+            let asked_at = turn.iter().rposition(|event| {
+                matches!(event, Event::Known(Known::ApprovalRequested { call_id, .. }) if call_id == &call.id)
             });
-            let asked = has(
-                turn,
-                |k| matches!(k, Known::ApprovalRequested { call_id, .. } if call_id == &call.id),
-            );
-            let question = turn.iter().position(|event| {
+            let asked = asked_at.is_some();
+            let answer = turn[asked_at.unwrap_or(0)..]
+                .iter()
+                .rev()
+                .find_map(|event| match event {
+                    Event::Known(Known::ApprovalAnswered {
+                        call_id, allowed, ..
+                    }) if call_id == &call.id => Some(*allowed),
+                    _ => None,
+                });
+            // The latest card the call asked: a call held on a Reconnect card that fails again
+            // after reconnecting asks again.
+            let question = turn.iter().rposition(|event| {
                 matches!(event, Event::Known(Known::QuestionAsked { call_id, .. }) if call_id == &call.id)
             });
             if let Some(at) = question {
@@ -361,6 +368,7 @@ mod tests {
             acts_in: None,
             helper: None,
             launch: None,
+            stopped: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
             reply: "r1".into(),
@@ -375,6 +383,7 @@ mod tests {
             acts_in: None,
             helper: None,
             launch: None,
+            stopped: None,
         }));
         events.push(Event::Known(Known::ApprovalAnswered {
             reply: "r1".into(),
@@ -386,6 +395,21 @@ mod tests {
             statuses(&next_step(&events)),
             vec![
                 ("c1".into(), Status::Allowed),
+                ("c2".into(), Status::Awaiting)
+            ]
+        );
+
+        // Asked again (a file it runs changed after the Allow): the old answer no longer holds.
+        let asked_again = events
+            .iter()
+            .find(|e| matches!(e, Event::Known(Known::ApprovalRequested { call_id, .. }) if call_id == "c1"))
+            .cloned();
+        let mut again = events.clone();
+        again.extend(asked_again);
+        assert_eq!(
+            statuses(&next_step(&again)),
+            vec![
+                ("c1".into(), Status::Awaiting),
                 ("c2".into(), Status::Awaiting)
             ]
         );
@@ -402,6 +426,7 @@ mod tests {
             name: "send_email".into(),
             risk: None,
             background: false,
+            effect: None,
         }));
         assert_eq!(
             statuses(&next_step(&events)),

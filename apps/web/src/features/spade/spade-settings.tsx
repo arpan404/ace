@@ -7,8 +7,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useId, type ReactNode } from "react";
 import { SettingCard, SettingRow, settingsGroup } from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { setFastModel, setNewBotModel, setTranscriptionModel } from "./spade-api.ts";
+import {
+  setFastModel,
+  setNewBotModel,
+  setSpeechModel,
+  setTranscriptionModel,
+} from "./spade-api.ts";
+import { VoiceRows } from "./spade-voice-settings.tsx";
 import { ReviewRows, SpendingSection, useOversightSettings } from "./spade-oversight-settings.tsx";
+import { ReachSection } from "./spade-reach-settings.tsx";
 import { LoadingRows, SwitchSkeleton } from "./spade-settings-loading.tsx";
 import { firstUsableWords } from "./spade-model-options.ts";
 import { CouldNotRead, ModelSettingRow, useSpadeRunning } from "./spade-settings-rows.tsx";
@@ -17,8 +24,9 @@ import { useSpadeClient } from "./spade-machine.tsx";
 
 /**
  * Settings › Spade › General: Spade on or off on this machine; the models it starts new bots
- * on and uses for small jobs and transcription; whether every bot's writes are
- * reviewed (ADR 0135); then what every bot spent together. While the setting or Spade's state is
+ * on and uses for small jobs, transcription and speech, and how replies sound; whether every
+ * bot's writes are reviewed (ADR 0135); how Spade reaches the person (ADR 0195); then what every
+ * bot spent. While the setting or Spade's state is
  * still being read, the rows hold their place, and the switch shows neither on nor off.
  */
 export function SpadeSettings() {
@@ -75,14 +83,15 @@ export function SpadeSettings() {
           )}
         </SettingCard>
       </div>
+      {line.ready && <ReachSection ready={line.ready} />}
       {(line.ready || reading) && <SpendingSection settings={oversight} />}
     </>
   );
 }
 
 /**
- * The model new bots start on, the fast model, the review switch (`review`) and the
- * transcription model, each model one picker.
+ * The model new bots start on, the fast model, the review switch (`review`), the transcription
+ * and speech models, each model one picker, then Speak replies and the voice.
  */
 function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
   const client = useSpadeClient();
@@ -120,6 +129,14 @@ function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
         none="Off"
         save={saved((model) => setTranscriptionModel(client, model))}
       />
+      <ModelSettingRow
+        title="Speech"
+        description="Reads replies aloud; the system's voices when off"
+        value={models.speechModel}
+        none="System voices"
+        save={saved((model) => setSpeechModel(client, model))}
+      />
+      <VoiceRows speechModel={models.speechModel} />
     </>
   );
 }

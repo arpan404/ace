@@ -478,6 +478,7 @@ export class NotificationDatabase {
     if (
       notification.status === "background_done" ||
       notification.status === "agent_says" ||
+      notification.status === "spade" ||
       notification.status === "catch_up"
     )
       return true;

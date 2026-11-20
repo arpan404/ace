@@ -1,7 +1,8 @@
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQueries, useQueryClient } from "@tanstack/react-query";
+import type { ClientApi } from "@ace/client";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import type { GroupableProject, MachineProjectList } from "@ace/ui-core/project-groups";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { z } from "zod";
 import { useLayout } from "./layout.tsx";
 import { useClock } from "./time.ts";
@@ -120,7 +121,42 @@ export function keptMachineProjects(
   return readJson(storage, storageKey, KeptLists, {})[machineId];
 }
 
-const poolKey = (machineId: string) => ["poolProjects", machineId] as const;
+/**
+ * A machine's list is read per socket: a list read before a disconnect may miss a change pushed
+ * while this window couldn't hear (an unlink there), so a new socket is a new read. `socket`
+ * names the client and its socket (`useSockets`).
+ */
+const poolKey = (machineId: string, socket: string) => ["poolProjects", machineId, socket] as const;
+
+/** A number per client object: a machine's worker that restarts brings a client of its own. */
+const clientSerials = new WeakMap<object, number>();
+let lastSerial = 0;
+const serialOf = (client: ClientApi) => {
+  let serial = clientSerials.get(client);
+  if (serial === undefined) clientSerials.set(client, (serial = ++lastSerial));
+  return serial;
+};
+
+/** Each client's socket as `client:generation`, re-read whenever one of them changes. */
+function useSockets(clients: readonly (ClientApi | undefined)[]): string[] {
+  const subscribe = useCallback(
+    (changed: () => void) => {
+      const stops = clients.map((client) => client?.connectionGeneration().subscribe(changed));
+      return () => {
+        for (const stop of stops) stop?.();
+      };
+    },
+    [clients],
+  );
+  const snapshot = () =>
+    clients
+      .map((client) =>
+        client ? `${serialOf(client)}:${client.connectionGeneration().getSnapshot() ?? ""}` : "",
+      )
+      .join(",");
+  const joined = useSyncExternalStore(subscribe, snapshot, snapshot);
+  return useMemo(() => joined.split(","), [joined]);
+}
 /** Each machine client's pushes while a read of its list is out. */
 const ledgers = new WeakMap<object, ProjectPushes<Project>>();
 
@@ -140,10 +176,19 @@ export function usePoolProjects(): { lists: MachineProjectList[]; loaded: boolea
   const clock = useClock();
   const queryClient = useQueryClient();
   const online = machines.filter((machine) => machine.status === "online" && machine.client);
+  const onlineClients = useMemo(
+    () => online.map((machine) => machine.client),
+    // `online` is derived from `machines`.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    [machines],
+  );
+  const sockets = useSockets(onlineClients);
   const results = useQueries({
-    queries: online.map((machine) => ({
-      queryKey: poolKey(machine.id),
+    queries: online.map((machine, index) => ({
+      queryKey: poolKey(machine.id, sockets[index] ?? ""),
       staleTime: 30_000,
+      // The last socket's list stays shown while the new socket's read is out.
+      placeholderData: keepPreviousData,
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         const client = machine.client;
         if (!client) throw new Error("offline");
@@ -160,20 +205,22 @@ export function usePoolProjects(): { lists: MachineProjectList[]; loaded: boolea
   // carries the project is put in place, kept on this device and kept for any read out now, so
   // a daemon reading its checkouts' remotes (ADR 0189), one push per project, never restarts a
   // read and an older read never undoes a push.
-  const clients = online.map((machine) => [machine.id, machine.client] as const);
-  const clientKey = clients.map(([id]) => id).join("\n");
+  const clients = online.map(
+    (machine, index) => [machine.id, machine.client, sockets[index] ?? ""] as const,
+  );
+  const clientKey = clients.map(([id, , socket]) => `${id}:${socket}`).join("\n");
   useEffect(() => {
-    const stops = clients.map(([id, client]) =>
+    const stops = clients.map(([id, client, socket]) =>
       client?.projects.onChanged((change) => {
         const push = pushOf<Project>(change, (workspace) => workspace);
         if (!push) {
-          void queryClient.invalidateQueries({ queryKey: poolKey(id), exact: true });
+          void queryClient.invalidateQueries({ queryKey: poolKey(id, socket), exact: true });
           return;
         }
         pushesFor(ledgers, client).record(push);
-        const held = queryClient.getQueryData<Project[]>(poolKey(id));
+        const held = queryClient.getQueryData<Project[]>(poolKey(id, socket));
         const next = rememberMachinePush(storage, id, push, clock(), held);
-        if (held && next) queryClient.setQueryData<Project[]>(poolKey(id), next);
+        if (held && next) queryClient.setQueryData<Project[]>(poolKey(id, socket), next);
       }),
     );
     return () => {

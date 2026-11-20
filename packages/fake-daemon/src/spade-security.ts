@@ -103,6 +103,13 @@ export class FakeSpadeSecurity {
   readonly egress = new Map<string, Json[]>();
   /** Each bot's checkpoints, newest first. */
   readonly checkpoints = new Map<string, FakeSpadeCheckpoint[]>();
+  /**
+   * What undoing from a step would put back, by bot then the step's position, as Spade answers
+   * `GET …/checkpoints/undo?seq=` (`{checkpoint, changes}`); a position not set answers 404.
+   */
+  readonly undoPreviews = new Map<string, Map<number, Json>>();
+  /** Checkpoints restored, by bot, in order. */
+  readonly restored = new Map<string, string[]>();
   /** Bots whose workspace is being restored: another restore answers 409. */
   readonly reserved = new Set<string>();
   /** Bots whose services are running: a restore answers 409. */
@@ -196,6 +203,12 @@ export class FakeSpadeSecurity {
     const [root, sub, action] = rest;
     if (root === "security") return this.securityRoute(method, agent.id, sub, query, body);
     if (root === "grants") return this.grantsRoute(method, agent.id, sub, body);
+    if (root === "checkpoints" && sub === "undo" && method === "GET") {
+      const preview = this.undoPreviews.get(agent.id)?.get(Number(query.get("seq")));
+      return preview === undefined
+        ? problem(404, "no checkpoint was kept from before this step")
+        : reply(preview);
+    }
     if (root === "checkpoints") return this.checkpointRoute(method, agent, sub, action);
     return problem(404, "Not found.");
   }
@@ -351,6 +364,7 @@ export class FakeSpadeSecurity {
           "the bot's services are running; stop them before restoring a checkpoint",
         );
       if (!list.some((each) => each.id === checkpoint)) return problem(404, "there is no such bot");
+      this.restored.set(agent.id, [...(this.restored.get(agent.id) ?? []), checkpoint]);
       const saved = { id: `cp${++this.next}`, at: this.now(), reason: "before_restore" };
       this.checkpoints.set(agent.id, [saved, ...list]);
       return reply({ restored: checkpoint, saved });

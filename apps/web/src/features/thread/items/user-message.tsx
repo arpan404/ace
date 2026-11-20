@@ -14,6 +14,7 @@ import {
 } from "@ace/ui-core";
 import { AnnotationsCard } from "@/features/annotations/index.ts";
 import { QuotesCard } from "@/features/quotes/index.ts";
+import { namedChips, useAskedLine, ViaLine } from "../mentions/index.ts";
 import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@ace/icons";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -119,6 +120,7 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
   const { copied, copy } = useCopy();
   const item = useItem(leasable(props.threadId), props.itemId);
   const message = item?.type === "message" ? item : undefined;
+  const named = namedChips(useAskedLine(props.threadId, message?.origin?.commandId));
   if (!message) return null;
   const shown = bubbleOf(message.parts, message.attachments ?? []);
   const { files, annotations, quotes } = shown;
@@ -127,10 +129,13 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
   const parts = sent ? undefined : shown.parts;
   const readable = sent ? !!sent.text.trim() : shown.readable;
   if (!readable && !files && !quotes) return null;
+  const via = message.origin?.via;
   return (
     <div className="group/bubble flex flex-col items-end [[data-layout-messages=flat]_&]:items-start">
       {sent ? (
         sent.line
+      ) : via ? (
+        <ViaLine via={via} />
       ) : (
         <Eyebrow
           kind={messageOrigin(message)?.kind}
@@ -163,6 +168,7 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
                 parts={parts}
                 ref={content}
                 fold={sent ? sentFold : undefined}
+                decorate={sent ? undefined : named}
               />
             )}
           </div>

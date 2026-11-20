@@ -47,6 +47,18 @@ export function wholeBudget(source: FileSource): number {
   return source.kind === "attachment" ? wholePreviewBytes : wholeFileBytes;
 }
 
+/**
+ * Whether a file's decoded first bytes read as text: nothing undecodable (U+FFFD) and no control
+ * characters beyond tab, newlines, form feed and escape.
+ */
+export function readsAsText(prefix: string): boolean {
+  // oxlint-disable-next-line no-control-regex
+  return !/[\u0000-\u0008\u000e-\u001a\u001c-\u001f\u007f\ufffd]/.test(prefix);
+}
+
+/** How much of an unknown file is read to tell text from binary. */
+export const sniffBytes = 8 * 1024;
+
 /** A linked file was longer than the budget it was read with. */
 export class TooLargeToLoad extends Error {}
 
@@ -88,6 +100,67 @@ async function readUpTo(chunks: AsyncIterable<Uint8Array>, limit: number): Promi
   return { parts, total, more: false };
 }
 
+/** Whether a file's first `sniffBytes` read as text; `ended` says the file stops there. */
+function headReadsAsText(parts: Uint8Array<ArrayBuffer>[], ended: boolean): boolean {
+  const head = new Uint8Array(sniffBytes);
+  let at = 0;
+  for (const part of parts) {
+    if (at >= sniffBytes) break;
+    const taken = part.subarray(0, sniffBytes - at);
+    head.set(taken, at);
+    at += taken.length;
+  }
+  // Mid-file, a character the cut splits is left out; at the end, a broken one counts.
+  return readsAsText(decode(head.subarray(0, at), !ended));
+}
+
+/** `read` cut to its first `limit` bytes. */
+function cut(read: Read, limit: number): Read {
+  if (read.total <= limit) return read;
+  const parts: Uint8Array<ArrayBuffer>[] = [];
+  let total = 0;
+  for (const part of read.parts) {
+    if (total >= limit) break;
+    const taken = part.subarray(0, limit - total);
+    parts.push(taken);
+    total += taken.length;
+  }
+  return { parts, total, more: true };
+}
+
+/**
+ * Like `readUpTo`, for a file that may not be text. Its first `sniffBytes` decide, whatever
+ * `limit` is: once one byte past them is here (or the file ends there) and they aren't text,
+ * the stream stops. A streamed file has then sent at most its first piece (64 KB from the
+ * daemon), never the whole budget.
+ */
+async function readTextUpTo(
+  chunks: AsyncIterable<Uint8Array>,
+  limit: number,
+): Promise<Read | undefined> {
+  // One byte past the sniff tells a file that ends at it from one that goes on.
+  const want = Math.max(limit, sniffBytes + 1);
+  const parts: Uint8Array<ArrayBuffer>[] = [];
+  let total = 0;
+  let checked = false;
+  let more = false;
+  for await (const chunk of chunks) {
+    const taken = chunk.slice(0, want - total);
+    parts.push(taken);
+    total += taken.length;
+    if (!checked && total > sniffBytes) {
+      if (!headReadsAsText(parts, false)) return undefined;
+      checked = true;
+    }
+    if (total >= want) {
+      more = true;
+      break;
+    }
+  }
+  if (!checked && !headReadsAsText(parts, true)) return undefined;
+  return cut({ parts, total, more }, limit);
+}
+
 function decode(bytes: Uint8Array, truncated: boolean): string {
   // Streaming leaves a character the cut split in two out, rather than drawing it broken.
   return new TextDecoder("utf-8").decode(bytes, { stream: truncated });
@@ -117,18 +190,15 @@ function artifactChunks(
   );
 }
 
-/** A sent attachment's original, `attachment.read` by `attachment.read` up to `limit`. */
-async function attachmentPrefix(
+/** A sent attachment's original, `attachment.read` by `attachment.read`, up to `limit`. */
+async function* attachmentChunks(
   client: ClientApi,
   source: Extract<FileSource, { kind: "attachment" }>,
   limit: number,
   signal: AbortSignal,
-): Promise<TextPrefix> {
-  const parts: Uint8Array<ArrayBuffer>[] = [];
+): AsyncGenerator<Uint8Array<ArrayBuffer>> {
   let offset = 0;
-  let total = source.bytes;
-  let eof = false;
-  while (!eof && offset < limit) {
+  while (offset < limit) {
     const reply = await client.request(
       {
         type: "context.request",
@@ -149,12 +219,15 @@ async function attachmentPrefix(
     const binary = atob(result.data);
     const bytes = new Uint8Array(binary.length);
     for (let at = 0; at < binary.length; at++) bytes[at] = binary.charCodeAt(at);
-    parts.push(bytes);
+    if (bytes.length > 0) yield bytes;
     offset += bytes.length;
-    total = result.bytes;
-    eof = result.eof || bytes.length === 0;
+    if (result.eof || bytes.length === 0) return;
   }
-  return prefixOf({ parts, total: offset, more: !eof }, total);
+}
+
+/** A browser `File`'s first `limit` bytes, as one chunk. */
+async function* localChunks(file: File, limit: number): AsyncGenerator<Uint8Array<ArrayBuffer>> {
+  yield new Uint8Array(await file.slice(0, limit).arrayBuffer());
 }
 
 /** The first `limit` bytes of a file as text (64 KB unless asked for more). */
@@ -173,7 +246,38 @@ export async function readTextPrefix(
     return prefixOf(await readUpTo(linkedFileChunks(client, source, signal), limit), undefined);
   if (source.kind === "artifact")
     return prefixOf(await readUpTo(artifactChunks(client, source, signal), limit), source.bytes);
-  return attachmentPrefix(client, source, limit, signal);
+  return prefixOf(
+    await readUpTo(attachmentChunks(client, source, limit, signal), limit),
+    source.bytes,
+  );
+}
+
+/**
+ * The first `limit` bytes of a file whose kind nothing names, as text, or `undefined` when its
+ * first `sniffBytes` show it isn't text. Sniffing and showing use this one read; a streamed file
+ * that turns out binary stops after the first piece it sent.
+ */
+export async function readTextPrefixIfText(
+  client: ClientApi,
+  source: FileSource,
+  signal: AbortSignal,
+  limit = textPreviewBytes,
+): Promise<TextPrefix | undefined> {
+  // Every source sniffs the same bytes the same way; only how they arrive differs.
+  const want = Math.max(limit, sniffBytes + 1);
+  const chunks =
+    source.kind === "link"
+      ? linkedFileChunks(client, source, signal)
+      : source.kind === "artifact"
+        ? artifactChunks(client, source, signal)
+        : source.kind === "attachment"
+          ? attachmentChunks(client, source, want, signal)
+          : localChunks(source.file, want);
+  const read = await readTextUpTo(chunks, limit);
+  if (!read) return undefined;
+  const size =
+    source.kind === "link" ? undefined : source.kind === "file" ? source.file.size : source.bytes;
+  return prefixOf(read, size);
 }
 
 /**

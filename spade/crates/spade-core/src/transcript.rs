@@ -114,6 +114,8 @@ impl Transcript {
             }
             Known::QuestionAsked { call_id, .. } => {
                 self.paused = false;
+                // A call that stopped to ask the person (a sign-in to reconnect) runs no longer.
+                self.running.retain(|id| id != call_id);
                 if !self.stopping {
                     self.questions.push(Question {
                         call_id: call_id.clone(),
@@ -286,6 +288,10 @@ impl Transcript {
             | Known::EpisodeStored { .. }
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. }
+            | Known::NamingOpened {}
+            | Known::BotMade { .. }
+            | Known::ClubAdded { .. }
+            | Known::ProfileChanged { .. }
             | Known::CallReviewed { .. }
             | Known::GroupMessage { .. }
             | Known::GroupAsked { .. }
@@ -544,6 +550,7 @@ mod tests {
                 acts_in: None,
                 helper: None,
                 launch: None,
+                stopped: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -570,6 +577,7 @@ mod tests {
                 acts_in: None,
                 helper: None,
                 launch: None,
+                stopped: None,
             }),
             Event::Known(Known::StopRequested {
                 reply: Some("r1".into()),
@@ -606,6 +614,7 @@ mod tests {
                 acts_in: None,
                 helper: None,
                 launch: None,
+                stopped: None,
             }),
             Event::Known(Known::ApprovalAnswered {
                 reply: "r1".into(),
@@ -631,6 +640,7 @@ mod tests {
                 name: "web_search".into(),
                 risk: None,
                 background: false,
+                effect: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -719,6 +729,7 @@ mod tests {
                 name: "web_search".into(),
                 risk: None,
                 background: false,
+                effect: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -891,6 +902,7 @@ mod tests {
                 name: "send_email".into(),
                 risk: None,
                 background: false,
+                effect: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -922,6 +934,7 @@ mod tests {
                     call_id: "call_0".into(),
                 })),
                 launch: None,
+                stopped: None,
             })
         };
         let mut events = vec![

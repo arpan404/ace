@@ -704,6 +704,12 @@ export class FakeServices {
           requestId: message.requestId,
           result: this.modelResult({ ...message.filter, offset: 0, limit: 100 }),
         };
+      case "models.load":
+        return {
+          type: "models.result",
+          requestId: message.requestId,
+          result: this.modelResult({ instance: message.instance, offset: 0, limit: 100 }),
+        };
       case "models.resolve":
         return {
           type: "models.result",

@@ -18,7 +18,7 @@ import { readTemplates } from "./spade-teams-api.ts";
 import type { SpadeHost } from "./use-spade-roster.ts";
 import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 
-/* What a new bot's conversation (`NewBotStart`) shows under its name: its line and templates. */
+/* What a new bot's start (`NewBotStart`) shows: its settings line and the templates' chips. */
 
 /** The quiet line's controls: words that brighten under the pointer, no box until hovered. */
 const quiet =
@@ -90,14 +90,17 @@ export function RunsWith(props: {
 }
 
 /**
- * The templates to start from, as the list's rows: face, name and what it does. Picking one
- * names the bot and gives it the template's face and task; picking it again lets it go.
+ * Under the new bot's composer: the templates as chips, each its face and name, one press to
+ * start from it (again to let it go), From the marketplace when that is on, and More settings,
+ * which shows the model and machine and how the bot talks (its personality) on the page.
  */
-export function TemplateRows(props: {
+export function StartChips(props: {
   client: ClientApi;
   machineKey: string;
   value: string | undefined;
   onChange(template: SpadeTemplate | undefined): void;
+  more: boolean;
+  onMore(): void;
 }) {
   const openMarket = useOpenMarket();
   const client = props.client;
@@ -107,50 +110,42 @@ export function TemplateRows(props: {
     queryFn: ({ signal }) => readTemplates(client, { signal }),
     staleTime: Number.POSITIVE_INFINITY,
   });
-  if (!templates.data?.length) return null;
+  const word =
+    "h-8 rounded-full px-3 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground";
   return (
-    <section aria-labelledby="new-bot-templates" className="mt-7 flex flex-col">
-      <h2 id="new-bot-templates" className="mb-1.5 px-3 text-xs font-medium text-muted-foreground">
-        Start from
-      </h2>
-      <ul className="flex flex-col gap-0.5">
-        {templates.data.map((template) => {
-          const picked = props.value === template.id;
-          return (
-            <li key={template.id}>
-              <button
-                type="button"
-                aria-pressed={picked}
-                onClick={() => props.onChange(picked ? undefined : template)}
-                className={cn(
-                  "flex h-(--spade-list-row) w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover",
-                  picked && "bg-active hover:bg-active",
-                )}
-              >
-                <BotFace face={template.face} size={40} />
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-ui font-medium text-foreground">
-                    {template.name}
-                  </span>
-                  {template.blurb && (
-                    <span className="truncate text-ui text-muted-foreground">{template.blurb}</span>
+    <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 px-1">
+      {templates.data && templates.data.length > 0 && (
+        <ul aria-label="Start from" className="contents">
+          {templates.data.map((template) => {
+            const picked = props.value === template.id;
+            return (
+              <li key={template.id} className="contents">
+                <button
+                  type="button"
+                  aria-pressed={picked}
+                  title={template.blurb || undefined}
+                  onClick={() => props.onChange(picked ? undefined : template)}
+                  className={cn(
+                    "flex h-8 items-center gap-1.5 rounded-full bg-secondary pr-3 pl-1.5 text-ui text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover",
+                    picked && "bg-active hover:bg-active",
                   )}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                >
+                  <BotFace face={template.face} size={20} />
+                  {template.name}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {marketplace && (
-        <button
-          type="button"
-          onClick={() => openMarket("bots")}
-          {...part("link")}
-          className="mt-2 self-start rounded-sm px-3 text-ui text-foreground hover:underline focus-ring"
-        >
+        <button type="button" onClick={() => openMarket("bots")} {...part("link")} className={word}>
           From the marketplace
         </button>
       )}
-    </section>
+      <button type="button" aria-expanded={props.more} onClick={props.onMore} className={word}>
+        {props.more ? "Fewer settings" : "More settings"}
+      </button>
+    </div>
   );
 }

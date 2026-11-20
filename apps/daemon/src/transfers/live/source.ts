@@ -35,6 +35,21 @@ export interface LiveSourcePorts {
    * (ADR 0116), so being at rest alone never shows it ended.
    */
   shells(threadId: string): string[];
+  /**
+   * Threads of the tree whose Stop is still in flight, by title: its interrupt, shell stops or
+   * close haven't finished, so a status at rest doesn't yet say the work ended.
+   */
+  stopping(threadId: string): string[];
+  /**
+   * Threads of the tree whose provider never confirmed its close, by title: a Stop that gave up
+   * waiting reads them stopped, but the process and its shells may still run.
+   */
+  unconfirmedExits(threadId: string): string[];
+  /**
+   * Refuses new terminals in the thread's tree until the returned release: from the start of
+   * the stop, before the ownership record holds the thread.
+   */
+  holdTerminals(threadId: string): () => void;
   /** Open terminals in the thread's tree, by name. */
   terminals(threadId: string): string[];
   /** Ends the processes in the tree's terminals, as settling a thread does. */
@@ -43,10 +58,16 @@ export interface LiveSourcePorts {
   children(threadId: string): string[];
   /**
    * The tree's children on other machines, by role: those still running, and those settled
-   * since `since` without their machine confirming they stopped (stopped after every cancel went
-   * unanswered, or lost). Ordinary status reads the latter as stopped (ADR 0052); a move doesn't.
+   * without their machine confirming they stopped (every cancel went unanswered, it can never
+   * answer, or lost), whenever that was: an earlier attempt's stays until its machine answers.
+   * Ordinary status reads the latter as stopped (ADR 0052); a move doesn't.
    */
-  remoteChildren(threadId: string, since: number): { running: string[]; unconfirmed: string[] };
+  remoteChildren(threadId: string): {
+    running: string[];
+    unconfirmed: string[];
+    /** False while the older rows of some parent are still being looked through. */
+    complete?: boolean;
+  };
   queued(threadId: string): number;
   /** The "Moving to <machine>" background row that keeps the thread from reading done. */
   hold(threadId: string, transferId: string, change: { title: string } | { ended: true }): void;
@@ -99,23 +120,45 @@ export class LiveSource {
     interrupted(): void;
   }): Promise<LivePlan> {
     const { ports } = this;
-    const { record, plan, signal } = input;
+    const { record } = input;
     const { transferId, target } = record.transfer;
     const threadId = need(record.transfer.threadId);
     if (!record.request.agent)
       ports.hold(threadId, transferId, { title: `Moving to ${target.name}` });
-    // What the Stop stops, said in the continue message so the agent there can start it again.
-    const left = {
-      shells: [...ports.shells(threadId), ...ports.terminals(threadId)].slice(0, 32),
-      children: ports
-        .children(threadId)
-        .map((title) => title.slice(0, 256))
-        .slice(0, 32),
-      remoteChildren: ports
-        .remoteChildren(threadId, record.transfer.startedAt)
-        .running.slice(0, 32),
-      queued: ports.queued(threadId),
-    };
+    // No terminal opens in the tree from here: one opened while the move waits would keep
+    // writing after the hand-over. Lifted when this returns, once the ownership record holds the
+    // thread, or when it fails.
+    const releaseTerminals = ports.holdTerminals(threadId);
+    try {
+      // What the Stop stops, said in the continue message so the agent there can start it again.
+      const left = {
+        shells: [...ports.shells(threadId), ...ports.terminals(threadId)].slice(0, 32),
+        children: ports
+          .children(threadId)
+          .map((title) => title.slice(0, 256))
+          .slice(0, 32),
+        remoteChildren: ports.remoteChildren(threadId).running.slice(0, 32),
+        queued: ports.queued(threadId),
+      };
+      return await this.stopHeld(input, threadId, left);
+    } finally {
+      releaseTerminals();
+    }
+  }
+  private async stopHeld(
+    input: {
+      record: OutgoingRecord;
+      plan: TransferPlan;
+      directory: string;
+      signal: AbortSignal;
+      interrupted(): void;
+    },
+    threadId: string,
+    left: TransferLive["left"],
+  ): Promise<LivePlan> {
+    const { ports } = this;
+    const { record, plan, signal } = input;
+    const { transferId, target } = record.transfer;
     // Always the whole Stop, even for a thread at rest: a shell its last turn left running
     // stops too. Only a thread that was working is owed the message to carry on.
     if (!ports.atRest(threadId, holdTask(transferId))) input.interrupted();
@@ -125,7 +168,7 @@ export class LiveSource {
     for (;;) {
       signal.throwIfAborted();
       // Only a stop its machine confirmed counts: a child that may still be writing stays here.
-      const remote = ports.remoteChildren(threadId, record.transfer.startedAt);
+      const remote = ports.remoteChildren(threadId);
       if (remote.unconfirmed.length)
         throw new TransferError(
           "remote_child_unconfirmed",
@@ -134,23 +177,49 @@ export class LiveSource {
             512,
           ),
         );
-      const shells = ports.shells(threadId);
-      if (ports.atRest(threadId, holdTask(transferId)) && !shells.length && !remote.running.length)
+      // Only a close its provider confirmed counts: a process that may still run stays here.
+      const exits = ports.unconfirmedExits(threadId);
+      if (exits.length)
+        throw new TransferError(
+          "process_unconfirmed",
+          `${exits[0]} didn't confirm it stopped, so the thread stayed here.`.slice(0, 512),
+        );
+      // Read in the same step as the hold below: a terminal still open here (one an earlier
+      // run of this stop, before a restart, didn't hold) is stopped and looked at again.
+      const shells = [...ports.shells(threadId), ...ports.terminals(threadId)];
+      // Stop's own escalation finishes first: a provider that ended its turn but never answered
+      // its interrupt reads at rest while Stop still waits to close it, unconfirmed or not.
+      const stopping = ports.stopping(threadId);
+      // A read still looking through older rows can't yet say the tree is clear: wait for it.
+      const checking = remote.complete === false;
+      if (
+        ports.atRest(threadId, holdTask(transferId)) &&
+        !shells.length &&
+        !remote.running.length &&
+        !stopping.length &&
+        !checking
+      )
         break;
+      if (ports.terminals(threadId).length) await ports.stopTerminals(threadId);
       if (ports.now() >= until)
         throw shells.length
           ? new TransferError(
               "process_still_running",
               `${shells[0]} didn't stop, so the thread stayed here.`.slice(0, 512),
             )
-          : new TransferError(
-              "tree_still_working",
-              "The work here didn't stop, so it stayed here.",
-            );
+          : checking
+            ? new TransferError(
+                "remote_children_unread",
+                "The subagents on other machines couldn't all be checked in time, so the thread stayed here.",
+              )
+            : new TransferError(
+                "tree_still_working",
+                "The work here didn't stop, so it stayed here.",
+              );
       await ports.sleep(250, signal);
     }
-    // At rest, with no process left running: from here new input waits for the hand-over. Written in the same step that saw
-    // the tree at rest, so nothing started in between.
+    // At rest, with no process or terminal left running: from here new input waits for the
+    // hand-over. Written in the same step that saw the tree at rest, so nothing started between.
     ports.ownership.change(threadId, {
       to: "stopping",
       transferId,

@@ -6,6 +6,7 @@ import {
   AcpIdentity as importAcpIdentity,
 } from "@ace/protocol";
 import { aceCaller, liveAceCall, withinAgent } from "./ace-approvals.ts";
+import { activeRun, delegationsInFlight, turnOrigin } from "./turn-origin.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { GuestThreads } from "./guest-threads.ts";
 import { HostThreads } from "./host-threads.ts";
@@ -187,6 +188,7 @@ export class Engine {
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
+      ...(options.sessionCatalog ? { catalog: options.sessionCatalog } : {}),
       ...(options.agentHome ? { agentHome: options.agentHome } : {}),
       repo: this.repo,
       ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
@@ -205,6 +207,7 @@ export class Engine {
         this.wakeQueued();
       },
       interrupted: (id) => this.recovery.holdInterrupted(id),
+      report: (error) => this.report(error),
     });
     this.recovery = new Recovery(
       this.repo,
@@ -359,8 +362,8 @@ export class Engine {
       models,
     );
     this.internalHandler = {
-      handle: (command, context) =>
-        this.closing
+      handle: (command, context) => {
+        const result = this.closing
           ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
           : !this.readyState
             ? { commandId: command.id, ok: false, error: "engine_starting" }
@@ -371,7 +374,10 @@ export class Engine {
                   (this.commandPolicy
                     ? this.commandPolicy(command, () => handler.handle(command, context))
                     : handler.handle(command, context)),
-              ),
+              );
+        if (result.ok) this.sessions.commanded(command, (id) => this.actors.get(id), this.report);
+        return result;
+      },
     };
     this.handler = {
       handle: (command, context) => {
@@ -843,19 +849,13 @@ export class Engine {
     if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
     return rootOf();
   }
-  /**
-   * The run (turn) an agent's tool call belongs to now: its own active run, else the root's.
-   * Undefined when nothing is running, so no turn-scoped work can be approved.
-   */
+  /** The run an agent's tool call belongs to now, never an ended one (`turn-origin.ts`). */
   activeRun(threadId: ThreadId, agentId: string): string | undefined {
-    const state = this.repo.state(threadId);
-    if (!state) return undefined;
-    const key = state.indexes.agentKeysById[agentId];
-    const own = key === undefined ? undefined : state.agents[key]?.activeRun;
-    return (
-      own ?? (state.rootKey === undefined ? undefined : state.agents[state.rootKey]?.activeRun)
-    );
+    return activeRun(this.repo.state(threadId), agentId);
   }
+  /** The delegation fence's reads (`turn-origin.ts`). */
+  turnOrigin = (id: ThreadId, agentId: string) => turnOrigin(this.repo.state(id), agentId);
+  delegationsInFlight = (id: ThreadId) => delegationsInFlight(this.repo.state(id));
   /** The agent making a live call to ace's `tool` with matching arguments (`aceCaller`). */
   aceCaller(threadId: ThreadId, tool: string, matches: (args: unknown) => boolean) {
     const state = this.repo.state(threadId);

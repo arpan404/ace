@@ -337,6 +337,7 @@ fn writes_keep_their_ids_and_arguments_and_uncertain_ones_say_so() {
         name: "pay".into(),
         risk: None,
         background: false,
+        effect: None,
     }));
     events.push(job("j1", false, "booked"));
     events.push(job("j2", true, "no table free"));
@@ -423,6 +424,7 @@ fn tool_started(id: &str, name: &str, risk: Option<Risk>, background: bool) -> E
         name: name.into(),
         risk,
         background,
+        effect: None,
     })
 }
 

@@ -9,12 +9,27 @@ export const NotificationStatus = z.enum([
   "unresponsive",
   "background_done",
   "agent_says",
+  /** A Spade notice (ADR 0195): `spade` says which bot, conversation and request it opens. */
+  "spade",
   /**
    * One alert for a desktop or web device that missed some while it was away: the threads that
    * still need the person, listed in `threadIds`. `threadId` is the longest-waiting of them.
    */
   "catch_up",
 ]);
+/**
+ * What a Spade notice opens (ADR 0195): the bot, its conversation, the approval or question by
+ * call id, or the digest or brief. `category` is Spade's word for what it is about
+ * (`needs_you`, `escalation`, `digest`, `routine`, `finished`, `brief`, `spend`, `summary`).
+ */
+export const SpadeNotificationTarget = z.object({
+  agent: boundedId,
+  conversation: boundedId.optional(),
+  request: boundedId.optional(),
+  digest: z.number().int().nonnegative().optional(),
+  category: z.string().min(1).max(40),
+});
+export type SpadeNotificationTarget = z.infer<typeof SpadeNotificationTarget>;
 export const Notification = z.object({
   id: boundedId,
   threadId: ThreadId.and(boundedId),
@@ -32,6 +47,8 @@ export const Notification = z.object({
    * (`NotificationFeedEntry.cursor`), so the phone can tell it from older feed entries.
    */
   cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  /** A `spade` alert's target; its `threadId` is Spade's host thread, never opened. */
+  spade: SpadeNotificationTarget.optional(),
 });
 export type Notification = z.infer<typeof Notification>;
 export const WebPushSubscription = z.object({

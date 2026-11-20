@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { SettingAction } from "@/components/setting-row.tsx";
+import { AppMark } from "@/components/ui/app-mark.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -17,6 +18,7 @@ import {
 import { useSpadeClient } from "./spade-machine.tsx";
 import { fault } from "./spade-profile-actions.ts";
 import { ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import { SuggestedApps } from "./spade-suggested-apps.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /** The connected apps this bot may use, by the allow list: all of them, or the ones named. */
@@ -28,8 +30,9 @@ function allowedOf(access: SpadeConnectorAccess, connectors: readonly SpadeConne
 
 /**
  * Apps (ADR 0131), a section of Details: one row per connected app this bot may use, its account
- * under it, with Remove; then Add an app, a menu of the connected apps it doesn't have yet and a
- * way to connect another. Each change is saved as it is made. Spade may use every app unless
+ * under it, with Remove; then Add an app, a menu of the connected apps it doesn't have yet (Use
+ * <App>, no new sign-in) and a way to connect another; then the apps that fit its task, each
+ * a click from connected (ADR 0131, amendment 1). Each change is saved as it is made. Spade may use every app unless
  * narrowed; a new bot none until given one.
  */
 export function ProfileApps(props: { bot: RosterBot }) {
@@ -84,6 +87,7 @@ export function ProfileApps(props: { bot: RosterBot }) {
           {...part("list-row", undefined, "connector")}
           className="flex min-h-(--setting-row-height) items-center gap-3 py-2"
         >
+          <AppMark catalogue={connector.catalogue} name={connector.name} />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate text-ui font-medium text-foreground">{connector.name}</span>
             {connector.account && (
@@ -129,7 +133,8 @@ export function ProfileApps(props: { bot: RosterBot }) {
                 })
               }
             >
-              {connector.name}
+              <AppMark catalogue={connector.catalogue} name={connector.name} size="inline" />
+              {`Use ${connector.name}`}
             </MenuItem>
           ))}
           {others.length > 0 && <MenuSeparator />}
@@ -142,6 +147,11 @@ export function ProfileApps(props: { bot: RosterBot }) {
         <p data-setting-slot="" role="alert" className="py-2 text-xs text-destructive">
           {`Couldn't change its apps. ${problem}`}
         </p>
+      )}
+      {!access.all && bot.task.trim() && (
+        <div data-setting-slot="" className="py-2">
+          <SuggestedApps task={bot.task} botId={bot.id} />
+        </div>
       )}
     </ProfileSection>
   );

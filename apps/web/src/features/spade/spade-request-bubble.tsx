@@ -1,4 +1,5 @@
 import {
+  spadeAnsweredOnce,
   spadeAskedAgain,
   spadeRequestCard,
   type SpadeBubble,
@@ -9,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { AppMark } from "@/components/ui/app-mark.tsx";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import {
@@ -23,6 +25,7 @@ import {
 import { readNotes } from "./spade-notes-api.ts";
 import { notesKey } from "./spade-notes.tsx";
 import { useCardFocus } from "./use-card-focus.ts";
+import { TaskDiff } from "./spade-self-edit-lines.tsx";
 
 type Ask = Extract<SpadeBubble, { kind: "ask" }>;
 
@@ -41,8 +44,10 @@ export type RequestAnswer = "allow" | "always" | "deny";
  * A call the bot wants to make, as its card where it asked (ADR 0127). Open, it is raised: one
  * sentence in Spade's words, the reviewer's reason as one quiet line, the detail that matters for
  * that kind of call (folded when long), then, where the gate keeps it, Always allow, and Deny on
- * the left and Allow on the right. Asked again after the auto-review refused it (ADR 0163), it
- * says so ("… asks again to …") and opens with what was refused before. With focus on it, Enter
+ * the left and Allow on the right. One of Spade's judges stopped (ADR 0163, amendment 3) says why
+ * in that line ("The reviewer stopped this: …") and its Allow is Allow once; a check that couldn't
+ * vouch for what a command runs offers no Always. An older Spade's "asked again" request says so
+ * ("… asks again to …") and opens with what was refused before. With focus on it, Enter
  * allows and Escape denies, and it takes focus as it opens unless the person is typing. Once
  * answered it leaves the chat.
  */
@@ -52,16 +57,21 @@ export function SpadeRequestBubble(props: {
   botName: string;
   /** Another bot's name by its id, for a message it would send. */
   nameOf(id: string): string | undefined;
+  /** The bot's task as it stands, for a request to change it. */
+  task?: string | undefined;
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
 }) {
   const { item } = props;
   const who = item.helper ? `A helper of ${props.botName}` : props.botName;
   const title = useToolTitle();
+  // A call to a connected app's tool leads with that app's mark.
+  const app = useToolApp()(item.name);
   const noteText = useNoteText(item, props.botId);
   const card = spadeRequestCard(item.name, item.arguments, who, {
     title,
     noteText,
     botName: props.nameOf,
+    task: () => props.task,
   });
   const [answering, setAnswering] = useState<RequestAnswer>();
   // Open, it takes focus (unless the person is partway through a message), so Enter allows and
@@ -85,7 +95,8 @@ export function SpadeRequestBubble(props: {
   // What Enter and the main button answer: a tool Spade had no effect for is remembered for this
   // bot, so its one Allow is the always; outside the sandbox it is once.
   const main: RequestAnswer = item.ask === "undeclared" ? "always" : "allow";
-  const mainWord = item.ask === "undeclared" ? "Allow" : outside ? "Allow once" : "Allow";
+  const mainWord =
+    item.ask === "undeclared" ? "Allow" : outside || item.stopped ? "Allow once" : "Allow";
   // A step in a page or app (ADR 0171, amendment 3): its always allows that one app or site for
   // the bot, and only where Spade offers it; never an Always allow for the tool.
   const drive = item.ask === "drive";
@@ -94,13 +105,15 @@ export function SpadeRequestBubble(props: {
     : drive && item.app
       ? `Allow ${item.app} for this bot`
       : "Always allow";
-  const offersAlways = drive
-    ? item.app !== undefined
-    : outside || (card.always && item.ask !== "undeclared");
+  // A check that couldn't vouch for what a command runs is answered for this call only.
+  const offersAlways =
+    !spadeAnsweredOnce(item.stopped) &&
+    (drive ? item.app !== undefined : outside || (card.always && item.ask !== "undeclared"));
   return (
     <RaisedCard
       ref={raised}
       asks="request"
+      data-request={item.callId}
       role="group"
       aria-label={named}
       // Focusable while open, so Enter and Escape answer it from the keyboard.
@@ -119,7 +132,17 @@ export function SpadeRequestBubble(props: {
       }}
     >
       <NeedsYouLine glyph="request">
-        <p>{sentence}</p>
+        <p>
+          {app && (
+            <AppMark
+              catalogue={app.catalogue}
+              name={app.name}
+              size="inline"
+              className="mr-1.5 inline-grid align-[-0.3em]"
+            />
+          )}
+          {sentence}
+        </p>
       </NeedsYouLine>
       {(reason || card.detail) && (
         <CardBody>
@@ -157,13 +180,22 @@ export function SpadeRequestBubble(props: {
   );
 }
 
-/** A connector's tool by its connector's name: `c1__create_event` → "Calendar create event". */
-function useToolTitle() {
+/** The connected app a tool name (`c1__create_event`) belongs to, if it is one's. */
+function useToolApp() {
   const connectors = useSpadeConnectors().data?.connectors;
   return (name: string) => {
     const at = name.indexOf("__");
+    return at < 0 ? undefined : connectors?.find((each) => each.id === name.slice(0, at));
+  };
+}
+
+/** A connector's tool by its connector's name: `c1__create_event` → "Calendar create event". */
+function useToolTitle() {
+  const appOf = useToolApp();
+  return (name: string) => {
+    const at = name.indexOf("__");
     if (at < 0) return undefined;
-    const connector = connectors?.find((each) => each.id === name.slice(0, at));
+    const connector = appOf(name);
     const tool = name
       .slice(at + 2)
       .replaceAll(/[_-]+/g, " ")
@@ -228,6 +260,13 @@ function Detail(props: { detail: SpadeRequestDetail }) {
         <div className="flex flex-col gap-0.5 text-ui">
           <Line label="To" value={detail.to} />
           <FoldedText text={detail.text} muted />
+        </div>
+      );
+    case "task":
+      return (
+        <div className="-ml-3 flex flex-col gap-1">
+          {detail.why && <p className="ml-3 text-ui text-foreground">{detail.why}</p>}
+          <TaskDiff before={detail.before} after={detail.after} />
         </div>
       );
     case "fields":

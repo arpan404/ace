@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { SettingsService } from "@ace/settings";
 import {
   CommandId,
+  DeviceId,
   FleetResult,
   PairingResponse,
   type FleetOperation,
@@ -271,6 +272,29 @@ it("an administrator allows a scope it holds on a paired device, which keeps its
   // A command id another device used is its receipt, not this one's.
   expect(await ask(admin, change("host-allows", "projects", true))).toMatchObject({
     error: { code: "forbidden" },
+  });
+});
+
+it("a scope change reusing another command's id is refused and changes nothing", async () => {
+  const f = await setup();
+  const link = await f.pair(["read", "operate", "projects"]);
+  const host = await welcomed(await f.connect());
+  // This window archived a thread with that id before: a successful receipt with no title.
+  const reused = CommandId.parse("archive-thread-1");
+  f.store.recordCommand(reused, DeviceId.parse("device"), () => ({ commandId: reused, ok: true }));
+  expect(
+    await ask(host, {
+      op: "scope",
+      commandId: reused,
+      deviceId: link.device.id,
+      scope: "projects",
+      allowed: false,
+    }),
+  ).toMatchObject({ error: { code: "invalid" } });
+  expect((await ask(host, { op: "devices" })).result).toMatchObject({
+    devices: expect.arrayContaining([
+      expect.objectContaining({ id: link.device.id, scopes: ["read", "operate", "projects"] }),
+    ]),
   });
 });
 

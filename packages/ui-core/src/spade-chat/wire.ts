@@ -19,6 +19,22 @@ export const spadeFailureKinds = [
 ] as const;
 export type SpadeFailureKind = (typeof spadeFailureKinds)[number];
 
+/**
+ * Which of Spade's judges stopped a call and put it to the person rather than refuse it (ADR 0163,
+ * amendment 3): the reviewer, the second review, Spade's classifier, or a check that couldn't
+ * vouch for what a command outside the sandbox runs (part of it unreadable, unreadable again
+ * before it started, or a file changed while it waited).
+ */
+export const spadeStoppedKinds = [
+  "reviewer",
+  "second_review",
+  "classifier",
+  "incomplete",
+  "unread",
+  "changed",
+] as const;
+export type SpadeStoppedKind = (typeof spadeStoppedKinds)[number];
+
 /*
  * Spade's own bodies, as its local API writes them (spade/docs/chat-core.md, harness.md). The
  * daemon passes them through as text, so every client parses them here, leniently: an event
@@ -71,11 +87,18 @@ const known = z.discriminatedUnion("type", [
       .object({ id: z.string(), name: z.string().catch("") })
       .nullish()
       .catch(undefined),
+    /** The person wrote it in an ace thread (ADR 0198): the thread, to link back to. */
+    from_thread: z
+      .object({ id: z.string().min(1), title: z.string().catch("") })
+      .nullish()
+      .catch(undefined),
     // An image, document or recording this client can't read is left out; the message shows.
     images: spadeImageList,
     documents: spadeDocumentList,
     /** A voice message's recording; `text` is its transcript (ADR 0134). */
     voice: spadeVoiceField,
+    /** What Spade fixed with it: the time, and the notes it recalled (`- [n_…] text`). */
+    context: z.string().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("reply_started"), reply, model: z.string().optional() }),
   z.object({ type: z.literal("reply_progress"), reply, text }),
@@ -112,6 +135,11 @@ const known = z.discriminatedUnion("type", [
     reviewer_reason: z.string().nullish().catch(undefined),
     /** Why Spade asked (ADR 0171); missing on older events, or a reason this client doesn't know. */
     ask: z.enum(["undeclared", "outside_sandbox", "drive"]).nullish().catch(undefined),
+    /**
+     * Which of Spade's judges stopped the call and put it to the person (ADR 0163, amendment 3);
+     * missing on older events and other requests, or a word this client doesn't know.
+     */
+    stopped: z.enum(spadeStoppedKinds).nullish().catch(undefined),
     /** A driving step's app or site its "always" allows for the bot, when it may be allowed. */
     app: z.string().min(1).max(200).nullish().catch(undefined),
     /** A helper's call (ADR 0152), asked here in its bot's conversation. */
@@ -152,6 +180,8 @@ const known = z.discriminatedUnion("type", [
     name: z.string(),
     /** How much the call could change (`read`, `write`, `memory`, `destructive`); missing from older events. */
     risk: z.string().nullish().catch(undefined),
+    /** What the tool declared it does, as the gate read it (`send_as_person`, `pay`…); missing from older events. */
+    effect: z.string().nullish().catch(undefined),
   }),
   z.object({
     type: z.literal("tool_finished"),
@@ -276,6 +306,44 @@ const known = z.discriminatedUnion("type", [
     type: z.literal("computer_handed_back"),
     text: z.string(),
     data: z.array(z.unknown()).optional(),
+  }),
+  /**
+   * The bot's task or model changed (spade/docs/agents.md). `change` says who changed the task,
+   * from what and why; missing on a change of model alone and on events from before task history.
+   */
+  z.object({
+    type: z.literal("agent_configured"),
+    task: z.string().catch(""),
+    change: z
+      .object({
+        by: z.string().catch(""),
+        previous: z.string().catch(""),
+        why: z.string().catch("").default(""),
+      })
+      .nullish()
+      .catch(undefined),
+  }),
+  /** This bot made a standing bot for the person (ADR 0161, amendment 1). */
+  z.object({
+    type: z.literal("bot_made"),
+    bot: z.string(),
+    name: z.string().catch(""),
+    task: z.string().catch(""),
+  }),
+  /** This bot added a bot to a club it is in. */
+  z.object({
+    type: z.literal("club_added"),
+    club: z.string(),
+    club_name: z.string().catch(""),
+    bot: z.string(),
+    bot_name: z.string().catch(""),
+  }),
+  /** The bot's name or face changed; `by` is `bot` (it named itself) or `person`. */
+  z.object({
+    type: z.literal("profile_changed"),
+    name: z.string().catch(""),
+    by: z.string().catch(""),
+    face: z.boolean().catch(false).default(false),
   }),
   ...spadeCapabilityEvents,
 ]);

@@ -1,4 +1,10 @@
-import { spadeCloudLine, spadeConnectorLine, type SpadeConnector } from "@ace/ui-core/spade-chat";
+import {
+  spadeCloudLine,
+  spadeConnectorHealth,
+  spadeConnectorLine,
+  spadeLastUsedWords,
+  type SpadeConnector,
+} from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
@@ -13,6 +19,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { openExternal } from "@/boot/open-external.ts";
+import { AppMark } from "@/components/ui/app-mark.tsx";
 import { AddConnectorDialog } from "./spade-add-connector.tsx";
 import { connectHere, connectInBrowser } from "./spade-connect-flow.ts";
 import { connectorsKey, disconnect, reconnect, useSpadeConnectors } from "./spade-connector-api.ts";
@@ -24,8 +31,9 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
 
 /**
  * Settings › Spade › Apps, its first group (ADR 0131): the apps Spade is connected to, each with
- * its state, what it needs (reconnect when its sign-in ended) and the bots that use it, named
- * from `names`, then Connect an app.
+ * its health (Working, Needs reconnect), the account, the bots that use it, named from `names`,
+ * and when a bot last used it; Reconnect when its sign-in ended, and Disconnect. Then Connect an
+ * app.
  */
 export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<string, string> }) {
   const connectors = useSpadeConnectors(props.ready);
@@ -44,7 +52,13 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
         ) : (
           <>
             {connectors.data.connectors.map((connector) => (
-              <ConnectorRow key={connector.id} connector={connector} names={props.names} />
+              <ConnectorRow
+                key={connector.id}
+                connector={connector}
+                names={props.names}
+                // "Used 3 hours ago" as of when the list was read: no clock of its own.
+                now={connectors.dataUpdatedAt}
+              />
             ))}
             <SettingAddRow onClick={() => setAdding(true)}>Connect an app</SettingAddRow>
           </>
@@ -52,9 +66,14 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
       </SettingCard>
       {adding && connectors.data && (
         <AddConnectorDialog
-          catalogue={connectors.data.catalogue.filter(
-            (entry) => !connectors.data.connectors.some((each) => each.id === entry.id),
-          )}
+          catalogue={connectors.data.catalogue}
+          added={
+            new Map(
+              connectors.data.connectors.flatMap((each) =>
+                each.catalogue ? [[each.catalogue, spadeConnectorLine(each)] as const] : [],
+              ),
+            )
+          }
           onClose={() => setAdding(false)}
         />
       )}
@@ -75,7 +94,11 @@ export function botNames(ids: readonly string[], names: ReadonlyMap<string, stri
  * device sign-in shows its code in the sentence, with Copy code and Open while Spade waits, and
  * Try again once it expired or was declined.
  */
-function ConnectorRow(props: { connector: SpadeConnector; names: ReadonlyMap<string, string> }) {
+function ConnectorRow(props: {
+  connector: SpadeConnector;
+  names: ReadonlyMap<string, string>;
+  now: number;
+}) {
   const { connector } = props;
   const client = useSpadeClient();
   const cache = useQueryClient();
@@ -120,18 +143,26 @@ function ConnectorRow(props: { connector: SpadeConnector; names: ReadonlyMap<str
   return (
     <SettingRow
       title={connector.name}
+      leading={<AppMark catalogue={connector.catalogue} name={connector.name} />}
       description={
         <>
           <span>
             {[
-              spadeConnectorLine(connector),
+              // Its health first (Working, Needs reconnect), then who it is signed in as.
+              connector.device ? spadeConnectorLine(connector) : spadeConnectorHealth(connector),
+              connector.account,
               spadeCloudLine(connector),
               connector.local && "On your own network",
             ]
               .filter(Boolean)
               .join(" · ")}
           </span>
-          {users.length > 0 && ` · ${users.join(", ")}`}
+          <span className="block">
+            {[
+              users.length > 0 ? users.join(", ") : "No bot uses it",
+              spadeLastUsedWords(connector.lastUsedMs, props.now),
+            ].join(" · ")}
+          </span>
         </>
       }
       htmlFor={token === undefined ? undefined : field}

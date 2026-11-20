@@ -20,6 +20,7 @@ use super::{AppState, problem};
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/connectors", get(list).post(connect))
+        .route("/connectors/fit", get(fit))
         .route("/connectors/{id}", get(one).delete(disconnect))
         .route("/connectors/{id}/connect", post(reconnect))
         .route("/agents/{id}/connectors", get(allowed).put(set_allowed))
@@ -54,7 +55,30 @@ async fn list(State(state): State<AppState>) -> Response {
         Ok(connectors) => connectors,
         Err(response) => return *response,
     };
-    Json(json!({ "catalogue": hub.catalogue(), "connectors": connectors })).into_response()
+    Json(json!({ "catalogue": hub.listed().await, "connectors": connectors })).into_response()
+}
+
+/// `?need=`: the catalogue apps that fit a need or a bot's task, best first, by words alone
+/// (ADR 0131, amendment 1). The app suggests them when a bot is made and in its apps.
+#[derive(Deserialize)]
+struct Need {
+    #[serde(default)]
+    need: String,
+}
+
+/// The most apps suggested for one need.
+const MOST_FITTING: usize = 6;
+
+async fn fit(State(state): State<AppState>, Query(need): Query<Need>) -> Response {
+    let hub = match hub(&state) {
+        Ok(hub) => hub,
+        Err(response) => return *response,
+    };
+    let apps: Vec<&str> = spade_connect::fit::fitting(hub.catalogue(), &need.need, MOST_FITTING)
+        .into_iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
+    Json(json!({ "apps": apps })).into_response()
 }
 
 /// Each connector with `bots`: the ids of the bots allowed to use it, in roster order. Spade,

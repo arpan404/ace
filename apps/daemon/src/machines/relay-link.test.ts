@@ -158,6 +158,19 @@ describe("a transfer frame goes only where it can be taken, and only while it is
     expect(tokenSent(old.sent)).toBe(false);
     await relay.close();
   });
+  it("never says hello on an opening the pool closed, though its caller still waits", async () => {
+    const old = machineThere(true);
+    const oldOpened = Promise.withResolvers<ClientChannel>();
+    const relay = link({ connect: () => oldOpened.promise });
+    // Its caller never gives up: only the pool's close can stop the hello.
+    const waiting = relay.transfer(target(false), status, { timeoutMs: 5000 });
+    const closing = relay.close();
+    oldOpened.resolve(old.channel);
+    await expect(waiting).rejects.toThrow();
+    await closing;
+    expect(tokenSent(old.sent)).toBe(false);
+    expect(transfersSent(old.sent)).toEqual([]);
+  });
   it("opens ace's relay and the person's own as separate streams, the account grant only on ace's", async () => {
     const grants: (string | undefined)[] = [];
     const relay = link({

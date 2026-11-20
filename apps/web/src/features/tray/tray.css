@@ -1,0 +1,13 @@
+/*
+ * The menu-bar popover's window (`/tray`): the page lets the system's popover material through,
+ * and its one surface (`.ace-floating`) lays the theme's glass tint over it. The frame's own
+ * corners and shadow are the window's.
+ */
+:root[data-window="tray"],
+:root[data-window="tray"] body {
+  background: transparent;
+}
+:root[data-window="tray"] [data-part="popover"] {
+  box-shadow: none;
+  border-radius: 0;
+}

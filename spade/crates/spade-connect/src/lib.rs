@@ -11,6 +11,8 @@ pub mod catalogue;
 pub mod cloud;
 mod cloud_sign_in;
 mod device_sign_in;
+pub mod failure;
+pub mod fit;
 mod hub;
 mod live;
 pub mod oauth;
@@ -28,7 +30,7 @@ use spade_store::Store;
 use tokio::sync::Notify;
 
 pub use apps::{App, Grant};
-pub use catalogue::{Entry, SignIn, Via};
+pub use catalogue::{Category, Entry, Listed, Ready, SignIn, Via, WaitsFor};
 pub use cloud::{AccountCredential, AccountProblem, CLOUD_URL, Cloud, Credential};
 pub use device_sign_in::DeviceView;
 pub use hub::{Callback, ConnectError, ConnectRequest, FinishError, Started};
@@ -46,6 +48,16 @@ use records::Record;
 /// comes back to `CALLBACK_PATH` itself, the one address the document lists, and must carry `iss`
 /// ([`oauth::cimd`]).
 pub const CALLBACK_PATH: &str = "/v1/connectors/callback";
+
+/// How long Spade trusts Spade Cloud's list of the apps it can sign in to, and how long it waits
+/// before asking again after the cloud didn't answer.
+pub const CLOUD_APPS_FOR_MS: i64 = 10 * 60 * 1000;
+pub const CLOUD_APPS_RETRY_MS: i64 = 60 * 1000;
+/// How long the app's list of apps waits for the cloud's answer.
+const CLOUD_APPS_WAIT: Duration = Duration::from_secs(3);
+
+/// How often a connector's last use is written: a busy app is written at most once a minute.
+pub const USED_EVERY_MS: i64 = 60 * 1000;
 
 /// How long a sign-in may take from start to callback.
 pub const SIGN_IN_WINDOW_MS: i64 = 10 * 60 * 1000;
@@ -78,6 +90,14 @@ pub struct Setup {
     pub cloud: Option<Cloud>,
 }
 
+/// What Spade Cloud last said about the apps it can sign in to.
+#[derive(Default)]
+struct CloudApps {
+    /// None until the cloud first answers.
+    apps: Option<std::collections::HashSet<String>>,
+    asked_ms: Option<i64>,
+}
+
 /// What the app is shown about one connector. Never a secret.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct View {
@@ -105,6 +125,12 @@ pub struct View {
     /// `ace_signed_out` or `ace_unreachable`. It keeps working until its token expires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notice: Option<&'static str>,
+    /// When a bot last ran one of its tools, in ms since the epoch (to the minute).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_used_ms: Option<i64>,
+    /// Why its last browser sign-in failed, lately ([`failure::reason`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed: Option<&'static str>,
 }
 
 /// One connector's live session.
@@ -136,11 +162,15 @@ pub struct Connectors {
     tick: Duration,
     /// Spade Cloud's client, when Spade signs in through it.
     cloud: Option<cloud::CloudClient>,
+    /// The apps Spade Cloud last said it can sign in to, and when Spade last asked.
+    cloud_apps: tokio::sync::Mutex<CloudApps>,
     /// Sign-ins through the cloud waiting for the person, by connector.
     cloud_sign_ins: Mutex<HashMap<String, cloud_sign_in::CloudSignIn>>,
     cloud_serial: std::sync::atomic::AtomicU64,
     /// Why a connector signed in through the cloud last failed to renew, and when.
     cloud_notices: Mutex<HashMap<String, (cloud_sign_in::Notice, i64)>>,
+    /// Why browser sign-ins failed lately, by connector.
+    failures: Mutex<HashMap<String, failure::Failure>>,
     /// Device sign-ins in progress or recently ended, by connector.
     devices: Mutex<HashMap<String, device_sign_in::DeviceSignIn>>,
     /// Numbers each device sign-in, so a replaced one's poller can't touch its successor.
@@ -183,6 +213,7 @@ impl Connectors {
                 .cloud
                 .as_ref()
                 .map(|cloud| cloud::CloudClient::new(cloud, setup.timeout)),
+            cloud_apps: tokio::sync::Mutex::default(),
             cloud_sign_ins: Mutex::default(),
             cloud_serial: std::sync::atomic::AtomicU64::new(0),
             cloud_notices: Mutex::default(),
@@ -191,6 +222,7 @@ impl Connectors {
             client_metadata: setup.client_metadata,
             apps: setup.apps,
             tick: setup.tick,
+            failures: Mutex::default(),
             devices: Mutex::default(),
             device_serial: std::sync::atomic::AtomicU64::new(0),
             redirect: RwLock::new(None),
@@ -231,6 +263,30 @@ impl Connectors {
         &self.catalogue
     }
 
+    /// The catalogue as the app is shown it, each entry with whether it can be connected now.
+    /// Asks Spade Cloud which apps it holds a client for, at most every [`CLOUD_APPS_FOR_MS`]
+    /// (every [`CLOUD_APPS_RETRY_MS`] while it doesn't answer); until it first answers, apps
+    /// through the cloud are not ready.
+    pub async fn listed(&self) -> Vec<Listed<'_>> {
+        let Some(cloud) = &self.cloud else {
+            return catalogue::listed(&self.catalogue, None);
+        };
+        let mut known = self.cloud_apps.lock().await;
+        let now = self.now();
+        let due = match (&known.apps, known.asked_ms) {
+            (_, None) => true,
+            (Some(_), Some(at)) => now - at >= CLOUD_APPS_FOR_MS,
+            (None, Some(at)) => now - at >= CLOUD_APPS_RETRY_MS,
+        };
+        if due {
+            known.asked_ms = Some(now);
+            if let Ok(apps) = cloud.apps(CLOUD_APPS_WAIT).await {
+                known.apps = Some(apps);
+            }
+        }
+        catalogue::listed(&self.catalogue, known.apps.as_ref())
+    }
+
     /// Every connector, connected or signing in, by name.
     pub fn list(&self) -> Vec<View> {
         let records = lock(&self.records).clone();
@@ -254,6 +310,8 @@ impl Connectors {
                     device: None,
                     via: None,
                     notice: None,
+                    last_used_ms: None,
+                    failed: None,
                 });
             }
         }
@@ -265,8 +323,16 @@ impl Connectors {
     }
 
     /// One connector, if it exists or is signing in.
+    /// A first sign-in that failed lately is found here too, never in the list, so the app that
+    /// started it can say why without a row for an app that never connected.
     pub fn get(&self, id: &str) -> Option<View> {
-        self.list().into_iter().find(|v| v.id == id)
+        let views = self.list();
+        if let Some(view) = views.iter().find(|v| v.id == id) {
+            return Some(view.clone());
+        }
+        self.failed_views_without_records(&views)
+            .into_iter()
+            .find(|v| v.id == id)
     }
 
     fn view(&self, record: &Record) -> View {
@@ -314,6 +380,8 @@ impl Connectors {
             } else {
                 None
             },
+            last_used_ms: record.last_used_ms,
+            failed: self.failure(&record.id),
         }
     }
 
@@ -346,6 +414,27 @@ impl Connectors {
         records::save(&self.store, &next)?;
         *records = next;
         Ok(true)
+    }
+
+    /// Notes that a bot used `id` now, writing it at most every [`USED_EVERY_MS`].
+    pub(crate) fn touch(&self, id: &str) {
+        let now = self.now();
+        let mut records = lock(&self.records);
+        let stale = records
+            .iter()
+            .find(|r| r.id == id)
+            .is_some_and(|r| r.last_used_ms.is_none_or(|at| now - at >= USED_EVERY_MS));
+        if !stale {
+            return;
+        }
+        let mut next = records.clone();
+        if let Some(record) = next.iter_mut().find(|r| r.id == id) {
+            record.last_used_ms = Some(now);
+        }
+        match records::save(&self.store, &next) {
+            Ok(()) => *records = next,
+            Err(error) => tracing::warn!(%error, "a connector's last use was not written"),
+        }
     }
 
     /// Replaces or adds `record`, then writes every record.

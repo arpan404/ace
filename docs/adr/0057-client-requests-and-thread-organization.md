@@ -115,3 +115,26 @@ registered at a broad folder (`~` or `/`) widens what `operate` can open; regist
 owner's own choice. Opening never runs the target, so the worst an owner-only open can do is
 show a file in an editor on the owner's own screen. A local process that can swap a symlink
 between the recheck and the spawn already runs as the person, the same as above.
+
+#### Terminals and more apps (amended 2026-11-19)
+
+The apps ace opens a path in are one catalogue (`@ace/ui-core/open-apps`): editors, IDEs and
+terminals, each with how macOS, Windows and Linux find it and how it is told what to open.
+`editors.list` also answers `terminals`, and `host.open` takes a `terminal` app. Discovery,
+launch arguments and the desktop app's Linux launcher all read that one table, and only apps
+discovery found are offered.
+
+- A terminal starts in the target's folder, a file's folder, never the file: a terminal handed
+  a file may run it.
+- On macOS an app with no launcher of its own (Xcode, Nova, Terminal, iTerm2, Ghostty, Warp)
+  counts by its bundle and opens with `/usr/bin/open -a <bundle> <target>`. A bundle path is
+  never started on another platform.
+- The file manager is unchanged: `open -R`/`open`, `explorer.exe /select,`, `xdg-open` on the
+  folder.
+
+A client opens an editor on its own machine where it can (the desktop bridge knows the editor,
+or a browser has its URL handler). Everything else, terminals and the file manager included,
+goes through `host.open`, with the same authorization as above, whether the daemon is on this
+machine or another. The Files toolbar's main button opens the default editor. Picking another
+editor makes it the default; a terminal or the file manager only opens, since neither opens a
+file at its line.

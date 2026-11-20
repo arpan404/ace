@@ -3,7 +3,7 @@ import { z } from "zod";
 import { readJson, type KeyValueStorage } from "@ace/ui-core";
 import { SuitDetail, type SuitId, type SuitSummary } from "@ace/protocol/suits";
 import { bootAppearanceKey } from "../appearance.ts";
-import { appliedSuit, wantedSuit } from "./applied-suit.ts";
+import { appliedSuit, sameVersion, wantedSuit } from "./applied-suit.ts";
 
 /** What the Suit library has told this page so far (`SuitLibraryProvider` reports it). */
 export interface SuitReport {
@@ -32,7 +32,7 @@ export function useAppliedSuit(
   setting: SuitId | null,
   off: boolean,
 ) {
-  const [cached] = useState(() => cachedSuit(storage));
+  const [cached, setCached] = useState(() => cachedSuit(storage));
   const [report, setReport] = useState<SuitReport>({
     summaries: undefined,
     detail: undefined,
@@ -52,5 +52,21 @@ export function useAppliedSuit(
     [setting, off, report, cached],
   );
   const reportSuits = useCallback((next: SuitReport) => setReport(next), []);
-  return { applied, preview: report.preview, trying: report.trial !== undefined, reportSuits };
+  /** Read the boot cache again: another window of the app applied a Suit and recorded it. */
+  const recache = useCallback(
+    () =>
+      setCached((current) => {
+        const next = cachedSuit(storage);
+        // The same Suit read again keeps its object, so nothing downstream redraws or rewrites.
+        return current && next && sameVersion(current.summary, next.summary) ? current : next;
+      }),
+    [storage],
+  );
+  return {
+    applied,
+    preview: report.preview,
+    trying: report.trial !== undefined,
+    reportSuits,
+    recache,
+  };
 }

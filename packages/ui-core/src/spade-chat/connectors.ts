@@ -10,6 +10,28 @@ import { spadeJson, spadeRecord } from "./json.ts";
 /** How a catalogue server can be signed in to, best first. */
 export type SpadeSignIn = "oauth" | "oauth_client" | "token";
 
+/** Where a catalogue app sits in the list, in the order the list shows them. */
+export const spadeAppCategories = [
+  { id: "mail_chat", label: "Mail & chat" },
+  { id: "meetings", label: "Meetings" },
+  { id: "work", label: "Work" },
+  { id: "files", label: "Files" },
+  { id: "sales_support", label: "Sales & support" },
+  { id: "code", label: "Code" },
+  { id: "data", label: "Data" },
+  { id: "money", label: "Money" },
+  { id: "design", label: "Design" },
+] as const;
+
+export type SpadeAppCategory = (typeof spadeAppCategories)[number]["id"];
+
+/**
+ * Whether the person can connect a catalogue app on this build today: `sign_in` with one click,
+ * `key` only with a token they make in the app, `later` not yet (it waits for the owner: a
+ * registration, the maker's approval).
+ */
+export type SpadeAppReady = "sign_in" | "key" | "later";
+
 export interface SpadeCatalogueEntry {
   id: string;
   name: string;
@@ -18,6 +40,10 @@ export interface SpadeCatalogueEntry {
   notes: string;
   /** `cloud`: signs in through Spade Cloud with the person's ace account (ADR 0140). */
   via: "cloud" | undefined;
+  category: SpadeAppCategory;
+  ready: SpadeAppReady;
+  /** The maker's page where the person makes a token, for apps that take one. */
+  keyUrl: string | undefined;
 }
 
 /**
@@ -55,7 +81,17 @@ export interface SpadeConnector {
   notice: SpadeCloudNotice | undefined;
   /** The bots allowed to use it, by id, in roster order (Spade's while it is on). */
   bots: string[];
+  /** When a bot last ran one of its tools, ms since the epoch (to the minute). */
+  lastUsedMs: number | undefined;
+  /** Why its last sign-in in the browser failed, lately. */
+  failed: SpadeSignInFailure | undefined;
 }
+
+/**
+ * Why a sign-in in the browser failed: the person declined or closed it, the account needs an
+ * admin's approval, it took too long, it came back from the wrong server, or something else.
+ */
+export type SpadeSignInFailure = "declined" | "needs_admin" | "expired" | "wrong_server" | "failed";
 
 /**
  * A device sign-in (RFC 8628, ADR 0137): the person types `code` on the app's page at `url`
@@ -92,6 +128,7 @@ const states = ["connected", "connecting", "unreachable", "needs_reconnect", "si
 const via = z.literal("cloud").nullish().catch(undefined);
 const notices = ["cloud_unreachable", "ace_signed_out", "ace_unreachable"] as const;
 
+const categories = spadeAppCategories.map((each) => each.id);
 const entryShape = z.object({
   id: z.string().min(1),
   name: text,
@@ -99,22 +136,42 @@ const entryShape = z.object({
   sign_in: z.array(z.unknown()).catch([]).default([]),
   notes: text,
   via,
+  // A category this client doesn't know files the app under Work rather than dropping it.
+  category: z.enum(categories).catch("work"),
+  // An answer from a Spade that doesn't say: whatever its ways in allow, a sign-in first. A
+  // readiness this client doesn't know reads as not ready, never as a working Sign in.
+  ready: z.enum(["sign_in", "key", "later"]).optional().catch("later"),
+  key_url: z
+    .string()
+    .regex(/^https:\/\//i)
+    .optional()
+    .catch(undefined),
 });
 
 function entryOf(raw: unknown): SpadeCatalogueEntry | undefined {
   const parsed = entryShape.safeParse(raw);
   if (!parsed.success) return undefined;
   const entry = parsed.data;
+  const signIn = entry.sign_in.filter((kind): kind is SpadeSignIn =>
+    (signIns as readonly unknown[]).includes(kind),
+  );
   return {
     id: entry.id,
     name: entry.name || entry.id,
     url: entry.url,
-    signIn: entry.sign_in.filter((kind): kind is SpadeSignIn =>
-      (signIns as readonly unknown[]).includes(kind),
-    ),
+    signIn,
     notes: entry.notes ?? "",
     via: entry.via ?? undefined,
+    category: entry.category,
+    ready: entry.ready ?? readyOf(signIn),
+    keyUrl: entry.key_url,
   };
+}
+
+/** What an older Spade, which doesn't say, allows: its best way in. */
+function readyOf(signIn: readonly SpadeSignIn[]): SpadeAppReady {
+  if (signIn.includes("oauth")) return "sign_in";
+  return signIn.includes("token") ? "key" : "later";
 }
 
 const connectorShape = z.object({
@@ -134,7 +191,16 @@ const connectorShape = z.object({
   // A notice this client doesn't know is left out: the row then reads as it would without one.
   notice: z.enum(notices).nullish().catch(undefined),
   bots: z.array(z.unknown()).catch([]).default([]),
+  last_used_ms: z.number().int().nonnegative().nullish().catch(undefined),
+  // A reason this client doesn't know reads as the general one.
+  failed: z
+    .enum(["declined", "needs_admin", "expired", "wrong_server", "failed"])
+    .nullish()
+    .catch("failed"),
 });
+
+/** A sign-in page the browser may open: https, or http on this machine's loopback. */
+const signInPage = /^(https:\/\/|http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\/)/i;
 
 /** Only https: the page goes straight to the person's browser. */
 const webPage = z.string().regex(/^https:\/\//i);
@@ -171,6 +237,8 @@ export function parseSpadeConnectorValue(raw: unknown): SpadeConnector | undefin
     via: connector.via ?? undefined,
     notice: connector.notice ?? undefined,
     bots: connector.bots.filter((each): each is string => typeof each === "string"),
+    lastUsedMs: connector.last_used_ms ?? undefined,
+    failed: connector.failed ?? undefined,
   };
 }
 
@@ -204,8 +272,9 @@ export function parseSpadeConnectStart(body: string): SpadeConnectStart | undefi
   const connector = parseSpadeConnectorValue(record.connector);
   if (connector) return { kind: "connected", connector };
   const url = record.sign_in_url;
-  // Only https: the address goes straight to the person's browser.
-  if (typeof record.id === "string" && typeof url === "string" && /^https:\/\//i.test(url))
+  // Only https, or http on this machine (a server the person marked as their own, which Spade
+  // alone lets sign in there): the address goes straight to the person's browser.
+  if (typeof record.id === "string" && typeof url === "string" && signInPage.test(url))
     return { kind: "sign_in", id: record.id, url };
   const device = deviceOf({ ...spadeRecord(record.device), state: "waiting" });
   if (typeof record.id === "string" && device)
@@ -270,4 +339,56 @@ export function spadeDeviceLine(app: string, device: SpadeDeviceSignIn): string 
     case "failed":
       return `${app} didn't finish the sign-in.`;
   }
+}
+
+/** What a failed sign-in to `app` means, with what fixes it, in one sentence. */
+export function spadeSignInFailureWords(app: string, failure: SpadeSignInFailure): string {
+  switch (failure) {
+    case "declined":
+      return `The sign-in to ${app} was cancelled. Connect again when you're ready.`;
+    case "needs_admin":
+      return `${app} says your account needs admin approval. Ask your admin to allow Spade, then connect again.`;
+    case "expired":
+      return "The sign-in took too long. Connect again.";
+    case "wrong_server":
+      return `That sign-in didn't come back from ${app}, so Spade ignored it. Connect again.`;
+    case "failed":
+      return `${app} didn't finish the sign-in. Try again in a minute.`;
+  }
+}
+
+/** Whether a connected app works, in a word for Settings › Apps: Working or Needs reconnect. */
+export function spadeConnectorHealth(connector: SpadeConnector): string {
+  switch (connector.state) {
+    case "connected":
+      return "Working";
+    case "needs_reconnect":
+      return "Needs reconnect";
+    case "signing_in":
+      return "Waiting for you to finish signing in";
+    case "connecting":
+      return "Connecting";
+    case "unreachable":
+      return connector.problem ? `Can't reach it: ${connector.problem}` : "Can't reach it";
+  }
+}
+
+/** When a bot last used an app, in words: "Used just now", "Used 3 hours ago", "Not used yet". */
+export function spadeLastUsedWords(lastUsedMs: number | undefined, nowMs: number): string {
+  if (lastUsedMs === undefined) return "Not used yet";
+  const minutes = Math.max(0, Math.floor((nowMs - lastUsedMs) / 60_000));
+  if (minutes < 2) return "Used just now";
+  if (minutes < 60) return `Used ${minutes} minutes ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Used ${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.floor(hours / 24);
+  return `Used ${days} ${days === 1 ? "day" : "days"} ago`;
+}
+
+/** `GET /v1/connectors/fit`: the catalogue apps that fit a need, best first, by id. */
+export function parseSpadeAppsFit(body: string): string[] | undefined {
+  const apps = spadeRecord(spadeJson(body))?.apps;
+  return Array.isArray(apps)
+    ? apps.filter((each): each is string => typeof each === "string")
+    : undefined;
 }

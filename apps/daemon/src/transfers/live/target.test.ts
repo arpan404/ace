@@ -12,7 +12,7 @@ import {
 } from "@ace/protocol";
 import { Store } from "../../store.ts";
 import { ThreadOwnership } from "./ownership.ts";
-import { LiveTarget, maxStartAttempts, type LiveTargetPorts } from "./target.ts";
+import { LiveTarget, maxStartAttempts, uncertainMs, type LiveTargetPorts } from "./target.ts";
 import type { ContinueFacts } from "./turn-start.ts";
 import { LiveStarts } from "./target-rows.ts";
 
@@ -23,6 +23,8 @@ afterEach(async () => {
 });
 
 const runId = RunId.parse("run-1");
+/** The one continue message's command key for transfer `x`, first attempt. */
+const continueKey = "transfer-live:x:continue:0";
 
 /**
  * A target with a real store and account home. Each continue message has its own fate, by its
@@ -36,9 +38,11 @@ async function target(
     refusal?: string;
     held?: boolean;
     retryDispatches?: boolean;
-    fateAt?: (clock: number) => ContinueFacts;
+    fateAt?: (clock: number, key: string) => ContinueFacts | undefined;
     /** The thread's status, which a turn the person starts there changes. */
     status?: ThreadStatus;
+    /** Called after each wait, with the time it reached. */
+    onSleep?: (clock: number) => void;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "ace-live-target-"));
@@ -66,7 +70,8 @@ async function target(
     threadCwd: () => "/srv/app",
     threadStatus: () => options.status ?? { state: "new" },
     continueFate: (_thread, key) =>
-      options.fateAt?.(clock) ?? inputs.get(key) ?? { fate: { state: "unknown" }, held: false },
+      options.fateAt?.(clock, key) ??
+      inputs.get(key) ?? { fate: { state: "unknown" }, held: false },
     adoptSession: (_thread, session) => sessions.push(`adopt:${session.action}`),
     dropSession: () => sessions.push("drop"),
     adoptHandoff: () => sessions.push("handoff"),
@@ -95,6 +100,9 @@ async function target(
     now: () => clock,
     sleep: async (ms) => {
       clock += ms;
+      // A watch that never ends fails the test instead of hanging it.
+      if (clock > 48 * 60 * 60_000) throw new Error("the start never ended");
+      options.onSleep?.(clock);
     },
     log: () => {},
   };
@@ -190,18 +198,99 @@ describe("a moved thread starting on this machine", () => {
   });
 
   it("waits for the continue message itself, not a turn the person started there", async () => {
-    // The person's own message runs at once; the continue message waits ten minutes.
+    // The person's own message (another command id) runs at once; the continue message waits
+    // ten minutes. Read by any other id, the start would be recorded at once.
     const t = await target(0, {
       status: { state: "working", agents: 1 },
-      fateAt: (clock) =>
-        clock < 10 * 60_000
-          ? { fate: { state: "waiting" }, held: false }
-          : { fate: { state: "delivered", runId }, held: false },
+      fateAt: (clock, key) =>
+        key !== continueKey
+          ? { fate: { state: "delivered", runId }, held: false }
+          : clock < 10 * 60_000
+            ? { fate: { state: "waiting" }, held: false }
+            : { fate: { state: "delivered", runId }, held: false },
     });
     const live = carried([]);
     await prep(t, live);
     await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
     expect(t.clock()).toBeGreaterThanOrEqual(10 * 60_000);
+    expect(t.live.state("x")).toMatchObject({ running: true });
+  });
+
+  it.each([
+    ["stopped the thread", { fate: { state: "waiting" }, held: false, stopped: true }, "stopped"],
+    ["took the message out", { fate: { state: "removed" }, held: false }, "took the message out"],
+    ["sent it again", { fate: { state: "replaced", by: "c-2" }, held: false }, "sent the message"],
+    [
+      "stopped it once it was written",
+      { fate: { state: "failed", error: "Cancelled before delivery" }, held: false },
+      "stopped",
+    ],
+  ] as const)(
+    "completes as not started when the person %s before it ran",
+    async (_what, facts, reason) => {
+      const t = await target(0, {
+        fateAt: (_clock, key) => (key === continueKey ? (facts as ContinueFacts) : undefined),
+      });
+      const live = carried([]);
+      await prep(t, live);
+      await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+      expect(t.live.state("x")).toMatchObject({ running: false });
+      expect(t.live.receipt("x", "macbook-device")).toMatchObject({
+        state: "completed",
+        live: { running: false },
+      });
+      expect(t.ports.starts.get("x")?.failure).toContain(reason);
+      // The person's own act shows on the thread; no notice asks them to carry on.
+      expect(t.notices).toEqual([]);
+    },
+  );
+
+  it("keeps reading a continue message it can't place, then gives up on it, bounded", async () => {
+    const t = await target(0, {
+      fateAt: () => ({ fate: { state: "uncertain" }, held: false }),
+    });
+    const live = carried([]);
+    await prep(t, live);
+    await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+    // Given up on at its bound, not before and not long after.
+    expect(t.clock()).toBeGreaterThanOrEqual(uncertainMs);
+    expect(t.clock()).toBeLessThanOrEqual(uncertainMs + 1_000);
+    expect(t.live.state("x")).toMatchObject({ running: false });
+    expect(t.notices[0]).toContain("may not have reached the agent");
+  });
+
+  it("keeps the uncertainty deadline across a restart", async () => {
+    let first: LiveTarget | undefined;
+    const t = await target(0, {
+      fateAt: () => ({ fate: { state: "uncertain" }, held: false }),
+      // The daemon restarts six minutes into the uncertainty.
+      onSleep: (clock) => {
+        if (clock >= 6 * 60_000) first?.close();
+      },
+    });
+    first = t.live;
+    const live = carried([]);
+    await prep(t, live);
+    await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+    expect(t.live.state("x")?.running).toBeUndefined();
+    // A new daemon: its own start rows, read from the same database.
+    const restarted = new LiveTarget({ ...t.ports, starts: new LiveStarts(t.store) });
+    await restarted.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+    // Ten minutes from when it first read uncertain, not from the restart.
+    expect(t.clock()).toBeLessThanOrEqual(uncertainMs + 1_000);
+    expect(restarted.state("x")).toMatchObject({ running: false });
+  });
+
+  it("records the start once an uncertain continue message turns out to have run", async () => {
+    const t = await target(0, {
+      fateAt: (clock) =>
+        clock < 60_000
+          ? { fate: { state: "uncertain" }, held: false }
+          : { fate: { state: "delivered", runId }, held: false },
+    });
+    const live = carried([]);
+    await prep(t, live);
+    await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
     expect(t.live.state("x")).toMatchObject({ running: true });
   });
 

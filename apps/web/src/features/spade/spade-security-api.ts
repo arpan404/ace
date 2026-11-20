@@ -4,6 +4,7 @@ import {
   parseSpadeEgress,
   parseSpadeGrantAnswer,
   parseSpadeSecurityMachine,
+  parseSpadeUndoPreview,
   type SpadeAutonomy,
   type SpadeCommandsMode,
   type SpadeNetworkPolicy,
@@ -136,6 +137,19 @@ export async function readCheckpoints(target: SpadeTarget, agent: string, signal
 export async function restoreCheckpoint(target: SpadeTarget, agent: string, checkpoint: string) {
   const path = agentPath(agent, `checkpoints/${segment(checkpoint)}/restore`);
   await spadeHttp(target, "POST", path);
+}
+
+/** What undoing the step at `seq` (and everything after it) would put back, before it does. */
+export async function readUndoPreview(
+  target: SpadeTarget,
+  agent: string,
+  seq: number,
+  signal?: AbortSignal,
+) {
+  const body = await spadeHttp(target, "GET", agentPath(agent, `checkpoints/undo?seq=${seq}`), {
+    signal,
+  });
+  return sure(parseSpadeUndoPreview(JSON.parse(body)), "undo");
 }
 
 export async function readEgress(target: SpadeTarget, agent: string, signal?: AbortSignal) {

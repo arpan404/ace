@@ -61,6 +61,12 @@ test("a file's language and image type come from its extension", () => {
   expect(imageType("src/app.ts")).toBeUndefined();
 });
 
+test("a file named after an Object property is no image", () => {
+  expect(imageType("constructor")).toBeUndefined();
+  expect(imageType("notes.toString")).toBeUndefined();
+  expect(imageType("docs/__proto__")).toBeUndefined();
+});
+
 test("fuzzy highlights prefer the file name over its folders", () => {
   expect(fuzzyPositions("cfg", "config/cfg.ts")).toEqual([7, 8, 9]);
   expect(fuzzyPositions("srcapp", "src/app.tsx")).toEqual([0, 1, 2, 4, 5, 6]);

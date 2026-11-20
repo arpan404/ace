@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Client, webSocketTransport, type Transport } from "@ace/client";
+import { Client, onSocketMove, webSocketTransport, type Transport } from "@ace/client";
 import {
   DeviceId,
   HostId,
@@ -27,6 +27,8 @@ export interface LinkOptions {
   quietHours(): { timeZone: string; startMinute: number; endMinute: number } | null;
   onAlert(alert: Alert): void;
   onSummary(summary: WorkSummary): void;
+  /** How many threads have an agent using apps on this computer, as the daemon reports it. */
+  onAppsInUse?(threads: number): void;
   /**
    * The daemon's socket closed, with its close code and reason (`1001 Daemon shutdown`,
    * `4003 Device revoked` …), so the app's log says why the link dropped. Not called when the
@@ -89,6 +91,7 @@ export class DesktopLink {
     );
     await this.client.start();
     this.watchThreads();
+    this.watchAppsInUse();
   }
 
   async close(): Promise<void> {
@@ -223,6 +226,43 @@ export class DesktopLink {
       release();
     });
     sync();
+  }
+
+  /**
+   * Computer use (`computer.using`): asked on every ready connection and socket move, answered
+   * with the whole set and again on each change. The ask carries a request id, so a daemon that
+   * refuses it answers that request alone and the link stays up.
+   */
+  private watchAppsInUse(): void {
+    const report = this.options.onAppsInUse;
+    if (!report) return;
+    let asked = 0;
+    let last: number | undefined;
+    const ask = () => {
+      if (this.client.connectionState().getSnapshot() !== "ready") return;
+      try {
+        this.client.send({ type: "computer.using.watch", requestId: `apps-in-use-${++asked}` });
+      } catch {
+        // The socket went away; the next ready asks again.
+      }
+    };
+    const connection = this.client.connectionState();
+    this.stops.push(
+      this.client.onMessage((message) => {
+        if (message.type !== "computer.using" || message.threads.length === last) return;
+        last = message.threads.length;
+        report(last);
+      }),
+      connection.subscribe(() => {
+        if (connection.getSnapshot() === "ready") ask();
+      }),
+      onSocketMove(this.client, ask),
+      // A closed link knows nothing more: the icon stops claiming an agent uses an app.
+      () => {
+        if (last) report(0);
+      },
+    );
+    ask();
   }
 }
 

@@ -43,17 +43,27 @@ impl ToolSource for ConnectorSource {
             }
         };
         let is_main = agent.kind == crate::engine::MAIN;
-        self.hub
-            .tools_for(&agent.id, is_main)
-            .into_iter()
-            .map(|tool| {
-                Arc::new(ConnectorCall {
-                    def: def(&tool),
-                    tool,
-                    hub: self.hub.clone(),
-                }) as Arc<dyn Tool>
-            })
-            .collect()
+        let mut tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(super::apps::AppsFind::new(
+                self.hub.clone(),
+                agent.id.clone(),
+                is_main,
+            )),
+            Arc::new(super::apps::AppConnectRequest),
+        ];
+        tools.extend(
+            self.hub
+                .tools_for(&agent.id, is_main)
+                .into_iter()
+                .map(|tool| {
+                    Arc::new(ConnectorCall {
+                        def: def(&tool),
+                        tool,
+                        hub: self.hub.clone(),
+                    }) as Arc<dyn Tool>
+                }),
+        );
+        tools
     }
 }
 
@@ -146,6 +156,10 @@ impl Tool for ConnectorCall {
         Box::pin(async move {
             match hub.call(&connector, &name, arguments).await {
                 Ok(result) => super::ace::output(Ok(result)),
+                Err(error @ CallError::NeedsReconnect(_)) => ToolOutput {
+                    reconnect: Some(connector),
+                    ..output(error)
+                },
                 Err(error) => output(error),
             }
         })
@@ -159,7 +173,9 @@ fn output(error: CallError) -> ToolOutput {
             ToolOutput::error(format!("Not run: {why}. It is safe to try again."))
         }
         CallError::MaybeRan(why) => ToolOutput::maybe_ran(format!("{MAYBE_RAN} ({why})")),
-        error @ CallError::NeedsReconnect(_) => ToolOutput::error(format!("Not run: {error}.")),
+        error @ CallError::NeedsReconnect(_) => ToolOutput::error(format!(
+            "Not run: {error}. Ask them with app_connect_request; never ask for a key in the chat."
+        )),
         CallError::Failed(why) => ToolOutput::error(why),
     }
 }
@@ -194,20 +210,24 @@ mod tests {
                 e.id == id && e.every_tool.as_ref().and_then(Effect::declared) == Some(Effect::Pay)
             })
         };
-        assert!(pays("stripe") && pays("paypal") && pays("square"));
+        assert!(pays("stripe") && pays("paypal") && pays("square") && pays("mercury"));
         assert!(declared >= 4);
     }
 
     #[test]
     fn an_app_wide_declaration_sends_every_tool_to_the_person_even_read_only_ones() {
         use spade_core::effect::{Effect, Mcp, mcp};
-        // One per category the catalogue holds: payments and a support inbox that writes in the
-        // person's name. (Mail, chat, identity and secret stores are not in the catalogue yet.)
+        // Payments and banking, a support inbox, mail and chat that write in the person's name.
+        // (Identity and secret stores are not in the catalogue yet.)
         let table = [
             ("stripe", Effect::Pay),
             ("paypal", Effect::Pay),
             ("square", Effect::Pay),
+            ("mercury", Effect::Pay),
+            ("ramp", Effect::Pay),
             ("intercom", Effect::SendAsPerson),
+            ("resend", Effect::SendAsPerson),
+            ("google-chat", Effect::SendAsPerson),
         ];
         let entries = spade_connect::catalogue::shipped();
         for (id, want) in table {

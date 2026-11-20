@@ -52,6 +52,9 @@ export function isBrokerPath(pathname: string): boolean {
   return pathname.startsWith("/v1/oauth/");
 }
 
+const APPS_PATH = "/v1/oauth/apps";
+/** How long a client may reuse the list of apps the broker can sign in to. */
+const APPS_MAX_AGE_SECONDS = 300;
 const step = /^\/v1\/oauth\/([a-z0-9-]{1,64})\/(start|finish|refresh)$/;
 const callbackPath = /^\/v1\/oauth\/callback\/([a-z0-9-]{1,64})$/;
 
@@ -82,6 +85,8 @@ function authorizationUrl(who: Caller, publicUrl: string, state: string, challen
   query.append("code_challenge_method", "S256");
   query.append("resource", who.app.resource);
   if (who.app.scopes.length) query.append("scope", who.app.scopes.join(" "));
+  for (const [name, value] of Object.entries(who.app.authorization_params))
+    query.append(name, value);
   return url.toString();
 }
 
@@ -286,10 +291,27 @@ export function broker(deps: BrokerDeps) {
     return answer(200, purpose === "finish" ? { status: "done", sealed } : { sealed });
   }
 
+  /**
+   * The apps whose client is set, so Spade offers Sign in only where it would work. Open: it
+   * names apps, never a client, and needs no account. Bounded by the address budget.
+   */
+  async function apps(request: Request): Promise<Response> {
+    if (await deps.limited.address(request)) return refuse("rate_limited");
+    const ready = (deps.apps ?? []).filter((each) => each.client).map((each) => each.app.id);
+    return Response.json(
+      { apps: ready },
+      { headers: { "Cache-Control": `public, max-age=${APPS_MAX_AGE_SECONDS}` } },
+    );
+  }
+
   return {
     /** `_gate` says which gated features the calling app supports (ADR 0189); none is gated yet. */
     async handle(request: Request, _gate: ServerGate): Promise<Response> {
       const url = new URL(request.url);
+      if (url.pathname === APPS_PATH) {
+        if (request.method !== "GET") return new Response(null, { status: 405 });
+        return apps(request);
+      }
       const back = callbackPath.exec(url.pathname)?.[1];
       if (back) {
         if (request.method !== "GET") return new Response(null, { status: 405 });

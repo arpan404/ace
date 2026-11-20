@@ -28,6 +28,7 @@ fn job<'a>(dir: &'a Path, script: &'a str, may_run_uncontained: bool) -> Job<'a>
     let warrant = Warrant {
         limit: Authorized::AsFound,
         bound: Bound::Nothing,
+        incomplete: false,
     };
     job_by(
         dir,
@@ -157,6 +158,7 @@ async fn a_bot_command_nothing_holds_never_starts_without_its_verdicts_warrant()
         let narrow = Warrant {
             limit: Authorized::Contained,
             bound: Bound::Nothing,
+            incomplete: false,
         };
         let refused = shell
             .run_job(job_by(
@@ -173,6 +175,7 @@ async fn a_bot_command_nothing_holds_never_starts_without_its_verdicts_warrant()
         let warrant = Warrant {
             limit: Authorized::Outside,
             bound: Bound::Nothing,
+            incomplete: false,
         };
         let ran = shell
             .run_job(job_by(

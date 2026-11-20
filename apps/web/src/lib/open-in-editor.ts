@@ -1,6 +1,6 @@
 import { useClient } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
-import { launchEditor } from "@/boot/editor-launch.ts";
+import { launchEditor, opensHere } from "@/boot/editor-launch.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useEditors } from "./editors.ts";
 import { hostPathLike, useHostOpen, useRemoteHost } from "./host-open.ts";
@@ -11,7 +11,8 @@ import { resolveRootPath } from "./project-roots.ts";
  * device's chosen editor unless another is named, which then becomes the choice. Shared by the
  * Files and Changes tools, the file viewer and transcript paths. An absolute path (or one from
  * `~`) opens by that host path instead of the checkout. On another machine the daemon opens it
- * there (`host.open`, toasting when only the owner can); here it opens through this device.
+ * there (`host.open`, toasting when only the owner can); here it opens through this device,
+ * unless only the daemon can start that editor (`opensHere`).
  */
 export function useOpenInEditor(threadId: string) {
   const client = useClient();
@@ -21,8 +22,9 @@ export function useOpenInEditor(threadId: string) {
   const host = useHostOpen();
   const open = async (path: string, line?: number, editorId = current?.id) => {
     if (!editorId) return;
-    // Another machine's file: the daemon opens it there and says when only the owner can.
-    if (remote) {
+    // Another machine's file, or an app only the daemon starts: the daemon opens it on its
+    // machine and says when only the owner can.
+    if (remote || !opensHere(editorId)) {
       const target = hostPathLike(path) ? { hostPath: path } : { threadId, path };
       if (await host.open(target, editorId, line)) choose(editorId);
       return;

@@ -426,7 +426,7 @@ mod sandboxed {
     }
 
     #[tokio::test]
-    async fn a_script_changed_after_allow_once_is_not_run_outside() -> Result {
+    async fn a_script_changed_after_allow_once_is_asked_again_on_what_it_runs_now() -> Result {
         let w = world(true, vec![], |_| {
             vec![
                 Script::reply("").call(
@@ -447,10 +447,28 @@ mod sandboxed {
         // Swapped while the card waits.
         std::fs::write(workspace.join("task.sh"), "echo swapped\n")?;
         answer(&w.spade, &w.conversation, "c1", json!({ "allowed": true })).await?;
+        // The answer given on the old script never runs the new one: the person is asked again,
+        // on the script as it is now, and only for this call.
+        let events = w
+            .spade
+            .wait_for_count(&w.conversation, "approval_requested", 2)
+            .await?;
+        assert!(output(&events, "c1").is_empty(), "{events:?}");
+        let again = events
+            .iter()
+            .rfind(|e| e["type"] == "approval_requested")
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(again["stopped"], "changed", "{again}");
+        assert_eq!(again["ask"], "outside_sandbox", "{again}");
+        answer(&w.spade, &w.conversation, "c1", json!({ "allowed": true })).await?;
         let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
         let ran = output(&events, "c1");
-        assert!(!ran.contains("swapped"), "{ran}");
-        assert!(ran.contains("changed after it was"), "{ran}");
+        assert!(
+            ran.contains("swapped"),
+            "what the person allowed ran: {ran}"
+        );
+        assert!(!ran.contains("as asked"), "{ran}");
         Ok(())
     }
 
@@ -880,7 +898,10 @@ async fn restarted_between_review_and_start(
             reviewed(),
         )
         .await?;
-    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    // It ends, or a refusal waits on the person.
+    let events = spade
+        .wait_for_any(&conversation, &["reply_finished", "approval_requested"])
+        .await?;
     let reviews = events
         .iter()
         .filter(|e| e["type"] == "call_reviewed" && e["call_id"] == "c1")
@@ -896,7 +917,10 @@ async fn a_verdict_given_on_one_page_is_not_reused_on_another_after_a_restart() 
         vec![Script::reply("").plain(REFUSE), Script::reply("Left it.")],
     )
     .await?;
-    assert_eq!(ran, 0, "reviewed again on the new page, and refused there");
+    assert_eq!(
+        ran, 0,
+        "reviewed again on the new page, and put to the person there"
+    );
     assert_eq!(reviews, 2);
     // On the page it was reviewed at, the stored verdict stands: no second review.
     let (ran, reviews) = restarted_between_review_and_start(
@@ -958,7 +982,10 @@ async fn shell_restarted_after_its_review(
             reviewed(),
         )
         .await?;
-    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    // It ends, or a refusal waits on the person.
+    let events = spade
+        .wait_for_any(&conversation, &["reply_finished", "approval_requested"])
+        .await?;
     let reviews = events
         .iter()
         .filter(|e| e["type"] == "call_reviewed" && e["call_id"] == "c1")
@@ -984,7 +1011,7 @@ async fn a_reviewer_allow_for_a_contained_command_is_not_reused_once_it_would_ru
         .await?;
         assert_eq!(
             ran, 0,
-            "reviewed afresh for the wider launch, and refused: {stored}"
+            "reviewed afresh for the wider launch, and put to the person: {stored}"
         );
         assert_eq!(reviews, 2, "{stored}");
     }

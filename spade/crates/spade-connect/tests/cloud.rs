@@ -4,7 +4,7 @@
 
 mod support;
 
-use spade_connect::{ConnectError, ConnectRequest, Started};
+use spade_connect::{ConnectError, ConnectRequest, Ready, Started};
 use spade_testkit::{FakeCloud, FakeConnector};
 use support::{
     FAKE_ENTRY, Result, SPADE_CLIENT, app_tools, from_catalogue, spade_with_cloud, wait_for,
@@ -184,5 +184,42 @@ async fn disconnect_during_cloud_start_cannot_restore_a_pending_sign_in() -> Res
     cloud.approve();
     assert!(spade.connectors.get(FAKE_ENTRY).is_none());
     assert!(spade.keys.connector_secret(FAKE_ENTRY, "access")?.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_app_through_spade_cloud_is_ready_to_sign_in_only_once_the_cloud_holds_its_client()
+-> Result {
+    let app = FakeConnector::start(app_tools()).await;
+    let ready = |spade: &support::Spade| {
+        let spade = spade.connectors.clone();
+        async move {
+            spade
+                .listed()
+                .await
+                .iter()
+                .find(|listed| listed.entry.id == FAKE_ENTRY)
+                .map(|listed| listed.ready)
+        }
+    };
+
+    let holding = FakeCloud::start(3600).await;
+    holding.holds(&[FAKE_ENTRY]);
+    let spade = spade_with_cloud(&app.url(), &holding.url(), true)?;
+    assert_eq!(ready(&spade).await, Some(Ready::SignIn));
+    // The app's list is read often; the cloud is asked once, not on every read.
+    assert_eq!(ready(&spade).await, Some(Ready::SignIn));
+    assert_eq!(holding.apps_asked(), 1);
+
+    // The owner hasn't set this app's client: a Sign in would fail, so it isn't offered.
+    let empty = FakeCloud::start(3600).await;
+    let spade = spade_with_cloud(&app.url(), &empty.url(), true)?;
+    assert_eq!(ready(&spade).await, Some(Ready::Later));
+
+    // A cloud that doesn't answer leaves it not ready, and the list still comes back.
+    let away = FakeCloud::start(3600).await;
+    away.stop();
+    let spade = spade_with_cloud(&app.url(), &away.url(), true)?;
+    assert_eq!(ready(&spade).await, Some(Ready::Later));
     Ok(())
 }

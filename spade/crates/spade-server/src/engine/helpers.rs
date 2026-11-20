@@ -524,6 +524,7 @@ impl Engine {
             app,
             acts_in,
             launch,
+            stopped,
             ..
         }) = asked
         else {
@@ -547,6 +548,7 @@ impl Engine {
                 conversation: helper.conversation.clone(),
                 call_id: call_id.clone(),
             })),
+            stopped: *stopped,
         });
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());

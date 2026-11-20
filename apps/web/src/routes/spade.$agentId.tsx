@@ -19,10 +19,12 @@ export const Route = createFileRoute("/spade/$agentId")({
     files: z.string().optional().catch(undefined),
     /** With `files`, a file in it opened (a report a file chip opens). */
     file: z.string().optional().catch(undefined),
+    /** An approval or question to bring forward, by call id: what a notification opens. */
+    request: z.string().optional().catch(undefined),
   }),
   component: function SpadeAgentRoute() {
     const { agentId } = Route.useParams();
-    const { on, profile, computer, files, file } = Route.useSearch();
+    const { on, profile, computer, files, file, request } = Route.useSearch();
     return (
       <SpadeAgentScreen
         agentId={agentId}
@@ -31,6 +33,7 @@ export const Route = createFileRoute("/spade/$agentId")({
         computer={computer}
         files={files}
         file={file}
+        request={request}
       />
     );
   },

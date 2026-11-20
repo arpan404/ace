@@ -22,15 +22,35 @@ export async function fileBytes(path: string): Promise<number> {
 }
 
 /** Appends `data` when the file holds exactly `offset` bytes; answers what it holds after. */
-export async function appendAt(path: string, offset: number, data: Buffer): Promise<number> {
+export async function appendAt(
+  path: string,
+  offset: number,
+  data: Buffer,
+  /**
+   * Runs before the file is opened (or made) and again right before the bytes are written,
+   * after every wait; throwing writes nothing and leaves no file behind.
+   */
+  before: () => void = () => undefined,
+): Promise<number> {
   const held = await fileBytes(path);
   if (held !== offset) return held;
+  before();
+  // Writes to one file are serialised by the caller, so nothing else makes it meanwhile.
+  const created = !(await exists(path));
   const handle = await open(path, "a", 0o600);
   try {
+    try {
+      before();
+    } catch (error) {
+      // Refused after opening: a file this call made goes again, so a refusal leaves nothing.
+      await handle.close();
+      if (created) await rm(path, { force: true });
+      throw error;
+    }
     await handle.write(data);
     await handle.sync();
   } finally {
-    await handle.close();
+    await handle.close().catch(() => undefined);
   }
   return held + data.length;
 }
@@ -70,6 +90,11 @@ export function transferOfFile(name: string, suffixes: readonly string[]): strin
 export async function removeStray(directory: string, keep: (name: string) => boolean) {
   const names = await readdir(directory).catch(() => []);
   for (const name of names) if (!keep(name)) await removeQuietly(join(directory, name));
+}
+
+/** Whether anything is at `path`, without following it. */
+export async function pathExists(path: string): Promise<boolean> {
+  return exists(path);
 }
 
 async function exists(path: string): Promise<boolean> {

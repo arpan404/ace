@@ -1,7 +1,7 @@
 //! The one way a bot's command starts outside the sandbox (ADR 0171, amendment 5), through the
 //! server: what the gate reads finds every executable whatever the command does, a verdict of any
 //! kind binds what it ran, the start checks that binding at the spawn, and a refusal stored before
-//! a restart stays one. Process tests: real shells, the real sandbox where the machine has one.
+//! a restart still goes to the person, never runs. Process tests: real shells, the real sandbox where the machine has one.
 #![cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 
 mod support;
@@ -39,7 +39,7 @@ fn scripts(w: &support::sandbox::World) -> Result<(std::path::PathBuf, std::path
 }
 
 #[tokio::test]
-async fn an_outside_request_for_git_whose_configuration_runs_a_program_is_refused_not_asked()
+async fn an_outside_request_for_git_whose_configuration_runs_a_program_asks_told_it_cant_be_read()
 -> Result {
     let w = world(true, vec![], |_| {
         vec![
@@ -61,10 +61,21 @@ async fn an_outside_request_for_git_whose_configuration_runs_a_program_is_refuse
     w.spade
         .say(&w.conversation, "Check the repo outside")
         .await?;
-    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
-    assert!(asked(&events).is_empty(), "asked about it");
-    let said = output(&events, "c1");
-    assert!(said.contains("couldn't be read whole"), "{said}");
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    assert_eq!(asked(&events), ["c1"]);
+    let request = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .cloned()
+        .unwrap_or_default();
+    let reason = request["reviewer_reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("couldn't be read whole"), "{reason}");
+    assert_eq!(request["stopped"], "incomplete", "{request}");
+    assert_eq!(request["ask"], "outside_sandbox", "{request}");
+    assert!(output(&events, "c1").is_empty(), "it ran");
     Ok(())
 }
 
@@ -91,9 +102,19 @@ async fn a_script_whose_output_goes_outside_is_still_bound_to_what_it_runs() -> 
     // While the person is asked, the script it runs is rewritten.
     std::fs::copy(workspace.join("next.sh"), workspace.join("run.sh"))?;
     answer(&w, "c1", false).await?;
-    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
-    let said = output(&events, "c1");
-    assert!(said.contains("changed"), "{said}");
+    // The answer given on the old script doesn't run the new one: the person is asked again.
+    let events = w
+        .spade
+        .wait_for_count(&w.conversation, "approval_requested", 2)
+        .await?;
+    assert_eq!(asked(&events), ["c1", "c1"]);
+    let again = events
+        .iter()
+        .rfind(|e| e["type"] == "approval_requested")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(again["stopped"], "changed", "{again}");
+    assert!(output(&events, "c1").is_empty(), "it ran");
     assert!(
         !root.join("outside.txt").exists(),
         "the rewritten script ran"
@@ -167,8 +188,8 @@ async fn an_always_allowed_command_doesnt_start_outside_once_an_earlier_command_
 }
 
 #[tokio::test]
-async fn a_refusal_stored_before_a_restart_still_refuses_once_the_bot_is_in_full_access() -> Result
-{
+async fn a_refusal_stored_before_a_restart_still_goes_to_the_person_once_the_bot_is_in_full_access()
+-> Result {
     const REFUSE: &str = r#"{"verdict":"refuse","reason":"Not that file."}"#;
     // No sandbox: the command is reviewed, and the reviewer refuses it.
     let w = reviewed_world(false, vec![], |_| {
@@ -183,8 +204,10 @@ async fn a_refusal_stored_before_a_restart_still_refuses_once_the_bot_is_in_full
     let workspace = w.workspaces.of(&w.bot)?.path()?;
     std::fs::create_dir_all(&workspace)?;
     w.spade.say(&w.conversation, "Write it").await?;
-    w.spade.wait_for(&w.conversation, "reply_finished").await?;
-    // Spade stopped between storing the refusal and finishing the call, and the bot was moved
+    w.spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    // Spade stopped between storing the refusal and asking the person, and the bot was moved
     // to Full access meanwhile.
     let full_access = json!({ "autonomy": "full_access", "full_access_confirmed": true });
     let sql = format!(
@@ -211,9 +234,20 @@ async fn a_refusal_stored_before_a_restart_still_refuses_once_the_bot_is_in_full
         w.security.autonomy(&w.bot),
         spade_core::autonomy::Mode::FullAccess
     );
-    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
-    let said = output(&events, "c1");
-    assert!(said.contains("Not that file."), "{said}");
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    let request = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        request["reviewer_reason"],
+        "The reviewer stopped this: Not that file."
+    );
+    assert!(output(&events, "c1").is_empty(), "it ran");
     assert!(
         !workspace.join("ran.txt").exists(),
         "the refused command ran"

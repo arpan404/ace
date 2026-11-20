@@ -1,6 +1,6 @@
 // oxlint-disable react/no-array-index-key -- a message's segments are ordered runs of one string.
 import type { ContentPart } from "@ace/protocol";
-import { useEffect, useId, useState, type Ref } from "react";
+import { useEffect, useId, useState, type ReactNode, type Ref } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -62,12 +62,15 @@ export function BubbleText({
   parts,
   ref,
   fold,
+  decorate,
 }: {
   text: string;
   parts?: readonly ContentPart[] | undefined;
   /** The readable content, for Copy; the fold button stays outside it. */
   ref?: Ref<HTMLDivElement> | undefined;
   fold?: BubbleFold | undefined;
+  /** Draws a plain run of the words, for the chips of what the message named (ADR 0198). */
+  decorate?: ((text: string) => ReactNode) | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -101,7 +104,7 @@ export function BubbleText({
                   <code>{segment.text}</code>
                 </pre>
               ) : (
-                <span key={index}>{segment.text}</span>
+                <span key={index}>{decorate ? decorate(segment.text) : segment.text}</span>
               ),
             )
           )}

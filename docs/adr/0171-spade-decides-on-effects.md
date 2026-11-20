@@ -587,6 +587,26 @@ adds Full access, opt-in per bot: the same effects and places, the person-only e
 no reviewer. What amendment 3 sends to the person (sensitive places, simulators and devices, a
 place Spade can't name or ace can't hold) still asks there; what it sends to the reviewer runs.
 
+## Note: what Spade can't vouch for asks the person (2026-11-19)
+
+[ADR 0163](0163-spade-auto-review-only.md) amendment 3 (the owner, 2026-11-19) changes what this
+ADR's checks do when they can't vouch for a command outside the sandbox. Amendments 4 to 6
+refused it; now the person decides, told why in one sentence, and the call waits for them:
+
+- an incomplete reading at the gate (amendment 4's "refused, never asked about", amendment 5's
+  configuration that runs a program, a program `PATH` can't find, a `PATH` the command sets,
+  amendment 6's program too large to read) asks, whatever the route and in both modes;
+- right before the launch, a reading that fails, isn't whole, or no longer matches the verdict's
+  binding doesn't start the call: the person is asked again, on what it runs now, and only their
+  new answer counts.
+
+The binding is unchanged: Allow once is held to the verdict that asked, at the launch and at the
+spawn. A person's Allow on an incomplete reading (`Warrant::incomplete`, theirs alone) lets the
+spawn start a reading still incomplete if what could be read is unchanged; it can't bind what
+couldn't be read, which the request says. A command Spade couldn't read at all when it was decided,
+a race the spawn's own check catches, a declined tool and a secret are still refused; a driving
+step whose place changed is still looked at again by the bot.
+
 ## Options considered
 
 - **Better word lists.** Each fix moved a miss somewhere else, and two lists that disagree still

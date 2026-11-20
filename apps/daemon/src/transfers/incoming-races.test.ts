@@ -10,6 +10,7 @@ import type { TransferIdentities } from "./identity.ts";
 import { IncomingTransfers } from "./incoming.ts";
 import type { TargetProjects } from "./landing.ts";
 import type { TransferArchive, TransferGit } from "./ports.ts";
+import { incomingPath } from "./incoming-files.ts";
 
 /**
  * Removing a transfer's files can be held once, at the file system, so a test can land a call in
@@ -124,7 +125,7 @@ async function target(
     release,
     stored,
     reached,
-    part: (id: string) => join(root, "incoming", `${id}.part`),
+    part: (id: string) => incomingPath(join(root, "incoming"), id, "code"),
   };
 }
 
@@ -170,7 +171,7 @@ it("a second cancel answers only once the first has undone the transfer", async 
   release();
   await expect(second).resolves.toMatchObject({ state: "cancelled" });
   // By the time it answered, nothing of the transfer is left.
-  await expect(stat(part("t-twice"))).rejects.toThrow();
+  await expect(stat(part("t-twice"))).rejects.toMatchObject({ code: "ENOENT" });
   await expect(first).resolves.toMatchObject({ state: "cancelled" });
 });
 

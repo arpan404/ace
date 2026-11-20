@@ -13,3 +13,5 @@ export { keyInput, pointerGesture, windowPoint, type ShownPicture } from "./live
 export const loadBotScreen = () => import("./bot-screen.tsx");
 /** The agent's pointer over a live picture the person and the agent share. */
 export { AgentCursor } from "./agent-cursor.tsx";
+/** Computer use's live state and controls, for the desktop's menu-bar popover. */
+export { useComputerUse, type ComputerUse } from "./use-computer-use.ts";

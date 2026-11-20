@@ -109,8 +109,12 @@ const recency = (a: ProjectCheckout, b: ProjectCheckout) =>
 export const checkoutOrder = (a: ProjectCheckout, b: ProjectCheckout) =>
   Number(b.online) - Number(a.online) || recency(a, b);
 
-/** The node two checkouts of the same remotes at the same folder share; none without a remote. */
-function remoteNode(key: GroupableProject["remoteKey"]): string | undefined {
+/**
+ * The node two checkouts of the same remotes at the same folder share; none without a remote.
+ * A client that sees one machine's list at a time (the iPhone's per-machine runtime) matches
+ * checkouts across machines by these and the identity ids.
+ */
+export function remoteNode(key: GroupableProject["remoteKey"]): string | undefined {
   if (!key?.remotes.length) return undefined;
   // Sorted and without repeats, so two daemons listing them in another order still agree.
   return `remote:${key.subpath}\n${[...new Set(key.remotes)].toSorted().join("\n")}`;

@@ -29,6 +29,8 @@ function appSchema(address: typeof Https) {
     /** How the cloud authenticates at the token endpoint (RFC 6749 section 2.3.1). */
     client_auth: z.enum(["client_secret_basic", "client_secret_post"]),
     scopes: z.array(z.string()).default([]),
+    /** Extra query parameters on the authorization address, such as Google's offline access. */
+    authorization_params: z.record(z.string(), z.string()).default({}),
     /** The MCP server the tokens are for (RFC 8707 `resource`). */
     resource: address,
     client_id_env: SecretName,
@@ -52,9 +54,24 @@ const Apps = list(App);
 /** `SPADE_CLOUD_APPS`: another list, as JSON, in place of the shipped one (tests, staging). */
 const OverrideApps = list(appSchema(LocalOrHttps));
 
+const googleIssuer = {
+  issuer: "https://accounts.google.com",
+  authorization_response_iss_parameter_supported: true,
+  authorization_endpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+  token_endpoint: "https://oauth2.googleapis.com/token",
+  client_auth: "client_secret_post",
+  // Without both, Google gives no refresh token and the sign-in ends within the hour.
+  authorization_params: { access_type: "offline", prompt: "consent" },
+  // One Google app (one Cloud project with every Workspace MCP API on) signs in to all seven.
+  client_id_env: "SPADE_CLOUD_GOOGLE_CLIENT_ID",
+  client_secret_env: "SPADE_CLOUD_GOOGLE_CLIENT_SECRET",
+} as const;
+const google = (scope: string) => `https://www.googleapis.com/auth/${scope}`;
+
 /**
  * The shipped list. Endpoints are from each issuer's live authorization-server metadata and each
- * MCP server's protected-resource metadata, checked 2026-11-12.
+ * MCP server's protected-resource metadata, checked 2026-11-12 (Asana, Box, Canva, HubSpot) and
+ * 2026-11-19 (the rest).
  */
 export const SHIPPED_APPS: readonly App[] = Apps.parse([
   {
@@ -121,6 +138,127 @@ export const SHIPPED_APPS: readonly App[] = Apps.parse([
     resource: "https://mcp.hubspot.com",
     client_id_env: "SPADE_CLOUD_HUBSPOT_CLIENT_ID",
     client_secret_env: "SPADE_CLOUD_HUBSPOT_CLIENT_SECRET",
+  },
+  {
+    id: "front",
+    name: "Front",
+    issuer: "https://app.frontapp.com",
+    authorization_response_iss_parameter_supported: true,
+    authorization_endpoint: "https://app.frontapp.com/oauth/authorize",
+    token_endpoint: "https://app.frontapp.com/oauth/token",
+    client_auth: "client_secret_post",
+    scopes: ["feature:mcp"],
+    resource: "https://mcp.frontapp.com/mcp",
+    client_id_env: "SPADE_CLOUD_FRONT_CLIENT_ID",
+    client_secret_env: "SPADE_CLOUD_FRONT_CLIENT_SECRET",
+  },
+  {
+    ...googleIssuer,
+    id: "gmail",
+    name: "Gmail",
+    scopes: [google("gmail.readonly"), google("gmail.compose"), google("gmail.modify")],
+    resource: "https://gmailmcp.googleapis.com/mcp/v1",
+  },
+  {
+    ...googleIssuer,
+    id: "google-calendar",
+    name: "Google Calendar",
+    scopes: [
+      google("calendar.calendarlist.readonly"),
+      google("calendar.events"),
+      google("calendar.events.freebusy"),
+    ],
+    resource: "https://calendarmcp.googleapis.com/mcp/v1",
+  },
+  {
+    ...googleIssuer,
+    id: "google-chat",
+    name: "Google Chat",
+    scopes: [
+      google("chat.spaces.readonly"),
+      google("chat.memberships.readonly"),
+      google("chat.messages.readonly"),
+      google("chat.messages.create"),
+    ],
+    resource: "https://chatmcp.googleapis.com/mcp/v1",
+  },
+  {
+    ...googleIssuer,
+    id: "google-docs",
+    name: "Google Docs",
+    scopes: [google("documents")],
+    resource: "https://docsmcp.googleapis.com/mcp/v1",
+  },
+  {
+    ...googleIssuer,
+    id: "google-drive",
+    name: "Google Drive",
+    scopes: [google("drive.readonly"), google("drive.file")],
+    resource: "https://drivemcp.googleapis.com/mcp/v1",
+  },
+  {
+    ...googleIssuer,
+    id: "google-sheets",
+    name: "Google Sheets",
+    scopes: [google("spreadsheets")],
+    resource: "https://sheetsmcp.googleapis.com/mcp/v1",
+  },
+  {
+    ...googleIssuer,
+    id: "google-slides",
+    name: "Google Slides",
+    scopes: [google("presentations")],
+    resource: "https://slidesmcp.googleapis.com/mcp/v1",
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    issuer: "https://mcp.slack.com",
+    authorization_endpoint: "https://slack.com/oauth/v2_user/authorize",
+    token_endpoint: "https://slack.com/api/oauth.v2.user.access",
+    client_auth: "client_secret_post",
+    scopes: [
+      "search:read.public",
+      "search:read.private",
+      "search:read.mpim",
+      "search:read.im",
+      "search:read.files",
+      "search:read.users",
+      "channels:history",
+      "groups:history",
+      "mpim:history",
+      "im:history",
+      "chat:write",
+      "canvases:read",
+      "canvases:write",
+      "users:read",
+      "users:read.email",
+      "files:read",
+      "files:write",
+    ],
+    resource: "https://mcp.slack.com/mcp",
+    client_id_env: "SPADE_CLOUD_SLACK_CLIENT_ID",
+    client_secret_env: "SPADE_CLOUD_SLACK_CLIENT_SECRET",
+  },
+  {
+    id: "zoom",
+    name: "Zoom",
+    issuer: "https://zoom.us",
+    authorization_endpoint: "https://zoom.us/oauth/authorize",
+    token_endpoint: "https://zoom.us/oauth/token",
+    client_auth: "client_secret_basic",
+    scopes: [
+      "meeting:read:search",
+      "meeting:write:meeting",
+      "meeting:update:meeting",
+      "meeting:delete:meeting",
+      "meeting:read:assets",
+      "cloud_recording:read:list_user_recordings",
+      "cloud_recording:read:content",
+    ],
+    resource: "https://mcp.zoom.us/mcp/meeting/streamable",
+    client_id_env: "SPADE_CLOUD_ZOOM_CLIENT_ID",
+    client_secret_env: "SPADE_CLOUD_ZOOM_CLIENT_SECRET",
   },
 ]);
 

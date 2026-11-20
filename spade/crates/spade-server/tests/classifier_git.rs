@@ -141,7 +141,7 @@ fn by_classifier(verdict: &Value) -> bool {
 }
 
 #[tokio::test]
-async fn a_read_in_a_repository_whose_config_runs_a_program_goes_to_the_reviewer() -> Result {
+async fn a_read_in_a_repository_whose_config_runs_a_program_goes_to_the_person() -> Result {
     let setup = start(vec![
         Script::reply("").call("c1", "shell", json!({ "command": "git ls-files" })),
         Script::reply("").plain(REFUSE),
@@ -170,12 +170,27 @@ async fn a_read_in_a_repository_whose_config_runs_a_program_goes_to_the_reviewer
         .await?;
     let events = setup
         .spade
-        .wait_for(&conversation, "reply_finished")
+        .wait_for(&conversation, "approval_requested")
         .await?;
     let reviewed = verdict(&events, "c1").ok_or("no verdict")?;
-    assert!(!by_classifier(reviewed), "the reviewer decided: {reviewed}");
-    assert_eq!(reviewed["verdict"], "refuse", "{reviewed}");
-    assert!(!marker.exists(), "the monitor ran before a review");
+    assert!(
+        !by_classifier(reviewed),
+        "the classifier settled it: {reviewed}"
+    );
+    // What its configuration runs can't be read, so neither the classifier nor a reviewer can
+    // vouch for it: the person decides (ADR 0163, amendment 3).
+    assert_eq!(reviewed["verdict"], "escalate", "{reviewed}");
+    assert_eq!(
+        reviewed["reason"],
+        spade_core::autonomy::escalate::INCOMPLETE_OUTSIDE,
+        "{reviewed}"
+    );
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .ok_or("not asked")?;
+    assert_eq!(asked["stopped"], "incomplete", "{asked}");
+    assert!(!marker.exists(), "the monitor ran before anyone decided");
     Ok(())
 }
 

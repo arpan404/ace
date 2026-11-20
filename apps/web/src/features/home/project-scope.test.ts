@@ -161,6 +161,8 @@ test("counts add each machine's threads to its checkout, leaving out chats, draf
     thread("rijan:2", "a2"),
     thread("omarchy:1", "a3"),
     thread("omarchy:2", "a3", { deletedAt: 5 }),
+    // A draft: nothing sent yet.
+    thread("omarchy:4", "a3", { hasSentMessage: false }),
     thread("omarchy:3", "a3", {
       details: { workspace: { id: "a3", name: "Chat", path: "/chats/a3", kind: "chat" } },
     }),

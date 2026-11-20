@@ -23,6 +23,21 @@ const ASK_WAIT: Duration = Duration::from_secs(10 * 60);
 impl Engine {
     /// The person posts in a group. Returns the run it starts.
     pub fn post_group(self: &Arc<Self>, id: &str, text: &str) -> Result<String, GroupError> {
+        self.post_group_as(id, text, None, None)
+            .map(|posted| posted.map_or_else(String::new, |(run, _)| run))
+    }
+
+    /// The person posts in a group, from an ace thread when `thread` names one (ADR 0198): the
+    /// message records the thread, `thread.1` (the thread's context pack, untrusted) goes to the
+    /// bots asked, and `delivery` stores the ask's key with the message, once. `None` when that
+    /// ask was posted before. Returns the run and the message's seq.
+    pub(crate) fn post_group_as(
+        self: &Arc<Self>,
+        id: &str,
+        text: &str,
+        thread: Option<(spade_core::event::FromThread, Option<String>)>,
+        delivery: Option<spade_store::Delivery<'_>>,
+    ) -> Result<Option<(String, i64)>, GroupError> {
         let text = text.trim();
         if text.is_empty() {
             return Err(GroupError::Invalid("the message is empty".to_owned()));
@@ -37,32 +52,49 @@ impl Engine {
             ));
         }
         let run = self.ids.next("run");
-        self.record(
-            &group.conversation,
-            &Event::Known(Known::GroupMessage {
-                run: run.clone(),
-                text: text.to_owned(),
-                from: None,
-            }),
-        )?;
+        let (from_thread, pack) = thread.map_or((None, None), |(from, pack)| (Some(from), pack));
+        let message = Event::Known(Known::GroupMessage {
+            run: run.clone(),
+            text: text.to_owned(),
+            from: None,
+            thread: from_thread,
+        });
+        let seq = match delivery {
+            None => self.record(&group.conversation, &message)?.seq,
+            Some(delivery) => {
+                let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+                match self.append_as(&group.conversation, &[message], Some(delivery))? {
+                    spade_store::Delivered::Stored(stored) => stored.first().map_or(0, |e| e.seq),
+                    _ => return Ok(None),
+                }
+            }
+        };
         let names: Vec<&str> = group.members.iter().map(|m| m.name.as_str()).collect();
         let mentioned = group::mentions(text, &names);
-        let targets: Vec<&StoredMember> = if mentioned.is_empty() {
-            group
-                .members
-                .iter()
-                .filter(|m| m.machine.is_empty() && m.agent_id == group.lead_id)
-                .collect()
+        // A big club never runs every member on one message: a few named are asked, more go to
+        // the lead to hand on (ADR 0132, amended by ADR 0197).
+        let lead = group
+            .members
+            .iter()
+            .position(|m| m.machine.is_empty() && m.agent_id == group.lead_id);
+        let routed = group::route(&mentioned, lead);
+        let handed: Vec<&str> = routed.via_lead.iter().map(|&i| names[i]).collect();
+        let to_lead = if handed.is_empty() {
+            text.to_owned()
         } else {
-            mentioned.iter().map(|&i| &group.members[i]).collect()
+            format!("{text}\n\n{}", group::hand_on_note(&handed))
         };
-        for target in targets {
-            if let Err(why) = self.start_ask(&group, &run, None, 1, target, text) {
+        for &index in &routed.ask {
+            let target = &group.members[index];
+            let said = if Some(index) == lead { &to_lead } else { text };
+            if let Err(why) =
+                self.start_ask_with(&group, &run, None, 1, target, said, pack.as_deref())
+            {
                 tracing::warn!(%why, "a group message was not handed on");
             }
         }
         self.announce_group(&group.conversation);
-        Ok(run)
+        Ok(Some((run, seq)))
     }
 
     /// Records an ask in the group and delivers it; its answer is posted when it comes.
@@ -74,6 +106,22 @@ impl Engine {
         depth: u32,
         to: &StoredMember,
         text: &str,
+    ) -> Result<(String, watch::Receiver<Option<Outcome>>), String> {
+        self.start_ask_with(group, run, by, depth, to, text, None)
+    }
+
+    /// [`Engine::start_ask`], with an ace thread's context pack (ADR 0198) put before the club's
+    /// own context: agents' words and tool output, so the turn it starts is untrusted.
+    #[allow(clippy::too_many_arguments)]
+    fn start_ask_with(
+        self: &Arc<Self>,
+        group: &StoredGroup,
+        run: &str,
+        by: Option<GroupBot>,
+        depth: u32,
+        to: &StoredMember,
+        text: &str,
+        pack: Option<&str>,
     ) -> Result<(String, watch::Receiver<Option<Outcome>>), String> {
         let to_bot = bot_of(to);
         let (ask, context, untrusted) = {
@@ -97,7 +145,14 @@ impl Engine {
             )
             .map_err(|e| e.to_string())?;
             let (lines, untrusted) = group::recent(&events, &to_bot, run);
-            (ask, context_for(group, &lines), untrusted)
+            match pack {
+                Some(pack) => (
+                    ask,
+                    format!("{pack}\n\n{}", context_for(group, &lines)),
+                    true,
+                ),
+                None => (ask, context_for(group, &lines), untrusted),
+            }
         };
         let (sender, receiver) = watch::channel(None);
         self.teams
@@ -156,6 +211,7 @@ impl Engine {
             }),
             from_routine: None,
             from_group: Some(Box::new(from_group)),
+            from_thread: None,
         });
         let frames = self.live(&agent.conversation).frames.subscribe();
         let delivered = self
@@ -346,6 +402,7 @@ impl Engine {
                     run: run.to_owned(),
                     text: text.clone(),
                     from: Some(to.clone()),
+                    thread: None,
                 }));
             }
             {

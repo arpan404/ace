@@ -156,3 +156,70 @@ test.each(["eviction", "explicit removal"])(
     });
   },
 );
+
+/** One approved ACP agent's row, as the daemon registers it for each installation. */
+function acpRow(index: number) {
+  return {
+    id: `acp-${index}`,
+    provider: "acp" as const,
+    acpAgentId: `local:agent-${index}`,
+    installationId: `install-${index}`,
+    instanceId: `install-${index}:default`,
+    loginRevision: "0",
+    executable: process.execPath,
+    cwd: process.cwd(),
+    modelProbe: "on-request" as const,
+  };
+}
+
+test("every agent the registry approves keeps its row beside 64 CLI accounts, through a restart", async () => {
+  await usingWorkspace(async (path) => {
+    await usingStorage(path, async (storage) => {
+      for (let index = 0; index < 64; index++) await storage.replace(entry(`account-${index}`));
+      for (let index = 0; index < 512; index++)
+        await storage.replace({
+          provider: "acp",
+          instance: `acp-${index}`,
+          revision: "0",
+          refreshedAt: 1000,
+          models: [],
+        });
+      // Each kind is full on its own: neither takes the other's room.
+      await expect(Promise.resolve(storage.replace(entry("account-64")))).rejects.toThrow(
+        "persistence",
+      );
+      await expect(
+        Promise.resolve(
+          storage.replace({
+            provider: "acp",
+            instance: "acp-512",
+            revision: "0",
+            refreshedAt: 1000,
+            models: [],
+          }),
+        ),
+      ).rejects.toThrow("persistence");
+    });
+    await usingStorage(path, async (storage) => {
+      const clock = new Clock();
+      const catalog = new ModelCatalog({
+        storage,
+        discover: async (config) => normalizeCodex(codexPayload(), config),
+        now: () => clock.now,
+        deadline: clock.deadline,
+        instances: [
+          ...Array.from({ length: 64 }, (_, index) => instance("codex", `account-${index}`)),
+          ...Array.from({ length: 512 }, (_, index) => acpRow(index)),
+        ],
+      });
+      try {
+        expect(catalog.list({ provider: "acp" }).instances).toHaveLength(512);
+        expect(catalog.list({ provider: "codex" }).instances).toHaveLength(64);
+        expect(() => catalog.registerInstance(acpRow(512))).toThrow("limit");
+        expect(() => catalog.registerInstance(instance("claude", "overflow"))).toThrow("limit");
+      } finally {
+        await catalog.close();
+      }
+    });
+  });
+});

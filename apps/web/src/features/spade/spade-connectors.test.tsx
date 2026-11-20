@@ -51,21 +51,21 @@ test("signing in to an app opens its page in the browser, and its row follows th
   const section = await connectors();
   expect(await section.findByText("Waiting for you to finish signing in")).toBeTruthy();
   spade.connectors.finishSignIn("linear", "me@example.com");
-  expect(await section.findByText("Connected as me@example.com")).toBeTruthy();
+  expect(await section.findByText("Working · me@example.com")).toBeTruthy();
 });
 
 test("a token goes to Spade in one request, and Disconnect removes the app", async () => {
   const { spade } = await spadeApp("/settings/spade/apps", seed);
   const dialog = await openCatalogue();
-  await userEvent.click(dialog.getByRole("button", { name: "Use a token for Linear" }));
-  await userEvent.type(dialog.getByLabelText("Token for Linear"), "lin-key-1");
+  await userEvent.click(dialog.getByRole("button", { name: "Use a key for Linear" }));
+  await userEvent.type(dialog.getByLabelText("Key for Linear"), "lin-key-1");
   await userEvent.click(dialog.getByRole("button", { name: "Connect" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(spade.sent("POST", "/v1/connectors")).toEqual([
     { catalogue: "linear", token: "lin-key-1" },
   ]);
   const section = await connectors();
-  expect(await section.findByText("Connected")).toBeTruthy();
+  expect(await section.findByText("Working")).toBeTruthy();
   await userEvent.click(section.getByRole("button", { name: "Disconnect Linear" }));
   await waitFor(() => expect(spade.sent("DELETE", "/v1/connectors/linear")).toHaveLength(1));
   await waitFor(() => expect(section.queryByText("Linear")).toBeNull());
@@ -81,8 +81,8 @@ test("a server added by address reaches local addresses only when the person say
   const mine = dialog.getByRole("switch", { name: "On my own machine or network" });
   expect(checked(mine)).toBe(false);
   await userEvent.click(mine);
-  await userEvent.click(dialog.getByRole("button", { name: "Use a token for 192.168.1.20:8080" }));
-  await userEvent.type(dialog.getByLabelText("Token for 192.168.1.20:8080"), "nas-key");
+  await userEvent.click(dialog.getByRole("button", { name: "Use a key for 192.168.1.20:8080" }));
+  await userEvent.type(dialog.getByLabelText("Key for 192.168.1.20:8080"), "nas-key");
   await userEvent.click(dialog.getByRole("button", { name: "Connect" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/connectors")).toEqual([
@@ -90,7 +90,7 @@ test("a server added by address reaches local addresses only when the person say
     ]),
   );
   const section = await connectors();
-  expect(await section.findByText("Connected · On your own network")).toBeTruthy();
+  expect(await section.findByText("Working · On your own network")).toBeTruthy();
 });
 
 test("an app that registers no clients by itself asks for the person's client ID", async () => {
@@ -127,7 +127,7 @@ test("an app whose sign-in ended reconnects from its row", async () => {
   });
   const tab = browserTab();
   const section = await connectors();
-  expect(await section.findByText("Signed out")).toBeTruthy();
+  expect(await section.findByText("Needs reconnect")).toBeTruthy();
   await userEvent.click(section.getByRole("button", { name: "Reconnect" }));
   await waitFor(() => expect(spade.sent("POST", "/v1/connectors/linear/connect")).toHaveLength(1));
   await waitFor(() => expect(tab.location.replace).toHaveBeenCalled());
@@ -151,11 +151,11 @@ test("an app whose sign-in ends later shows it without a reload", async () => {
       });
     });
     const section = await connectors();
-    expect(await section.findByText("Connected")).toBeTruthy();
+    expect(await section.findByText("Working")).toBeTruthy();
     // Spade finds the sign-in expired while the page stays open.
     Object.assign(spade.connectors.connectors[0] ?? {}, { state: "needs_reconnect" });
     await vi.advanceTimersByTimeAsync(31_000);
-    expect(await section.findByText("Signed out")).toBeTruthy();
+    expect(await section.findByText("Needs reconnect")).toBeTruthy();
   } finally {
     vi.useRealTimers();
   }
@@ -180,8 +180,8 @@ test("an app still signing in can't be given to a bot yet", async () => {
   await feed("Garden");
   const apps = await appsOf("Garden");
   await userEvent.click(await apps.findByRole("button", { name: "Add an app" }));
-  expect(disabled(await screen.findByRole("menuitem", { name: "Sentry" }))).toBe(true);
-  expect(disabled(screen.getByRole("menuitem", { name: "Linear" }))).toBe(false);
+  expect(disabled(await screen.findByRole("menuitem", { name: "Use Sentry" }))).toBe(true);
+  expect(disabled(screen.getByRole("menuitem", { name: "Use Linear" }))).toBe(false);
 });
 
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
@@ -220,7 +220,7 @@ test("a bot's profile gives it an app from the connected ones, saved at once and
   await apps.findByRole("button", { name: "Add an app" });
   expect(apps.queryByRole("button", { name: /^Remove/ })).toBeNull();
   await userEvent.click(apps.getByRole("button", { name: "Add an app" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Linear" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Use Linear" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/agents/garden/connectors")).toEqual([
       { all: false, connectors: ["linear"] },
@@ -300,7 +300,7 @@ test("a device sign-in shows its code in the app's row, with Copy code and Open,
     );
     spade.connectors.finishSignIn("github", "octo@example.com");
     await followed();
-    expect(await section.findByText("Connected as octo@example.com")).toBeTruthy();
+    expect(await section.findByText("Working · octo@example.com")).toBeTruthy();
     expect(section.queryByRole("button", { name: "Copy code" })).toBeNull();
   }));
 
@@ -355,7 +355,7 @@ test("an app through Spade Cloud signs in in the browser and its row says it sig
   spade.connectors.finishSignIn("asana", "me@example.com");
   const section = await connectors();
   expect(
-    await section.findByText("Connected as me@example.com · Signs in through Spade Cloud"),
+    await section.findByText("Working · me@example.com · Signs in through Spade Cloud"),
   ).toBeTruthy();
 });
 
@@ -397,10 +397,175 @@ test("an app through Spade Cloud that can't renew while signed out of ace says s
   });
   const section = await connectors();
   expect(
-    await section.findByText(
-      "Connected · Sign in to ace to keep it signed in through Spade Cloud.",
-    ),
+    await section.findByText("Working · Sign in to ace to keep it signed in through Spade Cloud."),
   ).toBeTruthy();
   await userEvent.click(section.getByRole("button", { name: "Sign in to ace" }));
   expect(await screen.findByRole("heading", { name: "Profile" })).toBeTruthy();
+});
+
+const slack = {
+  id: "slack",
+  name: "Slack",
+  url: "https://mcp.slack.com/mcp",
+  sign_in: ["oauth_client"],
+  via: "cloud",
+  category: "mail_chat",
+  ready: "later",
+  notes: "Signs in through Spade Cloud once Spade's Slack app is listed.",
+};
+const figma = {
+  id: "figma",
+  name: "Figma",
+  url: "https://mcp.figma.com/mcp",
+  sign_in: ["oauth"],
+  category: "design",
+  ready: "later",
+  notes: "Figma lets in only the apps in its MCP catalog.",
+};
+const render = {
+  id: "render",
+  name: "Render",
+  url: "https://mcp.render.com/mcp",
+  sign_in: ["token"],
+  category: "code",
+  ready: "key",
+  key_url: "https://dashboard.render.com/u/settings#api-keys",
+  notes: "In Render, open Account Settings, then API Keys, and create a key.",
+};
+
+const withMore = (api: FakeSpadeApi) => {
+  seed(api);
+  api.connectors.catalogue.push(slack, figma, render);
+};
+
+/** The row of the app named `name` in the open catalogue. */
+const rowOf = (dialog: ReturnType<typeof within>, name: string) =>
+  within(dialog.getByText(name, { selector: "span" }).closest("li") as HTMLElement);
+
+test("an app that can't connect on this build says Coming soon and offers no Sign in", async () => {
+  await spadeApp("/settings/spade/apps", withMore);
+  const dialog = await openCatalogue();
+  const slackRow = rowOf(dialog, "Slack");
+  expect(slackRow.getByText("Coming soon.")).toBeTruthy();
+  expect(slackRow.queryByRole("button", { name: "Sign in for Slack" })).toBeNull();
+  // Someone with their own Slack app can still use it.
+  expect(slackRow.getByRole("button", { name: "Use your own app for Slack" })).toBeTruthy();
+  const figmaRow = rowOf(dialog, "Figma");
+  expect(figmaRow.getByText("Coming soon.")).toBeTruthy();
+  expect(figmaRow.queryAllByRole("button")).toEqual([]);
+});
+
+test("an app that takes only a key says so, shows its steps and opens the page that makes one", async () => {
+  const { spade } = await spadeApp("/settings/spade/apps", withMore);
+  const dialog = await openCatalogue();
+  const row = rowOf(dialog, "Render");
+  expect(row.getByText("Needs a key from Render.")).toBeTruthy();
+  await userEvent.click(row.getByRole("button", { name: "Use a key for Render" }));
+  expect(row.getByText(render.notes)).toBeTruthy();
+  const opened = vi.spyOn(window, "open").mockReturnValue(null);
+  await userEvent.click(row.getByRole("button", { name: "Get a key from Render" }));
+  expect(opened).toHaveBeenCalledWith(render.key_url, "_blank", "noopener,noreferrer");
+  await userEvent.type(row.getByLabelText("Key for Render"), "rnd-key");
+  await userEvent.click(row.getByRole("button", { name: "Connect" }));
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/connectors")).toEqual([
+      { catalogue: "render", token: "rnd-key" },
+    ]),
+  );
+});
+
+test("the catalogue finds an app by name across categories, and a category shows only its apps", async () => {
+  await spadeApp("/settings/spade/apps", withMore);
+  const dialog = await openCatalogue();
+  // Grouped by category, apps that connect now first within each.
+  expect(dialog.getByRole("region", { name: "Mail & chat" })).toBeTruthy();
+  expect(dialog.getByRole("region", { name: "Code" })).toBeTruthy();
+
+  await userEvent.type(dialog.getByRole("searchbox", { name: "Search apps" }), "ren");
+  const found = within(dialog.getByRole("region", { name: "Apps found" }));
+  expect(found.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+    expect.stringContaining("Render"),
+  ]);
+  await userEvent.clear(dialog.getByRole("searchbox", { name: "Search apps" }));
+  await userEvent.type(dialog.getByRole("searchbox", { name: "Search apps" }), "zzz");
+  expect(dialog.getByText("No app matches “zzz”. Add its server by address below.")).toBeTruthy();
+  await userEvent.clear(dialog.getByRole("searchbox", { name: "Search apps" }));
+
+  await userEvent.click(dialog.getByRole("button", { name: "Design" }));
+  const design = within(dialog.getByRole("region", { name: "Design" }));
+  expect(design.getAllByRole("listitem")).toHaveLength(1);
+  expect(design.getByText("Figma")).toBeTruthy();
+  expect(dialog.queryByText("Slack")).toBeNull();
+});
+
+test("apps already added lead the catalogue with their state, and an app reached for lately comes next", async () => {
+  await spadeApp("/settings/spade/apps", (api) => {
+    withMore(api);
+    api.connectors.needsClient.add("linear");
+    api.connectors.connectors.push({
+      id: "render",
+      name: "Render",
+      url: "https://mcp.render.com/mcp",
+      catalogue: "render",
+      sign_in: "token",
+      state: "connected",
+      account: "ops@example.com",
+      tools: 3,
+    });
+  });
+  browserTab();
+  let dialog = await openCatalogue();
+  const yours = within(dialog.getByRole("region", { name: "Your apps" }));
+  expect(yours.getByText("Render")).toBeTruthy();
+  expect(yours.getByText("Connected as ops@example.com")).toBeTruthy();
+  expect(yours.queryByRole("button")).toBeNull();
+  expect(dialog.queryByRole("region", { name: "Recent" })).toBeNull();
+
+  // Tried, not added: Linear wants a client ID, and the person leaves it for now.
+  await userEvent.click(dialog.getByRole("button", { name: "Sign in for Linear" }));
+  expect(await dialog.findByRole("alert")).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  dialog = await openCatalogue();
+  const recent = within(dialog.getByRole("region", { name: "Recent" }));
+  expect(recent.getByText("Linear")).toBeTruthy();
+});
+
+test("each app shows its own mark, and a server added by address its first letter", async () => {
+  await spadeApp("/settings/spade/apps", (api) => {
+    seed(api);
+    api.connectors.connectors.push(
+      {
+        id: "linear",
+        name: "Linear",
+        url: "https://mcp.linear.app/mcp",
+        catalogue: "linear",
+        sign_in: "oauth",
+        state: "connected",
+        tools: 3,
+      },
+      {
+        id: "nas",
+        name: "nas.local",
+        url: "http://192.168.1.20:8080/mcp",
+        sign_in: "none",
+        state: "connected",
+        local: true,
+        tools: 1,
+      },
+    );
+  });
+  const section = await connectors();
+  const tile = (name: string) =>
+    section
+      .getByText(name)
+      .closest("[data-part='settings-row']")
+      ?.querySelector("[data-part='avatar']");
+  // Linear's own outline, drawn from the bundled mark; never a fetched image.
+  await waitFor(() =>
+    expect(tile("Linear")?.querySelector("svg path")?.getAttribute("d")).toBeTruthy(),
+  );
+  expect(tile("Linear")?.querySelector("img")).toBeNull();
+  await waitFor(() => expect(tile("nas.local")?.textContent).toBe("N"));
 });

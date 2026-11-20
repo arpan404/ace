@@ -6,7 +6,9 @@ use std::sync::Arc;
 use serde_json::Value;
 use spade_core::autonomy::Mode;
 use spade_core::effect::{self, Effect, Granted};
+use spade_core::event::{Event, Known};
 use spade_core::grant::Action;
+use spade_store::StoreError;
 
 use super::Engine;
 use crate::security::Security;
@@ -154,6 +156,7 @@ impl Engine {
         conversation: &str,
         tool: &str,
         shell_contained: bool,
+        reply: &str,
     ) -> bool {
         if !shell_contained && !matches!(tool, "workspace_write" | "workspace_edit") {
             return false;
@@ -165,7 +168,7 @@ impl Engine {
         if !security.contains() {
             return false;
         }
-        let work = security.before_unreviewed(&agent);
+        let work = security.before_unreviewed(&agent, Some(reply));
         match tokio::task::spawn_blocking(work).await {
             Ok(Ok(())) => true,
             Ok(Err(why)) => {
@@ -186,5 +189,34 @@ impl Engine {
         while security.reserved(&agent) {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
+    }
+}
+
+impl Engine {
+    /// When the event at `seq` of the bot's own conversation was stored, for undo to find the
+    /// checkpoint taken before a step (`tool_started`); `None` for no such event.
+    pub fn bot_event_time(&self, agent: &str, seq: i64) -> Result<Option<i64>, StoreError> {
+        let Some(agent) = self.store.agent(agent)? else {
+            return Ok(None);
+        };
+        Ok(self
+            .store
+            .events_window(&agent.conversation, seq, 1)?
+            .into_iter()
+            .find(|stored| stored.seq == seq)
+            .map(|stored| stored.at_ms))
+    }
+
+    /// Tells the bot the person undid changes in its workspace, as a note from Spade it reads at
+    /// its next step (`person_activity`, which opens no reply by itself).
+    pub fn note_workspace_restored(&self, agent: &str, text: String) -> Result<(), StoreError> {
+        let Some(agent) = self.store.agent(agent)? else {
+            return Ok(());
+        };
+        let event = Event::Known(Known::PersonActivity {
+            text,
+            data: Vec::new(),
+        });
+        self.record(&agent.conversation, &event).map(|_| ())
     }
 }

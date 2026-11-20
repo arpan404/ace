@@ -82,7 +82,7 @@ function refusalText(code: string): { title: string; description?: string } {
     case "editor_not_found":
       return {
         title: "Couldn't open the editor",
-        description: "That editor isn't installed on that computer any more.",
+        description: "That app isn't installed on that computer any more.",
       };
     default:
       return {
@@ -103,15 +103,22 @@ export function useHostOpen(): {
   unavailable: string | undefined;
   /** The daemon machine's file manager by name ("Finder"), for the reveal label. */
   fileManager: string | undefined;
+  /** The daemon machine's installed terminals. */
+  terminals: ReturnType<typeof useEditors>["terminals"];
   open(target: HostOpenTarget, editorId?: string, line?: number): Promise<boolean>;
+  /** Start a terminal there in the target's folder (a file's folder). */
+  openInTerminal(target: HostOpenTarget, terminalId: string): Promise<boolean>;
   reveal(target: HostOpenTarget): Promise<boolean>;
 } {
   const client = useClient();
   const toast = useToast();
-  const { editors, current, unavailable, fileManager } = useEditors();
+  const { editors, current, unavailable, fileManager, terminals } = useEditors();
   const run = async (
     target: HostOpenTarget,
-    app: { kind: "editor"; editorId: string } | { kind: "files" },
+    app:
+      | { kind: "editor"; editorId: string }
+      | { kind: "terminal"; terminalId: string }
+      | { kind: "files" },
     line?: number,
   ): Promise<boolean> => {
     const operation = {
@@ -148,6 +155,8 @@ export function useHostOpen(): {
     editor: current,
     unavailable,
     fileManager,
+    terminals,
+    openInTerminal: (target, terminalId) => run(target, { kind: "terminal", terminalId }),
     open: (target, editorId = current?.id, line) =>
       editorId ? run(target, { kind: "editor", editorId }, line) : Promise.resolve(false),
     reveal: (target) => run(target, { kind: "files" }),

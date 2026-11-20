@@ -216,6 +216,7 @@ fn message(run: &str, heartbeat: bool) -> Event {
             untrusted: false,
         })),
         from_group: None,
+        from_thread: None,
     })
 }
 

@@ -32,8 +32,18 @@ const target = z.object({
   path: z
     .string()
     .max(1024)
-    .regex(/^\/t\/[^/]+$/),
+    .regex(/^\/(t\/[^/?]+|spade\/[^/?]+(\?request=[^&]+)?)$/),
 });
+
+/** Where an alert opens: its thread, or a Spade bot's conversation at its request (ADR 0195). */
+export function alertPath(notice: Notification): string {
+  if (notice.status === "spade" && notice.spade) {
+    const { agent, request } = notice.spade;
+    const ask = request ? `?request=${encodeURIComponent(request)}` : "";
+    return `/spade/${encodeURIComponent(agent)}${ask}`;
+  }
+  return `/t/${encodeURIComponent(notice.threadId)}`;
+}
 
 self.addEventListener("push", (event) => {
   let input: unknown;
@@ -48,8 +58,9 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(notificationTitle(notice), {
       body: notice.message ?? notice.preview ?? "Your thread has an update",
-      tag: notice.id,
-      data: { path: `/t/${encodeURIComponent(notice.threadId)}` },
+      // One per Spade bot: its newer alert takes the older one's place.
+      tag: notice.status === "spade" && notice.spade ? `spade:${notice.spade.agent}` : notice.id,
+      data: { path: alertPath(notice) },
     }),
   );
 });

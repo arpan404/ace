@@ -1069,6 +1069,26 @@ impl Spade {
         self.wait_for_count(id, kind, 1).await
     }
 
+    /// Waits until some event has one of the types `kinds`, and returns all events at that point.
+    pub async fn wait_for_any(&self, id: &str, kinds: &[&str]) -> Result<Vec<Value>> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let events = self.events(id).await?;
+            if events
+                .iter()
+                .any(|e| kinds.iter().any(|kind| e["type"] == *kind))
+            {
+                return Ok(events);
+            }
+            if Instant::now() > deadline {
+                return Err(
+                    format!("no {kinds:?} event; got {}", types(&events).join(", ")).into(),
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
     /// Waits until `count` events have type `kind`, and returns all events at that point.
     pub async fn wait_for_count(&self, id: &str, kind: &str, count: usize) -> Result<Vec<Value>> {
         let deadline = Instant::now() + Duration::from_secs(10);

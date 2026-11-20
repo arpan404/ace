@@ -74,6 +74,7 @@ import { Sidebar } from "./sidebar.ts";
 import { Subscriptions, type AcquireOptions, type ThreadSubscription } from "./subscriptions.ts";
 import { HostSnapshots } from "./read-snapshot-scope.ts";
 import { retryDelay } from "./lifecycle.ts";
+import { PageOnce, pageKey } from "./page-once.ts";
 import {
   ClientError,
   defaultLimits,
@@ -157,6 +158,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   protected requests: Requests;
   #subscriptions: Subscriptions;
   #paths: Multipath | undefined;
+  /** This client's own list's page reads (`threadsMore`). */
+  #pages = new PageOnce();
   /** Counts daemon sockets this client has spoken over (`connectionGeneration`). */
   #socket = 0;
   /** The app's last presence, said again on a socket it moves to. */
@@ -717,6 +720,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     );
     this.#collections.add(sidebar);
     const leases = new Set<() => void>();
+    const pages = new PageOnce();
     let closed = false;
     return {
       threads: () => {
@@ -742,7 +746,11 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         if (closed || this.closed || this.state !== "ready") throw new ClientError("offline");
         const payload = sidebar.pageRequest();
         if (payload)
-          await this.#readCore(payload, (value) => CoreServerMessage.parse(value), options);
+          await pages.run(pageKey(payload), () =>
+            this.#readCore(payload, (value) => CoreServerMessage.parse(value), options).then(
+              () => undefined,
+            ),
+          );
       },
       close: () => {
         if (closed) return;
@@ -1019,7 +1027,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (this.state !== "ready" || this.closed) throw new ClientError("offline");
     const payload = this.#sidebar.pageRequest();
     if (!payload) return;
-    await this.#readCore(payload, (value) => CoreServerMessage.parse(value), options);
+    // A page already out is shared, never asked for twice (`PageOnce`).
+    await this.#pages.run(pageKey(payload), () =>
+      this.#readCore(payload, (value) => CoreServerMessage.parse(value), options).then(
+        () => undefined,
+      ),
+    );
   }
   /** A read of the core stream (item pages, output): no service schemas to wait for. */
   async #readCore<T>(

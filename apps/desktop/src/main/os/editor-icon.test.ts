@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { editorIcons, type AppImage, type IconLookup } from "./editor-icon.ts";
+import { appIcons, editorIcons, type AppImage, type IconLookup } from "./editor-icon.ts";
 
 const image = (url: string): AppImage => ({ isEmpty: () => false, toDataURL: () => url });
 const empty: AppImage = { isEmpty: () => true, toDataURL: () => "data:image/png;base64," };
@@ -50,5 +50,45 @@ describe("editor icons", () => {
     const icon = editorIcons(lookup, "darwin");
     await Promise.all([icon("vscode"), icon("vscode"), icon("vscode")]);
     expect(asked).toEqual(["vscode://"]);
+  });
+});
+
+/** A disk holding exactly these apps; `all` holds any. */
+const onDisk = (paths: string[]) => async (path: string) => paths.includes(path);
+const all = async () => true;
+
+describe("any installed app's icon by its path", () => {
+  const ghostty = "/Applications/Ghostty.app";
+
+  it("reads a bundle's icon, also for a launcher inside the bundle", async () => {
+    const { lookup, asked } = machine({}, { [ghostty]: "data:image/png;base64,GH" });
+    const icon = appIcons(lookup, "darwin", onDisk([ghostty]));
+    await expect(icon(ghostty)).resolves.toBe("data:image/png;base64,GH");
+    await expect(icon(`${ghostty}/Contents/MacOS/ghostty`)).resolves.toBe(
+      "data:image/png;base64,GH",
+    );
+    expect(asked).toEqual([ghostty]);
+  });
+
+  it("has no icon for an app that isn't on this computer, such as another machine's", async () => {
+    const { lookup, asked } = machine({}, { [ghostty]: "data:image/png;base64,GH" });
+    await expect(appIcons(lookup, "darwin", onDisk([]))(ghostty)).resolves.toBeNull();
+    expect(asked).toEqual([]);
+  });
+
+  it("only looks up app bundles and .exe files, never other paths", async () => {
+    const { lookup, asked } = machine({}, { "/usr/bin/kitty": "data:image/png;base64,K" });
+    await expect(appIcons(lookup, "darwin", all)("/usr/bin/kitty")).resolves.toBeNull();
+    await expect(appIcons(lookup, "linux", all)("/opt/Foo.app")).resolves.toBeNull();
+    await expect(appIcons(lookup, "win32", all)("C:\\tools\\wt.cmd")).resolves.toBeNull();
+    expect(asked).toEqual([]);
+  });
+
+  it("reads a Windows app's icon from its own .exe", async () => {
+    const wt = "C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps\\wt.exe";
+    const { lookup } = machine({}, { [wt]: "data:image/png;base64,WT" });
+    await expect(appIcons(lookup, "win32", onDisk([wt]))(wt)).resolves.toBe(
+      "data:image/png;base64,WT",
+    );
   });
 });

@@ -23,15 +23,6 @@ test("the rail's Marketplace opens the modal over the page, and Esc closes it", 
   await expectClosesOnEscape(press);
 });
 
-test("Spade's apps button opens the modal on Spade's types, without Looks", async () => {
-  await spadeApp("/spade", () => {}, withMarket);
-  await userEvent.click(await screen.findByRole("button", { name: "Apps, plugins and skills" }));
-  const market = await findMarket();
-  expect(within(market).queryByRole("button", { name: "Looks" })).toBeNull();
-  expect(await within(market).findByRole("region", { name: "Bots" })).toBeTruthy();
-  await expectClosesOnEscape(press);
-});
-
 test("New bot's From the marketplace opens the modal on Bots", async () => {
   await spadeApp(
     "/spade",

@@ -72,3 +72,63 @@ it("the daemon's own shutdown closing its sockets is not logged as a client clos
   await log.flush();
   expect(log.records.filter((record) => record.message === "WebSocket closed")).toEqual([]);
 });
+
+it("a hello that says how the client's last connection ended is logged as its listed cause and numbers only", async () => {
+  const log = daemonLog();
+  const f = await fixture({ warn: log.warn });
+  cleanups.push(() => f.close());
+  const client = new Client(f.server.url);
+  cleanups.push(() => client.close());
+  await once(client.socket, "open");
+  const lastClose = {
+    code: 1006,
+    cause: "emsgsize",
+    wasReady: true,
+    aliveMs: 900,
+    downMs: 30_208,
+    attempt: 15,
+  };
+  // Sent raw: free text an older or hostile client might add never reaches the log.
+  client.socket.send(
+    JSON.stringify({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: "phone",
+      token,
+      lastClose: { ...lastClose, reason: "Ada Lovelace's recovery phrase alpha bravo" },
+    }),
+  );
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  const record = await vi.waitFor(async () => {
+    await log.flush();
+    const found = log.records.find((entry) => entry.message === "Client's last connection closed");
+    if (!found) throw new Error("No report yet");
+    return found;
+  });
+  expect(record.data).toEqual({ ...lastClose, client: "node", access: "host", remote: false });
+  expect(JSON.stringify(log.records)).not.toContain("recovery phrase");
+});
+
+it("a report this daemon can't read is dropped, and the hello is still welcomed", async () => {
+  const log = daemonLog();
+  const f = await fixture({ warn: log.warn });
+  cleanups.push(() => f.close());
+  const client = new Client(f.server.url);
+  cleanups.push(() => client.close());
+  await once(client.socket, "open");
+  // Sent raw: no client of this build writes it, so the wire type doesn't allow it.
+  client.socket.send(
+    JSON.stringify({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: "phone",
+      token,
+      lastClose: { code: "lost", reason: "x".repeat(10_000) },
+    }),
+  );
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  await log.flush();
+  expect(
+    log.records.filter((entry) => entry.message === "Client's last connection closed"),
+  ).toEqual([]);
+});

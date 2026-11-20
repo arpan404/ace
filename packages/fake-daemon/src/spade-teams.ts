@@ -135,8 +135,8 @@ export class FakeSpadeTeams {
       const main = this.host.agents.find((agent) => agent.kind === "main");
       if (!lead && main && !members.some((member) => member.agent === main.id && !member.machine))
         members.unshift(this.member(main.id));
-      if (members.length < 2 || members.length > 8)
-        return problem(400, "A group has 2 to 8 members.");
+      if (members.length < 2 || members.length > 32)
+        return problem(400, "A group has 2 to 32 members.");
       const leader = members.find((member) => member.agent === (lead ?? main?.id));
       const group = this.addGroup({
         name: String(body.name ?? ""),

@@ -176,6 +176,28 @@ export function stricterOffer(
   return best;
 }
 
+/**
+ * The mode a thread's own choice runs as: the stricter offer when one exists, else the nearest
+ * looser one, so a provider without a mode still starts (read-only, then auto review, then full
+ * access). Only for a thread's own choice or default; a parent's limit stays `stricterOffer`.
+ * Undefined only when the provider offers no mode at all.
+ */
+export function nearestOffer(
+  requested: AccessMode,
+  offers: readonly AccessModeOffer[],
+): AccessModeOffer | undefined {
+  const stricter = stricterOffer(requested, offers);
+  if (stricter) return stricter;
+  let looser: AccessModeOffer | undefined;
+  for (const offer of offers)
+    if (
+      accessRank(offer.mode) > accessRank(requested) &&
+      (!looser || accessRank(offer.mode) < accessRank(looser.mode))
+    )
+      looser = offer;
+  return looser;
+}
+
 /** The ace mode a native selector runs as on this instance, if it is one of its offers. */
 export function accessForNative(
   native: PermissionMode | null | undefined,

@@ -1,5 +1,7 @@
 import type { ContentPart, MessageContext } from "@ace/protocol";
 import {
+  addresseesOf,
+  devicesOf,
   composerInput,
   referenceContext,
   takeAttachmentMarkers,
@@ -30,6 +32,8 @@ export function composerContent(draft: ComposerDraft) {
   return {
     text: marked.text,
     input: composerInput(marked.text, tokens),
+    addressees: addresseesOf(tokens),
+    devices: devicesOf(tokens),
     threadRefs: references.items,
     mentions: references.mentions,
     attachments: draft.attachments.map((file) => {

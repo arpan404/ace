@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { Fact, ToolDetailDraft } from "@ace/core";
+import type { FileChange } from "@ace/protocol";
+import type { NativeRecord } from "@ace/provider-kit/record";
 import { array, object, raw, string, number, type Data } from "./data.ts";
 import { NativeState, type Tool } from "./native-state.ts";
 export function toolKey(session: string, message: string, id: string): string {
@@ -8,13 +10,39 @@ export function toolKey(session: string, message: string, id: string): string {
 export function contentKey(p: Data): string {
   return `${string(p.sessionID)}:${string(p.assistantMessageID)}:${number(p.ordinal)}`;
 }
-function detail(name: string, input: Data): ToolDetailDraft {
+/** A patch larger than this is left out rather than kept in tool state and the item. */
+const maxPatch = 1 << 20;
+const patchOf = (value: unknown): string | undefined =>
+  typeof value === "string" && value.length > 0 && value.length <= maxPatch ? value : undefined;
+const changeKind = (status: unknown): FileChange["kind"] =>
+  status === "added" ? "add" : status === "deleted" ? "delete" : "update";
+/**
+ * The patches OpenCode reports once an edit or write ran: `metadata.files` (one entry per file,
+ * v2) or `metadata.diff` (one patch, v1). Without them the change names only its path and a
+ * turn's diff has no lines to show. A single file keeps the path the tool's input named, so the
+ * change keeps one path from start to finish.
+ */
+export function editChanges(path: string, meta: NativeRecord): FileChange[] | undefined {
+  const files = array(meta.files).map(object);
+  const changes = files.flatMap((file): FileChange[] => {
+    const diff = patchOf(file.patch);
+    const named = files.length === 1 && path ? path : string(file.file, path);
+    return diff && named ? [{ path: named, kind: changeKind(file.status), diff }] : [];
+  });
+  if (changes.length) return changes;
+  const diff = patchOf(meta.diff);
+  return diff && path ? [{ path, kind: "update", diff }] : undefined;
+}
+function detail(name: string, input: Data, changes?: FileChange[]): ToolDetailDraft {
   if (name === "shell") return { kind: "shell", command: string(input.command) };
   if (name === "subagent")
     return { kind: "agent.spawn", prompt: string(input.prompt), agentType: string(input.agent) };
   if (name === "read") return { kind: "file.read", path: string(input.filePath) };
   if (name === "edit" || name === "write")
-    return { kind: "file.edit", changes: [{ path: string(input.filePath), kind: "update" }] };
+    return {
+      kind: "file.edit",
+      changes: changes ?? [{ path: string(input.filePath), kind: "update" }],
+    };
   return { kind: "custom" };
 }
 export function tool(state: NativeState, p: Data, type: string, evidence: unknown): Fact[] {
@@ -65,9 +93,22 @@ export function tool(state: NativeState, p: Data, type: string, evidence: unknow
   const created =
     previous?.created ??
     number(object(p.time).created, number(object(evidence).created, Number.MAX_SAFE_INTEGER));
-  const current: Tool = { session: id, message, name, input, live: !complete, created };
+  // A later frame without the metadata (a resync's snapshot) keeps the patches already seen.
+  const changes =
+    name === "edit" || name === "write"
+      ? (editChanges(string(input.filePath), meta) ?? previous?.changes)
+      : undefined;
+  const current: Tool = {
+    session: id,
+    message,
+    name,
+    input,
+    live: !complete,
+    created,
+    ...(changes ? { changes } : {}),
+  };
   state.trackTool(item, current);
-  const d = detail(name, input),
+  const d = detail(name, input, changes),
     blocks = array(p.content ?? native.content);
   const output = blocks.map((v) => string(object(v).text)).join("\n");
   const facts: Fact[] = [

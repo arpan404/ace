@@ -280,6 +280,8 @@ impl Engine {
                 alike,
                 folded,
             } => {
+                self.store
+                    .set_entry_origin(&entry.id, &self.origin_of(caller, turn))?;
                 for (to, relation) in links {
                     self.store.link_knowledge(&entry.id, &to, relation)?;
                 }
