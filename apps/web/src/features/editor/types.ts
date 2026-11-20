@@ -1,6 +1,7 @@
 import type { Selection } from "@ace/editor";
 import type { LineMark } from "@ace/ui-core";
 import type { Ref } from "react";
+import type { EditorStatus, EditorStatusActions } from "./editor-status.ts";
 
 /** What the editor exposes to code that needs to place a caret or read the text. */
 export interface EditorHandle {
@@ -10,6 +11,10 @@ export interface EditorHandle {
   version(): number;
   selections(): readonly Selection[];
   setSelections(selections: readonly Selection[]): void;
+  /** What a status line shows for this editor now; undefined until the document has loaded. */
+  status(): EditorStatus | undefined;
+  /** The setters behind the status line's menus, for a status line drawn outside the editor. */
+  statusActions(): EditorStatusActions;
 }
 
 export interface CodeEditorProps {
@@ -30,8 +35,13 @@ export interface CodeEditorProps {
   label: string;
   /** Wrap long lines at the editor's width, as the Files tab's preference asks. */
   wrap?: boolean;
-  /** The status line under the text (position, indentation, line ending, language). On by default. */
+  /**
+   * The status line under the text (position, indentation, line ending, language). On by
+   * default; a workbench that draws one status line for its focused editor turns it off.
+   */
   statusLine?: boolean;
+  /** Hears the editor's status each time it would read differently. */
+  onStatus?: ((status: EditorStatus) => void) | undefined;
   /** Draw a mark for every space and tab. Off by default; the status line can turn it on. */
   renderWhitespace?: boolean;
   /** Vertical rulers at these columns. None by default. */

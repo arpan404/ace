@@ -10,6 +10,7 @@ import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
 import { Decorations } from "./decorations.tsx";
 import { EditorFindBar } from "./find-bar.tsx";
 import { EditorStatusLine } from "./status-line.tsx";
+import { useEditorStatus } from "./use-editor-status.ts";
 import { GoToLineBar } from "./go-to-line.tsx";
 import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
 import { gutterWidth, leastRowCells, lineHeight, longLine } from "./geometry.ts";
@@ -69,8 +70,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const language =
     chosenLanguage === undefined ? fileLanguage(props.path) : (chosenLanguage ?? undefined);
   const [whitespace, setWhitespace] = useState(props.renderWhitespace ?? false);
-  /** Bumped when the indent setting changes, which lives in the document, not in React. */
-  const [, setIndentRevision] = useState(0);
   const state = useEditorDocument({
     language: chosenLanguage,
     text: props.text,
@@ -333,7 +332,20 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     onBefore: setAffinity,
   });
 
+  const editorStatus = useEditorStatus({
+    state,
+    readOnly,
+    language,
+    languageChosen: chosenLanguage !== undefined,
+    setChosenLanguage,
+    whitespace,
+    setWhitespace,
+    onStatus: props.onStatus,
+  });
+
   useImperativeHandle(ref, () => ({
+    status: () => editorStatus.status,
+    statusActions: () => editorStatus.actions,
     focus: () => field.current?.focus({ preventScroll: true }),
     text: () => state.doc?.text() ?? props.text,
     version: () => state.doc?.version() ?? 0,
@@ -538,23 +550,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           </span>
         ) : null}
       </div>
-      {doc && props.statusLine !== false ? (
-        <EditorStatusLine
-          selections={state.selections}
-          primary={state.primary}
-          indent={doc.indent()}
-          lineEnding={doc.lineEnding()}
-          language={language}
-          whitespace={whitespace}
-          readOnly={readOnly}
-          onIndent={(indent) => {
-            doc.setIndent(indent);
-            setIndentRevision((value) => value + 1);
-          }}
-          onLineEnding={(ending) => state.edit((target) => target.setLineEnding(ending))}
-          onLanguage={(next) => setChosenLanguage(next ?? null)}
-          onWhitespace={setWhitespace}
-        />
+      {editorStatus.status && props.statusLine !== false ? (
+        <EditorStatusLine status={editorStatus.status} actions={editorStatus.actions} />
       ) : null}
     </div>
   );
