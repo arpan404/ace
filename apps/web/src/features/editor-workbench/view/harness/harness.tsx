@@ -27,8 +27,7 @@ const groups = "apps/web/src/features/editor/editor-groups.ts";
 const buffers = memoryBuffers({
   [tabs]: {
     unsaved: true,
-    baseVersion: "1",
-    diskVersion: "2",
+    clash: { merging: false },
     changedBy: { name: "Claude Code", provider: "claude" },
   },
   "apps/web/src/lib/workspace/store.ts": {

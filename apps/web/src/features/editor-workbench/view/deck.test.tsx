@@ -154,31 +154,36 @@ test("two tabs with one name show their nearest differing folder", () => {
   ).toEqual(["index.ts· panels", "index.ts· shell"]);
 });
 
-test("the agent notice appears when the disk version moves under unsaved edits", () => {
+test("the agent notice appears when the disk moves under unsaved edits and leaves once cleared", () => {
   const buffers = memoryBuffers({ "src/a.ts": { unsaved: true } });
   const onMerge = vi.fn();
-  render(<StatefulDeck initial={one()} buffers={buffers} overrides={{ onMerge }} />);
+  const onCompare = vi.fn();
+  render(<StatefulDeck initial={one()} buffers={buffers} overrides={{ onMerge, onCompare }} />);
   expect(screen.queryByText(/also changed this file/)).toBeNull();
 
   act(() =>
     buffers.set("src/a.ts", {
-      diskVersion: "2",
+      clash: { merging: false },
       changedBy: { name: "Claude Code", provider: "claude" },
     }),
   );
   expect(screen.getByText("Claude Code also changed this file.")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Merge" }));
+  fireEvent.click(screen.getByRole("button", { name: "Compare" }));
   expect(onMerge).toHaveBeenCalledWith("src/a.ts");
+  expect(onCompare).toHaveBeenCalledWith("src/a.ts");
 
-  act(() => buffers.set("src/a.ts", { baseVersion: "2", unsaved: true }));
+  act(() => buffers.set("src/a.ts", { clash: { merging: true } }));
+  expect(screen.getByRole("button", { name: "Merge" }).hasAttribute("disabled")).toBe(true);
+
+  act(() => buffers.set("src/a.ts", { clash: undefined }));
   expect(screen.queryByText(/also changed this file/)).toBeNull();
 });
 
-test("a clean buffer whose disk version moves raises no notice", () => {
-  const buffers = memoryBuffers();
+test("a change nobody can be named for says the file changed on disk", () => {
+  const buffers = memoryBuffers({ "src/a.ts": { unsaved: true, clash: { merging: false } } });
   render(<StatefulDeck initial={one()} buffers={buffers} />);
-  act(() => buffers.set("src/a.ts", { diskVersion: "2" }));
-  expect(screen.queryByRole("button", { name: "Merge" })).toBeNull();
+  expect(screen.getByText("This file changed on disk.")).toBeTruthy();
 });
 
 test("the status line shows only the focused group's editor status", () => {

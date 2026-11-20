@@ -8,12 +8,7 @@ export interface MemoryBuffers extends DeckBuffers {
   set(path: string, facts: Partial<BufferFacts>): void;
 }
 
-const ready: BufferFacts = {
-  ...unknownFacts,
-  load: { state: "ready" },
-  baseVersion: "1",
-  diskVersion: "1",
-};
+const ready: BufferFacts = { ...unknownFacts, load: { state: "ready" } };
 
 export function memoryBuffers(initial: Record<string, Partial<BufferFacts>> = {}): MemoryBuffers {
   const facts = new Map<string, BufferFacts>(
