@@ -40,11 +40,14 @@ export type WorktreeOwner = Pick<
 
 type Entry = {
   stop: () => void;
+  state: WorktreeCreationState;
   code: string | undefined;
   message: string;
   workspaceId: string;
   returned: boolean;
   clearing: boolean;
+  /** Retry after clearing a stale lock was accepted; stay busy until progress advances or reconciles. */
+  awaitingRetry: boolean;
   lockProblem: string;
 };
 
@@ -137,17 +140,35 @@ export class WorktreeStarts {
       return;
     }
     const selection = this.#store.state(commandId);
+    const initial = selection.getSnapshot();
     const entry: Entry = {
       stop: () => {},
+      state: initial,
       code: undefined,
       ...start,
       returned: false,
       clearing: false,
+      awaitingRetry: false,
       lockProblem: "",
     };
     this.#followed.set(commandId, entry);
-    entry.stop = selection.subscribe(() => this.#emit(commandId, selection.getSnapshot()));
-    this.#emit(commandId, selection.getSnapshot());
+    entry.stop = selection.subscribe(() => {
+      const prev = entry.state;
+      const next = selection.getSnapshot();
+      entry.state = next;
+      if (
+        entry.awaitingRetry &&
+        (next.progress !== prev.progress ||
+          next.gone ||
+          next.refused !== undefined ||
+          !isLocked(next) ||
+          (prev.sending === undefined && next.sending === undefined))
+      ) {
+        entry.awaitingRetry = false;
+      }
+      this.#emit(commandId, next);
+    });
+    this.#emit(commandId, initial);
   }
 
   /** The start's receipt arrived: a refusal for the message's own reason quiets its card. */
@@ -161,7 +182,13 @@ export class WorktreeStarts {
   /** A card's action: Cancel, Don't use worktree, Retry or Continue. */
   act(commandId: string, action: Exclude<WorktreeAction, "dismiss">): void {
     const entry = this.#followed.get(commandId);
-    if (!entry || entry.clearing) return;
+    if (
+      !entry ||
+      entry.clearing ||
+      entry.awaitingRetry ||
+      this.#store.state(commandId).getSnapshot().sending
+    )
+      return;
     entry.lockProblem = "";
     void this.#store.act(commandId, action);
   }
@@ -171,7 +198,8 @@ export class WorktreeStarts {
    * the same start, answered on `receipt:<requestId>`. Once confirmed, the daemon retires the
    * lock only after checking its daemon has stopped; if the lock is still held or unreachable,
    * the card says why in `@ace/ui-core`'s words and does not retry. Once clear, Retry runs the
-   * retained start with the same prompt and project.
+   * retained start with the same prompt and project, keeping the card busy until the daemon
+   * publishes new progress or reconciles the start.
    */
   async clearLock(commandId: string, requestId: string): Promise<void> {
     const answer = (ok: boolean, message: string) =>
@@ -184,7 +212,8 @@ export class WorktreeStarts {
     const entry = this.#followed.get(commandId);
     const state = this.#store.state(commandId).getSnapshot();
     if (!entry || this.#setAside(commandId) || state.gone) return answer(false, finished);
-    if (state.sending || entry.clearing) return answer(false, worktreeRefusalWords.busy);
+    if (state.sending || entry.clearing || entry.awaitingRetry)
+      return answer(false, worktreeRefusalWords.busy);
     if (!isLocked(state)) return answer(false, notLocked);
     if (!entry.workspaceId) return answer(false, missingWorkspace);
     entry.clearing = true;
@@ -199,9 +228,18 @@ export class WorktreeStarts {
       return answer(false, outcome.message);
     }
     entry.clearing = false;
-    if (this.#setAside(commandId)) return answer(false, finished);
+    const afterClear = this.#store.state(commandId).getSnapshot();
+    if (this.#setAside(commandId) || afterClear.gone) {
+      this.#emit(commandId, afterClear);
+      return answer(false, finished);
+    }
+    entry.awaitingRetry = true;
     const retried = await this.#store.act(commandId, "retry");
-    if (retried !== "accepted") return answer(false, worktreeRefusalWords[retried]);
+    if (retried !== "accepted") {
+      entry.awaitingRetry = false;
+      this.#emit(commandId, this.#store.state(commandId).getSnapshot());
+      return answer(false, worktreeRefusalWords[retried]);
+    }
     answer(true, outcome.message);
   }
 
@@ -225,7 +263,9 @@ export class WorktreeStarts {
     const state = this.#store.state(commandId).getSnapshot();
     if (!entry || this.#setAside(commandId) || !stoppedStart(state, entry.code))
       return answer(finished);
-    if (state.sending || entry.clearing) return answer(worktreeRefusalWords.busy);
+    if (state.sending || entry.clearing || entry.awaitingRetry)
+      return answer(worktreeRefusalWords.busy);
+    entry.lockProblem = "";
     if (!state.gone) {
       const result = await this.#store.act(commandId, "dismiss");
       if (result !== "accepted" && result !== "not_found")
@@ -278,6 +318,11 @@ export class WorktreeStarts {
     if (!progress || progress.state === "done" || progress.state === "local") return null;
     if (!worktreeSpeaks(progress, entry.code)) return null;
     const stopped = progress.state === "cancelled" || progress.state === "failed";
+    const sending =
+      state.sending ?? (entry.clearing ? "clearLock" : entry.awaitingRetry ? "retry" : "");
+    const refused = entry.clearing
+      ? ""
+      : entry.lockProblem || (state.refused ? worktreeRefusalWords[state.refused] : "");
     const preview = this.#preview;
     return {
       headline: preview(worktreeHeadline(progress), 256),
@@ -290,7 +335,7 @@ export class WorktreeStarts {
         percent: row.percent ?? null,
       })),
       note: preview(worktreeNote(progress) ?? "", 1024),
-      refused: state.refused ? worktreeRefusalWords[state.refused] : entry.lockProblem,
+      refused,
       /** A stale Git lock stopped it: the card offers Clear the lock and try again. */
       locked: isLocked(state),
       actions: worktreeActionOrder
@@ -298,18 +343,18 @@ export class WorktreeStarts {
         .map((action) => ({
           id: action,
           label:
-            state.sending === action
+            sending === action
               ? worktreeActionWords[action].busy
               : worktreeActionWords[action].label,
         })),
-      sending: state.sending ?? (entry.clearing ? "clearLock" : ""),
+      sending,
       details: progress.details.slice(-detailLines).map((line) => preview(line, 1024)),
       /** The words the person sent, for Back to New thread. */
       message: preview(entry.message, 100_000),
       /** The project it starts in, for New thread to open on. */
       workspaceId: entry.workspaceId,
       /** It stopped and nothing is on its way: the message can go back to New thread. */
-      canReturn: stopped && progress.cleanupComplete && !state.sending && !entry.clearing,
+      canReturn: stopped && progress.cleanupComplete && !sending,
     };
   }
 

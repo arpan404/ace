@@ -49,7 +49,7 @@ const locked = WorktreeCreationProgress.parse({
 
 interface Asked {
   action: string;
-  answer(ok: boolean, error?: string): void;
+  answer(ok: boolean, error?: string, progress?: WorktreeCreationProgress): void;
   lose(): void;
 }
 interface CommandAsked {
@@ -73,14 +73,27 @@ function fixture(
   const asked: Asked[] = [];
   const commands: CommandAsked[] = [];
   const listeners: ((message: ServerMessage) => void)[] = [];
-  const ready = { getSnapshot: () => "ready" as const, subscribe: () => () => {} };
+  let conn: "ready" | "reconnecting" = "ready";
+  const connListeners: (() => void)[] = [];
+  const connection = {
+    getSnapshot: () => conn,
+    subscribe: (listener: () => void) => {
+      connListeners.push(listener);
+      return () => {};
+    },
+  };
   const owner: WorktreeOwner = {
     request: ((message: { action: string }) =>
       new Promise<unknown>((resolve, reject) =>
         asked.push({
           action: message.action,
-          answer: (ok, error) =>
-            resolve({ type: "worktree.creation.result", ok, ...(error ? { error } : {}) }),
+          answer: (ok, error, report) =>
+            resolve({
+              type: "worktree.creation.result",
+              ok,
+              ...(error ? { error } : {}),
+              ...(report ? { progress: report } : {}),
+            }),
           lose: () => reject(new Error("the reply was lost")),
         }),
       )) as WorktreeOwner["request"],
@@ -96,7 +109,7 @@ function fixture(
       listeners.push(listener);
       return () => {};
     },
-    connectionState: () => ready as ReturnType<WorktreeOwner["connectionState"]>,
+    connectionState: () => connection as ReturnType<WorktreeOwner["connectionState"]>,
     connectionGeneration: () => ({ getSnapshot: () => 1, subscribe: () => () => {} }),
     pendingSends: () => ({ getSnapshot: () => [], subscribe: () => () => {} }),
   };
@@ -114,11 +127,17 @@ function fixture(
     observe: () => () => {},
   };
   const starts = new WorktreeStarts(owner, pump, (text, limit) => text.slice(0, limit), store);
-  if (progress) {
-    const report = progress === true ? stopped : progress;
+  const push = (report: WorktreeCreationProgress) => {
     for (const listener of listeners)
       listener({ type: "worktree.creation.progress", ...report } as ServerMessage);
-  }
+  };
+  const reconnect = () => {
+    conn = "reconnecting";
+    for (const listener of connListeners) listener();
+    conn = "ready";
+    for (const listener of connListeners) listener();
+  };
+  if (progress) push(progress === true ? stopped : progress);
   starts.follow(id, { message: "Fix the export", workspaceId: "ace" });
   // The `get` a followed start asks for: answered with nothing new, or the daemon forgot it.
   const get = asked.shift();
@@ -126,7 +145,7 @@ function fixture(
   else get?.answer(false, "not_found");
   /** Only the actions sent after the start was followed. */
   const actions = () => asked.map((request) => request.action);
-  return { starts, asked, commands, actions, kept, saving };
+  return { starts, asked, commands, actions, kept, saving, push, reconnect };
 }
 
 const latest = (type: string, key?: string) =>
@@ -311,6 +330,93 @@ test("when the stale Git lock is still held, the card says why in ui-core wordin
     message: "Fix the export",
     workspaceId: "ace",
   });
+});
+
+test("a newer lock-clear failure replaces an older Retry refusal on the card", async () => {
+  const made = fixture(true, locked);
+  await until(() => card()?.card?.locked === true);
+  // Retry fails offline first, leaving an older refusal on the store.
+  made.starts.act(id, "retry");
+  await until(() => made.actions().length === 1);
+  made.asked[0]?.lose();
+  expect(
+    await until(() =>
+      card()?.card?.refused.includes("Couldn't reach") ? card()?.card : undefined,
+    ),
+  ).toMatchObject({
+    refused: "Couldn't reach the daemon. Try again once connected.",
+  });
+  // Clearing the lock reaches the daemon and learns another daemon still holds it.
+  void made.starts.clearLock(id, "lock-after-offline");
+  await until(() => made.commands.length === 1);
+  expect(
+    await until(() => (card()?.card?.sending === "clearLock" ? card()?.card : undefined)),
+  ).toMatchObject({ sending: "clearLock", refused: "" });
+  made.commands[0]?.answer({
+    ok: false,
+    error: "git_quarantined",
+    detail: "Another ace daemon (pid 42) still holds it.",
+  });
+  expect(await until(() => receipt("lock-after-offline"))).toMatchObject({
+    ok: false,
+    message: "The lock is still held. Another ace daemon (pid 42) still holds it.",
+  });
+  expect(
+    await until(() => (card()?.card?.refused.includes("still held") ? card()?.card : undefined)),
+  ).toMatchObject({
+    sending: "",
+    refused: "The lock is still held. Another ace daemon (pid 42) still holds it.",
+  });
+});
+
+test("after Clear Lock gets Retry accepted, the card stays busy until progress advances or reconciles", async () => {
+  const made = fixture(true, locked);
+  await until(() => card()?.card?.locked === true);
+  void made.starts.clearLock(id, "lock-wait-1");
+  await until(() => made.commands.length === 1);
+  made.commands[0]?.answer({ ok: true, locksCleared: 1 });
+  await until(() => made.actions().length === 1);
+  // Daemon acknowledges Retry without pushing attempt 2 progress yet.
+  made.asked[0]?.answer(true);
+  expect(await until(() => receipt("lock-wait-1"))).toMatchObject({ ok: true });
+  await settle();
+  expect(card()?.card).toMatchObject({
+    locked: true,
+    sending: "retry",
+    canReturn: false,
+  });
+  // A second confirm before progress advances is refused as busy and sends nothing.
+  await made.starts.clearLock(id, "lock-wait-dup");
+  expect(await until(() => receipt("lock-wait-dup"))).toMatchObject({
+    ok: false,
+    message: "Another action on this worktree is still running. Try again in a moment.",
+  });
+  expect(made.commands.length).toBe(1);
+  expect(made.actions()).toEqual(["retry"]);
+
+  // Progress advances to attempt 2 (still locked): Clear Lock re-enables.
+  const attempt2 = WorktreeCreationProgress.parse({ ...locked, attempt: 2, elapsedMs: 20 });
+  made.push(attempt2);
+  expect(
+    await until(() => (card()?.card?.sending === "" ? card()?.card : undefined)),
+  ).toMatchObject({ locked: true, sending: "", canReturn: true });
+
+  // A second clear+retry accepted without progress reconciles on reconnect `get`.
+  void made.starts.clearLock(id, "lock-wait-2");
+  await until(() => made.commands.length === 2);
+  made.commands[1]?.answer({ ok: true, locksCleared: 1 });
+  await until(() => made.actions().length === 2);
+  made.asked[1]?.answer(true);
+  expect(await until(() => receipt("lock-wait-2"))).toMatchObject({ ok: true });
+  await settle();
+  expect(card()?.card?.sending).toBe("retry");
+  made.reconnect();
+  await until(() => made.actions().length === 3);
+  expect(made.asked[2]?.action).toBe("get");
+  made.asked[2]?.answer(true, undefined, attempt2);
+  expect(
+    await until(() => (card()?.card?.sending === "" ? card()?.card : undefined)),
+  ).toMatchObject({ locked: true, sending: "", canReturn: true });
 });
 
 test("after a stale Git lock stops a worktree start, clearing the lock retries and starts the same thread", async () => {
