@@ -94,6 +94,12 @@ fn write_digest(out: &mut String, d: &Digest, time: &dyn Fn(i64) -> String, pad:
             line(out, &format!("- and {} more", d.more_changed));
         }
     }
+    if !d.away.is_empty() {
+        line(out, "While you were away:");
+        for away in &d.away {
+            line(out, &format!("- {away}"));
+        }
+    }
     if !d.decisions.is_empty() {
         line(out, "Decided for you:");
         for decided in &d.decisions {

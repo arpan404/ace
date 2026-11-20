@@ -1,6 +1,6 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import { ProviderKind } from "@ace/protocol";
-import { providerDisplayName } from "@ace/ui-core";
+import { formatAge, providerDisplayName } from "@ace/ui-core";
 import {
   focusedGroup,
   groupsOf,
@@ -22,6 +22,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
   useLayoutEffect,
+  lazy,
+  Suspense,
 } from "react";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import {
@@ -30,11 +32,14 @@ import {
   OpenEditors,
   compactBelowPx,
   useDeckBuffers,
+  type DeckCompareProps,
   type DeckEditorProps,
+  type DeckViewerProps,
   type StatusNotice,
 } from "@/features/editor-workbench/index.ts";
 import { useEditorAnnotations } from "@/features/editor";
 import { cn } from "@/lib/cn.ts";
+import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import {
@@ -48,9 +53,11 @@ import { contentSearchStore } from "../files/content-search-store.ts";
 import { onRevealInExplorer } from "../files/file-tree-deck.ts";
 import { openInDeck, type OpenInDeckOptions } from "../files/open-file.ts";
 import { useRecentFilesStore } from "../files/files-state.ts";
+import { MentionSelection } from "../files/mention-selection.tsx";
 import { useChangeMarks } from "../files/use-change-marks.ts";
 import { quickOpen } from "../files/quick-open-store.ts";
-import { changeNotice, nextChange } from "./agent-changes.ts";
+import { changeNotice, nextChange, type TreeMark } from "./agent-changes.ts";
+import type { RowMark } from "../files/file-tree-row.tsx";
 import {
   allTabs,
   closeEditors,
@@ -174,6 +181,11 @@ export function DeckPanel(props: TabViewProps) {
   useEffect(() => {
     if (lookedAt !== undefined) see([lookedAt]);
   }, [lookedAt, see]);
+  // Every file shown is looked at, so the explorer drops its mark too.
+  useEffect(() => {
+    if (focused.active !== undefined) see([focused.active]);
+  }, [focused.active, see]);
+  const rowMarks = useMemo(() => rowMarksOf(session.treeMarks), [session.treeMarks]);
 
   // Saves asked for offline run once the daemon is back (spec 66).
   useEffect(() => {
@@ -346,6 +358,7 @@ export function DeckPanel(props: TabViewProps) {
       onOpen={fromExplorer}
       openEditors={openEditors}
       focusSearch={focusSearch}
+      marks={rowMarks}
     />
   );
 
@@ -391,11 +404,10 @@ export function DeckPanel(props: TabViewProps) {
           buffers={buffers}
           statusNotice={notice}
           onConfirmClose={(refs) => void confirmClose(host, refs)}
-          onCompare={(path) =>
-            actions.open({ kind: "changes", data: { scope: "working-tree", path } })
-          }
+          renderCompare={renderCompare}
           onQuickOpen={() => quickOpen.set(() => threadId)}
           renderEditor={editorFor(threadId)}
+          renderViewer={viewerFor(threadId)}
           tabMenuItems={menuFor(threadId)}
           explorerToggle={
             <button
@@ -416,12 +428,43 @@ export function DeckPanel(props: TabViewProps) {
   );
 }
 
+/** The explorer's marks in words: who, and how long ago ("Claude Code · 4m"). */
+function rowMarksOf(marks: ReadonlyMap<string, TreeMark>): ReadonlyMap<string, RowMark> {
+  const now = Date.now();
+  const rows = new Map<string, RowMark>();
+  for (const [path, { author, at }] of marks) {
+    const age = formatAge(at, now);
+    rows.set(path, {
+      name: author.kind === "agent" ? author.agent : author.title,
+      provider: providerOf(author.agent),
+      age: age === "now" ? "just now" : age,
+    });
+  }
+  return rows;
+}
+
 /** A layout with no files: the Deck holds none until carried-over drafts are stored. */
 function emptyOf(layout: EditorLayout): EditorLayout {
   return { ...layout, root: { kind: "group", id: focusedGroup(layout).id, tabs: [], mru: [] } };
 }
 
+// Compare and the read-only viewers are cold: their code (the Changes diff, the Files viewer)
+// loads when one is first shown, never with the Deck's first paint.
+const DeckCompare = lazy(() =>
+  import("./deck-compare.tsx").then((module) => ({ default: module.DeckCompare })),
+);
+const DeckFileView = lazy(() =>
+  import("./deck-file-view.tsx").then((module) => ({ default: module.DeckFileView })),
+);
+
+const renderCompare = (props: DeckCompareProps) => (
+  <Suspense fallback={null}>
+    <DeckCompare key={props.path} {...props} />
+  </Suspense>
+);
+
 const renderers = new Map<string, (editor: DeckEditorProps) => ReactNode>();
+const viewers = new Map<string, (viewer: DeckViewerProps) => ReactNode>();
 const menus = new Map<string, (path: string) => ReactNode>();
 
 /** One thread's items for its tabs' menus. */
@@ -444,6 +487,20 @@ function editorFor(threadId: string): (editor: DeckEditorProps) => ReactNode {
   return render;
 }
 
+/** One thread's read-only viewer for pictures, players and binary files, kept like the editor's. */
+function viewerFor(threadId: string): (viewer: DeckViewerProps) => ReactNode {
+  let render = viewers.get(threadId);
+  if (!render) {
+    render = (viewer) => (
+      <Suspense fallback={null}>
+        <DeckFileView key={viewer.path} threadId={threadId} {...viewer} />
+      </Suspense>
+    );
+    viewers.set(threadId, render);
+  }
+  return render;
+}
+
 /** The Deck's editor, taking the place an open asked it to reveal (spec 12–13). */
 function RevealedEditor(props: DeckEditorProps & { threadId: string }) {
   const { threadId, ...editor } = props;
@@ -456,7 +513,13 @@ function RevealedEditor(props: DeckEditorProps & { threadId: string }) {
   // Annotations ride on every group's editor; views of one file map their ranges once per edit.
   const layer = useEditorAnnotations({ threadId, path: editor.path });
   return (
-    <DeckEditor {...editor} reveal={reveal} marks={marks} layer={layer} onRevealed={onRevealed} />
+    <MentionSelection
+      path={editor.path}
+      onMention={(mention) => mentionInComposer(threadId, mention)}
+      className="flex min-h-0 flex-1 flex-col"
+    >
+      <DeckEditor {...editor} reveal={reveal} marks={marks} layer={layer} onRevealed={onRevealed} />
+    </MentionSelection>
   );
 }
 

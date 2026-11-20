@@ -16,4 +16,11 @@ export {
 } from "./deck-buffers.ts";
 export { DeckEditor } from "./deck-editor.tsx";
 export { compactBelowPx } from "./deck.tsx";
-export type { DeckEditorProps, EditorReveal, StatusNotice, StatusReport } from "./deck-host.ts";
+export type {
+  DeckCompareProps,
+  DeckEditorProps,
+  DeckViewerProps,
+  EditorReveal,
+  StatusNotice,
+  StatusReport,
+} from "./deck-host.ts";

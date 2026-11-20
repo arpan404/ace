@@ -170,6 +170,7 @@
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/design-tokens": "workspace:*",
         "@ace/diagnostics": "workspace:*",
         "@ace/html": "workspace:*",
         "@ace/protocol": "workspace:*",
@@ -1239,12 +1240,15 @@
     "tools/web-perf": {
       "name": "@ace/web-perf",
       "dependencies": {
+        "@ace/adapter-testkit": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/client-worker": "workspace:*",
+        "@ace/daemon": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@ace/html": "workspace:*",
         "@ace/markit-web": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/service": "workspace:*",
         "@playwright/test": "1.63.0",
         "zod": "^4.6.5",
       },

@@ -8,6 +8,7 @@ use serde_json::{Map, Value};
 use crate::event::{Event, Known};
 
 mod check;
+pub mod connect;
 mod state;
 #[cfg(test)]
 mod tests;
@@ -90,6 +91,8 @@ pub enum Kind {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         time: bool,
     },
+    /// Connect an app (`app_connect_request`): made by Spade only, answered by connecting.
+    Connect(Box<connect::Connect>),
 }
 
 /// An option of a `choice` or `choices` question.
@@ -109,6 +112,7 @@ impl Kind {
             Self::Confirm {} => "confirm",
             Self::Number { .. } => "number",
             Self::Date { .. } => "date",
+            Self::Connect(_) => "connect",
         }
     }
 }
@@ -149,7 +153,7 @@ pub fn asked(question: &str, questions: &[Question]) -> Vec<Question> {
 
 /// The questions `call_id` asked, from the events.
 pub fn questions_of(events: &[Event], call_id: &str) -> Option<Vec<Question>> {
-    events.iter().find_map(|event| match event {
+    events.iter().rev().find_map(|event| match event {
         Event::Known(Known::QuestionAsked {
             call_id: c,
             question,
@@ -211,12 +215,21 @@ pub fn late_text(events: &[Event], event: &Known) -> Option<String> {
             ..
         } => {
             let questions = questions_of(events, call_id).unwrap_or_default();
-            Some(late(call_id, &shown(&questions, answers)))
+            let body = match (connect::of(&questions), answers.first()) {
+                (Some(app), Some(answer)) => connect::connected_late(app, answer),
+                _ => shown(&questions, answers),
+            };
+            Some(late(call_id, &body))
         }
         Known::QuestionDismissed {
             call_id,
             late: true,
-        } => Some(late(call_id, DISMISSED)),
+        } => {
+            let questions = questions_of(events, call_id).unwrap_or_default();
+            let body =
+                connect::of(&questions).map_or_else(|| DISMISSED.to_owned(), connect::dismissed);
+            Some(late(call_id, &body))
+        }
         _ => None,
     }
 }
@@ -231,6 +244,7 @@ pub fn is_late(event: &Known) -> bool {
 
 fn answer_text(kind: &Kind, answer: &Value) -> String {
     match (kind, answer) {
+        (Kind::Connect(app), _) => connect::connected_late(app, answer),
         (Kind::Confirm {}, Value::Bool(yes)) => if *yes { "yes" } else { "no" }.to_owned(),
         (Kind::Number { unit, .. }, Value::Number(n)) => match unit {
             Some(unit) => format!("{n} {unit}"),
@@ -274,30 +288,38 @@ fn object(value: &Value) -> Option<&Map<String, Value>> {
 /// "their reply follows" when a typed message answered it, or that it was left for later or
 /// dismissed. `None` while it still waits (or it asked nothing).
 pub fn call_result(events: &[Event], call_id: &str) -> Option<String> {
-    let at = events.iter().position(|event| {
+    let at = events.iter().rposition(|event| {
         matches!(event, Event::Known(Known::QuestionAsked { call_id: c, .. }) if c == call_id)
     })?;
+    let questions = questions_of(events, call_id).unwrap_or_default();
+    let app = connect::of(&questions);
     events[at..].iter().find_map(|event| {
         if typed_by_person(event) {
             return Some(ANSWERED_BY_MESSAGE.to_owned());
         }
         match event {
             Event::Known(Known::QuestionDeferred { call_id: c, by_bot }) if c == call_id => {
-                Some(if *by_bot { ASKED_FOR_LATER } else { DEFERRED }.to_owned())
+                Some(match app {
+                    Some(app) => connect::deferred(app),
+                    None if *by_bot => ASKED_FOR_LATER.to_owned(),
+                    None => DEFERRED.to_owned(),
+                })
             }
             Event::Known(Known::QuestionAnswered {
                 call_id: c,
                 answers,
                 late: false,
                 typed: false,
-            }) if c == call_id => {
-                let questions = questions_of(events, call_id).unwrap_or_default();
-                Some(answered(&questions, answers))
-            }
+            }) if c == call_id => Some(match (app, answers.first()) {
+                (Some(app), Some(answer)) => connect::connected(app, answer),
+                _ => answered(&questions, answers),
+            }),
             Event::Known(Known::QuestionDismissed {
                 call_id: c,
                 late: false,
-            }) if c == call_id => Some(DISMISSED.to_owned()),
+            }) if c == call_id => {
+                Some(app.map_or_else(|| DISMISSED.to_owned(), connect::dismissed))
+            }
             _ => None,
         }
     })

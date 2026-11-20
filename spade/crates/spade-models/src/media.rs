@@ -1,5 +1,5 @@
 //! Images and transcripts from the person's endpoints (ADR 0134): the OpenAI-format images route,
-//! chat models that answer with images, and the transcription route. Plain HTTP on the same
+//! chat models that answer with images, and the transcription route (speech is in `speech.rs`). Plain HTTP on the same
 //! client as chat calls, so redirects are never followed with a key. Answers are bounded and
 //! errors are one short line that never holds the key.
 
@@ -24,15 +24,15 @@ pub const MOST_AUDIO_BYTES: usize = 25 * 1024 * 1024;
 const MEDIA_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// A resolved call: the endpoint, the model, its key and what to scrub from errors.
-struct Target {
-    reference: String,
-    endpoint: Endpoint,
-    model: Model,
-    key: Option<String>,
+pub(crate) struct Target {
+    pub(crate) reference: String,
+    pub(crate) endpoint: Endpoint,
+    pub(crate) model: Model,
+    pub(crate) key: Option<String>,
 }
 
 impl Target {
-    fn secrets(&self) -> Vec<&str> {
+    pub(crate) fn secrets(&self) -> Vec<&str> {
         let mut secrets: Vec<&str> = self
             .endpoint
             .headers
@@ -43,7 +43,7 @@ impl Target {
         secrets
     }
 
-    fn fail(&self, message: String) -> ModelError {
+    pub(crate) fn fail(&self, message: String) -> ModelError {
         ModelError::Provider {
             model: self.reference.clone(),
             message: one_line(&message, &self.secrets()),
@@ -63,7 +63,7 @@ impl Models {
         })
     }
 
-    async fn target(&self, reference: &str) -> Result<Target, ModelError> {
+    pub(crate) async fn target(&self, reference: &str) -> Result<Target, ModelError> {
         let (endpoint, model) = self
             .resolve(reference)
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
@@ -82,7 +82,7 @@ impl Models {
         if endpoint.format == Format::Anthropic {
             return Err(ModelError::Provider {
                 model: reference.to_owned(),
-                message: "images and transcripts need an OpenAI-format endpoint".to_owned(),
+                message: "images, transcripts and speech need an OpenAI-format endpoint".to_owned(),
             });
         }
         Ok(Target {
@@ -93,7 +93,7 @@ impl Models {
         })
     }
 
-    fn post(&self, target: &Target, path: &str) -> reqwest::RequestBuilder {
+    pub(crate) fn post(&self, target: &Target, path: &str) -> reqwest::RequestBuilder {
         let mut request = self
             .http()
             .post(format!("{}{path}", target.endpoint.base_url))

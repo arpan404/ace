@@ -3,7 +3,7 @@ import { useThreadField } from "@ace/client-react/thread-field";
 import { providerDisplayName, type Turn } from "@ace/ui-core";
 import type { EditorLayout } from "@ace/ui-core/editor-workbench";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BufferRegistry } from "@/features/editor-workbench/index.ts";
+import type { BufferRegistry, EditCall } from "@/features/editor-workbench/index.ts";
 import type { DeckBuffers } from "@/features/editor-workbench/index.ts";
 import { useTurns } from "@/lib/diffs/use-turns.ts";
 import { threadCheckoutRoot, threadProvider } from "@/lib/thread-fields.ts";
@@ -14,7 +14,10 @@ import {
   noChanges,
   recordChange,
   seeChanges,
+  editedPathsOf,
+  treeMarks,
   type AgentChanges,
+  type TreeMark,
 } from "./agent-changes.ts";
 import { openPaths } from "./deck-layout.ts";
 import { authorOf, setEditCalls } from "./deck-registry.ts";
@@ -41,12 +44,24 @@ function editCounts(turns: readonly Turn[]): Map<string, number> {
   return counts;
 }
 
+export interface DeckSession {
+  /** Open files someone changed on disk since the person looked: the tabs' marks. */
+  changes: AgentChanges;
+  /** Files the explorer marks: recent agent edits not looked at since (spec 21). */
+  treeMarks: ReadonlyMap<string, TreeMark>;
+  /** The person looked at these paths (a focused group's shown file). */
+  see(paths: Iterable<string>): void;
+}
+
+/** How often a mark's age ("4m") is read again. */
+const ageTickMs = 30_000;
+
 export function useDeckSession(
   threadId: string,
   registry: BufferRegistry,
   buffers: DeckBuffers,
   layout: EditorLayout,
-): { changes: AgentChanges; see(paths: Iterable<string>): void } {
+): DeckSession {
   const client = useClient();
   const online = useConnectionState() === "ready";
   const paths = useMemo(() => openPaths(layout), [layout]);
@@ -111,16 +126,18 @@ export function useDeckSession(
   const checkout = useThreadField(threadId, threadCheckoutRoot);
   const provider = useThreadField(threadId, threadProvider);
   const firstSeen = useRef(new Map<string, number>());
+  const [calls, setCalls] = useState<readonly EditCall[]>([]);
   useEffect(() => {
     if (!checkout) return;
     const seen = firstSeen.current;
     const now = Date.now();
     const agent = provider ? providerDisplayName(provider) : "The agent";
-    const calls = editCallsOf(turns, { threadId, threadTitle: "", agent }, (id) => {
+    const reported = editCallsOf(turns, { threadId, threadTitle: "", agent }, (id) => {
       if (!seen.has(id)) seen.set(id, now);
       return seen.get(id) ?? now;
     });
-    setEditCalls(threadId, { calls, checkout });
+    setEditCalls(threadId, { calls: reported, checkout });
+    setCalls(reported);
   }, [turns, checkout, provider, threadId]);
   useEffect(() => () => setEditCalls(threadId, undefined), [threadId]);
 
@@ -162,9 +179,38 @@ export function useDeckSession(
   const shown = useMemo(() => keepOpen(changes, paths), [changes, paths]);
   useEffect(() => buffers.setAgentMarks(shown), [buffers, shown]);
 
-  const see = useCallback(
-    (seen: Iterable<string>) => setChanges((current) => seeChanges(current, seen)),
-    [],
+  // When the person last looked at each file, and the clock the explorer's marks age by.
+  const [looked, setLooked] = useState<ReadonlyMap<string, number>>(new Map());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), ageTickMs);
+    return () => clearInterval(timer);
+  }, []);
+  // Only a file an agent edited can carry a row mark: looking at any other changes nothing, so
+  // a tab switch doesn't re-render the panel for it.
+  const edited = useMemo(() => editedPathsOf(calls, checkout), [calls, checkout]);
+  const editedNow = useRef(edited);
+  useEffect(() => {
+    editedNow.current = edited;
+  }, [edited]);
+  const see = useCallback((seen: Iterable<string>) => {
+    const shownPaths = [...seen];
+    setChanges((current) => seeChanges(current, shownPaths));
+    const marked = shownPaths.filter((path) => editedNow.current.has(path));
+    if (marked.length === 0) return;
+    const at = Date.now();
+    setLooked((current) => {
+      const next = new Map(current);
+      for (const path of marked) next.set(path, at);
+      return next;
+    });
+  }, []);
+  const marks = useMemo(
+    () =>
+      checkout
+        ? treeMarks({ calls, checkout, threadId, open: shown, openPaths: paths, looked, now })
+        : new Map<string, TreeMark>(),
+    [calls, checkout, threadId, shown, paths, looked, now],
   );
-  return useMemo(() => ({ changes: shown, see }), [shown, see]);
+  return useMemo(() => ({ changes: shown, treeMarks: marks, see }), [shown, marks, see]);
 }

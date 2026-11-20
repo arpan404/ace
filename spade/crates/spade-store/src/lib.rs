@@ -22,7 +22,7 @@ mod teams;
 mod workers;
 
 pub use agents::{Agent, BOT_RECIPE, NewAgent, recipe_key};
-pub use digests::{DIGESTS, NewDigest, StoredDigest, digests_key};
+pub use digests::{BRIEF, DIGESTS, NewDigest, SPEND_ALERT, StoredDigest, digests_key};
 pub use endpoints::{StoredEndpoint, StoredModel};
 pub use episodes::{NewEpisode, StoredEpisode};
 pub use helpers::StoredHelper;

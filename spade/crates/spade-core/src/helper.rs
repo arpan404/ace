@@ -27,6 +27,7 @@ pub const NEVER: &[&str] = &[
     crate::service::SERVICE_LOGS,
     crate::service::SERVICE_STOP,
     crate::context::ASK_USER,
+    crate::question::connect::APP_CONNECT_REQUEST,
     "memory_save",
     "memory_update",
     "memory_forget",

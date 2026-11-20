@@ -227,6 +227,31 @@ export class Buffer implements TextBuffer {
     await reconcile(this.#reconcileHost());
   }
 
+  async keepMine(): Promise<void> {
+    const clash = this.#clash;
+    const doc = this.#doc;
+    if (clash?.kind !== "changed" || !doc) return;
+    this.#base = clash.theirs;
+    this.#clash = undefined;
+    this.#cleanAt = Number.NaN;
+    this.#dirty = true;
+    this.#emit({ type: "state" });
+    // Same text as theirs after all: #persist marks it clean and drops the draft.
+    await this.#persist();
+  }
+
+  async takeTheirs(): Promise<void> {
+    const clash = this.#clash;
+    if (clash?.kind !== "changed") return;
+    if (!(await this.#land(clash.theirs.text, "merge")) || this.#clash !== clash) return;
+    this.#base = clash.theirs;
+    this.#clash = undefined;
+    this.#markClean();
+    this.#cancelDraft?.();
+    this.#cancelDraft = undefined;
+    await this.#persist();
+  }
+
   async answer(index: number, answer: Answer): Promise<void> {
     const clash = this.#clash;
     if (clash?.kind !== "conflict" || index < 0 || index >= clash.answers.length) return;

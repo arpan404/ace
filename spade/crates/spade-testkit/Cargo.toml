@@ -21,7 +21,7 @@ tokio-util = "0.7"
 tower = "0.5"
 futures-util.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["time", "net", "rt"] }
+tokio = { workspace = true, features = ["time", "net", "rt", "sync"] }
 
 [lints]
 workspace = true

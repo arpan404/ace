@@ -202,6 +202,25 @@ import XCTest
 
     // MARK: Helpers
 
+    func testTheSummaryEndsWithTheProjectsSchedulesAndOpensAutomations() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--perf-probe", "-ace.appearance", "dark"]
+        app.launchWithArguments()
+        XCTAssertTrue(app.openThread("ios-form"))
+        app.showThreadPage("summary")
+        XCTAssertTrue(element(app, "summary.page").waitForExistence(timeout: 20))
+        // The line comes after the rest of the page, so wait for it before the picture.
+        let line = app.buttons["summary.automations"]
+        _ = line.waitForExistence(timeout: 15)
+        screenshot("summary")
+        // The fixture's project has schedules, and the line names how many and when the next starts.
+        XCTAssertTrue(line.exists, "the Summary shows no automations line")
+        XCTAssertTrue(line.label.range(of: #"^\d+ automations? in this project"#, options: .regularExpression) != nil, line.label)
+        line.tap()
+        XCTAssertTrue(app.buttons["automations.new"].waitForExistence(timeout: 20), "the line didn't open Automations")
+    }
+
     private func launchIntoAutomations() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]

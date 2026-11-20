@@ -107,6 +107,10 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_MEDIA_TEST_BINARY !== undefined
       ? { ACE_MEDIA_TEST_BINARY: ambient.ACE_MEDIA_TEST_BINARY }
       : {}),
+    // A web build made already, for the Deck's browser tests; without it they build their own.
+    ...(ambient.ACE_DECK_PERF_BUILD !== undefined
+      ? { ACE_DECK_PERF_BUILD: ambient.ACE_DECK_PERF_BUILD }
+      : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
     // Rust toolchains are installed once per machine too. rustup finds its default toolchain
     // under RUSTUP_HOME, else $HOME/.rustup, which the test home doesn't have, so `cargo` would

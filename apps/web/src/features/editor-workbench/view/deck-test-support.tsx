@@ -150,7 +150,7 @@ function StatefulDeck(props: {
         open
         onOpenChange={() => {}}
       />
-      <Deck {...shared} onCompare={() => {}} {...props.options.overrides} />
+      <Deck {...shared} {...props.options.overrides} />
     </div>
   );
 }

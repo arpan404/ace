@@ -162,7 +162,7 @@ function Harness() {
         <OpenEditors {...shared} onSaveAll={() => {}} open={listOpen} onOpenChange={setListOpen} />
       </aside>
       <div className="min-w-0 flex-1">
-        <Deck {...shared} onCompare={() => {}} onQuickOpen={() => {}} />
+        <Deck {...shared} onQuickOpen={() => {}} />
       </div>
     </div>
   );

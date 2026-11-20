@@ -54,16 +54,39 @@ export interface DeckEditorProps {
   layer?: EditorLayer | undefined;
 }
 
+/** A file the editor doesn't show as text: a picture, a player, a binary or too-large file. */
+export interface DeckViewerProps {
+  path: string;
+  group: string;
+  /** What the read found instead of text: "image", "media", "binary", "large". */
+  reason: string;
+}
+
+/** A file whose disk version moved under unsaved edits, to compare. */
+export interface DeckCompareProps {
+  path: string;
+  buffer: TextBuffer;
+}
+
 /** Everything a group needs from outside the layout. */
 export interface DeckHost {
   buffers: DeckBuffers;
   /** Draw a group's editor; unset, the Deck draws `CodeEditor` on the shared buffer. */
   renderEditor?: ((props: DeckEditorProps) => ReactNode) | undefined;
+  /**
+   * Draw a file the editor doesn't take, read only (spec 65); unset, the group says why in one
+   * line.
+   */
+  renderViewer?: ((props: DeckViewerProps) => ReactNode) | undefined;
   reportStatus(group: string, report: StatusReport | undefined): void;
   /** Unset, Merge runs the buffer's own three-way merge. */
   onMerge?: ((path: string) => void) | undefined;
-  /** Compare opens a diff of disk against the buffer in a new tab (W5). */
-  onCompare(path: string): void;
+  /**
+   * Compare's diff of the disk's text against the unsaved buffer (spec 46), shown in the group
+   * in place of the editor while the change waits for an answer. Unset, the notice has no
+   * Compare.
+   */
+  renderCompare?: ((props: DeckCompareProps) => ReactNode) | undefined;
   onQuickOpen?: (() => void) | undefined;
   /** The host's own items at the end of a tab's menu: Reveal in Files, Open in ›, the paths. */
   tabMenuItems?: ((path: string) => ReactNode) | undefined;

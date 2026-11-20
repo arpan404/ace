@@ -1,7 +1,9 @@
 import { CaretRightIcon, FolderIcon, FolderOpenIcon } from "@ace/icons";
 import { cleanPath, fuzzyPositions, type FolderRow } from "@ace/ui-core";
 import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import type { ProviderKind } from "@ace/protocol";
 import { Icon } from "@/components/icon.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
 import { FileRowMenu } from "./file-menu.tsx";
@@ -23,6 +25,15 @@ function RowIndent() {
       <span aria-hidden className="size-3.5 shrink-0" />
     </>
   );
+}
+
+/** An agent changed this file recently and the person hasn't looked since (workbench spec 21). */
+export interface RowMark {
+  /** "Claude Code", or another thread's title. */
+  name: string;
+  provider: ProviderKind | undefined;
+  /** How long ago: "just now", "4m". */
+  age: string;
 }
 
 export interface FileTreeRowViewProps {
@@ -57,6 +68,14 @@ export interface FileTreeRowViewProps {
   onMore(folder: string): void;
   /** This row is being renamed: its name is a field. */
   renaming?: InlineRename | undefined;
+  /** The agent's mark, as the file's tab carries it. */
+  mark?: RowMark | undefined;
+}
+
+function rowDescription(cut: boolean, mark: RowMark | undefined): string | undefined {
+  const changed = mark && `Changed by ${mark.name} · ${mark.age}`;
+  if (cut) return changed ? `Cut. ${changed}` : "Cut";
+  return changed;
 }
 
 /** One row of the lazy checkout tree: an entry, or a folder's Loading, error or Show more line. */
@@ -163,9 +182,11 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         aria-expanded={folder ? row.expanded : undefined}
         aria-busy={folder && row.busy ? true : undefined}
         aria-selected={props.selected}
-        aria-description={props.cut ? "Cut" : undefined}
+        aria-description={rowDescription(props.cut, props.mark)}
         tabIndex={props.focusable ? 0 : -1}
-        title={row.key}
+        title={
+          props.mark ? `${row.key}, changed by ${props.mark.name} · ${props.mark.age}` : row.key
+        }
         onFocus={() => props.onFocus(row.key)}
         onPointerEnter={() => props.onHoverStart(row)}
         onPointerLeave={props.onHoverEnd}
@@ -209,6 +230,19 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         <span className="min-w-0 truncate">
           <Highlighted text={row.name} offset={nameStart} positions={positions} />
         </span>
+        {props.mark && (
+          <span
+            aria-hidden
+            data-agent-mark
+            className="ml-auto grid size-[18px] shrink-0 place-items-center"
+          >
+            {props.mark.provider ? (
+              <ProviderIcon provider={props.mark.provider} size={12} decorative />
+            ) : (
+              <span className="size-1.5 rounded-full bg-status-working" />
+            )}
+          </span>
+        )}
       </button>
     </FileRowMenu>
   );

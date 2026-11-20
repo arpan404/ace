@@ -14,6 +14,7 @@ import { fakeClient } from "@/test/fake-client.ts";
 import type { FileOperationDialog } from "./file-operation.ts";
 import { FileOperations } from "./file-operations.tsx";
 import { FileTree } from "./file-tree.tsx";
+import type { RowMark } from "./file-tree-row.tsx";
 import { folderFixture } from "./folders-test-support.ts";
 import type { OpenHow } from "./tree-commands.ts";
 import { threadId } from "./tree-test-queries.ts";
@@ -57,7 +58,11 @@ function treeMemory(): TreeMemory {
   };
 }
 
-function TreeHost(props: { outputs: TreeOutputs; memory: TreeMemory }) {
+function TreeHost(props: {
+  outputs: TreeOutputs;
+  memory: TreeMemory;
+  marks: ReadonlyMap<string, RowMark> | undefined;
+}) {
   const { outputs, memory } = props;
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(() => memory.read().expanded);
@@ -93,6 +98,7 @@ function TreeHost(props: { outputs: TreeOutputs; memory: TreeMemory }) {
           memory.keep({ expanded: folders });
           setExpanded(folders);
         }}
+        marks={props.marks}
       />
       {operation && (
         <FileOperations
@@ -108,7 +114,7 @@ function TreeHost(props: { outputs: TreeOutputs; memory: TreeMemory }) {
 }
 
 /** Render the cold-start thread's Files tree alone and wait for its first rows. */
-export async function renderTree() {
+export async function renderTree(options: { marks?: ReadonlyMap<string, RowMark> } = {}) {
   let now = 1_000;
   const daemon = new FakeDaemon({ clock: () => (now += 1) });
   new ScenarioPlayer(daemon, coldStartReplay()).runThrough("turn-2");
@@ -132,7 +138,7 @@ export async function renderTree() {
           <LayoutProvider>
             <TooltipProvider>
               <ToastProvider>
-                <TreeHost key={key} outputs={outputs} memory={memory} />
+                <TreeHost key={key} outputs={outputs} memory={memory} marks={options.marks} />
               </ToastProvider>
             </TooltipProvider>
           </LayoutProvider>

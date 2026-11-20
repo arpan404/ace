@@ -1,14 +1,20 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { AgentNotice } from "./agent-notice.tsx";
 import { Breadcrumbs } from "./breadcrumbs.tsx";
-import { useSnapshot } from "./deck-buffers.ts";
+import { noticeClash, useSnapshot } from "./deck-buffers.ts";
 import { DeckEditor } from "./deck-editor.tsx";
 import type { EditorStatus, EditorStatusActions } from "@/features/editor";
 import type { DeckEditorProps, DeckHost } from "./deck-host.ts";
 import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
 import { FileProblem, LoadingLines, NoFileOpen } from "./editor-states.tsx";
 import type { GroupActions } from "./group-actions.ts";
+import { MarkdownChoice, markdownShow } from "./markdown-choice.tsx";
+
+// Rendered Markdown is cold: markit's prose loads when a Markdown tab first shows rendered.
+const MarkdownPreview = lazy(() =>
+  import("./markdown-view.tsx").then((module) => ({ default: module.MarkdownPreview })),
+);
 import { dropZone, type GroupNode, type Side } from "@ace/ui-core/editor-workbench";
 import { TabStrip } from "./tab-strip.tsx";
 
@@ -34,7 +40,19 @@ export function GroupView(props: {
   const snapshot = useSnapshot(host.buffers, path);
   const buffer = path === undefined ? undefined : host.buffers.buffer(path);
   const load = snapshot?.status;
+  const tab = group.tabs.find((each) => each.path === path);
+  const markdown = markdownShow(tab);
   const [zone, setZone] = useState<Zone | undefined>(undefined);
+  // Compare shows in place of the editor while the change it is about waits for an answer.
+  const [comparing, setComparing] = useState<string | undefined>(undefined);
+  const compare =
+    path !== undefined &&
+    comparing === path &&
+    buffer !== undefined &&
+    noticeClash(snapshot) !== undefined &&
+    host.renderCompare
+      ? host.renderCompare
+      : undefined;
   const { reportStatus } = host;
   // Stable per group, so an editor can report from an effect without re-running it.
   const onStatus = useCallback(
@@ -60,13 +78,31 @@ export function GroupView(props: {
         groupMenu={props.groupMenu}
         tabMenuItems={host.tabMenuItems}
       />
-      <Breadcrumbs path={path} />
+      <Breadcrumbs
+        path={path}
+        end={
+          path !== undefined &&
+          markdown &&
+          load?.kind === "ready" && (
+            <MarkdownChoice
+              value={markdown}
+              onChange={(next) => actions.setView(path, { ...tab?.view, markdown: next })}
+            />
+          )
+        }
+      />
       {path !== undefined && (
         <AgentNotice
           snapshot={snapshot}
           buffers={host.buffers}
+          comparing={compare !== undefined}
           onMerge={() => (host.onMerge ? host.onMerge(path) : void buffer?.merge())}
-          onCompare={() => host.onCompare(path)}
+          onCompare={
+            host.renderCompare &&
+            (() => setComparing((was) => (was === path && compare ? undefined : path)))
+          }
+          onKeepMine={() => void buffer?.keepMine()}
+          onTakeTheirs={() => void buffer?.takeTheirs()}
         />
       )}
       <div
@@ -97,8 +133,18 @@ export function GroupView(props: {
           props.last ? (
             <NoFileOpen onQuickOpen={host.onQuickOpen} />
           ) : null
+        ) : compare && buffer ? (
+          compare({ path, buffer })
         ) : buffer && load?.kind === "ready" ? (
-          showEditor(host, { path, buffer, group: group.id, focused: props.focused, onStatus })
+          markdown === "preview" ? (
+            <Suspense fallback={<LoadingLines />}>
+              <MarkdownPreview buffer={buffer} />
+            </Suspense>
+          ) : (
+            showEditor(host, { path, buffer, group: group.id, focused: props.focused, onStatus })
+          )
+        ) : load?.kind === "unreadable" && host.renderViewer ? (
+          host.renderViewer({ path, group: group.id, reason: load.reason })
         ) : load &&
           (load.kind === "missing" || load.kind === "unreadable" || load.kind === "failed") ? (
           <FileProblem

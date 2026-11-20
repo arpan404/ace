@@ -32,7 +32,7 @@ import { attachWorkspaceScroll } from "@/lib/workspace/index.ts";
 import type { FileOperationDialog } from "./file-operation.ts";
 import { FileRowItems } from "./file-row-items.tsx";
 import { isSecondClick } from "./second-click.ts";
-import { FileTreeRowView } from "./file-tree-row.tsx";
+import { FileTreeRowView, type RowMark } from "./file-tree-row.tsx";
 import { FileTreeSearch } from "./file-tree-search.tsx";
 import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
 import { useExplorerFollows, useRevealRows } from "./file-tree-follow.ts";
@@ -76,6 +76,8 @@ export function FileTree(props: {
    * which draws and folds itself.
    */
   openEditors?: ReactNode;
+  /** Files an agent changed recently, by path: their rows carry the agent's mark. */
+  marks?: ReadonlyMap<string, RowMark> | undefined;
 }) {
   const online = useConnectionState() === "ready";
   const { query, onQuery: setQuery } = props;
@@ -337,6 +339,7 @@ export function FileTree(props: {
                   onRetry={tree.retry}
                   onMore={tree.showMore}
                   renaming={!searching && rename.key === row.key ? rename : undefined}
+                  mark={props.marks?.get(row.key)}
                 />
               )}
             />

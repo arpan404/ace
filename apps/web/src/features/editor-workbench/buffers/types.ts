@@ -161,6 +161,13 @@ export interface TextBuffer {
   replace(): Promise<SaveOutcome>;
   /** Spec 46 Merge: a clean merge lands as one undoable step, unsaved; overlaps become a conflict. */
   merge(): Promise<void>;
+  /**
+   * Compare's Keep mine: the clash ends with the buffer's text unsaved, based on the disk's
+   * version, so the next save writes it over theirs.
+   */
+  keepMine(): Promise<void>;
+  /** Compare's Take theirs: the disk's text lands as one undoable step and the buffer is clean. */
+  takeTheirs(): Promise<void>;
   /** Answers conflicting block `index`; the last answer applies the resolved text. */
   answer(index: number, answer: Answer): Promise<void>;
   /** Drops unsaved edits and the draft, and reads the disk again. */

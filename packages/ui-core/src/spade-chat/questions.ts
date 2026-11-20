@@ -35,7 +35,28 @@ export type SpadeQuestion =
       max: number | undefined;
       unit: string | undefined;
     })
-  | (Base & { kind: "date"; time: boolean });
+  | (Base & { kind: "date"; time: boolean })
+  /** Connect an app (`app_connect_request`, ADR 0131 amendment 1): answered by connecting. */
+  | (Base & { kind: "connect"; connect: SpadeConnectAsk });
+
+/** How the person gives the bot the app a connect card asks for. */
+export type SpadeConnectWay = "sign_in" | "key" | "later" | "use" | "reconnect";
+
+/** The app a connect card asks for, as Spade made the card from its catalogue. */
+export interface SpadeConnectAsk {
+  /** Its catalogue id, or for a server added by address, its connector's. */
+  app: string;
+  name: string;
+  way: SpadeConnectWay;
+  /** What the bot may do with it, a few words each. */
+  can: readonly string[];
+  /** The person's connector for it already (`use`, `reconnect`). */
+  connector: string | undefined;
+  /** Where the person makes a key (`key`); https only. */
+  keyUrl: string | undefined;
+  /** The card holds a call that runs again once the app is reconnected. */
+  retry: boolean;
+}
 
 /** Where a card stands: waiting on the person, left for later, answered, dismissed, or closed. */
 export type SpadeQuestionStanding = "waiting" | "deferred" | "answered" | "dismissed" | "closed";
@@ -75,6 +96,36 @@ const questionShape = z.object({
   time: optional(z.boolean()),
 });
 
+const connectShape = z.object({
+  app: z.string().min(1),
+  name: z.string().min(1),
+  // A way this client doesn't know reads as one it can't offer: nothing to press but Not now.
+  way: z.enum(["sign_in", "key", "later", "use", "reconnect"]).catch("later"),
+  can: z
+    .array(z.unknown())
+    .catch([])
+    .default([])
+    .transform((list) => list.filter((each): each is string => typeof each === "string")),
+  connector: optional(z.string()),
+  key_url: optional(z.string().regex(/^https:\/\//i)),
+  retry: optional(z.boolean()),
+});
+
+function readConnect(raw: unknown): SpadeConnectAsk | undefined {
+  const parsed = connectShape.safeParse(raw);
+  if (!parsed.success) return undefined;
+  const value = parsed.data;
+  return {
+    app: value.app,
+    name: value.name,
+    way: value.way,
+    can: value.can,
+    connector: value.connector || undefined,
+    keyUrl: value.key_url || undefined,
+    retry: !!value.retry,
+  };
+}
+
 /** One question; a kind this client doesn't know is asked as text, which Spade then checks. */
 function readQuestion(raw: unknown): SpadeQuestion | undefined {
   const parsed = questionShape.safeParse(raw);
@@ -109,6 +160,11 @@ function readQuestion(raw: unknown): SpadeQuestion | undefined {
       };
     case "date":
       return { ...base, kind: "date", time: !!value.time };
+    case "connect": {
+      const connect = readConnect(raw);
+      if (connect) return { ...base, kind: "connect", connect };
+      break;
+    }
   }
   return { ...base, kind: "text", placeholder: value.placeholder || undefined };
 }
@@ -130,6 +186,7 @@ export function spadeCardQuestions(questions: unknown, words: string): SpadeQues
 
 /** An answer in the person's words: a label, the labels, Yes or No, the number with its unit. */
 export function spadeAnswerWords(question: SpadeQuestion, answer: unknown): string {
+  if (question.kind === "connect") return spadeConnectedWords(question.connect, answer);
   if (typeof answer === "boolean") return answer ? "Yes" : "No";
   if (typeof answer === "number")
     return question.kind === "number" && question.unit ? `${answer} ${question.unit}` : `${answer}`;
@@ -159,6 +216,8 @@ export function spadeEmptyDraft(question: SpadeQuestion): SpadeDraft {
     case "number":
     case "date":
       return { kind: "field", text: "" };
+    case "connect":
+      return { kind: "text", text: "" };
   }
 }
 
@@ -229,7 +288,45 @@ export function spadeDraftAnswer(
         ? { answer: text }
         : { missing: question.time ? "Pick a date and time" : "Pick a date" };
     }
+    // Only connecting answers it.
+    case "connect":
+      return { missing: `Connect ${question.connect.name}` };
   }
+}
+
+/**
+ * The quiet line a connect card settles to once the person connected the app: "Connected as
+ * ada@example.com", or "Reconnected" for an app that came back.
+ */
+export function spadeConnectedWords(ask: SpadeConnectAsk, answer: unknown): string {
+  const account =
+    typeof answer === "object" && answer !== null && "account" in answer
+      ? (answer as { account?: unknown }).account
+      : undefined;
+  const verb = ask.way === "reconnect" ? "Reconnected" : "Connected";
+  return typeof account === "string" && account ? `${verb} as ${account}` : `${verb} ${ask.name}`;
+}
+
+/** A connect card's one action, in words, or undefined when there is nothing to press. */
+export function spadeConnectAction(ask: SpadeConnectAsk): string | undefined {
+  switch (ask.way) {
+    case "sign_in":
+      return `Connect ${ask.name}`;
+    case "key":
+      return "Add a key";
+    case "use":
+      return `Use ${ask.name}`;
+    case "reconnect":
+      return `Reconnect ${ask.name}`;
+    case "later":
+      return undefined;
+  }
+}
+
+/** The connect card in a connect card's questions, if it is one. */
+export function spadeConnectOf(questions: readonly SpadeQuestion[]): SpadeConnectAsk | undefined {
+  const [only, ...rest] = questions;
+  return only?.kind === "connect" && rest.length === 0 ? only.connect : undefined;
 }
 
 /** The card's answers, one per question in order, or the first question still missing one. */
