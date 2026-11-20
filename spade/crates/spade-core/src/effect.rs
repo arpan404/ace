@@ -11,6 +11,7 @@ use crate::autonomy::{self, Class, Mode};
 use crate::gate::Decision;
 use crate::tools::Risk;
 
+pub mod ceiling;
 pub mod drive;
 mod full_access;
 pub mod runtime;
@@ -333,6 +334,9 @@ pub struct Call<'a> {
     /// Spade's classifier (ADR 0172) is on and loaded, so a call the gate lets run can still be
     /// raised to the person.
     pub classifier: bool,
+    /// For a packaged bot, or anything under one, what its package declared and the person left
+    /// on (ADR 0200 §3.4); `None` for every other bot.
+    pub ceiling: Option<ceiling::Ceiling<'a>>,
 }
 
 /// Why the person is asked, when it isn't the usual request.
@@ -413,6 +417,11 @@ pub fn route(call: Call<'_>) -> Route {
     // failed: no sandbox, checkpoint or classifier changes them.
     if call.credentials || call.effect == Some(Effect::Credential) {
         return Route::Refuse(autonomy::CREDENTIALS_REFUSED.to_owned());
+    }
+    // A packaged bot's ceiling, right after: an effect its package didn't declare, or one the
+    // person turned off, is refused before any review or request, in every mode.
+    if let Some(why) = ceiling::refusal(call.ceiling, call.effect) {
+        return Route::Refuse(why);
     }
     if let Some(effect) = call.effect
         && let Some(route) = persons(call, effect, allowed)
@@ -765,5 +774,7 @@ pub fn blocked_hint(kind: Blocked) -> &'static str {
     }
 }
 
+#[cfg(test)]
+mod ceiling_tests;
 #[cfg(test)]
 mod tests;

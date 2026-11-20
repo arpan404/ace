@@ -42,6 +42,7 @@ mod moves;
 pub mod onboarding;
 mod outbox;
 mod oversight;
+mod packages;
 mod park;
 mod pause;
 mod plugin_hooks;
@@ -448,6 +449,8 @@ impl Engine {
         if let Err(error) = self.resume_groups() {
             tracing::error!(%error, "could not pick up the groups' open asks");
         }
+        // A package update a crash cut short is taken again from the start (ADR 0200 §6.2).
+        crate::packages::recover(self);
         // Workers owed a report or a start since the last run get it (ADR 0161).
         self.start_workers();
         // Digests on each bot's schedule (ADR 0165).

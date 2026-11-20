@@ -16,6 +16,7 @@ mod media;
 mod memory;
 mod moves;
 mod oversight;
+mod packages;
 mod plugins;
 mod questions;
 mod reach;
@@ -192,6 +193,7 @@ pub fn router(state: AppState) -> Router {
         .merge(files::routes())
         .merge(media::routes())
         .merge(teams::routes())
+        .merge(packages::routes())
         .merge(thread_asks::routes())
         .merge(moves::routes())
         .merge(wakes::routes())

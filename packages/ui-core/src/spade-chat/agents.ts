@@ -3,6 +3,7 @@ import { faceForId, parseStoredBotFace, storedBotFace, type BotFace } from "../b
 import { spadeJson, spadeRecord } from "./json.ts";
 import { parseSpadeComputer, type SpadeComputer } from "./computer.ts";
 import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
+import { parseSpadePackage, type SpadePackage } from "./packages.ts";
 import { parseSpadeTaskProgress, type SpadeTaskProgress } from "./autonomy.ts";
 import { parseSpadeArrival, parseSpadeMove, type SpadeArrival, type SpadeMove } from "./moves.ts";
 
@@ -106,6 +107,8 @@ export interface SpadeAgent {
   madeBy: { id: string; name: string; apps: readonly string[] } | undefined;
   /** Undo archived it: it had acted, so it was kept, stopped, its routines paused. */
   archived: boolean;
+  /** The agent package it is linked to (ADR 0200 §3.9), shown in its profile. */
+  package?: SpadePackage | undefined;
 }
 
 const avatarShape = z.discriminatedUnion("kind", [
@@ -227,6 +230,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
             : "ask",
     madeBy: madeByShape.safeParse(record.made_by).data,
     archived: record.archived === true,
+    package: parseSpadePackage(record.package),
     raw: record,
   };
 }

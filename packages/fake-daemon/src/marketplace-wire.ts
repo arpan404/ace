@@ -32,6 +32,10 @@ export interface FakeMarketEntry {
   withdrawn?: string;
   /** The device's scan blocks its bytes: `prepare` answers `blocked` with this report. */
   blocked?: MarketScanReport;
+  /** What `prepareUpdate` answers instead of `review`, for a linked bot's update (ADR 0200). */
+  updateReview?: Partial<MarketReview>;
+  /** What `prepareRollback` answers: the version a linked bot had before. */
+  rollbackReview?: Partial<MarketReview>;
 }
 
 /** An install the person accepted: the review's bytes and the choices sent with Install. */
@@ -314,6 +318,7 @@ export class FakeMarketplaceWire {
         };
       }
       case "prepare":
+      case "prepareRollback":
       case "prepareUpdate": {
         const source =
           operation.op === "prepare"
@@ -340,9 +345,20 @@ export class FakeMarketplaceWire {
           operation.op === "prepareUpdate"
             ? this.#installed.get(key(operation.type, operation.name))?.version
             : undefined;
+        const moved =
+          operation.op === "prepareUpdate"
+            ? entry.updateReview
+            : operation.op === "prepareRollback"
+              ? entry.rollbackReview
+              : undefined;
         const review = {
-          ...plainReview(entry, `review-${++this.#counter}`, now),
+          ...plainReview(
+            moved ? { ...entry, review: { ...entry.review, ...moved } } : entry,
+            `review-${++this.#counter}`,
+            now,
+          ),
           ...(replaces ? { updates: replaces } : {}),
+          ...(moved?.updates ? { updates: moved.updates } : {}),
         };
         const items = entry.items ?? [];
         this.#reviews.set(review.id, { review: { ...review, items: items.length }, items });

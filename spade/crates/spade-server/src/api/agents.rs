@@ -79,6 +79,12 @@ pub(super) struct NewAgent {
     grants: Option<crate::teams::RecipeGrants>,
     #[serde(default)]
     start_routines: bool,
+    /// A version 3 package's market identity (ADR 0200 §3.9): the bot it makes stays linked.
+    #[serde(default)]
+    package: Option<spade_core::package::link::PackageId>,
+    /// The person's effect switches on the review, by key; one missing is off.
+    #[serde(default)]
+    switches: std::collections::BTreeMap<String, bool>,
     /// Made from one message: the bot names itself in its first reply, and is "New bot" until
     /// then when no name was given.
     #[serde(default)]
@@ -312,6 +318,8 @@ impl NewAgent {
             grants: self.grants.unwrap_or_default(),
             start_routines: self.start_routines,
             time_zone: self.time_zone,
+            package: self.package,
+            switches: self.switches,
             also: self.template.is_some() || self.first_message.is_some(),
         }
     }

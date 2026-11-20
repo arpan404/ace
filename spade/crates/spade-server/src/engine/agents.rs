@@ -422,6 +422,10 @@ impl Engine {
                     shown.insert("tools".into(), tools.into());
                 }
             }
+            // The package it is linked to (ADR 0200 §3.9), for its profile.
+            if let Some(link) = self.bot_package(&agent.id) {
+                shown.insert("package".into(), crate::packages::view(&link));
+            }
             shown.insert(
                 "task_state".into(),
                 serde_json::to_value(&activity.task).unwrap_or_default(),

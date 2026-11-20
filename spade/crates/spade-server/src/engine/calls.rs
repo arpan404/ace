@@ -386,6 +386,9 @@ pub(super) async fn handle_calls(
                             engine.may_create(id),
                         )
                     });
+                    // A packaged bot's declared effects, as the person left them on, for it and
+                    // everything under it (ADR 0200 §3.4).
+                    let ceiling = engine.ceiling(id);
                     let route = match own {
                         Some(route) => route,
                         None => effect::route(effect::Call {
@@ -418,6 +421,12 @@ pub(super) async fn handle_calls(
                             mode,
                             remote,
                             classifier,
+                            ceiling: ceiling.as_ref().map(|(bot, allows)| {
+                                effect::ceiling::Ceiling {
+                                    bot,
+                                    allows: *allows,
+                                }
+                            }),
                         }),
                     };
                     // An app's write in Full access runs counting on the screening.
