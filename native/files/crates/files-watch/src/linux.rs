@@ -6,12 +6,14 @@
 //! `node_modules` trees the excludes exist to avoid, and the per-user watch budget is small.
 //! This backend walks the tree itself, adds a watch per folder it keeps, and adds watches for
 //! folders that appear later. A folder moved in is walked as well, and its files reported,
-//! because contents can change before the new watches exist.
+//! because contents can change before the new watches exist. The watches are read by
+//! [`inotify::Inotify`], which asks the kernel for changes only, never for opens and reads.
+
+mod inotify;
 
 use std::collections::BTreeSet;
 
 use files_safe::Root;
-use notify::{INotifyWatcher, RecursiveMode, Watcher as NotifyWatcher};
 
 use crate::batch::{Change, ChangeKind};
 use crate::error::Error;
@@ -21,7 +23,7 @@ use crate::watch::Events;
 
 /// A set of per-folder inotify watches.
 pub(crate) struct Folders {
-    watcher: INotifyWatcher,
+    watcher: inotify::Inotify,
     watched: BTreeSet<String>,
 }
 
@@ -33,8 +35,7 @@ impl Folders {
         events: Events,
     ) -> Result<Folders, Error> {
         let mut folders = Folders {
-            watcher: INotifyWatcher::new(events, notify::Config::default())
-                .map_err(|error| Error::Unsupported(error.to_string()))?,
+            watcher: inotify::Inotify::start(events)?,
             watched: BTreeSet::new(),
         };
         folders.add_tree(root, excluder, "")?;
@@ -131,15 +132,17 @@ impl Folders {
         } else {
             root.path().join(rel)
         };
-        if let Err(error) = self.watcher.watch(&path, RecursiveMode::NonRecursive) {
-            self.watched.remove(rel);
-            if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) {
-                return Err(Error::Unsupported(format!(
-                    "inotify watch limit reached: {error}"
-                )));
+        match self.watcher.watch(&path) {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                self.watched.remove(rel);
+                Ok(())
+            }
+            Err(error) => {
+                self.watched.remove(rel);
+                Err(error)
             }
         }
-        Ok(())
     }
 
     /// Drops the watches at and below a path. The range scan keeps this proportional to the
