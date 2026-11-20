@@ -112,6 +112,9 @@ export async function moveEngine(
   const snapshot = await host.open(at);
   if (snapshot.backend === engine && !snapshot.closed) {
     await preference.write(threadId, engine);
+    // A browser left here by an earlier move that couldn't finish now stands where the setting
+    // says: that move's copy of the tabs goes, or a restart would bring it back over later work.
+    await host.settleIfHome(at);
     return { state: snapshot, failed: [] };
   }
   if (engine === "embedded" && desktopMissing(snapshot))

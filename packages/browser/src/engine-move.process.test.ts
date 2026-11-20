@@ -67,6 +67,9 @@ async function machine(kept: EnginePreference | undefined) {
   const refuseWrites = (reason: string) => {
     refusing = reason;
   };
+  const allowWrites = () => {
+    refusing = undefined;
+  };
   const holdWrites = () => {
     held = Promise.withResolvers<void>();
     const gate = held;
@@ -130,6 +133,7 @@ async function machine(kept: EnginePreference | undefined) {
     asked,
     holdWrites,
     refuseWrites,
+    allowWrites,
     preferences,
     writes,
     device,
@@ -356,6 +360,26 @@ it.each([
     expect(m.journal.pending("thread")).toBeUndefined();
   },
 );
+
+// One page, so the desktop holds every tab the move carries (it keeps one page at a time).
+it("choosing the engine the browser was left on after a double failure keeps it there and drops the move's copy", async () => {
+  const m = await machine("headless");
+  await m.load("https://one.example/");
+  m.refuseWrites("Settings are read-only");
+  m.headless.failOpen("Chrome didn't start");
+  expect(await m.device("phone").move("embedded")).toMatchObject({ ok: false });
+  expect(m.f.service.state("thread").backend).toBe("embedded");
+  expect(m.journal.pending("thread")).toBeDefined();
+
+  // Settings work again and the person keeps the desktop: the setting now names where the
+  // browser is, with every tab, so the move's copy goes and can't undo later changes at restart.
+  m.allowWrites();
+  expect(await m.device("web").move("embedded")).toMatchObject({ ok: true });
+
+  expect(m.preferences.get("thread")).toBe("embedded");
+  expect(m.f.service.state("thread").backend).toBe("embedded");
+  expect(m.journal.pending("thread")).toBeUndefined();
+});
 
 it("a move queued behind one that failed still moves the browser, its page loaded there once", async () => {
   const m = await machine(undefined);
