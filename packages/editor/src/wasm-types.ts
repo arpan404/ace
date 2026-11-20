@@ -56,4 +56,5 @@ export interface WasmGlue {
   default(input?: unknown): Promise<unknown>;
   EditorDocument: new (text: string) => WasmDocument;
   lineMarks(original: string, current: string): Uint32Array;
+  merge3(base: string, mine: string, theirs: string): string[];
 }
