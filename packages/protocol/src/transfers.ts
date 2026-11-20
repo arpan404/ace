@@ -89,13 +89,28 @@ export type TransferIgnoredFiles = z.infer<typeof TransferIgnoredFiles>;
 export const TransferLiveStage = z.enum(["readying", "stopping", "handing", "moved", "resumed"]);
 export type TransferLiveStage = z.infer<typeof TransferLiveStage>;
 
-/** How a moved agent's history went: its provider's own session, or the handoff summary. */
-export const TransferSessionOutcome = z.object({
+/**
+ * How a moved agent's history went: its provider's own session, or the handoff summary.
+ * Declared, not inferred, as `Speaker` is: transfer results ride the wire unions, and an inferred
+ * shape here took `ServerMessage` past what TypeScript will write out.
+ */
+export interface TransferSessionOutcome {
+  kind: "native" | "summary";
+  reason?: string | undefined;
+  sessionIds?: { from: string; to: string } | undefined;
+}
+export const TransferSessionOutcome: z.ZodType<TransferSessionOutcome> = z.object({
   kind: z.enum(["native", "summary"]),
   /** Why the summary was used, in words a person reads. */
   reason: z.string().max(256).optional(),
+  /**
+   * The provider's own session: its id on the sending machine, and the fresh id its copy took
+   * here, which the thread continues.
+   */
+  sessionIds: z
+    .object({ from: z.string().min(1).max(256), to: z.string().min(1).max(256) })
+    .optional(),
 });
-export type TransferSessionOutcome = z.infer<typeof TransferSessionOutcome>;
 
 /** One transfer as the sending machine sees it. */
 export const Transfer = z.object({

@@ -43,6 +43,8 @@ export interface LiveTargetPorts {
   /** A line on the thread the person reads, for a start that couldn't happen. */
   notice(threadId: string, text: string): void;
   now(): number;
+  /** A fresh id for a placed session's copy, in the providers' UUID form. */
+  newSessionId(): string;
   sleep(ms: number): Promise<void>;
   log(message: string, fields: Record<string, unknown>): void;
 }
@@ -180,9 +182,13 @@ export class LiveTarget {
         staged: join(input.folder, "session"),
         session: carried,
         targetCwd: cwd,
+        newId: this.ports.newSessionId,
       });
       this.ports.adoptSession(input.threadId, { ...placed, instanceId: account.instanceId });
-      return { kind: "native" };
+      return {
+        kind: "native",
+        sessionIds: { from: carried.nativeSessionId, to: placed.nativeSessionId },
+      };
     } catch (error) {
       if (!(error instanceof SessionNotCarried)) throw error;
       return { kind: "summary", reason: error.message.slice(0, 256) };

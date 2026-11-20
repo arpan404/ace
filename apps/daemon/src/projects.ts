@@ -7,7 +7,8 @@ import { parseCloneUrl } from "@ace/project-picker";
 import type { PickerFilesystem } from "./project-picker-filesystem.ts";
 import { ProjectPicker } from "./project-picker.ts";
 import { projectRemotes } from "./project-git.ts";
-import { realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { ProjectDirectory } from "./project-directory.ts";
@@ -374,6 +375,7 @@ export class Projects {
       const directory = await ProjectDirectory.open(this.paths, path);
       try {
         assertProjectPath(directory.path, await this.paths.roots());
+        await access(directory.path, constants.W_OK);
         return directory;
       } catch (error) {
         await directory.close();

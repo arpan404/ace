@@ -273,6 +273,7 @@ export async function fakeSpade() {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (request.method === "GET" && url.pathname === "/v1/agents")
       return send(response, 200, {
+        // oxlint-disable-next-line oxc/no-map-spread -- Builds the answer from stored bots without changing them.
         agents: [...bots].map(([id, bot]) => ({
           id,
           from_recipe: bot.from_recipe,
