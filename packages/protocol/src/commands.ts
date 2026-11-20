@@ -29,6 +29,7 @@ import {
 } from "./ids.ts";
 import { InteractionResolution } from "./interactions.ts";
 import { ContentPart, MessageOrigin } from "./items.ts";
+import { Addressee, AddressedShare } from "./addressing.ts";
 import { ProviderKind } from "./provider.ts";
 
 import { ReviewCommands } from "./review.ts";
@@ -121,6 +122,17 @@ export const CommandPayload = z.discriminatedUnion("type", [
      * older sender): as before.
      */
     runId: RunId.nullable().optional(),
+  }),
+  /**
+   * The person's message to Spade bots, clubs or other threads' agents, posted in this thread
+   * instead of reaching its agent (ADR 0194). `share` says whether a summary of this thread goes.
+   */
+  z.object({
+    type: z.literal("thread.address"),
+    threadId: ThreadId,
+    input: z.array(ContentPart).min(1).max(64),
+    to: z.array(Addressee).min(1).max(8),
+    share: AddressedShare,
   }),
   z.object({
     type: z.literal("thread.interrupt"),

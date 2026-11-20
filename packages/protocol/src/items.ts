@@ -13,6 +13,7 @@ import {
   InheritedItem,
 } from "./thread-transitions.ts";
 import { Attachment } from "./context.ts";
+import { Addressed, MessageVia, Speaker } from "./addressing.ts";
 import { z } from "zod";
 import { AgentId, CommandId, InteractionId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind, RawPayload } from "./provider.ts";
@@ -93,6 +94,8 @@ export const MessageOrigin = z.object({
   lossy: z.boolean().optional(),
   /** A `restart` continuation resuming a turn its provider dropped on its own, not a restart. */
   afterExit: z.boolean().optional(),
+  /** A `person` message sent from another thread by `@` its agent (ADR 0194): that thread. */
+  via: MessageVia.optional(),
 });
 export type MessageOrigin = z.infer<typeof MessageOrigin>;
 
@@ -138,6 +141,10 @@ export const AgentItem = z.discriminatedUnion("type", [
     origin: MessageOrigin.optional(),
     notAnswered: z.literal("stopped").optional(),
     mergedContext: MergedForkContext.optional(),
+    /** The person addressed it to bots, clubs or agents instead of the thread's agent (ADR 0194). */
+    addressed: Addressed.optional(),
+    /** A reply a Spade bot gave in this thread: the bot's words, never the agent's (ADR 0194). */
+    speaker: Speaker.optional(),
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({
