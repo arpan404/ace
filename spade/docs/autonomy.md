@@ -661,21 +661,26 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
 ## Pause, resume and the running view
 
 ADR 0200 §6. **Pause** is Stop, then hold. The pause is stored first (the `paused_bots` setting,
-`{agent: {at_ms, held}}`), so a restart holds it, then the bot's turn, jobs, helpers and workers stop
-as for Stop. Its own sleeps and waits stay open and armed; the stopped work's retries, outage
-waits and parked steps end with it; its services stop. While it is paused:
+`{agent: {at_ms, held, services}}`), so a restart holds it, then the bot's turn, jobs, helpers and
+workers stop as for Stop. Its own sleeps and waits stay open and armed; the stopped work's retries,
+outage waits and parked steps end with it; its services stop, and which ones is stored with the
+pause. While it is paused:
 
 - no turn starts: a message, a worker's report or a club's ask to it is stored and waits;
 - the wake timer skips its wakes, and one its condition meets (or the person wakes) is stored in
-  the pause's `held`, in the one write that marks it held, so a restart before Resume keeps it;
+  the pause's `held`, in the one write that marks it held, so a restart before Resume keeps it. If
+  that write fails the wake stays open and unfired: it is kept in memory and written again (waits
+  doubling to 30 s) until it lands, and Resume fires it either way;
 - its routines' due slots stay due and unclaimed; event and webhook triggers are skipped
   (`skipped_paused`); the person's own Run now is delivered and waits, as a message does.
 
 **Resume** fires each held wake once (a wake fires only while it is open), then clears the
 setting; a crash in between leaves the bot paused, and resuming again fires nothing twice. It lets
 the timer find the wakes that came
-due by time, lets the routines catch up once (`caught_up`), and answers what waited. Services
-don't restart by themselves. A paused bot can't move to another machine until it is resumed.
+due by time, lets the routines catch up once (`caught_up`), starts the services Pause stopped
+again at once (each under its own id, held to the verdict that started it, unless it runs already
+or another service took its name), and answers what waited. A paused bot can't move to another
+machine until it is resumed.
 A withdrawn package version pauses its bot with this same pause ([packages.md](packages.md)), and
 any Resume ends it: there is one pause.
 
