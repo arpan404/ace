@@ -133,7 +133,16 @@ test.each([false, true])(
       remove: (pid) => recorded.delete(pid),
     });
     try {
-      const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"]);
+      // Straight to the worker, so a stop can come while it is still starting the process.
+      const running = createProbeThread().run(
+        {
+          command: "/bin/sh",
+          args: ["-c", "sleep 30 & sleep 30"],
+          env: { PATH: process.env.PATH ?? "" },
+          maxBytes: 65_536,
+        },
+        new AbortController().signal,
+      );
       void running.catch(() => {});
       // Unreported, the probe is still waiting on the worker for its pid.
       if (reported) await expect.poll(() => recorded.size).toBe(1);
@@ -147,3 +156,17 @@ test.each([false, true])(
     }
   },
 );
+
+test("a global stop while a probe still resolves its command ends it before it starts anything", async () => {
+  const seen: number[] = [];
+  const stop = observeProcessGroups({ add: (pid) => seen.push(pid), remove: () => {} });
+  try {
+    const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"]);
+    const stopped = expect(running).rejects.toThrow("Probe stopped");
+    await stopOwnedGroups(0);
+    await stopped;
+    expect(seen).toEqual([]);
+  } finally {
+    stop();
+  }
+});

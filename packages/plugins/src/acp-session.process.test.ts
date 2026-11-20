@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import { join } from "node:path";
 import { z } from "zod";
@@ -27,6 +27,9 @@ test.each(["acp", "antigravity"] as const)(
         env: {},
         name: "standin-acp",
       });
+      // The launch's own directory under the session root.
+      const [own] = await readdir(root);
+      const server = join(root, own ?? "", "generated/plugins/sample/payload/scripts/server.js");
       const peer = new JsonRpcPeer(launched);
       await expect(
         newPluginAcpSession(launched.sessionConfig, peer, { cwd: "relative" }),
@@ -58,13 +61,12 @@ test.each(["acp", "antigravity"] as const)(
       expect(observed.params.mcpServers).toContainEqual({
         name: "ace-sample__tools",
         command: node,
-        args: [join(root, "generated/plugins/sample/payload/scripts/server.js"), 'a quote: "'],
+        args: [server, 'a quote: "'],
         env: [{ name: "MODE", value: "local" }],
       });
       await launched.stop({ graceMs: 0 });
-      await expect(
-        readFile(join(root, "generated/plugins/sample/payload/scripts/server.js")),
-      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(server)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readdir(root)).toEqual([]);
     } finally {
       await launched?.stop({ graceMs: 0 });
       await f.close();
