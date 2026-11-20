@@ -60,6 +60,8 @@ for (const empty of [false, true])
         onExit: () => {},
       });
       expect(session.nativeSessionId).toBeTruthy();
+      // Opening creates the session and settles its environment gate (3bf92575c, awaited at
+      // open), and sends no prompt.
       expect(requests).toEqual([
         {
           path: "/api/session",
@@ -69,6 +71,10 @@ for (const empty of [false, true])
             model: { providerID: "opencode-go", id: "muse-spark-1.3-contributor" },
             agent: permissionMode,
           },
+        },
+        {
+          path: "/api/rpc/ace.agent.environment/settle",
+          body: { input: { ok: true, sessionID: session.nativeSessionId } },
         },
       ]);
     },
