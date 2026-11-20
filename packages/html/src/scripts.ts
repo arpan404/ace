@@ -169,6 +169,99 @@ export const frameBridge = `(() => {
   });
 })();`;
 
+/**
+ * A package panel's own bridge (ADR 0200 §5.2), run in its page after `pageBridge` and before any
+ * authored script. It gives the page a frozen `acePanel`: `act(name, value)` sends an action, but
+ * only while the person is pressing or typing in the page (transient user activation), so a page
+ * can't act on its own; `state` and `init` are the last ones received. It dispatches `ace:init`,
+ * `ace:state` and `ace:theme` with their data, answers the host's watchdog `ping`, and reports an
+ * uncaught error or rejection as a `fault`. The host checks every message again.
+ */
+export const panelPageBridge = `(() => {
+  let state;
+  let init;
+  const post = (data) => parent.postMessage(data, '*');
+  const deliver = (type, detail) => dispatchEvent(new CustomEvent(type, { detail }));
+  const copy = (value) => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+  const api = Object.freeze({
+    act(name, value) {
+      if (typeof name !== 'string' || !name) return false;
+      const activation = navigator.userActivation;
+      if (activation && !activation.isActive) return false;
+      let sent;
+      try { sent = copy(value); } catch { return false; }
+      post(sent === undefined ? { type: 'ace.panel.action', name } : { type: 'ace.panel.action', name, value: sent });
+      return true;
+    },
+    get state() { return state; },
+    get init() { return init; },
+  });
+  Object.defineProperty(globalThis, 'acePanel', { value: api, writable: false, configurable: false });
+  addEventListener('message', (event) => {
+    const data = event.data;
+    if (event.source !== parent || !data || typeof data !== 'object') return;
+    if (data.type === 'ace.panel.init') {
+      init = Object.freeze({ runtime: data.runtime, tokens: data.tokens, scheme: data.scheme, reduceMotion: data.reduceMotion, size: data.size });
+      deliver('ace:init', init);
+    } else if (data.type === 'ace.panel.state') {
+      state = data.data;
+      deliver('ace:state', state);
+    } else if (data.type === 'ace.panel.theme') deliver('ace:theme', { tokens: data.tokens, scheme: data.scheme });
+    else if (data.type === 'ace.panel.ping' && Number.isInteger(data.n)) post({ type: 'ace.panel.pong', n: data.n });
+  });
+  addEventListener('error', () => post({ type: 'ace.panel.fault' }));
+  addEventListener('unhandledrejection', () => post({ type: 'ace.panel.fault' }));
+})();`;
+
+/**
+ * The outer document's bridge for a panel: `frameBridge`'s frame, with the panel's channel. Out of
+ * the page it relays only the panel's message types, as JSON of at most 16 KB; into it, only
+ * `init`, `theme`, `state` and `ping`, and the tokens of `init` and `theme` as the theme message
+ * `pageBridge` applies. As the top document of a desktop `<webview>` it reports through its title,
+ * numbered so every message is a change of title.
+ */
+export const panelFrameBridge = `(() => {
+  const template = document.getElementById('ace-page');
+  const frame = template.content.querySelector('iframe');
+  document.body.append(frame);
+  template.remove();
+  const embedded = parent !== window;
+  const out = new Set(['ace.html.height', 'ace.panel.action', 'ace.panel.fault', 'ace.panel.pong']);
+  const into = new Set(['ace.panel.init', 'ace.panel.theme', 'ace.panel.state', 'ace.panel.ping']);
+  let sent = 0;
+  addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data || typeof data !== 'object') return;
+    if (event.source === frame.contentWindow && event.origin === 'null') {
+      if (!out.has(data.type)) return;
+      let text;
+      try { text = JSON.stringify(data); } catch { return; }
+      if (typeof text !== 'string' || text.length > ${16 * 1024}) return;
+      if (embedded) parent.postMessage(JSON.parse(text), '*');
+      else document.title = 'ace.panel:' + (++sent) + ':' + text;
+      return;
+    }
+    if (event.source === parent && into.has(data.type)) {
+      if (data.type === 'ace.panel.init' || data.type === 'ace.panel.theme') {
+        if (data.scheme === 'light' || data.scheme === 'dark') document.documentElement.style.colorScheme = data.scheme;
+        frame.contentWindow.postMessage({ type: 'ace.html.theme', tokens: data.tokens, scheme: data.scheme }, '*');
+      }
+      frame.contentWindow.postMessage(data, '*');
+    }
+  });
+})();`;
+
+/** A message a desktop panel's outer document put in its title, as the page sent it. */
+export function panelMessageFromTitle(title: string): unknown {
+  const match = /^ace\.panel:\d{1,12}:(.{1,16384})$/s.exec(title);
+  if (!match?.[1]) return undefined;
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
 /** What a desktop `<webview>`'s outer document puts in its title to report a content height. */
 export function heightFromTitle(title: string): number | undefined {
   const match = /^ace\.html\.height:(\d{1,5})$/.exec(title);
