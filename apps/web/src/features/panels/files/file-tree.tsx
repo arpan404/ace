@@ -5,7 +5,6 @@ import {
   folderKey,
   openedFolders,
   pathParts,
-  revealingFolders,
   toggledFolders,
   type FolderRow,
 } from "@ace/ui-core";
@@ -25,6 +24,7 @@ import {
   ContextMenuContent,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
+import { MenuCheckboxItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import { attachWorkspaceScroll } from "@/lib/workspace/index.ts";
@@ -34,6 +34,7 @@ import { isSecondClick } from "./second-click.ts";
 import { FileTreeRowView } from "./file-tree-row.tsx";
 import { FileTreeSearch } from "./file-tree-search.tsx";
 import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
+import { useExplorerFollows, useRevealRows } from "./file-tree-follow.ts";
 import { useFolderTree } from "./use-folder-tree.ts";
 import { useTreeCommands, type OpenHow, type TreeCommands } from "./tree-commands.ts";
 import { entryOf, onRowKey as onKeyFor, type RowKeyContext } from "./tree-row-keys.ts";
@@ -80,19 +81,12 @@ export function FileTree(props: {
   // ignores folding, so every match is visible.
   const currentPath = props.current;
   const onExpanded = props.onExpanded;
+  const [follows, setFollows] = useExplorerFollows();
+  // Unset, the current file's folders stand open only while the explorer follows it.
   const opened = useMemo(
-    () => openedFolders(props.expanded, currentPath),
-    [props.expanded, currentPath],
+    () => openedFolders(props.expanded ?? (follows ? undefined : []), currentPath),
+    [props.expanded, follows, currentPath],
   );
-  // A file opened from elsewhere (quick open, a tab) is revealed by opening its ancestors, each
-  // of which lists on the way. Folding one by hand stays folded until another file is revealed.
-  const revealed = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (revealed.current === currentPath) return;
-    revealed.current = currentPath;
-    const missing = revealingFolders(opened, currentPath);
-    if (missing.length) onExpanded([...opened, ...missing]);
-  }, [currentPath, opened, onExpanded]);
   const tree = useFolderTree({ threadId: props.threadId, expanded: opened, paused: searching });
   const searchRows = useMemo<FolderRow[]>(
     () =>
@@ -169,6 +163,23 @@ export function FileTree(props: {
       how === "preview" && at !== undefined && isSecondClick(client, props.threadId, row.key, at);
     props.onOpen(row.key, second ? "keep" : how);
   };
+  // A file opened from elsewhere (quick open, a tab) is revealed by opening its ancestors, each
+  // of which lists on the way, then scrolled to and selected. Folding one by hand stays folded
+  // until another file is revealed.
+  useRevealRows({
+    threadId: props.threadId,
+    current: currentPath,
+    follows,
+    opened,
+    onExpanded,
+    rows,
+    list,
+    handle: rowsHandle,
+    onRevealed: (key) => {
+      setFocusKey(key);
+      if (key !== currentPath) selection.only(key);
+    },
+  });
   const order = useMemo(
     () => navigable.filter((row) => row.kind !== "more").map((row) => row.key),
     [navigable],
@@ -319,7 +330,7 @@ export function FileTree(props: {
           results={results}
           empty={!rows.length}
         />
-        <RootMenu commands={commands} />
+        <RootMenu commands={commands} follows={follows} onFollows={setFollows} />
       </div>
       {props.footer}
     </div>
@@ -327,7 +338,11 @@ export function FileTree(props: {
 }
 
 /** The tree's empty space below its rows: right-click there acts on the checkout's root. */
-function RootMenu(props: { commands: TreeCommands }) {
+function RootMenu(props: {
+  commands: TreeCommands;
+  follows: boolean;
+  onFollows(follows: boolean): void;
+}) {
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -335,6 +350,10 @@ function RootMenu(props: { commands: TreeCommands }) {
       />
       <ContextMenuContent>
         <FileRowItems entry={{ path: "", folder: true }} commands={props.commands} />
+        <MenuSeparator />
+        <MenuCheckboxItem checked={props.follows} onCheckedChange={props.onFollows}>
+          Follow the open file
+        </MenuCheckboxItem>
       </ContextMenuContent>
     </ContextMenu>
   );
