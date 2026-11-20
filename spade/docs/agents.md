@@ -429,7 +429,7 @@ then.
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
 | `GET /agents`                                 |                                                                                                  | `{"agents":[Agent]}`: main first, then by `last_activity`  |
 | `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?, naming?}`                               | `201 {"agent"}`; `model` defaults as below                 |
-| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`, `personality`, `task_why`, `may_create_bots` | `200 {"agent"}`; `409` for the main agent's name or avatar |
+| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`, `personality`, `task_why`, `may_create_bots`, `style` | `200 {"agent"}`; `409` for the main agent's name or avatar |
 | `GET /agents/{id}/task/history`               |                                                                                                  | `{"versions":[{seq, at, task, by, why}]}`, newest first    |
 | `DELETE /agents/{id}`                         |                                                                                                  | `204`; `409` for the main agent                            |
 | `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                                               | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |

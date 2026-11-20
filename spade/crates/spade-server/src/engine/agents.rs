@@ -438,6 +438,8 @@ impl Engine {
                     shown.insert("tools".into(), tools.into());
                 }
             }
+            // Its accent (ADR 0200 §5.3): the person's choice, else its package's.
+            shown.insert("style".into(), self.style_of(&agent));
             // The package it is linked to (ADR 0200 §3.9), for its profile.
             if let Some(link) = self.bot_package(&agent.id) {
                 shown.insert(
