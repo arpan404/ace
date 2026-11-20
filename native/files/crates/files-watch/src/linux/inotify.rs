@@ -60,6 +60,24 @@ pub(crate) struct Inotify {
     registry: Arc<Mutex<Registry>>,
     stop: Arc<OwnedFd>,
     reader: Option<JoinHandle<()>>,
+    /// Test-only: the most folders this instance may watch, as if the user's budget ended there.
+    #[cfg(test)]
+    budget: Option<usize>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static WATCH_BUDGET: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// Test-only: runs `start` with every inotify instance it starts limited to `budget` folders, so a
+/// test can reach the watch limit without lowering the machine's.
+#[cfg(test)]
+pub(crate) fn with_watch_budget<T>(budget: usize, start: impl FnOnce() -> T) -> T {
+    WATCH_BUDGET.with(|slot| slot.set(Some(budget)));
+    let started = start();
+    WATCH_BUDGET.with(|slot| slot.set(None));
+    started
 }
 
 impl Inotify {
@@ -92,6 +110,8 @@ impl Inotify {
             registry,
             stop,
             reader: Some(reader),
+            #[cfg(test)]
+            budget: WATCH_BUDGET.with(std::cell::Cell::get),
         })
     }
 
@@ -100,6 +120,16 @@ impl Inotify {
     /// away or may not be read.
     pub(crate) fn watch(&self, rel: &str) -> Result<bool, Error> {
         let path = absolute(&self.root, rel);
+        #[cfg(test)]
+        if let Some(budget) = self.budget
+            && !self.watches(rel)
+            && self.registry().len() >= budget
+        {
+            return Err(Error::Unsupported(format!(
+                "inotify watch limit reached watching {}",
+                path.display()
+            )));
+        }
         match inotify::add_watch(&*self.fd, &path, mask()) {
             Ok(descriptor) => {
                 let displaced = self.registry().bind(descriptor, rel);

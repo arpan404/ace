@@ -44,6 +44,12 @@ impl Registry {
         self.by_descriptor.get(&descriptor).map(String::as_str)
     }
 
+    /// How many folders are watched.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.by_path.len()
+    }
+
     /// Whether a live descriptor watches `path`.
     pub(crate) fn watches(&self, path: &str) -> bool {
         self.by_path.contains_key(path)

@@ -12,6 +12,9 @@
 mod inotify;
 mod registry;
 
+#[cfg(test)]
+pub(crate) use inotify::with_watch_budget;
+
 use std::ffi::OsString;
 use std::sync::Arc;
 

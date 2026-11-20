@@ -657,12 +657,15 @@ impl Worker {
             &batch,
             std::time::SystemTime::now(),
         );
+        // Folders the rebuild could not watch (the kernel's watch budget ran out) would stay silent
+        // for good: the poller takes over the whole root, started before the caller walks, and
+        // says so. The rescan still goes out, so the caller reads the tree as it is.
         if let Batch::Rescan { dir } = &batch
             && let Err(error) = self
                 .backend
                 .rescan(&self.root, &self.excluder, dir.as_deref())
         {
-            self.warn(format!("cannot rebuild watches: {error}"));
+            self.switch_to_polling(&error);
         }
         (self.sink)(batch);
     }
@@ -995,5 +998,39 @@ mod tests {
             },
         );
         assert_eq!(watcher.mode(), Mode::Native);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn running_out_of_watches_while_rebuilding_them_switches_to_polling() {
+        // Lost events rescan the root, and the folder made meanwhile needs a watch the budget no
+        // longer has: staying native would leave that folder silent for good.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("a")).unwrap();
+        std::fs::create_dir(dir.path().join("b")).unwrap();
+        let (watcher, batches, held) =
+            crate::linux::with_watch_budget(3, || stalled(dir.path(), WatchOptions::default()));
+        assert_eq!(
+            watcher.mode(),
+            Mode::Native,
+            "the root, a and b fit the budget"
+        );
+        // Below `a`, which no one has open, so only the rescan can find it.
+        std::fs::create_dir(dir.path().join("a/c")).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        drop(held);
+        wait_until(&batches, "the watcher must say it now polls", |seen| {
+            seen.iter().any(
+                |batch| matches!(batch, Batch::Warning(message) if message.contains("polling")),
+            )
+        });
+        assert_eq!(watcher.mode(), Mode::Polling);
+        std::fs::write(dir.path().join("a/c/new.txt"), b"x").unwrap();
+        wait_until(&batches, "the poller must report the folder", |seen| {
+            seen.iter().any(|batch| {
+                matches!(batch, Batch::Changes(changes)
+                    if changes.iter().any(|change| change.path == "a/c/new.txt"))
+            })
+        });
     }
 }
