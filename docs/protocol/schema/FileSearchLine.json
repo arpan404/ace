@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/FileSearchLine.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "column": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "line": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "preview": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "ranges": {
+      "items": {
+        "items": false,
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        ],
+        "type": "array"
+      },
+      "maxItems": 256,
+      "type": "array"
+    }
+  },
+  "required": [
+    "line",
+    "column",
+    "preview",
+    "ranges"
+  ],
+  "type": "object"
+}

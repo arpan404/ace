@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceMachineEnrollmentRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "hostId": {
+      "pattern": "^[A-Z2-7]{52}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "hostId"
+  ],
+  "type": "object"
+}

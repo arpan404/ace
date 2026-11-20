@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hostSet } from "@ace/mcp-server";
 import { ComputerAction } from "./actions.ts";
 import { conditionProblem } from "./conditions.ts";
 
@@ -39,6 +40,7 @@ const displayInput = z.strictObject({
 /** Set by a caller's gate (Spade) to bind the call to the app it checked, by its id. */
 const expect = z
   .strictObject({ app: z.string().min(1).max(200) })
+  .meta(hostSet)
   .optional()
   .describe("Set by your host; leave it out.");
 

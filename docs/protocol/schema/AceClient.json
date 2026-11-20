@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceClient.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    "desktop/0.0.24-beta.1",
+    "daemon/development"
+  ],
+  "maxLength": 96,
+  "pattern": "^(?:daemon|desktop|web|ios|cli|spade)\\/(?:development|\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.]+)?)$",
+  "type": "string",
+  "x-ace-constraint": "The version after the `/` is at most 80 characters."
+}

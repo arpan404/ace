@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ReleaseVersion } from "./release.ts";
+import { RELEASE_VERSION_PATTERN, ReleaseVersion } from "./release.ts";
 
 /**
  * Which ace app is calling ace cloud or the market, and at which version (ADR 0189). The
@@ -35,12 +35,20 @@ export const AceClientVersion = z.union([z.literal(ACE_CLIENT_DEVELOPMENT), Rele
 export type AceClientVersion = z.infer<typeof AceClientVersion>;
 
 /**
- * The whole value: printable ASCII only (no spaces, line breaks or control characters), a known
- * app, and an `AceClientVersion`. Anything else is an unknown client.
+ * The whole value: a known app and an `AceClientVersion`, so only printable ASCII. Anything else
+ * is an unknown client. The pattern says the version's shape and the refinement its length.
  */
 export const AceClient = z
   .string()
   .max(96)
-  .regex(new RegExp(`^(?:${AceClientApp.options.join("|")})/[\\x21-\\x7e]+$`))
-  .refine((value) => AceClientVersion.safeParse(value.slice(value.indexOf("/") + 1)).success);
+  .regex(
+    new RegExp(
+      `^(?:${AceClientApp.options.join("|")})/(?:${ACE_CLIENT_DEVELOPMENT}|${RELEASE_VERSION_PATTERN})$`,
+    ),
+  )
+  .refine((value) => AceClientVersion.safeParse(value.slice(value.indexOf("/") + 1)).success)
+  .meta({
+    examples: ["desktop/0.0.24-beta.1", "daemon/development"],
+    "x-ace-constraint": "The version after the `/` is at most 80 characters.",
+  });
 export type AceClient = z.infer<typeof AceClient>;
