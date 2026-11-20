@@ -24,6 +24,7 @@ export interface SpadeReachChange {
   notify?: boolean;
   dnd?: boolean;
   quiet?: { from: number; to: number } | null;
+  approvals?: "notify" | "wait";
   budget?: { per_hour?: number | null; per_day?: number | null };
   brief?: { on?: boolean; at?: number; bots?: string[] | null; polish?: boolean };
   spend?: { on?: boolean; factor?: number; floor_micros?: number };
@@ -33,7 +34,10 @@ export async function setReach(target: SpadeTarget, change: SpadeReachChange): P
   return sure(parseSpadeReach(await spadeHttp(target, "PUT", "/v1/reach", { body: change })));
 }
 
-const AgentReach = z.object({ notify: z.boolean().nullable().catch(null) });
+const AgentReach = z.object({
+  notify: z.boolean().nullable().catch(null),
+  approvals: z.enum(["notify", "wait"]).nullable().catch(null),
+});
 const safeJson = (body: string): unknown => {
   try {
     return JSON.parse(body);
@@ -42,15 +46,29 @@ const safeJson = (body: string): unknown => {
   }
 };
 
-/** A bot's own switch: true, false, or null to follow Spade's. */
-export async function readAgentReach(target: SpadeTarget, agent: string, signal?: AbortSignal) {
-  const body = await spadeHttp(target, "GET", `/v1/agents/${segment(agent)}/reach`, { signal });
-  const parsed = AgentReach.safeParse(safeJson(body));
-  return parsed.success ? parsed.data.notify : null;
+/** A bot's own choices; null follows Spade's setting. */
+export interface SpadeAgentReach {
+  notify: boolean | null;
+  approvals: "notify" | "wait" | null;
 }
 
-export async function setAgentReach(target: SpadeTarget, agent: string, notify: boolean | null) {
-  await spadeHttp(target, "PUT", `/v1/agents/${segment(agent)}/reach`, { body: { notify } });
+export async function readAgentReach(
+  target: SpadeTarget,
+  agent: string,
+  signal?: AbortSignal,
+): Promise<SpadeAgentReach> {
+  const body = await spadeHttp(target, "GET", `/v1/agents/${segment(agent)}/reach`, { signal });
+  const parsed = AgentReach.safeParse(safeJson(body));
+  return parsed.success ? parsed.data : { notify: null, approvals: null };
+}
+
+/** The fields given change the bot's own choices; null follows Spade's again. */
+export async function setAgentReach(
+  target: SpadeTarget,
+  agent: string,
+  change: Partial<SpadeAgentReach>,
+) {
+  await spadeHttp(target, "PUT", `/v1/agents/${segment(agent)}/reach`, { body: change });
 }
 
 /** One tap from the brief: an approval allowed once or denied, or a question's one answer. */

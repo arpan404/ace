@@ -15,6 +15,7 @@ const shape = z.object({
   notify: z.boolean().catch(true).default(true),
   dnd: z.boolean().catch(false).default(false),
   quiet: z.object({ from: minute, to: minute }).nullable().catch(null).default(null),
+  approvals: z.enum(["notify", "wait"]).catch("notify").default("notify"),
   budget: z
     .object({ per_hour: bound.default(6), per_day: bound.default(30) })
     .catch({ per_hour: 6, per_day: 30 })
@@ -43,6 +44,8 @@ export interface SpadeReach {
   dnd: boolean;
   /** The daily quiet window; null for none. */
   quiet: { from: number; to: number } | null;
+  /** What approvals and questions a bot waits on do during do not disturb and quiet hours. */
+  approvals: "notify" | "wait";
   perHour: number | null;
   perDay: number | null;
   brief: { on: boolean; at: number; bots: string[] | null; polish: boolean };
@@ -64,6 +67,7 @@ export function parseSpadeReach(body: string): SpadeReach | undefined {
     notify: s.notify,
     dnd: s.dnd,
     quiet: s.quiet,
+    approvals: s.approvals,
     perHour: s.budget.per_hour,
     perDay: s.budget.per_day,
     brief: s.brief,

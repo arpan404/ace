@@ -32,6 +32,11 @@ const floors: SelectOption<string>[] = [500_000, 1_000_000, 5_000_000, 20_000_00
   label: `Over $${(m / 1_000_000).toFixed(2)} an hour`,
 }));
 
+const approvalChoices: SelectOption<string>[] = [
+  { value: "notify", label: "Notify me" },
+  { value: "wait", label: "Wait for the morning brief" },
+];
+
 function bound(value: string): SelectOption<string> {
   return { value, label: value === "off" ? "No limit" : value };
 }
@@ -107,7 +112,7 @@ export function ReachSection(props: { ready: boolean }) {
     <SettingSection
       label={label}
       anchor="notifications"
-      note="Approvals, questions a bot waits on and stops always reach you."
+      note="Stops always reach you. Approvals and questions do too, unless you choose below to have them wait for the morning brief."
     >
       {refusal && <Refusal>{refusal}</Refusal>}
       <SwitchRow title="Notify me" checked={value.notify} onChange={(notify) => save({ notify })} />
@@ -161,6 +166,15 @@ function QuietRows({ value, save }: Rows) {
           </>
         )}
       </SwitchRow>
+      <SettingRow title="During quiet hours, approvals and questions" density="compact" inline>
+        <Select
+          label="During quiet hours, approvals and questions"
+          className="min-w-0"
+          value={value.approvals}
+          options={approvalChoices}
+          onValueChange={(next) => save({ approvals: next === "wait" ? "wait" : "notify" })}
+        />
+      </SettingRow>
       <SettingRow title="Interruptions" density="compact" inline>
         <span className="flex items-center justify-end gap-2">
           <Select

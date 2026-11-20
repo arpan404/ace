@@ -28,13 +28,24 @@ and somewhere for the rest to go so nothing is lost.
    heartbeat never does), a background job that ran ten minutes or more and ended, a goal the
    check found done, a worker that finished, the brief, spend alerts and the summary. Decisions
    and drafted goals stay in the digest (`record`).
-3. **Do not disturb, quiet hours and the budget hold proactive notices only.** A `stop` and a
-   `block` (an approval, a question the turn waits on) always get through, and so does a
-   question for later in a conversation the person wrote to in the last 30 minutes. Everything
+3. **Do not disturb, quiet hours and the budget hold proactive notices only.** A `stop` always
+   gets through. So does a `block` (an approval, a question the turn waits on), unless the
+   person chose otherwise (below), and a question for later in a conversation the person wrote
+   to in the last 30 minutes. Everything
    else waits while do not disturb is on (a switch, now), inside the daily quiet window (minutes
    in the person's zone, wrapping past midnight), or once the budget is used: at most N
    proactive interruptions in the last hour and the last day (6 and 30 by default; either can
    be off). Global switch off, or the bot's own off, notifies nothing.
+
+   **Approvals and questions can wait (amendment, 2026-11-19).** `approvals` is `notify` (the
+   default, as before) or `wait`: with `wait`, an approval or question a bot waits on is held
+   while do not disturb is on or inside quiet hours (`why` `dnd` or `quiet`), never counted
+   against the budget, and outside them it notifies as always. It is still open in its chat,
+   and the next brief and digests list it under **Waiting on you** with the same one-tap
+   answers; when quiet ends it is in the summary. Each bot may choose its own (`inherit`,
+   `notify`, `wait`); the bot's choice beats the global one. A `stop` ignores all of it, and
+   so does a question in a conversation the person is in.
+
 4. **What waits goes somewhere.** Held notices are kept (bounded to 500) and put into the bot's
    next digest as **While you were away**, and into the next morning brief. When quiet ends (do
    not disturb off, the window over), one **summary** notice says what waited through it and
@@ -52,9 +63,11 @@ and somewhere for the rest to go so nothing is lost.
    tabs (claimed under a Web Lock) where the person allowed them, and a Web Push opens the same
    place. More than three within ten seconds show as one line. Clicking opens the bot's
    conversation with the approval or question brought forward (`?request=`).
-7. **Settings.** `GET`/`PUT /v1/reach` (`notify`, `dnd`, `quiet`, `budget`, `brief`, `spend`;
-   an object's fields one by one) and `GET`/`PUT /v1/agents/{id}/reach {notify}` (`null`
-   follows). In the app: Settings › Spade › Notifications, and Notify me in each bot's profile.
+7. **Settings.** `GET`/`PUT /v1/reach` (`notify`, `dnd`, `quiet`, `approvals`, `budget`,
+   `brief`, `spend`; an object's fields one by one) and `GET`/`PUT /v1/agents/{id}/reach
+{notify?, approvals?}` (the fields given change; `null` follows). In the app: Settings ›
+   Spade › Notifications (During quiet hours, approvals and questions: Notify me / Wait for the
+   morning brief), and Notify me with the same choice in each bot's profile.
 
 ## Amendment to ADR 0165: a morning brief
 
@@ -65,7 +78,8 @@ covers the chosen bots and clubs (a club stands for its members on this machine)
 the person made. Built from events with no model call (`spade_core::reach::brief`): what
 finished, each line naming the event it came from; what waits on the person now, with one-tap
 answers for an approval (Allow once, Deny), a single choice and a yes/no; what waited for them;
-today's scheduled routines; and spend since the last brief, by bot. Optional polish rewrites the
+today's scheduled routines; and spend since the last brief, by bot. An approval or question
+held through quiet hours (`approvals: wait`) is listed under Waiting on you with its answers. Optional polish rewrites the
 text once with the `title` (fast) role's model, as a digest's polish does. It is stored as a
 `digests` row of kind `brief` beside the main bot's conversation, so it shows as a bubble in
 Spade's main chat, never in the bot's context, and goes out as a `brief` notice.
@@ -86,8 +100,9 @@ Spade every 30 s, each bot's on its profile with the roster.
 - **Policy in the daemon.** The daemon would need each bot's history and settings; Spade has
   both, and runs while the daemon is away.
 - **A parallel notification path for Spade.** Duplicates ace's delivery, dedup and devices.
-- **Holding everything during quiet hours.** A stopped task or a waiting approval would then
-  sit until morning with nobody told; the person asked that those always get through.
+- **Holding everything during quiet hours.** A stopped task would then sit until morning with
+  nobody told; the person asked that stops always get through. Approvals first did too; the
+  person can now choose to have them wait (`approvals`), their call, default unchanged.
 
 ## Consequences
 
@@ -101,10 +116,12 @@ Spade every 30 s, each bot's on its profile with the roster.
 ## Tests
 
 Tables in `spade_core::reach` (each category through do not disturb, quiet hours and the budget;
+each `approvals` choice against a stop and an approval;
 engagement; the summary's words; spend episodes; the brief's fold). Through Spade's API: a
 question notifies once and names its request; do not disturb holds a routine but not a stop and
 sends one summary when turned off; the budget sends the rest to the digest; a bot switched off
-notifies nobody; the brief lists what finished overnight in the main chat, once a day; an
+notifies nobody; approvals set to wait are held through do not disturb unless the bot asks to
+be told, and the brief lists them; the brief lists what finished overnight in the main chat, once a day; an
 unusual spend rate alerts once. In ace: the worker delivers a Spade alert once and not to a
 phone; the daemon follows a real stream and reopens it; the desktop router and the web rules
 (nothing for the open conversation, bursts, one claim across tabs, the push's target); the
