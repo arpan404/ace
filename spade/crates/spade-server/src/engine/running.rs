@@ -35,6 +35,7 @@ impl Engine {
             name: agent.name.clone(),
             kind: agent.kind.clone(),
             conversation: id.clone(),
+            avatar: spade_core::face::shown_avatar(&agent.id, &agent.avatar),
             state: activity.state,
             status: self.status_for(id, &activity),
             waiting_for: activity.waiting_for.map(str::to_owned),

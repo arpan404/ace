@@ -56,6 +56,7 @@ fn facts(id: &str, name: &str, state: State) -> Facts {
         name: name.to_owned(),
         kind: if id == "main" { "main" } else { "bot" }.to_owned(),
         conversation: format!("c_{id}"),
+        avatar: serde_json::Value::Null,
         state,
         status: None,
         waiting_for: None,

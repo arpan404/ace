@@ -244,6 +244,8 @@ pub struct Facts {
     /// `main` (Spade itself) or `bot`: listed alike.
     pub kind: String,
     pub conversation: String,
+    /// Its face as the API shows it, passed through as it is.
+    pub avatar: serde_json::Value,
     /// Rolled up over everything under it, its pause counted.
     pub state: State,
     /// The roster's words for what it does now, while it isn't idle.
@@ -279,6 +281,7 @@ pub struct Row {
     pub name: String,
     pub kind: String,
     pub conversation: String,
+    pub avatar: serde_json::Value,
     pub state: State,
     pub reads: Reads,
     /// Its state in words: "Checking fares", "Waiting on you: a question", "Paused".
@@ -376,6 +379,7 @@ fn row(facts: Facts) -> Row {
         name: facts.name,
         kind: facts.kind,
         conversation: facts.conversation,
+        avatar: facts.avatar,
         state: facts.state,
         reads,
         doing,
