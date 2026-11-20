@@ -14,6 +14,7 @@
     { "name": "plan-and-delegate", "path": "skills/plan-and-delegate" },
     { "name": "investigate-bug", "path": "skills/investigate-bug" },
     { "name": "prepare-pr", "path": "skills/prepare-pr" },
-    { "name": "make-a-suit", "path": "skills/make-a-suit" }
+    { "name": "make-a-suit", "path": "skills/make-a-suit" },
+    { "name": "make-a-bot", "path": "skills/make-a-bot" }
   ]
 }
