@@ -73,6 +73,7 @@ export async function fakeCli(path: string): Promise<string> {
     script,
     `
 import { createInterface } from 'node:readline';
+import { appendFileSync } from 'node:fs';
 const mode = process.env.FAKE_PROVIDER;
 const payload = JSON.parse(process.env.FAKE_PAYLOAD ?? '{}');
 if (mode === 'opencode' && process.argv.includes('auth')) {
@@ -90,6 +91,8 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
   let signedIn = process.env.FAKE_NEEDS_SIGN_IN !== '1';
   createInterface({input: process.stdin}).on('line', line => {
     const request = JSON.parse(line);
+    // Each request the process got, with session/new's folder, for tests that bound what ran.
+    if (process.env.FAKE_METHOD_LOG) appendFileSync(process.env.FAKE_METHOD_LOG, JSON.stringify([request.method, request.params?.cwd]) + String.fromCharCode(10));
     if (mode === 'hang') return;
     if (mode === 'pi') {
       if (!['get_available_models','get_state'].includes(request.type)) process.exit(9);

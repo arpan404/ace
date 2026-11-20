@@ -8,6 +8,7 @@ import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { providerCli, requireMinimum } from "@ace/provider-kit/cli-requirements";
 import { refreshedSources, sourceFailed } from "./catalog-sources.ts";
 import { cleanCatalog } from "./catalog-cleanup.ts";
+import { acpProbeAllowed, refreshCause, type RefreshCause } from "./acp-probe-gate.ts";
 import { keepLearnedOptions } from "./learned-options.ts";
 import { createCleanModelView, providerConfiguration } from "./preferences.ts";
 import { ModelMetadataPool } from "./model-pool.ts";
@@ -89,6 +90,10 @@ function cacheRevision(instance: ModelInstance): string {
           .digest("hex")
       : instance.loginRevision;
 }
+/**
+ * What a cached row belongs to. An ACP agent's row serves it in every project, so its working
+ * folder is no part of it (ADR 0044, amendment "models before the first thread").
+ */
 function identityRevision(instance: ModelInstance): string {
   return createHash("sha256")
     .update(
@@ -98,7 +103,7 @@ function identityRevision(instance: ModelInstance): string {
         instance.loginRevision,
         instance.backend,
         instance.homeDir,
-        instance.cwd,
+        instance.provider === "acp" ? undefined : instance.cwd,
         instance.acpAgentId,
         instance.installationId,
         instance.instanceId,
@@ -545,9 +550,11 @@ export class ModelCatalog implements ModelCatalogApi {
       entry?.provider === config.provider &&
       (old
         ? identityRevision(old.config) === identityRevision(config)
-        : entry.identityRevision
-          ? entry.identityRevision === identityRevision(config)
-          : entry.revision === this.#revision(config));
+        : entry.identityRevision === identityRevision(config) ||
+          // No identity stored, or (ACP) one that still hashed the folder of the session that
+          // wrote it: the revision then names the same agent, installation, account and login.
+          ((!entry.identityRevision || config.provider === "acp") &&
+            entry.revision === this.#revision(config)));
     // A failed removal stays pending for the next retry.
     if (entry && !compatible) void this.#deletions.remove(config.id).catch(() => {});
     old?.abort?.abort();
@@ -575,7 +582,8 @@ export class ModelCatalog implements ModelCatalogApi {
     this.#providers.set(config.provider, ids);
     this.#persisted.delete(config.id);
     const registered = this.#states.get(config.id);
-    if (registered && entry && compatible && !old) {
+    // A restored ACP row is served as it is: its sessions, not a restart, bring it up to date.
+    if (registered && entry && compatible && !old && config.provider !== "acp") {
       registered.dirty = true;
       // A refresh reports its own failures inside its flight.
       void this.#refresh(registered).catch(() => {});
@@ -711,7 +719,8 @@ export class ModelCatalog implements ModelCatalogApi {
       loginRevision: revision,
       ...(method ? { signInMethod: method } : {}),
     });
-    return this.refresh({ instance });
+    // A sign-in is no request to start an unprofiled ACP agent: its row loads as a read would.
+    return config.provider === "acp" ? this.loadMissing({ instance }) : this.refresh({ instance });
   }
   removeInstance(instance: string): Promise<void> {
     instance = ModelInstance.shape.id.parse(instance);
@@ -796,6 +805,7 @@ export class ModelCatalog implements ModelCatalogApi {
         permissionModes.map((mode) => mode.id),
       ),
       instance: state.config.id,
+      ...(state.config.modelProbe ? { modelProbe: state.config.modelProbe } : {}),
       ...(state.config.acpAgentId ? { acpAgentId: state.config.acpAgentId } : {}),
       ...(state.config.installationId ? { installationId: state.config.installationId } : {}),
       ...(state.config.instanceId ? { instanceId: state.config.instanceId } : {}),
@@ -838,15 +848,15 @@ export class ModelCatalog implements ModelCatalogApi {
       ...(state.error ? { error: state.error } : {}),
     };
   }
-  #revalidate(states: State[]): void {
+  #revalidate(states: State[], cause: RefreshCause): void {
     if (this.#closed) return;
     for (const state of states)
       // A refresh reports its own failures inside its flight.
       if (this.#stale(state) && this.#options.now() >= state.retryAt)
-        void this.#refresh(state).catch(() => {});
+        void this.#refresh(state, cause).catch(() => {});
   }
   revalidate(): void {
-    this.#revalidate(this.#select({}));
+    this.#revalidate(this.#select({}), "background");
   }
   /**
    * While a client shows the catalog (it is subscribed to changes), re-check the connections
@@ -889,7 +899,7 @@ export class ModelCatalog implements ModelCatalogApi {
     const options = ModelListOptions.parse(input);
     const states = this.#select(options);
     this.#checkConnections();
-    this.#revalidate(states);
+    this.#revalidate(states, "read");
     const models: ModelListResult["models"] = [];
     let skipped = options.offset;
     let remaining = options.limit + 1;
@@ -925,7 +935,7 @@ export class ModelCatalog implements ModelCatalogApi {
     const filter = ModelFilter.parse(input);
     const states = this.#select(filter);
     this.#checkConnections();
-    this.#revalidate(states);
+    this.#revalidate(states, "read");
     return this.#resolve(input, states);
   }
   resolveCached(input: ModelRoleSpec): ModelResolution {
@@ -978,8 +988,11 @@ export class ModelCatalog implements ModelCatalogApi {
   }
   async refresh(input: ModelFilter = {}): Promise<ModelInstanceStatus[]> {
     if (this.#closed) throw new Error("Catalog closed");
+    const filter = ModelFilter.parse(input);
     return Promise.all(
-      this.#select(ModelFilter.parse(input)).map((state) => this.#refreshCurrent(state)),
+      this.#select(filter).map((state) =>
+        this.#refreshCurrent(state, refreshCause(state.config, filter)),
+      ),
     );
   }
   async loadMissing(input: ModelFilter = {}): Promise<ModelInstanceStatus[]> {
@@ -993,26 +1006,29 @@ export class ModelCatalog implements ModelCatalogApi {
             !state.entry ||
             (!state.entry.models.length && (state.flight !== undefined || this.#stale(state))),
         )
-        .map((state) => this.#refresh(state)),
+        .map((state) => this.#refresh(state, "read")),
     );
   }
-  async #refreshCurrent(state: State): Promise<ModelInstanceStatus> {
+  async #refreshCurrent(state: State, cause: RefreshCause): Promise<ModelInstanceStatus> {
     state.probeRetryAt = 0;
     state.backoff.reset();
     state.retryAt = 0;
     let revision = this.#revision(state.config);
-    let status = await this.#refresh(state);
+    let status = await this.#refresh(state, cause);
     // An explicit refresh owns its result through same-account version/settings replacements.
     while (!this.#closed && this.#states.get(state.config.id) === state) {
       const current = this.#revision(state.config);
       if (!state.flight && current === revision) break;
       revision = current;
-      status = await this.#refresh(state);
+      status = await this.#refresh(state, cause);
     }
     return status;
   }
-  #refresh(state: State): Promise<ModelInstanceStatus> {
-    if (state.config.provider === "acp" || this.#configuration(state.config).enabled === false)
+  #refresh(state: State, cause: RefreshCause = "background"): Promise<ModelInstanceStatus> {
+    if (
+      (state.config.provider === "acp" && !acpProbeAllowed(state.config, !!state.entry, cause)) ||
+      this.#configuration(state.config).enabled === false
+    )
       return Promise.resolve(this.#status(state));
     if (state.flight) return state.flight;
     if (this.#options.now() < state.retryAt) return Promise.resolve(this.#status(state));

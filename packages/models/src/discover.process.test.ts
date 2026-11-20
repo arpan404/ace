@@ -104,7 +104,7 @@ test("OpenCode v2 metadata keeps provider/model IDs and image capability", async
   });
 });
 
-test("shared discovery keeps OpenCode metadata without starting an unprofiled ACP agent", async () => {
+test("shared discovery keeps OpenCode metadata and starts no ACP agent without its launch", async () => {
   const work = await workspace();
   cleanups.push(work.close);
   const executable = process.execPath;
@@ -138,7 +138,6 @@ test("shared discovery keeps OpenCode metadata without starting an unprofiled AC
     },
     signal,
   );
-  const acp = await discover({ ...instance("acp"), executable, cwd: work.path }, signal);
   expect(openCode).toEqual([
     expect.objectContaining({
       id: "local/merged-model",
@@ -148,7 +147,9 @@ test("shared discovery keeps OpenCode metadata without starting an unprofiled AC
       efforts: [{ id: "high", level: "high", label: "High" }],
     }),
   ]);
-  expect(acp).toEqual([]);
+  await expect(
+    discover({ ...instance("acp"), executable, cwd: work.path }, signal),
+  ).rejects.toThrow("ACP model probe unavailable");
 });
 
 for (const provider of ["antigravity"] as const) {

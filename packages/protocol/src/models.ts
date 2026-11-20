@@ -173,6 +173,11 @@ export const ModelInstanceStatus = z.object({
   stale: z.boolean(),
   refreshing: z.boolean(),
   error: z.enum(["discovery_failed", "timeout", "persistence_failed"]).optional(),
+  /**
+   * ACP agents: how the row's models load before a thread opens. `automatic` loads on the first
+   * read; `on-request` waits for the person to ask (an agent without a reviewed profile).
+   */
+  modelProbe: z.enum(["automatic", "on-request"]).optional(),
 });
 export type ModelInstanceStatus = z.infer<typeof ModelInstanceStatus>;
 export const ModelListResult = z.object({

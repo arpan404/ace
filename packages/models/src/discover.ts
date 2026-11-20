@@ -23,7 +23,25 @@ import type { DiscoverModels, ModelInstance } from "./types.ts";
 import type { CatalogModel } from "@ace/protocol";
 
 const InitializeReply = z.object({ protocolVersion: z.literal(1) }).passthrough();
+/** How an ACP agent's metadata-only probe runs, resolved by its owner when the probe starts. */
+export type AcpProbeLaunch = {
+  command: string;
+  args: readonly string[];
+  env: NodeJS.ProcessEnv;
+  /** A folder the probe's session opens in: ace's own neutral one, never a project. */
+  cwd: string;
+  /**
+   * `needs-session`: the agent hides modes in this folder (Gemini in a folder it does not
+   * trust), so the probe's modes are not the agent's and are not kept.
+   */
+  modes: "reported" | "needs-session";
+};
 export type DiscoveryOptions = {
+  /**
+   * Launches an ACP agent's probe: initialize and session/new, never a prompt, then the process
+   * stops. Without it, ACP rows load only from their sessions.
+   */
+  acpProbe?(instance: ModelInstance, signal: AbortSignal): Promise<AcpProbeLaunch>;
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   cursorSlots?: CursorHostSlots;
   /** Selected launch environment stays local to supervised SDK workers, never catalog rows. */
@@ -76,8 +94,11 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         (entry) => diagnostic?.({ rejectedModels: [entry] }),
       );
     }
-    // Unprofiled session/new is executable startup behavior, not a metadata query.
-    if (instance.provider === "acp") return [];
+    // The catalog decides when an ACP agent may be probed (`acp-probe-gate.ts`).
+    const acp =
+      instance.provider === "acp"
+        ? await (options.acpProbe ?? unavailableProbe)(instance, signal)
+        : undefined;
     if (instance.provider === "claude")
       return normalizeClaude(
         await discoverClaudeModels({
@@ -124,10 +145,10 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         break;
     }
     const proc = spawn({
-      command: instance.executable,
-      args,
-      cwd: instance.cwd,
-      env: {
+      command: acp?.command ?? instance.executable,
+      args: acp ? [...acp.args] : args,
+      cwd: acp?.cwd ?? instance.cwd,
+      env: acp?.env ?? {
         ...instance.env,
         // Unset over the daemon environment the process would otherwise inherit.
         ...Object.fromEntries((instance.unsetEnv ?? []).map((key) => [key, undefined])),
@@ -190,19 +211,28 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       const session = await openWithSignIn(
         peer,
         instance.signInMethod,
-        () => peer.request("session/new", { cwd: instance.cwd, mcpServers: [] }, { signal }),
+        () =>
+          peer.request(
+            "session/new",
+            { cwd: acp?.cwd ?? instance.cwd, mcpServers: [] },
+            { signal },
+          ),
         signal,
       );
       const probed = await withPerModelOptions(session, (method, params) =>
         peer.request(method, params, { signal }),
       );
+      const models = normalizeAcp(probed, instance);
+      if (acp?.modes === "needs-session") return models;
       return withPermissionModes(
-        normalizeAcp(probed, instance),
+        models,
         acpPermissionModes(session, { provider: instance.provider }),
       );
     }
     try {
-      const rows = await readModels();
+      const read = await readModels();
+      // An ACP agent may list no models (it runs its own default): a loaded, empty row.
+      const rows = acp && !read.length ? discoveredModels(read, []) : read;
       const exit = await proc.stop({ graceMs: 0 });
       if (exit.reason === "output-limit") throw new Error("Model metadata output exceeded limit");
       signal.throwIfAborted();
@@ -213,4 +243,8 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       await proc.stop({ graceMs: 0 });
     }
   };
+}
+
+function unavailableProbe(): Promise<never> {
+  return Promise.reject(new Error("ACP model probe unavailable"));
 }
