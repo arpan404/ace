@@ -15,6 +15,9 @@ import { slugOf } from "./scaffold.ts";
 /** Fewer words than this in an effect's `why` reads as a placeholder on the install review. */
 const WHY_WORDS = 4;
 
+/** A sentence `ace bot init --from` left for the developer to write. */
+const TODO = /\bTODO\b/;
+
 const words = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
 /** What's worth fixing in a `bot.json` the market accepts. Pure. */
@@ -28,12 +31,22 @@ export function packageWarnings(bot: unknown): CliProblem[] {
     const entry = effect as Record<string, unknown>;
     const why = typeof entry["why"] === "string" ? entry["why"] : "";
     const word = typeof entry["effect"] === "string" ? entry["effect"] : "this effect";
-    if (why.trim() && words(why) < WHY_WORDS)
+    if (TODO.test(why))
+      warnings.push({
+        path: "bot.json",
+        message: `effects[${at}].why still says TODO: say in a sentence what the bot does with ${word}, or take the effect out`,
+      });
+    else if (why.trim() && words(why) < WHY_WORDS)
       warnings.push({
         path: "bot.json",
         message: `effects[${at}].why is short: the install review shows it beside the ${word} switch, so say in a sentence what the bot does with it`,
       });
   });
+  if (typeof fields["blurb"] === "string" && TODO.test(fields["blurb"]))
+    warnings.push({
+      path: "bot.json",
+      message: "blurb still says TODO: the market shows it under the bot's name",
+    });
   const tests = Array.isArray(fields["tests"]) ? fields["tests"] : [];
   if (tests.length === 0)
     warnings.push({

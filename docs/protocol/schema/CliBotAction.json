@@ -6,7 +6,8 @@
       "enum": [
         "stop",
         "pause",
-        "resume"
+        "resume",
+        "unarchive"
       ],
       "type": "string"
     },

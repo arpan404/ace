@@ -17,6 +17,7 @@ import { readingColumn } from "@/features/thread/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import { SpadeFace } from "./spade-face.tsx";
+import { DevelopmentWord } from "./spade-list-parts.tsx";
 import { SpadeMachineScope } from "./spade-machine.tsx";
 import { rowPill } from "./spade-profile-parts.tsx";
 import { personZone } from "./spade-routines-api.ts";
@@ -36,6 +37,7 @@ const actionWords: Record<SpadeRunningAction, string> = {
   stop: "Stop",
   pause: "Pause",
   resume: "Resume",
+  unarchive: "Unarchive",
 };
 
 /** The line's colour: the list's needs-you and failed tones only. */
@@ -107,6 +109,7 @@ function RunningItem(props: {
     spadeRunningSpendWords(row.spend),
     spadeRunningNetworkWords(row.network),
     wake,
+    row.archived ? "Archived" : undefined,
     row.machine.primary ? undefined : `On ${row.machine.name}`,
   ].filter(Boolean);
   const run = (action: SpadeRunningAction) => {
@@ -128,7 +131,10 @@ function RunningItem(props: {
     >
       <SpadeFace avatar={row.avatar} size={40} state={face} className="mt-0.5" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-md/5 font-medium text-foreground">{row.name}</p>
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <p className="truncate text-md/5 font-medium text-foreground">{row.name}</p>
+          {row.development && <DevelopmentWord />}
+        </div>
         <p
           data-tone={tone(row)}
           className={cn(

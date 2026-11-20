@@ -272,7 +272,14 @@ class SceneReader {
 
   // Scopes.
 
-  private declare(scope: Scope, names: readonly string[], constant: boolean, init?: JsNode): void {
+  // Not `declare`: Node's type stripping leaves `private` before a member named `declare`, and
+  // the module no longer parses (scripts/check-node-strip.ts).
+  private declareNames(
+    scope: Scope,
+    names: readonly string[],
+    constant: boolean,
+    init?: JsNode,
+  ): void {
     for (const name of names)
       if (!scope.names.has(name)) scope.names.set(name, { constant, init, built: false });
   }
@@ -293,10 +300,10 @@ class SceneReader {
       if (!item) break;
       if (item.type === "VariableDeclaration" && item["kind"] === "var")
         for (const declarator of children(item, "declarations"))
-          this.declare(scope, patternNames(child(declarator, "id"), []), false);
+          this.declareNames(scope, patternNames(child(declarator, "id"), []), false);
       if (item !== node && FUNCTIONS.has(item.type)) {
         if (item.type === "FunctionDeclaration")
-          this.declare(scope, patternNames(child(item, "id"), []), false);
+          this.declareNames(scope, patternNames(child(item, "id"), []), false);
         continue;
       }
       for (const [key, value] of Object.entries(item)) {
@@ -317,14 +324,14 @@ class SceneReader {
           : raw;
       if (statement.type === "VariableDeclaration" && statement["kind"] !== "var")
         for (const declarator of children(statement, "declarations"))
-          this.declare(
+          this.declareNames(
             scope,
             patternNames(child(declarator, "id"), []),
             statement["kind"] === "const",
             nameOf(child(declarator, "id")) === undefined ? undefined : child(declarator, "init"),
           );
       if (statement.type === "ClassDeclaration" || statement.type === "FunctionDeclaration")
-        this.declare(scope, patternNames(child(statement, "id"), []), false);
+        this.declareNames(scope, patternNames(child(statement, "id"), []), false);
     }
   }
 
@@ -507,9 +514,9 @@ class SceneReader {
     if (node["computed"] === true) this.visit(child(node, "key"), outer, outerThis, depth);
     const scope: Scope = { names: new Map(), parent: outer };
     if (node.type === "FunctionExpression")
-      this.declare(scope, patternNames(child(node, "id"), []), false);
+      this.declareNames(scope, patternNames(child(node, "id"), []), false);
     const params = children(node, "params");
-    for (const param of params) this.declare(scope, patternNames(param, []), false);
+    for (const param of params) this.declareNames(scope, patternNames(param, []), false);
     // `this` is proven only where the language fixes it: an arrow keeps its outer `this`, and a
     // class constructor's is the new instance (a class can't be called without `new`). Any other
     // function can be handed to a timer or a listener, which runs it with `this` as the global
@@ -691,7 +698,7 @@ class SceneReader {
         const head = child(node, node.type === "ForStatement" ? "init" : "left");
         if (head?.type === "VariableDeclaration" && head["kind"] !== "var")
           for (const declarator of children(head, "declarations"))
-            this.declare(inner, patternNames(child(declarator, "id"), []), false);
+            this.declareNames(inner, patternNames(child(declarator, "id"), []), false);
         if (head && head.type !== "VariableDeclaration" && node.type !== "ForStatement")
           this.visitTarget(head, inner, thisBound, next);
         else this.visit(head, inner, thisBound, next);
@@ -716,7 +723,7 @@ class SceneReader {
       case "CatchClause": {
         const inner: Scope = { names: new Map(), parent: scope };
         const param = child(node, "param");
-        this.declare(inner, patternNames(param, []), false);
+        this.declareNames(inner, patternNames(param, []), false);
         this.visitPattern(param, inner, thisBound, next);
         return this.visit(child(node, "body"), inner, thisBound, next);
       }
@@ -724,7 +731,7 @@ class SceneReader {
       case "ClassExpression": {
         const inner: Scope = { names: new Map(), parent: scope };
         if (node.type === "ClassExpression")
-          this.declare(inner, patternNames(child(node, "id"), []), false);
+          this.declareNames(inner, patternNames(child(node, "id"), []), false);
         this.visit(child(node, "superClass"), scope, thisBound, next);
         for (const member of children(child(node, "body") ?? node, "body")) {
           if (FUNCTIONS.has(member.type)) this.visitFunction(member, inner, true, next);

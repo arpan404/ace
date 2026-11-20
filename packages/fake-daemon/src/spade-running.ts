@@ -129,6 +129,7 @@ export class FakeSpadeRunning {
       doing,
       ...(reads === "failed" ? { failure } : {}),
       ...(pausedAt === undefined ? {} : { paused_at_ms: pausedAt }),
+      ...(agent.archived ? { archived: true } : {}),
       uses,
       spend: {
         today_micros: 0,
@@ -141,11 +142,17 @@ export class FakeSpadeRunning {
       network: { sent_bytes: 0, received_bytes: 0, hosts: [], refused: 0, ...facts.network },
       ...(facts.next_wake ? { next_wake: facts.next_wake } : {}),
       workers: facts.workers ?? [],
-      actions: [...(runs ? ["stop"] : []), pausedAt === undefined ? "pause" : "resume"],
+      // A bot linked to a package folder on this machine (`ace bot dev`), as Spade marks it.
+      ...(isLocalPackage(agent.package) ? { development: true } : {}),
+      actions: [
+        ...(runs ? ["stop"] : []),
+        pausedAt === undefined ? "pause" : "resume",
+        ...(agent.archived ? ["unarchive"] : []),
+      ],
     };
   }
 
-  /** `GET /v1/running`, and `POST /v1/agents/{id}/{pause,resume,stop}`. */
+  /** `GET /v1/running`, and `POST /v1/agents/{id}/{pause,resume,stop,unarchive}`. */
   route(method: string, agentId: string | undefined, action: string | undefined): FakeSpadeAnswer {
     if (agentId === undefined)
       return method === "GET" ? reply({ bots: this.rows() }) : problem(405, "Not allowed.");
@@ -160,6 +167,10 @@ export class FakeSpadeRunning {
     } else if (action === "resume" && this.paused.delete(agentId)) {
       if (agent.state === "paused") this.deps.status(agent, "idle", null);
       changed = true;
+    } else if (action === "unarchive" && agent.archived) {
+      // As Spade: the mark comes off; its routines are Spade's to turn back on.
+      agent.archived = false;
+      changed = true;
     } else if (action === "stop") {
       changed = agent.state === "working" || (this.facts.get(agentId)?.workers?.length ?? 0) > 0;
       const facts = this.facts.get(agentId);
@@ -168,4 +179,8 @@ export class FakeSpadeRunning {
     }
     return reply({ changed, bots: this.rows() });
   }
+}
+
+function isLocalPackage(link: unknown): boolean {
+  return typeof link === "object" && link !== null && "source" in link && link.source === "local";
 }

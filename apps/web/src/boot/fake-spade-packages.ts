@@ -1,9 +1,10 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 
 /*
- * `?fakeWorld=spade`'s bot from an agent package (ADR 0200 §3.9): Fare watch, linked to Flight
- * watcher 2.0.0 (1.0.0 before it), its declared effects with the switches the person left. The
- * Marketplace's side, with 2.1.0 waiting, is `fake-market-packages.ts`.
+ * `?fakeWorld=spade`'s bots from agent packages (ADR 0200 §3.9): Fare watch, linked to Flight
+ * watcher 2.0.0 (1.0.0 before it), its declared effects with the switches the person left; and
+ * Ship notes, a development bot of a package folder (§9). The Marketplace's side, with 2.1.0
+ * waiting, is `fake-market-packages.ts`.
  */
 export function seedFakePackages(here: FakeSpadeApi, now: number): void {
   here.addAgent({
@@ -57,6 +58,36 @@ export function seedFakePackages(here: FakeSpadeApi, now: number): void {
           on: false,
         },
       ],
+    },
+  });
+  // A development bot (ADR 0200 §9): linked to a package folder `ace bot dev` keeps it updated from.
+  here.addAgent({
+    id: "ship-notes",
+    name: "Ship notes",
+    task: "Write the week's release notes from merged changes every Friday.",
+    model: "openrouter/openai/gpt-6.1-mini",
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "pebble",
+      pair: "sage",
+      ears: "bear",
+      marking: "none",
+      eyes: "sleepy",
+      mouth: "smile",
+      cheeks: "none",
+      accessory: "none",
+    },
+    last_activity: now - 60_000,
+    package: {
+      source: "local",
+      name: "local/ship-notes",
+      version: "local",
+      hash: "e".repeat(64),
+      previous: null,
+      withdrawn: null,
+      updating: null,
+      effects: [],
     },
   });
 }

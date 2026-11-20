@@ -399,9 +399,10 @@ const waitingMemberShape = z.object({
 const statusShape = z.object({
   /**
    * `sleeping`: it sleeps or waits on a wake (ADR 0160), never idle or done. `paused`: the person
-   * paused it (ADR 0200 §6.1).
+   * paused it (ADR 0200 §6.1). `updating`: its package update or rollback is being applied
+   * (ADR 0200 §6.2), at work.
    */
-  state: z.enum(["idle", "working", "waiting", "sleeping", "paused"]),
+  state: z.enum(["idle", "working", "waiting", "sleeping", "paused", "updating"]),
   status: z.string().nullish().catch(undefined),
   /** In a group's stream, the member that waits for the person; anything unreadable is none. */
   waiting_member: waitingMemberShape.nullish().catch(undefined),
@@ -417,7 +418,7 @@ export type SpadeLiveInput =
   /** The agent's current state and its few words on what it does now (ADR 0127). */
   | {
       kind: "status";
-      state: "idle" | "working" | "waiting" | "sleeping" | "paused";
+      state: "idle" | "working" | "waiting" | "sleeping" | "paused" | "updating";
       status: string | undefined;
       /** In a group's stream, the member that waits for the person (by id, never by words). */
       waitingMember?: { id: string; name: string; machine: string | null } | undefined;

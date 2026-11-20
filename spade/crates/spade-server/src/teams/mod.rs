@@ -5,6 +5,7 @@
 //! `engine::inbox`); this module holds what they share, the way ace is reached, and the tools.
 
 mod from_template;
+mod package_draft;
 mod portable;
 pub mod proof;
 mod recipe;
@@ -19,6 +20,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{Notify, watch};
 
 pub use from_template::{TemplateChoices, from_template, template_model};
+pub use package_draft::package_draft;
 pub use portable::{BotFile, Imported, PortableError, duplicate, export, import};
 pub use recipe::{RecipeGrants, RecipeInput, from_recipe};
 pub use recipe_export::{ExportedRecipe, RecipeSources, export_recipe};

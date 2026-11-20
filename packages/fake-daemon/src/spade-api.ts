@@ -516,7 +516,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (
       root === "agents" &&
       id &&
-      (sub === "pause" || sub === "resume" || sub === "stop") &&
+      (sub === "pause" || sub === "resume" || sub === "stop" || sub === "unarchive") &&
       !subId
     )
       return this.running.route(request.method, id, sub);

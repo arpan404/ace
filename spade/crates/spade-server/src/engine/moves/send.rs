@@ -547,6 +547,9 @@ impl Engine {
         self.store
             .move_members(&agents, &entry.peer)
             .map_err(|e| e.to_string())?;
+        // A paused bot's pause went with it.
+        self.forget_moved_pauses(&agents)
+            .map_err(|e| e.to_string())?;
         self.forget_moved(&selection)?;
         for agent in &agents {
             if let Some(plugins) = self.plugins() {

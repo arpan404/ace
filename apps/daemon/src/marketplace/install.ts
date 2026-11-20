@@ -84,8 +84,11 @@ export interface SpadePort {
   }): Promise<MadeBot>;
   /** What moving a linked bot to `manifest` would do: Spade's plan, for the review. */
   planUpdate(bot: string, manifest: unknown): Promise<PackagePlan>;
-  /** Moves a linked bot to another version, one step keyed by `transaction`. */
-  updateBot(bot: string, input: PackageInput & { transaction: string }): Promise<void>;
+  /**
+   * Moves a linked bot to another version, one step keyed by `transaction`. While the bot works
+   * Spade holds the step for the end of its turn and says `held`.
+   */
+  updateBot(bot: string, input: PackageInput & { transaction: string }): Promise<{ held: boolean }>;
   /** Its version was withdrawn: the bot is paused with the reason, nothing deleted. */
   withdrawBot(bot: string, reason: string): Promise<void>;
   /** The person resumes a bot its version's withdrawal paused. */
@@ -95,8 +98,11 @@ export interface SpadePort {
   setPlugins(bot: string, plugins: string[]): Promise<void>;
   /** The bot made under `transaction`, if Spade has one. */
   findBot(transaction: string): Promise<string | undefined>;
-  /** Every bot linked to a package, with the version it has: what a move brings (ADR 0187). */
-  linkedBots(): Promise<LinkedBot[]>;
+  /**
+   * Every bot Spade has, and of each linked one the version it runs and any update it holds:
+   * what a move brings (ADR 0187), and what one took away. Throws when Spade can't say.
+   */
+  bots(): Promise<SpadeBots>;
   deleteBot(id: string): Promise<void>;
 }
 
@@ -105,6 +111,14 @@ export interface LinkedBot {
   id: string;
   package: { source: string; name: string; version: string; hash: string };
   previous?: { version: string; hash: string } | undefined;
+  /** An update Spade holds until the bot's turn ends. */
+  held?: { version: string } | undefined;
+}
+
+/** Spade's bots as the Marketplace reads them: every id, and the linked ones' links. */
+export interface SpadeBots {
+  ids: ReadonlySet<string>;
+  linked: LinkedBot[];
 }
 
 export interface InstallPorts {
@@ -172,11 +186,14 @@ function botsApproval(
 
 /** Writes the marketplace's row for an install, noting the row it replaces. */
 function saveRecord(ports: InstallPorts, tx: Transaction, installed: StoredInstall): StoredInstall {
+  // A bot package's row is its bot's: installing it again makes another bot, another row.
+  const bot = installed.type === "spade-bot" ? installed.target : undefined;
   tx.note({
     kind: "record",
     type: installed.type,
     name: installed.name,
-    previous: ports.store.install(installed.type, installed.name),
+    ...(bot ? { bot } : {}),
+    previous: ports.store.install(installed.type, installed.name, bot),
   });
   ports.store.saveInstall(installed);
   return installed;
@@ -378,21 +395,25 @@ async function installIn(
   // An update or rollback of a linked bot moves that bot; nothing new is made (ADR 0200 §6.1).
   if (review.updating) {
     if (!linked) throw new Error("Only a bot from a version 3 package updates");
-    const before = ports.store.install(review.type, review.name);
+    const bot = review.updating.bot;
+    const before = ports.store.install(review.type, review.name, bot);
     await step(ports);
-    await ports.spade.updateBot(review.updating.bot, { ...linked, transaction: tx.id });
+    const moved = await ports.spade.updateBot(bot, { ...linked, transaction: tx.id });
     tx.learned();
     await step(ports);
-    return saveRecord(
-      ports,
-      tx,
-      record(review, ports.now(), {
-        target: review.updating.bot,
-        linked: true,
-        ...signedRecord(before),
-        ...(before ? { previous: { version: before.version, hash: before.hash } } : {}),
-      }),
-    );
+    const next = record(review, ports.now(), {
+      target: bot,
+      linked: true,
+      ...signedRecord(before),
+      ...(before ? { previous: { version: before.version, hash: before.hash } } : {}),
+    });
+    // Held for the end of the bot's turn: the record stays the version Spade runs, and says
+    // which one waits (ADR 0200 §6.1). It becomes `next` once Spade runs it.
+    if (moved.held && before) {
+      const { waiting: _earlier, ...running } = before;
+      return saveRecord(ports, tx, { ...running, waiting: next });
+    }
+    return saveRecord(ports, tx, next);
   }
   const granted = grantedNeeds(recipeNeeds(recipe), choices.needs);
   await step(ports);

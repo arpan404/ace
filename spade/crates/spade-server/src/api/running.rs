@@ -1,5 +1,5 @@
 //! The task manager (ADR 0200 §6.3): every bot that runs, in one read, and the person's Stop,
-//! Pause and Resume on each. Behind the API's token like every `/v1` route.
+//! Pause and Resume on each, and Unarchive on an archived one. Behind the API's token like every `/v1` route.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -17,6 +17,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/agents/{id}/stop", post(stop))
         .route("/agents/{id}/pause", post(pause))
         .route("/agents/{id}/resume", post(resume))
+        .route("/agents/{id}/unarchive", post(unarchive))
 }
 
 fn failed(error: &impl ToString) -> Response {
@@ -55,5 +56,10 @@ async fn pause(State(state): State<AppState>, Path(id): Path<String>) -> Respons
 
 async fn resume(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     let done = state.engine.resume_agent(&id);
+    answered(&state, done)
+}
+
+async fn unarchive(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    let done = state.engine.unarchive_agent(&id);
     answered(&state, done)
 }

@@ -113,7 +113,14 @@ function TopPage(props: { page: Page }) {
     case "entry":
       return <EntryPage entry={page.entry} />;
     case "review":
-      return <ReviewPage entry={page.entry} update={page.update} rollback={page.rollback} />;
+      return (
+        <ReviewPage
+          entry={page.entry}
+          update={page.update}
+          rollback={page.rollback}
+          bot={page.bot}
+        />
+      );
     case "publisher":
       return <PublisherPage handle={page.handle} />;
     case "collection":

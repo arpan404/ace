@@ -4,7 +4,7 @@ import { CliFailure } from "./output.ts";
 import { findBot, listBots, type SpadeCall } from "./spade-bots.ts";
 
 /*
- * `ace bot running|stop|pause|resume` (ADR 0200 §6.3, ADR 0178 §1): Spade's task manager from
+ * `ace bot running|stop|pause|resume|unarchive` (ADR 0200 §6.3, ADR 0178 §1): Spade's task manager from
  * the terminal, through the daemon's `spade.http` forwarding, read with the app's own parser so
  * both say the same.
  */
@@ -54,7 +54,7 @@ export async function listRunning(call: SpadeCall): Promise<CliRunningBot[]> {
   return summaries(bots);
 }
 
-/** Stops, pauses or resumes the bot `ref` names (an id, a name or a start of either). */
+/** Stops, pauses, resumes or unarchives the bot `ref` names (an id, a name or a start of either). */
 export async function actOnBot(
   call: SpadeCall,
   ref: string | undefined,

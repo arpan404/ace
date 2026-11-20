@@ -9454,7 +9454,7 @@ Example:
 | --- | --- | --- | --- |
 | bot | yes | string |  |
 | name | yes | string |  |
-| action | yes | ["stop","pause","resume"] |  |
+| action | yes | ["stop","pause","resume","unarchive"] |  |
 | changed | yes | boolean |  |
 | now | no | [CliRunningBot.json](schema/CliRunningBot.json) |  |
 
@@ -9462,7 +9462,7 @@ Example:
 
 ```json
 {
-  "action": "pause",
+  "action": "resume",
   "bot": "example",
   "changed": false,
   "name": "example"
@@ -9545,17 +9545,19 @@ Example:
 | --- | --- | --- | --- |
 | path | yes | string |  |
 | name | yes | string |  |
-| template | yes | [CliBotStarter.json](schema/CliBotStarter.json) |  |
+| template | no | [CliBotStarter.json](schema/CliBotStarter.json) |  |
+| from | no | string |  |
 | files | yes | array | {"items":{"type":"string"}} |
+| left_out | no | array | {"items":{"type":"string"}} |
 
 Example:
 
 ```json
 {
   "files": [],
+  "left_out": [],
   "name": "example",
-  "path": "example",
-  "template": "club-member"
+  "path": "example"
 }
 ```
 
@@ -10612,7 +10614,7 @@ Example:
 | id | yes | string |  |
 | kind | yes | ["main","bot"] |  |
 | name | yes | string |  |
-| state | yes | ["idle","working","waiting","sleeping","paused"] |  |
+| state | yes | ["idle","working","waiting","sleeping","paused","updating"] |  |
 | reads | yes | ["needs_you","working","failed","sleeping","paused","idle"] |  |
 | doing | yes | string |  |
 | uses | yes | string |  |
@@ -10620,7 +10622,7 @@ Example:
 | network | yes | object | {"properties":{"bytes":{"type":"number"},"hosts":{"type":"array","items":{"type":"string"}},"refused":{"type":"number"}},"required":["bytes","hosts","refused"]} |
 | nextWake | no | object | {"properties":{"at":{"type":"number"},"what":{"type":"string"}},"required":["at","what"]} |
 | workers | yes | array | {"items":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"doing":{"type":"string"}},"required":["id","name","doing"]}} |
-| actions | yes | array | {"items":{"type":"string","enum":["stop","pause","resume"]}} |
+| actions | yes | array | {"items":{"type":"string","enum":["stop","pause","resume","unarchive"]}} |
 
 Example:
 
@@ -10642,7 +10644,7 @@ Example:
     "todayMicros": 1,
     "unusual": true
   },
-  "state": "sleeping",
+  "state": "paused",
   "uses": "example",
   "workers": []
 }
@@ -10690,7 +10692,7 @@ Example:
 | task | yes | string |  |
 | model | yes | string |  |
 | conversation | yes | string |  |
-| state | yes | ["idle","working","waiting","paused"] |  |
+| state | yes | ["idle","working","waiting","paused","updating"] |  |
 | waitingFor | no | ["approval","question"] |  |
 | status | no | string |  |
 | problem | no | string |  |
@@ -23309,6 +23311,7 @@ Example:
 | botsApproved | no | boolean |  |
 | linked | no | boolean |  |
 | previous | no | object | {"properties":{"version":{"type":"string","maxLength":64},"hash":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"}},"required":["version","hash"],"additionalProperties":false} |
+| held | no | object | {"properties":{"version":{"type":"string","maxLength":64}},"required":["version"],"additionalProperties":false} |
 
 Example:
 
@@ -23818,6 +23821,7 @@ Example:
 | op | yes | `"prepareUpdate"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -23836,6 +23840,7 @@ Example:
 | op | yes | `"prepareRollback"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -23854,6 +23859,7 @@ Example:
 | op | yes | `"remove"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -23872,6 +23878,7 @@ Example:
 | op | yes | `"turnOn"` |  |
 | type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| bot | no | string | {"minLength":1,"maxLength":80} |
 
 Example:
 
@@ -25856,6 +25863,9 @@ Example:
   "installed": {
     "acceptedAt": 9,
     "hash": "7e388707324ee9dc9181d2bc4ca91d9e2855e5de5ffb272d6465dbf2d7aa36f1",
+    "held": {
+      "version": "example"
+    },
     "name": "s",
     "previous": {
       "hash": "150a138a05844ad1ede909280e0dd59382e0bf8c3ad40d415becd4596c6041a6",
