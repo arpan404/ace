@@ -5,8 +5,9 @@
 //! ace's peak memory is the whole process's: it includes the root's quick-open index and watcher,
 //! which a search waits for before it starts.
 //!
-//! Both run under `/usr/bin/time` when the machine has it, which reports the process's CPU time and peak resident set
-//! when it exits. ace is timed from the `search` request to its `searchDone` event (the daemon
+//! On Linux, ace's CPU time and peak resident set come from `/proc/<pid>` just before it is
+//! stopped and `rg`'s from `wait4` as it is reaped. Elsewhere both run under `/usr/bin/time` when
+//! the machine has it, which reports them when the process exits. ace is timed from the `search` request to its `searchDone` event (the daemon
 //! keeps the process running, so start-up is not part of what a person waits for); `rg` is timed
 //! from spawn to its exit, start-up included. A capped query reads `rg`'s first lines and then
 //! closes the pipe, which is what `rg ... | head -n N` does.
@@ -46,9 +47,9 @@ pub struct Sample {
     /// When the first result reached the reader, if any did.
     pub first: Option<Duration>,
     pub total: Duration,
-    /// User plus system CPU of the whole process; none without `/usr/bin/time`.
+    /// User plus system CPU of the whole process; none where it cannot be measured.
     pub cpu: Option<Duration>,
-    /// Peak resident bytes; none without `/usr/bin/time`.
+    /// Peak resident bytes; none where it cannot be measured.
     pub peak_rss: Option<u64>,
     /// What the run found: matching lines for an uncapped query; matches for a capped one (ace's
     /// summary, `rg --only-matching`'s lines), since both caps count matches.
@@ -68,9 +69,13 @@ pub fn ace(
     let mut wire = Wire::spawn(command)?;
     wire.begin_phase("search", DEADLINE);
     let measured = ace_search(&mut wire, root, query);
+    let used = crate::host::process_usage(wire.pid());
     wire.stop();
     let mut sample = measured?;
-    if timing() {
+    if let Some(used) = used {
+        sample.cpu = Some(used.cpu);
+        sample.peak_rss = Some(used.peak_rss);
+    } else if timing() {
         let (cpu, peak_rss) = usage(&fs::read_to_string(&report)?)?;
         sample.cpu = Some(cpu);
         sample.peak_rss = Some(peak_rss);
@@ -175,12 +180,15 @@ pub fn rg(rg: &Path, root: &Path, query: &Query, scratch: &Path) -> Result<Sampl
     }
     // Closing the pipe stops a capped `rg` the way `head` does.
     drop(stdout);
-    let status = child.wait()?;
+    let (status, used) = crate::host::wait_measured(&mut child)?;
     sample.total = started.elapsed();
     if !finished_cleanly(status, closed_early) {
         return Err(format!("rg exited with {status} after {} lines", sample.lines).into());
     }
-    if timing() {
+    if let Some(used) = used {
+        sample.cpu = Some(used.cpu);
+        sample.peak_rss = Some(used.peak_rss);
+    } else if timing() {
         let (cpu, peak_rss) = usage(&fs::read_to_string(&report)?)?;
         sample.cpu = Some(cpu);
         sample.peak_rss = Some(peak_rss);
@@ -251,9 +259,10 @@ pub fn rg_args(query: &Query) -> Vec<String> {
 /// Where the external `time` lives; a machine without it still gets wall times.
 const TIME: &str = "/usr/bin/time";
 
-/// Whether CPU and peak memory can be measured here.
+/// Whether CPU and peak memory are measured with `/usr/bin/time` here. Linux measures them
+/// itself (see the module docs), so it never wraps the process.
 pub fn timing() -> bool {
-    Path::new(TIME).is_file()
+    !cfg!(target_os = "linux") && Path::new(TIME).is_file()
 }
 
 /// `/usr/bin/time` around `program`, in the form that reports peak memory, or `program` alone

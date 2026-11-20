@@ -6,12 +6,18 @@
 //! `node_modules` trees the excludes exist to avoid, and the per-user watch budget is small.
 //! This backend walks the tree itself, adds a watch per folder it keeps, and adds watches for
 //! folders that appear later. A folder moved in is walked as well, and its files reported,
-//! because contents can change before the new watches exist.
+//! because contents can change before the new watches exist. The watches are read by
+//! [`inotify::Inotify`], which asks the kernel for changes only, never for opens and reads.
+
+mod inotify;
 
 use std::collections::BTreeSet;
+use std::ffi::OsString;
+use std::sync::Arc;
 
+use cap_fs_ext::DirExt;
+use cap_std::fs::Dir;
 use files_safe::Root;
-use notify::{INotifyWatcher, RecursiveMode, Watcher as NotifyWatcher};
 
 use crate::batch::{Change, ChangeKind};
 use crate::error::Error;
@@ -21,7 +27,7 @@ use crate::watch::Events;
 
 /// A set of per-folder inotify watches.
 pub(crate) struct Folders {
-    watcher: INotifyWatcher,
+    watcher: inotify::Inotify,
     watched: BTreeSet<String>,
 }
 
@@ -33,8 +39,7 @@ impl Folders {
         events: Events,
     ) -> Result<Folders, Error> {
         let mut folders = Folders {
-            watcher: INotifyWatcher::new(events, notify::Config::default())
-                .map_err(|error| Error::Unsupported(error.to_string()))?,
+            watcher: inotify::Inotify::start(events)?,
             watched: BTreeSet::new(),
         };
         folders.add_tree(root, excluder, "")?;
@@ -79,11 +84,51 @@ impl Folders {
         drop(self.watcher);
     }
 
+    /// Watches `dir` and every folder below it that the excludes keep.
+    ///
+    /// Each folder is opened from its parent's handle, not walked to from the root again, and only
+    /// folders become paths: on a checkout of a million files in sixty thousand folders, opening
+    /// each one from the root and naming every file took most of the 18 s the watch needed to
+    /// start, all of it competing with whatever the person did first. A folder waiting on the
+    /// stack holds its parent's handle, so open handles stay bounded by the tree's depth.
     fn add_tree(&mut self, root: &Root, excluder: &Excluder, dir: &str) -> Result<(), Error> {
-        let mut stack = vec![dir.to_owned()];
-        while let Some(folder) = stack.pop() {
+        let Ok(top) = root.open_dir(dir) else {
+            return self.add(root, dir);
+        };
+        let mut stack: Vec<(String, Arc<Dir>, Option<OsString>)> =
+            vec![(dir.to_owned(), Arc::new(top), None)];
+        while let Some((folder, parent, name)) = stack.pop() {
+            let handle = match name {
+                // A folder that went away, or became a link, since its parent was listed.
+                Some(name) => match parent.open_dir_nofollow(&name) {
+                    Ok(handle) => Arc::new(handle),
+                    Err(_) => continue,
+                },
+                None => parent,
+            };
             self.add(root, &folder)?;
-            stack.extend(self.subfolders(root, excluder, &folder));
+            let Ok(entries) = handle.entries() else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                // A symbolic link is neither a folder to walk into nor one to watch.
+                if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    continue;
+                }
+                let name = entry.file_name();
+                let Some(text) = name.to_str() else {
+                    continue;
+                };
+                let path = if folder.is_empty() {
+                    text.to_owned()
+                } else {
+                    format!("{folder}/{text}")
+                };
+                if excluder.is_excluded(&path) {
+                    continue;
+                }
+                stack.push((path, Arc::clone(&handle), Some(name)));
+            }
         }
         Ok(())
     }
@@ -131,15 +176,17 @@ impl Folders {
         } else {
             root.path().join(rel)
         };
-        if let Err(error) = self.watcher.watch(&path, RecursiveMode::NonRecursive) {
-            self.watched.remove(rel);
-            if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) {
-                return Err(Error::Unsupported(format!(
-                    "inotify watch limit reached: {error}"
-                )));
+        match self.watcher.watch(&path) {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                self.watched.remove(rel);
+                Ok(())
+            }
+            Err(error) => {
+                self.watched.remove(rel);
+                Err(error)
             }
         }
-        Ok(())
     }
 
     /// Drops the watches at and below a path. The range scan keeps this proportional to the
@@ -156,14 +203,6 @@ impl Folders {
         for watched in gone {
             self.watched.remove(&watched);
         }
-    }
-
-    fn subfolders(&self, root: &Root, excluder: &Excluder, dir: &str) -> Vec<String> {
-        self.children(root, excluder, dir)
-            .into_iter()
-            .filter(|(_, is_dir)| *is_dir)
-            .map(|(path, _)| path)
-            .collect()
     }
 
     /// The immediate children of `dir`, minus everything the excludes keep out. A symbolic

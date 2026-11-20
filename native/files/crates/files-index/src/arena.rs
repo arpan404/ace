@@ -86,31 +86,6 @@ impl PathArena {
         }
     }
 
-    /// The live slots whose path is one of `paths` or sits below one of them, found by comparing
-    /// each slot's leading bytes. With a handful of paths this is a few milliseconds over a million
-    /// slots, where hashing every ancestor of every slot is tens.
-    pub fn slots_at_or_under(&self, paths: &[&str]) -> Vec<u32> {
-        let bytes = self.bytes.as_bytes();
-        let mut found = Vec::new();
-        let mut start = 0usize;
-        for (index, end) in self.ends.iter().enumerate() {
-            let end = *end as usize;
-            let path = &bytes[start..end];
-            start = end;
-            if !self.live[index] {
-                continue;
-            }
-            let under = paths.iter().any(|folder| {
-                let folder = folder.as_bytes();
-                path.starts_with(folder) && path.get(folder.len()).is_none_or(|next| *next == b'/')
-            });
-            if under && let Ok(slot) = u32::try_from(index) {
-                found.push(slot);
-            }
-        }
-        found
-    }
-
     /// Holes left by deletions.
     pub fn dead_len(&self) -> usize {
         self.ends.len() - self.live_len
@@ -131,6 +106,11 @@ impl PathArena {
             }
         }
         *self = rebuilt;
+    }
+
+    /// Bytes of path text written, live or not: what a copy of the live paths needs at most.
+    pub fn text_len(&self) -> usize {
+        self.bytes.len()
     }
 
     /// Bytes the arena occupies, for the build report and bench.

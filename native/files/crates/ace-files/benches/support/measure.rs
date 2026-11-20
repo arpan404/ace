@@ -142,7 +142,7 @@ pub fn measure(
         "RSS after index build",
         resident_mib(wire.pid())?,
         "MiB",
-        "ps -o rss= -p <ace-files>",
+        RSS_SOURCE,
     );
 
     // Quick open, fifty queries over the wire.
@@ -311,8 +311,20 @@ pub fn subscribe(wire: &mut Wire, root: u64) -> Result<u64, WireError> {
     }
 }
 
-/// The process's resident set size in MiB, as `ps` reports it.
+/// Where the RSS figures come from, for the report.
+pub const RSS_SOURCE: &str = if cfg!(target_os = "linux") {
+    "VmRSS in /proc/<ace-files>/status"
+} else {
+    "ps -o rss= -p <ace-files>"
+};
+
+/// The process's resident set size in MiB: `/proc/<pid>/status` on Linux, `ps` elsewhere.
 pub fn resident_mib(pid: u32) -> Result<f64, Box<dyn Error>> {
+    if cfg!(target_os = "linux") {
+        return crate::host::resident_bytes(pid)
+            .map(|bytes| bytes as f64 / (1024.0 * 1024.0))
+            .ok_or_else(|| format!("cannot read VmRSS of pid {pid} from /proc").into());
+    }
     let output = Command::new("ps")
         .args(["-o", "rss=", "-p", &pid.to_string()])
         .output()?;

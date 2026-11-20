@@ -92,10 +92,13 @@ pub(crate) fn search_file(
     }
 }
 
-/// Opens the walked file through its folder's handle. A handle held from an earlier file that
-/// fails to open this one, or whose checkout path leads elsewhere, may be stale, as when the folder
-/// was replaced between two of its files: it is dropped, the folder opened again from the root,
-/// and the file tried once more.
+/// Opens the walked file by its checkout path in one call that is its own proof, where the kernel
+/// can make it ([`files_safe::Root::open_file_unlinked`]); a file it refuses is skipped.
+///
+/// Elsewhere the file is opened through its folder's handle and proven afterwards. A handle held
+/// from an earlier file that fails to open this one, or whose checkout path leads elsewhere, may be
+/// stale, as when the folder was replaced between two of its files: it is dropped, the folder
+/// opened again from the root, and the file tried once more.
 fn open_entry(
     root: &files_safe::Root,
     folders: &mut Folders,
@@ -103,6 +106,11 @@ fn open_entry(
     entry: &DirEntry,
     relative: &str,
 ) -> Option<(cap_std::fs::File, cap_std::fs::Metadata)> {
+    if let Some(opened) = root.open_file_unlinked(relative) {
+        let file = opened.ok()?;
+        let metadata = file.metadata().ok()?;
+        return Some((file, metadata));
+    }
     let name = entry.file_name();
     let held = folders.holds(folder);
     match open::open(root, folders.get(root, folder)?, name, relative) {

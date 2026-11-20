@@ -53,6 +53,9 @@ const INDEX_POLL: Duration = Duration::from_millis(250);
 /// waiting for a rescan.
 const BURST_QUIET: Duration = Duration::from_secs(10);
 
+/// How long the watcher stays silent after the burst before the memory it left is read.
+const SETTLED: Duration = Duration::from_secs(10);
+
 /// How many queued frames one drain may process before the clock is checked again.
 const DRAIN_LIMIT: usize = 256;
 
@@ -291,6 +294,28 @@ pub fn burst(
         resident_mib(wire.pid())?,
         "MiB",
         format!("index holds {} paths", thousands(index.total as usize)),
+    );
+    if let Some(usage) = crate::host::process_usage(wire.pid()) {
+        report.metric(
+            "peak RSS so far",
+            usage.peak_rss as f64 / (1024.0 * 1024.0),
+            "MiB",
+            "VmHWM in /proc/<ace-files>/status",
+        );
+    }
+    // What the burst leaves behind once the watcher and the index have nothing left to do: memory
+    // still held then is kept, not a peak on the way.
+    quiet(wire, subscription, SETTLED)?;
+    let settled = crate::measure::index_ready(wire, root)?;
+    report.metric(
+        "RSS once the burst settles",
+        resident_mib(wire.pid())?,
+        "MiB",
+        format!(
+            "after {} s without a watcher frame; index holds {} paths",
+            SETTLED.as_secs(),
+            thousands(settled.total as usize)
+        ),
     );
     Ok(())
 }
