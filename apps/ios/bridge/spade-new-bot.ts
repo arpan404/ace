@@ -3,6 +3,9 @@ import {
   parseSpadeTemplates,
   spadeAgentTaskMax,
   spadeFreeName,
+  spadeTemplateRoutinesLine,
+  type SpadeAgent,
+  type SpadeTemplate,
 } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
 import { initialOf, type SpadeFaceRow } from "./spade-group-rows.ts";
@@ -33,6 +36,8 @@ export const spadeNewBotRequests = [
     model: z.string().min(1).max(512).optional(),
     /** The phone's IANA zone, for a template's routines. */
     timeZone: z.string().min(1).max(64).optional(),
+    /** A template's routines start on their schedules (the default), or wait paused. */
+    startRoutines: z.boolean().optional(),
   }),
 ] as const;
 export const NativeSpadeNewBotRequest = z.discriminatedUnion("type", spadeNewBotRequests);
@@ -44,6 +49,8 @@ export interface SpadeTemplateRow {
   /** One line on what it does. */
   blurb: string;
   face: SpadeFaceRow;
+  /** Its routines and their schedules in one line, which the person may keep paused; null with none. */
+  routines: string | null;
 }
 
 type Refusal = { ok: false; title: string; message: string };
@@ -56,7 +63,9 @@ export type SpadeNewBotAnswer =
       groups: SpadeModelGroupRow[];
       more: number;
     }
-  | { ok: true; agentId: string; conversation: string };
+  | { ok: true; agentId: string; conversation: string }
+  /** The bot was made, but its first message didn't send: it is sent again there, never remade. */
+  | (Refusal & { agentId: string; conversation: string });
 
 const refused = (title: string, error: unknown): Refusal => ({
   ok: false,
@@ -93,6 +102,7 @@ export async function answerSpadeNewBot(
             // A template's own character, as web's New bot draws it.
             character: template.face,
           },
+          routines: spadeTemplateRoutinesLine(template.routines) || null,
         })),
         model: { ...spadeModelSetting("new_bot", models, sources), title: "Model" },
         ...spadeModelChoices(sources),
@@ -113,37 +123,46 @@ async function create(
   if (!text && !request.template)
     return { ok: false, title: "", message: "Say what the bot should do." };
   const chosen = request.model ? { model: request.model } : {};
+  const template = request.template ? await templateOf(ask, request.template) : undefined;
   const draft = request.template
     ? {
         // A template brings its own name, face and task; the message is its first job.
-        name: spadeFreeName((await templateName(ask, request.template)) ?? "New bot", [
-          ...spade.names.values(),
-        ]),
+        name: spadeFreeName(template?.name || "New bot", [...spade.names.values()]),
         task: "",
         template: request.template,
         ...(request.timeZone ? { time_zone: request.timeZone } : {}),
+        // Its routines run on their schedules unless the person keeps them paused (ADR 0132).
+        ...(template?.routines.length ? { start_routines: request.startRoutines ?? true } : {}),
         ...chosen,
       }
     : // The message is its task; it names itself as it starts.
       { task: Array.from(text).slice(0, spadeAgentTaskMax).join(""), naming: true, ...chosen };
+  let agent: SpadeAgent | undefined;
   try {
     const body = await ask("POST", "/v1/agents", {
       ...draft,
       ...(text ? { first_message: { text } } : {}),
     });
-    const agent = parseSpadeAgent(body);
+    agent = parseSpadeAgent(body);
     if (!agent) throw new Error("Spade's new bot didn't make sense.");
-    // A Spade from before first messages makes the bot and drops the message: send it now.
-    if (text && !agent.lastMessage)
-      await ask("POST", `/v1/conversations/${segment(agent.conversation)}/messages`, { text });
-    spade.refresh();
-    return { ok: true, agentId: agent.id, conversation: agent.conversation };
   } catch (error) {
     return refused("Couldn't make the bot", error);
   }
+  spade.refresh();
+  const made = { agentId: agent.id, conversation: agent.conversation };
+  // A Spade from before first messages makes the bot and drops the message: send it now. If
+  // that fails the bot stays made; the phone sends the message again in its conversation.
+  if (text && !agent.lastMessage) {
+    try {
+      await ask("POST", `/v1/conversations/${segment(agent.conversation)}/messages`, { text });
+    } catch (error) {
+      return { ...refused("It's made, but its first message didn't send", error), ...made };
+    }
+  }
+  return { ok: true, ...made };
 }
 
-async function templateName(ask: Ask, id: string): Promise<string | undefined> {
+async function templateOf(ask: Ask, id: string): Promise<SpadeTemplate | undefined> {
   const templates = await ask("GET", "/v1/templates").then(parseSpadeTemplates, () => undefined);
-  return templates?.find((template) => template.id === id)?.name || undefined;
+  return templates?.find((template) => template.id === id);
 }

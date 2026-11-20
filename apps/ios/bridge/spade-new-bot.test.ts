@@ -38,6 +38,7 @@ test("New bot offers the machine's templates and the model new bots start on", a
       name: "Research",
       blurb: "Finds and reads sources",
       face: expect.objectContaining({ main: false, initial: "R", character: expect.any(Object) }),
+      routines: null,
     },
   ]);
   expect(answer.model).toMatchObject({ value: "", words: "Claude Sonnet 4.5 · Anthropic" });
@@ -143,4 +144,70 @@ test("hundreds of models still fit in one frame, saying how many were left out",
   const shown = answer.groups.reduce((sum, group) => sum + group.choices.length, 0);
   expect(shown).toBeGreaterThan(50);
   expect(answer.more).toBe(900 - shown);
+});
+
+test("a template's routines show with their schedules, and the person can keep them paused", async () => {
+  const { ask, api, spade } = await setUp((fake) => {
+    fake.endpoints = [structuredClone(endpoint)];
+    fake.teams.templates = [
+      {
+        id: "inbox",
+        name: "Inbox",
+        blurb: "Sorts the morning's mail",
+        task: "Sort the inbox",
+        routines: [{ name: "Morning inbox", words: "Weekdays at 8:00" }],
+      },
+      { id: "writer", name: "Writer", blurb: "", task: "Write" },
+    ];
+  });
+  await until(() => spade.ready);
+
+  const offer = await ask({ type: "spade.newbot.read" });
+  if (!("templates" in offer)) throw new Error(JSON.stringify(offer));
+  expect(offer.templates.map((template) => template.routines)).toEqual([
+    "Morning inbox, weekdays at 8:00",
+    null,
+  ]);
+
+  await ask({ type: "spade.newbot.create", text: "", template: "inbox", startRoutines: false });
+  await ask({ type: "spade.newbot.create", text: "", template: "writer" });
+
+  const sent = api.requests
+    .filter((r) => r.method === "POST" && r.path === "/v1/agents")
+    .map((r) => JSON.parse(r.body ?? "{}"));
+  expect(sent[0]).toMatchObject({ template: "inbox", start_routines: false });
+  // A template without routines says nothing about them.
+  expect(sent[1]).not.toHaveProperty("start_routines");
+});
+
+test("on an older Spade, a made bot whose first message didn't send keeps its conversation", async () => {
+  const { ask, api, daemon, spade } = await setUp((fake) => {
+    fake.endpoints = [structuredClone(endpoint)];
+  });
+  await until(() => spade.ready);
+  // An older Spade: it makes the bot, drops the first message, and the message's own send fails.
+  daemon.spade.serve({
+    answer: (request) => {
+      if (request.method === "POST" && request.path === "/v1/agents") {
+        const body = JSON.parse(request.body ?? "{}");
+        delete body.first_message;
+        return api.answer({ ...request, body: JSON.stringify(body) });
+      }
+      if (request.method === "POST" && request.path.endsWith("/messages"))
+        return { status: 500, body: JSON.stringify({ error: "busy" }) };
+      return api.answer(request);
+    },
+    open: (path) => api.open(path),
+  });
+
+  const answer = await ask({ type: "spade.newbot.create", text: "Watch the release branch" });
+
+  const made = api.agents.find((agent) => agent.name === "New bot");
+  expect(answer).toMatchObject({
+    ok: false,
+    title: "It's made, but its first message didn't send",
+    agentId: made?.id,
+    conversation: made?.conversation,
+  });
+  expect(api.agents.filter((agent) => agent.name === "New bot")).toHaveLength(1);
 });
