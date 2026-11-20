@@ -81,7 +81,8 @@ test("quick open lists files opened recently and files the thread edited before 
 
   await quickOpen("");
   const list = screen.getByRole("listbox", { name: "Files" });
-  expect(within(list).getByText("Opened recently")).toBeTruthy();
+  // socket.ts is open in a tab, so it leads as an open editor.
+  expect(within(list).getByText("Open editors")).toBeTruthy();
   expect(within(list).getByText("Edited in this thread")).toBeTruthy();
   expect(within(list).getByRole("option", { name: /socket\.ts/ })).toBeTruthy();
   expect(within(list).getByRole("option", { name: /replay\.ts/ })).toBeTruthy();
