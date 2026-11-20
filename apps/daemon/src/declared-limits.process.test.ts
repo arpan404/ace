@@ -195,10 +195,10 @@ test("an expired Gemini login shows sign in again, sends nothing and writes noth
   await writeFile(join(userHome, ".gemini", "oauth_creds.json"), credentials);
   const listing = async () =>
     Promise.all(
-      (await readdir(userHome, { recursive: true })).map(async (name) => [
-        name,
-        (await stat(join(userHome, name))).mtimeMs,
-      ]),
+      // Directory order isn't guaranteed: compare what is there, not the order it came in.
+      (await readdir(userHome, { recursive: true }))
+        .toSorted((a, b) => a.localeCompare(b))
+        .map(async (name) => [name, (await stat(join(userHome, name))).mtimeMs]),
     );
   const before = await listing();
   const logs: string[] = [];
