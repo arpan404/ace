@@ -24,9 +24,19 @@ const cap = (value: number | undefined) =>
 export function attachPreviewRelay(options: {
   channel: PreviewChannel;
   allowPort: (port: number, id: number) => Promise<boolean>;
+  /** Admits an OPEN synchronously, before its socket exists; false resets it unopened. */
+  admitOpen?: (port: number, id: number) => boolean;
+  /**
+   * Asked synchronously as stream `id`'s socket connects, after `allowPort`; false destroys the
+   * socket unconnected, which resets the stream. Nothing runs between this and the connect.
+   */
+  canConnect?: (port: number, id: number) => boolean;
   maxStreams?: number;
   onClosed?: () => void;
-  /** Stream `id`'s loopback socket closed, however it ended (refused streams' too). */
+  /**
+   * Stream `id` left the mux, however it ended (refused streams' too): synchronously, so its
+   * slot is free before the peer can hear its RESET and open again.
+   */
   onStreamClosed?: (id: number) => void;
 }) {
   return createMux({
@@ -35,16 +45,22 @@ export function attachPreviewRelay(options: {
     maxStreams: cap(options.maxStreams),
     timer: systemTimer,
     ...(options.onClosed ? { onClosed: options.onClosed } : {}),
+    ...(options.admitOpen ? { admitOpen: options.admitOpen } : {}),
+    ...(options.onStreamClosed ? { onStreamRemoved: options.onStreamClosed } : {}),
     socketFactory: (port, id) => {
       const socket = new Socket({ allowHalfOpen: true });
-      if (options.onStreamClosed) {
-        const closed = options.onStreamClosed;
-        socket.once("close", () => closed(id));
-      }
+      // Again once connected, before READY (registered ahead of the mux's own listener): the
+      // connect may have moved to the other loopback family after the first check.
+      const canConnect = options.canConnect;
+      if (canConnect)
+        socket.once("connect", () => {
+          if (!canConnect(port, id)) socket.destroy();
+        });
       return {
         socket: previewSocket(socket, systemTimer),
         connect: () => {
-          socket.connect(loopbackConnection(port));
+          if (options.canConnect && !options.canConnect(port, id)) socket.destroy();
+          else socket.connect(loopbackConnection(port));
         },
       };
     },

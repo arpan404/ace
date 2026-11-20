@@ -57,6 +57,26 @@ export function parseLsofListeners(text: string): Listener[] {
   return dedupe(listeners);
 }
 
+/**
+ * Windows `netstat -a -n -o` rows: `TCP 127.0.0.1:3000 0.0.0.0:0 LISTENING 4120`. Only TCP
+ * listeners; the last column is the owning process.
+ */
+export function parseNetstatListeners(text: string): Listener[] {
+  if (text.length > tableLimit) throw new Error("Listener table exceeds limit");
+  const listeners: Listener[] = [];
+  for (const line of text.split("\n")) {
+    const [proto, local = "", , state = "", owner = ""] = line.trim().split(/\s+/);
+    if ((proto !== "TCP" && proto !== "TCPv6") || !["LISTENING", "LISTEN"].includes(state))
+      continue;
+    const match = /^(.*):(\d+)$/.exec(local);
+    const port = PreviewPort.safeParse(Number(match?.[2]));
+    const pid = pidOf(owner);
+    if (!match?.[1] || !port.success || pid === undefined) continue;
+    listeners.push({ pid, port: port.data, reach: reachOf(match[1]) });
+  }
+  return dedupe(listeners);
+}
+
 /** A listening socket from `/proc/net/tcp{,6}`; its process is found through the inode. */
 export interface SocketRow {
   inode: string;

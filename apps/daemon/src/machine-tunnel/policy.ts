@@ -12,17 +12,21 @@ export interface TunnelLimits {
   opensPerSecond: number;
   /** Opens one device may make at once before the rate applies (a page's first burst). */
   openBurst: number;
+  /** Opens awaiting authorization at once, across every device and connection. */
+  pendingOpens: number;
 }
 
 /**
  * A page loads over a handful of keep-alive connections per port, plus its websockets, so 256
  * streams leave room for many tabs. A Vite page's first load opens a few dozen; the burst covers
- * a reload storm, and the rate a page that keeps opening fresh connections.
+ * a reload storm, and the rate a page that keeps opening fresh connections. Authorization waits
+ * at most for one shared port scan, so 64 opens in that wait is a burst's worth.
  */
 export const defaultTunnelLimits: TunnelLimits = {
   streamsPerDevice: 256,
   opensPerSecond: 100,
   openBurst: 200,
+  pendingOpens: 64,
 };
 
 /** Whether the tunnel as a whole serves this device now. */
@@ -47,35 +51,78 @@ export function visiblePorts(
     .slice(0, limit);
 }
 
-type Bucket = { tokens: number; at: number; open: Set<string> };
+type Bucket = { tokens: number; at: number; open: Set<string>; pending: Set<string> };
 
 /**
- * Per-device stream and open-rate limits. `admit` reserves a slot for a stream, keyed by
- * whatever the caller names it by; `release` frees it. A device with nothing open and a full
- * bucket is forgotten, so the map holds only devices in use.
+ * Per-device stream and open-rate limits, and the opens awaiting authorization across every
+ * device. `admit` charges an open first, whatever becomes of it, then reserves a slot for the
+ * stream under whatever key the caller names it by; `authorized` ends its wait and `release`
+ * frees the slot. A device is forgotten only once it holds nothing and its bucket has refilled,
+ * so closing streams never buys back opens.
  */
 export class TunnelAdmission {
   readonly #limits: TunnelLimits;
   readonly #now: () => number;
   readonly #devices = new Map<string, Bucket>();
+  #pending = 0;
   constructor(now: () => number, limits: TunnelLimits = defaultTunnelLimits) {
     this.#now = now;
     this.#limits = limits;
   }
-  /** Reserve a stream for `device` under the key `stream`, or say why not. */
+  /** Charge an open and reserve a stream for `device` under the key `stream`, or say why not. */
   admit(
     device: string,
     stream: string,
-    facts: { enabled: boolean; operate: boolean; port: number; acePorts: ReadonlySet<number> },
+    facts: { enabled: boolean; operate: boolean },
   ): TunnelRefusalCode | undefined {
     const access = tunnelAccess(facts);
     if (access) return access;
-    if (facts.acePorts.has(facts.port)) return "tunnel_port_refused";
+    const bucket = this.#refilled(device);
+    this.#devices.set(device, bucket);
+    if (bucket.tokens < 1) return "tunnel_limit";
+    bucket.tokens -= 1;
+    if (
+      this.#pending >= this.#limits.pendingOpens ||
+      bucket.open.size >= this.#limits.streamsPerDevice ||
+      bucket.open.has(stream)
+    )
+      return "tunnel_limit";
+    bucket.open.add(stream);
+    bucket.pending.add(stream);
+    this.#pending++;
+    return undefined;
+  }
+  /** Whether `stream` still holds its slot: false once released (a reset while it waited). */
+  holds(device: string, stream: string): boolean {
+    return this.#devices.get(device)?.open.has(stream) ?? false;
+  }
+  /** `stream`'s authorization finished, however it went. */
+  authorized(device: string, stream: string): void {
+    if (this.#devices.get(device)?.pending.delete(stream)) this.#pending--;
+  }
+  release(device: string, stream: string): void {
+    const bucket = this.#devices.get(device);
+    if (!bucket) return;
+    this.authorized(device, stream);
+    bucket.open.delete(stream);
+    if (bucket.open.size === 0 && this.#refilled(device).tokens >= this.#limits.openBurst)
+      this.#devices.delete(device);
+  }
+  /** Streams `device` holds open now. */
+  open(device: string): number {
+    return this.#devices.get(device)?.open.size ?? 0;
+  }
+  /** Opens awaiting authorization now, across every device. */
+  pending(): number {
+    return this.#pending;
+  }
+  #refilled(device: string): Bucket {
     const now = this.#now();
     const bucket = this.#devices.get(device) ?? {
       tokens: this.#limits.openBurst,
       at: now,
       open: new Set<string>(),
+      pending: new Set<string>(),
     };
     const elapsed = Math.max(0, now - bucket.at) / 1000;
     bucket.tokens = Math.min(
@@ -83,21 +130,6 @@ export class TunnelAdmission {
       bucket.tokens + elapsed * this.#limits.opensPerSecond,
     );
     bucket.at = now;
-    this.#devices.set(device, bucket);
-    if (bucket.open.size >= this.#limits.streamsPerDevice || bucket.tokens < 1)
-      return "tunnel_limit";
-    bucket.tokens -= 1;
-    bucket.open.add(stream);
-    return undefined;
-  }
-  release(device: string, stream: string): void {
-    const bucket = this.#devices.get(device);
-    if (!bucket?.open.delete(stream)) return;
-    if (bucket.open.size === 0 && bucket.tokens >= this.#limits.openBurst - 1)
-      this.#devices.delete(device);
-  }
-  /** Streams `device` holds open now. */
-  open(device: string): number {
-    return this.#devices.get(device)?.open.size ?? 0;
+    return bucket;
   }
 }

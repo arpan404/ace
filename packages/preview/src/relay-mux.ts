@@ -42,6 +42,14 @@ type Stream = {
   wake: (() => void) | undefined;
   cancelSend: (() => void) | undefined;
   payloadBytes: number;
+  /** Bytes the peer sent that wait for the socket: coalesced into the next write. */
+  writeQueue: Uint8Array[];
+  /** Bytes in `writeQueue` plus the write in flight; their credit returns as they are written. */
+  queuedBytes: number;
+  /** One write at a time reaches the socket; the next takes everything queued behind it. */
+  writing: boolean;
+  /** The peer's END came while bytes still waited: the socket ends once they are written. */
+  endPending: boolean;
   /** Set while a closed stream drains; restarts its deadline whenever a frame is admitted. */
   progress: (() => void) | undefined;
   cancelDeadline: (() => void) | undefined;
@@ -59,13 +67,32 @@ export const systemTimer: MuxTimer = (run, ms) => {
  * the total stays bounded: after the close at most one socket read is left to send.
  */
 export const gracefulDrainMs = 15_000;
+/**
+ * Bytes the peer may have sent that wait for local sockets, across every stream of one mux.
+ * Credit bounds each stream to one window; this bounds the sum below `maxStreams` windows, so a
+ * peer that fills every stream while the sockets stop reading costs at most this much. A DATA
+ * frame past it resets its stream.
+ */
+export const maxQueuedBytes = 32 * 1024 * 1024;
 type MuxOptions = {
   channel: PreviewChannel;
   maxStreams: number;
+  /**
+   * Admits stream `id`'s OPEN for `port` synchronously, before anything is allocated for it;
+   * false resets it unopened. `allowPort` still decides afterwards.
+   */
+  admitOpen?: (port: number, id: number) => boolean;
+  /** Aggregate queued-bytes bound; `maxQueuedBytes` unless given (tests). */
+  maxQueuedBytes?: number;
   /** Whether to connect stream `id`'s OPEN for `port`; refused, the stream is reset unopened. */
   allowPort?: (port: number, id: number) => Promise<boolean>;
   socketFactory?: (port: number, id: number) => { socket: PreviewSocket; connect: () => void };
   onClosed?: () => void;
+  /**
+   * Stream `id` left the mux, however it ended (refused, reset by either side, finished, or the
+   * mux closed): synchronously, before any later frame from the peer is read.
+   */
+  onStreamRemoved?: (id: number) => void;
   timer: MuxTimer;
 };
 
@@ -80,6 +107,8 @@ export function createMux(options: MuxOptions) {
   let pendingSends = 0;
   let pendingFrameBytes = 0;
   let pendingPayloadBytes = 0;
+  let queuedWriteBytes = 0;
+  const queueLimit = options.maxQueuedBytes ?? maxQueuedBytes;
   const maxPendingSends = options.maxStreams * 34 + 32;
   let unsubscribe: (() => void) | undefined;
   const close = () => {
@@ -87,13 +116,15 @@ export function createMux(options: MuxOptions) {
     closed = true;
     unsubscribe?.();
     options.channel.close();
-    for (const stream of streams.values()) {
+    const removed = [...streams.values()];
+    streams.clear();
+    for (const stream of removed) {
       stream.cancelDeadline?.();
       stream.socket.destroy();
       stream.wake?.();
       stream.cancelSend?.();
+      options.onStreamRemoved?.(stream.id);
     }
-    streams.clear();
     options.onClosed?.();
   };
   const sendFrame = async (frame: Uint8Array) => {
@@ -129,7 +160,40 @@ export function createMux(options: MuxOptions) {
     stream.cancelDeadline?.();
     stream.wake?.();
     stream.cancelSend?.();
+    queuedWriteBytes -= stream.queuedBytes;
+    stream.queuedBytes = 0;
+    stream.writeQueue.length = 0;
     stream.socket.destroy();
+    options.onStreamRemoved?.(stream.id);
+  };
+  /**
+   * Writes what the peer sent, one write per stream at a time: frames that arrive while one is
+   * in flight are joined into the next, so a peer sending one-byte frames to a socket that stops
+   * reading leaves one pending write and one buffer, not one callback per frame. Credit returns
+   * as each write completes, for all the bytes it carried.
+   */
+  const flush = (stream: Stream) => {
+    if (stream.writing || !alive(stream)) return;
+    const chunks = stream.writeQueue.splice(0);
+    if (chunks.length === 0) {
+      if (stream.endPending) {
+        stream.endPending = false;
+        stream.socket.end();
+      }
+      return;
+    }
+    const bytes = chunks.length === 1 && chunks[0] ? chunks[0] : joined(chunks);
+    stream.writing = true;
+    stream.socket.write(bytes, (error) => {
+      if (!alive(stream)) return;
+      stream.writing = false;
+      stream.queuedBytes -= bytes.byteLength;
+      queuedWriteBytes -= bytes.byteLength;
+      if (error) return;
+      stream.receiveCredit += bytes.byteLength;
+      void send(kinds.credit, stream.id, bytes.byteLength).catch(close);
+      flush(stream);
+    });
   };
   const transmit = async (stream: Stream, chunk: Uint8Array) => {
     stream.payloadBytes = chunk.byteLength;
@@ -185,6 +249,10 @@ export function createMux(options: MuxOptions) {
       wake: undefined,
       cancelSend: undefined,
       payloadBytes: 0,
+      writeQueue: [],
+      queuedBytes: 0,
+      writing: false,
+      endPending: false,
       progress: undefined,
       cancelDeadline: undefined,
     };
@@ -260,8 +328,9 @@ export function createMux(options: MuxOptions) {
     const stream = bind(id, socket);
     try {
       if (!(await options.allowPort?.(port, id)) || !alive(stream)) {
-        await send(kinds.reset, id);
+        // Removed first, so the slot is free before the peer can hear the RESET and open again.
         remove(stream);
+        await send(kinds.reset, id);
         return;
       }
       socket.once("connect", () => {
@@ -275,8 +344,8 @@ export function createMux(options: MuxOptions) {
       });
       connection.connect();
     } catch {
-      await send(kinds.reset, id);
       remove(stream);
+      await send(kinds.reset, id);
     }
   };
   const receive = (input: Uint8Array) => {
@@ -286,7 +355,7 @@ export function createMux(options: MuxOptions) {
         if (!options.allowPort || frame.id <= lastId) throw new Error("Invalid stream open");
         lastId = frame.id;
         const port = PreviewPort.parse(frame.value);
-        if (streams.size >= options.maxStreams) {
+        if (streams.size >= options.maxStreams || options.admitOpen?.(port, frame.id) === false) {
           void send(kinds.reset, frame.id).catch(close);
           return;
         }
@@ -314,15 +383,21 @@ export function createMux(options: MuxOptions) {
         if (stream.incomingEnded || frame.value > stream.receiveCredit)
           throw new Error("Receive window exceeded");
         stream.receiveCredit -= frame.value;
-        stream.socket.write(frame.data, (error) => {
-          if (error || !alive(stream)) return;
-          stream.receiveCredit += frame.value;
-          void send(kinds.credit, stream.id, frame.value).catch(close);
-        });
+        if (queuedWriteBytes + frame.value > queueLimit) {
+          remove(stream);
+          void send(kinds.reset, stream.id).catch(close);
+          return;
+        }
+        stream.writeQueue.push(frame.data);
+        stream.queuedBytes += frame.value;
+        queuedWriteBytes += frame.value;
+        flush(stream);
       } else if (frame.kind === kinds.end) {
         if (stream.incomingEnded) throw new Error("Duplicate stream end");
         stream.incomingEnded = true;
-        stream.socket.end();
+        // After the bytes still waiting to be written, never ahead of them.
+        stream.endPending = true;
+        flush(stream);
       }
     } catch {
       close();
@@ -347,11 +422,19 @@ export function createMux(options: MuxOptions) {
       void send(kinds.open, id, PreviewPort.parse(port)).catch(close);
       return id;
     },
+    /** Resets stream `id` at once, whatever state it is in; an unknown id changes nothing. */
+    reset(id: number): void {
+      const stream = streams.get(id);
+      if (!stream || closed) return;
+      remove(stream);
+      void send(kinds.reset, id).catch(close);
+    },
     close,
     // Observability reports counts and windows, never retained payloads.
     stats: () => ({
       streams: streams.size,
       pendingPayloadBytes,
+      queuedWriteBytes,
       pendingFrameBytes,
       channelBufferedBytes:
         (options.channel.bufferedBytes ?? 0) + (options.channel.bufferedReceiveBytes ?? 0),
@@ -367,4 +450,16 @@ export function createMux(options: MuxOptions) {
       closed,
     }),
   };
+}
+
+function joined(chunks: readonly Uint8Array[]): Uint8Array {
+  let size = 0;
+  for (const chunk of chunks) size += chunk.byteLength;
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }

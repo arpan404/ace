@@ -9,7 +9,11 @@ import {
   type TunnelStream,
 } from "@ace/client/machine-tunnel";
 import { attachPreviewRelay } from "@ace/preview";
+import { createMux, type PreviewSocket } from "@ace/preview/mux";
+import { AcePorts } from "./ace-ports.ts";
 import { createTunnelHost, type TunnelConnection, type TunnelHost } from "./host.ts";
+import type { TunnelLimits } from "./policy.ts";
+import { machinePortWatch } from "./port-feed.ts";
 
 /*
  * The tunnel end to end over real loopback sockets (ADR 0194): the client's tunnel, the
@@ -129,29 +133,60 @@ function memoryPath(key: string, host: TunnelHost, device: { operate: () => bool
   return { path, made };
 }
 
-function setup(options: { acePorts?: number[]; listening?: Set<number>; operate?: boolean } = {}) {
+/** The host's pauses, at most 20 ms here. */
+const wait = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, Math.min(ms, 20));
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+
+function setup(
+  options: {
+    acePorts?: number[];
+    listening?: Set<number>;
+    operate?: boolean;
+    limits?: TunnelLimits;
+    /** Scans fail until this is cleared. */
+    scanFails?: { now: boolean };
+    /** Scans wait for this first. */
+    scanGate?: Promise<void>;
+  } = {},
+) {
   let enabled = true;
   let enabledChanged: ((value: boolean) => void) | undefined;
   const authority = { operate: options.operate ?? true };
   const listening = options.listening ?? new Set<number>();
+  const owned = new Set(options.acePorts ?? []);
+  const scans = { count: 0 };
+  const acePorts = new AcePorts({ published: () => [], now: () => performance.now() });
+  const ports = machinePortWatch({
+    scan: async () => {
+      scans.count++;
+      await options.scanGate;
+      if (options.scanFails?.now) throw new Error("scan failed");
+      return { listening, owned };
+    },
+    acePorts,
+    now: () => performance.now(),
+    wait,
+    limit: 1024,
+    onError: () => {},
+  });
   const host = createTunnelHost({
     enabled: async () => enabled,
     watchEnabled(changed) {
       enabledChanged = changed;
       return () => {};
     },
-    acePorts: async () => new Set(options.acePorts ?? []),
-    listening: async () => listening,
-    wait: (ms, signal) =>
-      new Promise((resolve) => {
-        const timer = setTimeout(resolve, Math.min(ms, 20));
-        signal.addEventListener("abort", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      }),
+    acePorts,
+    ports,
+    wait,
     now: () => performance.now(),
     loadMux: async () => attachPreviewRelay,
+    ...(options.limits ? { limits: options.limits } : {}),
   });
   cleanups.push(() => host.close());
   const first = memoryPath("lan", host, { operate: () => authority.operate });
@@ -175,6 +210,9 @@ function setup(options: { acePorts?: number[]; listening?: Set<number>; operate?
     first,
     authority,
     listening,
+    acePorts,
+    owned,
+    scans,
     move(path: TunnelPath | undefined) {
       current = path;
       for (const listener of pathListeners) listener();
@@ -320,4 +358,156 @@ test("a lost path resets its streams, and the tunnel opens again when a path ret
   const again = await tunnel.open(port);
   again.reset();
   await again.closed;
+});
+
+test("a port an ace listener in this process binds is refused at once, with no scan since", async () => {
+  const { tunnel, acePorts } = setup();
+  const { port } = await echo();
+  // A first open makes the guard's scan fresh; the next open within its age runs no scan.
+  (await tunnel.open(port)).reset();
+  const ace = await echo();
+  const release = acePorts.hold(ace.port);
+  expect(await code(tunnel.open(ace.port))).toBe("tunnel_port_refused");
+  expect(ace.state.connections).toBe(0);
+  release();
+});
+
+test("opens are refused while the scan of ace's processes fails, and allowed once it works", async () => {
+  const scanFails = { now: true };
+  const { port, state } = await echo();
+  const { tunnel } = setup({ scanFails });
+  expect(await code(tunnel.open(port))).toBe("tunnel_port_refused");
+  expect(state.connections).toBe(0);
+  scanFails.now = false;
+  const stream = await tunnel.open(port);
+  stream.reset();
+});
+
+test("a stream already open to a port that becomes ace's is reset", async () => {
+  const { port } = await echo();
+  const { tunnel, acePorts } = setup();
+  const stream = await tunnel.open(port);
+  const read = readAll(stream).then(
+    () => "ended",
+    (error: unknown) => (error as { code?: string }).code,
+  );
+  acePorts.hold(port);
+  expect(await read).toBe("tunnel_reset");
+  await stream.closed;
+});
+
+test("opens refused for ace's ports still spend the device's rate", async () => {
+  const ace = await echo();
+  const { port } = await echo();
+  const limits = { streamsPerDevice: 10, opensPerSecond: 0.001, openBurst: 3, pendingOpens: 10 };
+  const { tunnel } = setup({ acePorts: [ace.port], limits });
+  for (let n = 0; n < 3; n++) expect(await code(tunnel.open(ace.port))).toBe("tunnel_port_refused");
+  expect(await code(tunnel.open(port))).toBe("tunnel_limit");
+});
+
+test("streams refused for ace's ports give their slots back", async () => {
+  const ace = await echo();
+  const { port } = await echo();
+  const limits = { streamsPerDevice: 2, opensPerSecond: 1000, openBurst: 1000, pendingOpens: 10 };
+  const { tunnel } = setup({ acePorts: [ace.port], limits });
+  for (let n = 0; n < 4; n++) expect(await code(tunnel.open(ace.port))).toBe("tunnel_port_refused");
+  const both = await Promise.all([tunnel.open(port), tunnel.open(port)]);
+  for (const stream of both) stream.reset();
+});
+
+/** A device's side of one tunnel connection, driven frame by frame through a client mux. */
+function rawDevice(host: TunnelHost) {
+  let toHost: ((frame: Uint8Array) => void) | undefined;
+  let toDevice: ((frame: Uint8Array) => void) | undefined;
+  const refused: { code: string; stream?: number | undefined }[] = [];
+  host.attach({
+    device: "phone",
+    operate: () => true,
+    sendJson: async (message) => {
+      if (message.type === "tunnel.refused") refused.push(message);
+    },
+    channel: {
+      send: async (frame) => queueMicrotask(() => toDevice?.(frame.slice())),
+      close: () => {},
+      subscribe(onFrame) {
+        toHost = onFrame;
+        return () => {};
+      },
+    },
+    close: () => {},
+  });
+  const mux = createMux({
+    maxStreams: 8,
+    timer: schedule,
+    channel: {
+      send: async (frame) => queueMicrotask(() => toHost?.(frame.slice())),
+      close: () => {},
+      subscribe(onFrame) {
+        toDevice = onFrame;
+        return () => {};
+      },
+    },
+  });
+  cleanups.push(() => mux.close());
+  /** Opens a stream; resolves its id once READY came, or rejects once it was destroyed. */
+  const open = (port: number) => {
+    const closers: (() => void)[] = [];
+    let destroyed = false;
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    const socket: PreviewSocket = {
+      readableLength: 0,
+      writableLength: 0,
+      pause() {},
+      resume: () => resolve(),
+      destroy() {
+        destroyed = true;
+        reject(new Error("reset"));
+      },
+      end() {},
+      write: (_bytes, callback) => callback(),
+      on(event: "data" | "end" | "close" | "error", listener: (bytes: Uint8Array) => void) {
+        if (event === "close") closers.push(() => listener(new Uint8Array(0)));
+      },
+      once() {},
+    };
+    mux.open(socket, port);
+    promise.catch(() => {});
+    return {
+      ready: promise,
+      /** Closes the device's socket with no end: the mux sends RESET. */
+      abort: () => {
+        if (!destroyed) for (const closer of closers) closer();
+      },
+    };
+  };
+  return { open, refused };
+}
+
+test("a stream reset while its authorization waits gives its slot back and is never dialed", async () => {
+  const gate = Promise.withResolvers<void>();
+  const { port, state } = await echo();
+  const limits = { streamsPerDevice: 1, opensPerSecond: 1000, openBurst: 1000, pendingOpens: 10 };
+  const { host } = setup({ limits, scanGate: gate.promise });
+  const device = rawDevice(host);
+  const waiting = device.open(port);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  waiting.abort();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  gate.resolve();
+  // The one slot is free again: the next open is admitted and dialed.
+  await device.open(port).ready;
+  expect(state.connections).toBe(1);
+  expect(device.refused).toEqual([]);
+});
+
+test("turning the tunnel off reaches the device as a refusal before the connection closes", async () => {
+  const { port } = await echo();
+  const { tunnel, setEnabled, first } = setup();
+  const stream = await tunnel.open(port);
+  setEnabled(false);
+  await stream.closed;
+  await expect.poll(() => first.made[0]?.open).toBe(false);
+  // The device heard why: it reports the refusal at once instead of retrying the path.
+  expect(await code(tunnel.open(port))).toBe("tunnel_off");
+  expect(first.made).toHaveLength(1);
 });

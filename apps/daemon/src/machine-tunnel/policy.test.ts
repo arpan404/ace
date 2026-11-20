@@ -1,7 +1,13 @@
 import { expect, test } from "vitest";
-import { TunnelAdmission, tunnelAccess, visiblePorts } from "./policy.ts";
+import { TunnelAdmission, tunnelAccess, visiblePorts, type TunnelLimits } from "./policy.ts";
 
-const open = { enabled: true, operate: true, port: 3000, acePorts: new Set([7777]) };
+const open = { enabled: true, operate: true };
+const roomy: TunnelLimits = {
+  streamsPerDevice: 100,
+  opensPerSecond: 1000,
+  openBurst: 1000,
+  pendingOpens: 100,
+};
 
 test.each([
   [{ enabled: false, operate: true }, "tunnel_off"],
@@ -12,23 +18,16 @@ test.each([
   expect(tunnelAccess(facts)).toBe(expected);
 });
 
-test("a port an ace process listens on is refused whatever the device asks", () => {
-  const admission = new TunnelAdmission(() => 0);
-  expect(admission.admit("phone", "1", { ...open, port: 7777 })).toBe("tunnel_port_refused");
-  expect(admission.admit("phone", "2", open)).toBeUndefined();
-});
-
-test("a read-only device or a tunnel turned off is refused before ports or limits", () => {
-  const admission = new TunnelAdmission(() => 0);
-  expect(admission.admit("phone", "1", { ...open, port: 7777, operate: false })).toBe(
-    "tunnel_forbidden",
-  );
+test("a read-only device or a tunnel turned off is refused before any limit", () => {
+  const admission = new TunnelAdmission(() => 0, { ...roomy, openBurst: 1 });
+  expect(admission.admit("phone", "1", { ...open, operate: false })).toBe("tunnel_forbidden");
   expect(admission.admit("phone", "1", { ...open, enabled: false })).toBe("tunnel_off");
+  // Neither spent the device's one open.
+  expect(admission.admit("phone", "1", open)).toBeUndefined();
 });
 
 test("a device holds at most its stream limit, and a closed stream frees its slot", () => {
-  const limits = { streamsPerDevice: 2, opensPerSecond: 1000, openBurst: 1000 };
-  const admission = new TunnelAdmission(() => 0, limits);
+  const admission = new TunnelAdmission(() => 0, { ...roomy, streamsPerDevice: 2 });
   expect(admission.admit("phone", "a", open)).toBeUndefined();
   expect(admission.admit("phone", "b", open)).toBeUndefined();
   expect(admission.admit("phone", "c", open)).toBe("tunnel_limit");
@@ -41,8 +40,7 @@ test("a device holds at most its stream limit, and a closed stream frees its slo
 
 test("opens beyond the burst wait for the rate to refill", () => {
   let now = 0;
-  const limits = { streamsPerDevice: 100, opensPerSecond: 10, openBurst: 3 };
-  const admission = new TunnelAdmission(() => now, limits);
+  const admission = new TunnelAdmission(() => now, { ...roomy, opensPerSecond: 10, openBurst: 3 });
   const opened = [1, 2, 3, 4].map((n) => admission.admit("phone", `${n}`, open));
   expect(opened).toEqual([undefined, undefined, undefined, "tunnel_limit"]);
   now += 99;
@@ -52,9 +50,54 @@ test("opens beyond the burst wait for the rate to refill", () => {
   expect(admission.admit("phone", "7", open)).toBe("tunnel_limit");
 });
 
+test("every open is charged, even one refused for the stream limit", () => {
+  const admission = new TunnelAdmission(() => 0, {
+    ...roomy,
+    streamsPerDevice: 1,
+    openBurst: 3,
+  });
+  expect(admission.admit("phone", "a", open)).toBeUndefined();
+  expect(admission.admit("phone", "b", open)).toBe("tunnel_limit");
+  admission.release("phone", "a");
+  // Two opens were spent; the third is the last in the burst.
+  expect(admission.admit("phone", "c", open)).toBeUndefined();
+  admission.release("phone", "c");
+  expect(admission.admit("phone", "d", open)).toBe("tunnel_limit");
+});
+
+test("opening and closing one stream at a time never refills the bucket", () => {
+  const admission = new TunnelAdmission(() => 0, { ...roomy, openBurst: 5 });
+  const results: (string | undefined)[] = [];
+  for (let n = 0; n < 8; n++) {
+    results.push(admission.admit("phone", `${n}`, open));
+    admission.release("phone", `${n}`);
+  }
+  expect(results).toEqual([
+    ...Array.from({ length: 5 }, () => undefined),
+    "tunnel_limit",
+    "tunnel_limit",
+    "tunnel_limit",
+  ]);
+});
+
+test("opens waiting for authorization are bounded across every device", () => {
+  const admission = new TunnelAdmission(() => 0, { ...roomy, pendingOpens: 2 });
+  expect(admission.admit("phone", "a", open)).toBeUndefined();
+  expect(admission.admit("laptop", "a", open)).toBeUndefined();
+  expect(admission.admit("tablet", "a", open)).toBe("tunnel_limit");
+  expect(admission.pending()).toBe(2);
+  // An authorized stream stays open but no longer waits.
+  admission.authorized("phone", "a");
+  expect(admission.admit("tablet", "a", open)).toBeUndefined();
+  // A stream released while it waited stops waiting too.
+  admission.release("laptop", "a");
+  expect(admission.pending()).toBe(1);
+  expect(admission.holds("laptop", "a")).toBe(false);
+  expect(admission.holds("phone", "a")).toBe(true);
+});
+
 test("releasing a stream that was never admitted changes nothing", () => {
-  const limits = { streamsPerDevice: 1, opensPerSecond: 1000, openBurst: 1000 };
-  const admission = new TunnelAdmission(() => 0, limits);
+  const admission = new TunnelAdmission(() => 0, { ...roomy, streamsPerDevice: 1 });
   expect(admission.admit("phone", "a", open)).toBeUndefined();
   admission.release("phone", "refused");
   expect(admission.admit("phone", "b", open)).toBe("tunnel_limit");

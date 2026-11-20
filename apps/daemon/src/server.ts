@@ -247,11 +247,18 @@ export async function startServer(options: ServerOptions): Promise<{
     ).find((error) => error !== undefined);
   const remoteSockets = new Set<WebSocket>();
   const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
-  /** Every listener sockets come in on, for the ports the machine's tunnel refuses. */
-  const listeners = new Set<Server>();
+  // The machine's localhost for devices (ADR 0194): idle until a tunnel connection comes. It
+  // starts before any listener binds, so each one is held as ace's from its bind.
+  const tunnel = startMachineTunnel({
+    settings: options.settings,
+    otherPorts: () => [preview?.port, options.spade?.listener()?.port],
+    otherPids: () => [options.spade?.listener()?.pid, options.mediaPid?.()],
+    onRescope: (changed) => options.store.devices.onRescope(changed),
+    ...(options.log ? { log: options.log } : {}),
+  });
+  options.machineTunnel = tunnel;
   const attach = (listener: Server, isLocal: boolean) => {
-    listeners.add(listener);
-    listener.once("close", () => listeners.delete(listener));
+    tunnel.track(listener);
     return admitUpgrades(listener, isLocal, {
       wss: isLocal ? wss : remoteWss,
       allowedOrigins: access.allowedOrigins,
@@ -263,16 +270,6 @@ export async function startServer(options: ServerOptions): Promise<{
   };
   attach(local, true);
   if (remote) attach(remote, false);
-  // The machine's localhost for devices (ADR 0194): idle until a tunnel connection comes.
-  const tunnel = startMachineTunnel({
-    settings: options.settings,
-    listeners: () => listeners,
-    otherPorts: () => [preview?.port, options.spade?.listener()?.port],
-    otherPids: () => [options.spade?.listener()?.pid, options.mediaPid?.()],
-    onRescope: (changed) => options.store.devices.onRescope(changed),
-    ...(options.log ? { log: options.log } : {}),
-  });
-  options.machineTunnel = tunnel;
   const authenticated = new Map<MainSocket, SessionActor>();
   /** One owner for every deliberate close frame; state lives here, not in a module global. */
   const closer = createSocketCloser(runtime.delay);
