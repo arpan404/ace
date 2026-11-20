@@ -372,7 +372,13 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
                 });
                 engine.record(id, &stopped)?;
             } else {
-                reattach(engine, id, &events, &job, spade_core::contract::CONTRACT_CALL);
+                reattach(
+                    engine,
+                    id,
+                    &events,
+                    &job,
+                    spade_core::contract::CONTRACT_CALL,
+                );
             }
             continue;
         }

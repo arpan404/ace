@@ -257,7 +257,11 @@ fn a_contract_reads_with_its_schemas_and_the_effects_its_calls_may_use() {
         "examples": [{"input": {"from": "KTM"}, "output": {"fare": 182}}]
     });
     let read = reads(&with(watcher(), "contracts", json!([contract])));
-    assert!(read.unused.is_empty(), "contracts are read now: {:?}", read.unused);
+    assert!(
+        read.unused.is_empty(),
+        "contracts are read now: {:?}",
+        read.unused
+    );
     let [one] = read.contracts.as_slice() else {
         panic!("one contract: {:?}", read.contracts)
     };

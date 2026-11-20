@@ -263,9 +263,7 @@ fn object(
             .filter_map(|name| match name.as_str() {
                 Some(name) if properties.contains_key(name) => Some(name.to_owned()),
                 _ => {
-                    out.push(format!(
-                        "{at}.required names fields its properties have"
-                    ));
+                    out.push(format!("{at}.required names fields its properties have"));
                     None
                 }
             })
@@ -328,10 +326,7 @@ fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<String>) -> Optio
 }
 
 fn field_name(name: &str) -> bool {
-    (1..=64).contains(&name.len())
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    (1..=64).contains(&name.len()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 impl Schema {
@@ -416,7 +411,9 @@ impl Schema {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Object { .. } => "an object",
-            Self::String { one_of: Some(_), .. } => "one of its words",
+            Self::String {
+                one_of: Some(_), ..
+            } => "one of its words",
             Self::String { .. } => "text",
             Self::Number { integer: true, .. } => "a whole number",
             Self::Number { .. } => "a number",

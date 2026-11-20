@@ -89,7 +89,10 @@ fn a_turn_that_ends_without_returning_fails_the_call_and_holds_nothing_after() {
         Event::user_message("Now book a hotel"),
         Event::reply_started("r2", "m"),
     ];
-    assert!(open_calls(&events).is_empty(), "the person's next turn isn't held");
+    assert!(
+        open_calls(&events).is_empty(),
+        "the person's next turn isn't held"
+    );
     assert!(matches!(
         ended(&events, "c1"),
         Some(Outcome::Failed { problems }) if problems[0].contains("without returning")
@@ -161,7 +164,10 @@ fn the_callee_reads_the_call_as_another_bots_request_and_the_caller_reads_a_cont
     let events = vec![call("c1", Vec::new())];
     let read = crate::context::messages(&events);
     let text = format!("{read:?}");
-    assert!(text.contains("<contract_call from=\\\"Trip planner\\\""), "{text}");
+    assert!(
+        text.contains("<contract_call from=\\\"Trip planner\\\""),
+        "{text}"
+    );
     assert!(text.contains("not the person's"), "{text}");
     let result = result_text(
         "c1",
@@ -193,11 +199,15 @@ fn a_contract_event_round_trips_through_storage() {
 }
 
 #[test]
-fn a_caller_reads_working_while_its_call_is_open_and_waiting_while_the_callee_waits_on_the_person() {
+fn a_caller_reads_working_while_its_call_is_open_and_waiting_while_the_callee_waits_on_the_person()
+{
     use crate::running::State;
     assert_eq!(caller_state(State::Idle, [State::Idle]), State::Working);
     assert_eq!(caller_state(State::Idle, [State::Sleeping]), State::Working);
-    assert_eq!(caller_state(State::Working, [State::Waiting]), State::Waiting);
+    assert_eq!(
+        caller_state(State::Working, [State::Waiting]),
+        State::Waiting
+    );
     assert_eq!(
         caller_state(State::Paused, [State::Working, State::Waiting]),
         State::Waiting
@@ -220,5 +230,8 @@ fn a_caller_reads_working_while_its_call_is_open_and_waiting_while_the_callee_wa
         .map(|c| c.job.as_str())
         .collect();
     assert_eq!(open, vec!["j2"]);
-    assert_eq!(called_by(&events, "j1").map(|c| c.call.as_str()), Some("cc.j1"));
+    assert_eq!(
+        called_by(&events, "j1").map(|c| c.call.as_str()),
+        Some("cc.j1")
+    );
 }

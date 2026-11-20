@@ -112,7 +112,12 @@ pub fn read(value: Option<&Value>, declared: &[Effect], out: &mut Vec<String>) -
 
 const FIELDS: [&str; 6] = ["name", "summary", "input", "output", "effects", "examples"];
 
-fn contract(item: &Value, at: &str, declared: &[Effect], out: &mut Vec<String>) -> Option<Contract> {
+fn contract(
+    item: &Value,
+    at: &str,
+    declared: &[Effect],
+    out: &mut Vec<String>,
+) -> Option<Contract> {
     let Some(fields) = item.as_object() else {
         out.push(format!("{at} is an object"));
         return None;
@@ -161,7 +166,13 @@ fn contract(item: &Value, at: &str, declared: &[Effect], out: &mut Vec<String>) 
     let [Some((input, input_schema)), Some((output, output_schema))] = schemas else {
         return None;
     };
-    let examples = examples(fields.get("examples"), at, &input_schema, &output_schema, out);
+    let examples = examples(
+        fields.get("examples"),
+        at,
+        &input_schema,
+        &output_schema,
+        out,
+    );
     Some(Contract {
         name: name.to_owned(),
         summary: summary.to_owned(),
@@ -172,7 +183,12 @@ fn contract(item: &Value, at: &str, declared: &[Effect], out: &mut Vec<String>) 
     })
 }
 
-fn effects(value: Option<&Value>, at: &str, declared: &[Effect], out: &mut Vec<String>) -> Vec<Effect> {
+fn effects(
+    value: Option<&Value>,
+    at: &str,
+    declared: &[Effect],
+    out: &mut Vec<String>,
+) -> Vec<Effect> {
     let Some(value) = value else {
         return Vec::new();
     };
@@ -215,8 +231,13 @@ fn examples(
     let Some(value) = value else {
         return Vec::new();
     };
-    let Some(items) = value.as_array().filter(|items| items.len() <= MOST_EXAMPLES) else {
-        out.push(format!("{at}.examples is a list of at most {MOST_EXAMPLES}"));
+    let Some(items) = value
+        .as_array()
+        .filter(|items| items.len() <= MOST_EXAMPLES)
+    else {
+        out.push(format!(
+            "{at}.examples is a list of at most {MOST_EXAMPLES}"
+        ));
         return Vec::new();
     };
     let mut examples = Vec::new();

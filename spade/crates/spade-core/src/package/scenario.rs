@@ -44,6 +44,20 @@ pub struct Given {
     /// One of the package's schedule, event or webhook triggers fires, by name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger: Option<String>,
+    /// Another bot of the person's calls one of the package's contracts (ADR 0200 §7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<GivenCall>,
+}
+
+/// A contract call a scenario gives the bot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GivenCall {
+    pub contract: String,
+    pub input: Value,
+    /// The calling bot's name; "Another bot" when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
 }
 
 /// A tool call the scripted model makes.
@@ -109,6 +123,10 @@ pub struct Expect {
     /// Words the agent's reply contains, case aside.
     #[serde(default)]
     pub reply_contains: Vec<String>,
+    /// With `given.call`: fields the call's output holds, each with this value. The output is
+    /// always checked against the contract's schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<Value>,
 }
 
 /// `tests/<name>.json`, read.
@@ -144,13 +162,26 @@ pub fn read_scenario(text: &str, triggers: &[&str]) -> Result<Scenario, Vec<Stri
     if scenario.name.trim().is_empty() {
         problems.push("name says in a few words what the scenario shows".to_owned());
     }
-    match (&scenario.given.message, &scenario.given.trigger) {
-        (Some(message), None) if !message.trim().is_empty() => {}
-        (None, Some(trigger)) if triggers.contains(&trigger.as_str()) => {}
-        (None, Some(trigger)) => problems.push(format!(
+    let given = &scenario.given;
+    match (&given.message, &given.trigger, &given.call) {
+        (Some(message), None, None) if !message.trim().is_empty() => {}
+        (None, Some(trigger), None) if triggers.contains(&trigger.as_str()) => {}
+        (None, Some(trigger), None) => problems.push(format!(
             "given.trigger: {trigger:?} isn't one of the package's schedule, event or webhook triggers"
         )),
-        _ => problems.push("given is a message or a trigger, one of them".to_owned()),
+        (None, None, Some(_)) => {}
+        _ => problems.push("given is a message, a trigger or a call, one of them".to_owned()),
+    }
+    if scenario.expect.output.is_some() && given.call.is_none() {
+        problems.push("expect.output is for a scenario that gives the bot a call".to_owned());
+    }
+    if scenario
+        .expect
+        .output
+        .as_ref()
+        .is_some_and(|output| !output.is_object())
+    {
+        problems.push("expect.output names fields and their values".to_owned());
     }
     if scenario.model.is_empty() {
         problems.push("model has at least one step: what the model answers".to_owned());
@@ -203,6 +234,36 @@ fn tool_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
+/// What's wrong with a scenario's `given.call` against the package's contracts: one it doesn't
+/// publish, or input that doesn't fit.
+pub fn call_problems(scenario: &Scenario, contracts: &[super::contract::Contract]) -> Vec<String> {
+    let Some(call) = &scenario.given.call else {
+        return Vec::new();
+    };
+    match contracts.iter().find(|c| c.name == call.contract) {
+        None => vec![format!(
+            "given.call.contract: the package has no contract {:?}",
+            call.contract
+        )],
+        Some(contract) => contract
+            .misfit_input(&call.input)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| format!("given.call: {p}"))
+            .collect(),
+    }
+}
+
+/// What a contract call given to the bot came to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Returned {
+    /// Its output, which fit the contract's schema.
+    Output(Value),
+    /// It failed, with why.
+    Failed(Vec<String>),
+}
+
 /// How one call the model made ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -235,6 +296,9 @@ pub struct Observed {
     pub reply: String,
     /// The turn didn't end in a reply: why.
     pub ended: Option<String>,
+    /// With `given.call`: what the call came to, once it ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub returned: Option<Returned>,
 }
 
 /// What failed, in sentences; empty when the scenario passes.
@@ -316,7 +380,35 @@ pub fn check(scenario: &Scenario, observed: &Observed) -> Vec<String> {
             failures.push(format!("The reply doesn't say {words:?}"));
         }
     }
+    if scenario.given.call.is_some() {
+        failures.extend(returned_failures(expect, observed.returned.as_ref()));
+    }
     failures
+}
+
+/// What failed about a given call's answer: none came, it failed, or a field differs.
+fn returned_failures(expect: &Expect, returned: Option<&Returned>) -> Vec<String> {
+    let output = match returned {
+        None => {
+            return vec!["The call got no answer: the bot never used contract_return".to_owned()];
+        }
+        Some(Returned::Failed(problems)) => {
+            return vec![format!("The call failed: {}", problems.join("; "))];
+        }
+        Some(Returned::Output(output)) => output,
+    };
+    let wanted = expect.output.as_ref().and_then(Value::as_object);
+    wanted
+        .into_iter()
+        .flatten()
+        .filter(|(field, value)| output.get(field.as_str()) != Some(value))
+        .map(|(field, value)| {
+            format!(
+                "The output's {field} is {}, not {value}",
+                output.get(field.as_str()).unwrap_or(&Value::Null)
+            )
+        })
+        .collect()
 }
 
 fn contains(text: &str, words: &str) -> bool {

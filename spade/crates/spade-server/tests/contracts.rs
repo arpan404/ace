@@ -53,14 +53,13 @@ async fn world(
         .await?;
     assert_eq!(status, 201, "{planner}");
     let planner = text(&planner["agent"]["conversation"]);
-    let watcher_fake =
-        own_endpoint(&spade, "Watcher Net", watcher_scripts(&call_of(&planner, "p1"))).await?;
-    let (status, made) = spade
-        .post(
-            "/v1/agents",
-            install(),
-        )
-        .await?;
+    let watcher_fake = own_endpoint(
+        &spade,
+        "Watcher Net",
+        watcher_scripts(&call_of(&planner, "p1")),
+    )
+    .await?;
+    let (status, made) = spade.post("/v1/agents", install()).await?;
     assert_eq!(status, 201, "{made}");
     let watcher_id = text(&made["agent"]["id"]);
     let (status, body) = spade
@@ -83,7 +82,10 @@ async fn world(
 async fn ask_planner(world: &World, _job: &str) -> Result {
     world
         .spade
-        .say(&world.planner, "What's the cheapest fare KTM to DEL in January?")
+        .say(
+            &world.planner,
+            "What's the cheapest fare KTM to DEL in January?",
+        )
         .await
 }
 
@@ -106,7 +108,11 @@ async fn result(world: &World) -> Result<Value> {
 #[tokio::test]
 async fn a_call_returns_typed_output_and_the_callee_reads_it_as_another_bots_request() -> Result {
     let world = world(
-        vec![calls("p1"), Script::reply("Asked."), Script::reply("It's $182.")],
+        vec![
+            calls("p1"),
+            Script::reply("Asked."),
+            Script::reply("It's $182."),
+        ],
         |call| {
             vec![
                 returns("w1", call, json!({ "fare": 182, "currency": "USD" })),
@@ -139,9 +145,15 @@ async fn a_call_returns_typed_output_and_the_callee_reads_it_as_another_bots_req
     let delivered = calls_delivered(&theirs);
     assert_eq!(delivered.len(), 1);
     assert_eq!(delivered[0]["from_agent"]["name"], "Trip planner");
-    assert_eq!(delivered[0]["from_agent"]["contract"]["call"], call.as_str());
+    assert_eq!(
+        delivered[0]["from_agent"]["contract"]["call"],
+        call.as_str()
+    );
     let told = world.fakes[2].seen()[0].body["messages"].to_string();
-    assert!(told.contains("<contract_call from=\\\"Trip planner\\\""), "{told}");
+    assert!(
+        told.contains("<contract_call from=\\\"Trip planner\\\""),
+        "{told}"
+    );
     assert!(told.contains("not the person's"), "{told}");
     let ended = of_type(&theirs, "contract_ended");
     assert_eq!(ended[0]["status"], "returned");
@@ -152,7 +164,11 @@ async fn a_call_returns_typed_output_and_the_callee_reads_it_as_another_bots_req
 async fn output_that_doesnt_fit_goes_back_to_the_callee_twice_then_the_call_fails() -> Result {
     let wrong = || json!({ "fare": "cheap", "currency": "USD" });
     let world = world(
-        vec![calls("p1"), Script::reply("Asked."), Script::reply("It failed.")],
+        vec![
+            calls("p1"),
+            Script::reply("Asked."),
+            Script::reply("It failed."),
+        ],
         |call| {
             vec![
                 returns("w1", call, wrong()),
@@ -184,7 +200,8 @@ async fn output_that_doesnt_fit_goes_back_to_the_callee_twice_then_the_call_fail
 #[tokio::test]
 async fn the_callee_cant_use_its_own_effects_outside_what_the_contract_allows() -> Result {
     let post = FakeTool::new("report_post", Risk::Write, "posted").declares(Effect::Publish);
-    let fetch = FakeTool::new("fares_fetch", Risk::Read, "KTM-DEL 182 USD").declares(Effect::Network);
+    let fetch =
+        FakeTool::new("fares_fetch", Risk::Read, "KTM-DEL 182 USD").declares(Effect::Network);
     let posted = post.calls();
     let fetched = fetch.calls();
     let world = world(
@@ -226,8 +243,14 @@ async fn the_callee_cant_use_its_own_effects_outside_what_the_contract_allows() 
         "{}",
         refused("w2")
     );
-    assert!(posted.lock().map(|c| c.is_empty()).unwrap_or(false), "never ran");
-    assert!(fetched.lock().map(|c| c.is_empty()).unwrap_or(false), "never ran");
+    assert!(
+        posted.lock().map(|c| c.is_empty()).unwrap_or(false),
+        "never ran"
+    );
+    assert!(
+        fetched.lock().map(|c| c.is_empty()).unwrap_or(false),
+        "never ran"
+    );
     Ok(())
 }
 
@@ -244,10 +267,16 @@ async fn stop_on_the_caller_stops_the_callees_turn_for_the_call() -> Result {
         .spade
         .wait_for(&world.watcher, "reply_started")
         .await?;
-    world.spade.wait_for(&world.planner, "reply_finished").await?;
+    world
+        .spade
+        .wait_for(&world.planner, "reply_finished")
+        .await?;
     let (status, body) = world
         .spade
-        .post(&format!("/v1/conversations/{}/stop", world.planner), json!({}))
+        .post(
+            &format!("/v1/conversations/{}/stop", world.planner),
+            json!({}),
+        )
         .await?;
     assert!(status < 300, "{body}");
     let theirs = world
@@ -263,7 +292,11 @@ async fn stop_on_the_caller_stops_the_callees_turn_for_the_call() -> Result {
 #[tokio::test]
 async fn stop_on_the_callee_fails_the_call_as_stopped() -> Result {
     let world = world(
-        vec![calls("p1"), Script::reply("Asked."), Script::reply("It was stopped.")],
+        vec![
+            calls("p1"),
+            Script::reply("Asked."),
+            Script::reply("It was stopped."),
+        ],
         |_| vec![Script::reply("Looking…").held(Duration::from_secs(60))],
         Vec::new(),
     )
@@ -275,7 +308,10 @@ async fn stop_on_the_callee_fails_the_call_as_stopped() -> Result {
         .await?;
     let (status, body) = world
         .spade
-        .post(&format!("/v1/conversations/{}/stop", world.watcher), json!({}))
+        .post(
+            &format!("/v1/conversations/{}/stop", world.watcher),
+            json!({}),
+        )
         .await?;
     assert!(status < 300, "{body}");
     let done = result(&world).await?;
@@ -290,7 +326,11 @@ async fn stop_on_the_callee_fails_the_call_as_stopped() -> Result {
 #[tokio::test]
 async fn a_call_is_delivered_once_and_answered_once_across_a_restart_of_both_sides() -> Result {
     let world = world(
-        vec![calls("p1"), Script::reply("Asked."), Script::reply("It's $182.")],
+        vec![
+            calls("p1"),
+            Script::reply("Asked."),
+            Script::reply("It's $182."),
+        ],
         |call| {
             vec![
                 Script::reply("Looking…").held(Duration::from_secs(60)),
@@ -307,7 +347,10 @@ async fn a_call_is_delivered_once_and_answered_once_across_a_restart_of_both_sid
         .spade
         .wait_for(&world.watcher, "reply_started")
         .await?;
-    world.spade.wait_for(&world.planner, "reply_finished").await?;
+    world
+        .spade
+        .wait_for(&world.planner, "reply_finished")
+        .await?;
     let World {
         spade,
         planner,
@@ -333,7 +376,10 @@ async fn a_call_is_delivered_once_and_answered_once_across_a_restart_of_both_sid
     let theirs = spade.events(&watcher).await?;
     assert_eq!(calls_delivered(&theirs).len(), 1, "delivered once");
     assert_eq!(of_type(&theirs, "contract_ended").len(), 1);
-    assert!(fakes[2].seen().len() >= 2, "the watcher carried on after the restart");
+    assert!(
+        fakes[2].seen().len() >= 2,
+        "the watcher carried on after the restart"
+    );
     Ok(())
 }
 
@@ -385,7 +431,11 @@ async fn a_bot_whose_calls_are_turned_off_takes_none_and_lists_none() -> Result 
 async fn a_caller_reads_waiting_while_the_callee_waits_on_the_person_for_its_call() -> Result {
     // The watcher asks the person something mid-call, and waits on them.
     let world = world(
-        vec![calls("p1"), Script::reply("Asked."), Script::reply("It's $182.")],
+        vec![
+            calls("p1"),
+            Script::reply("Asked."),
+            Script::reply("It's $182."),
+        ],
         |call| {
             vec![
                 Script::reply("").call("w1", "ask_user", json!({ "question": "Window or aisle?" })),
@@ -401,7 +451,10 @@ async fn a_caller_reads_waiting_while_the_callee_waits_on_the_person_for_its_cal
         .spade
         .wait_for(&world.watcher, "question_asked")
         .await?;
-    world.spade.wait_for(&world.planner, "reply_finished").await?;
+    world
+        .spade
+        .wait_for(&world.planner, "reply_finished")
+        .await?;
     let state = |agents: &Value, name: &str| {
         agents["agents"]
             .as_array()

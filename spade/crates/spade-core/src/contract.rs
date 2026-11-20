@@ -200,7 +200,11 @@ pub fn ended(events: &[Event], call: &str) -> Option<Outcome> {
                 },
             });
         }
-        let failed = |why: String| Some(Outcome::Failed { problems: vec![why] });
+        let failed = |why: String| {
+            Some(Outcome::Failed {
+                problems: vec![why],
+            })
+        };
         match event {
             Event::Known(Known::ReplyStopped { .. }) => {
                 return Some(Outcome::Stopped {

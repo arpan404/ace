@@ -62,7 +62,11 @@ impl Engine {
         };
         let mut found = Vec::new();
         for machine in machines.iter().filter(|m| m.online) {
-            for mut entry in self.contracts_on(&machine.host_id).await.unwrap_or_default() {
+            for mut entry in self
+                .contracts_on(&machine.host_id)
+                .await
+                .unwrap_or_default()
+            {
                 entry["machine"] = json!(machine.name);
                 found.push(entry);
             }
@@ -123,7 +127,10 @@ impl Engine {
                         problems.join("\n- ")
                     ));
                 }
-                (entry["bot_id"].as_str().unwrap_or(asked.bot).to_owned(), contract)
+                (
+                    entry["bot_id"].as_str().unwrap_or(asked.bot).to_owned(),
+                    contract,
+                )
             }
             // An id works while the machine is away; its name is learned when it answers.
             None => (asked.bot.to_owned(), None),
@@ -196,7 +203,11 @@ impl Engine {
     }
 
     /// `contract_call`: delivers a call from another machine once, by its key.
-    pub(super) fn inbox_contract_call(self: &Arc<Self>, sender: &Sender, body: &Value) -> InboxAnswer {
+    pub(super) fn inbox_contract_call(
+        self: &Arc<Self>,
+        sender: &Sender,
+        body: &Value,
+    ) -> InboxAnswer {
         let key = body["key"].as_str().unwrap_or("");
         if !is_call(key) || key.len() > 160 {
             return refuse(400, "a call's key is cc. and at most 160 characters");
@@ -207,9 +218,15 @@ impl Engine {
         let Some(from) = body["from"].as_object() else {
             return refuse(400, "a call names the bot it comes from");
         };
-        let depth = body["depth"].as_u64().unwrap_or(1).clamp(1, u64::from(MOST_HOPS) + 1) as u32;
+        let depth = body["depth"]
+            .as_u64()
+            .unwrap_or(1)
+            .clamp(1, u64::from(MOST_HOPS) + 1) as u32;
         if depth > MOST_HOPS {
-            return refuse(409, &format!("Refused: a chain of more than {MOST_HOPS} calls between bots."));
+            return refuse(
+                409,
+                &format!("Refused: a chain of more than {MOST_HOPS} calls between bots."),
+            );
         }
         let to = body["to"].as_str().unwrap_or("");
         let agent = match self.bots_for("") {
@@ -226,15 +243,25 @@ impl Engine {
             return refuse(404, "no such bot on this machine");
         };
         if !self.takes_calls(&agent.id) {
-            return refuse(403, &format!("{} takes no calls: the person turned them off.", agent.name));
+            return refuse(
+                403,
+                &format!("{} takes no calls: the person turned them off.", agent.name),
+            );
         }
         let name = body["contract"].as_str().unwrap_or("");
-        let Some(contract) = self.contracts_of(&agent.id).into_iter().find(|c| c.name == name) else {
+        let Some(contract) = self
+            .contracts_of(&agent.id)
+            .into_iter()
+            .find(|c| c.name == name)
+        else {
             return refuse(404, &format!("{} has no contract {name:?}", agent.name));
         };
         let input = body.get("input").cloned().unwrap_or(Value::Null);
         if let Some(problems) = contract.misfit_input(&input) {
-            return refuse(400, &format!("The input doesn't fit {name}: {}", problems.join("; ")));
+            return refuse(
+                400,
+                &format!("The input doesn't fit {name}: {}", problems.join("; ")),
+            );
         }
         let from = FromAgent {
             id: short(from.get("id"), 128, "bot"),
@@ -265,7 +292,10 @@ impl Engine {
         match self.deliver_as(&agent.conversation, &call_message(from), Some(delivery)) {
             Ok(Delivered::Stored(_)) => (200, json!({ "status": "accepted" })),
             Ok(Delivered::Duplicate) => (200, json!({ "status": "duplicate" })),
-            Ok(Delivered::OverLimit) => refuse(429, "that machine sent too many asks today; try again tomorrow"),
+            Ok(Delivered::OverLimit) => refuse(
+                429,
+                "that machine sent too many asks today; try again tomorrow",
+            ),
             Err(error) => refuse(409, &format!("not delivered: {error}")),
         }
     }
@@ -278,7 +308,10 @@ impl Engine {
         };
         let wait = body["wait_ms"].as_u64().unwrap_or(0).min(LONGEST_WAIT_MS);
         let Ok(Some(agent)) = self.store.agent(&entry.agent_id) else {
-            return (200, json!({ "status": "failed", "problems": ["The bot was deleted."], "text": "The bot was deleted." }));
+            return (
+                200,
+                json!({ "status": "failed", "problems": ["The bot was deleted."], "text": "The bot was deleted." }),
+            );
         };
         let mut frames = self.live(&agent.conversation).frames.subscribe();
         let until = tokio::time::Instant::now() + Duration::from_millis(wait);
@@ -333,15 +366,28 @@ fn outcome_of(entry: Option<&OutboxEntry>) -> Outcome {
             untrusted: answer["untrusted"].as_bool() != Some(false),
         },
         Some("stopped" | "withdrawn") => Outcome::Stopped {
-            why: if text.is_empty() { "It was stopped before it answered.".to_owned() } else { text },
+            why: if text.is_empty() {
+                "It was stopped before it answered.".to_owned()
+            } else {
+                text
+            },
         },
         _ => {
             let problems: Vec<String> = answer["problems"]
                 .as_array()
-                .map(|p| p.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .map(|p| {
+                    p.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
                 .filter(|p: &Vec<String>| !p.is_empty())
                 .unwrap_or_else(|| {
-                    vec![if text.is_empty() { "The bot there could not answer.".to_owned() } else { text }]
+                    vec![if text.is_empty() {
+                        "The bot there could not answer.".to_owned()
+                    } else {
+                        text
+                    }]
                 });
             Outcome::Failed { problems }
         }

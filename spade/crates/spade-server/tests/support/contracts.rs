@@ -87,7 +87,6 @@ pub async fn own_endpoint(spade: &Spade, name: &str, scripts: Vec<Script>) -> Re
     Ok(fake)
 }
 
-
 pub fn of_type<'a>(events: &'a [Value], kind: &str) -> Vec<&'a Value> {
     events.iter().filter(|e| e["type"] == kind).collect()
 }

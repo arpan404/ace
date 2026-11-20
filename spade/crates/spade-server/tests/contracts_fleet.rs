@@ -104,7 +104,10 @@ async fn a_call_to_another_machine_is_listed_delivered_once_across_its_restart_a
     );
 
     // The studio restarts while its watcher works on the call; the call carries on there.
-    studio.engine.pause_for_stop(Duration::from_millis(200)).await;
+    studio
+        .engine
+        .pause_for_stop(Duration::from_millis(200))
+        .await;
     let studio = support::fleet::restart(&fleet, "host-studio", studio).await?;
 
     let events = laptop.wait_for(&planner, "job_finished").await?;
@@ -128,7 +131,10 @@ async fn a_call_to_another_machine_is_listed_delivered_once_across_its_restart_a
     assert_eq!(delivered[0]["from_agent"]["machine"], "Laptop");
     assert_eq!(delivered[0]["from_agent"]["name"], "Trip planner");
     assert_eq!(of_type(&theirs, "contract_ended").len(), 1);
-    assert!(watcher_fake.seen().len() >= 2, "it carried on after the restart");
+    assert!(
+        watcher_fake.seen().len() >= 2,
+        "it carried on after the restart"
+    );
     Ok(())
 }
 

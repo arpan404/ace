@@ -65,10 +65,14 @@ impl Engine {
             // Contract calls (ADR 0200 §7) ride on the same keys, answers and stops.
             Some("contracts") => self.inbox_contracts(),
             Some("contract_call") => self.inbox_contract_call(sender, body),
-            Some("answer") if super::contracts_remote::is_call(body["key"].as_str().unwrap_or("")) => {
+            Some("answer")
+                if super::contracts_remote::is_call(body["key"].as_str().unwrap_or("")) =>
+            {
                 self.inbox_call_answer(sender, body).await
             }
-            Some("stop") if super::contracts_remote::is_call(body["key"].as_str().unwrap_or("")) => {
+            Some("stop")
+                if super::contracts_remote::is_call(body["key"].as_str().unwrap_or("")) =>
+            {
                 self.inbox_call_stop(sender, body)
             }
             Some("answer") => self.inbox_answer(sender, body).await,

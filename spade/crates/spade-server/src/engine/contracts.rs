@@ -72,7 +72,10 @@ fn answers(entry: &Value, need: &[String]) -> bool {
     }
     let text = format!(
         "{} {} {}",
-        entry["contract"].as_str().unwrap_or_default().replace('_', " "),
+        entry["contract"]
+            .as_str()
+            .unwrap_or_default()
+            .replace('_', " "),
         entry["summary"].as_str().unwrap_or_default(),
         entry["bot"].as_str().unwrap_or_default()
     )
@@ -186,28 +189,10 @@ impl Engine {
             Ok(target) => target,
             Err(why) => return refused(why),
         };
-        if !self.takes_calls(&target.id) {
-            return refused(format!(
-                "{} takes no calls: the person turned them off.",
-                target.name
-            ));
-        }
-        let Some(contract) = self
-            .contracts_of(&target.id)
-            .into_iter()
-            .find(|c| c.name == name)
-        else {
-            return refused(format!(
-                "{} has no contract {name:?}; contracts_find lists what it offers.",
-                target.name
-            ));
+        let contract = match self.callable(&target, &name, &input) {
+            Ok(contract) => contract,
+            Err(why) => return refused(why),
         };
-        if let Some(problems) = contract.misfit_input(&input) {
-            return refused(format!(
-                "The input doesn't fit {name}:\n- {}",
-                problems.join("\n- ")
-            ));
-        }
         let called = Called {
             job,
             call: call.clone(),
@@ -220,9 +205,61 @@ impl Engine {
         if let Err(error) = self.note_called(caller, called) {
             return refused(format!("The call was not stored: {error}"));
         }
+        // Subscribed first, so its end can't slip by between delivering and listening.
+        let frames = self.live(&target.conversation).frames.subscribe();
+        if let Err(error) = self.deliver_call(&me, &target, &call, &contract, input, depth) {
+            return refused(format!("The call was not delivered: {error}"));
+        }
+        let outcome = self.wait_call(&target, &call, frames).await;
+        finished(&call, &target.name, &contract, outcome)
+    }
+
+    /// The contract `name` of `target` that takes `input`, or why a call to it can't start.
+    pub(crate) fn callable(
+        &self,
+        target: &Agent,
+        name: &str,
+        input: &Value,
+    ) -> Result<Contract, String> {
+        if !self.takes_calls(&target.id) {
+            return Err(format!(
+                "{} takes no calls: the person turned them off.",
+                target.name
+            ));
+        }
+        let Some(contract) = self
+            .contracts_of(&target.id)
+            .into_iter()
+            .find(|c| c.name == name)
+        else {
+            return Err(format!(
+                "{} has no contract {name:?}; contracts_find lists what it offers.",
+                target.name
+            ));
+        };
+        match contract.misfit_input(input) {
+            Some(problems) => Err(format!(
+                "The input doesn't fit {name}:\n- {}",
+                problems.join("\n- ")
+            )),
+            None => Ok(contract),
+        }
+    }
+
+    /// Delivers call `call` from bot `me` to `target`, once: as a message from `me`, never the
+    /// person's words.
+    pub(crate) fn deliver_call(
+        self: &Arc<Self>,
+        me: &Agent,
+        target: &Agent,
+        call: &str,
+        contract: &Contract,
+        input: Value,
+        depth: u32,
+    ) -> Result<(), StoreError> {
         let request = Request {
-            call: call.clone(),
-            contract: name.clone(),
+            call: call.to_owned(),
+            contract: contract.name.clone(),
             input,
             effects: contract.effects.clone(),
         };
@@ -233,13 +270,7 @@ impl Engine {
             machine: None,
             contract: Some(Box::new(request)),
         };
-        // Subscribed first, so its end can't slip by between delivering and listening.
-        let frames = self.live(&target.conversation).frames.subscribe();
-        if let Err(error) = self.deliver(&target.conversation, &call_message(from)) {
-            return refused(format!("The call was not delivered: {error}"));
-        }
-        let outcome = self.wait_call(&target, &call, frames).await;
-        finished(&call, &target.name, &contract, outcome)
+        self.deliver(&target.conversation, &call_message(from))
     }
 
     /// Stores `contract_called` in the caller's conversation, once per call.
@@ -249,7 +280,10 @@ impl Engine {
         if contract::called_by(&events, &called.job).is_some() {
             return Ok(());
         }
-        self.append(caller, &Event::Known(Known::ContractCalled(Box::new(called))))?;
+        self.append(
+            caller,
+            &Event::Known(Known::ContractCalled(Box::new(called))),
+        )?;
         Ok(())
     }
 
@@ -412,7 +446,10 @@ impl Engine {
 
     /// The ceilings an open contract call holds `conversation` to: the contract's effects for
     /// each call open in it, refused in the contract's name.
-    pub(crate) fn call_ceilings(&self, conversation: &str) -> Vec<(String, Vec<spade_core::effect::Effect>)> {
+    pub(crate) fn call_ceilings(
+        &self,
+        conversation: &str,
+    ) -> Vec<(String, Vec<spade_core::effect::Effect>)> {
         let Ok(events) = self.load(conversation) else {
             return Vec::new();
         };
@@ -426,7 +463,6 @@ impl Engine {
             })
             .collect()
     }
-
 }
 
 /// The message that delivers a call: from the calling bot, its input as the text clients show.
