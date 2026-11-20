@@ -109,8 +109,10 @@ impl Tool for ContractReturn {
                 },
                 "required": ["call", "output"]
             }),
-            // It answers a call: the caller treats what it carries as another bot's data.
-            Risk::Memory,
+            // It answers the calling bot, as a reply answers the person: nothing leaves the
+            // person's bots, and the caller treats what it carries as another bot's data,
+            // untrusted when this bot read anything untrusted during the call.
+            Risk::Read,
             false,
         )
     }
