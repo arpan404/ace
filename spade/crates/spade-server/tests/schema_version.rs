@@ -18,7 +18,7 @@ fn the_binary_reports_the_schema_its_store_migrates_a_new_database_to() -> Resul
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("spade.sqlite");
     drop(Store::open(&path)?);
-    let connection = rusqlite::Connection::open(&path)?;
+    let connection = spade_store::Store::connect(&path)?;
     let stored: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     assert_eq!(reported, stored);
     assert!(reported > 0);

@@ -247,37 +247,35 @@ impl Engine {
             if self.deleting(caller) {
                 return Err("Not made: the person is deleting this bot.".to_owned());
             }
-            self.store
-                .create_agent(
-                    NewAgent {
-                        id: &id,
-                        kind: super::BOT,
-                        name: &name,
-                        task: &task,
-                        avatar: &avatar,
-                        model: &model,
-                        conversation: &conversation,
-                    },
-                    &first,
-                    self.now_ms(),
-                )
-                .map_err(|e| format!("Spade could not make it: {e}"))?;
+            // Who made it and the maker's note go in the bot's own transaction: the note is how
+            // a rerun of this call finds the bot, and who made it is what lets it be undone.
             let by = json!({ "id": me.id, "name": me.name, "apps": apps });
-            if let Err(error) = self
-                .store
-                .set_setting(&made_by_key(&id), Some(&by.to_string()))
-            {
-                tracing::warn!(%error, "who made a bot was not kept");
-            }
             let note = Event::Known(Known::BotMade {
                 bot: id.clone(),
                 name: name.clone(),
                 task: task.clone(),
                 call: key.to_owned(),
             });
-            if let Err(error) = self.append(caller, &note) {
-                tracing::warn!(%error, "a made bot was not noted in its maker's conversation");
-            }
+            let stored = self.store.create_made_agent(
+                NewAgent {
+                    id: &id,
+                    kind: super::BOT,
+                    name: &name,
+                    task: &task,
+                    avatar: &avatar,
+                    model: &model,
+                    conversation: &conversation,
+                },
+                &first,
+                (&made_by_key(&id), &by.to_string()),
+                caller,
+                &note,
+                self.now_ms(),
+            );
+            // Dropped whether or not the write succeeded: a failed write may still have landed.
+            self.forget_activity(caller);
+            let stored = stored.map_err(|e| format!("Spade could not make it: {e}"))?;
+            self.publish_stored(caller, &stored);
         }
         Ok(Made { id, name })
     }
