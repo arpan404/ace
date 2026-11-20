@@ -9,8 +9,9 @@
 //! the way out, and a frame that cannot be encoded is replaced with one that can.
 
 use std::collections::VecDeque;
-use std::io::ErrorKind;
+use std::io::{BufWriter, ErrorKind, Write as _};
 
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use files_wire::{EventPayload, Message, encode, encode_body};
@@ -104,29 +105,51 @@ impl Out {
     }
 }
 
+/// Bytes of frames the writer gathers before it writes them out, when frames arrive faster than
+/// one at a time.
+const WRITE_BUFFER: usize = 64 * 1024;
+
 /// Write frames until the dispatcher drops its handle.
+///
+/// Frames are gathered in a buffer and written whenever the queue runs empty (or the buffer
+/// fills), so a frame never waits behind an idle queue, and a search streaming a hundred thousand
+/// files costs a write per buffer rather than one per file.
 fn write_stdout(mut items: Receiver<Item>) {
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock();
+    let mut stdout = BufWriter::with_capacity(WRITE_BUFFER, std::io::stdout().lock());
     // Events split to fit a frame go here and are written before anything newer, so a batch keeps
     // its order.
     let mut again = VecDeque::new();
     loop {
         let item = match again.pop_front() {
             Some(item) => item,
-            None => match items.blocking_recv() {
-                Some(item) => item,
-                None => return,
+            None => match items.try_recv() {
+                Ok(item) => item,
+                Err(TryRecvError::Disconnected) => {
+                    stopped(stdout.flush());
+                    return;
+                }
+                Err(TryRecvError::Empty) => {
+                    stopped(stdout.flush());
+                    match items.blocking_recv() {
+                        Some(item) => item,
+                        None => return,
+                    }
+                }
             },
         };
-        match write_item(&mut stdout, item, &mut again) {
-            Ok(()) => {}
-            // The daemon closed stdout: it is gone, and so are we.
-            Err(error) if error.kind() == ErrorKind::BrokenPipe => std::process::exit(0),
-            Err(error) => {
-                eprintln!("ace-files: cannot write stdout: {error}");
-                std::process::exit(1);
-            }
+        stopped(write_item(&mut stdout, item, &mut again));
+    }
+}
+
+/// Ends the process when stdout can no longer be written.
+fn stopped(result: std::io::Result<()>) {
+    match result {
+        Ok(()) => {}
+        // The daemon closed stdout: it is gone, and so are we.
+        Err(error) if error.kind() == ErrorKind::BrokenPipe => std::process::exit(0),
+        Err(error) => {
+            eprintln!("ace-files: cannot write stdout: {error}");
+            std::process::exit(1);
         }
     }
 }
@@ -160,10 +183,9 @@ fn write_item(
     }
 }
 
-/// One frame to stdout, flushed so the daemon sees it now.
+/// One frame into the writer's buffer; [`write_stdout`] writes it out once the queue is empty.
 fn write_frame(stdout: &mut impl std::io::Write, frame: &[u8]) -> std::io::Result<()> {
-    stdout.write_all(frame)?;
-    stdout.flush()
+    stdout.write_all(frame)
 }
 
 /// Replace a message that does not fit in a frame with the closest thing that does.
