@@ -100,15 +100,16 @@ describe("the edit calls attribution reads", () => {
   });
 });
 
+const call = (path: string, at: number) => ({
+  threadId: "t1",
+  threadTitle: "",
+  agent: "Claude Code",
+  path,
+  at,
+});
+const minute = 60_000;
+
 describe("explorer rows' marks", () => {
-  const call = (path: string, at: number) => ({
-    threadId: "t1",
-    threadTitle: "",
-    agent: "Claude Code",
-    path,
-    at,
-  });
-  const minute = 60_000;
   const base = {
     checkout: "/repo",
     threadId: "t1",

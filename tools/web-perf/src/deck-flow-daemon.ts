@@ -62,7 +62,7 @@ process.stdin.once("close", () => {
 });
 
 /** One command, sent as any client sends it; the thread it created. */
-async function command(url: string, token: string, payload: CommandPayload): Promise<string> {
+async function command(url: string, secret: string, payload: CommandPayload): Promise<string> {
   const socket = new WebSocket(url);
   const id = randomUUID();
   try {
@@ -80,7 +80,7 @@ async function command(url: string, token: string, payload: CommandPayload): Pro
       });
     });
     const deviceId = "deck-flow";
-    socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, deviceId, token }));
+    socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, deviceId, token: secret }));
     socket.send(JSON.stringify({ type: "command", command: { id, deviceId, payload } }));
     return await result;
   } finally {

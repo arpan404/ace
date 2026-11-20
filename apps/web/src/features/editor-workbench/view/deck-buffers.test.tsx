@@ -49,10 +49,11 @@ test("a change nobody can be named for says the file changed on disk", async () 
   expect(screen.getByText("This file changed on disk.")).toBeTruthy();
 });
 
+const renderCompare = ({ path }: { path: string }) => (
+  <div role="region" aria-label={`Compare ${path}`} />
+);
+
 test("Compare shows the host's diff in place of the editor until the change is answered", async () => {
-  const renderCompare = ({ path }: { path: string }) => (
-    <div role="region" aria-label={`Compare ${path}`} />
-  );
   const deck = await mountDeck(one(), { author: claude, overrides: { renderCompare } });
   deck.edit("src/a.ts", "mine");
   await deck.changeOnDisk("src/a.ts", "theirs\n");

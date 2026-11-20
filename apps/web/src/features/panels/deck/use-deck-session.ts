@@ -132,12 +132,12 @@ export function useDeckSession(
     const seen = firstSeen.current;
     const now = Date.now();
     const agent = provider ? providerDisplayName(provider) : "The agent";
-    const calls = editCallsOf(turns, { threadId, threadTitle: "", agent }, (id) => {
+    const reported = editCallsOf(turns, { threadId, threadTitle: "", agent }, (id) => {
       if (!seen.has(id)) seen.set(id, now);
       return seen.get(id) ?? now;
     });
-    setEditCalls(threadId, { calls, checkout });
-    setCalls(calls);
+    setEditCalls(threadId, { calls: reported, checkout });
+    setCalls(reported);
   }, [turns, checkout, provider, threadId]);
   useEffect(() => () => setEditCalls(threadId, undefined), [threadId]);
 
@@ -194,9 +194,9 @@ export function useDeckSession(
     editedNow.current = edited;
   }, [edited]);
   const see = useCallback((seen: Iterable<string>) => {
-    const paths = [...seen];
-    setChanges((current) => seeChanges(current, paths));
-    const marked = paths.filter((path) => editedNow.current.has(path));
+    const shownPaths = [...seen];
+    setChanges((current) => seeChanges(current, shownPaths));
+    const marked = shownPaths.filter((path) => editedNow.current.has(path));
     if (marked.length === 0) return;
     const at = Date.now();
     setLooked((current) => {
