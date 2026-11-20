@@ -118,6 +118,7 @@ fn other_bots_lines_make_the_context_untrusted_but_the_persons_and_own_do_not() 
             run: "r0".to_owned(),
             text: text.to_owned(),
             from,
+            thread: None,
         })
     };
     let own = vec![message(None, "hi"), message(Some(bot("me")), "hello")];
@@ -169,4 +170,73 @@ fn a_reply_to_a_group_alone_is_the_groups_but_one_that_also_answers_the_person_i
     let answering = answering_replies(&events);
     assert_eq!(answering.len(), 1);
     assert!(answering.contains("for-group"));
+}
+
+fn posted(run: &str, from: Option<&str>, text: &str) -> Event {
+    Event::Known(Known::GroupMessage {
+        run: run.to_owned(),
+        text: text.to_owned(),
+        from: from.map(bot),
+        thread: None,
+    })
+}
+
+fn answered(run: &str, ask: &str, to: &str, outcome: &str, detail: Option<&str>) -> Event {
+    Event::Known(Known::GroupAnswered {
+        run: run.to_owned(),
+        ask: ask.to_owned(),
+        to: bot(to),
+        outcome: outcome.to_owned(),
+        detail: detail.map(str::to_owned),
+    })
+}
+
+#[test]
+fn a_runs_view_holds_its_bots_messages_in_order_and_its_open_asks_only() {
+    let events = vec![
+        posted("r0", None, "earlier"),
+        posted("r0", Some("a"), "an earlier answer"),
+        posted("r1", None, "What is X?"),
+        asked_by("r1", "k1", None, "a"),
+        asked_by("r1", "k2", Some("a"), "b"),
+        answered("r1", "k2", "b", "answered", None),
+        posted("r1", Some("b"), "X is 42."),
+        asked("r2", "k3"),
+    ];
+    let view = run_view(&events, "r1");
+    assert_eq!(view.replies, vec![(bot("b"), "X is 42.".to_owned())]);
+    assert_eq!(
+        view.open.iter().map(|o| o.ask.as_str()).collect::<Vec<_>>(),
+        vec!["k1"]
+    );
+    assert!(view.asked && !view.stopped);
+
+    let mut done = events.clone();
+    done.push(answered("r1", "k1", "a", "answered", None));
+    done.push(posted("r1", Some("a"), "Research says 42."));
+    let view = run_view(&done, "r1");
+    assert!(view.open.is_empty());
+    assert_eq!(
+        view.replies.iter().map(|(b, _)| b.id.as_str()).collect::<Vec<_>>(),
+        vec!["b", "a"]
+    );
+}
+
+#[test]
+fn a_runs_view_says_it_was_stopped_and_how_unanswered_asks_ended() {
+    let events = vec![
+        posted("r1", None, "Go"),
+        asked_by("r1", "k1", None, "a"),
+        asked_by("r1", "k2", None, "b"),
+        answered("r1", "k1", "a", "failed", Some("a could not answer: no key")),
+        answered("r1", "k2", "b", "stopped", Some("b was stopped")),
+        Event::Known(Known::GroupStopped {
+            run: "r1".to_owned(),
+        }),
+    ];
+    let view = run_view(&events, "r1");
+    assert!(view.stopped);
+    assert!(view.replies.is_empty());
+    assert_eq!(view.failures, vec!["a could not answer: no key".to_owned()]);
+    assert_eq!(run_view(&events, "r9"), RunView::default());
 }

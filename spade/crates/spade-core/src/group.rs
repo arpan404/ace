@@ -123,6 +123,56 @@ pub fn open_asks(events: &[Event]) -> Vec<OpenAsk> {
     open
 }
 
+/// What one run has said so far (ADR 0194, an ask from an ace thread): every bot's message
+/// posted in it, in order; its asks still open; how asks that ended without an answer ended; and
+/// whether the person stopped it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RunView {
+    pub replies: Vec<(GroupBot, String)>,
+    pub open: Vec<OpenAsk>,
+    /// Any ask was made in the run.
+    pub asked: bool,
+    /// The words of each ask that ended `failed`, `refused` or `gave_up`, in order.
+    pub failures: Vec<String>,
+    pub stopped: bool,
+}
+
+/// [`RunView`] for run `run`, from a group's events.
+pub fn run_view(events: &[Event], run: &str) -> RunView {
+    let mut view = RunView::default();
+    for event in events {
+        match event {
+            Event::Known(Known::GroupMessage {
+                run: r,
+                text,
+                from: Some(bot),
+                ..
+            }) if r == run => view.replies.push((bot.clone(), text.clone())),
+            Event::Known(Known::GroupAsked { run: r, .. }) if r == run => view.asked = true,
+            Event::Known(Known::GroupAnswered {
+                run: r,
+                to,
+                outcome,
+                detail,
+                ..
+            }) if r == run && matches!(outcome.as_str(), "failed" | "refused" | "gave_up") => {
+                view.failures.push(
+                    detail
+                        .clone()
+                        .unwrap_or_else(|| format!("{} could not answer.", to.name)),
+                );
+            }
+            Event::Known(Known::GroupStopped { run: r }) if r == run => view.stopped = true,
+            _ => {}
+        }
+    }
+    view.open = open_asks(events)
+        .into_iter()
+        .filter(|o| o.run == run)
+        .collect();
+    view
+}
+
 /// The members a message mentions with `@Name` (any case; the longest name wins where one name
 /// begins another), as indexes into `names`, in the order first mentioned, each once.
 pub fn mentions(text: &str, names: &[&str]) -> Vec<usize> {
@@ -162,7 +212,9 @@ pub fn recent(events: &[Event], me: &GroupBot, before_run: &str) -> (String, boo
     let messages: Vec<(&Option<GroupBot>, &String)> = events
         .iter()
         .filter_map(|event| match event {
-            Event::Known(Known::GroupMessage { run, text, from }) if run != before_run => {
+            Event::Known(Known::GroupMessage {
+                run, text, from, ..
+            }) if run != before_run => {
                 Some((from, text))
             }
             _ => None,

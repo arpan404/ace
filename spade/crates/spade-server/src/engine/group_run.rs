@@ -43,6 +43,7 @@ impl Engine {
                 run: run.clone(),
                 text: text.to_owned(),
                 from: None,
+                thread: None,
             }),
         )?;
         let names: Vec<&str> = group.members.iter().map(|m| m.name.as_str()).collect();
@@ -156,6 +157,7 @@ impl Engine {
             }),
             from_routine: None,
             from_group: Some(Box::new(from_group)),
+            from_thread: None,
         });
         let frames = self.live(&agent.conversation).frames.subscribe();
         let delivered = self
@@ -346,6 +348,7 @@ impl Engine {
                     run: run.to_owned(),
                     text: text.clone(),
                     from: Some(to.clone()),
+                    thread: None,
                 }));
             }
             {

@@ -12,6 +12,7 @@ pub mod digest;
 pub mod effect;
 pub mod escalation;
 pub mod event;
+pub mod from_thread;
 pub mod face;
 pub mod gate;
 pub mod goal;

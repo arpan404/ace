@@ -170,10 +170,15 @@ pub fn person_text(
     from_agent: Option<&crate::event::FromAgent>,
     from_routine: Option<&crate::event::FromRoutine>,
     from_group: Option<&crate::event::FromGroup>,
+    from_thread: Option<&crate::event::FromThread>,
 ) -> String {
+    let text = match from_thread {
+        Some(from) => crate::from_thread::framed(from, text),
+        None => text.to_owned(),
+    };
     let mut text = match context {
         Some(context) => format!("<context>\n{context}\n</context>\n\n{text}"),
-        None => text.to_owned(),
+        None => text,
     };
     if let Some(from) = from_agent {
         text = format!(
@@ -499,6 +504,7 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 from_agent,
                 from_routine,
                 from_group,
+                from_thread,
             } => {
                 let spoken = match voice {
                     Some(_) => format!("{SPOKEN} {text}"),
@@ -510,6 +516,7 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     from_agent.as_ref(),
                     from_routine.as_deref(),
                     from_group.as_deref(),
+                    from_thread.as_deref(),
                 );
                 let mut shown = Vec::new();
                 for document in documents {
@@ -928,6 +935,12 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             from_group: Some(from),
             ..
         }) if from.untrusted => true,
+        // A message the person wrote in an ace thread, with that thread's summary (ADR 0194):
+        // the summary carries agents' words and tool output.
+        Event::Known(Known::UserMessage {
+            from_thread: Some(from),
+            ..
+        }) if from.untrusted => true,
         // A routine fired by an ace event carries that event's text (a thread's title); one set
         // up or changed after reading untrusted content carries that taint (ADR 0144).
         Event::Known(Known::UserMessage {
@@ -993,6 +1006,14 @@ fn describe_event(before: &[Event], event: &Event) -> String {
             from_routine: None,
             ..
         }) => format!("other bots' messages in {}", group.name),
+        Event::Known(Known::UserMessage {
+            from_thread: Some(thread),
+            from_routine: None,
+            ..
+        }) => format!(
+            "the summary of the ace thread {}",
+            thread.title.chars().take(80).collect::<String>()
+        ),
         Event::Known(Known::UserMessage { .. }) => "an ace event".to_owned(),
         Event::Known(Known::ToolFinished { name, call_id, .. }) => {
             describe_source(before, name, call_id)

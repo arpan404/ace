@@ -66,6 +66,7 @@ impl Engine {
             from_agent: None,
             from_routine: None,
             from_group: None,
+            from_thread: None,
         });
         let message = memory::with_recall(self, id, message);
         self.deliver(id, &message)?;
