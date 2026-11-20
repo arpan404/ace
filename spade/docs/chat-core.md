@@ -56,6 +56,19 @@ Steering is the default: a `user_message` sent while a reply is open joins that 
 stored at once, and the next model call in the turn (after the current call ends, or at the next
 tool step) sees it, so the turn carries on instead of ending.
 
+## Storage
+
+Everything is in one SQLite file, `spade.sqlite`, in WAL mode. The server opens several `Store`s
+on it (the engine, connectors, skills, plugins, security), each with its own connection. Every
+connection, including one a test or tool opens with `Store::connect`, has the same settings: a
+5-second busy timeout, and write transactions that start `BEGIN IMMEDIATE`. A deferred
+transaction that reads first and then writes, while another connection holds the write lock, fails
+straight away with `SQLITE_BUSY`, because the busy timeout doesn't cover that upgrade. An
+immediate transaction waits at its `BEGIN` instead. Every store transaction writes; a read-only one
+would ask for `TransactionBehavior::Deferred` explicitly. Writes that belong together (a bot, who
+made it and its maker's note) go in one transaction, so a failure leaves none of them, and the
+caller gets the error.
+
 ## API
 
 Local HTTP on `SPADE_LISTEN` (loopback). Every request except `/health` carries

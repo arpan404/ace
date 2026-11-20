@@ -91,6 +91,10 @@ export const EditorLine = memo(function EditorLine(props: {
   long: boolean;
   /** Unwrapped: clip the row at the DOM's limit. */
   clip: boolean;
+  /** The line starts a region: "open" can fold, "closed" is folded. */
+  fold?: "open" | "closed" | undefined;
+  /** This is the line's last row, where a folded line shows its ellipsis. */
+  lastRow?: boolean;
 }) {
   const text =
     props.clip && props.text.length > clipped ? `${props.text.slice(0, clipped)}…` : props.text;
@@ -120,6 +124,17 @@ export const EditorLine = memo(function EditorLine(props: {
         )}
       >
         {props.number}
+        {props.fold ? (
+          <span
+            data-fold={props.fold}
+            className={cn(
+              "absolute top-0 right-0.5 w-3 text-center text-subtle-foreground",
+              props.fold === "open" && "opacity-0 group-hover/editor:opacity-100",
+            )}
+          >
+            {props.fold === "closed" ? "›" : "⌄"}
+          </span>
+        ) : null}
       </span>
       <span
         data-line-text={props.number === undefined ? undefined : props.line}
@@ -134,6 +149,14 @@ export const EditorLine = memo(function EditorLine(props: {
         ) : (
           text
         )}
+        {props.fold === "closed" && props.lastRow !== false ? (
+          <span
+            data-folded-marker
+            className="ml-1 rounded-sm bg-accent px-1 text-subtle-foreground"
+          >
+            ⋯
+          </span>
+        ) : null}
       </span>
     </div>
   );

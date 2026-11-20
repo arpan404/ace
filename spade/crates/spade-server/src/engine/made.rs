@@ -44,6 +44,25 @@ struct Standing {
     apps: Vec<String>,
 }
 
+/// A standing bot just made.
+struct Made {
+    id: String,
+    name: String,
+}
+
+/// The apps a maker suggested, trimmed, at most eight.
+fn apps_of(asked: &[String]) -> Vec<String> {
+    asked
+        .iter()
+        .map(|a| a.trim().to_owned())
+        .filter(|a| !a.is_empty())
+        .take(8)
+        .collect()
+}
+
+/// The reply a made bot's suggested-app cards are filed under: none of its own replies.
+const SUGGESTED: &str = "made";
+
 #[derive(Deserialize)]
 struct ClubAdd {
     club: String,
@@ -122,7 +141,7 @@ impl Engine {
 
     /// `bot_create {kind: standing}` from the call with `key`: a bot of the person's own, made
     /// once even when the call runs again after a restart.
-    pub(crate) fn make_standing(&self, key: &str, arguments: Value) -> ToolOutput {
+    pub(crate) async fn make_standing(&self, key: &str, arguments: Value) -> ToolOutput {
         let Some((caller, _)) = key.split_once('.') else {
             return ToolOutput::error("Spade could not tell which bot asked.");
         };
@@ -133,10 +152,40 @@ impl Engine {
             Ok(asked) => asked,
             Err(refused) => return refused,
         };
-        match self.store_standing(caller, key, asked) {
-            Ok(bot) => made_answer(&bot),
+        let maker = match self.store.agent_for_conversation(caller) {
+            Ok(Some(me)) => me.name,
+            Ok(None) => return ToolOutput::error("Only a bot can make bots."),
+            Err(error) => return ToolOutput::error(error.to_string()),
+        };
+        let cards = self.suggested_cards(&apps_of(&asked.apps), &maker).await;
+        match self.store_standing(caller, key, asked, &cards) {
+            Ok(made) => made_answer(&(made.id, made.name)),
             Err(why) => ToolOutput::error(why),
         }
+    }
+
+    /// The apps its maker suggested, as connect cards for the made bot's own chat, each left for
+    /// later: the person connects one with a click when they open it, and nothing waits on them.
+    /// An app Spade doesn't know gets no card; a bot not made yet can use none, so every app Spade
+    /// knows gets one. Built before the bot is made, so they are stored with it, in one write.
+    async fn suggested_cards(&self, apps: &[String], maker: &str) -> Vec<Event> {
+        let Some(hub) = self.apps() else {
+            return Vec::new();
+        };
+        let mut events = Vec::new();
+        for (n, app) in apps.iter().enumerate() {
+            let super::apps::Card::Ask(card) = self.connect_card(hub, "", false, app).await else {
+                continue;
+            };
+            let call = format!("made-app-{n}");
+            let why = format!("{maker} thought I'd need this when it made me.");
+            events.push(super::apps::asked(SUGGESTED, &call, why, card));
+            events.push(Event::Known(Known::QuestionDeferred {
+                call_id: call,
+                by_bot: true,
+            }));
+        }
+        events
     }
 
     /// The bot an earlier run of the call with `key` made, from the maker's `bot_made`.
@@ -155,7 +204,8 @@ impl Engine {
         caller: &str,
         key: &str,
         asked: Standing,
-    ) -> Result<(String, String), String> {
+        cards: &[Event],
+    ) -> Result<Made, String> {
         let me = self
             .store
             .agent_for_conversation(caller)
@@ -182,57 +232,52 @@ impl Engine {
                     .map(AvatarInput::Character),
             )
             .map_err(|e| e.to_string())?;
-        let first = [Event::Known(Known::AgentConfigured {
+        // Its task, then the connect cards for the apps its maker suggested: stored with the bot
+        // in one transaction, so it is never listed without them.
+        let mut first = vec![Event::Known(Known::AgentConfigured {
             task: task.clone(),
             model: model.clone(),
             personality: None,
             change: None,
         })];
-        let apps: Vec<String> = asked
-            .apps
-            .iter()
-            .map(|a| a.trim().to_owned())
-            .filter(|a| !a.is_empty())
-            .take(8)
-            .collect();
+        first.extend_from_slice(cards);
+        let apps = apps_of(&asked.apps);
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(caller) {
                 return Err("Not made: the person is deleting this bot.".to_owned());
             }
-            self.store
-                .create_agent(
-                    NewAgent {
-                        id: &id,
-                        kind: super::BOT,
-                        name: &name,
-                        task: &task,
-                        avatar: &avatar,
-                        model: &model,
-                        conversation: &conversation,
-                    },
-                    &first,
-                    self.now_ms(),
-                )
-                .map_err(|e| format!("Spade could not make it: {e}"))?;
+            // Who made it and the maker's note go in the bot's own transaction: the note is how
+            // a rerun of this call finds the bot, and who made it is what lets it be undone.
             let by = json!({ "id": me.id, "name": me.name, "apps": apps });
-            if let Err(error) = self
-                .store
-                .set_setting(&made_by_key(&id), Some(&by.to_string()))
-            {
-                tracing::warn!(%error, "who made a bot was not kept");
-            }
             let note = Event::Known(Known::BotMade {
                 bot: id.clone(),
                 name: name.clone(),
                 task: task.clone(),
                 call: key.to_owned(),
             });
-            if let Err(error) = self.append(caller, &note) {
-                tracing::warn!(%error, "a made bot was not noted in its maker's conversation");
-            }
+            let stored = self.store.create_made_agent(
+                NewAgent {
+                    id: &id,
+                    kind: super::BOT,
+                    name: &name,
+                    task: &task,
+                    avatar: &avatar,
+                    model: &model,
+                    conversation: &conversation,
+                },
+                &first,
+                (&made_by_key(&id), &by.to_string()),
+                caller,
+                &note,
+                self.now_ms(),
+            );
+            // Dropped whether or not the write succeeded: a failed write may still have landed.
+            self.forget_activity(caller);
+            let stored = stored.map_err(|e| format!("Spade could not make it: {e}"))?;
+            self.publish_stored(caller, &stored);
         }
-        Ok((id, name))
+        Ok(Made { id, name })
     }
 
     /// Undo on a bot another bot made: removed when nothing it did reached outside it, else

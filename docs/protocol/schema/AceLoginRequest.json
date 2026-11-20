@@ -2,6 +2,13 @@
   "$id": "https://ace.local/protocol/v1/AceLoginRequest.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "holder": {
+      "enum": [
+        "person",
+        "machine"
+      ],
+      "type": "string"
+    },
     "returnTo": {
       "examples": [
         "ace://account/signed-in",

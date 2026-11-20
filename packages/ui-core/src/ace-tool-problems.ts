@@ -125,6 +125,10 @@ const screen: Record<string, Wording> = {
     title: `${possessive(app)} window changed before the action`,
     hint: readAgain("window"),
   }),
+  place_changed: (app) => ({
+    title: `${app} changed after the step was checked`,
+    hint: `Nothing more was done. ${readAgain("window")}`,
+  }),
   window_ambiguous: (app) => ({
     title: `${app} has more than one window like that`,
     hint: "The agent should pick one of its windows.",
@@ -158,6 +162,10 @@ const browser: Record<string, Wording> = {
   backend_changed: () => ({
     title: "The browser changed during the action",
     hint: readAgain("page"),
+  }),
+  place_changed: () => ({
+    title: "The page changed after the step was checked",
+    hint: `Nothing more was done. ${readAgain("page")}`,
   }),
   queue_full: () => ({ title: "The browser is busy", hint: "Wait for its actions to finish." }),
   stale_ref: () => ({ title: "The page changed before the action", hint: readAgain("page") }),

@@ -27,14 +27,16 @@ try {
   ]);
   const { client } = h.make();
   await ready(client);
-  const stream = client.output({ streamId: `output:${itemId}`, offset: 0, limit: 256 * 1024 });
+  // The daemon returns at most 16 KiB per output read (commit 883589740), so each chunk is that.
+  const chunkBytes = 16 * 1024;
+  const stream = client.output({ streamId: `output:${itemId}`, offset: 0, limit: chunkBytes });
   let first = await stream.next();
   if (!first.value) throw new Error("first chunk");
   const reference = new WeakRef(first.value);
   first = { done: true, value: undefined };
   for (let index = 0; index < 16; index++) {
     const next = await stream.next();
-    assert.equal(next.value?.byteLength, 256 * 1024);
+    assert.equal(next.value?.byteLength, chunkBytes);
   }
   // A macrotask boundary ends WeakRef's keep-alive job. Explicit GC is a controllable
   // memory edge, not a timing or RSS threshold. Only this child gets --expose-gc.

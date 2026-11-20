@@ -124,6 +124,40 @@
     {
       "properties": {
         "state": {
+          "const": "moved",
+          "type": "string"
+        },
+        "to": {
+          "properties": {
+            "hostId": {
+              "$ref": "https://ace.local/protocol/v1/HostId.json"
+            },
+            "name": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "hostId",
+            "name",
+            "threadId"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "state",
+        "to"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
           "const": "done",
           "type": "string"
         }

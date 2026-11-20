@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { cn } from "@/lib/cn.ts";
 import type { Mention } from "@ace/protocol";
 
 const lineOf = (node: Node) =>
@@ -25,6 +26,7 @@ export function MentionSelection(props: {
   path: string;
   onMention(mention: Mention): void;
   children: ReactNode;
+  className?: string;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [lines, setLines] = useState<Mention["lines"]>();
@@ -32,9 +34,16 @@ export function MentionSelection(props: {
     if (root.current) setLines(selectedLines(root.current));
   };
   return (
-    <div ref={root} role="presentation" onMouseUp={read} onKeyUp={read}>
+    <div
+      ref={root}
+      role="presentation"
+      onMouseUp={read}
+      onKeyUp={read}
+      className={cn("relative", props.className)}
+    >
       {lines && (
-        <div className="sticky top-0 z-10 flex h-8 items-center justify-end bg-background px-3">
+        // Over the code's top right corner, so the text never moves when a selection forms.
+        <div className="ace-floating-solid absolute top-1.5 right-3 z-10 rounded-popup shadow-glass">
           <Button
             size="sm"
             variant="ghost"

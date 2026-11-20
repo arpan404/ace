@@ -61,6 +61,8 @@ struct SpadeBubbleView: View {
         case let .question(card):
             SpadeQuestionCardView(card: card, unfolded: unfolded.contains(card.callId), sending: sending(card.callId),
                                   drafts: drafts(card.callId), fold: { fold(card.callId, $0) }, reply: { await reply(card.callId, $0) })
+        case let .member(name, text, face, first, last):
+            SpadeMemberBubble(name: name, text: text, face: face, first: first, last: last)
         case let .note(text):
             Text(text)
                 .aceFont(AceDesign.TextRole.meta)
@@ -68,6 +70,43 @@ struct SpadeBubbleView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("spade.note")
         }
+    }
+}
+
+/// A member's message in a group, as a group chat shows people: its name above the first of a
+/// run, its face beside the last, the bubbles between lined up with it.
+private struct SpadeMemberBubble: View {
+    let name: String
+    let text: String
+    let face: SpadeModel.Face
+    let first: Bool
+    let last: Bool
+    private static let face = AceDesign.Size.barIcon + AceDesign.Space.related
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: AceDesign.Space.related) {
+            Group {
+                if last { SpadeFaceView(face: face, size: Self.face) } else { Color.clear }
+            }
+            .frame(width: Self.face, height: Self.face)
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                if first {
+                    Text(name)
+                        .aceFont(AceDesign.TextRole.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .padding(.leading, AceDesign.Space.margin)
+                }
+                AceMarkdown(text: text, streaming: false)
+                    .padding(.horizontal, AceDesign.Space.margin)
+                    .padding(.vertical, AceDesign.Space.related)
+                    .background(AceDesign.Surface.fill, in: AceDesign.Shape.bubble)
+            }
+            .padding(.trailing, AceDesign.Space.section)
+        }
+        .padding(.top, first ? AceDesign.Space.related : AceTheme.Spacing.none)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(name): \(text)")
+        .accessibilityIdentifier("spade.bubble.member")
     }
 }
 

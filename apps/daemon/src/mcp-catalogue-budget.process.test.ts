@@ -32,8 +32,13 @@ const descriptor = ({ name, description, inputSchema }: ListedTool) =>
  * read-only and open-world annotations stay honest, and market_publish's fields carry what a
  * person-only request hands the person. Wording trimmed first; they load upfront nowhere: a
  * core client finds them with tools_find, a deferring one lists their names.
+ * 10,600 → 11,050 (measured 11,010): data_send (~220) and data_receive (~130), how agents pass
+ * files and text to each other (ADR 0182), and the host-set `expect` on five browser tools that
+ * holds Spade's checked step to its tab (#2265, ~16 each). Nothing existing carries a parcel, the
+ * two stay apart because sending reaches other machines and receiving writes this project, and
+ * `expect` is advertised without its inner shape (`hostSet`) because Spade finds it by name.
  */
-const catalogueCap = 10_600;
+const catalogueCap = 11_050;
 /** Any one tool's advertised definition: its name, description and input schema. */
 const perToolCap = 650;
 /**

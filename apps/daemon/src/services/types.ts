@@ -69,6 +69,8 @@ export interface Services {
   browserProjects?: import("../browser-forget-projects.ts").BrowserProjectForget;
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntime;
   canReadThread?: NonNullable<import("../server-options.ts").ServerOptions["canReadThread"]>;
+  /** Asks the person addressed from threads to Spade bots and clubs (ADR 0198). */
+  threadAsks?: import("../thread-address/asks.ts").ThreadAsks;
   agentControl?: {
     previews: import("../agent-control/owners.ts").AgentPreviews;
     delegations: import("../agent-control/delegations.ts").DelegationService;

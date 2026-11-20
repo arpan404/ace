@@ -99,35 +99,34 @@ impl Store {
     pub fn create_agent(&self, new: NewAgent<'_>, first: &[Event], now_ms: i64) -> Result<()> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
-        let inserted = tx.execute(
-            "INSERT OR IGNORE INTO conversations (id, title, created_ms, updated_ms)
-             VALUES (?1, NULL, ?2, ?2)",
-            params![new.conversation, now_ms],
-        )?;
-        if inserted == 0 {
-            return Err(StoreError::Exists(new.conversation.to_owned()));
-        }
-        let inserted = tx.execute(
-            "INSERT OR IGNORE INTO agents
-             (id, kind, name, task, avatar, model, conversation_id, created_ms, updated_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
-            params![
-                new.id,
-                new.kind,
-                new.name,
-                new.task,
-                new.avatar,
-                new.model,
-                new.conversation,
-                now_ms
-            ],
-        )?;
-        if inserted == 0 {
-            return Err(StoreError::Exists(new.id.to_owned()));
-        }
-        append_in(&tx, new.conversation, first, now_ms)?;
+        create_agent_in(&tx, &new, first, now_ms)?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// [`Store::create_agent`] for a bot another bot made, in one transaction with who made it
+    /// (the setting `made_by`, key and value) and `note` appended to its maker's conversation
+    /// `maker`: all of it is stored, or none. Answers the maker's stored note.
+    pub fn create_made_agent(
+        &self,
+        new: NewAgent<'_>,
+        first: &[Event],
+        made_by: (&str, &str),
+        maker: &str,
+        note: &Event,
+        now_ms: i64,
+    ) -> Result<Vec<StoredEvent>> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        create_agent_in(&tx, &new, first, now_ms)?;
+        tx.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            params![made_by.0, made_by.1],
+        )?;
+        let stored = append_in(&tx, maker, std::slice::from_ref(note), now_ms)?;
+        tx.commit()?;
+        Ok(stored)
     }
 
     /// Every agent: the main one first, then by latest activity. A main bot another machine's
@@ -442,5 +441,42 @@ pub(crate) fn character_faces(tx: &Transaction<'_>) -> rusqlite::Result<()> {
         )?;
         taken.extend(made.get("pair"));
     }
+    Ok(())
+}
+
+/// Inserts the agent and its conversation with `first` as its first events, in `tx`.
+fn create_agent_in(
+    tx: &Transaction<'_>,
+    new: &NewAgent<'_>,
+    first: &[Event],
+    now_ms: i64,
+) -> Result<()> {
+    let inserted = tx.execute(
+        "INSERT OR IGNORE INTO conversations (id, title, created_ms, updated_ms)
+         VALUES (?1, NULL, ?2, ?2)",
+        params![new.conversation, now_ms],
+    )?;
+    if inserted == 0 {
+        return Err(StoreError::Exists(new.conversation.to_owned()));
+    }
+    let inserted = tx.execute(
+        "INSERT OR IGNORE INTO agents
+         (id, kind, name, task, avatar, model, conversation_id, created_ms, updated_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+        params![
+            new.id,
+            new.kind,
+            new.name,
+            new.task,
+            new.avatar,
+            new.model,
+            new.conversation,
+            now_ms
+        ],
+    )?;
+    if inserted == 0 {
+        return Err(StoreError::Exists(new.id.to_owned()));
+    }
+    append_in(tx, new.conversation, first, now_ms)?;
     Ok(())
 }

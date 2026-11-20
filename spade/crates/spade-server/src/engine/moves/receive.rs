@@ -320,11 +320,12 @@ impl Engine {
         begun["listed"] = json!(0);
         let stored = self
             .target_to(&entry.id, &[ACCEPTED], RECEIVING, &begun.to_string())
-            .and_then(|_| self.store.set_move_peer(&entry.id, &from, &from_name));
+            .and_then(|_| self.store.set_move_peer(&entry.id, &from, &from_name))
+            // Whether it is the main bot decides how it arrives: never answered without it.
+            .and_then(|()| self.store.set_move_identity(&entry.id, &name, main));
         if let Err(error) = stored {
             return refuse(500, &error.to_string());
         }
-        let _ = self.store.set_move_identity(&entry.id, &name, main);
         (200, json!({ "have": [], "state": RECEIVING, "host": host }))
     }
 

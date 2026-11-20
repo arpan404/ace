@@ -2,7 +2,7 @@
 
 //! The document class JavaScript drives.
 
-use editor_core::{Document, FindQuery, Position};
+use editor_core::{Document, FindQuery, Indent, LineEnding, Position};
 use wasm_bindgen::prelude::*;
 
 use crate::applied::Applied;
@@ -63,6 +63,17 @@ impl EditorDocument {
     #[wasm_bindgen(js_name = lineEnding)]
     pub fn line_ending(&self) -> String {
         self.core.line_ending().as_str().to_owned()
+    }
+
+    /// Rewrites every line break as `"\n"` or `"\r\n"` as one undo step.
+    #[wasm_bindgen(js_name = setLineEnding)]
+    pub fn set_line_ending(&mut self, crlf: bool) -> Applied {
+        let ending = if crlf {
+            LineEnding::Crlf
+        } else {
+            LineEnding::Lf
+        };
+        Applied::new(self.core.set_line_ending(ending))
     }
 
     /// The number of edits applied so far.
@@ -158,6 +169,99 @@ impl EditorDocument {
         Applied::new(self.core.toggle_line_comment(token))
     }
 
+    /// Copies the selected lines above themselves; the carets stay on the upper copy.
+    #[wasm_bindgen(js_name = copyLinesUp)]
+    pub fn copy_lines_up(&mut self) -> Applied {
+        Applied::new(self.core.copy_lines_up())
+    }
+
+    /// Deletes every selected line.
+    #[wasm_bindgen(js_name = deleteLines)]
+    pub fn delete_lines(&mut self) -> Applied {
+        Applied::new(self.core.delete_lines())
+    }
+
+    /// Opens an indented empty line below each caret's line.
+    #[wasm_bindgen(js_name = insertLineBelow)]
+    pub fn insert_line_below(&mut self) -> Applied {
+        Applied::new(self.core.insert_line_below())
+    }
+
+    /// Opens an indented empty line above each caret's line.
+    #[wasm_bindgen(js_name = insertLineAbove)]
+    pub fn insert_line_above(&mut self) -> Applied {
+        Applied::new(self.core.insert_line_above())
+    }
+
+    /// Joins each selection's lines, or a caret's line with the next.
+    #[wasm_bindgen(js_name = joinLines)]
+    pub fn join_lines(&mut self) -> Applied {
+        Applied::new(self.core.join_lines())
+    }
+
+    /// Tab: indents the lines of a multi-line selection, or inserts one step at every caret.
+    pub fn tab(&mut self) -> Applied {
+        Applied::new(self.core.tab())
+    }
+
+    /// Wraps each selection in `open` and `close`, or unwraps it when it already is a comment.
+    #[wasm_bindgen(js_name = toggleBlockComment)]
+    pub fn toggle_block_comment(&mut self, open: &str, close: &str) -> Applied {
+        Applied::new(self.core.toggle_block_comment(open, close))
+    }
+
+    /// Types one keystroke at every selection, with brackets and quotes that close themselves.
+    #[wasm_bindgen(js_name = typeText)]
+    pub fn type_text(&mut self, text: &str) -> Applied {
+        Applied::new(self.core.type_text(text))
+    }
+
+    /// Enter with indentation: one step more after an opening bracket, split between a pair.
+    #[wasm_bindgen(js_name = smartNewline)]
+    pub fn smart_newline(&mut self) -> Applied {
+        Applied::new(self.core.smart_newline())
+    }
+
+    /// Backspace that removes an indent step in leading spaces, or both halves of an empty pair.
+    #[wasm_bindgen(js_name = smartBackspace)]
+    pub fn smart_backspace(&mut self) -> Applied {
+        Applied::new(self.core.smart_backspace())
+    }
+
+    /// The indentation the text uses as `[tabs (0 or 1), size]`, or empty when none is seen.
+    #[wasm_bindgen(js_name = detectIndent)]
+    pub fn detect_indent(&self) -> Vec<u32> {
+        self.core
+            .detect_indent()
+            .map_or_else(Vec::new, |indent| vec![u32::from(indent.tabs), indent.size])
+    }
+
+    /// The bracket pair to highlight for a caret, as two range quads, or empty when there is
+    /// none within `limit` characters.
+    #[wasm_bindgen(js_name = matchingBracket)]
+    pub fn matching_bracket(&self, line: u32, column: u32, limit: u32) -> Vec<u32> {
+        self.core
+            .matching_bracket(
+                Position::new(line, column),
+                usize::try_from(limit).unwrap_or(usize::MAX),
+            )
+            .map_or_else(Vec::new, |(first, second)| {
+                convert::flatten_ranges(&[first, second])
+            })
+    }
+
+    /// The indent step as `[tabs (0 or 1), size]`.
+    pub fn indent(&self) -> Vec<u32> {
+        let indent = self.core.indent();
+        vec![u32::from(indent.tabs), indent.size]
+    }
+
+    /// Sets the indent step: a tab, or `size` spaces.
+    #[wasm_bindgen(js_name = setIndent)]
+    pub fn set_indent(&mut self, tabs: bool, size: u32) {
+        self.core.set_indent(Indent { tabs, size });
+    }
+
     /// Undoes the last step, or returns `undefined` when there is nothing to undo.
     pub fn undo(&mut self) -> Option<Applied> {
         self.core.undo().map(Applied::new)
@@ -182,16 +286,74 @@ impl EditorDocument {
         whole_word: bool,
         limit: u32,
     ) -> Vec<u32> {
-        let query = FindQuery {
-            pattern: pattern.to_owned(),
-            regex,
-            case_sensitive,
-            whole_word,
-        };
+        let query = query(pattern, regex, case_sensitive, whole_word);
         let ranges = self
             .core
             .find(&query, usize::try_from(limit).unwrap_or(usize::MAX));
         convert::flatten_ranges(&ranges)
+    }
+
+    /// Finds matches lying wholly inside the `within` range quads, at most `limit`.
+    #[wasm_bindgen(js_name = findWithin)]
+    pub fn find_within(
+        &self,
+        pattern: &str,
+        regex: bool,
+        case_sensitive: bool,
+        whole_word: bool,
+        within: &[u32],
+        limit: u32,
+    ) -> Result<Vec<u32>, JsValue> {
+        let query = query(pattern, regex, case_sensitive, whole_word);
+        let within = convert::ranges(within)?;
+        let ranges = self.core.find_within(
+            &query,
+            &within,
+            usize::try_from(limit).unwrap_or(usize::MAX),
+        );
+        Ok(convert::flatten_ranges(&ranges))
+    }
+
+    /// Replaces every match inside the `within` range quads (all when empty) as one undo step.
+    #[wasm_bindgen(js_name = replaceAll)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn replace_all(
+        &mut self,
+        pattern: &str,
+        regex: bool,
+        case_sensitive: bool,
+        whole_word: bool,
+        replacement: &str,
+        within: &[u32],
+    ) -> Result<Applied, JsValue> {
+        let query = query(pattern, regex, case_sensitive, whole_word);
+        let within = convert::ranges(within)?;
+        Ok(Applied::new(self.core.replace_all(
+            &query,
+            replacement,
+            &within,
+        )))
+    }
+
+    /// Replaces the match at the `at` range quad when it is still exactly a match.
+    #[wasm_bindgen(js_name = replaceMatch)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn replace_match(
+        &mut self,
+        pattern: &str,
+        regex: bool,
+        case_sensitive: bool,
+        whole_word: bool,
+        at: &[u32],
+        replacement: &str,
+    ) -> Result<Applied, JsValue> {
+        let query = query(pattern, regex, case_sensitive, whole_word);
+        let at = convert::range(at)?;
+        Ok(Applied::new(self.core.replace_match(
+            &query,
+            at,
+            replacement,
+        )))
     }
 
     /// Selects a rectangular block from `anchor` to `head`, with columns as visual columns and
@@ -216,5 +378,32 @@ impl EditorDocument {
     #[wasm_bindgen(js_name = selectNextOccurrence)]
     pub fn select_next_occurrence(&mut self) -> bool {
         self.core.select_next_occurrence()
+    }
+
+    /// Selects every occurrence of the primary selection's text, or of the word under a caret.
+    #[wasm_bindgen(js_name = selectAllOccurrences)]
+    pub fn select_all_occurrences(&mut self) -> bool {
+        self.core.select_all_occurrences()
+    }
+
+    /// Moves the newest selection on to the next occurrence of its text.
+    #[wasm_bindgen(js_name = skipOccurrence)]
+    pub fn skip_occurrence(&mut self) -> bool {
+        self.core.skip_occurrence()
+    }
+
+    /// Grows every selection to the smallest larger unit around it. False when none can grow.
+    #[wasm_bindgen(js_name = expandSelection)]
+    pub fn expand_selection(&mut self) -> bool {
+        self.core.expand_selection()
+    }
+}
+
+fn query(pattern: &str, regex: bool, case_sensitive: bool, whole_word: bool) -> FindQuery {
+    FindQuery {
+        pattern: pattern.to_owned(),
+        regex,
+        case_sensitive,
+        whole_word,
     }
 }

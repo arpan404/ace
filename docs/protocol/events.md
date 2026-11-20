@@ -247,7 +247,12 @@ Example:
   },
   "startedBy": "example",
   "status": {
-    "state": "unresponsive"
+    "state": "moved",
+    "to": {
+      "hostId": "example",
+      "name": "example",
+      "threadId": "example"
+    }
   },
   "switch": {
     "at": 2,
@@ -424,15 +429,14 @@ Example:
 {
   "run": {
     "agentId": "example",
-    "endedAt": 4,
     "error": {
       "kind": "process_exit",
       "message": "example"
     },
     "id": "example",
     "ordinal": 1,
-    "startedAt": 7,
-    "state": "interrupted",
+    "startedAt": 2,
+    "state": "failed",
     "threadId": "example",
     "trigger": "queue",
     "turn": 9
@@ -536,7 +540,7 @@ Example:
     "role": "example",
     "runId": "example",
     "status": {
-      "state": "failed"
+      "state": "unresponsive"
     },
     "title": "example",
     "type": "delegation.started",

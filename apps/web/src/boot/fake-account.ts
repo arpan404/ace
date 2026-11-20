@@ -7,8 +7,8 @@ import type { AccessOptions } from "@ace/client";
 import { machineCodeGate } from "@ace/client";
 import { aceAccountClient } from "@ace/client/ace-account";
 import type { AccountMachineState } from "@ace/client-worker/machines";
-import type { FakeMachineAccount } from "@ace/fake-daemon";
-import type { MachineCodeRefusal } from "@ace/protocol";
+import { FakeMachineAccount } from "@ace/fake-daemon";
+import { AceAccountHandover, type MachineCodeRefusal } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { z } from "zod";
 
@@ -44,9 +44,11 @@ export function withFakeMachineAccount(
       if (path === "/v1/ace-account") {
         if (method === "GET") return json(200, account.status());
         if (method === "PUT") {
-          const body = await read(init);
-          if (typeof body.token !== "string") return json(400, { error: "Invalid ace session" });
-          return json(200, account.signIn(String(body.origin), person));
+          // An enrollment ticket from the app, or a session from a caller with its own, as the
+          // daemon takes them (ADR 0190).
+          const handover = AceAccountHandover.safeParse(await read(init));
+          if (!handover.success) return json(400, { error: "Invalid ace session" });
+          return json(200, account.signIn(handover.data.origin, person));
         }
         if (method === "DELETE") return json(200, account.signOut());
       }
@@ -67,7 +69,12 @@ export function withFakeMachineAccount(
 export const fakeHostIds = {
   studio: "STUDIOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   laptop: "LAPTOPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  thisMac: "THISMACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 };
+
+/** The fake This Mac's account state, which names its relay host id as a daemon does. */
+export const fakeMachineAccount = () =>
+  new FakeMachineAccount({ relayHostId: fakeHostIds.thisMac });
 
 /** An account backend already signed in as the fake person, listing two machines. */
 export function fakeAccountBackend(storage: KeyValueStorage, now: () => number) {
@@ -102,6 +109,9 @@ export function fakeAccountBackend(storage: KeyValueStorage, now: () => number) 
         return Response.json({ account: person, expiresAt: session.expiresAt });
       if (path === "/v1/account/session" && method === "DELETE") return Response.json({ ok: true });
       if (path === "/v1/machines" && method === "GET") return Response.json({ machines });
+      // A single-use ticket that signs one machine in, for the app to hand its daemon.
+      if (path === "/v1/machine-enrollments" && method === "POST")
+        return Response.json({ ticket: "e".repeat(43), expiresAt: now() + 600_000 });
       const forget = path.match(/^\/v1\/machines\/([A-Z2-7]{52})$/)?.[1];
       if (forget && method === "DELETE") {
         machines = machines.filter((machine) => machine.hostId !== forget);

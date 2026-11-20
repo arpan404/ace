@@ -50,6 +50,34 @@ pub(crate) fn flatten_ranges(ranges: &[Range]) -> Vec<u32> {
     flat
 }
 
+/// Reads `(start line, start column, end line, end column)` quads.
+pub(crate) fn ranges(flat: &[u32]) -> Result<Vec<Range>, Failure> {
+    if !flat.len().is_multiple_of(4) {
+        return Err(Failure::invalid(
+            "ranges need four numbers each: start line, start column, end line, end column",
+        ));
+    }
+    Ok(flat
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|quad| match quad {
+            [start_line, start_column, end_line, end_column] => Range::new(
+                Position::new(*start_line, *start_column),
+                Position::new(*end_line, *end_column),
+            ),
+        })
+        .collect())
+}
+
+/// Reads exactly one range quad.
+pub(crate) fn range(flat: &[u32]) -> Result<Range, Failure> {
+    match ranges(flat)?.as_slice() {
+        [one] => Ok(*one),
+        _ => Err(Failure::invalid("a range needs exactly four numbers")),
+    }
+}
+
 /// Reads range quads and the replacement text of each, in the same order.
 pub(crate) fn transaction(flat: &[u32], texts: Vec<String>) -> Result<Transaction, Failure> {
     if !flat.len().is_multiple_of(4) {

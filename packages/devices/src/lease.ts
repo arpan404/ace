@@ -26,6 +26,8 @@ export class ControllerLease {
   release(owner?: string): void {
     if (owner !== undefined && this.actor?.owner !== owner && this.expired?.owner !== owner) return;
     this.expired = undefined;
+    // Releasing a device nobody holds changes no control, and invalidates nothing.
+    if (!this.actor) return;
     this.actor = undefined;
     this.deadline = 0;
     this.epoch++;
@@ -89,6 +91,14 @@ export class ControllerLease {
     if (actor.kind !== "agent" || this.actor || this.expired?.owner !== actor.owner) return false;
     this.claim(actor);
     return true;
+  }
+  /**
+   * Which control this is: it changes whenever anyone takes, hands back or loses the controls,
+   * so work started under one control can tell when it ends under another.
+   */
+  controlEpoch(): number {
+    this.status();
+    return this.epoch;
   }
   current(): Actor | undefined {
     this.status();

@@ -22,11 +22,17 @@ import { blockRhythm } from "./rhythm.ts";
 import { StreamPace } from "./stream-pace.ts";
 import { nameMarkitParts } from "./markit-parts.ts";
 
+/** How a reference was opened: from the keyboard, or by a pointer's glance. */
+export interface ReferenceOpen {
+  keyboard: boolean;
+}
+
 export interface MarkitCallbacks {
   onLink: (url: string) => void;
   /** A web link clicked to open in the system's browser (⌘/Ctrl or middle click). */
   onSystemLink: (url: string, click: LinkClick) => void;
-  onReference: (reference: { kind: string; target: string }) => void;
+  /** `how.keyboard`: Enter (or Space) opened it, so the keyboard may follow where it opens. */
+  onReference: (reference: { kind: string; target: string }, how: ReferenceOpen) => void;
   resolveImage: (url: string, alt: string, signal: AbortSignal) => Promise<Blob | null>;
   /** After markit draws: the element it drew into, and whether that text was the final one. */
   drawn?: ((element: HTMLElement, finalized: boolean) => void) | undefined;
@@ -111,6 +117,9 @@ export function MarkitView(props: {
     undefined,
   );
   const latest = useRef({ markdown, stream, keep, contextOf, callbacks: props.callbacks });
+  // markit hands a reference's activation over without its event; the event that started it is
+  // seen here first (capture), so its open knows whether it came from the keyboard.
+  const keyboard = useRef(false);
   useLayoutEffect(() => {
     latest.current = { markdown, stream, keep, contextOf, callbacks: props.callbacks };
   });
@@ -118,7 +127,7 @@ export function MarkitView(props: {
   const [hooks] = useState<RendererHooks>(() => ({
     onLink: (url: string) => latest.current.callbacks.onLink(url),
     onReference: (reference: { kind: string; target: string }) =>
-      latest.current.callbacks.onReference(reference),
+      latest.current.callbacks.onReference(reference, { keyboard: keyboard.current }),
     resolveImage: (url: string, alt: string, signal: AbortSignal) =>
       latest.current.callbacks.resolveImage(url, alt, signal),
     renderDiagram: (language: string, source: string) =>
@@ -257,7 +266,14 @@ export function MarkitView(props: {
       ref={wrapper}
       className={cn("markit-ace", blockRhythm, props.className)}
       style={!drawn && start.height ? { minHeight: start.height } : undefined}
-      onClickCapture={systemClick}
+      onClickCapture={(event) => {
+        // A click the keyboard made (Enter on a link) has no pointer count.
+        keyboard.current = event.detail === 0;
+        systemClick(event);
+      }}
+      onKeyDownCapture={(event) => {
+        keyboard.current = event.key === "Enter" || event.key === " ";
+      }}
       onAuxClickCapture={systemClick}
     >
       {!drawn && <p className="whitespace-pre-wrap">{markdown}</p>}

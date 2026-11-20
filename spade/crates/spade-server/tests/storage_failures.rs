@@ -19,7 +19,7 @@ use support::{FakeTool, Result, Spade};
 
 /// Makes the database refuse every event of type `kind` until [`allow`].
 fn refuse(database: &Path, kind: &str) -> Result {
-    let connection = rusqlite::Connection::open(database)?;
+    let connection = spade_store::Store::connect(database)?;
     connection.execute_batch(&format!(
         "CREATE TRIGGER refuse_{kind} BEFORE INSERT ON events \
          WHEN json_extract(NEW.body, '$.type') = '{kind}' \
@@ -29,7 +29,7 @@ fn refuse(database: &Path, kind: &str) -> Result {
 }
 
 fn allow(database: &Path, kind: &str) -> Result {
-    let connection = rusqlite::Connection::open(database)?;
+    let connection = spade_store::Store::connect(database)?;
     connection.execute_batch(&format!("DROP TRIGGER refuse_{kind};"))?;
     Ok(())
 }
@@ -232,7 +232,7 @@ async fn a_stopped_reply_still_closes_when_reading_the_conversation_fails_for_a_
     spade.wait_for(&id, "reply_progress").await?;
     // Every read and write of events fails until the table is back.
     let database = spade.database();
-    let hide = rusqlite::Connection::open(&database)?;
+    let hide = spade_store::Store::connect(&database)?;
     hide.execute_batch("ALTER TABLE events RENAME TO events_away;")?;
     let _ = spade
         .post(&format!("/v1/conversations/{id}/stop"), json!({}))

@@ -308,3 +308,67 @@ fn merging_selections_keeps_the_later_selections_direction() {
         Selection::new(Position::new(0, 0), Position::new(0, 3))
     );
 }
+
+#[test]
+fn select_all_occurrences_takes_every_whole_word_under_a_caret() {
+    let mut document = Document::new("cat concat cat\ncat");
+    document.set_selections(vec![Selection::caret(Position::new(0, 12))]);
+    assert!(document.select_all_occurrences());
+    let ranges: Vec<_> = document.selections().iter().map(|s| s.range()).collect();
+    assert_eq!(
+        ranges,
+        vec![
+            Range::new(Position::new(0, 0), Position::new(0, 3)),
+            Range::new(Position::new(0, 11), Position::new(0, 14)),
+            Range::new(Position::new(1, 0), Position::new(1, 3)),
+        ]
+    );
+    // The word under the caret stays primary.
+    assert_eq!(document.primary_selection(), 1);
+}
+
+#[test]
+fn select_all_occurrences_of_a_selection_matches_inside_words() {
+    let mut document = Document::new("cat concat");
+    document.set_selections(vec![Selection::new(
+        Position::new(0, 0),
+        Position::new(0, 3),
+    )]);
+    assert!(document.select_all_occurrences());
+    assert_eq!(document.selections().len(), 2);
+}
+
+#[test]
+fn skip_occurrence_moves_the_newest_selection_to_the_next_match() {
+    let mut document = Document::new("a x a x a");
+    document.set_selections(vec![Selection::caret(Position::new(0, 0))]);
+    document.select_next_occurrence();
+    document.select_next_occurrence();
+    assert_eq!(document.selections().len(), 2);
+    assert!(document.skip_occurrence());
+    let ranges: Vec<_> = document.selections().iter().map(|s| s.range()).collect();
+    assert_eq!(
+        ranges,
+        vec![
+            Range::new(Position::new(0, 0), Position::new(0, 1)),
+            Range::new(Position::new(0, 8), Position::new(0, 9)),
+        ]
+    );
+}
+
+#[test]
+fn skip_occurrence_after_two_next_occurrences_keeps_two_selections() {
+    let mut document = Document::new("ab ab ab");
+    document.set_selections(vec![Selection::caret(Position::new(0, 0))]);
+    document.select_next_occurrence();
+    document.select_next_occurrence();
+    assert!(document.skip_occurrence());
+    let ranges: Vec<_> = document.selections().iter().map(|s| s.range()).collect();
+    assert_eq!(
+        ranges,
+        vec![
+            Range::new(Position::new(0, 0), Position::new(0, 2)),
+            Range::new(Position::new(0, 6), Position::new(0, 8)),
+        ]
+    );
+}

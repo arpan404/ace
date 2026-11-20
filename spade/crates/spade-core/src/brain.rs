@@ -170,6 +170,7 @@ fn turn_part(event: &Event) -> Option<String> {
             from_agent,
             from_routine,
             from_group,
+            from_thread,
         }) => {
             let spoken = match voice {
                 Some(_) => format!("{} {text}", context::SPOKEN),
@@ -181,6 +182,7 @@ fn turn_part(event: &Event) -> Option<String> {
                 from_agent.as_ref(),
                 from_routine.as_deref(),
                 from_group.as_deref(),
+                from_thread.as_deref(),
             );
             // The extracted text, with how to read on (`document_read` through spade_call).
             for document in documents {

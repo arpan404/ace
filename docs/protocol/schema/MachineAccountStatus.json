@@ -49,6 +49,30 @@
       "maxLength": 2048,
       "type": "string"
     },
+    "owner": {
+      "anyOf": [
+        {
+          "properties": {
+            "account": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "account"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "relayHostId": {
+      "pattern": "^[A-Z2-7]{52}$",
+      "type": "string"
+    },
     "sessionId": {
       "anyOf": [
         {
