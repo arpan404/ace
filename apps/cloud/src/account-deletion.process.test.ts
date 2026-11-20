@@ -85,6 +85,35 @@ it("deleting an account removes it at WorkOS and ends its sessions, machines and
   });
 });
 
+async function addMachineSignIn(host: string, accountId: string) {
+  await worker.db.batch([
+    worker.db
+      .prepare(
+        "INSERT INTO machine_credentials (token, session, host_id, account_id, expires, sole, created_at) VALUES (?, 'session', ?, ?, 9e15, 0, 1)",
+      )
+      .bind(`credential-${host}`, host, accountId),
+    worker.db
+      .prepare(
+        "INSERT INTO machine_enrollments (ticket, session, host_id, account_id, expires) VALUES (?, 'session', ?, ?, 9e15)",
+      )
+      .bind(`ticket-${host}`, host, accountId),
+  ]);
+}
+
+it("deleting an account removes its machine credentials and enrollment tickets, and no other account's", async () => {
+  const phone = await signIn("user_credentials");
+  await addMachineSignIn("F".repeat(52), "user_credentials");
+  await addMachineSignIn("G".repeat(52), "user_keeps_credentials");
+  workos.failDeletes(true);
+  // Even when WorkOS fails, no machine keeps a way back in while the person retries.
+  expect((await deleteAccount(phone.token)).status).toBe(502);
+  for (const table of ["machine_credentials", "machine_enrollments"]) {
+    const n = `SELECT count(*) AS n FROM ${table} WHERE account_id = ?`;
+    expect(await count(n, "user_credentials")).toBe(0);
+    expect(await count(n, "user_keeps_credentials")).toBe(1);
+  }
+});
+
 it("a WorkOS failure keeps the asking session, so trying again finishes the deletion", async () => {
   const grant = await signIn("user_retry");
   const otherDevice = await signIn("user_retry");

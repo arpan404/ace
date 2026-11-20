@@ -8,19 +8,22 @@ const Removed = z.object({ host_id: z.string() });
 
 /**
  * Removes what D1 holds for an account in one batch, so a failure leaves all of it: the
- * sign-ins that issued its sessions, every session but `keep` (the one asking), and its
- * machines. Answers the host ids of the machines removed. Running it again is harmless.
+ * sign-ins that issued its sessions, every session but `keep` (the one asking), its machine
+ * credentials and enrollment tickets (even those on `keep`, so no machine outlives a failed
+ * WorkOS delete), and its machines. Answers the host ids of the machines removed. Running it again is harmless.
  */
 export function accountEraser(db: D1Database) {
   return async (accountId: string, keep: string): Promise<string[]> => {
     const sessions = "SELECT token FROM sessions WHERE json_extract(account, '$.id') = ?";
-    const [, , machines] = await db.batch([
+    const [, , , , machines] = await db.batch([
       db
         .prepare(`DELETE FROM logins WHERE session IN (${sessions}) AND session != ?`)
         .bind(accountId, keep),
       db
         .prepare("DELETE FROM sessions WHERE json_extract(account, '$.id') = ? AND token != ?")
         .bind(accountId, keep),
+      db.prepare("DELETE FROM machine_credentials WHERE account_id = ?").bind(accountId),
+      db.prepare("DELETE FROM machine_enrollments WHERE account_id = ?").bind(accountId),
       db.prepare("DELETE FROM machines WHERE account_id = ? RETURNING host_id").bind(accountId),
     ]);
     return (machines?.results ?? []).map((row) => Removed.parse(row).host_id);
