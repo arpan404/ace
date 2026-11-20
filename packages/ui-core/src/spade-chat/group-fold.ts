@@ -259,14 +259,16 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
   for (const message of state.pending)
     items.push({ kind: "person", key: message.key, text: message.text });
   const rows = items.map((item, index): SpadeGroupRow => {
-    if (item.kind === "person")
-      return {
+    if (item.kind === "person") {
+      const row: SpadeGroupRow = {
         kind: "person",
         key: item.key,
         text: item.text,
         sending: index >= state.items.length,
-        ...(item.fromThread ? { fromThread: item.fromThread } : {}),
       };
+      if (item.fromThread) row.fromThread = item.fromThread;
+      return row;
+    }
     if (item.kind === "line") return item;
     const before = items[index - 1];
     const after = items[index + 1];
