@@ -86,7 +86,13 @@ export async function answerSpadeNewBot(
           id: template.id,
           name: template.name,
           blurb: template.blurb,
-          face: { main: false, initial: initialOf(template.name), away: false },
+          face: {
+            main: false,
+            initial: initialOf(template.name),
+            away: false,
+            // A template's own character, as web's New bot draws it.
+            character: template.face,
+          },
         })),
         model: { ...spadeModelSetting("new_bot", models, sources), title: "Model" },
         ...spadeModelChoices(sources),

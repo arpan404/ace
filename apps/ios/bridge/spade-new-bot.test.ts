@@ -37,7 +37,7 @@ test("New bot offers the machine's templates and the model new bots start on", a
       id: "research",
       name: "Research",
       blurb: "Finds and reads sources",
-      face: { main: false, initial: "R", away: false },
+      face: expect.objectContaining({ main: false, initial: "R", character: expect.any(Object) }),
     },
   ]);
   expect(answer.model).toMatchObject({ value: "", words: "Claude Sonnet 4.5 · Anthropic" });
