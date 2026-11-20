@@ -47,9 +47,7 @@ export function declaredCategories(manifest: string): Set<string> {
     const category = block.match(
       /<key>NSPrivacyAccessedAPIType<\/key>\s*<string>(\w+)<\/string>/,
     )?.[1];
-    const reasons = block.match(
-      /<key>NSPrivacyAccessedAPITypeReasons<\/key>\s*<array>\s*<string>/,
-    );
+    const reasons = block.match(/<key>NSPrivacyAccessedAPITypeReasons<\/key>\s*<array>\s*<string>/);
     if (category && reasons) declared.add(category);
   }
   return declared;
