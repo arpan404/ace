@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { syncPromptHold } from "./prompt-hold.ts";
 import type { TranslatorIdentity } from "./identity.ts";
 import { cancellationDeadline, promptEnd } from "./settlement.ts";
 import { retainToolRaw } from "./tool-raw.ts";
@@ -316,6 +317,7 @@ class AcpTranslator implements Translator {
       else s.liveTools.delete(tool);
       const live = s.liveTools.has(tool);
       if (live) renewTool(s, tool);
+      syncPromptHold(s, tool, live, facts);
       const definitionChanged =
         Object.hasOwn(update, "content") ||
         Object.hasOwn(update, "_meta") ||

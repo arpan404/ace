@@ -362,15 +362,27 @@ describe("supervised processes", () => {
   });
   it("advancing the probe deadline stops a hanging child", async () => {
     let deadline = noop;
-    const result = probeOutput(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-      schedule(callback) {
-        deadline = callback;
-        return () => {};
-      },
+    const running = new Set<number>();
+    const stopObserving = observeProcessGroups({
+      add: (pid) => running.add(pid),
+      remove: (pid) => running.delete(pid),
     });
-    const rejected = expect(result).rejects.toThrow("Probe timed out");
-    deadline();
-    await rejected;
+    try {
+      const result = probeOutput(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        schedule(callback) {
+          deadline = callback;
+          return () => {};
+        },
+      });
+      const rejected = expect(result).rejects.toThrow("Probe timed out");
+      // Once the hanging child runs, its deadline is the one in force.
+      await expect.poll(() => running.size).toBe(1);
+      deadline();
+      await rejected;
+      await expect.poll(() => running.size).toBe(0);
+    } finally {
+      stopObserving();
+    }
   });
   it("a probe still resolves when its tree stop cannot run after the child exits", async () => {
     const warnings: string[] = [];

@@ -176,6 +176,16 @@ export class IdleWorker extends EventEmitter {
         });
     }, this.idleMs);
   }
+  /**
+   * Ends the current isolate, one that stopped answering (a spawn that never returns), the way a
+   * crash ends it: its `exit` is reported, and the next request starts a fresh one.
+   */
+  recycle(): void {
+    const worker = this.worker;
+    if (!worker || this.closing) return;
+    // The isolate's own `exit` runs the crash path; a terminate that fails leaves it as it was.
+    void worker.terminate().catch(() => {});
+  }
   terminate(): Promise<number> {
     if (!this.closing) {
       this.releaseWork?.();

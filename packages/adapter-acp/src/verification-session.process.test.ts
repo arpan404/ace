@@ -101,7 +101,13 @@ it("accepts new input after terminal execution evidence settles a cancelled shel
     await h.session.send(input("next"), "queue");
     expect(promptCount(h.frames)).toBe(2);
     expect(h.state.status.state).toBe("done");
-    expect(Object.values(h.state.tasks).map((task) => task.status)).toEqual(["completed"]);
+    // The shell, and the release tool that ran after the prompt and held the next one: both ended.
+    expect(
+      Object.values(h.state.tasks).map((task) => [task.kind, task.blocksPrompts, task.status]),
+    ).toEqual([
+      ["shell", true, "completed"],
+      ["other", true, "completed"],
+    ]);
   } finally {
     await h.session.close("shutdown");
   }
