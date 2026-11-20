@@ -365,7 +365,7 @@ test("with terminals set to open in the side panel, ⌘J shows the thread's term
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-test("New tab offers an address, tools and suggested sites, and opens a Files tab in its place", async () => {
+test("New tab offers an address, tools and suggested sites, and opens the Deck in its place", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();
@@ -374,8 +374,8 @@ test("New tab offers an address, tools and suggested sites, and opens a Files ta
   expect(await within(panel).findByRole("list", { name: "Suggested" })).toBeTruthy();
   expect(within(panel).getByRole("combobox", { name: "Address" })).toBeTruthy();
   await userEvent.click(within(tools).getByRole("button", { name: /^Deck/ }));
-  expect(selected(panel).textContent).toBe("Files");
-  expect(tabNames(panel)).toEqual(["Summary", "Files"]);
+  expect(selected(panel).textContent).toBe("Deck");
+  expect(tabNames(panel)).toEqual(["Summary", "Deck"]);
 });
 
 test("the new tab's tools are one Tab stop that arrow keys move through by row and column", async () => {
@@ -427,7 +427,7 @@ test("the command palette pins the showing tab and reopens the tab closed last",
   expect(await within(panel).findByRole("tab", { name: "Logs", selected: true })).toBeTruthy();
 });
 
-test("Files keeps its filter across repeated panel hide and reopen", async () => {
+test("the Deck keeps its explorer filter across repeated panel hide and reopen", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();

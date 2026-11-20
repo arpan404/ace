@@ -23,7 +23,6 @@ test("the new tab lists its tools as cards with their shortcuts, and no Side cha
     .find((button) => button.hasAttribute("data-tool"));
   expect(terminal?.getAttribute("aria-keyshortcuts")).toBe("ctrl+`");
   expect(terminal?.querySelector("kbd")).toBeTruthy();
-  expect(within(tools).getByRole("button", { name: "More for Files" })).toBeTruthy();
   expect(within(tools).queryByRole("button", { name: /Side chat/ })).toBeNull();
   expect(within(panel).queryByRole("tab", { name: "Side chat" })).toBeNull();
   // Terminals and Changes open more than once, so their cards offer another beside this one;
