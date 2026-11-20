@@ -39,11 +39,53 @@ import Foundation
 
     @discardableResult
     func run(_ action: [String: Any]) async -> Bool {
-        guard !writing else { return false }
+        await send(action)?.ok ?? false
+    }
+
+    private func send(_ action: [String: Any]) async -> ForgeReviewOutcome? {
+        guard !writing else { return nil }
         writing = true
         defer { writing = false }
         let outcome = await client.forgeReview(target, action)
         message = outcome.ok ? nil : outcome.message
+        return outcome
+    }
+
+    /// Suggestions picked to commit together, all shown at `batchHead`.
+    private(set) var batch: [Int] = []
+    private(set) var batchHead: String?
+    /// The batch's commit message, as the bridge prefills it.
+    private(set) var batchMessage = ""
+    /// Suggestions GitHub refused to commit: each offers the agent instead.
+    private(set) var refused: Set<Int> = []
+
+    func batched(_ commentId: Int, at head: String) -> Bool { batchHead == head && batch.contains(commentId) }
+
+    /// Add a suggestion to the batch, or take it out. One shown at another head starts it again:
+    /// a commit names one head.
+    func toggleBatch(_ commentId: Int, _ suggestion: ForgeComment.Suggestion) {
+        if batchHead != suggestion.headSha { batch = []; batchHead = suggestion.headSha }
+        batchMessage = suggestion.batchMessage
+        if let index = batch.firstIndex(of: commentId) { batch.remove(at: index) } else { batch.append(commentId) }
+        if batch.isEmpty { batchHead = nil }
+    }
+
+    func clearBatch() { batch = []; batchHead = nil }
+
+    /// A new read of the page at `head`: a batch picked at another head is dropped.
+    func keepBatch(at head: String) { if batchHead != nil, batchHead != head { clearBatch() } }
+
+    /// One commit applying the suggestions at the head they were shown at; GitHub refuses it
+    /// once the branch moved. Committed ones leave the batch.
+    func commitSuggestions(_ commentIds: [Int], at head: String, message: String) async -> Bool {
+        guard let outcome = await send(["kind": "suggestions.apply", "headSha": head, "commentIds": commentIds, "message": message]) else { return false }
+        if outcome.ok {
+            batch.removeAll(where: commentIds.contains)
+            if batch.isEmpty { batchHead = nil }
+        } else if !outcome.uncertain {
+            // A lost answer may have committed it: only a clear refusal offers the agent.
+            refused.formUnion(commentIds)
+        }
         return outcome.ok
     }
 

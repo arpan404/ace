@@ -25,6 +25,18 @@ struct ForgeComment: Decodable, Sendable, Equatable, Identifiable {
     let tasks: Bool
     /// What "Fix with agent" hands the thread on the pull request; nil from an older bridge.
     var fix: String? = nil
+    /// Its suggested change, when GitHub or an agent can apply it; nil otherwise.
+    var suggestion: Suggestion? = nil
+
+    /// A reviewer's suggested change (`SuggestionView`): committed at `headSha` while `commit`,
+    /// otherwise handed to an agent with `agent`.
+    struct Suggestion: Decodable, Sendable, Equatable {
+        let commit: Bool
+        let headSha: String
+        let message: String
+        let batchMessage: String
+        let agent: String
+    }
 }
 
 /// A line conversation: where it sits, whether it is resolved, its comments and its reply box.
