@@ -14,6 +14,9 @@ export interface CodeAnnotationMove {
   start: CodeAnnotation["start"];
   end: CodeAnnotation["end"];
   outdated?: boolean | undefined;
+  /** The range's text now, when an edit touched it. */
+  excerpt?: string | undefined;
+  cut?: boolean | undefined;
 }
 
 /** `list` with `input` updated in place, or added last; unchanged when full. */
@@ -65,16 +68,22 @@ export function movedCode(
     const move = byId.get(each.id);
     if (!move) return each;
     const outdated = move.outdated ? true : undefined;
+    const excerpt = move.excerpt ?? each.excerpt;
+    const cut = move.excerpt === undefined ? each.cut : move.cut ? true : undefined;
     if (
       samePosition(each.start, move.start) &&
       samePosition(each.end, move.end) &&
-      each.outdated === outdated
+      each.outdated === outdated &&
+      each.excerpt === excerpt &&
+      each.cut === cut
     )
       return each;
     changed = true;
-    const moved: CodeAnnotation = { ...each, start: move.start, end: move.end };
+    const moved: CodeAnnotation = { ...each, start: move.start, end: move.end, excerpt };
     if (outdated) moved.outdated = true;
     else delete moved.outdated;
+    if (cut) moved.cut = true;
+    else delete moved.cut;
     return moved;
   });
   return changed ? next : list;
