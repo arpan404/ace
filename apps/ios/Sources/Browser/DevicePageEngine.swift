@@ -70,6 +70,10 @@ enum DevicePageEngine {
         configuration.allowsInlineMediaPlayback = true
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.allowsBackForwardNavigationGestures = true
+        // A blank or loading page shows the app's own background, dark or light, not white.
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.scrollView.backgroundColor = .clear
         view.isInspectable = true
         return view
     }

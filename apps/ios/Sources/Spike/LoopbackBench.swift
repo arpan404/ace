@@ -83,6 +83,17 @@ struct LoopbackBenchView: View {
                            seconds * 1000, seconds * 1000 / Double(LoopbackBench.modules)))
             } catch { say("round \(round) modules failed: \(error.localizedDescription)") }
         }
+        // The other loopback spellings land on the same listeners.
+        for host in ["localhost", "[::1]", "app.localhost"] {
+            do {
+                let (data, _) = try await session.data(from: URL(string: "http://\(host):\(LoopbackBench.port)/bytes/1024")!)
+                say("\(host) \(data.count) bytes")
+            } catch { say("\(host) failed: \(error.localizedDescription)") }
+        }
+        do {
+            let (data, _) = try await session.data(from: URL(string: "http://app.localhost/bytes/1024")!)
+            say("app.localhost on port 80 \(data.count) bytes")
+        } catch { say("app.localhost on port 80 failed: \(error.localizedDescription)") }
         say("done")
         runtime.stop()
     }

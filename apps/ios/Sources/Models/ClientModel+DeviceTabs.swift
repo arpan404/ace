@@ -36,5 +36,9 @@ extension ClientModel {
         if let title { value["title"] = title }
         deviceTabAction(value)
     }
+    /// A load failed before the page changed; `url` is where it was going.
+    func deviceTabFailed(_ id: String, url: String) {
+        deviceTabAction(["kind": "failed", "tabId": id, "url": url])
+    }
     private func deviceTabAction(_ value: [String: Any]) { action(["type": "device.tab", "action": value]) }
 }

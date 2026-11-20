@@ -25,7 +25,8 @@ export async function startLoopbackBench(port: number): Promise<string> {
   });
   const loopback = nativeLoopbackHost(host, call);
   bench = new DeviceLoopback(loopback, () => tunnel, { port: () => {}, released: () => {} });
-  return JSON.stringify(await loopback.listen([port]));
+  // Port 80 too: whether the phone lets an app take a port under 1024 (`app.localhost`).
+  return JSON.stringify(await loopback.listen([port, 80]));
 }
 
 /** Loopback events while the bench runs. */

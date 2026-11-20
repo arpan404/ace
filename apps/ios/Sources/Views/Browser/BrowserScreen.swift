@@ -39,7 +39,7 @@ struct BrowserScreen: View {
     /// A page the person opened on this phone, shown instead of ace's Chrome (ADR 0194).
     private var deviceTab: DeviceTabsPatch.Tab? { model.deviceTabs.shownTab }
     private var title: String {
-        if let deviceTab { return deviceTab.title.isEmpty ? "On this phone" : deviceTab.title }
+        if let deviceTab { return deviceTab.title.isEmpty ? (URL(string: deviceTab.url)?.host(percentEncoded: false) ?? "New tab") : deviceTab.title }
         guard let state, state.blank != true, !state.closed else { return "Browser" }
         return shownTab?.title ?? "Browser"
     }
@@ -51,7 +51,7 @@ struct BrowserScreen: View {
                 if let deviceTab {
                     DevicePageView(model: model, tab: deviceTab)
                         .id(deviceTab.id)
-                    if let problem = deviceTab.problem {
+                    if let problem = deviceTab.problem ?? (model.deviceTabs.status(deviceTab.id).failed ? "This page couldn't load." : nil) {
                         BrowserStrip(sentence: problem) { EmptyView() }
                             .accessibilityIdentifier("device.problem")
                     }

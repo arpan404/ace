@@ -26,9 +26,11 @@ struct DevicePageView: UIViewRepresentable {
             view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             container.addSubview(view)
         }
-        context.coordinator.follow(view, tab: tab.id, status: status) { [weak model] id, url, title in
+        context.coordinator.follow(view, tab: tab.id, status: status, report: { [weak model] id, url, title in
             model?.deviceTabPage(id, url: url, title: title)
-        }
+        }, failed: { [weak model] id, url in
+            model?.deviceTabFailed(id, url: url)
+        })
         guard model.deviceTabs.takeLoad(tab), let url = URL(string: tab.url) else { return }
         // Nothing loads before the loopback rules are on the page: a public page must never
         // reach the machine's localhost through the phone's listeners, even once.
@@ -43,16 +45,22 @@ struct DevicePageView: UIViewRepresentable {
     }
 }
 
-/// Watches one web view for the bar and the bridge. Key-value observations may arrive on any
-/// thread, so each hops to the main actor itself.
-final class DevicePageCoordinator: NSObject {
+/// Watches one web view for the bar and the bridge, and is its navigation delegate. Key-value
+/// observations may arrive on any thread, so each is `@Sendable` and hops to the main actor itself.
+@MainActor final class DevicePageCoordinator: NSObject, WKNavigationDelegate {
     private var observations: [NSKeyValueObservation] = []
     private weak var watched: WKWebView?
+    private var tab = ""
+    private var status: DevicePageStatus?
+    private var failed: (String, String) -> Void = { _, _ in }
 
-    @MainActor func follow(_ view: WKWebView, tab: String, status: DevicePageStatus,
-                           report: @escaping @MainActor (String, String, String?) -> Void) {
+    func follow(_ view: WKWebView, tab: String, status: DevicePageStatus,
+                report: @escaping @MainActor (String, String, String?) -> Void,
+                failed: @escaping (String, String) -> Void) {
+        self.tab = tab; self.status = status; self.failed = failed
         guard watched !== view else { return }
         watched = view
+        view.navigationDelegate = self
         observations.removeAll()
         let refresh: @Sendable (WKWebView) -> Void = { view in
             nonisolated(unsafe) let view = view
@@ -75,13 +83,23 @@ final class DevicePageCoordinator: NSObject {
             }
         }
         observations = [
-            view.observe(\.url, options: [.new]) { view, _ in refresh(view); moved(view) },
-            view.observe(\.title, options: [.new]) { view, _ in moved(view) },
-            view.observe(\.isLoading, options: [.new]) { view, _ in refresh(view) },
-            view.observe(\.canGoBack, options: [.new]) { view, _ in refresh(view) },
-            view.observe(\.canGoForward, options: [.new]) { view, _ in refresh(view) },
+            view.observe(\.url, options: [.new]) { @Sendable view, _ in refresh(view); moved(view) },
+            view.observe(\.title, options: [.new]) { @Sendable view, _ in moved(view) },
+            view.observe(\.isLoading, options: [.new]) { @Sendable view, _ in refresh(view) },
+            view.observe(\.canGoBack, options: [.new]) { @Sendable view, _ in refresh(view) },
+            view.observe(\.canGoForward, options: [.new]) { @Sendable view, _ in refresh(view) },
         ]
         refresh(view)
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { status?.failed = false }
+
+    /// The load never reached a page: the bridge words why when it was the machine's localhost.
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        let error = error as NSError
+        guard error.code != NSURLErrorCancelled else { return }
+        status?.failed = true
+        if let url = error.userInfo[NSURLErrorFailingURLStringErrorKey] as? String { failed(tab, url) }
     }
 }
 
@@ -175,7 +193,9 @@ struct DeviceTabBar: View {
 
     private static let prompt = "Search or enter address"
     private var address: String {
-        let text = status.url?.absoluteString ?? tab.url
+        // Until a page commits (or after one failed), the address is the one asked for.
+        let current = status.url?.absoluteString
+        let text = current == nil || current == "about:blank" || status.failed ? tab.url : current ?? tab.url
         guard !text.isEmpty, text != "about:blank", let url = URL(string: text) else { return Self.prompt }
         guard let host = url.host(percentEncoded: false) else { return text }
         return url.port.map { "\(host):\($0)" } ?? host

@@ -9,6 +9,8 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
         let title: String
         /// Counts the loads the bridge asked for; the page loads `url` whenever it goes up.
         let load: Int
+        /// The page's port is listened on (or known busy): its load may start.
+        let ready: Bool
         /// Why the page can't reach the machine's port, as one sentence; nil when it can.
         let problem: String?
     }
@@ -69,7 +71,7 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
 
     /// Whether the bridge asked for a load the tab's page hasn't run yet; true once per load.
     func takeLoad(_ tab: DeviceTabsPatch.Tab) -> Bool {
-        guard tab.load > (loaded[tab.id] ?? 0) else { return false }
+        guard tab.ready, tab.load > (loaded[tab.id] ?? 0) else { return false }
         loaded[tab.id] = tab.load
         return true
     }
@@ -99,4 +101,6 @@ struct DeviceTabsPatch: Decodable, Equatable, Sendable {
     var url: URL?
     /// The loopback rules couldn't be made, so the page isn't loaded at all.
     var unsafe = false
+    /// The last load failed before a page came; the next page clears it.
+    var failed = false
 }

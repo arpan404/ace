@@ -36,6 +36,8 @@ export const DeviceTabAction = z.discriminatedUnion("kind", [
     url,
     title: z.string().max(512).optional(),
   }),
+  /** A load failed before the page changed (`url` is where it was going); a later page clears it. */
+  z.object({ kind: z.literal("failed"), tabId, url }),
   /** The tab is in front on the phone. */
   z.object({ kind: z.literal("front"), tabId }),
 ]);
@@ -51,6 +53,8 @@ interface Tab {
   title: string;
   /** Counts the loads asked of the page; Swift loads `url` whenever it goes up. */
   load: number;
+  /** Where the last failed load was going, until the page moves on. */
+  failed: string | undefined;
 }
 
 export interface DeviceTabsOptions {
@@ -72,6 +76,8 @@ export class DeviceTabs {
   /** The ports last asked of Swift, and whether that answer is still pending. */
   #asked: number[] = [];
   #listening: number[] = [];
+  /** Ports Swift has answered for (listening, busy or failed): a page on one may load. */
+  #answered = new Set<number>();
   #asking: Promise<void> | undefined;
   readonly loopback: DeviceLoopback;
   /** The last open's refusal of what was typed, for the address bar. */
@@ -99,7 +105,13 @@ export class DeviceTabs {
       case "open": {
         const parsed = this.#parse(action.address);
         if (parsed === undefined) return;
-        this.#tabs.push({ id: this.#options.id(), url: parsed, title: "", load: 1 });
+        this.#tabs.push({
+          id: this.#options.id(),
+          url: parsed,
+          title: "",
+          load: 1,
+          failed: undefined,
+        });
         this.#tabsChanged();
         return;
       }
@@ -110,6 +122,7 @@ export class DeviceTabs {
         if (parsed === undefined) return;
         tab.url = parsed;
         tab.title = "";
+        tab.failed = undefined;
         tab.load++;
         this.#plan();
         this.#emit();
@@ -126,9 +139,19 @@ export class DeviceTabs {
         const tab = this.#tabs.find((entry) => entry.id === action.tabId);
         if (!tab) return;
         const moved = tab.url !== action.url;
+        if (moved) tab.failed = undefined;
         tab.url = action.url;
         if (action.title !== undefined) tab.title = action.title;
         if (moved) this.#plan();
+        this.#emit();
+        return;
+      }
+      case "failed": {
+        const tab = this.#tabs.find((entry) => entry.id === action.tabId);
+        if (!tab) return;
+        tab.failed = action.url;
+        // The failed page's port is listened on, so a reload can reach it.
+        this.#plan();
         this.#emit();
         return;
       }
@@ -184,10 +207,11 @@ export class DeviceTabs {
 
   #pagePorts(): number[] {
     const ports: number[] = [];
-    for (const tab of this.#tabs) {
-      const port = loopbackPort(tab.url);
-      if (port !== undefined) ports.push(port);
-    }
+    for (const tab of this.#tabs)
+      for (const url of [tab.url, tab.failed]) {
+        const port = url === undefined ? undefined : loopbackPort(url);
+        if (port !== undefined) ports.push(port);
+      }
     return ports;
   }
 
@@ -207,10 +231,12 @@ export class DeviceTabs {
       .listen(ports)
       .then(
         (answer) => {
+          this.#answered = new Set(ports);
           this.#listening = answer.listening;
           for (const port of answer.busy) this.#busy.add(port);
         },
         () => {
+          this.#answered = new Set(ports);
           this.#listening = [];
         },
       )
@@ -228,24 +254,30 @@ export class DeviceTabs {
     const busy = this.#busy;
     const holding = this.#hold.holding;
     const problems = this.#problems;
+    const listening = [...this.#listening];
+    const answered = this.#answered;
     const tabs = this.#tabs.map((tab) => {
-      const port = loopbackPort(tab.url);
+      // A failed load names its own port; otherwise the page's.
+      const port = loopbackPort(tab.failed ?? tab.url);
       const problem =
         port === undefined
           ? undefined
           : holding && busy.has(port)
             ? ("busy" as const)
             : problems.get(port);
+      const own = loopbackPort(tab.url);
       return {
         id: tab.id,
         url: tab.url,
         title: tab.title,
         load: tab.load,
+        // A localhost page loads once its port is listened on (or known busy): sooner, the
+        // phone itself would refuse the connection before the tunnel ever saw it.
+        ready: own === undefined || answered.has(own),
         problem: problem && port !== undefined ? loopbackProblemWords(problem, port) : null,
       };
     });
     const refused = this.#refused ?? null;
-    const listening = [...this.#listening];
     this.#options.sink.put("device.tabs", () => ({
       type: "device.tabs",
       tabs,

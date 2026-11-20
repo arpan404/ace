@@ -4,7 +4,14 @@ import { FakeLoopbackHost, FakeTunnel, settle, type Serve } from "./device-tunne
 import { RecordingSink } from "./sheet-fixture.ts";
 
 interface TabsPatch {
-  tabs: { id: string; url: string; title: string; load: number; problem: string | null }[];
+  tabs: {
+    id: string;
+    url: string;
+    title: string;
+    load: number;
+    ready: boolean;
+    problem: string | null;
+  }[];
   holding: boolean;
   listening: number[];
   refused: string | null;
@@ -95,6 +102,17 @@ describe("which ports a machine's device tabs take", () => {
     expect(patch()?.tabs[0]?.problem).toContain("Another app on this phone is using port 3000");
   });
 
+  test("a localhost page waits to load until its port is listened on", async () => {
+    const { tabs, patch } = machine();
+    tabs.handle({ kind: "open", address: "localhost:3000" });
+    const id = patch()?.tabs[0]?.id ?? "";
+    expect(patch()?.tabs[0]?.ready).toBe(false);
+    tabs.handle({ kind: "front", tabId: id });
+    expect(patch()?.tabs[0]?.ready).toBe(false);
+    await settle();
+    expect(patch()?.tabs[0]?.ready).toBe(true);
+  });
+
   test("a public page takes no port of its own", async () => {
     const { host, open } = machine();
     await open("example.com");
@@ -115,6 +133,23 @@ describe("which ports a machine's device tabs take", () => {
     const id = await open("localhost:3000");
     tabs.handle({ kind: "page", tabId: id, url: "http://localhost:3000/next", title: "Next" });
     expect(patch()?.tabs[0]).toMatchObject({ title: "Next", load: 1 });
+  });
+
+  test("a load that failed before the page changed says why for its own port", async () => {
+    const { tabs, host, patch, tunnels, open } = machine();
+    const id = await open("example.com");
+    tabs.handle({ kind: "navigate", tabId: id, address: "localhost:3000" });
+    await settle();
+    tunnels[0]?.refuse.set(3000, "tunnel_off");
+    tabs.loopback.event("accept", "c1", 3000);
+    // WebKit stays on the public page it came from, and says the load failed.
+    tabs.handle({ kind: "page", tabId: id, url: "https://example.com/" });
+    tabs.handle({ kind: "failed", tabId: id, url: "http://localhost:3000/" });
+    await settle();
+    expect(patch()?.tabs[0]?.problem).toContain("doesn't let devices open its localhost");
+    expect(host.listening).toEqual([3000]);
+    tabs.handle({ kind: "page", tabId: id, url: "https://example.org/" });
+    expect(patch()?.tabs[0]?.problem).toBeNull();
   });
 
   test("typed text that isn't an address opens no tab", () => {
