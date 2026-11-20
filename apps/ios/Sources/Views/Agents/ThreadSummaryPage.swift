@@ -258,24 +258,32 @@ private struct SummaryAutomationsLine: View {
     let workspaceId: String
     let workspacePath: String?
     @State private var reply: Reply?
+    /// Bumped by Retry: it restarts the one read loop instead of starting a second reader.
+    @State private var attempt = 0
     @State private var opened = false
     private struct Reply: Decodable, Sendable, Equatable { let ok: Bool; let line: String?; let failed: String? }
+    /// What a read that never reached the bridge says; the bridge words the same failure as
+    /// `projectAutomationsReadFailed` in ui-core.
+    private static let unreachable = Reply(ok: true, line: nil, failed: "Couldn't read automations. Try again")
+    private struct ReadKey: Equatable { let workspaceId: String; let connection: String; let attempt: Int }
 
     var body: some View {
         // A stack, not a Group: a Group hands its modifiers to its children, and before the first
         // reply there are none, so the read below would never start.
         VStack(alignment: .leading, spacing: 0) {
             if let failed = reply?.failed {
-                Button(failed) { Task { await read() } }
+                Button(failed) { attempt += 1 }
                     .buttonStyle(.plain)
                     .foregroundStyle(AceTheme.StatusText.failed)
                     .accessibilityIdentifier("summary.automations.retry")
             } else if let line = reply?.line {
+                // It wraps: the end of the line may be the part that matters ("Automations are
+                // off on this machine").
                 Button(line) { opened = true }
                     .buttonStyle(.plain)
                     .foregroundStyle(AceDesign.Ink.subtle)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityHint("Opens Automations")
                     .accessibilityIdentifier("summary.automations")
             }
@@ -283,9 +291,11 @@ private struct SummaryAutomationsLine: View {
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AceDesign.Space.margin)
-        // Again every half minute and when the machine reconnects, as the thread's automation
-        // strip reads: "in 1h" moves on, and a schedule may be made or run while the page is open.
-        .task(id: "\(workspaceId):\(model.connection)") {
+        // The only reader, scoped to the view: it stops when the Summary goes away. Again every
+        // half minute and when the machine reconnects, as the thread's automation strip reads
+        // ("in 1h" moves on, and a schedule may be made or run while the page is open), and
+        // straight away on Retry.
+        .task(id: ReadKey(workspaceId: workspaceId, connection: model.connection, attempt: attempt)) {
             while !Task.isCancelled {
                 await read()
                 try? await Task.sleep(for: .seconds(30))
@@ -297,6 +307,14 @@ private struct SummaryAutomationsLine: View {
     private func read() async {
         var request: [String: Any] = ["type": "automations.projectLine", "workspaceId": workspaceId, "zone": TimeZone.current.identifier]
         if let workspacePath { request["workspacePath"] = workspacePath }
-        if let next = try? await model.service(request, as: Reply.self), next.ok { reply = next }
+        do {
+            let next = try await model.service(request, as: Reply.self)
+            if Task.isCancelled { return }
+            reply = next.ok ? next : Self.unreachable
+        } catch {
+            // Leaving the page or a newer read cancels this one; that isn't a failure to show.
+            if Task.isCancelled { return }
+            reply = Self.unreachable
+        }
     }
 }
