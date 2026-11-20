@@ -4,7 +4,7 @@ import { checkGenerated } from "./check.ts";
 import { renderRunbook } from "./html.ts";
 import { loadRegistry, paths, readDoc, repoRoot } from "./registry.ts";
 import { renderMarkdown, renderOutreach, slackManifest } from "./render.ts";
-import type { ApprovalEntry, BrokerEntry, Registry } from "./types.ts";
+import { type ApprovalEntry, type BrokerEntry, Registry } from "./types.ts";
 
 const app = {
   name: "Spade",
@@ -131,6 +131,34 @@ describe("outreach", () => {
       "https://docs.ramp.com/form",
     ])
       expect(message).toContain(value);
+  });
+
+  it("answers a maker's form field by field, in its order, with registry values filled in", () => {
+    const vercel: ApprovalEntry = {
+      ...ramp,
+      id: "vercel",
+      name: "Vercel",
+      form: [
+        { field: "Primary Contact Name", answer: "<your name>" },
+        { field: "Primary Contact Email", answer: "{contact}" },
+        { field: "MCP Client OAuth Redirect URI(s)", answer: "{redirect} (loopback)" },
+      ],
+    };
+    const lines = renderOutreach(vercel, app)
+      .split("\n")
+      .filter((line) => line.startsWith("- "));
+    expect(lines).toEqual([
+      "- Primary Contact Name: <your name>",
+      "- Primary Contact Email: team@example.com",
+      "- MCP Client OAuth Redirect URI(s): http://127.0.0.1/v1/connectors/callback (loopback)",
+    ]);
+  });
+
+  it("refuses a form answer naming a value the registry doesn't have", () => {
+    const entry = { ...ramp, form: [{ field: "Logo", answer: "{logo_url}" }] };
+    const parsed = Registry.safeParse({ about: "test", app, registrations: [entry] });
+    expect(parsed.success).toBe(false);
+    expect(Registry.safeParse({ about: "test", app, registrations: [ramp] }).success).toBe(true);
   });
 
   it("is written once per approval entry", () => {

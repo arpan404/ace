@@ -60,6 +60,28 @@ export const PublicEntry = z.strictObject({
 });
 export type PublicEntry = z.infer<typeof PublicEntry>;
 
+/** Values a form answer can name as `{token}`, so they come from the registry, never a copy. */
+export const ANSWER_TOKENS = [
+  "name",
+  "homepage",
+  "privacy",
+  "terms",
+  "description",
+  "contact",
+  "client_document",
+  "redirect",
+] as const;
+export type AnswerToken = (typeof ANSWER_TOKENS)[number];
+
+export function isAnswerToken(name: string | undefined): name is AnswerToken {
+  return ANSWER_TOKENS.some((known) => known === name);
+}
+
+const Answer = Text.refine(
+  (answer) => [...answer.matchAll(/\{([a-z_]+)\}/g)].every(([, token]) => isAnswerToken(token)),
+  `unknown {token}; known: ${ANSWER_TOKENS.join(", ")}`,
+);
+
 /** A maker that must let Spade's client ID metadata document in. */
 export const ApprovalEntry = z.strictObject({
   ...common,
@@ -71,6 +93,11 @@ export const ApprovalEntry = z.strictObject({
   console: z.url().nullable(),
   client_document: z.literal(CLIENT_DOCUMENT),
   redirects: z.tuple([z.literal(LOOPBACK_REDIRECT)]),
+  /** The maker's form, when it has one: each field in its order, with the answer to paste. */
+  form: z
+    .array(z.strictObject({ field: Text, answer: Answer }))
+    .min(1)
+    .optional(),
 });
 export type ApprovalEntry = z.infer<typeof ApprovalEntry>;
 

@@ -1,10 +1,12 @@
 import { paths } from "./registry.ts";
 import {
+  type AnswerToken,
   type ApprovalEntry,
   type BrokerEntry,
   type Entry,
   type Identity,
   inOrder,
+  isAnswerToken,
   type Registry,
   type Status,
 } from "./types.ts";
@@ -57,7 +59,29 @@ function brokerFields(entry: BrokerEntry, app: Identity): Field[] {
   ];
 }
 
+/** A form answer with its `{token}`s filled in from the registry. */
+export function fillAnswer(answer: string, entry: ApprovalEntry, app: Identity): string {
+  const values: Record<AnswerToken, string> = {
+    name: app.name,
+    homepage: app.homepage,
+    privacy: app.privacy,
+    terms: app.terms,
+    description: app.description,
+    contact: app.contact,
+    client_document: entry.client_document,
+    redirect: entry.redirects.join(", "),
+  };
+  return answer.replaceAll(/\{([a-z_]+)\}/g, (token, name: string) =>
+    isAnswerToken(name) ? values[name] : token,
+  );
+}
+
 function approvalFields(entry: ApprovalEntry, app: Identity): Field[] {
+  if (entry.form)
+    return entry.form.map(({ field, answer }) => ({
+      label: field,
+      value: fillAnswer(answer, entry, app),
+    }));
   return [
     { label: "Client name", value: app.name },
     { label: "Homepage", value: app.homepage },
@@ -119,12 +143,13 @@ function section(entry: Entry, app: Identity, step: number): string[] {
   if (entry.blocked_on) lines.push(`**Blocked on:** ${entry.blocked_on}.`, "");
   if (entry.kind === "approval") {
     const where = entry.console ? `[${entry.channel}](${entry.console})` : entry.channel;
+    const what = entry.form ? "The answers are" : "The message, ready to send, is";
     lines.push(
-      `Send to: ${where}. The message, ready to send, is written to \`${paths.out}/outreach/${entry.id}.md\`.`,
+      `Send to: ${where}. ${what} written to \`${paths.out}/outreach/${entry.id}.md\`.`,
       "",
     );
     lines.push(`> ${entry.ask}`, "");
-    lines.push("Values:", "");
+    lines.push(entry.form ? "Form answers, in the form's order:" : "Values:", "");
   } else {
     lines.push(`Where: ${entry.where}`, "", `Console: <${entry.console}>`, "");
     if (entry.kind === "broker") {
@@ -152,6 +177,8 @@ export function renderMarkdown(registry: Registry): string {
     "",
     "Every OAuth app and MCP client approval Spade needs from a maker, in the order to do them: the longest review queues first. Why each one is needed is in [connector-apps.md](connector-apps.md).",
     "",
+    "The privacy and terms URLs every form asks for, https://acehq.dev/privacy and https://acehq.dev/terms, reach the legal pages through `apps/marketing/public/_redirects`; the check fails if they stop doing so.",
+    "",
     "## What can be automated",
     "",
     "Slack can: `bun run docs:connectors slack --yes` creates the app from its manifest through Slack's `apps.manifest.create` API and prints the client ID and secret once, to the terminal. No other maker here offers an API for creating an OAuth app, so the browser part is done by a person; this page and the runbook (`bun run docs:connectors` writes it to `" +
@@ -175,6 +202,17 @@ export function renderMarkdown(registry: Registry): string {
 /** A message to one approval maker, with every value it needs. */
 export function renderOutreach(entry: ApprovalEntry, app: Identity): string {
   const where = entry.console ? `${entry.channel}: ${entry.console}` : entry.channel;
+  if (entry.form)
+    return [
+      `# ${entry.name}: Spade as an MCP client`,
+      "",
+      `Fill in: ${where}`,
+      "",
+      "One line per field, in the form's order. Replace anything in <angle brackets> first.",
+      "",
+      ...fields(entry, app).map((field) => `- ${field.label}: ${field.value}`),
+      "",
+    ].join("\n");
   return [
     `# ${entry.name}: Spade as an MCP client`,
     "",

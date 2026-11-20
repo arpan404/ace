@@ -97,6 +97,30 @@
       "console": "https://forms.gle/FQ3nYPbovoHvbfmz9",
       "client_document": "https://acehq.dev/oauth/spade.json",
       "redirects": ["http://127.0.0.1/v1/connectors/callback"],
+      "form": [
+        { "field": "Primary Contact Name", "answer": "<your name>" },
+        { "field": "Primary Contact Email", "answer": "{contact}" },
+        { "field": "Company/Organization Name", "answer": "ace" },
+        { "field": "Company/Organization URL", "answer": "{homepage}" },
+        { "field": "MCP Client Name", "answer": "{name}" },
+        { "field": "MCP Client Description", "answer": "{description}" },
+        { "field": "MCP Client Documentation Link(s)", "answer": "https://acehq.dev/mcp" },
+        { "field": "Transport Support", "answer": "Streamable HTTP" },
+        {
+          "field": "MCP Client OAuth Redirect URI(s)",
+          "answer": "{redirect} (loopback: Spade listens on a free port on 127.0.0.1, as RFC 8252 allows)"
+        },
+        { "field": "Server Logo", "answer": "https://acehq.dev/icon-512.png" },
+        { "field": "Wordmark", "answer": "<wordmark URL>" },
+        {
+          "field": "Client test setup instructions",
+          "answer": "Install ace from https://acehq.dev/download and open it. In Spade, go to Settings > Spade > Connectors > Connect an app, choose Vercel and sign in with your Vercel account. Then open a project: ask Spade to show one of your Vercel projects and its latest deployment."
+        },
+        {
+          "field": "Additional comments",
+          "answer": "Spade is open source under Apache-2.0. It identifies itself with the client ID metadata document {client_document}, which Vercel's authorization server can fetch."
+        }
+      ],
       "notes": [
         "The form is linked from https://vercel.com/docs/agent-resources/vercel-mcp.",
         "No review is needed once Vercel's metadata says authorization_response_iss_parameter_supported: Spade's client ID metadata document then works as it is.",
@@ -184,7 +208,7 @@
       "started": null,
       "order": 31,
       "minutes": 10,
-      "blocked_on": "https://acehq.dev/privacy and /terms answer 404 until the marketing site deploys apps/marketing/public/_redirects",
+      "blocked_on": null,
       "apps": ["slack"],
       "redirects": ["https://cloud.acehq.dev/v1/oauth/callback/slack"],
       "scopes": [
@@ -242,7 +266,7 @@
       "started": null,
       "order": 33,
       "minutes": 25,
-      "blocked_on": "https://acehq.dev/privacy and /terms answer 404 until the marketing site deploys apps/marketing/public/_redirects",
+      "blocked_on": null,
       "apps": ["zoom"],
       "redirects": ["https://cloud.acehq.dev/v1/oauth/callback/zoom"],
       "scopes": [
