@@ -276,6 +276,8 @@ describe("a page's connection to the machine", () => {
     ["tunnel_port_refused", "Port 3000 belongs to ace"],
     ["tunnel_limit", "Too many connections"],
     ["offline", "can't be reached"],
+    // Nothing listens on the machine's port: the open itself is refused with tunnel_reset.
+    ["tunnel_reset", "Nothing is running on port 3000 on the machine."],
   ])("a %s refusal resets the connection and says why", async (code, words) => {
     const { tabs, host, tunnels, patch, open } = machine();
     await open("localhost:3000");
