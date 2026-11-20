@@ -58,3 +58,43 @@ export function markedProcesses(id: string, listing: ProcessListing): number[] {
   }
   return found;
 }
+
+/*
+ * The opposite mark: processes ace launches on purpose to outlive it (the updater, an editor it
+ * opens, a browser for a sign-in page) carry `ACE_PROCESS_KEEP=1` and no run marker, and their
+ * pid and start are recorded. No sweep signals one, nor anything below it.
+ */
+export const PROCESS_KEEP_ENV = "ACE_PROCESS_KEEP";
+
+/** `env` for a process ace starts to outlive it. */
+export function keptEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const kept: NodeJS.ProcessEnv = { ...env, [PROCESS_KEEP_ENV]: "1" };
+  delete kept[PROCESS_OWNER_ENV];
+  return kept;
+}
+
+/** Whether a start environment says ace started it to outlive ace. */
+export function carriesKeep(environment: readonly string[]): boolean {
+  return environment.includes(`${PROCESS_KEEP_ENV}=1`);
+}
+
+/** Where a kept process's pid and start go. */
+export interface KeptJournal {
+  keep(pid: number): void;
+}
+const keptJournals = new Set<KeptJournal>();
+/** Hear each kept process ace launches; returns the unsubscribe. */
+export function observeKept(journal: KeptJournal): () => void {
+  keptJournals.add(journal);
+  return () => keptJournals.delete(journal);
+}
+/** Record that `pid` was launched to outlive ace. Never throws: a launch has already happened. */
+export function noteKept(pid: number | undefined): void {
+  if (pid === undefined) return;
+  for (const journal of keptJournals)
+    try {
+      journal.keep(pid);
+    } catch (error) {
+      process.emitWarning(`A kept process could not be recorded: ${String(error)}`);
+    }
+}

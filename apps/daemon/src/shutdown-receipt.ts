@@ -5,6 +5,17 @@ export const ShutdownAdmission = z.object({
   stopping: z.literal(true),
   receiptId: z.string().min(1).max(128),
 });
+/**
+ * A stop request's body (optional: older clients send none). `caller` is the requesting
+ * process and its ancestors, by pid and kernel start: the daemon's shutdown never signals them,
+ * so a stop asked from inside one of its provider's shells still gets its receipt.
+ */
+export const StopRequest = z.object({
+  caller: z
+    .array(z.object({ pid: z.number().int().positive(), start: z.string().min(1).max(128) }))
+    .max(64)
+    .optional(),
+});
 export const ShutdownReceipt = z.object({
   id: z.string().min(1).max(128),
   state: z.enum(["pending", "succeeded", "failed"]),
@@ -12,13 +23,19 @@ export const ShutdownReceipt = z.object({
   error: z.string().max(256).optional(),
 });
 export interface ShutdownControl {
-  request(): z.infer<typeof ShutdownAdmission>;
+  request(body?: z.infer<typeof StopRequest>): z.infer<typeof ShutdownAdmission>;
   start(): void;
 }
 /** One bounded, correlated receipt is kept outside resources being disposed. */
 export function shutdownControl(
   home: string,
-  runtime: { id(): string; now(): number; close(): Promise<void> },
+  runtime: {
+    id(): string;
+    now(): number;
+    close(): Promise<void>;
+    /** The first accepted request's caller chain, before shutdown begins. */
+    caller?(members: { pid: number; start: string }[]): void;
+  },
 ): ShutdownControl {
   const path = join(home, "daemon-shutdown.json");
   let id: string | undefined;
@@ -35,9 +52,10 @@ export function shutdownControl(
     renameSync(temporary, path);
   };
   return {
-    request() {
+    request(body) {
       if (!id) {
         id = runtime.id();
+        runtime.caller?.(body?.caller ?? []);
         write("pending");
       }
       return ShutdownAdmission.parse({ stopping: true, receiptId: id });

@@ -2,7 +2,7 @@ import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { namedFetch } from "@ace/client/ace-client";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
 import { stopMembers, type TreeMember } from "@ace/provider-kit/process-tree";
-import { ownProcesses } from "./owned-processes.ts";
+import { ownProcesses, type OwnedCapture } from "./owned-processes.ts";
 import { verifyWindowsRecovery } from "./process-recovery.ts";
 import { FORCED_GRACE_MS, forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
@@ -342,8 +342,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
     inventory.close();
   }, "process inventory");
   // Before any service spawns, so every marked spawn of this run carries its id.
+  // Closed by the shutdown itself, after its last process check, not with the other resources.
   const owned = ownProcesses({ home: config.dataDir, run: processOwner, log });
-  resources.own(() => owned.close(), "owned processes");
   resources.own(
     watchStalls(log, daemonLogDirectory(config), options.stallTiming),
     "stall watchdog",
@@ -362,13 +362,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
    * shutdown signals any of them: a child that left its group never gets a group signal, and
    * once its parent exits it belongs to init, where no tree reaches it.
    */
-  let ownedTree: TreeMember[] | undefined;
-  const captureOwnedTree = (): TreeMember[] => {
+  let ownedTree: OwnedCapture | undefined;
+  /** A stop request's caller and its ancestors: spared, so the caller reads its receipt. */
+  let stopCaller: TreeMember[] = [];
+  const captureOwnedTree = (): OwnedCapture => {
     if (ownedTree) return ownedTree;
     try {
-      ownedTree = owned.capture();
+      ownedTree = owned.capture(stopCaller);
     } catch (error) {
-      ownedTree = [];
+      ownedTree = { members: [], complete: false };
       log.log("warn", "The daemon's child process tree could not be read", logError(error));
     }
     return ownedTree;
@@ -414,7 +416,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     return closing;
   };
   const disposeResources = async () => {
-    const tree = captureOwnedTree();
+    const { members: tree, complete } = captureOwnedTree();
     resources.beginShutdown();
     const runtime = { ...systemStartup, ...options.startup };
     let disposed = false;
@@ -428,8 +430,32 @@ export async function startDaemon(options: DaemonOptions = {}) {
       } catch (error) {
         results.push({ status: "rejected", reason: error });
       }
-      // What outlived its own service's stop: never a clean shutdown while one still runs.
-      const left = await stopMembers(tree, FORCED_GRACE_MS);
+      // What outlived its own service's stop: never a clean shutdown while one still runs, or
+      // while part of the tree was never seen.
+      if (!complete)
+        results.push({
+          status: "rejected",
+          reason: new Error("The daemon's process trees were too large to read whole"),
+        });
+      // Then once more, now every service has closed: a process started while shutdown ran (a
+      // probe already in flight) was after the first capture, and its marker still names it.
+      let late: TreeMember[] = [];
+      let left: TreeMember[];
+      try {
+        try {
+          late = owned.capture(stopCaller).members;
+        } catch (error) {
+          // The log may be closed by now; an unchecked end is a failed shutdown, not a quiet one.
+          results.push({ status: "rejected", reason: error });
+        }
+        const first = new Set(tree.map((member) => `${member.pid}:${member.start}`));
+        left = await stopMembers(
+          [...tree, ...late.filter((member) => !first.has(`${member.pid}:${member.start}`))],
+          FORCED_GRACE_MS,
+        );
+      } finally {
+        owned.close();
+      }
       if (left.length)
         results.push({
           status: "rejected",
@@ -667,6 +693,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
       shutdown: shutdownControl(config.dataDir, {
         id: randomUUID,
         now,
+        caller: (members) => {
+          stopCaller = members;
+        },
         close: () => {
           const closed = closeResources({ source: "stop-request" });
           // The process host ends the process once it has closed, as after a signal.

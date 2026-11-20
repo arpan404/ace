@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { access, chmod, mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { keptEnv, noteKept } from "@ace/provider-kit/process-marker";
 
 /*
  * An agent signing in opens its sign-in page with the system opener (`open`, `xdg-open` and
@@ -94,8 +95,10 @@ export async function systemOpener(
 function launch(opener: string | undefined, url: string, env: NodeJS.ProcessEnv): void {
   if (!opener) return;
   try {
-    const child = spawn(opener, [url], { env, stdio: "ignore", detached: true });
+    // Kept: the browser it opens outlives the sign-in and the daemon.
+    const child = spawn(opener, [url], { env: keptEnv(env), stdio: "ignore", detached: true });
     child.on("error", () => {});
+    noteKept(child.pid);
     child.unref();
   } catch {
     // A missing opener leaves the page unopened, as it would have been for the agent.

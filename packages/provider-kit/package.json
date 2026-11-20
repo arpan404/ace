@@ -43,6 +43,8 @@
     "./cursor-selection": "./src/cursor-selection.ts",
     "./process-identity": "./src/process-identity.ts",
     "./process-tree": "./src/process-tree.ts",
+    "./process-signal": "./src/process-signal.ts",
+    "./process-tree-test-support": "./src/process-tree-test-support.ts",
     "./process-listing": "./src/process-listing.ts",
     "./process-marker": "./src/process-marker.ts",
     "./process-reaper": "./src/process-reaper.ts",

@@ -1,6 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { processIdentity } from "./process-identity.ts";
-import { systemListing } from "./process-listing.ts";
+import { systemListing, type ProcessListing } from "./process-listing.ts";
+import { signalMember, systemPidFds, type PidFds } from "./process-signal.ts";
 
 /*
  * Process trees by parent pid, for stops that must reach every process a child started,
@@ -9,11 +9,19 @@ import { systemListing } from "./process-listing.ts";
  * them to init (on Linux, to the nearest subreaper), so a tree is captured while it is still
  * connected, before anything is signalled. Linux and macOS only: Windows contains trees in job
  * objects instead.
+ *
+ * What is signalled is decided by evidence: a pid with the kernel start time it had when it
+ * was captured. A capture takes a child's start from the same kernel read as its parent link,
+ * and keeps it only while the parent is still the process it walked from. Every signal is
+ * checked against that start on its own, just before it is sent (`process-signal.ts`).
  */
 
 const tableLimit = 4_194_304;
-/** The most members one capture walks: a fork bomb under a provider must not stall a stop. */
-const captureLimit = 4_096;
+/**
+ * The most members one capture walks. A capture that reaches it says so (`truncated`): a stop
+ * must not report a tree as ended when it never saw all of it.
+ */
+export const captureLimit = 16_384;
 
 /** `ps -A -o pid=,ppid=`: each process's parent. Malformed rows are skipped. */
 export function parseProcessParents(text: string): Map<number, number> {
@@ -59,61 +67,88 @@ export function descendantsOf(
 export type TreeMember = { pid: number; start: string };
 /** What a capture saw: the member, the parent it had then and its process group. */
 export type CapturedMember = TreeMember & { parent: number; group: number };
-/** The kernel's identity of a live process. */
-export type LiveIdentity = { start: string; group: number };
+/** A running process, from one kernel read: start, parent and group. */
+export type LiveIdentity = { start: string; parent: number; group: number };
 
 export type TreeIo = {
   platform: NodeJS.Platform;
-  /** The direct children of `pid`, read synchronously: a shutdown captures its tree before any
-   * of its own stop handlers can signal a member. */
-  children(pid: number): number[];
-  /** The identity of a running process; undefined once it is gone, a zombie included. */
+  /** A children reader for one walk (see `ProcessListing.lister`). */
+  lister(): (pid: number) => number[];
+  /** A running process's identity; undefined once it is gone, a zombie included. */
   identity(pid: number): LiveIdentity | undefined;
-  signal(pid: number, signal: NodeJS.Signals): void;
+  /** kill(2) by pid: only ever called through `signalMember`'s checks. */
+  kill(pid: number, signal: NodeJS.Signals): void;
+  /** Linux pidfds, where available: a reused pid can't receive a signal at all. */
+  pidfd?: PidFds | undefined;
   wait(milliseconds: number): Promise<void>;
 };
 
-export const systemTreeIo: TreeIo = {
-  platform: process.platform,
-  children: (pid) => systemListing.children(pid),
-  identity(pid) {
-    const identity = processIdentity(pid);
-    if (!identity || systemListing.zombie(pid)) return undefined;
-    return { start: identity.start, group: identity.group };
-  },
-  signal: (pid, signal) => process.kill(pid, signal),
-  wait: (milliseconds) => delay(milliseconds),
-};
+/** The tree seam over a listing. */
+export function treeIo(listing: ProcessListing): TreeIo {
+  return {
+    platform: listing.platform,
+    lister: () => listing.lister(),
+    identity(pid) {
+      const info = listing.info(pid);
+      return info && !info.zombie
+        ? { start: info.start, parent: info.parent, group: info.group }
+        : undefined;
+    },
+    kill: (pid, signal) => process.kill(pid, signal),
+    pidfd: systemPidFds(listing.platform),
+    wait: (milliseconds) => delay(milliseconds),
+  };
+}
+
+export const systemTreeIo: TreeIo = treeIo(systemListing);
 
 /** Whether this platform finds trees by parent pid. */
 export function capturesTrees(platform: NodeJS.Platform): boolean {
   return platform === "darwin" || platform === "linux";
 }
 
+/** A capture: what it found, and whether it stopped at its limit before the end. */
+export type Capture = { members: CapturedMember[]; truncated: boolean };
+
 /**
  * Every live process below `roots` with its start identity, parents before children. Work
- * follows the size of the tree, not of the machine. A process that ends while the tree is
- * read is left out; it needs no stopping.
+ * follows the size of the tree, not of the machine. A child is kept only when its own parent
+ * link (read with its start) names the parent being walked, and only while that parent is still
+ * the process the walk reached: a pid reused by an unrelated process during the walk is never
+ * taken for a member.
  */
-export function captureDescendants(
+export function captureTree(
   roots: readonly number[],
   io: TreeIo = systemTreeIo,
-): CapturedMember[] {
-  if (!roots.length || !capturesTrees(io.platform)) return [];
+  limit = captureLimit,
+): Capture {
+  if (!roots.length || !capturesTrees(io.platform)) return { members: [], truncated: false };
+  const children = io.lister();
   const members: CapturedMember[] = [];
   const seen = new Set<number>(roots);
-  const queue = [...roots];
+  const queue: TreeMember[] = [];
+  for (const pid of roots) {
+    const identity = readIdentity(io, pid);
+    if (identity) queue.push({ pid, start: identity.start });
+  }
   for (let parent = queue.shift(); parent !== undefined; parent = queue.shift()) {
-    for (const pid of io.children(parent)) {
-      if (seen.has(pid) || members.length >= captureLimit) continue;
-      seen.add(pid);
+    const found: CapturedMember[] = [];
+    for (const pid of children(parent.pid)) {
+      if (seen.has(pid)) continue;
       const identity = readIdentity(io, pid);
-      if (!identity) continue;
-      members.push({ pid, start: identity.start, parent, group: identity.group });
-      queue.push(pid);
+      if (!identity || identity.parent !== parent.pid) continue;
+      found.push({ pid, start: identity.start, parent: parent.pid, group: identity.group });
+    }
+    // The list was the children of whoever held the parent's pid: only ours if it still does.
+    if (readIdentity(io, parent.pid)?.start !== parent.start) continue;
+    for (const member of found) {
+      if (members.length >= limit) return { members, truncated: true };
+      seen.add(member.pid);
+      members.push(member);
+      queue.push(member);
     }
   }
-  return members;
+  return { members, truncated: false };
 }
 
 function readIdentity(io: TreeIo, pid: number): LiveIdentity | undefined {
@@ -136,31 +171,46 @@ export function liveMembers(members: readonly TreeMember[], io: TreeIo = systemT
   return members.filter((member) => readIdentity(io, member.pid)?.start === member.start);
 }
 
+/** Signal one member, checked on its own just before the signal goes. */
+export function signalTreeMember(
+  member: TreeMember,
+  signal: NodeJS.Signals,
+  io: TreeIo = systemTreeIo,
+): "sent" | "gone" {
+  return signalMember(member, signal, {
+    start: (pid) => readIdentity(io, pid)?.start,
+    kill: (pid, name) => io.kill(pid, name),
+    pidfd: io.pidfd,
+  });
+}
+
 /**
- * Stop the captured members still running: SIGTERM, then SIGKILL after `graceMs`. Each is
- * signalled only while its identity still matches. Resolves with any that survived both.
+ * Stop the captured members still running: SIGTERM, then SIGKILL after `graceMs`. Each signal
+ * is checked against its member's start on its own, just before it goes, never for a batch.
+ * Waits end at `deadline` (a `performance.now()` time) when one is given. Resolves with the
+ * members still running.
  */
 export async function stopMembers(
   members: readonly TreeMember[],
   graceMs: number,
   io: TreeIo = systemTreeIo,
+  deadline = Number.POSITIVE_INFINITY,
 ): Promise<TreeMember[]> {
-  const signal = (targets: readonly TreeMember[], name: NodeJS.Signals) => {
-    for (const member of liveMembers(targets, io))
-      try {
-        io.signal(member.pid, name);
-      } catch {
-        /* It ended between the check and the signal. */
-      }
+  const signal = (name: NodeJS.Signals) => {
+    for (const member of members) signalTreeMember(member, name, io);
   };
   const settle = async (milliseconds: number) => {
-    for (let waited = 0; waited < milliseconds && liveMembers(members, io).length; waited += 25)
+    for (
+      let waited = 0;
+      waited < milliseconds && performance.now() < deadline && liveMembers(members, io).length;
+      waited += 25
+    )
       await io.wait(25);
   };
   if (!liveMembers(members, io).length) return [];
-  signal(members, "SIGTERM");
+  signal("SIGTERM");
   await settle(graceMs);
-  signal(members, "SIGKILL");
+  signal("SIGKILL");
   await settle(1_000);
   return liveMembers(members, io);
 }

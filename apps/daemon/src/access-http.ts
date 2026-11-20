@@ -1,3 +1,4 @@
+import { StopRequest } from "./shutdown-receipt.ts";
 import type { MaintenanceGate } from "@ace/service";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
@@ -24,6 +25,24 @@ function hostAdmission<T extends { holds: readonly string[] }>(status: T): T {
   return { ...status, holds: status.holds.filter((hold) => hold !== "storage") };
 }
 
+/** A JSON body that may be absent: undefined for an empty one. */
+async function optionalBody(request: IncomingMessage): Promise<unknown> {
+  let bytes = 0;
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    const buffer = Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > 16_384) throw new AccessError(413, "Request too large");
+    chunks.push(buffer);
+  }
+  const text = Buffer.concat(chunks).toString().trim();
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new AccessError(400, "JSON object required");
+  }
+}
 async function body(request: IncomingMessage): Promise<unknown> {
   let bytes = 0;
   const chunks: Buffer[] = [];
@@ -177,8 +196,10 @@ export function accessHttp({
           };
         } else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
+          const stop = StopRequest.safeParse((await optionalBody(request)) ?? {});
+          if (!stop.success) throw new AccessError(400, "Invalid stop request");
           maintenance?.enter("stop");
-          result = shutdown.request();
+          result = shutdown.request(stop.data);
           response.once("finish", () => shutdown.start());
         } else if (
           (path === "/v1/maintenance" || path === "/v1/maintenance/update") &&

@@ -1,11 +1,15 @@
-import { closeSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readSync } from "node:fs";
 import { openLibrary, type NativeFunction } from "./bun-ffi.ts";
 
 /*
  * What the kernel says about processes, read in ways whose cost follows what is asked: one
- * process's children, its parent, its environment. Linux reads /proc; macOS asks libproc and
+ * process's children, its identity, its environment. Linux reads /proc; macOS asks libproc and
  * the KERN_PROCARGS2 sysctl through bun:ffi. Every reader returns nothing, never throws, for a
  * process that ended or that this user may not inspect: nothing here is a reason to signal.
+ *
+ * A process's identity (start time), parent, group and state come from ONE kernel read
+ * (`/proc/<pid>/stat`, one proc_pidinfo call), so a parent link and a start time always
+ * describe the same process, even when its pid is reused around the read.
  *
  * A process's environment is the one it was started with. Linux shows it for every process of
  * the same user. macOS shows it for the same user's processes too, except Apple's platform
@@ -14,6 +18,9 @@ import { openLibrary, type NativeFunction } from "./bun-ffi.ts";
  */
 
 const environLimit = 1_048_576;
+
+/** One process, from one kernel read. `start` is the same string `processIdentity` gives. */
+export type ProcessInfo = { start: string; parent: number; group: number; zombie: boolean };
 
 /** `/proc/<pid>/task/<tid>/children`: space-separated pids. */
 export function parseChildList(text: string): number[] {
@@ -25,8 +32,8 @@ export function parseChildList(text: string): number[] {
   return pids;
 }
 
-/** `/proc/<pid>/environ`: NUL-separated `NAME=value` strings. */
-export function parseEnviron(bytes: Uint8Array): string[] {
+/** NUL-separated strings: `/proc/<pid>/environ` and `/proc/<pid>/cmdline`. */
+export function parseNulList(bytes: Uint8Array): string[] {
   return Buffer.from(bytes).toString("utf8").split("\0").filter(Boolean);
 }
 
@@ -58,34 +65,51 @@ export function parseProcArgs2(bytes: Uint8Array): { argv: string[]; env: string
   return { argv, env };
 }
 
-/** `/proc/<pid>/stat` past the command: its state, parent and process group. */
-export function parseLinuxStat(text: string): { state: string; ppid: number; group: number } {
+/** `/proc/<pid>/stat` past the command: state, parent, group and start ticks. */
+export function parseLinuxStat(text: string): {
+  state: string;
+  ppid: number;
+  group: number;
+  ticks: string;
+} {
   const end = text.lastIndexOf(")");
   if (end < 1) throw new Error("Invalid kernel process stat");
-  const [state = "", ppid, group] = text
+  const fields = text
     .slice(end + 2)
     .trim()
     .split(/\s+/);
-  return { state, ppid: Number(ppid), group: Number(group) };
+  const ticks = fields[19] ?? "";
+  if (!/^\d+$/.test(ticks)) throw new Error("Invalid kernel process stat");
+  return { state: fields[0] ?? "", ppid: Number(fields[1]), group: Number(fields[2]), ticks };
 }
 
 export interface ProcessListing {
   platform: NodeJS.Platform;
-  /** The direct children of `pid`; empty once it is gone. */
-  children(pid: number): number[];
+  /**
+   * A children reader for one walk. Where the kernel keeps no per-process child list (Linux
+   * without CONFIG_PROC_CHILDREN), the first call reads the process table once and every later
+   * call of this reader answers from it.
+   */
+  lister(): (pid: number) => number[];
   /** Every process this user can see. */
   all(): number[];
-  /** Its parent's pid, or undefined once it is gone. */
-  parent(pid: number): number | undefined;
+  /** One kernel read of a process: start, parent, group, state. Undefined once it is gone. */
+  info(pid: number): ProcessInfo | undefined;
   /** Its start environment, or undefined when hidden (another user, an Apple binary) or gone. */
   environment(pid: number): string[] | undefined;
-  /** Whether it has exited and waits for its parent to reap it: gone, for every sweep. */
-  zombie(pid: number): boolean;
+  /** Its arguments, argv[0] first; macOS shows these even for platform binaries. */
+  arguments(pid: number): string[] | undefined;
+}
+
+/** What Linux's listing reads, so tests can stand in for /proc. */
+export interface ProcFs {
+  list(path: string): string[] | undefined;
+  read(path: string, limit: number): Uint8Array | undefined;
 }
 
 /**
  * One scratch buffer for every read here: a sweep reads every process's environment, and a
- * fresh megabyte each would be gigabytes of garbage. Callers copy what they keep.
+ * fresh megabyte each would be gigabytes of garbage. Callers get a copy.
  */
 let scratch = Buffer.alloc(65_536);
 function room(size: number): Buffer {
@@ -93,72 +117,118 @@ function room(size: number): Buffer {
   return scratch;
 }
 
-/** Up to `limit` bytes of a file, copied out of the scratch buffer. */
-function readBounded(path: string, limit: number): Uint8Array | undefined {
-  let descriptor: number | undefined;
-  try {
-    descriptor = openSync(path, "r");
-    let length = 0;
-    while (length < limit) {
-      if (length === scratch.length) {
-        const grown = Buffer.alloc(Math.min(limit, scratch.length * 2));
-        scratch.copy(grown, 0, 0, length);
-        scratch = grown;
-      }
-      const read = readSync(
-        descriptor,
-        scratch,
-        length,
-        Math.min(limit, scratch.length) - length,
-        null,
-      );
-      if (read === 0) break;
-      length += read;
+export const systemProcFs: ProcFs = {
+  list(path) {
+    try {
+      return readdirSync(path);
+    } catch {
+      return undefined;
     }
-    return Buffer.from(scratch.subarray(0, length));
-  } catch {
-    return undefined;
-  } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
-  }
-}
+  },
+  read(path, limit) {
+    let descriptor: number | undefined;
+    try {
+      descriptor = openSync(path, "r");
+      let length = 0;
+      while (length < limit) {
+        if (length === scratch.length) {
+          const grown = Buffer.alloc(Math.min(limit, scratch.length * 2));
+          scratch.copy(grown, 0, 0, length);
+          scratch = grown;
+        }
+        const read = readSync(
+          descriptor,
+          scratch,
+          length,
+          Math.min(limit, scratch.length) - length,
+          null,
+        );
+        if (read === 0) break;
+        length += read;
+      }
+      return Buffer.from(scratch.subarray(0, length));
+    } catch {
+      return undefined;
+    } finally {
+      if (descriptor !== undefined) closeSync(descriptor);
+    }
+  },
+};
 
-function linuxChildren(pid: number): number[] {
-  let tasks: string[];
-  try {
-    tasks = readdirSync(`/proc/${pid}/task`);
-  } catch {
-    return [];
-  }
-  const children: number[] = [];
-  let listed = false;
-  for (const task of tasks) {
-    const text = readBounded(`/proc/${pid}/task/${task}/children`, 65_536);
-    if (!text) continue;
-    listed = true;
-    children.push(...parseChildList(Buffer.from(text).toString("utf8")));
-  }
-  if (listed) return children;
-  // A kernel without CONFIG_PROC_CHILDREN: every process's parent, from its stat.
-  return linuxAll().filter((child) => linuxParent(child) === pid);
-}
+const text = (bytes: Uint8Array | undefined) =>
+  bytes === undefined ? undefined : Buffer.from(bytes).toString("utf8");
 
-function linuxAll(): number[] {
-  try {
-    return readdirSync("/proc")
-      .filter((name) => /^\d+$/.test(name))
-      .map(Number);
-  } catch {
-    return [];
-  }
-}
-
-function linuxParent(pid: number): number | undefined {
-  try {
-    return parseLinuxStat(readFileSync(`/proc/${pid}/stat`, "utf8")).ppid;
-  } catch {
-    return undefined;
-  }
+/** Linux's listing over `proc` (the real /proc unless a test stands in). */
+export function linuxListing(proc: ProcFs = systemProcFs): ProcessListing {
+  let boot: string | undefined;
+  const bootId = () => (boot ??= text(proc.read("/proc/sys/kernel/random/boot_id", 64))?.trim());
+  const pids = () => (proc.list("/proc") ?? []).filter((name) => /^\d+$/.test(name)).map(Number);
+  const info = (pid: number): ProcessInfo | undefined => {
+    const stat = text(proc.read(`/proc/${pid}/stat`, 4_096));
+    const id = bootId();
+    if (stat === undefined || !id) return undefined;
+    try {
+      const parsed = parseLinuxStat(stat);
+      return {
+        start: `${id}:${parsed.ticks}`,
+        parent: parsed.ppid,
+        group: parsed.group,
+        zombie: parsed.state === "Z",
+      };
+    } catch {
+      return undefined;
+    }
+  };
+  return {
+    platform: "linux",
+    lister() {
+      let table: Map<number, number[]> | undefined;
+      const fromTable = (pid: number) => {
+        if (!table) {
+          table = new Map();
+          for (const child of pids()) {
+            const parent = info(child)?.parent;
+            if (parent === undefined) continue;
+            const siblings = table.get(parent);
+            if (siblings) siblings.push(child);
+            else table.set(parent, [child]);
+          }
+        }
+        return table.get(pid) ?? [];
+      };
+      let perTask: boolean | undefined;
+      return (pid) => {
+        if (perTask === false) return fromTable(pid);
+        const tasks = proc.list(`/proc/${pid}/task`);
+        if (!tasks) return [];
+        const children: number[] = [];
+        let listed = false;
+        for (const task of tasks) {
+          const list = text(proc.read(`/proc/${pid}/task/${task}/children`, 65_536));
+          if (list === undefined) continue;
+          listed = true;
+          children.push(...parseChildList(list));
+        }
+        if (listed) {
+          perTask = true;
+          return children;
+        }
+        // A kernel without CONFIG_PROC_CHILDREN: the whole table, once for this walk.
+        perTask = false;
+        return fromTable(pid);
+      };
+    },
+    all: pids,
+    info,
+    environment(pid) {
+      const bytes = proc.read(`/proc/${pid}/environ`, environLimit);
+      return bytes ? parseNulList(bytes) : undefined;
+    },
+    arguments(pid) {
+      const bytes = proc.read(`/proc/${pid}/cmdline`, 65_536);
+      return bytes ? parseNulList(bytes) : undefined;
+    },
+  };
 }
 
 type Darwin = Readonly<
@@ -189,17 +259,27 @@ function darwinList(fill: (buffer: Int32Array) => unknown): number[] {
   return [];
 }
 
-/** PROC_PIDTBSDINFO: proc_bsdinfo, with pbi_status at 4 and pbi_ppid (after pbi_pid) at 16. */
-function darwinInfo(pid: number): { status: number; ppid: number } | undefined {
-  const buffer = Buffer.alloc(136);
-  if (darwinApi().proc_pidinfo(pid, 3, 0n, buffer, buffer.length) !== buffer.length)
-    return undefined;
-  return { status: buffer.readUInt32LE(4), ppid: buffer.readUInt32LE(16) };
-}
 /** SZOMB in <sys/proc.h>. */
 const darwinZombie = 5;
 
-function darwinEnvironment(pid: number): string[] | undefined {
+/**
+ * PROC_PIDTBSDINFO: proc_bsdinfo in one call. pbi_status at 4, pbi_pid at 12, pbi_ppid at 16,
+ * pbi_pgid at 100 and the start timeval at 120 and 128, as `processIdentity` reads them.
+ */
+function darwinInfo(pid: number): ProcessInfo | undefined {
+  const buffer = Buffer.alloc(136);
+  if (darwinApi().proc_pidinfo(pid, 3, 0n, buffer, buffer.length) !== buffer.length)
+    return undefined;
+  if (buffer.readUInt32LE(12) !== pid) return undefined;
+  return {
+    start: `${buffer.readBigUInt64LE(120)}:${buffer.readBigUInt64LE(128)}`,
+    parent: buffer.readUInt32LE(16),
+    group: buffer.readUInt32LE(100),
+    zombie: buffer.readUInt32LE(4) === darwinZombie,
+  };
+}
+
+function darwinProcArgs(pid: number): { argv: string[]; env: string[] } | undefined {
   // CTL_KERN, KERN_PROCARGS2: asked for its size first, then read into the scratch buffer.
   const name = new Int32Array([1, 49, pid]);
   const size = new BigUint64Array(1);
@@ -208,65 +288,50 @@ function darwinEnvironment(pid: number): string[] | undefined {
   const buffer = room(needed);
   size[0] = BigInt(needed);
   if (darwinApi().sysctl(name, 3, buffer, size, null, 0n) !== 0) return undefined;
-  return parseProcArgs2(buffer.subarray(0, Number(size[0]))).env;
+  return parseProcArgs2(buffer.subarray(0, Number(size[0])));
 }
 
-export const systemListing: ProcessListing = {
-  platform: process.platform,
-  children(pid) {
-    try {
-      if (process.platform === "linux") return linuxChildren(pid);
-      if (process.platform === "darwin")
-        return darwinList((buffer) =>
-          darwinApi().proc_listchildpids(pid, buffer, buffer.byteLength),
-        );
-    } catch {
-      /* Unreadable: no children to act on. */
-    }
-    return [];
-  },
-  all() {
-    try {
-      if (process.platform === "linux") return linuxAll();
-      if (process.platform === "darwin")
-        return darwinList((buffer) => darwinApi().proc_listallpids(buffer, buffer.byteLength));
-    } catch {
-      /* Unreadable: nothing found. */
-    }
-    return [];
-  },
-  parent(pid) {
-    try {
-      if (process.platform === "linux") return linuxParent(pid);
-      if (process.platform === "darwin") return darwinInfo(pid)?.ppid;
-    } catch {
-      /* Gone or unreadable. */
-    }
-    return undefined;
-  },
-  environment(pid) {
-    try {
-      if (process.platform === "linux") {
-        const bytes = readBounded(`/proc/${pid}/environ`, environLimit);
-        return bytes ? parseEnviron(bytes) : undefined;
-      }
-      if (process.platform === "darwin") return darwinEnvironment(pid);
-    } catch {
-      /* Hidden or gone. */
-    }
-    return undefined;
-  },
-  zombie(pid) {
-    try {
-      if (process.platform === "linux")
-        return parseLinuxStat(readFileSync(`/proc/${pid}/stat`, "utf8")).state === "Z";
-      if (process.platform === "darwin") return darwinInfo(pid)?.status === darwinZombie;
-    } catch {
-      /* Gone. */
-    }
-    return false;
-  },
+/** Calls a native reader; a failure (a gone process, a refused call) is no answer. */
+function quietly<T>(read: () => T, otherwise: T): T {
+  try {
+    return read();
+  } catch {
+    return otherwise;
+  }
+}
+
+export const darwinListing: ProcessListing = {
+  platform: "darwin",
+  lister: () => (pid) =>
+    quietly(
+      () => darwinList((buffer) => darwinApi().proc_listchildpids(pid, buffer, buffer.byteLength)),
+      [],
+    ),
+  all: () =>
+    quietly(
+      () => darwinList((buffer) => darwinApi().proc_listallpids(buffer, buffer.byteLength)),
+      [],
+    ),
+  info: (pid) => quietly(() => darwinInfo(pid), undefined),
+  environment: (pid) => quietly(() => darwinProcArgs(pid)?.env, undefined),
+  arguments: (pid) => quietly(() => darwinProcArgs(pid)?.argv, undefined),
 };
+
+const nothing: ProcessListing = {
+  platform: process.platform,
+  lister: () => () => [],
+  all: () => [],
+  info: () => undefined,
+  environment: () => undefined,
+  arguments: () => undefined,
+};
+
+export const systemListing: ProcessListing =
+  process.platform === "linux"
+    ? linuxListing()
+    : process.platform === "darwin"
+      ? darwinListing
+      : nothing;
 
 /** `pid` and every ancestor up to init: the processes a sweep must never signal. */
 export function lineage(pid: number, listing: ProcessListing = systemListing): Set<number> {
@@ -274,36 +339,34 @@ export function lineage(pid: number, listing: ProcessListing = systemListing): S
   for (let next: number | undefined = pid; next !== undefined && next > 1;) {
     if (found.has(next)) break;
     found.add(next);
-    next = listing.parent(next);
+    next = listing.info(next)?.parent;
   }
   return found;
 }
 
 /** `/proc/<pid>/cgroup` on the unified hierarchy: the `0::` line's path. */
-export function parseCgroupPath(text: string): string | undefined {
-  const line = text.split("\n").find((entry) => entry.startsWith("0::"));
+export function parseCgroupPath(content: string): string | undefined {
+  const line = content.split("\n").find((entry) => entry.startsWith("0::"));
   const path = line?.slice(3).trim();
   return path?.startsWith("/") ? path : undefined;
 }
 
 /**
- * Linux: the cgroup `pid` runs in and its members, read from cgroup v2. A service manager's
- * unit cgroup holds every process the unit started, whatever group, session or parent it has.
+ * Linux: the cgroup `pid` runs in, read from cgroup v2. A service manager's unit cgroup holds
+ * every process the unit started, whatever group, session or parent it has.
  */
 export function cgroupOf(
   pid: number | "self" = "self",
+  proc: ProcFs = systemProcFs,
 ): { path: string; unit: string } | undefined {
-  try {
-    const path = parseCgroupPath(readFileSync(`/proc/${pid}/cgroup`, "utf8"));
-    if (!path) return undefined;
-    return { path, unit: path.slice(path.lastIndexOf("/") + 1) };
-  } catch {
-    return undefined;
-  }
+  const content = text(proc.read(`/proc/${pid}/cgroup`, 65_536));
+  const path = content === undefined ? undefined : parseCgroupPath(content);
+  if (!path) return undefined;
+  return { path, unit: path.slice(path.lastIndexOf("/") + 1) };
 }
 
-export function cgroupMembers(path: string): number[] {
+export function cgroupMembers(path: string, proc: ProcFs = systemProcFs): number[] {
   if (!path.startsWith("/") || path.includes("..")) return [];
-  const text = readBounded(`/sys/fs/cgroup${path}/cgroup.procs`, 1_048_576);
-  return text ? parseChildList(Buffer.from(text).toString("utf8")) : [];
+  const content = text(proc.read(`/sys/fs/cgroup${path}/cgroup.procs`, 1_048_576));
+  return content === undefined ? [] : parseChildList(content);
 }

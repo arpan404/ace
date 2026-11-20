@@ -1,5 +1,5 @@
 import { provenAdoptions, type ZombieChild } from "./process-reaper.ts";
-import { captureDescendants, liveMembers, type TreeIo, type TreeMember } from "./process-tree.ts";
+import { captureTree, liveMembers, type TreeIo, type TreeMember } from "./process-tree.ts";
 
 /*
  * While the daemon owns process groups, a snapshot of their trees every few seconds: pid,
@@ -38,6 +38,8 @@ export interface WatchIo {
     reap(pid: number): boolean;
   };
   report?(error: unknown): void;
+  /** How many processes the watch remembers at most (4,096 unless a test sets fewer). */
+  knownLimit?: number;
 }
 
 export class ProcessWatch {
@@ -47,6 +49,7 @@ export class ProcessWatch {
   private readonly journaled = new Map<number, string>();
   private cancel: (() => void) | undefined;
   private closed = false;
+  private truncationReported = false;
   constructor(io: WatchIo) {
     this.io = io;
   }
@@ -74,12 +77,18 @@ export class ProcessWatch {
     const leaders = this.io.leaders();
     const groups = new Set(leaders);
     const seen = new Set<number>();
-    for (const member of captureDescendants(leaders, this.io.tree)) {
+    const capture = captureTree(leaders, this.io.tree);
+    if (capture.truncated && !this.truncationReported) {
+      this.truncationReported = true;
+      this.io.report?.(new Error("The owned process trees outgrew one snapshot; some are unseen"));
+    }
+    for (const member of capture.members) {
       seen.add(member.pid);
       const before = this.known.get(member.pid);
       // A reused pid is a new process: what was known about the old one no longer holds.
       if (before && before.start !== member.start) this.known.delete(member.pid);
-      if (!this.known.has(member.pid) && this.known.size >= knownLimit) continue;
+      if (!this.known.has(member.pid) && this.known.size >= (this.io.knownLimit ?? knownLimit))
+        continue;
       this.known.set(member.pid, {
         start: member.start,
         // The first parent seen is the proof of adoption later.
@@ -87,18 +96,19 @@ export class ProcessWatch {
         group: member.group,
       });
     }
-    // Before pruning: a zombie reads as gone, and the parent it was first seen with is the proof.
-    this.reapAdopted(groups);
+    // Prune first, by pid AND start: an entry stays only while that same process exists,
+    // running or as a zombie waiting to be reaped. Only then does any evidence move to a zombie.
+    const zombies = this.io.reaper?.zombies() ?? [];
+    const dead = new Map(zombies.map((zombie) => [zombie.pid, zombie.start]));
     const keep: TreeMember[] = [];
     for (const [pid, known] of this.known) {
       const member = { pid, start: known.start };
-      if (!liveMembers([member], this.io.tree).length) {
-        this.known.delete(pid);
-        continue;
-      }
-      // Outside every owned tree now, or outside every owned group: a group stop misses it.
-      if (!seen.has(pid) || !groups.has(known.group)) keep.push(member);
+      if (liveMembers([member], this.io.tree).length) {
+        // Outside every owned tree now, or outside every owned group: a group stop misses it.
+        if (!seen.has(pid) || !groups.has(known.group)) keep.push(member);
+      } else if (dead.get(pid) !== known.start) this.known.delete(pid);
     }
+    this.reapAdopted(zombies, groups);
     this.journal(keep);
     return leaders.length > 0 || keep.length > 0;
   }
@@ -128,15 +138,10 @@ export class ProcessWatch {
     }
   }
 
-  private reapAdopted(owned: ReadonlySet<number>): void {
+  private reapAdopted(zombies: readonly ZombieChild[], owned: ReadonlySet<number>): void {
     const reaper = this.io.reaper;
-    if (!reaper) return;
-    const zombies = reaper.zombies();
-    for (const zombie of zombies) {
-      const known = this.known.get(zombie.pid);
-      if (known) zombie.seenWithParent = known.parent;
-    }
-    for (const pid of provenAdoptions(zombies, reaper.self, owned))
+    if (!reaper || !zombies.length) return;
+    for (const pid of provenAdoptions(zombies, reaper.self, owned, this.known))
       if (reaper.reap(pid)) this.known.delete(pid);
   }
 

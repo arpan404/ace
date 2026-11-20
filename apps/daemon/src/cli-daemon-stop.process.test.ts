@@ -57,15 +57,54 @@ function running(child: ChildProcess): boolean {
 
 /** A long-lived process of this test's; `owner` puts a run's marker in its environment. */
 function stray(owner?: string, command = process.execPath): ChildProcess {
-  const args = command === process.execPath ? ["-e", "setInterval(() => {}, 1000)"] : ["300"];
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if (owner) env[PROCESS_OWNER_ENV] = owner;
-  else delete env[PROCESS_OWNER_ENV];
-  const child = spawn(command, args, { stdio: "ignore", detached: true, env });
+  const child = spawn(command, strayArgs(command), {
+    stdio: "ignore",
+    detached: true,
+    env: strayEnv(owner),
+  });
   cleanups.push(() => {
     if (running(child)) child.kill("SIGKILL");
   });
   return child;
+}
+
+function strayArgs(command: string): string[] {
+  return command === process.execPath ? ["-e", "setInterval(() => {}, 1000)"] : ["300"];
+}
+
+function strayEnv(owner: string | undefined): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (owner) env[PROCESS_OWNER_ENV] = owner;
+  else delete env[PROCESS_OWNER_ENV];
+  return env;
+}
+
+/**
+ * What a crashed run leaves: a process whose parent is gone, so it belongs to init. Started
+ * through a short-lived intermediary, so it is no descendant of this test (which may itself run
+ * under an ace daemon's agent shell). Returns its pid.
+ */
+async function orphan(owner?: string, command = process.execPath): Promise<number> {
+  const launcher = spawn(
+    process.execPath,
+    [
+      "-e",
+      `const c = require("node:child_process").spawn(${JSON.stringify(command)}, ${JSON.stringify(strayArgs(command))}, { stdio: "ignore", detached: true }); c.unref(); process.stdout.write(String(c.pid));`,
+    ],
+    { stdio: ["ignore", "pipe", "ignore"], env: strayEnv(owner) },
+  );
+  let out = "";
+  launcher.stdout.on("data", (chunk: Buffer) => {
+    out += chunk.toString();
+  });
+  await once(launcher, "exit");
+  const pid = Number(out);
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("The orphan did not start");
+  // Only this pid, which this test started.
+  cleanups.push(() => {
+    if (alive(pid)) process.kill(pid, "SIGKILL");
+  });
+  return pid;
 }
 
 /** A fresh home and person, and a fake `codex` that records what it starts. */
@@ -78,6 +117,8 @@ async function home() {
     bin: join(root, "bin"),
     turnPids: join(root, "turn-pids"),
     probePids: join(root, "probe-pids"),
+    stopPids: join(root, "stop-pids"),
+    stopOutput: join(root, "stop-output"),
   };
   await Promise.all([
     mkdir(paths.home),
@@ -87,7 +128,11 @@ async function home() {
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   cleanups.push(() => {
     // Only processes this test's fake provider recorded.
-    for (const pid of [...recorded(paths.turnPids), ...recorded(paths.probePids)])
+    for (const pid of [
+      ...recorded(paths.turnPids),
+      ...recorded(paths.probePids),
+      ...recorded(paths.stopPids),
+    ])
       if (alive(pid)) process.kill(pid, "SIGKILL");
   });
   await writeFile(
@@ -95,7 +140,7 @@ async function home() {
     [
       `#!${process.execPath}`,
       'import { spawn } from "node:child_process";',
-      'import { appendFileSync } from "node:fs";',
+      'import { appendFileSync, openSync } from "node:fs";',
       // A probe that leaves a helper behind and exits before anything can see its tree.
       'if (process.argv.includes("--version")) {',
       '  const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", detached: true });',
@@ -112,6 +157,12 @@ async function home() {
       '    const away = spawn("sleep", ["301"], { stdio: ["ignore", "inherit", "inherit"], detached: true });',
       "    away.unref();",
       `    appendFileSync(${JSON.stringify(paths.turnPids)}, [process.pid, inGroup.pid, away.pid].join("\\n") + "\\n");`,
+      // An agent that runs `ace stop` from its own turn's shell, in the app-server's group.
+      "    if (process.env.ACE_TEST_STOP_FROM_TURN) {",
+      `      const out = openSync(${JSON.stringify(paths.stopOutput)}, "w");`,
+      `      const stop = spawn(process.execPath, [${JSON.stringify(cli)}, "stop", "--json", "--timeout", "30s"], { stdio: ["ignore", out, out], env: process.env });`,
+      `      appendFileSync(${JSON.stringify(paths.stopPids)}, stop.pid + "\\n");`,
+      "    }",
       "  }",
       "  return write(chunk, ...rest);",
       "};",
@@ -142,9 +193,9 @@ async function home() {
 }
 
 /** `ace start` for `paths`'s home; resolves once it listens. */
-async function startDaemon(paths: Awaited<ReturnType<typeof home>>) {
+async function startDaemon(paths: Awaited<ReturnType<typeof home>>, env: NodeJS.ProcessEnv = {}) {
   const daemon = spawn(process.execPath, [cli, "start"], {
-    env: { ...process.env, ...paths.env, ACE_PORT: "0" },
+    env: { ...process.env, ...paths.env, ...env, ACE_PORT: "0" },
     stdio: "ignore",
   });
   const exit = once(daemon, "exit");
@@ -227,14 +278,13 @@ test.skipIf(process.platform === "win32")(
     const earlierRun = "0b9e2c4c-7f3a-4c1e-9a55-2f1d8e6b7a10";
     // The earlier run left a marked helper, and a platform binary whose environment macOS
     // hides, known only from its journal row.
-    const marked = stray(earlierRun);
-    const journaled = stray(undefined, "/bin/sleep");
+    const marked = await orphan(earlierRun);
+    const journaled = await orphan(undefined, "/bin/sleep");
     // Not the earlier run's: another home's marked process, and a sleep with no journal row.
-    const otherHome = stray("5d1f0a7e-2b3c-4d5e-8f90-a1b2c3d4e5f6");
-    const stranger = stray(undefined, "/bin/sleep");
-    await until(() => [marked, journaled, stranger].every((child) => child.pid), "the strays");
-    const identity = processIdentity(journaled.pid ?? 0);
-    if (!identity) throw new Error("The journaled stray is not running");
+    const otherHome = await orphan("5d1f0a7e-2b3c-4d5e-8f90-a1b2c3d4e5f6");
+    const stranger = await orphan(undefined, "/bin/sleep");
+    const identity = processIdentity(journaled);
+    if (!identity) throw new Error("The journaled orphan is not running");
     const journal = new EscapeeJournal(join(paths.home, "processes.sqlite"), earlierRun);
     journal.record([{ pid: identity.pid, start: identity.start }]);
     journal.close();
@@ -244,10 +294,41 @@ test.skipIf(process.platform === "win32")(
       JSON.stringify({ state: "running", pid: 999_999, startedAt: 1, owner: earlierRun }),
     );
     const daemon = await startDaemon(paths);
-    await until(() => !running(marked) && !running(journaled), "the earlier run's leftovers");
-    expect(running(otherHome)).toBe(true);
-    expect(running(stranger)).toBe(true);
+    await until(() => !alive(marked) && !alive(journaled), "the earlier run's leftovers");
+    expect(alive(otherHome)).toBe(true);
+    expect(alive(stranger)).toBe(true);
     await stopDaemon(paths, daemon);
+  },
+  90_000,
+);
+
+test.skipIf(process.platform === "win32")(
+  "ace stop run from a provider's own shell lives to report the daemon stopped",
+  async () => {
+    const paths = await home();
+    const daemon = await startDaemon(paths, { ACE_TEST_STOP_FROM_TURN: "1" });
+    const started = await invoke(
+      paths.home,
+      ["run", "Stop the daemon", "--project", join(paths.person, "project"), "--provider", "codex"],
+      "",
+      paths.env,
+    );
+    expect(started.code, started.stderr + started.stdout).toBe(0);
+    // The turn's shell ran `ace stop`; the daemon's shutdown ends that turn's process group.
+    await until(() => recorded(paths.stopPids).length > 0, "the turn's ace stop");
+    const [caller = 0] = recorded(paths.stopPids);
+    await until(() => !alive(caller), "the turn's ace stop to finish", 40_000);
+    const output = existsSync(paths.stopOutput) ? readFileSync(paths.stopOutput, "utf8") : "";
+    expect(JSON.parse(output.trim().split("\n").at(-1) ?? "{}"), output).toMatchObject({
+      stopped: true,
+    });
+    const exited = await Promise.race([
+      daemon.exit.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000)),
+    ]);
+    expect(exited).toBe(true);
+    // Everything else of the turn ended: the app-server and both of its children.
+    expect(recorded(paths.turnPids).filter(alive)).toEqual([]);
   },
   90_000,
 );

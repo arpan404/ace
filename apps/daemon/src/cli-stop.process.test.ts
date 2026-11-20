@@ -1,7 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { z } from "zod";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -37,7 +39,7 @@ function running(child: ChildProcess): boolean {
   return child.exitCode === null && child.signalCode === null;
 }
 
-async function home(daemon: ChildProcess | undefined, close: () => Promise<void>) {
+async function home(daemon: ChildProcess | undefined, close: () => Promise<void>, owner?: string) {
   const root = await mkdtemp(join(tmpdir(), "ace-stop-receipt-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const control = shutdownControl(root, { id: () => "synthetic-stop", now: () => 1000, close });
@@ -47,6 +49,8 @@ async function home(daemon: ChildProcess | undefined, close: () => Promise<void>
       response.writeHead(403).end();
       return;
     }
+    // The stop request's body (its caller chain) is read, as the daemon reads it.
+    request.resume();
     response.once("finish", () => {
       control.start();
       server.close(() => closed.resolve());
@@ -64,7 +68,12 @@ async function home(daemon: ChildProcess | undefined, close: () => Promise<void>
   if (daemon?.pid)
     await writeFile(
       join(root, "daemon-run.json"),
-      JSON.stringify({ state: "running", pid: daemon.pid, startedAt: 1 }),
+      JSON.stringify({
+        state: "running",
+        pid: daemon.pid,
+        startedAt: 1,
+        ...(owner ? { owner } : {}),
+      }),
     );
   return { root, closed: closed.promise };
 }
@@ -103,7 +112,11 @@ test("ace stop says the daemon is still running, and fails, when its process out
   // Another home's daemon: never this stop's to touch.
   const other = standIn();
   const { root } = await home(daemon, async () => {});
-  const output = await startCli(root, ["stop", "--json", "--timeout", "2s"]).exited;
+  const began = performance.now();
+  const output = await startCli(root, ["stop", "--json", "--timeout", "1s"]).exited;
+  // One deadline governs every wait: past --timeout, the stop reports instead of waiting on.
+  // (Allowing for the CLI's own start; a 2 s floor after SIGTERM would overrun this.)
+  expect(performance.now() - began).toBeLessThan(2_500);
   expect(output.code).toBe(exitCodes.failed);
   expect(output.stdout + output.stderr).toContain(`still running (pid ${daemon.pid})`);
   expect(running(daemon)).toBe(true);
@@ -116,3 +129,108 @@ test("ace stop never says stopped when it can't find the daemon's process to che
   expect(output.code).toBe(exitCodes.uncertain);
   expect(output.stdout).not.toContain('"stopped":true');
 });
+
+/**
+ * A stand-in daemon's family, all its own descendants: an updater-like process with no marker,
+ * a kept one, another home's daemon (with a provider of its own) that inherited this run's
+ * marker, and one plainly marked process of this run.
+ */
+async function family(run: string) {
+  const root = await mkdtemp(join(tmpdir(), "ace-stop-family-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const otherHome = join(root, "home-b");
+  const otherDaemon = join(otherHome, "release/apps/daemon/src/cli.ts");
+  await mkdir(join(otherHome, "release/apps/daemon/src"), { recursive: true });
+  await writeFile(
+    otherDaemon,
+    [
+      'import { spawn } from "node:child_process";',
+      'import { writeFileSync } from "node:fs";',
+      'const provider = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+      'writeFileSync(process.env.ACE_HOME + "/provider", String(provider.pid));',
+      "setInterval(() => {}, 1000);",
+    ].join("\n"),
+  );
+  const script = join(root, "family.mjs");
+  const pids = join(root, "pids.json");
+  await writeFile(
+    script,
+    [
+      'import { spawn } from "node:child_process";',
+      'import { writeFileSync } from "node:fs";',
+      "const [out, run, otherDaemon, otherHome] = process.argv.slice(2);",
+      'const idle = ["-e", "setInterval(() => {}, 1000)"];',
+      "const base = { ...process.env };",
+      "delete base.ACE_PROCESS_OWNER;",
+      "delete base.ACE_PROCESS_KEEP;",
+      'const start = (args, env) => { const child = spawn(process.execPath, args, { stdio: "ignore", detached: true, env }); child.unref(); return child.pid; };',
+      "writeFileSync(out, JSON.stringify({",
+      "  updater: start(idle, base),",
+      '  kept: start(idle, { ...base, ACE_PROCESS_OWNER: run, ACE_PROCESS_KEEP: "1" }),',
+      '  otherDaemon: start([otherDaemon, "start"], { ...base, ACE_PROCESS_OWNER: run, ACE_HOME: otherHome }),',
+      "  marked: start(idle, { ...base, ACE_PROCESS_OWNER: run }),",
+      "}));",
+      "setInterval(() => {}, 1000);",
+    ].join("\n"),
+  );
+  const daemon = spawn(process.execPath, [script, pids, run, otherDaemon, otherHome], {
+    stdio: "ignore",
+  });
+  const recorded = () => {
+    try {
+      const value = z
+        .object({
+          updater: z.number(),
+          kept: z.number(),
+          otherDaemon: z.number(),
+          marked: z.number(),
+        })
+        .parse(JSON.parse(readFileSync(pids, "utf8")));
+      return { ...value, otherProvider: Number(readFileSync(join(otherHome, "provider"), "utf8")) };
+    } catch {
+      return undefined;
+    }
+  };
+  cleanups.push(() => {
+    // Only the processes this family recorded, and the stand-in itself.
+    for (const pid of Object.values(recorded() ?? {})) if (alive(pid)) process.kill(pid, "SIGKILL");
+    if (running(daemon)) daemon.kill("SIGKILL");
+  });
+  for (let waited = 0; !recorded() && waited < 20_000; waited += 50)
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  const members = recorded();
+  if (!members) throw new Error("The stand-in daemon's family did not start");
+  return { daemon, members };
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test("ace stop ends only what the run's evidence names: not the daemon's other descendants, kept processes or another home's daemon", async () => {
+  const run = "0b9e2c4c-7f3a-4c1e-9a55-2f1d8e6b7a10";
+  const { daemon, members } = await family(run);
+  const cleanup = Promise.withResolvers<void>();
+  cleanups.push(() => cleanup.resolve());
+  const { root, closed } = await home(daemon, () => cleanup.promise, run);
+  const cli = startCli(root, ["stop", "--json", "--timeout", "10s"]);
+  cleanups.push(() => void cli.child.kill("SIGKILL"));
+  await closed;
+  cleanup.resolve();
+  daemon.kill("SIGTERM");
+  const output = await cli.exited;
+  expect(output.code, output.stderr).toBe(0);
+  expect(JSON.parse(output.stdout)).toMatchObject({ stopped: true, leftoversStopped: 1 });
+  expect(alive(members.marked)).toBe(false);
+  expect({
+    updater: alive(members.updater),
+    kept: alive(members.kept),
+    otherDaemon: alive(members.otherDaemon),
+    otherProvider: alive(members.otherProvider),
+  }).toEqual({ updater: true, kept: true, otherDaemon: true, otherProvider: true });
+}, 30_000);

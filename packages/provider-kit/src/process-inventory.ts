@@ -376,3 +376,30 @@ export function windowsTreeRecorded(
     db.close();
   }
 }
+
+/**
+ * Read-only, for `ace stop`: the process groups the inventory records as owned by one daemon
+ * process (its pid and start), as their leaders' pid and start. POSIX rows only.
+ */
+export function readOwnedGroups(
+  journal: string,
+  owner: { pid: number; start: string },
+): { pid: number; start: string }[] {
+  if (!existsSync(journal)) return [];
+  const db = new DatabaseSync(journal, { readOnly: true });
+  try {
+    return db
+      .prepare("SELECT entry FROM processes ORDER BY pid")
+      .all()
+      .flatMap((row) => {
+        const entry = Entry.safeParse(JSON.parse(String(row.entry)));
+        return entry.success &&
+          entry.data.ownerPid === owner.pid &&
+          entry.data.ownerStart === owner.start
+          ? [{ pid: entry.data.pid, start: entry.data.start }]
+          : [];
+      });
+  } finally {
+    db.close();
+  }
+}

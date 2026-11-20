@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { captureDescendants, parseProcessParents, stopMembers } from "./process-tree.ts";
+import { captureTree, parseProcessParents, stopMembers } from "./process-tree.ts";
 import { fakeMachine } from "./process-tree-test-support.ts";
 
 test("process parents survive malformed rows", () => {
@@ -22,11 +22,14 @@ test("a tree includes grandchildren, wherever their process group is, and nothin
     900: { parent: 1, start: "other-daemon" },
     901: { parent: 900, start: "other-child" },
   });
-  expect(captureDescendants([100], tree)).toEqual([
-    { pid: 200, start: "app-server", parent: 100, group: 200 },
-    { pid: 300, start: "detached", parent: 200, group: 300 },
-    { pid: 301, start: "detached-child", parent: 300, group: 300 },
-  ]);
+  expect(captureTree([100], tree)).toEqual({
+    truncated: false,
+    members: [
+      { pid: 200, start: "app-server", parent: 100, group: 200 },
+      { pid: 300, start: "detached", parent: 200, group: 300 },
+      { pid: 301, start: "detached-child", parent: 300, group: 300 },
+    ],
+  });
 });
 
 test("trees are not read by parent pid on Windows, whose jobs contain them", () => {
@@ -34,20 +37,116 @@ test("trees are not read by parent pid on Windows, whose jobs contain them", () 
     100: { parent: 1, start: "a" },
     200: { parent: 100, start: "b" },
   });
-  expect(captureDescendants([100], { ...tree, platform: "win32" })).toEqual([]);
+  expect(captureTree([100], { ...tree, platform: "win32" }).members).toEqual([]);
 });
 
-test("a stop never signals a pid that another process holds by then", async () => {
-  const { tree, table, signals } = fakeMachine({
-    200: { parent: 1, start: "captured" },
-    300: { parent: 1, start: "captured-too" },
+test("a child whose pid is reused before its identity is read is not taken for a member", () => {
+  const machine = fakeMachine(
+    {
+      100: { parent: 1, start: "daemon" },
+      200: { parent: 100, start: "app-server" },
+    },
+    {
+      beforeIdentity(pid) {
+        // Between the child list and the identity read, 200 exits and a stranger takes its pid.
+        if (pid === 200 && machine.table.get(200)?.start === "app-server") {
+          machine.end(200);
+          machine.table.set(200, { parent: 1, start: "stranger" });
+        }
+      },
+    },
+  );
+  expect(captureTree([100], machine.tree).members).toEqual([]);
+});
+
+test("children listed under a parent pid that was reused meanwhile are dropped", () => {
+  let listed = false;
+  const machine = fakeMachine(
+    {
+      100: { parent: 1, start: "daemon" },
+      200: { parent: 100, start: "app-server" },
+    },
+    {
+      beforeIdentity(pid) {
+        // The app-server exits after its children were listed, and a stranger reuses its pid
+        // with a child of its own that the list already named.
+        if (pid === 300 && !listed) {
+          listed = true;
+          machine.end(200);
+          machine.table.set(200, { parent: 1, start: "stranger" });
+          machine.table.set(300, { parent: 200, start: "stranger-child" });
+        }
+      },
+    },
+  );
+  machine.table.set(300, { parent: 200, start: "shell" });
+  // The app-server was the daemon's child when read; nothing the reused pid listed is kept.
+  expect(captureTree([100], machine.tree).members.map((member) => member.start)).toEqual([
+    "app-server",
+  ]);
+});
+
+test("a capture that reaches its limit says it is truncated", () => {
+  const { tree } = fakeMachine({
+    100: { parent: 1, start: "daemon" },
+    200: { parent: 100, start: "a" },
+    201: { parent: 100, start: "b" },
+    202: { parent: 100, start: "c" },
   });
-  const members = captureDescendants([1], tree);
-  // 300 exited and its pid went to an unrelated process.
-  table.set(300, { parent: 1, start: "someone-else" });
-  expect(await stopMembers(members, 500, tree)).toEqual([]);
-  expect(signals).toEqual(["SIGTERM 200"]);
-  expect(table.has(300)).toBe(true);
+  const capture = captureTree([100], tree, 2);
+  expect(capture.truncated).toBe(true);
+  expect(capture.members).toHaveLength(2);
+  expect(captureTree([100], tree, 3).truncated).toBe(false);
+});
+
+test("a stop checks each member just before its signal, so a pid reused mid-batch is spared", async () => {
+  const machine = fakeMachine(
+    {
+      200: { parent: 1, start: "first" },
+      300: { parent: 1, start: "second" },
+    },
+    {
+      afterSignal(pid) {
+        // While the batch runs, 300 exits and its pid goes to an unrelated process.
+        if (pid === 200 && machine.table.get(300)?.start === "second") {
+          machine.end(300);
+          machine.table.set(300, { parent: 1, start: "stranger" });
+        }
+      },
+    },
+  );
+  await stopMembers(
+    [
+      { pid: 200, start: "first" },
+      { pid: 300, start: "second" },
+    ],
+    500,
+    machine.tree,
+  );
+  expect(machine.signals).toEqual(["SIGTERM 200:first"]);
+  expect(machine.table.get(300)?.start).toBe("stranger");
+});
+
+test("with pidfds, a pid reused after the descriptor opened is never signalled", async () => {
+  const machine = fakeMachine(
+    { 300: { parent: 1, start: "second" } },
+    {
+      afterOpen(pid) {
+        // The pinned process exits and a stranger takes its pid before the start is checked.
+        if (machine.table.get(pid)?.start === "second") {
+          machine.end(pid);
+          machine.table.set(pid, { parent: 1, start: "stranger" });
+        }
+      },
+    },
+  );
+  const left = await stopMembers([{ pid: 300, start: "second" }], 500, {
+    ...machine.tree,
+    pidfd: machine.pidfd,
+  });
+  expect(left).toEqual([]);
+  expect(machine.signals).toEqual([]);
+  expect(machine.table.get(300)?.start).toBe("stranger");
 });
 
 test("a member that ignores SIGTERM is killed, and one that outlives SIGKILL is reported", async () => {
@@ -55,9 +154,18 @@ test("a member that ignores SIGTERM is killed, and one that outlives SIGKILL is 
     200: { parent: 1, start: "stubborn", ignores: "TERM" },
     300: { parent: 1, start: "unkillable", ignores: "all" },
   });
-  const survivors = await stopMembers(captureDescendants([1], tree), 500, tree);
+  const members = [
+    { pid: 200, start: "stubborn" },
+    { pid: 300, start: "unkillable" },
+  ];
+  const survivors = await stopMembers(members, 500, tree);
   expect(survivors.map((member) => member.pid)).toEqual([300]);
-  expect(signals).toEqual(["SIGTERM 200", "SIGTERM 300", "SIGKILL 200", "SIGKILL 300"]);
+  expect(signals).toEqual([
+    "SIGTERM 200:stubborn",
+    "SIGTERM 300:unkillable",
+    "SIGKILL 200:stubborn",
+    "SIGKILL 300:unkillable",
+  ]);
 });
 
 test("a zombie counts as stopped: it has exited, only its exit status is left", async () => {
