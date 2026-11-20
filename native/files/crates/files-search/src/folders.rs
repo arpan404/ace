@@ -51,7 +51,7 @@ impl Folders {
                 self.open.push_front(held);
             }
         } else {
-            let dir = root.open_dir_unstored(folder).ok()?;
+            let dir = root.open_dir_unlinked(folder).ok()?;
             while self.open.len() >= KEPT {
                 self.open.pop_back();
             }
@@ -142,5 +142,19 @@ mod tests {
             folders.get(&root, "d").is_none(),
             "opening the folder again must not follow the link out"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_reached_through_a_link_inside_the_root_is_not_opened() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        std::fs::create_dir_all(dir.path().join("real/d")).expect("folders");
+        std::fs::write(dir.path().join("real/d/one.txt"), "one").expect("a file");
+        // The walk listed `a/d` as a folder; a link inside the checkout has since taken `a`.
+        std::os::unix::fs::symlink("real", dir.path().join("a")).expect("a link inside");
+        let root = Root::open(dir.path()).expect("the root opens");
+        let mut folders = Folders::default();
+
+        assert!(folders.get(&root, "a/d").is_none());
     }
 }

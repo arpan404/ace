@@ -9,8 +9,8 @@
 //! whole path that way in one call it does: `openat2` with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS |
 //! RESOLVE_NO_MAGICLINKS` on Linux, `fstatat` with `AT_SYMLINK_NOFOLLOW_ANY` on macOS. Elsewhere,
 //! or where that call is unavailable (an old kernel, a seccomp filter), the folder is walked from
-//! the root the way [`crate::Root::open_dir_unstored`] walks it and the leaf looked up without
-//! following it.
+//! the root the way [`crate::Root::open_dir_unlinked`] walks it, refusing a link at any step, and
+//! the leaf looked up without following it.
 
 use std::io;
 
@@ -100,14 +100,14 @@ fn one_call(_root: &Root, _rel: &str, _opened: &Metadata) -> Answer {
     None
 }
 
-/// The same proof by walking: the folder from the root, following a link only while it stays
-/// inside, then the leaf without following it.
+/// The same proof by walking: the folder from the root refusing a link at any step, then the leaf
+/// without following it.
 fn walked(root: &Root, rel: &str, file: &File, opened: &Metadata) -> bool {
     let (folder, leaf) = match rel.rsplit_once('/') {
         Some(split) => split,
         None => ("", rel),
     };
-    let Ok(dir) = crate::walk::open_folder_unstored(root, folder) else {
+    let Ok(dir) = crate::walk::open_folder_unlinked(root, folder) else {
         return false;
     };
     same_entry(&dir, leaf, file, opened).unwrap_or(false)
@@ -153,4 +153,31 @@ fn same_entry(
     _opened: &Metadata,
 ) -> io::Result<bool> {
     dir.symlink_metadata(leaf).map(|_| true)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::walked;
+    use crate::Root;
+
+    #[test]
+    fn the_walked_proof_refuses_a_folder_reached_through_a_link_inside_the_root() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        std::fs::create_dir_all(dir.path().join("real/d")).expect("folders");
+        std::fs::write(dir.path().join("real/d/one.txt"), "one").expect("a file");
+        let root = Root::open(dir.path()).expect("the root opens");
+        let file = root
+            .open_dir("real/d")
+            .expect("the folder")
+            .open("one.txt")
+            .expect("the file");
+        let metadata = file.metadata().expect("its metadata");
+        assert!(
+            walked(&root, "real/d/one.txt", &file, &metadata),
+            "the real path is there"
+        );
+
+        std::os::unix::fs::symlink("real", dir.path().join("a")).expect("a link inside");
+        assert!(!walked(&root, "a/d/one.txt", &file, &metadata));
+    }
 }

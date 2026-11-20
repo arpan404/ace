@@ -112,7 +112,7 @@ impl Root {
     /// another folder. A walker that does not follow links never yields a path through one, so
     /// refusing every link refuses nothing it walked. Linux and macOS answer in one call
     /// (`openat2` beneath the root with no links, `fstatat` with `AT_SYMLINK_NOFOLLOW_ANY`); other
-    /// platforms walk the folder from the root as [`Root::open_dir_unstored`] does.
+    /// platforms walk the folder from the root as [`Root::open_dir_unlinked`] does.
     pub fn is_at(
         &self,
         rel: &str,
@@ -187,16 +187,16 @@ impl Root {
         walk::open_dir(self, rel)
     }
 
-    /// [`Root::open_dir`] for a walker whose names come from listing the disk itself, so they are
-    /// already the spellings the disk stores.
+    /// Opens the folder `rel` names for a walker that lists the disk itself and follows no link:
+    /// a link at any step is `PATH_ESCAPE`, wherever it points.
     ///
-    /// Links on the way are followed exactly as [`Root::open_dir`] follows them, and one that leads
-    /// out of the root is `PATH_ESCAPE`; only the stored-spelling lookup is skipped. That lookup is
-    /// what costs: where the platform cannot name an open handle (Linux) it lists every folder on
-    /// the way, and a content search opening thousands of folders would list their parents again
-    /// and again.
-    pub fn open_dir_unstored(&self, rel: &str) -> Result<cap_std::fs::Dir, Error> {
-        walk::open_folder_unstored(self, rel)
+    /// Such a walker never lists a path through a link, so a link found on the way now was swapped
+    /// in after the walk and must not redirect the open, not even to another folder inside the
+    /// root. The walker's names are already the spellings the disk stores, so none is looked up
+    /// again; that lookup lists every folder on the way where the platform cannot name an open
+    /// handle (Linux), which a content search opening thousands of folders cannot afford.
+    pub fn open_dir_unlinked(&self, rel: &str) -> Result<cap_std::fs::Dir, Error> {
+        walk::open_folder_unlinked(self, rel)
     }
 
     /// Opens the folder that holds the last segment of `rel` and returns it with that segment's
