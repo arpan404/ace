@@ -232,9 +232,18 @@ private final class CloudStubServer: @unchecked Sendable {
             #expect(request.value(forHTTPHeaderField: "ace-client") == nil, "unexpected header on \(address)")
         }
 
-        // Loopback is allowed in debug/fixture builds for local development and tests.
-        let local = try #require(URL(string: "http://127.0.0.1:8787/v1/grants"))
-        #expect(AceCloudRequest.make(url: local, client: "ios/development", allowLoopback: true)
+        // Loopback gets no header by default even in Debug builds; a fixture must opt in explicitly.
+        let localHTTP = try #require(URL(string: "http://127.0.0.1:8787/v1/grants"))
+        let localWS = try #require(URL(string: "ws://127.0.0.1:8787/client?hostId=\(testHostId)"))
+        #expect(!AceCloudRequest.isAceHost(localHTTP))
+        #expect(!AceCloudRequest.isAceHost(localWS))
+        #expect(AceCloudRequest.make(url: localHTTP, client: "ios/development")
+            .value(forHTTPHeaderField: "ace-client") == nil)
+        #expect(AceCloudRequest.webSocket(url: localWS, protocols: ["ace.v2"], client: "ios/development")
+            .value(forHTTPHeaderField: "ace-client") == nil)
+        #expect(AceCloudRequest.make(url: localHTTP, client: "ios/development", allowLoopback: true)
+            .value(forHTTPHeaderField: "ace-client") == "ios/development")
+        #expect(AceCloudRequest.webSocket(url: localWS, protocols: ["ace.v2"], client: "ios/development", allowLoopback: true)
             .value(forHTTPHeaderField: "ace-client") == "ios/development")
 
         // A garbled client value is never sent even to ace's own host.
@@ -248,14 +257,19 @@ private final class CloudStubServer: @unchecked Sendable {
     @Test func webSocketRequestCarriesSubprotocolsAlwaysAndAceClientOnlyForAceHosts() throws {
         let protocols = ["ace.grant.tok", "ace.v2", "ace.early.1"]
         let hosted = try #require(URL(string: "wss://cloud.acehq.dev/client?hostId=\(testHostId)"))
-        let hostedRequest = AceCloudRequest.webSocket(url: hosted, protocols: protocols, client: "ios/1.2.3", allowLoopback: false)
+        let hostedRequest = AceCloudRequest.webSocket(url: hosted, protocols: protocols, client: "ios/1.2.3")
         #expect(hostedRequest.value(forHTTPHeaderField: "Sec-WebSocket-Protocol") == "ace.grant.tok, ace.v2, ace.early.1")
         #expect(hostedRequest.value(forHTTPHeaderField: "ace-client") == "ios/1.2.3")
 
         let selfHosted = try #require(URL(string: "wss://relay.example.com/client?hostId=\(testHostId)"))
-        let selfHostedRequest = AceCloudRequest.webSocket(url: selfHosted, protocols: protocols, client: "ios/1.2.3", allowLoopback: false)
+        let selfHostedRequest = AceCloudRequest.webSocket(url: selfHosted, protocols: protocols, client: "ios/1.2.3")
         #expect(selfHostedRequest.value(forHTTPHeaderField: "Sec-WebSocket-Protocol") == "ace.grant.tok, ace.v2, ace.early.1")
         #expect(selfHostedRequest.value(forHTTPHeaderField: "ace-client") == nil)
+
+        let localRelay = try #require(URL(string: "ws://127.0.0.1:8787/client?hostId=\(testHostId)"))
+        let localRequest = AceCloudRequest.webSocket(url: localRelay, protocols: protocols, client: "ios/development")
+        #expect(localRequest.value(forHTTPHeaderField: "Sec-WebSocket-Protocol") == "ace.grant.tok, ace.v2, ace.early.1")
+        #expect(localRequest.value(forHTTPHeaderField: "ace-client") == nil)
     }
 }
 
@@ -265,13 +279,47 @@ private final class CloudStubServer: @unchecked Sendable {
         #expect(done())
     }
 
+    @MainActor
+    @Test func debugLoopbackRequestsSendNoAceClientUnlessOptedIn() async throws {
+        let server = try CloudStubServer()
+        let origin = try await server.start()
+        defer { server.stop() }
+        let relayURL = try #require(AceAccountAPI(origin: origin).relayURL)
+        let grants = AccountGrants { () async throws(AccountGrantError) -> AceGrant in
+            AceGrant(token: "grant-1", expiresAt: Date().timeIntervalSince1970 * 1000 + 300_000)
+        }
+        let route = RelayRoute(relayURL: relayURL, hostId: testHostId, grants: grants)
+
+        // Default allowLoopback is false even in Debug builds, so a local self-hosted relay or
+        // backend receives no ace-client header.
+        let api = AceAccountAPI(origin: origin, aceClient: "ios/development")
+        _ = try await api.grant(token: testToken43, deviceId: "ios-1")
+
+        let secrets = MemorySecrets()
+        try secrets.set(origin.absoluteString, testToken43)
+        let model = AceAccountModel(secrets: secrets, origin: origin, aceClient: "ios/development")
+        await model.restore()
+
+        let relay = RelaySocket(route: route, aceClient: "ios/development") { _, _ in }
+        relay.open()
+        defer { relay.close() }
+        try await until { server.first(method: "GET", pathPrefix: "/client?hostId=\(testHostId)") != nil }
+
+        #expect(server.first(method: "POST", pathPrefix: "/v1/grants")?.aceClient == nil)
+        #expect(server.first(method: "GET", pathPrefix: "/v1/account/session")?.aceClient == nil)
+        #expect(server.first(method: "GET", pathPrefix: "/v1/account/picture")?.aceClient == nil)
+        let upgrade = try #require(server.first(method: "GET", pathPrefix: "/client?hostId=\(testHostId)"))
+        #expect(upgrade.aceClient == nil)
+        #expect(upgrade.headers["sec-websocket-protocol"]?.hasPrefix("ace.grant.grant-1") == true)
+    }
+
     @Test func accountAPISendsAceClientOnGrantsMachinesAndForgetAndWorksWithoutIt() async throws {
         let server = try CloudStubServer()
         let origin = try await server.start()
         defer { server.stop() }
         let expected = try #require(AceCloudRequest.defaultClient)
 
-        let api = AceAccountAPI(origin: origin)
+        let api = AceAccountAPI(origin: origin, allowLoopback: true)
         _ = try await api.grant(token: testToken43, deviceId: "ios-1")
         let listed = try await api.machines(token: testToken43)
         #expect(listed.map(\.hostId) == [testHostId])
@@ -281,7 +329,7 @@ private final class CloudStubServer: @unchecked Sendable {
         #expect(server.first(method: "GET", pathPrefix: "/v1/machines")?.aceClient == expected)
         #expect(server.first(method: "DELETE", pathPrefix: "/v1/machines/\(testHostId)")?.aceClient == expected)
 
-        let unnamed = AceAccountAPI(origin: origin, aceClient: nil)
+        let unnamed = AceAccountAPI(origin: origin, aceClient: nil, allowLoopback: true)
         _ = try await unnamed.grant(token: testToken43, deviceId: "ios-1")
         let last = try #require(server.recorded.last)
         #expect(last.method == "POST")
@@ -298,7 +346,7 @@ private final class CloudStubServer: @unchecked Sendable {
         // Restore (session + loadPicture) and signOut (DELETE session).
         let secrets = MemorySecrets()
         try secrets.set(origin.absoluteString, testToken43)
-        let model = AceAccountModel(secrets: secrets, origin: origin, aceClient: "ios/1.2.3", pollInterval: .milliseconds(20))
+        let model = AceAccountModel(secrets: secrets, origin: origin, aceClient: "ios/1.2.3", allowLoopback: true, pollInterval: .milliseconds(20))
         await model.restore()
         #expect(model.account?.email == "ada@example.com")
         #expect(model.picture == Data([0x89, 0x50, 0x4E, 0x47]))
@@ -326,7 +374,7 @@ private final class CloudStubServer: @unchecked Sendable {
 
         // Without ace-client, the same account calls still succeed.
         try secrets.set(origin.absoluteString, testToken43)
-        let unnamed = AceAccountModel(secrets: secrets, origin: origin, aceClient: nil)
+        let unnamed = AceAccountModel(secrets: secrets, origin: origin, aceClient: nil, allowLoopback: true)
         await unnamed.restore()
         #expect(unnamed.account?.email == "ada@example.com")
         let unnamedSession = try #require(server.recorded.last { $0.method == "GET" && $0.path == "/v1/account/session" })
@@ -344,7 +392,7 @@ private final class CloudStubServer: @unchecked Sendable {
         }
         let route = RelayRoute(relayURL: relayURL, hostId: testHostId, grants: grants)
 
-        let daemon = RelaySocket(route: route) { _, _ in }
+        let daemon = RelaySocket(route: route, allowLoopback: true) { _, _ in }
         daemon.open()
         defer { daemon.close() }
         try await until { server.recorded.count == 1 }
@@ -353,7 +401,7 @@ private final class CloudStubServer: @unchecked Sendable {
         #expect(first.aceClient == expected)
         #expect(first.headers["sec-websocket-protocol"]?.hasPrefix("ace.grant.grant-1") == true)
 
-        let media = RelaySocket(route: route, purpose: "media", aceClient: "ios/0.2.0-beta.1") { _, _ in }
+        let media = RelaySocket(route: route, purpose: "media", aceClient: "ios/0.2.0-beta.1", allowLoopback: true) { _, _ in }
         media.open()
         defer { media.close() }
         try await until { server.recorded.count == 2 }
@@ -362,7 +410,7 @@ private final class CloudStubServer: @unchecked Sendable {
         #expect(second.aceClient == "ios/0.2.0-beta.1")
         #expect(second.headers["sec-websocket-protocol"]?.hasPrefix("ace.grant.grant-1") == true)
 
-        let unnamed = RelaySocket(route: route, aceClient: nil) { _, _ in }
+        let unnamed = RelaySocket(route: route, aceClient: nil, allowLoopback: true) { _, _ in }
         unnamed.open()
         defer { unnamed.close() }
         try await until { server.recorded.count == 3 }

@@ -27,10 +27,12 @@ struct AceAccountAPI: Sendable {
     let origin: URL
     private let http: URLSession
     private let aceClient: String?
+    private let allowLoopback: Bool
 
-    init(origin: URL, aceClient: String? = AceCloudRequest.defaultClient) {
+    init(origin: URL, aceClient: String? = AceCloudRequest.defaultClient, allowLoopback: Bool = false) {
         self.origin = origin
         self.aceClient = aceClient
+        self.allowLoopback = allowLoopback
         http = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
     }
 
@@ -75,7 +77,8 @@ struct AceAccountAPI: Sendable {
             url: origin.appending(path: "v1/\(path)"),
             timeoutInterval: 15,
             cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
-            client: aceClient
+            client: aceClient,
+            allowLoopback: allowLoopback
         )
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

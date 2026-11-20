@@ -6,9 +6,9 @@ import Foundation
 /// `ReleaseVersion` (`^\d+\.\d+\.\d+(?:-[a-z0-9.]+)?$`, at most 80 ASCII characters), and send
 /// no header otherwise rather than a misnamed one.
 ///
-/// The header is added only to ace's own hosts (`*.acehq.dev` over `https`/`wss`, and loopback in
-/// debug/fixture builds for local development and tests): a self-hosted relay or any other host
-/// never receives it.
+/// The header is added only to ace's own hosts (`*.acehq.dev` over `https`/`wss`): a self-hosted
+/// relay (including one on loopback in a Debug build) or any other host never receives it unless
+/// a test fixture explicitly opts into loopback via `allowLoopback: true`.
 enum AceCloudRequest {
     static let headerName = "ace-client"
     static let appName = "ios"
@@ -20,12 +20,6 @@ enum AceCloudRequest {
     static let defaultIsDebug = true
     #else
     static let defaultIsDebug = false
-    #endif
-
-    #if DEBUG || ACE_FIXTURE
-    static let defaultAllowLoopback = true
-    #else
-    static let defaultAllowLoopback = false
     #endif
 
     /// This build's `ace-client` value (`ios/development` in Debug, or `ios/<version>` from the
@@ -68,9 +62,10 @@ enum AceCloudRequest {
     }
 
     /// Whether `url` points at one of ace's own cloud or relay hosts (`https`/`wss` on
-    /// `*.acehq.dev`, plus loopback in debug/fixture builds). Never true for a relay the person
-    /// runs themselves or for plain HTTP/WS to a remote host.
-    static func isAceHost(_ url: URL, allowLoopback: Bool = defaultAllowLoopback) -> Bool {
+    /// `*.acehq.dev`). Never true for a relay the person runs themselves (including loopback) or
+    /// for plain HTTP/WS to a remote host; loopback is only matched when a test fixture passes
+    /// `allowLoopback: true`.
+    static func isAceHost(_ url: URL, allowLoopback: Bool = false) -> Bool {
         guard url.user == nil, url.password == nil,
               let scheme = url.scheme?.lowercased(),
               let host = url.host?.lowercased(),
@@ -96,7 +91,7 @@ enum AceCloudRequest {
         timeoutInterval: TimeInterval = 15,
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
         client: String? = defaultClient,
-        allowLoopback: Bool = defaultAllowLoopback
+        allowLoopback: Bool = false
     ) -> URLRequest {
         var request = URLRequest(url: url, cachePolicy: cachePolicy, timeoutInterval: timeoutInterval)
         if let client, isValidClient(client), isAceHost(url, allowLoopback: allowLoopback) {
@@ -111,7 +106,7 @@ enum AceCloudRequest {
         url: URL,
         protocols: [String],
         client: String? = defaultClient,
-        allowLoopback: Bool = defaultAllowLoopback
+        allowLoopback: Bool = false
     ) -> URLRequest {
         var request = make(url: url, client: client, allowLoopback: allowLoopback)
         if !protocols.isEmpty {

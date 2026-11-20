@@ -53,6 +53,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     private let secrets: any SecretStore
     private let now: () -> Double
     private let aceClient: String?
+    private let allowLoopback: Bool
     private let pollInterval: Duration
     private let http = URLSession(configuration: .ephemeral, delegate: AccountRedirects(), delegateQueue: nil)
     private var token: String?
@@ -64,10 +65,12 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
          now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
          origin overrideOrigin: URL? = nil,
          aceClient: String? = AceCloudRequest.defaultClient,
+         allowLoopback: Bool = false,
          pollInterval: Duration = .seconds(2)) {
         self.secrets = secrets
         self.now = now
         self.aceClient = aceClient
+        self.allowLoopback = allowLoopback
         self.pollInterval = pollInterval
         if let overrideOrigin {
             origin = AceAccountAPI.origin(from: overrideOrigin.absoluteString)
@@ -178,7 +181,8 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         var request = AceCloudRequest.make(
             url: origin.appending(path: "v1/account/picture"),
             timeoutInterval: 15,
-            client: aceClient
+            client: aceClient,
+            allowLoopback: allowLoopback
         )
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         guard let (bytes, response) = try? await http.bytes(for: request),
@@ -213,7 +217,8 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         var request = AceCloudRequest.make(
             url: origin.appending(path: "v1/account/\(path)"),
             timeoutInterval: 15,
-            client: aceClient
+            client: aceClient,
+            allowLoopback: allowLoopback
         )
         request.httpMethod = method
         if let body {

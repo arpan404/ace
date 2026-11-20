@@ -30,6 +30,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private let event: @Sendable (String, SocketPayload) -> Void
     private let streams: BrowserStreamHub?
     private let aceClient: String?
+    private let allowLoopback: Bool
     private let keys: @Sendable () -> (NoiseKeys, NoiseKeys)
     /// Every field below is read and written on `queue` only.
     private let queue = OperationQueue()
@@ -67,9 +68,10 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
 
     init(route: RelayRoute, purpose: String? = nil, path: String = MediaDelivery.channel, streams: BrowserStreamHub? = nil,
          aceClient: String? = AceCloudRequest.defaultClient,
+         allowLoopback: Bool = false,
          keys: @escaping @Sendable () -> (NoiseKeys, NoiseKeys) = { (.generate(), .generate()) },
          event: @escaping @Sendable (String, SocketPayload) -> Void) {
-        self.route = route; self.purpose = purpose; self.path = path; self.streams = streams; self.aceClient = aceClient; self.keys = keys; self.event = event
+        self.route = route; self.purpose = purpose; self.path = path; self.streams = streams; self.aceClient = aceClient; self.allowLoopback = allowLoopback; self.keys = keys; self.event = event
         super.init()
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
@@ -127,7 +129,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         // The grant travels as a subprotocol: never in a URL, which logs would keep. Neither it
         // nor the upgrade entry is ever logged.
         let protocols = RelayEarly.protocols(grant: grant, first: first, offer: offer)
-        let request = AceCloudRequest.webSocket(url: url, protocols: protocols, client: aceClient)
+        let request = AceCloudRequest.webSocket(url: url, protocols: protocols, client: aceClient, allowLoopback: allowLoopback)
         let task = session.webSocketTask(with: request)
         Self.prepare(task)
         self.task = task
