@@ -1,5 +1,5 @@
 import type { TranslatorIdentity } from "./identity.ts";
-import { promptStop } from "./settlement.ts";
+import { cancellationDeadline, promptEnd } from "./settlement.ts";
 import { retainToolRaw } from "./tool-raw.ts";
 import { finalizeTool } from "./tool-final.ts";
 import { retireTool, renewTool } from "./completed-tools.ts";
@@ -14,7 +14,7 @@ import { openRequest, answerRequest } from "./requests.ts";
 import { genericQuirks } from "./quirks/generic.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
 import { TranslationState, type AgentState } from "./state.ts";
-import { endPrompt } from "./lifecycle.ts";
+import { endPrompt, settleImplicitTurn } from "./lifecycle.ts";
 import {
   mcpArguments,
   toolDetail,
@@ -48,6 +48,11 @@ class AcpTranslator implements Translator {
     return this.state.processDead ? [] : expireChildren(this.state, now);
   }
   translate(frame: Frame, now: number): Fact[] {
+    const facts = this.translateFrame(frame, now);
+    settleImplicitTurn(this.state, facts);
+    return facts;
+  }
+  private translateFrame(frame: Frame, now: number): Fact[] {
     const facts: Fact[] = [];
     const s = this.state;
     s.diagnostics = [];
@@ -72,6 +77,16 @@ class AcpTranslator implements Translator {
       }
       if (data["event"] === "queue-changed" && typeof data["count"] === "number")
         facts.push({ type: "queue.changed", count: data["count"] });
+      if (data["event"] === "mcp-server-skipped") {
+        const transport = string(data["transport"]).toUpperCase();
+        s.notice(
+          facts,
+          frame.data,
+          "recorder",
+          `MCP server "${string(data["name"])}" was left out: this agent can't use ${transport} MCP servers.`,
+        );
+        return facts;
+      }
       if (data["event"] === "input-sending") {
         this.inputNativeId = string(data["nativeId"]);
         return facts;
@@ -87,7 +102,13 @@ class AcpTranslator implements Translator {
     const params = object(data["params"]);
     const id = rpcId(data["id"]);
     if (frame.dir === "send" && method) {
-      if (id !== undefined) s.sent.set(id, { method, params });
+      if (id !== undefined) s.request(id, method, params);
+      if (method === "session/cancel") {
+        // A cancelled child that goes silent is given up at the same deadline the session uses.
+        const child = s.agents.get(string(params["sessionId"]));
+        if (child && child !== s.root && !child.terminal)
+          s.armCancel(child, cancellationDeadline(now));
+      }
       if (["session/new", "session/load", "session/resume"].includes(method)) {
         s.cwd = string(params["cwd"]);
         if (typeof params["sessionId"] === "string") s.bindRoot(params["sessionId"], facts);
@@ -96,6 +117,9 @@ class AcpTranslator implements Translator {
         const agent = s.agent(string(params["sessionId"]), facts);
         agent.terminal = false;
         s.promptOpen = true;
+        delete agent.implicitTurn;
+        // Text the agent sent after its last prompt answered belongs to that answer, not this one.
+        s.finishStream(agent, facts);
         s.start(agent, facts, "user");
         agent.inputKey = s.key("input");
         facts.push({
@@ -116,7 +140,7 @@ class AcpTranslator implements Translator {
       }
     }
     if (frame.dir === "recv" && method === "session/update") {
-      if ([...s.sent.values()].some((request) => request.method === "session/load")) {
+      if (s.loads.size) {
         s.diagnostics.push(raw(frame.data, "session/load replay"));
         return facts;
       }
@@ -142,11 +166,10 @@ class AcpTranslator implements Translator {
       const sent = frame.dir === "recv" ? s.sent.get(id) : undefined;
       if (sent) {
         const result = object(data["result"]);
-        if (
-          sent.method === "session/prompt" &&
-          data["error"] === undefined &&
-          promptStop(result) === undefined
-        ) {
+        const ended = sent.method === "session/prompt" ? promptEnd(data) : undefined;
+        if (sent.method === "session/prompt" && !ended) {
+          // Kept in flight: only a reply naming a stop reason ends the prompt. Unanswered
+          // requests are bounded where they are recorded.
           s.notice(
             facts,
             frame.data,
@@ -155,7 +178,7 @@ class AcpTranslator implements Translator {
           );
           return facts;
         }
-        s.sent.delete(id);
+        s.reply(id);
         if (
           ["session/new", "session/load", "session/resume"].includes(sent.method) &&
           typeof result["sessionId"] === "string"
@@ -167,9 +190,18 @@ class AcpTranslator implements Translator {
           !s.promptOpen
         )
           s.end(s.root, facts, "completed");
-        if (sent.method === "session/prompt") {
+        if (sent.method === "session/prompt" && ended) {
           const agent = s.agent(string(sent.params["sessionId"]), facts);
-          endPrompt(s, agent, string(result["stopReason"]), object(data["error"]), now, facts);
+          endPrompt(s, agent, ended.reason, object(data["error"]), now, facts);
+          if (!ended.known)
+            s.notice(
+              facts,
+              frame.data,
+              "jsonrpc",
+              `The agent ended its turn with a stop reason ace doesn't know: ${ended.reason}.`,
+              agent,
+            );
+          return facts;
         }
       }
     }
@@ -280,8 +312,16 @@ class AcpTranslator implements Translator {
         return true;
       }
       if (retainedRaw) s.notice(facts, frame, "session/update", undefined, agent);
-      if (!tool.task && (priorStatus === undefined || live || !tool.finalized))
+      // Only a tool still running is proof of work: a frame that only reports an end never opens
+      // a turn, and never brings back an agent that finished.
+      if (
+        !tool.task &&
+        (live || agent.active) &&
+        (priorStatus === undefined || live || !tool.finalized)
+      ) {
+        if (agent === s.root && !s.promptOpen && !agent.active) agent.implicitTurn = true;
         s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
+      }
       s.finishStream(agent, facts);
       agent.segment = "";
       const detail = live ? toolDetail(tool.data, s.quirks) : finalizeTool(tool, s.quirks);
@@ -348,7 +388,12 @@ class AcpTranslator implements Translator {
         });
         return true;
       }
-      if (!agent.suspended && kind !== "user_message_chunk")
+      // Text after the root's prompt answered attaches to the finished answer; it opens no turn.
+      if (
+        !agent.suspended &&
+        kind !== "user_message_chunk" &&
+        (agent !== s.root || s.promptOpen || agent.active)
+      )
         s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
       const content = object(update["content"]);
       if (content["type"] !== "text") s.finishStream(agent, facts);
@@ -390,13 +435,7 @@ class AcpTranslator implements Translator {
         agent === s.root &&
         kind === "agent_message_chunk" &&
         agent.active &&
-        [...s.backgroundTools].some(
-          (t) => t.owner === agent && t.child?.background && !t.child.terminal,
-        ) &&
-        ![...s.liveTools].some(
-          (t) =>
-            t.owner === agent && ["pending", "running", "awaiting_approval"].includes(t.status),
-        )
+        waitsOnBackgroundChild(s, agent)
       ) {
         // Cursor holds prompt responses while the parent waits for background children.
         s.end(agent, facts, "completed");
@@ -434,4 +473,19 @@ class AcpTranslator implements Translator {
     }
     return false;
   }
+}
+
+/** The root waits only on background children: none of its own tools still run. */
+function waitsOnBackgroundChild(s: TranslationState, agent: AgentState): boolean {
+  let waiting = false;
+  for (const t of s.backgroundTools)
+    if (t.owner === agent && t.child?.background && !t.child.terminal) {
+      waiting = true;
+      break;
+    }
+  if (!waiting) return false;
+  for (const t of s.liveTools)
+    if (t.owner === agent && ["pending", "running", "awaiting_approval"].includes(t.status))
+      return false;
+  return true;
 }

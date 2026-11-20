@@ -98,6 +98,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   } else if (frame["id"] === 101 && Object.hasOwn(frame, "result")) {
     send({ id: gatedPrompt, result: { stopReason: "end_turn" } });
   } else if (frame["id"] === 100 && Object.hasOwn(frame, "result")) {
+    update({ sessionUpdate: "tool_call_update", toolCallId: "control", status: "completed" });
     update({
       sessionUpdate: "tool_call_update",
       toolCallId: "s",

@@ -22,7 +22,13 @@ export interface AgentState {
   pendingSpawnKey?: string;
   /** Stands in for an Antigravity subagent that has no native session of its own. */
   placeholder?: boolean;
+  /** A subagent association named this session; without one it is a stray that ends with the root's prompt. */
+  associated?: boolean;
+  /** The root's turn was opened by work after its prompt answered; it ends when that work settles. */
+  implicitTurn?: boolean;
 }
+const sentLimit = 1024;
+const uncertainShellLimit = 256;
 export interface ToolState {
   nativeId: string;
   inputRaw?: InlineRawPayload;
@@ -67,6 +73,10 @@ export class TranslationState {
   readonly childTools = new Map<string, ToolState>();
   readonly requests = new Map<string | number, RequestState>();
   readonly sent = new Map<string | number, { method: string; params: Data }>();
+  /** session/load requests in flight: their replayed updates are history. */
+  readonly loads = new Set<string | number>();
+  /** Children with a cancellation deadline; ticks visit only these. */
+  readonly cancelling = new Set<AgentState>();
   readonly root: AgentState;
   readonly quirks: AcpQuirks;
   threadId: string;
@@ -102,6 +112,8 @@ export class TranslationState {
   resetProcess(): void {
     this.promptOpen = false;
     this.sent.clear();
+    this.loads.clear();
+    this.cancelling.clear();
     this.requests.clear();
     this.liveTools.clear();
     this.retiredTools.clear();
@@ -120,6 +132,7 @@ export class TranslationState {
       delete agent.stream;
       delete agent.cancelAt;
       delete agent.planTool;
+      delete agent.implicitTurn;
     }
     this.agents.clear();
   }
@@ -135,7 +148,37 @@ export class TranslationState {
   }
   retainUncertainShell(tool: ToolState): void {
     tool.uncertainShell = true;
-    this.uncertainShells.set(JSON.stringify([tool.owner.nativeId, tool.nativeId]), tool);
+    const key = JSON.stringify([tool.owner.nativeId, tool.nativeId]);
+    this.uncertainShells.delete(key);
+    this.uncertainShells.set(key, tool);
+    // Kept across process restarts so a later report can still settle one; bounded all the same.
+    if (this.uncertainShells.size > uncertainShellLimit) {
+      const oldest = this.uncertainShells.entries().next().value;
+      if (oldest) {
+        this.uncertainShells.delete(oldest[0]);
+        delete oldest[1].uncertainShell;
+      }
+    }
+  }
+  /** Records an outgoing request awaiting its reply; the oldest unanswered ones are dropped past a bound. */
+  request(id: string | number, method: string, params: Data): void {
+    this.sent.set(id, { method, params });
+    if (method === "session/load") this.loads.add(id);
+    if (this.sent.size <= sentLimit) return;
+    const oldest = this.sent.keys().next().value;
+    if (oldest !== undefined) this.reply(oldest);
+  }
+  reply(id: string | number): void {
+    this.sent.delete(id);
+    this.loads.delete(id);
+  }
+  armCancel(agent: AgentState, at: number): void {
+    agent.cancelAt = at;
+    this.cancelling.add(agent);
+  }
+  disarmCancel(agent: AgentState): void {
+    delete agent.cancelAt;
+    this.cancelling.delete(agent);
   }
   settleShell(tool: ToolState): void {
     delete tool.uncertainShell;
