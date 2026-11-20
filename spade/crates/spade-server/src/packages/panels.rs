@@ -11,18 +11,10 @@ use spade_core::package::Manifest;
 use spade_core::package::surfaces::panels;
 use spade_core::panel::MOST_PAGE_BYTES;
 
+use spade_store::{page_key, panels_key as bot_key};
+
 use super::PackageError;
 use crate::engine::Engine;
-
-/// The settings key a page is kept under.
-fn page_key(hash: &str) -> String {
-    format!("panel_page:{hash}")
-}
-
-/// The settings key a bot's panels' pages are named under: `{panel id: hash}`.
-fn bot_key(bot: &str) -> String {
-    format!("bot_panels:{bot}")
-}
 
 /// A page checked for its panel, ready to keep.
 #[derive(Debug, Clone)]
@@ -102,10 +94,40 @@ pub fn hashes(engine: &Engine, bot: &str) -> BTreeMap<String, String> {
         .unwrap_or_default()
 }
 
+/// The pages a bot's panels name, from its `bot_panels:<bot>` setting's text: what a move of it
+/// carries beside its rows.
+pub fn named_in(text: &str) -> Vec<String> {
+    serde_json::from_str::<BTreeMap<String, String>>(text)
+        .map(|named| named.into_values().filter(|hash| is_hash(hash)).collect())
+        .unwrap_or_default()
+}
+
+fn is_hash(hash: &str) -> bool {
+    hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Keeps a page a moved bot brought, by its hash: only text of that hash, of a page's size. One
+/// this machine keeps already stays as it is (it is the same text). A move that is undone leaves
+/// it named by no bot, so the collection takes it out.
+pub fn place(engine: &Engine, hash: &str, html: &[u8]) -> Result<(), String> {
+    if !is_hash(hash) || html.len() > MOST_PAGE_BYTES || hex(&Sha256::digest(html)) != hash {
+        return Err(format!("the panel page {hash} isn't the one its name says"));
+    }
+    let html =
+        std::str::from_utf8(html).map_err(|_| format!("the panel page {hash} isn't text"))?;
+    if page(engine, hash).is_some() {
+        return Ok(());
+    }
+    engine
+        .store()
+        .set_setting(&page_key(hash), Some(html))
+        .map_err(|error| error.to_string())
+}
+
 /// A kept page's text, by its hash.
 pub fn page(engine: &Engine, hash: &str) -> Option<String> {
     let hash = hash.to_ascii_lowercase();
-    if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if !is_hash(&hash) {
         return None;
     }
     engine.store().setting(&page_key(&hash)).ok().flatten()

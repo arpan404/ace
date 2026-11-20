@@ -136,6 +136,39 @@ describe("agent packages", () => {
     ]);
   });
 
+  it("send a contract's schema file beside the signed bot.json, and the manifest with it written in", async () => {
+    const schemas = {
+      input: {
+        type: "object",
+        properties: { from: { type: "string", maxLength: 3 } },
+        required: ["from"],
+      },
+      output: { type: "object", properties: { fare: { type: "number" } }, required: ["fare"] },
+    };
+    const path = "contracts/cheapest-fare.json";
+    const text = JSON.stringify(schemas);
+    const contract = { name: "cheapest_fare", summary: "The cheapest fare.", effects: [] };
+    const files = [
+      ...samplePackage({ contracts: [{ ...contract, file: path }] }),
+      ...folder({ [path]: text }),
+    ];
+    market.publish(
+      signedVersion({ type: "spade-bot", name: "flight-watcher", version: "1.0.0", files }),
+      files,
+    );
+    await harness.ask({ op: "refresh" }, "sources");
+    await install();
+    expect(spade.made).toEqual([
+      expect.objectContaining({
+        // Spade checks the file against the signed manifest and writes it in the same way.
+        recipe: expect.objectContaining({ contracts: [{ ...contract, ...schemas }] }),
+        envelope: expect.objectContaining({ files: { [path]: text } }),
+      }),
+    ]);
+    const listed = await harness.ask({ op: "spadeBot", name: "flight-watcher" }, "spadeBot");
+    expect(listed.contractFiles).toEqual({ [path]: text });
+  });
+
   it("update the same bot after a review that says what stays, and roll back with the market gone", async () => {
     const first = publish("1.0.0");
     await harness.ask({ op: "refresh" }, "sources");

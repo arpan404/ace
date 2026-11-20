@@ -1,5 +1,10 @@
 import type { Recipe } from "@ace/protocol/marketplace";
-import type { ArchiveFile } from "@ace/marketplace";
+import {
+  contractFileReader,
+  contractFileTexts,
+  inlineContractFiles,
+  type ArchiveFile,
+} from "@ace/marketplace";
 
 /*
  * What a new version of an agent package asks for that the old one didn't (ADR 0200 §6.1),
@@ -45,7 +50,15 @@ export function bytesText(files: readonly ArchiveFile[]): string {
   return new TextDecoder("utf-8", { ignoreBOM: true }).decode(bot.content);
 }
 
-/** `bot.json` as the verified bytes hold it. */
+/**
+ * `bot.json` as Spade reads it: the verified bytes, with its contracts' schema files
+ * (`contracts/<name>.json`) written in, as Spade writes them in (ADR 0200 §7).
+ */
 export function bytesJson(files: readonly ArchiveFile[]): unknown {
-  return JSON.parse(bytesText(files));
+  return inlineContractFiles(JSON.parse(bytesText(files)), contractFileReader(files)).bot;
+}
+
+/** The text of each schema file `bot.json`'s contracts name, by path, as Spade takes them. */
+export function contractTexts(files: readonly ArchiveFile[]): Record<string, string> {
+  return contractFileTexts(JSON.parse(bytesText(files)), files);
 }

@@ -1,8 +1,11 @@
 import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import {
   breaksReason,
   contractBreaks,
+  contractFiles,
+  contractSchemaPath,
+  inlineContractFiles,
   latestPublished,
   marketOrigin,
   type MarketReads,
@@ -73,15 +76,25 @@ export function contractProblems(previous: unknown, bot: unknown): CliProblem[] 
   }));
 }
 
-/** The `bot.json` of the version callers use: a package folder, or the file itself. */
-async function previousOf(against: string): Promise<unknown> {
+/**
+ * The `bot.json` at `path` (a package folder's, or the file itself) as Spade reads it: its
+ * contracts' schema files (`contracts/<name>.json` beside it) written in (ADR 0200 §7).
+ */
+export async function packageJson(path: string): Promise<unknown> {
   const { readFile } = await import("node:fs/promises");
-  const path = resolve(against);
-  const folder = await stat(path).then(
+  const full = resolve(path);
+  const folder = await stat(full).then(
     (info) => info.isDirectory(),
     () => false,
   );
-  return JSON.parse(await readFile(folder ? resolve(path, "bot.json") : path, "utf8"));
+  const file = folder ? resolve(full, "bot.json") : full;
+  const bot: unknown = JSON.parse(await readFile(file, "utf8"));
+  const texts = new Map<string, string>();
+  for (const named of contractFiles(bot).filter(contractSchemaPath)) {
+    const text = await readFile(resolve(dirname(file), named), "utf8").catch(() => undefined);
+    if (text !== undefined) texts.set(named, text);
+  }
+  return inlineContractFiles(bot, (named) => texts.get(named)).bot;
 }
 
 /**
@@ -104,10 +117,9 @@ export async function checkPackage(
       { code: "check_failed", problems: result.problems },
     );
   }
-  const { readFile } = await import("node:fs/promises");
-  const bot: unknown = JSON.parse(await readFile(resolve(folder, "bot.json"), "utf8"));
+  const bot = await packageJson(folder);
   if (options.against) {
-    const breaks = contractProblems(await previousOf(options.against), bot);
+    const breaks = contractProblems(await packageJson(options.against), bot);
     if (breaks.length > 0)
       throw new CliFailure(
         "failed",

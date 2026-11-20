@@ -25928,6 +25928,7 @@ Example:
 | op | yes | `"spadeBot"` |  |
 | signed | yes | any JSON value |  |
 | botJson | yes | string | {"maxLength":1000000} |
+| contractFiles | no | object | {"propertyNames":{"type":"string","maxLength":80},"additionalProperties":{"type":"string","maxLength":40960}} |
 
 Example:
 

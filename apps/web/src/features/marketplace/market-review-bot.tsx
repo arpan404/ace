@@ -1,13 +1,8 @@
 import type { MarketReviewBody } from "@ace/protocol/marketplace";
 import { Switch } from "@/components/ui/switch.tsx";
 import { part } from "@/lib/suit-part.ts";
-import { effectStartsOn } from "@ace/ui-core/spade-chat";
-import {
-  decidedEachTime,
-  effectWords,
-  triggerWhen,
-  updateSentences,
-} from "./market-package-words.ts";
+import { effectStartsOn, updateSentences } from "@ace/ui-core/spade-chat";
+import { decidedEachTime, effectWords, triggerWhen } from "./market-package-words.ts";
 import { AppMark } from "./market-stage.tsx";
 
 /*

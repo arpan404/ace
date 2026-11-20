@@ -136,8 +136,15 @@ parses one; the host reads the text with the same bound.
 - Pages arrive with the manifest (`pages` on install and update, [packages.md](packages.md)); the
   market checks each one and holds a version with a panel for a maintainer, as a Suit's scene.
 
-## Not yet
+## Kept pages
 
-- A bot that moves to another machine keeps its panels' declarations but not their pages; the
-  next update brings them.
-- Kept pages aren't collected when no bot shows them any more.
+- A page is kept once by its sha256, whichever bots show it; each bot names the page each of its
+  panels shows (`bot_panels:<bot>`).
+- A bot that moves to another machine (ADR 0187) takes its panels' pages with it, by hash beside
+  its images: they are in the move's inventory with their size and sha256 and checked against it,
+  so its panels show the moment it arrives. A page the other machine keeps already stays as it
+  is.
+- A page no bot shows any more (its bot was uninstalled or moved away, an update replaced it, a
+  move that never took left it) is removed by the hourly sweep, never at start, a batch of 64
+  pages per short transaction, so other writes go on between them (ADR 0170). A bot still
+  arriving counts: its pages are kept.

@@ -42,6 +42,9 @@ pub struct MarketFile {
 pub struct MarketBot {
     pub signed: Value,
     pub bot_json: String,
+    /// The schema files its contracts name (`contracts/<name>.json`), by path, as the archive
+    /// has them; Spade checks each against the signed manifest.
+    pub files: std::collections::BTreeMap<String, String>,
 }
 
 /// One market skill file with its content.
@@ -122,6 +125,18 @@ impl AceSkills {
             (Some(signed), Some(bot_json)) => Ok(Some(MarketBot {
                 signed: signed.clone(),
                 bot_json: bot_json.to_owned(),
+                files: result
+                    .get("contractFiles")
+                    .and_then(Value::as_object)
+                    .map(|files| {
+                        files
+                            .iter()
+                            .filter_map(|(path, text)| {
+                                Some((path.clone(), text.as_str()?.to_owned()))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             })),
             _ => Err(unexpected(result)),
         }

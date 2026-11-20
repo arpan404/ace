@@ -1,6 +1,6 @@
 import type { MarketResult } from "@ace/protocol/marketplace";
 import { marketError as error } from "./market-error.ts";
-import { bytesText } from "./package-diff.ts";
+import { bytesText, contractTexts } from "./package-diff.ts";
 import type { PreparedEntry } from "./review.ts";
 import type { MarketStore } from "./store.ts";
 
@@ -31,9 +31,11 @@ export async function spadeBot(ports: SpadeBotPorts, name: string): Promise<Mark
     return error("refused", `${name} can't be suggested: ${message}`.slice(0, 2000));
   }
   if (!prepared.signed || prepared.signedManifest === undefined) return missing;
+  const contractFiles = contractTexts(prepared.checked.files);
   return {
     op: "spadeBot",
     signed: prepared.signedManifest,
     botJson: bytesText(prepared.checked.files),
+    ...(Object.keys(contractFiles).length > 0 ? { contractFiles } : {}),
   };
 }

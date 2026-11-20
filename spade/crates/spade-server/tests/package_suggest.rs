@@ -35,6 +35,7 @@ impl MarketBots for Market {
             Ok(listed.map(|sealed| Envelope {
                 signed: sealed["signed"].clone(),
                 bot_json: text(&sealed["bot_json"]),
+                files: Default::default(),
             }))
         })
     }

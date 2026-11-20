@@ -463,6 +463,8 @@ export const MarketResult = z.discriminatedUnion("op", [
     signed: z.unknown(),
     /** `bot.json` exactly as the signed archive has it. */
     botJson: z.string().max(1_000_000),
+    /** Its contracts' schema files (`contracts/<name>.json`), by path, as the archive has them. */
+    contractFiles: z.record(z.string().max(80), z.string().max(40_960)).optional(),
   }),
   z.strictObject({
     op: z.literal("spadeSkillFiles"),

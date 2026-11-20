@@ -370,7 +370,14 @@ fn the_shared_rules_accept_and_refuse_as_the_marketplaces_reader_does() {
             manifest[key] = value;
         }
         let name = case["name"].as_str().unwrap_or_default();
-        match (read(&manifest, BUILD), case["refused"].as_str()) {
+        // A case's `files` are the package's other files, a contract's schema file among them.
+        let files = case["files"].clone();
+        let read_file = |path: &str| files[path].as_str().map(str::to_owned);
+        let manifest = super::contract_files::inline(&manifest, read_file);
+        match (
+            manifest.and_then(|m| read(&m, BUILD)),
+            case["refused"].as_str(),
+        ) {
             (Ok(_), None) => {}
             (Err(problems), Some(word)) => assert!(
                 problems.iter().any(|p| p.contains(word)),

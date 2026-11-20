@@ -10,17 +10,17 @@ recipe still installs as an unlinked copy the person owns.
 `bot.json`, read by `spade_core::package::read` (and `readRecipe` in `@ace/marketplace`, which
 must agree). Version 3 adds, beside version 2's fields:
 
-| Field       | What it is                                                                                                                                                                                      |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `requires`  | `{runtime: "1", spade: "0.0.25"}`; a build that can't meet them refuses with "Needs a newer Spade"                                                                                              |
-| `uses`      | Runtime modules (`task`, `memory`, `files`, `web`, `apps`, `agents`, `ui`, `schedule`, …)                                                                                                       |
-| `triggers`  | `message`, `mention {in}`, `schedule {name, instruction, schedule}`, `event {name, instruction, event}` (`thread.finished`, `thread.failed`, `thread.needs_you`), `webhook {name, instruction}` |
-| `effects`   | `{effect, why, hosts?, grant?}` with `effect` one of `network`, `publish`, `send_as_person`, `pay`, `change_access`                                                                             |
-| `limits`    | `spend_alert {usd_per_day}`, `workers_at_once`, `workspace_mb`: an alert line and bounds, never a stop                                                                                          |
-| `pricing`   | `{kind: "free"}` only; missing reads as free                                                                                                                                                    |
-| `contracts` | Typed calls the person's other bots may make to it: `{name, summary, input, output, effects, examples}` ([contracts.md](contracts.md))                                                          |
-| `tests`     | `tests/<name>.json` scenario files in the package                                                                                                                                               |
-| `surfaces`  | Cards (`cards/<name>.json`) and panels (`panels/<id>/index.html` with a title, a state schema and declared actions), [surfaces.md](surfaces.md)                                                 |
+| Field       | What it is                                                                                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `requires`  | `{runtime: "1", spade: "0.0.25"}`; a build that can't meet them refuses with "Needs a newer Spade"                                                                                               |
+| `uses`      | Runtime modules (`task`, `memory`, `files`, `web`, `apps`, `agents`, `ui`, `schedule`, …)                                                                                                        |
+| `triggers`  | `message`, `mention {in}`, `schedule {name, instruction, schedule}`, `event {name, instruction, event}` (`thread.finished`, `thread.failed`, `thread.needs_you`), `webhook {name, instruction}`  |
+| `effects`   | `{effect, why, hosts?, grant?}` with `effect` one of `network`, `publish`, `send_as_person`, `pay`, `change_access`                                                                              |
+| `limits`    | `spend_alert {usd_per_day}`, `workers_at_once`, `workspace_mb`: an alert line and bounds, never a stop                                                                                           |
+| `pricing`   | `{kind: "free"}` only; missing reads as free                                                                                                                                                     |
+| `contracts` | Typed calls the person's other bots may make to it: `{name, summary, input, output, effects, examples}`, or `file: contracts/<name>.json` in place of the schemas ([contracts.md](contracts.md)) |
+| `tests`     | `tests/<name>.json` scenario files in the package                                                                                                                                                |
+| `surfaces`  | Cards (`cards/<name>.json`) and panels (`panels/<id>/index.html` with a title, a state schema and declared actions), [surfaces.md](surfaces.md)                                                  |
 
 Version 2's `routines` read as schedule triggers. Refused whole: anything named or shaped like a
 secret; `publisher`, `signature`, `hash`, `package` or a string `version` (identity is the signed

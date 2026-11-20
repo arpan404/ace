@@ -1,9 +1,9 @@
 //! A package's contracts (ADR 0200 §7): typed calls other agents of the person may make to its
 //! bot. Each has a name, a one-line summary, an input and an output schema in the bounded subset
 //! of [`crate::schema`], the effects a call may use (a subset of what the package declares), and
-//! examples, which the checks and tests use. The schemas live in `bot.json` itself, so the signed
-//! manifest's `bot.json` carries them. The matching reader is `readContracts` in
-//! `@ace/marketplace`.
+//! examples, which the checks and tests use. The schemas are written in `bot.json`, or in a
+//! `contracts/<name>.json` of the package that [`super::contract_files`] writes in before this
+//! reads them. The matching reader is `readContracts` in `@ace/marketplace`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -142,14 +142,15 @@ fn contract(
         out.push(format!("{at} is an object"));
         return None;
     };
-    if fields.contains_key("file") && !fields.contains_key("input") {
-        out.push(format!(
-            "{at}: write the input and output schemas in bot.json; the signed bot.json carries them"
-        ));
+    // A schema file is written in before the manifest is read (`contract_files`); one still
+    // named here was never read with it.
+    if let Some(path) = fields.get("file") {
+        let path = path.as_str().unwrap_or("its schema file");
+        out.push(format!("{at}.file: {path} isn't in the package"));
         return None;
     }
     for key in fields.keys() {
-        if !FIELDS.contains(&key.as_str()) && key != "file" {
+        if !FIELDS.contains(&key.as_str()) {
             out.push(format!("{at}.{key} isn't a field of a contract"));
         }
     }

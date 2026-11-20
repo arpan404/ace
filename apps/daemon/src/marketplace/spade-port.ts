@@ -111,7 +111,13 @@ function identity(input: PackageInput) {
     ...(input.signed
       ? {
           package: input.signed.package,
-          envelope: { signed: input.signed.signedManifest, bot_json: input.signed.botJson },
+          envelope: {
+            signed: input.signed.signedManifest,
+            bot_json: input.signed.botJson,
+            ...(input.signed.contractFiles && Object.keys(input.signed.contractFiles).length > 0
+              ? { files: input.signed.contractFiles }
+              : {}),
+          },
         }
       : {}),
   };

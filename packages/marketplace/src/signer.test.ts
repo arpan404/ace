@@ -435,6 +435,16 @@ describe("a bot package's contracts", () => {
     key: old,
   });
 
+  /** 2.0.0 with `cheapest_fare`'s schemas in contracts/cheapest-fare.json. */
+  const moved = (required: string[]) => {
+    const [contract] = fare(required).contracts;
+    const { input, output, ...rest } = contract!;
+    return [
+      ...samplePackage({ contracts: [{ ...rest, file: "contracts/cheapest-fare.json" }] }),
+      ...folder({ "contracts/cheapest-fare.json": JSON.stringify({ input, output }) }),
+    ];
+  };
+
   /** The market with 1.0.0 signed and listed, and `files` pending as 2.0.0. */
   function pendingOver(files: ReturnType<typeof samplePackage>) {
     const hash = contentHash(hashFiles(files));
@@ -481,6 +491,17 @@ describe("a bot package's contracts", () => {
     expect(puts.map((put) => put.path)).toEqual([
       "/v1/signer/blocks/spade-bot/flight-watcher/2.0.0",
     ]);
+  });
+
+  it("compares a contract whose schemas moved to a file of the package as written there", async () => {
+    const breaking = pendingOver(moved(["from", "to", "month"]));
+    const blocked = await signPending(breaking.io, next, () => 30, trusted);
+    expect(blocked.blocked.map((block) => block.reason)).toEqual([
+      "Its contracts would break bots that call 1.0.0: cheapest_fare: input.month became required. A breaking change takes a new contract name.",
+    ]);
+    const keeping = pendingOver(moved(["from", "to"]));
+    const signed = await signPending(keeping.io, next, () => 30, trusted);
+    expect(signed.signed).toEqual(["spade-bot/flight-watcher@2.0.0"]);
   });
 
   it("signs a version that keeps its callers working", async () => {

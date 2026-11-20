@@ -85,6 +85,33 @@ describe("ace bot check against the version other bots call", () => {
     // Checked alone, the same folder passes: only callers make it a break.
     await expect(checkPackage(after)).resolves.toMatchObject({ name: "flight-watcher" });
   });
+
+  it("compares a contract whose schemas live in contracts/<name>.json as written there", async () => {
+    /** `watcher(required)` with its contract's schemas moved to a file of the package. */
+    async function moved(required: string[]) {
+      const bot = watcher(required);
+      const [{ input, output, ...rest }] = bot.contracts;
+      const root = await folder({
+        ...bot,
+        contracts: [{ ...rest, file: "contracts/cheapest-fare.json" }],
+      });
+      await mkdir(join(root, "contracts"));
+      await writeFile(
+        join(root, "contracts/cheapest-fare.json"),
+        JSON.stringify({ input, output }),
+      );
+      return root;
+    }
+    const inline = await folder(watcher(["from", "to"]));
+    // The same schemas, only moved: nothing breaks.
+    await expect(
+      checkPackage(await moved(["from", "to"]), { against: inline }),
+    ).resolves.toMatchObject({ name: "flight-watcher" });
+    const failure = await checkPackage(await moved(["from", "to", "month"]), {
+      against: inline,
+    }).catch((error: unknown) => error);
+    expect(JSON.stringify(failure)).toContain("cheapest_fare: input.month became required");
+  });
 });
 
 describe("ace bot publish against the version published in the market", () => {
