@@ -3,7 +3,7 @@ import { accessModeOffers } from "@ace/provider-kit/access-modes";
 import type { SessionContext } from "@ace/engine-api";
 import type { Capabilities, AcpSessionSupport } from "@ace/protocol";
 import { sessionSelectors, selectorRequest, type SelectorState } from "@ace/agent-registry";
-import type { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
+import { rpcErrorCode, type JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { negotiate, sessionSupport, type Negotiated } from "./negotiation.ts";
 import { redactLease } from "./frame-redaction.ts";
 import { object } from "./data.ts";
@@ -23,6 +23,8 @@ export class AcpConfiguration {
   #mode: string | undefined;
   /** Inside a selection: its caller decides what a moved mode means. */
   #quiet = false;
+  /** Off once the agent rejects `session/set_model`: no legacy model picker for the session. */
+  #legacyModel = true;
   constructor(ctx: SessionContext, quirks: AcpQuirks, launch: LaunchOptions, rpc: JsonRpcPeer) {
     this.#ctx = ctx;
     this.#quirks = quirks;
@@ -43,7 +45,7 @@ export class AcpConfiguration {
     this.selectors = sessionSelectors(
       { ...object(this.selectors.raw), ...object(this.#redact(raw)) },
       this.#profile,
-      this.#quirks.provider !== "acp",
+      this.#legacyModel,
     );
     this.publish(mcp);
     this.#mode = this.current("mode");
@@ -52,11 +54,7 @@ export class AcpConfiguration {
   update(raw: unknown): void {
     const replacement = { ...object(this.selectors.raw), ...object(this.#redact(raw)) };
     try {
-      this.selectors = sessionSelectors(
-        replacement,
-        this.#profile,
-        this.#quirks.provider !== "acp",
-      );
+      this.selectors = sessionSelectors(replacement, this.#profile, this.#legacyModel);
     } catch {
       this.selectors = { raw: replacement };
     }
@@ -130,18 +128,33 @@ export class AcpConfiguration {
     return typeof value === "string" ? value : undefined;
   }
   /**
-   * Selects `value` and checks what the reply reports. A reply that reports another value
-   * didn't apply it: SelectorRefused. A reply without options (`session/set_mode`) applied it.
+   * Selects `value`, one the agent listed in this session (selectorRequest refuses any other),
+   * and checks what the reply reports. A reply that reports another value didn't apply it:
+   * SelectorRefused. A reply that reports nothing (`session/set_mode`, `session/set_model`)
+   * applied it. An agent that answers `session/set_model` with an error has no legacy setter:
+   * the picker goes for the rest of the session, LegacyModelRejected.
    */
   async select(kind: "model" | "mode" | "effort", value: string, sessionId: string): Promise<void> {
     const request = selectorRequest(this.selectors, kind, value, sessionId);
-    const result = await this.#rpc.request(request.method, request.params, {
-      signal: this.#ctx.signal,
-    });
+    let result: unknown;
+    try {
+      result = await this.#rpc.request(request.method, request.params, {
+        signal: this.#ctx.signal,
+      });
+    } catch (error) {
+      if (request.method !== "session/set_model" || rpcErrorCode(error) === undefined) throw error;
+      this.#legacyModel = false;
+      this.update({});
+      throw new LegacyModelRejected(value, rpcErrorCode(error) === -32601);
+    }
+    const reply = object(result);
+    const listed = object(reply["models"]);
     this.#quiet = true;
     try {
       if (kind === "mode") this.#mode = value;
-      if (Array.isArray(object(result)["configOptions"])) this.update(result);
+      if (Array.isArray(reply["configOptions"])) this.update(result);
+      else if (kind === "model" && typeof listed["currentModelId"] === "string")
+        this.update({ models: { ...object(object(this.selectors.raw)["models"]), ...listed } });
       else this.#assume(kind, value);
     } finally {
       this.#quiet = false;
@@ -173,6 +186,21 @@ export class AcpConfiguration {
   }
   #redact(raw: unknown): unknown {
     return redactLease(raw, this.#ctx.mcp?.secrets ?? []);
+  }
+}
+
+/**
+ * The agent answered `session/set_model` with an error (an unknown method, or a refusal): the
+ * session keeps the agent's own model and offers no legacy model picker from here on.
+ */
+export class LegacyModelRejected extends Error {
+  readonly kind = "model";
+  readonly unsupported: boolean;
+  constructor(requested: string, unsupported: boolean) {
+    super(
+      `ACP model ${requested} was not applied: the agent ${unsupported ? "doesn't support" : "rejected"} session/set_model, so it runs its own default model`,
+    );
+    this.unsupported = unsupported;
   }
 }
 

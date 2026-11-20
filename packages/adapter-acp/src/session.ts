@@ -2,7 +2,7 @@ import { nativeCommandInputs } from "@ace/commands/invocation";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { resumeLoadFailure } from "./resume-error.ts";
 import { appendAcpMcp, developerInstructions } from "@ace/mcp-server";
-import { AcpConfiguration } from "./configuration.ts";
+import { AcpConfiguration, LegacyModelRejected } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
 import { openWithSignIn } from "@ace/provider-kit/acp-sign-in";
 import { clientMeta } from "./bridge-negotiation.ts";
@@ -542,6 +542,12 @@ class AcpSession implements ProviderSession {
       await this.configuration.select(kind, value, this.nativeSessionId);
     } catch (error) {
       if (error instanceof Error && error.message.includes("request timed out")) this.fail(error);
+      if (error instanceof LegacyModelRejected)
+        this.frame("note", "diagnostic", {
+          event: "acp-legacy-model-rejected",
+          requested: value,
+          unsupported: error.unsupported,
+        });
       throw sanitizedError(error, this.ctx);
     } finally {
       this.selecting = false;

@@ -156,7 +156,7 @@ test("model selection uses the advertised config ID and rejects removed dependen
     selectorRequest(sessionSelectors(selectorSetup(["native-a"])), "model", "native-b", "session"),
   ).toThrow("unavailable");
 });
-test("old Qwen blocks setters while Gemini uses its legacy dialect and generic modes use standard ACP", () => {
+test("old Qwen blocks setters while profiled and unprofiled agents use the legacy model list and standard modes", () => {
   const setup = {
     models: { availableModels: [{ modelId: "native", name: "Native" }] },
     modes: { availableModes: [{ id: "plan", name: "Plan" }] },
@@ -169,7 +169,18 @@ test("old Qwen blocks setters while Gemini uses its legacy dialect and generic m
       "s",
     ),
   ).toThrow();
-  expect(() => selectorRequest(sessionSelectors(setup), "model", "native", "s")).toThrow();
+  expect(selectorRequest(sessionSelectors(setup), "model", "native", "s")).toEqual({
+    method: "session/set_model",
+    params: { sessionId: "s", modelId: "native" },
+  });
+  expect(
+    selectorRequest(
+      sessionSelectors(setup, matchProfile("qwen-code", "0.24.7")),
+      "model",
+      "native",
+      "s",
+    ).method,
+  ).toBe("session/set_model");
   expect(
     selectorRequest(
       sessionSelectors(setup, matchProfile("gemini", "0.43.0")),

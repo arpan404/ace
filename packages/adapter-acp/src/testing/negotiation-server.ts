@@ -18,6 +18,11 @@ const config = z
     systemPrompt: z.boolean().default(false),
     // An agent that updated itself since it was approved: it reports another version.
     updated: z.boolean().default(false),
+    // The legacy `models` list it reports, as sent (entries may be malformed on purpose).
+    legacyModels: z.array(z.unknown()).optional(),
+    // How it answers session/set_model: empty (as ACP's schema), naming the model it selected,
+    // naming another, or with an error (a refusal, or no such method).
+    legacyReply: z.enum(["empty", "confirm", "other", "error", "missing"]).default("empty"),
   })
   .parse(JSON.parse(process.env.ACE_SYNTHETIC_ACP ?? "{}"));
 const Envelope = z
@@ -37,7 +42,7 @@ const setup = () =>
     : config.legacy
       ? {
           models: {
-            availableModels: [{ modelId: "model-a", name: "Model A" }],
+            availableModels: config.legacyModels ?? [{ modelId: "model-a", name: "Model A" }],
             currentModelId: "model-a",
           },
           modes: { availableModes: [{ id: "plan", name: "Plan" }] },
@@ -128,6 +133,17 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       currentModel = String(message.params.value);
       result(setup());
     }
+  } else if (message.method === "session/set_model" && config.legacyReply !== "empty") {
+    if (config.legacyReply === "error")
+      write({ id: message.id, error: { code: -32602, message: "Synthetic model refusal" } });
+    else if (config.legacyReply === "missing")
+      write({ id: message.id, error: { code: -32601, message: "Method not found" } });
+    else
+      result({
+        models: {
+          currentModelId: config.legacyReply === "confirm" ? message.params.modelId : "model-a",
+        },
+      });
   } else if (message.method === "session/set_model" || message.method === "session/set_mode")
     result({});
   else if (message.method === "session/prompt") {
