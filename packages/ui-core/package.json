@@ -58,7 +58,8 @@
     "./review": "./src/review.ts",
     "./workspace-tabs": "./src/workspace-tabs.ts",
     "./workspace-bounds": "./src/workspace-bounds.ts",
-    "./tablet-workspace": "./src/tablet-workspace.ts"
+    "./tablet-workspace": "./src/tablet-workspace.ts",
+    "./editor-workbench": "./src/editor-workbench/index.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
