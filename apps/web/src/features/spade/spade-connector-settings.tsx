@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { openExternal } from "@/boot/open-external.ts";
+import { AppMark } from "@/components/ui/app-mark.tsx";
 import { AddConnectorDialog } from "./spade-add-connector.tsx";
 import { connectHere, connectInBrowser } from "./spade-connect-flow.ts";
 import { connectorsKey, disconnect, reconnect, useSpadeConnectors } from "./spade-connector-api.ts";
@@ -52,9 +53,14 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
       </SettingCard>
       {adding && connectors.data && (
         <AddConnectorDialog
-          catalogue={connectors.data.catalogue.filter(
-            (entry) => !connectors.data.connectors.some((each) => each.id === entry.id),
-          )}
+          catalogue={connectors.data.catalogue}
+          added={
+            new Map(
+              connectors.data.connectors.flatMap((each) =>
+                each.catalogue ? [[each.catalogue, spadeConnectorLine(each)] as const] : [],
+              ),
+            )
+          }
           onClose={() => setAdding(false)}
         />
       )}
@@ -120,6 +126,7 @@ function ConnectorRow(props: { connector: SpadeConnector; names: ReadonlyMap<str
   return (
     <SettingRow
       title={connector.name}
+      leading={<AppMark catalogue={connector.catalogue} name={connector.name} />}
       description={
         <>
           <span>

@@ -137,3 +137,48 @@ test("an app through Spade Cloud says so quietly, or why it can't renew; others 
     undefined,
   ]);
 });
+
+test("a catalogue app says whether it can connect now, and an unknown answer never reads as Sign in", () => {
+  const read = parseSpadeConnectors(
+    JSON.stringify({
+      catalogue: [
+        {
+          id: "slack",
+          url: "https://mcp.slack.com/mcp",
+          sign_in: ["oauth_client"],
+          category: "mail_chat",
+          ready: "later",
+        },
+        {
+          id: "render",
+          url: "https://mcp.render.com/mcp",
+          sign_in: ["token"],
+          category: "code",
+          ready: "key",
+          key_url: "https://dashboard.render.com/u/settings",
+        },
+        {
+          id: "odd",
+          url: "https://odd.example/mcp",
+          sign_in: ["oauth"],
+          category: "gardening",
+          ready: "teleport",
+          key_url: "javascript:alert(1)",
+        },
+        // An older Spade that doesn't say: its best way in.
+        { id: "linear", url: "https://mcp.linear.app/mcp", sign_in: ["oauth", "token"] },
+        { id: "hf", url: "https://huggingface.co/mcp", sign_in: ["token"] },
+      ],
+      connectors: [],
+    }),
+  );
+  expect(
+    read?.catalogue.map((entry) => [entry.id, entry.category, entry.ready, entry.keyUrl]),
+  ).toEqual([
+    ["slack", "mail_chat", "later", undefined],
+    ["render", "code", "key", "https://dashboard.render.com/u/settings"],
+    ["odd", "work", "later", undefined],
+    ["linear", "work", "sign_in", undefined],
+    ["hf", "work", "key", undefined],
+  ]);
+});

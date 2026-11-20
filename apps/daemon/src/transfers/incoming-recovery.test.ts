@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RunId, type Device, type TransferCommit } from "@ace/protocol";
 import { Store } from "../store.ts";
@@ -9,6 +9,7 @@ import { IncomingTransfers, type IncomingDeps } from "./incoming.ts";
 import { ThreadOwnership } from "./live/ownership.ts";
 import { LiveTarget, type LiveTargetPorts } from "./live/target.ts";
 import { LiveStarts } from "./live/target-rows.ts";
+import { incomingPath } from "./incoming-files.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -186,17 +187,30 @@ describe("a target's recovery after a restart", () => {
     expect(ids.filter((id) => t.rows.get(id)?.state !== "completed")).toEqual([]);
   });
 
-  it("keeps every live transfer's payload, however many there are", async () => {
+  it("keeps every live transfer's payload, however many there are, and cancels those under old names", async () => {
     const t = await target();
     const ids = Array.from({ length: 1_100 }, (_, index) => `r${String(index).padStart(4, "0")}`);
+    // Every tenth upload is still under the name an earlier build gave it, the id itself.
+    const old = ids.filter((_, index) => index % 10 === 0);
     for (const id of ids) {
       t.rows.insert(record(id, { state: "receiving" }), 0);
-      await writeFile(join(t.directory, `${id}.part`), "bytes");
+      const name = old.includes(id)
+        ? `${id}.part`
+        : basename(incomingPath(t.directory, id, "code"));
+      await writeFile(join(t.directory, name), "bytes");
     }
     await writeFile(join(t.directory, "gone.part"), "left by a crash");
     await t.incoming.recover();
-    const left = await readdir(t.directory);
-    expect(left).toHaveLength(ids.length);
-    expect(left).not.toContain("gone.part");
+    // The rest are kept under their own names, nothing else is left, and each resumes in place.
+    const kept = ids.filter((id) => !old.includes(id));
+    expect((await readdir(t.directory)).toSorted()).toEqual(
+      kept.map((id) => basename(incomingPath(t.directory, id, "code"))).toSorted(),
+    );
+    for (const id of [kept[0], kept[700], kept.at(-1)].filter((each) => each !== undefined))
+      await expect(
+        t.incoming.call(device, { op: "status", transferId: id }),
+      ).resolves.toMatchObject({ state: "receiving", offset: "bytes".length });
+    // Those under old names are cancelled, so their senders start them again.
+    expect(old.filter((id) => t.rows.get(id)?.state !== "cancelled")).toEqual([]);
   });
 });

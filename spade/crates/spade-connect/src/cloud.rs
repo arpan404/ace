@@ -4,6 +4,7 @@
 //! tokens are then kept as every connector's are, in the keychain. This module is the cloud's
 //! client; [`crate::Connectors`] drives the sign-in and renewals with it.
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -12,8 +13,8 @@ use std::time::Duration;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use spade_cloud_wire::{
-    ErrorAnswer, FinishAnswer, FinishRequest, RefreshAnswer, RefreshRequest, StartAnswer,
-    StartRequest,
+    AppsAnswer, ErrorAnswer, FinishAnswer, FinishRequest, RefreshAnswer, RefreshRequest,
+    StartAnswer, StartRequest,
 };
 
 /// Spade Cloud's address in Spade.
@@ -113,6 +114,27 @@ impl CloudClient {
         self.post(app, "refresh", request)
             .await
             .map(|(_, answer)| answer)
+    }
+
+    /// The apps the cloud holds a client for. Open, so no credential: asking needs no ace account.
+    /// Bounded by `wait`, since the app's list of apps waits for it.
+    pub(crate) async fn apps(&self, wait: Duration) -> Result<HashSet<String>, CloudError> {
+        if !secure_cloud_url(&self.url) {
+            return Err(CloudError::Unreachable);
+        }
+        let mut request = self
+            .http
+            .get(format!("{}/v1/oauth/apps", self.url))
+            .timeout(wait);
+        if let Some(name) = &self.ace_client {
+            request = request.header(ACE_CLIENT_HEADER, name);
+        }
+        let response = request.send().await.map_err(|_| CloudError::Unreachable)?;
+        if !response.status().is_success() {
+            return Err(CloudError::Unreachable);
+        }
+        let answer: AppsAnswer = response.json().await.map_err(|_| CloudError::Unreachable)?;
+        Ok(answer.apps.into_iter().collect())
     }
 
     async fn post<B: Serialize, A: DeserializeOwned>(

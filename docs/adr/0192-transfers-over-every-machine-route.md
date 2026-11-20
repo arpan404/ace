@@ -69,7 +69,8 @@ authenticated by the key the link pinned.
 
 **Transfers keep their own protocol.** They are never machine calls and never parcels. Their
 receipts, cut-off, 20 GiB cap and authority (`operate` and `projects` on the target, read again on
-every call) are unchanged. `TransferClient` and its call sites are unchanged too: only the
+every call, and within a call after every wait right before each claim or write, through the
+one `answerTransfer` path both the TLS listener and a relay stream use) are unchanged. `TransferClient` and its call sites are unchanged too: only the
 transport under it, `routedTransfers` (`transfers/routes.ts`), changed.
 
 **Route order for transfers.** These are the same as for parcels:

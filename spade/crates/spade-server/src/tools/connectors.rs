@@ -194,20 +194,24 @@ mod tests {
                 e.id == id && e.every_tool.as_ref().and_then(Effect::declared) == Some(Effect::Pay)
             })
         };
-        assert!(pays("stripe") && pays("paypal") && pays("square"));
+        assert!(pays("stripe") && pays("paypal") && pays("square") && pays("mercury"));
         assert!(declared >= 4);
     }
 
     #[test]
     fn an_app_wide_declaration_sends_every_tool_to_the_person_even_read_only_ones() {
         use spade_core::effect::{Effect, Mcp, mcp};
-        // One per category the catalogue holds: payments and a support inbox that writes in the
-        // person's name. (Mail, chat, identity and secret stores are not in the catalogue yet.)
+        // Payments and banking, a support inbox, mail and chat that write in the person's name.
+        // (Identity and secret stores are not in the catalogue yet.)
         let table = [
             ("stripe", Effect::Pay),
             ("paypal", Effect::Pay),
             ("square", Effect::Pay),
+            ("mercury", Effect::Pay),
+            ("ramp", Effect::Pay),
             ("intercom", Effect::SendAsPerson),
+            ("resend", Effect::SendAsPerson),
+            ("google-chat", Effect::SendAsPerson),
         ];
         let entries = spade_connect::catalogue::shipped();
         for (id, want) in table {
