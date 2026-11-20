@@ -1,17 +1,19 @@
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { processIdentity } from "./process-identity.ts";
+import { systemListing } from "./process-listing.ts";
 
 /*
  * Process trees by parent pid, for stops that must reach every process a child started,
  * including ones that left its process group (setsid, `detached`, a shell's `&` with job
  * control). A group signal never reaches those, and once their parent exits the kernel hands
- * them to init, so the tree is captured while it is still connected, before anything is
- * signalled. Linux and macOS only: Windows contains trees in job objects instead.
+ * them to init (on Linux, to the nearest subreaper), so a tree is captured while it is still
+ * connected, before anything is signalled. Linux and macOS only: Windows contains trees in job
+ * objects instead.
  */
 
 const tableLimit = 4_194_304;
+/** The most members one capture walks: a fork bomb under a provider must not stall a stop. */
+const captureLimit = 4_096;
 
 /** `ps -A -o pid=,ppid=`: each process's parent. Malformed rows are skipped. */
 export function parseProcessParents(text: string): Map<number, number> {
@@ -55,36 +57,30 @@ export function descendantsOf(
 
 /** A captured process: its pid and the kernel's start identity, so a reused pid never matches. */
 export type TreeMember = { pid: number; start: string };
+/** What a capture saw: the member, the parent it had then and its process group. */
+export type CapturedMember = TreeMember & { parent: number; group: number };
+/** The kernel's identity of a live process. */
+export type LiveIdentity = { start: string; group: number };
 
 export type TreeIo = {
   platform: NodeJS.Platform;
-  /**
-   * The visible process table as `pid ppid` rows, read synchronously: a shutdown captures
-   * its tree before any of its own stop handlers can signal a member.
-   */
-  table(): string;
-  /** The kernel start identity of a live process, or undefined once it is gone. */
-  identity(pid: number): string | undefined;
+  /** The direct children of `pid`, read synchronously: a shutdown captures its tree before any
+   * of its own stop handlers can signal a member. */
+  children(pid: number): number[];
+  /** The identity of a running process; undefined once it is gone, a zombie included. */
+  identity(pid: number): LiveIdentity | undefined;
   signal(pid: number, signal: NodeJS.Signals): void;
   wait(milliseconds: number): Promise<void>;
 };
 
-/** ps by absolute path: a daemon may run with an empty or foreign PATH. */
-function psPath(): string {
-  for (const path of ["/bin/ps", "/usr/bin/ps"]) if (existsSync(path)) return path;
-  return "ps";
-}
-
 export const systemTreeIo: TreeIo = {
   platform: process.platform,
-  table: () =>
-    execFileSync(psPath(), ["-A", "-o", "pid=,ppid="], {
-      encoding: "utf8",
-      maxBuffer: tableLimit,
-      timeout: 2_000,
-      stdio: ["ignore", "pipe", "ignore"],
-    }),
-  identity: (pid) => processIdentity(pid)?.start,
+  children: (pid) => systemListing.children(pid),
+  identity(pid) {
+    const identity = processIdentity(pid);
+    if (!identity || systemListing.zombie(pid)) return undefined;
+    return { start: identity.start, group: identity.group };
+  },
   signal: (pid, signal) => process.kill(pid, signal),
   wait: (milliseconds) => delay(milliseconds),
 };
@@ -95,23 +91,32 @@ export function capturesTrees(platform: NodeJS.Platform): boolean {
 }
 
 /**
- * Every live process below `roots` with its start identity. A process that ends while the
- * table is read is left out; it needs no stopping.
+ * Every live process below `roots` with its start identity, parents before children. Work
+ * follows the size of the tree, not of the machine. A process that ends while the tree is
+ * read is left out; it needs no stopping.
  */
 export function captureDescendants(
   roots: readonly number[],
   io: TreeIo = systemTreeIo,
-): TreeMember[] {
+): CapturedMember[] {
   if (!roots.length || !capturesTrees(io.platform)) return [];
-  const members: TreeMember[] = [];
-  for (const pid of descendantsOf(parseProcessParents(io.table()), roots)) {
-    const start = readIdentity(io, pid);
-    if (start !== undefined) members.push({ pid, start });
+  const members: CapturedMember[] = [];
+  const seen = new Set<number>(roots);
+  const queue = [...roots];
+  for (let parent = queue.shift(); parent !== undefined; parent = queue.shift()) {
+    for (const pid of io.children(parent)) {
+      if (seen.has(pid) || members.length >= captureLimit) continue;
+      seen.add(pid);
+      const identity = readIdentity(io, pid);
+      if (!identity) continue;
+      members.push({ pid, start: identity.start, parent, group: identity.group });
+      queue.push(pid);
+    }
   }
   return members;
 }
 
-function readIdentity(io: TreeIo, pid: number): string | undefined {
+function readIdentity(io: TreeIo, pid: number): LiveIdentity | undefined {
   try {
     return io.identity(pid);
   } catch {
@@ -120,9 +125,15 @@ function readIdentity(io: TreeIo, pid: number): string | undefined {
   }
 }
 
+/** The live identity of a process, as a member to stop, or undefined once it is gone. */
+export function memberOf(pid: number, io: TreeIo = systemTreeIo): TreeMember | undefined {
+  const identity = readIdentity(io, pid);
+  return identity ? { pid, start: identity.start } : undefined;
+}
+
 /** The captured members that are still the same running process. */
 export function liveMembers(members: readonly TreeMember[], io: TreeIo = systemTreeIo) {
-  return members.filter((member) => readIdentity(io, member.pid) === member.start);
+  return members.filter((member) => readIdentity(io, member.pid)?.start === member.start);
 }
 
 /**

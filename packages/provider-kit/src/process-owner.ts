@@ -109,6 +109,13 @@ export function admitProcess(
     if (ownersSize() === 0) process.removeListener("exit", cleanup);
   };
 }
+/** Heard each time a process group becomes owned. */
+const ownershipListeners = new Set<() => void>();
+/** Hear when a process group becomes owned (a watch starts then); returns the unsubscribe. */
+export function onGroupOwned(listener: () => void): () => void {
+  ownershipListeners.add(listener);
+  return () => ownershipListeners.delete(listener);
+}
 export function registerGroup(
   pid: number,
   stop: (graceMs: number) => Promise<unknown>,
@@ -124,6 +131,12 @@ export function registerGroup(
   }
   if (ownersSize() === 0) process.on("exit", cleanup);
   owned.set(pid, { stop, destroy: end });
+  for (const listener of ownershipListeners)
+    try {
+      listener();
+    } catch (error) {
+      process.emitWarning(`A process ownership listener failed: ${String(error)}`);
+    }
 }
 /**
  * Ownership ends even when a journal cannot record it. This runs in exit listeners, where a

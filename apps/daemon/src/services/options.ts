@@ -78,6 +78,8 @@ export type DaemonOptions = {
    * `graceMs`, once a shutdown's polite window has passed. Tests substitute it.
    */
   stopProcesses?: (graceMs: number) => Promise<void>;
+  /** How long after startup the daemon stops what an earlier run of its home left running. */
+  earlierSweepMs?: number;
   agentControl?: {
     policy?: Partial<import("@ace/protocol").DelegationPolicy>;
     /** Inject the host Git boundary; never exposed as MCP input. */

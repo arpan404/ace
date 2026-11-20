@@ -1,17 +1,25 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EscapeeJournal } from "@ace/provider-kit/escapee-journal";
+import { processIdentity } from "@ace/provider-kit/process-identity";
+import { PROCESS_OWNER_ENV } from "@ace/provider-kit/process-marker";
+import { prepareDaemonHome } from "@ace/service";
 import { afterEach, expect, test } from "vitest";
 import { invoke } from "./cli-test-support.ts";
 
 /*
- * `ace stop` against a real daemon whose provider left processes behind: a Codex app-server
- * (an offline fake) with one child in its process group and one in a session of its own that
- * holds the app-server's stdout and stderr, as a shell a real agent backgrounds can. The group
- * signal never reaches the second, and its pipe kept the stopped daemon's process alive.
+ * `ace stop` and a daemon's start against a real daemon whose provider left processes behind,
+ * with an offline fake Codex on PATH:
+ * - a turn's app-server, with one child in its process group and one in a session of its own
+ *   that holds the app-server's stdout and stderr, as a shell a real agent backgrounds can;
+ * - a version probe that starts a detached child and exits at once, so the child belongs to
+ *   init before any tree or snapshot sees it, and only its inherited marker names it;
+ * - processes an earlier, crashed run of the home left, found by its marker and its journal.
+ * Processes carrying another run's marker are never touched.
  */
 const fakeCodex = new URL("../../../packages/adapter-codex/src/testing/cli.ts", import.meta.url);
 const cli = new URL("./cli.ts", import.meta.url).pathname;
@@ -42,101 +50,204 @@ async function until(check: () => boolean, what: string, milliseconds = 20_000) 
   throw new Error(`Timed out waiting for ${what}`);
 }
 
+/** This test's own child, so its exit event (not kill(0), which a zombie answers) says it ended. */
+function running(child: ChildProcess): boolean {
+  return child.exitCode === null && child.signalCode === null;
+}
+
+/** A long-lived process of this test's; `owner` puts a run's marker in its environment. */
+function stray(owner?: string, command = process.execPath): ChildProcess {
+  const args = command === process.execPath ? ["-e", "setInterval(() => {}, 1000)"] : ["300"];
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (owner) env[PROCESS_OWNER_ENV] = owner;
+  else delete env[PROCESS_OWNER_ENV];
+  const child = spawn(command, args, { stdio: "ignore", detached: true, env });
+  cleanups.push(() => {
+    if (running(child)) child.kill("SIGKILL");
+  });
+  return child;
+}
+
+/** A fresh home and person, and a fake `codex` that records what it starts. */
+async function home() {
+  const root = await mkdtemp(join(tmpdir(), "ace-daemon-stop-"));
+  const paths = {
+    root,
+    home: join(root, "ace"),
+    person: join(root, "home"),
+    bin: join(root, "bin"),
+    turnPids: join(root, "turn-pids"),
+    probePids: join(root, "probe-pids"),
+  };
+  await Promise.all([
+    mkdir(paths.home),
+    mkdir(join(paths.person, "project"), { recursive: true }),
+    mkdir(paths.bin),
+  ]);
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => {
+    // Only processes this test's fake provider recorded.
+    for (const pid of [...recorded(paths.turnPids), ...recorded(paths.probePids)])
+      if (alive(pid)) process.kill(pid, "SIGKILL");
+  });
+  await writeFile(
+    join(paths.bin, "codex"),
+    [
+      `#!${process.execPath}`,
+      'import { spawn } from "node:child_process";',
+      'import { appendFileSync } from "node:fs";',
+      // A probe that leaves a helper behind and exits before anything can see its tree.
+      'if (process.argv.includes("--version")) {',
+      '  const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", detached: true });',
+      "  helper.unref();",
+      `  appendFileSync(${JSON.stringify(paths.probePids)}, helper.pid + "\\n");`,
+      "}",
+      // A turn's work: what an agent's shells start once its turn begins.
+      "let started = false;",
+      "const write = process.stdout.write.bind(process.stdout);",
+      "process.stdout.write = (chunk, ...rest) => {",
+      "  if (!started && String(chunk).includes('\"turn/started\"')) {",
+      "    started = true;",
+      '    const inGroup = spawn("sleep", ["300"], { stdio: "ignore" });',
+      '    const away = spawn("sleep", ["301"], { stdio: ["ignore", "inherit", "inherit"], detached: true });',
+      "    away.unref();",
+      `    appendFileSync(${JSON.stringify(paths.turnPids)}, [process.pid, inGroup.pid, away.pid].join("\\n") + "\\n");`,
+      "  }",
+      "  return write(chunk, ...rest);",
+      "};",
+      `await import(${JSON.stringify(fakeCodex.href)});`,
+      "",
+    ].join("\n"),
+  );
+  await chmod(join(paths.bin, "codex"), 0o755);
+  const env = {
+    ACE_HOME: paths.home,
+    HOME: paths.person,
+    PATH: `${paths.bin}:/usr/bin:/bin`,
+    ACE_LOG_LEVEL: "silent",
+    ACE_LISTEN: "local",
+    ACE_MAINTENANCE: "0",
+    ACE_DEV: "0",
+    ACE_ACCOUNTS_DB: join(paths.home, "accounts.sqlite"),
+    ACE_HISTORY_INSTANCES: "[]",
+    ACE_MODEL_INSTANCES: "[]",
+    ACE_APNS_KEY_FILE: "",
+    ACE_VAPID_KEY_FILE: "",
+    ACE_RELAY_URL: undefined,
+    ACE_SCREEN_HELPER: undefined,
+    // This test's own run must not mark the daemon it starts.
+    [PROCESS_OWNER_ENV]: undefined,
+  };
+  return { ...paths, env };
+}
+
+/** `ace start` for `paths`'s home; resolves once it listens. */
+async function startDaemon(paths: Awaited<ReturnType<typeof home>>) {
+  const daemon = spawn(process.execPath, [cli, "start"], {
+    env: { ...process.env, ...paths.env, ACE_PORT: "0" },
+    stdio: "ignore",
+  });
+  const exit = once(daemon, "exit");
+  cleanups.push(() => {
+    if (running(daemon)) daemon.kill("SIGKILL");
+  });
+  await until(
+    () => existsSync(join(paths.home, "daemon-endpoint")),
+    "the daemon to listen",
+    30_000,
+  );
+  return { daemon, exit };
+}
+
+/** `ace stop`, then proof the daemon's process ended. */
+async function stopDaemon(
+  paths: Awaited<ReturnType<typeof home>>,
+  daemon: { exit: Promise<unknown> },
+) {
+  const stopped = await invoke(paths.home, ["stop", "--json", "--timeout", "20s"], "", paths.env);
+  expect(stopped.code, stopped.stderr).toBe(0);
+  const answer: unknown = JSON.parse(stopped.stdout);
+  expect(answer).toMatchObject({ stopped: true });
+  // The daemon's own shutdown ended what it started, as it must when a service manager or the
+  // app stops it with no `ace stop` to clean up after it.
+  expect(answer).not.toHaveProperty("leftoversStopped");
+  const exited = await Promise.race([
+    daemon.exit.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1_000)),
+  ]);
+  expect(exited).toBe(true);
+}
+
 test.skipIf(process.platform === "win32")(
   "ace stop leaves nothing of the daemon or its provider's process tree running",
   async () => {
-    const root = await mkdtemp(join(tmpdir(), "ace-daemon-stop-"));
-    const home = join(root, "ace");
-    const person = join(root, "home");
-    const bin = join(root, "bin");
-    const pids = join(root, "provider-pids");
-    await Promise.all([
-      mkdir(home),
-      mkdir(join(person, "project"), { recursive: true }),
-      mkdir(bin),
-    ]);
-    cleanups.push(() => rm(root, { recursive: true, force: true }));
-    cleanups.push(() => {
-      // Only processes this test's fake provider recorded.
-      for (const pid of recorded(pids)) if (alive(pid)) process.kill(pid, "SIGKILL");
-    });
-    await writeFile(
-      join(bin, "codex"),
-      [
-        `#!${process.execPath}`,
-        'import { spawn } from "node:child_process";',
-        'import { appendFileSync } from "node:fs";',
-        // A turn's work: what an agent's shells start once its turn begins.
-        "let started = false;",
-        "const write = process.stdout.write.bind(process.stdout);",
-        "process.stdout.write = (chunk, ...rest) => {",
-        "  if (!started && String(chunk).includes('\"turn/started\"')) {",
-        "    started = true;",
-        '    const inGroup = spawn("sleep", ["300"], { stdio: "ignore" });',
-        '    const away = spawn("sleep", ["301"], { stdio: ["ignore", "inherit", "inherit"], detached: true });',
-        "    away.unref();",
-        `    appendFileSync(${JSON.stringify(pids)}, [process.pid, inGroup.pid, away.pid].join("\\n") + "\\n");`,
-        "  }",
-        "  return write(chunk, ...rest);",
-        "};",
-        `await import(${JSON.stringify(fakeCodex.href)});`,
-        "",
-      ].join("\n"),
-    );
-    await chmod(join(bin, "codex"), 0o755);
-    const env = {
-      ACE_HOME: home,
-      HOME: person,
-      PATH: `${bin}:/usr/bin:/bin`,
-      ACE_LOG_LEVEL: "silent",
-      ACE_LISTEN: "local",
-      ACE_MAINTENANCE: "0",
-      ACE_DEV: "0",
-      ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
-      ACE_HISTORY_INSTANCES: "[]",
-      ACE_MODEL_INSTANCES: "[]",
-      ACE_APNS_KEY_FILE: "",
-      ACE_VAPID_KEY_FILE: "",
-      ACE_RELAY_URL: undefined,
-      ACE_SCREEN_HELPER: undefined,
-    };
-    const daemon = spawn(process.execPath, [cli, "start"], {
-      env: { ...process.env, ...env, ACE_PORT: "0" },
-      stdio: "ignore",
-    });
-    const daemonExit = once(daemon, "exit");
-    cleanups.push(() => {
-      if (daemon.exitCode === null && daemon.signalCode === null) daemon.kill("SIGKILL");
-    });
-    await until(() => existsSync(join(home, "daemon-endpoint")), "the daemon to listen", 30_000);
-
+    const paths = await home();
+    const daemon = await startDaemon(paths);
     const started = await invoke(
-      home,
-      ["run", "Say hello", "--project", join(person, "project"), "--provider", "codex", "--json"],
+      paths.home,
+      ["run", "Say hello", "--project", join(paths.person, "project"), "--provider", "codex"],
       "",
-      env,
+      paths.env,
     );
     expect(started.code, started.stderr + started.stdout).toBe(0);
     // A thread's app-server, its grouped child and the one that left its group are running.
-    await until(() => recorded(pids).length >= 3, "the provider's processes");
-    const tree = recorded(pids);
-    expect(tree.every(alive)).toBe(true);
+    await until(() => recorded(paths.turnPids).length >= 3, "the provider's processes");
+    expect(recorded(paths.turnPids).every(alive)).toBe(true);
+    await stopDaemon(paths, daemon);
+    expect(recorded(paths.turnPids).filter(alive)).toEqual([]);
+  },
+  90_000,
+);
 
-    const stopped = await invoke(home, ["stop", "--json", "--timeout", "20s"], "", env);
-    expect(stopped.code, stopped.stderr).toBe(0);
-    const answer: unknown = JSON.parse(stopped.stdout);
-    expect(answer).toMatchObject({ stopped: true });
-    // The daemon's own shutdown ended its tree, as it must when a service manager or the app
-    // stops it with no `ace stop` to clean up after it.
-    expect(answer).not.toHaveProperty("leftoversStopped");
-    // Done means done: when stop returns, the daemon and every provider process have ended.
-    // (The daemon is this test's child, so its exit event, not kill(0), says it is gone.)
-    const exited = await Promise.race([
-      daemonExit.then(() => true),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1_000)),
-    ]);
-    expect(exited).toBe(true);
-    expect(recorded(pids).filter(alive)).toEqual([]);
+test.skipIf(process.platform === "win32")(
+  "ace stop ends a probe's detached child whose parent exited at once, and nothing another run marked",
+  async () => {
+    const paths = await home();
+    // Another home's daemon run left this: same user, a marker that isn't this run's.
+    const otherHome = stray("5d1f0a7e-2b3c-4d5e-8f90-a1b2c3d4e5f6");
+    const unmarked = stray();
+    const daemon = await startDaemon(paths);
+    // Provider discovery probes `codex --version`; each probe left a helper behind and exited.
+    await until(() => recorded(paths.probePids).length > 0, "a probe's helper");
+    const helpers = recorded(paths.probePids);
+    expect(helpers.every(alive)).toBe(true);
+    await stopDaemon(paths, daemon);
+    expect(recorded(paths.probePids).filter(alive)).toEqual([]);
+    expect(running(otherHome)).toBe(true);
+    expect(running(unmarked)).toBe(true);
+  },
+  90_000,
+);
+
+test.skipIf(process.platform === "win32")(
+  "a daemon's start stops what an earlier crashed run of its home left, by marker and journal",
+  async () => {
+    const paths = await home();
+    prepareDaemonHome(paths.home);
+    const earlierRun = "0b9e2c4c-7f3a-4c1e-9a55-2f1d8e6b7a10";
+    // The earlier run left a marked helper, and a platform binary whose environment macOS
+    // hides, known only from its journal row.
+    const marked = stray(earlierRun);
+    const journaled = stray(undefined, "/bin/sleep");
+    // Not the earlier run's: another home's marked process, and a sleep with no journal row.
+    const otherHome = stray("5d1f0a7e-2b3c-4d5e-8f90-a1b2c3d4e5f6");
+    const stranger = stray(undefined, "/bin/sleep");
+    await until(() => [marked, journaled, stranger].every((child) => child.pid), "the strays");
+    const identity = processIdentity(journaled.pid ?? 0);
+    if (!identity) throw new Error("The journaled stray is not running");
+    const journal = new EscapeeJournal(join(paths.home, "processes.sqlite"), earlierRun);
+    journal.record([{ pid: identity.pid, start: identity.start }]);
+    journal.close();
+    // It crashed: its marker still says running, under a pid that has ended.
+    await writeFile(
+      join(paths.home, "daemon-run.json"),
+      JSON.stringify({ state: "running", pid: 999_999, startedAt: 1, owner: earlierRun }),
+    );
+    const daemon = await startDaemon(paths);
+    await until(() => !running(marked) && !running(journaled), "the earlier run's leftovers");
+    expect(running(otherHome)).toBe(true);
+    expect(running(stranger)).toBe(true);
+    await stopDaemon(paths, daemon);
   },
   90_000,
 );

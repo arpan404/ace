@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { lineage, systemListing, type ProcessListing } from "@ace/provider-kit/process-listing";
+import { markedProcesses } from "@ace/provider-kit/process-marker";
 import {
   captureDescendants,
   liveMembers,
+  memberOf,
   stopMembers,
   systemTreeIo,
   type TreeIo,
@@ -34,7 +37,12 @@ const signalWaitMs = 2_000;
 
 type Receipt = z.infer<typeof ShutdownReceipt>;
 
-export async function stopCommand(args: Args, home: string, io: TreeIo = systemTreeIo) {
+export async function stopCommand(
+  args: Args,
+  home: string,
+  io: TreeIo = systemTreeIo,
+  listing: ProcessListing = systemListing,
+) {
   validateArgs(args, [], 1);
   const connection = hostConnection(home);
   const bound = timeoutMs(args);
@@ -44,7 +52,9 @@ export async function stopCommand(args: Args, home: string, io: TreeIo = systemT
   const daemon = runningDaemon(home, io);
   let tree: TreeMember[] | undefined;
   try {
-    tree = daemon ? captureDescendants([daemon.pid], io) : [];
+    tree = daemon
+      ? captureDescendants([daemon.pid], io).map(({ pid, start }) => ({ pid, start }))
+      : [];
   } catch {
     tree = undefined;
   }
@@ -71,8 +81,17 @@ export async function stopCommand(args: Args, home: string, io: TreeIo = systemT
         { code: "failed", hint: "See what's wrong with ace doctor." },
       );
   }
-  // The daemon stops what it started; whatever outlived it is this home's to end now.
-  const leftovers = tree ? liveMembers(tree, io) : [];
+  // The daemon stops what it started; whatever outlived it is this home's to end now: what was
+  // below it, and what carries its run's marker (an orphan no tree reaches). Never this
+  // command or what runs it (an agent's shell may be running `ace stop`).
+  const spare = lineage(process.pid, listing);
+  const found = new Map<number, TreeMember>();
+  for (const member of tree ? liveMembers(tree, io) : []) found.set(member.pid, member);
+  for (const pid of daemon.owner ? markedProcesses(daemon.owner, listing) : []) {
+    const member = found.has(pid) ? undefined : memberOf(pid, io);
+    if (member) found.set(pid, member);
+  }
+  const leftovers = [...found.values()].filter((member) => !spare.has(member.pid));
   const survivors = leftovers.length ? await stopMembers(leftovers, 500, io) : [];
   if (survivors.length)
     throw new CliFailure(
@@ -99,7 +118,10 @@ export async function stopCommand(args: Args, home: string, io: TreeIo = systemT
 }
 
 /** The daemon this home's run marker names as running, if that process is alive. */
-function runningDaemon(home: string, io: TreeIo): TreeMember | undefined {
+function runningDaemon(
+  home: string,
+  io: TreeIo,
+): (TreeMember & { owner: string | undefined }) | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(join(home, RUN_MARKER_FILE), "utf8"));
@@ -109,8 +131,8 @@ function runningDaemon(home: string, io: TreeIo): TreeMember | undefined {
   const marker = parseRunMarker(parsed);
   if (marker?.state !== "running") return undefined;
   try {
-    const start = io.identity(marker.pid);
-    return start === undefined ? undefined : { pid: marker.pid, start };
+    const identity = io.identity(marker.pid);
+    return identity && { pid: marker.pid, start: identity.start, owner: marker.owner };
   } catch {
     return undefined;
   }

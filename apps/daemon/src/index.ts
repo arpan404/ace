@@ -1,11 +1,8 @@
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { namedFetch } from "@ace/client/ace-client";
-import {
-  observeProcessGroups,
-  ownedGroupLeaders,
-  stopOwnedGroups,
-} from "@ace/provider-kit/process";
-import { captureDescendants, stopMembers, type TreeMember } from "@ace/provider-kit/process-tree";
+import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
+import { stopMembers, type TreeMember } from "@ace/provider-kit/process-tree";
+import { ownProcesses } from "./owned-processes.ts";
 import { verifyWindowsRecovery } from "./process-recovery.ts";
 import { FORCED_GRACE_MS, forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
@@ -223,10 +220,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
     // logHomeBackup() logs its own outcome, including a failure to describe the backup.
     void logHomeBackup(prepared, log, new Date(now()), followUp.signal).catch(() => {});
   }
+  // This run's id in every process it starts (ACE_PROCESS_OWNER), recorded in its run marker.
+  const processOwner = randomUUID();
   // Under the lock: the last run's ending tells an expected restart from a crash.
   let run: DaemonRun | undefined;
   try {
-    run = beginRun(config.dataDir, process.pid, now);
+    run = beginRun(config.dataDir, process.pid, now, processOwner);
     const previous = previousRunRecord(run.previous);
     log.log(previous.level, previous.message, logFields([...previous.fields, ...build]));
   } catch (error) {
@@ -342,6 +341,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
     stopInventory();
     inventory.close();
   }, "process inventory");
+  // Before any service spawns, so every marked spawn of this run carries its id.
+  const owned = ownProcesses({ home: config.dataDir, run: processOwner, log });
+  resources.own(() => owned.close(), "owned processes");
   resources.own(
     watchStalls(log, daemonLogDirectory(config), options.stallTiming),
     "stall watchdog",
@@ -356,15 +358,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
     return reason instanceof DaemonStop ? reason.reason : { source: "abort" };
   };
   /*
-   * Every process below the groups the daemon owns, read before shutdown signals any of them.
-   * A provider's child that left its group (setsid, a detached helper) never gets a group
-   * signal, and once its leader exits it belongs to init, where no tree reaches it.
+   * Every process this run started, wherever it went (`owned-processes.ts`), read before
+   * shutdown signals any of them: a child that left its group never gets a group signal, and
+   * once its parent exits it belongs to init, where no tree reaches it.
    */
   let ownedTree: TreeMember[] | undefined;
   const captureOwnedTree = (): TreeMember[] => {
     if (ownedTree) return ownedTree;
     try {
-      ownedTree = captureDescendants(ownedGroupLeaders());
+      ownedTree = owned.capture();
     } catch (error) {
       ownedTree = [];
       log.log("warn", "The daemon's child process tree could not be read", logError(error));
@@ -776,6 +778,20 @@ export async function startDaemon(options: DaemonOptions = {}) {
     await startup.listening(server);
     lifetime.signal.throwIfAborted();
     initialized = true;
+    // What an earlier run of this home left running. Off the startup path: it reads every
+    // process's environment when that run didn't stop in order.
+    const previous = run?.previous;
+    const unclean =
+      previous?.kind === "crashed" || (previous?.kind === "stopped" && previous.overran);
+    const earlier = setTimeout(() => {
+      owned
+        .sweepEarlier(unclean && previous && "owner" in previous ? previous.owner : undefined)
+        .catch((error: unknown) =>
+          log.log("warn", "An earlier run's processes could not be swept", logError(error)),
+        );
+    }, options.earlierSweepMs ?? 1_000);
+    earlier.unref();
+    resources.own(() => clearTimeout(earlier), "earlier-run sweep");
     queueMicrotask(() => socketReady.resolve());
     return daemonHandle({
       server,

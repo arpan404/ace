@@ -70,13 +70,21 @@ export const quote = (s: string) =>
   '"' + s.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%") + '"';
 /** The inside of a word `quote` wrote, back to its value. */
 export const unquote = (s: string) => s.replace(/\\(.)/g, "$1").replaceAll("%%", "%");
+const unitBase = "ace-next";
+/**
+ * Whether a systemd unit name is a home's daemon service, as `planService` names it: the
+ * default home's `ace-next.service`, or another home's with its ten-character hash tag.
+ */
+export function isDaemonUnit(name: string): boolean {
+  return new RegExp(`^${unitBase}(?:-[0-9a-f]{10})?\\.service$`).test(name);
+}
 export function planService(input: ServiceConfig): ServicePlan {
   const c = ServiceConfig.parse(input);
   const logDir = join(c.dataDir, "logs");
   // The default home's names; any other home's carry a hash of its path (ADR 0185).
   const tag = c.serviceTag ?? homeServiceTag(c.dataDir, c.home, c.platform);
   const label = taggedName("dev.ace.next.daemon", ".", tag);
-  const unit = `${taggedName("ace-next", "-", tag)}.service`;
+  const unit = `${taggedName(unitBase, "-", tag)}.service`;
   const variables: [string, string][] = [
     ["ACE_HOME", c.dataDir],
     ["PATH", c.path],
