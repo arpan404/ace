@@ -1,7 +1,7 @@
 /**
  * The ace account backend the phone's `--spike-account` launch signs in to, served on the spike
- * fixture's own port: the session, the account's machines, Forget and Sign out, as
- * `packages/client/src/ace-account.ts` names them. It logs each Forget and Sign out it receives
+ * fixture's own port: the session, the account's machines, Forget, Sign out and Delete account, as
+ * `packages/client/src/ace-account.ts` names them. It logs each Forget, Sign out and Delete it receives
  * (`GET /account/requests`) so a UI test can check that a cancelled question sent nothing and a
  * confirmed one sent exactly one request; `POST /account/reset` starts a test afresh.
  */
@@ -15,7 +15,7 @@ export const spikeAccountMachineIds = {
   studio: "S".repeat(52),
 };
 
-type Logged = { kind: "forget"; hostId: string } | { kind: "signOut" };
+type Logged = { kind: "forget"; hostId: string } | { kind: "signOut" } | { kind: "delete" };
 interface Machine {
   hostId: string;
   name: string;
@@ -47,10 +47,19 @@ export class SpikeAccount {
       this.reset();
       return Response.json({});
     }
-    if (!path.startsWith("/v1/account/session") && !path.startsWith("/v1/machines")) return;
+    const owned =
+      path === "/v1/account" ||
+      path.startsWith("/v1/account/session") ||
+      path.startsWith("/v1/machines");
+    if (!owned) return;
     const authorized =
       this.signedIn && request.headers.get("authorization") === `Bearer ${spikeAccountToken}`;
     if (!authorized) return Response.json({}, { status: 401 });
+    if (path === "/v1/account" && request.method === "DELETE") {
+      this.log.push({ kind: "delete" });
+      this.signedIn = false;
+      return Response.json({ deleted: true });
+    }
     if (path === "/v1/account/session") {
       if (request.method === "DELETE") {
         this.log.push({ kind: "signOut" });
