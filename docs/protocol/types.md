@@ -48665,12 +48665,17 @@ Example:
 | --- | --- | --- | --- |
 | kind | yes | ["native","summary"] |  |
 | reason | no | string | {"maxLength":256} |
+| sessionIds | no | object | {"properties":{"from":{"type":"string","minLength":1,"maxLength":256},"to":{"type":"string","minLength":1,"maxLength":256}},"required":["from","to"]} |
 
 Example:
 
 ```json
 {
-  "kind": "native"
+  "kind": "native",
+  "sessionIds": {
+    "from": "example",
+    "to": "example"
+  }
 }
 ```
 

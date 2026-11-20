@@ -94,6 +94,13 @@ export const TransferSessionOutcome = z.object({
   kind: z.enum(["native", "summary"]),
   /** Why the summary was used, in words a person reads. */
   reason: z.string().max(256).optional(),
+  /**
+   * The provider's own session: its id on the sending machine, and the fresh id its copy took
+   * here, which the thread continues.
+   */
+  sessionIds: z
+    .object({ from: z.string().min(1).max(256), to: z.string().min(1).max(256) })
+    .optional(),
 });
 export type TransferSessionOutcome = z.infer<typeof TransferSessionOutcome>;
 

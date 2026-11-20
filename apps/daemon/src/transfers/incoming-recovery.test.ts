@@ -68,6 +68,7 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
     atomic: (run) => store.atomic(run),
     notice: () => {},
     now: () => 0,
+    newSessionId: () => "9d1e2f3a-4b5c-4d6e-8f70-81a2b3c4d5e6",
     sleep: async () => {},
     log: () => {},
   };

@@ -6057,8 +6057,8 @@
       "sha256": "b1ca2821aa93bc90f20ad1b3dc051df3330e2daee07de5f03c8b7e98bffd9a67"
     },
     "schema/TransferSessionOutcome.json": {
-      "bytes": 383,
-      "sha256": "0c92c3797d2923012df80b72236a73907ae6ef930194063f6cd79772c7f58ae9"
+      "bytes": 739,
+      "sha256": "a061eeaf431efc2aac92c2cd26353f34bc31d3070407bd8b47570492f47d8230"
     },
     "schema/TransferThread.json": {
       "bytes": 802,
@@ -6677,10 +6677,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1358804,
-      "sha256": "d9ed59fe4c30509ea52e5be8fac8141c94a9c5a42d47cd8302fd46e9c848b2f8"
+      "bytes": 1359051,
+      "sha256": "0b8c263a3425493550f0095adac51ec004fbe90c4d07edcfe960863245fcf7a2"
     }
   },
-  "input": "57d5bacbb2f3a3396b546cf5ce5b52c2b17ef3a889821ee7b656f7030d6eec86",
+  "input": "13cff734f45ec4b43f770ee576ba37e5536edc79ab18998ced5ff17daaa8ecc9",
   "version": 1
 }
