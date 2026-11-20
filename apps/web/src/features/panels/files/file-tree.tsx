@@ -15,7 +15,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
@@ -38,6 +37,7 @@ import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
 import { useFolderTree } from "./use-folder-tree.ts";
 import { useTreeCommands, type OpenHow, type TreeCommands } from "./tree-commands.ts";
 import { entryOf, onRowKey as onKeyFor, type RowKeyContext } from "./tree-row-keys.ts";
+import { useTreeDrag } from "./use-tree-drag.ts";
 import { useTreeSelection } from "./use-tree-selection.ts";
 import { siblingPositions, type TypeAhead } from "./tree-navigation.ts";
 import { TreeStatus } from "./tree-status.tsx";
@@ -109,7 +109,6 @@ export function FileTree(props: {
   );
   const rows = searching ? searchRows : tree.rows;
   const [focusKey, setFocusKey] = useState<string>();
-  const [dropTarget, setDropTarget] = useState<string>();
   const list = useRef<HTMLDivElement>(null);
   const navigable = useMemo(
     () => rows.filter((row) => row.kind !== "loading" && row.kind !== "error"),
@@ -228,19 +227,13 @@ export function FileTree(props: {
   const onRowKey = (event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number) =>
     onKeyFor(keys, event, row, index);
   const currentFolder = currentPath ? pathParts(currentPath).folder : "";
-  const drop = (event: DragEvent<HTMLElement>, folder: string) => {
-    if (!event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    setDropTarget(undefined);
-    const files = [...event.dataTransfer.files];
-    if (files.length) props.onUpload(files, folder);
-  };
-  const dragOver = (event: DragEvent<HTMLElement>, folder: string) => {
-    if (!event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-    setDropTarget(folder);
-  };
+  const drag = useTreeDrag({
+    covered: commands.covered,
+    onMove: commands.move,
+    onUpload: props.onUpload,
+    expand: (folder) => toggle(folder, true),
+    uploadFolder: currentFolder ? `${currentFolder}/` : "",
+  });
   // Opening a file keeps the tree where it was: the tab owns the scroll position, restored once
   // the rows are tall enough and saved when scrolling settles or the tab goes away.
   const initialScroll = useRef(props.scrollTop ?? 0);
@@ -256,15 +249,7 @@ export function FileTree(props: {
   }, []);
 
   return (
-    <div
-      className="flex h-full min-h-0 flex-col"
-      onDragOver={(event) => dragOver(event, currentFolder ? `${currentFolder}/` : "")}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-          setDropTarget(undefined);
-      }}
-      onDrop={(event) => drop(event, currentFolder ? `${currentFolder}/` : "")}
-    >
+    <div className="flex h-full min-h-0 flex-col" {...drag.area}>
       <FileTreeSearch
         query={query}
         onQuery={setQuery}
@@ -290,7 +275,7 @@ export function FileTree(props: {
           aria-multiselectable
           className={cn(
             "flex flex-col rounded-md",
-            dropTarget === "" && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
+            drag.dropTarget === "" && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
           )}
         >
           <LongRows
@@ -308,7 +293,8 @@ export function FileTree(props: {
                 searching={searching}
                 query={query}
                 online={online}
-                dropTarget={dropTarget}
+                dropTarget={drag.dropTarget}
+                drag={searching ? undefined : drag}
                 selected={selection.has(row.key)}
                 cut={cutKeys.has(row.key)}
                 place={positions.get(row.key)}
@@ -317,8 +303,6 @@ export function FileTree(props: {
                 onKeyDown={onRowKey}
                 onFocus={setFocusKey}
                 commands={commands}
-                onDragOver={dragOver}
-                onDrop={drop}
                 onHoverStart={hoverStart}
                 onHoverEnd={hoverEnd}
                 onRetry={tree.retry}

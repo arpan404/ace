@@ -1,13 +1,6 @@
 import { CaretRightIcon, FolderIcon, FolderOpenIcon } from "@ace/icons";
 import { cleanPath, fuzzyPositions, type FolderRow } from "@ace/ui-core";
-import {
-  useEffect,
-  useRef,
-  type CSSProperties,
-  type DragEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-} from "react";
+import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
@@ -15,6 +8,7 @@ import { FileRowMenu } from "./file-menu.tsx";
 import { FileRowItems } from "./file-row-items.tsx";
 import type { OpenHow, TreeCommands } from "./tree-commands.ts";
 import { entryOf } from "./tree-row-keys.ts";
+import type { TreeDrag } from "./use-tree-drag.ts";
 import { Highlighted } from "./highlighted-path.tsx";
 
 const rowClass =
@@ -52,8 +46,8 @@ export interface FileTreeRowViewProps {
   onKeyDown(event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number): void;
   onFocus(key: string): void;
   commands: TreeCommands;
-  onDragOver(event: DragEvent<HTMLElement>, folder: string): void;
-  onDrop(event: DragEvent<HTMLElement>, folder: string): void;
+  /** Dragging rows to move them, and dropping on them; unset while the tree is a search. */
+  drag: TreeDrag | undefined;
   onHoverStart(row: FolderRow): void;
   onHoverEnd(): void;
   onRetry(folder: string): void;
@@ -150,8 +144,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
           props.onActivate(row, "tab");
         }}
         onKeyDown={(event) => props.onKeyDown(event, row, index)}
-        onDragOver={folder ? (event) => props.onDragOver(event, row.key) : undefined}
-        onDrop={folder ? (event) => props.onDrop(event, row.key) : undefined}
+        {...props.drag?.row(row)}
         style={indent}
         className={cn(
           rowClass,

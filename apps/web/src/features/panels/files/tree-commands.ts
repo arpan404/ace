@@ -33,6 +33,8 @@ export interface TreeCommands {
   clip: TreeClip | undefined;
   cut(entries: readonly TreeEntry[]): void;
   copy(entries: readonly TreeEntry[]): void;
+  /** Move the paths into `folder` ("" is the root), keeping their names. */
+  move(paths: readonly string[], folder: string): void;
   /** Copy or move what was picked into `folder` ("" is the root). */
   paste(folder: string): void;
   copyPath(entries: readonly TreeEntry[], relative: boolean): void;
@@ -104,6 +106,7 @@ export function useTreeCommands(inputs: TreeCommandInputs): TreeCommands {
         .then((made) => made[0] && inputs.onMade?.(entry.folder ? folderKey(made[0]) : made[0]));
     },
     clip,
+    move: (paths, folder) => void mutations.move(paths, folder),
     cut: (entries) => board.set({ mode: "cut", entries }),
     copy: (entries) => board.set({ mode: "copy", entries }),
     paste: (folder) => {
