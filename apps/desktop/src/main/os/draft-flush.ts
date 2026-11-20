@@ -12,30 +12,34 @@ export interface DraftFlushPorts {
 }
 
 /**
- * The quit step that keeps the Deck's drafts (docs/editor/workbench.md 50, hot exit): the window
- * is asked to write every pending draft, and the quit waits until it says it has, or until the
- * bound. Quitting never asks the person while drafts can be kept.
+ * The quit's check that keeps the Deck's drafts (docs/editor/workbench.md 50, hot exit): the
+ * window is asked to write every pending draft, and the quit waits until it says whether they
+ * are kept, or until the bound. Quitting asks the person only when the window could not keep
+ * them (storage full or unavailable); the window asks, so the quit stops.
  */
 export function draftFlush(ports: DraftFlushPorts) {
-  let waiting: (() => void) | undefined;
+  let waiting: ((kept: boolean) => void) | undefined;
   return {
-    /** Resolves once the window flushed its drafts, it has none to ask, or the bound passed. */
-    run(): Promise<void> {
-      return new Promise<void>((resolve) => {
+    /**
+     * True once the window kept its drafts, has none to ask, or the bound passed (a hung window
+     * never holds a quit); false when it couldn't keep them and the quit should stop.
+     */
+    run(): Promise<boolean> {
+      return new Promise<boolean>((resolve) => {
         let cancel: (() => void) | undefined;
-        const done = () => {
+        const done = (kept: boolean) => {
           cancel?.();
           if (waiting === done) waiting = undefined;
-          resolve();
+          resolve(kept);
         };
         waiting = done;
-        cancel = ports.timers.set(ports.boundMs ?? draftFlushBoundMs, done);
-        if (!ports.ask()) done();
+        cancel = ports.timers.set(ports.boundMs ?? draftFlushBoundMs, () => done(true));
+        if (!ports.ask()) done(true);
       });
     },
-    /** The window wrote its drafts. */
-    flushed(): void {
-      waiting?.();
+    /** The window wrote its drafts: `kept` false when the device couldn't store them. */
+    flushed(kept: boolean): void {
+      waiting?.(kept);
     },
   };
 }

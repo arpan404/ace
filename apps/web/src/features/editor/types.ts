@@ -1,4 +1,4 @@
-import type { Applied, EditorDocument, Selection } from "@ace/editor";
+import type { Applied, EditorDocument, LineEdit, Selection, TextReplacement } from "@ace/editor";
 import type { LineMark } from "@ace/ui-core";
 import type { Ref } from "react";
 import type { EditorStatus, EditorStatusActions } from "./editor-status.ts";
@@ -18,14 +18,38 @@ export interface EditorHandle {
   statusActions(): EditorStatusActions;
 }
 
+/** One applied edit's changed lines, with the document's line count and version after it. */
+export interface EditBatch {
+  spans: readonly LineEdit[];
+  /** The ranges the transaction replaced, for carrying a stored position through it. */
+  replacements: readonly TextReplacement[];
+  lines: number;
+  /** The document's version once the spans were applied. */
+  version: number;
+}
+
+/** One mounted view of a shared document, as its owner and the document's other views reach it. */
+export interface DocumentView {
+  /** Runs `run` on the document the way this view's own edits run (the owner's reload or merge). */
+  edit(run: (doc: EditorDocument) => Applied | undefined): boolean;
+  /** Another view is about to change the document: read your rows while they still match it. */
+  before(): void;
+  /** Another view changed the document by `batch`: redraw as for an edit of your own. */
+  applied(batch: EditBatch): void;
+}
+
 /**
- * A document its caller owns and shares between views (the Deck's buffer registry). `attach`
- * lends the owner the mounted view's edit path, so text the owner lands (a reload, a merge)
- * updates the view's layout, colours and carets as the person's own edits do.
+ * A document its caller owns and shares between views (the Deck's buffer registry). Each mounted
+ * view joins through `attach`: text the owner lands (a reload, a merge) runs through a view's edit
+ * path, and every edit, whichever view or owner made it, reaches every other view, so two splits
+ * of one file keep their rows, colours and carets on the same text.
  */
 export interface SharedDocument {
   doc: EditorDocument;
-  attach(edit: (run: (doc: EditorDocument) => Applied | undefined) => boolean): () => void;
+  /** The mounted view joins; the returned function lets it go. */
+  attach(view: DocumentView): () => void;
+  /** The views mounted now, oldest first. */
+  views(): readonly DocumentView[];
 }
 
 export interface CodeEditorProps {

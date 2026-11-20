@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { Author } from "./attribution.ts";
 import { createBufferRegistry } from "./registry.ts";
 import { fakeDisk, inlineMerge, manualTime, memoryDrafts, ready, settle } from "./test-support.ts";
+import type { DocumentView } from "@/features/editor";
 import type { TextBuffer } from "./types.ts";
 
 beforeAll(ready);
@@ -261,19 +262,28 @@ describe("merging", () => {
   });
 });
 
+/** A mounted view that only lends its edit path. */
+const mounted = (edit: DocumentView["edit"]): DocumentView => ({
+  edit,
+  before: () => {},
+  applied: () => {},
+});
+
 describe("a mounted view", () => {
   it("hears a merge through its own edit path, as the changed lines, and stays unsaved", async () => {
     const context = await setup("a\nb\nc\nd\n");
     const view = context.buffer.view();
     if (!view) throw new Error("no view");
     const heard: { firstLine: number; removedLines: number; insertedLines: number }[] = [];
-    const detach = view.attach((run) => {
-      const applied = run(view.doc);
-      if (applied) heard.push(...applied.spans);
-      // The view's own edit callback, as CodeEditor's onEdit sends it.
-      context.buffer.edited();
-      return applied !== undefined;
-    });
+    const detach = view.attach(
+      mounted((run) => {
+        const applied = run(view.doc);
+        if (applied) heard.push(...applied.spans);
+        // The view's own edit callback, as CodeEditor's onEdit sends it.
+        context.buffer.edited();
+        return applied !== undefined;
+      }),
+    );
     replaceLine(context.buffer, 0, "mine");
     await agentWrites(context, "a\nb\nc\ntheirs\n");
 
@@ -291,11 +301,13 @@ describe("a mounted view", () => {
     const context = await setup("a\nb\n");
     const view = context.buffer.view();
     if (!view) throw new Error("no view");
-    view.attach((run) => {
-      const applied = run(view.doc);
-      context.buffer.edited();
-      return applied !== undefined;
-    });
+    view.attach(
+      mounted((run) => {
+        const applied = run(view.doc);
+        context.buffer.edited();
+        return applied !== undefined;
+      }),
+    );
 
     await agentWrites(context, "a\nB\n");
     await context.time.advance(400);

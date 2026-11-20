@@ -1,5 +1,7 @@
 import { EditorDocument } from "@ace/editor";
 import type { Author } from "./attribution.ts";
+import { DocumentViews } from "./document-views.ts";
+import { DraftSlot } from "./draft-slot.ts";
 import { opening } from "./opening.ts";
 import { reconcile, type ReconcileHost } from "./reconcile.ts";
 import { landLineChanges, utf8Length } from "./text-edits.ts";
@@ -11,7 +13,6 @@ import type {
   BufferStatus,
   BufferView,
   Clash,
-  DocumentEdit,
   DiskFile,
   DraftStore,
   FilePort,
@@ -52,7 +53,8 @@ const message = (error: unknown) =>
  * on the device and a clash with the disk. The registry decides when it lives and dies.
  */
 export class Buffer implements TextBuffer {
-  readonly key: BufferKey;
+  /** Changes only when the file is renamed in this window (`moveTo`). */
+  key: BufferKey;
   /** Leases holding it, and those of them on screen. */
   holders = 0;
   visible = 0;
@@ -64,9 +66,7 @@ export class Buffer implements TextBuffer {
 
   readonly #ctx: BufferContext;
   #doc: EditorDocument | undefined;
-  #view: BufferView | undefined;
-  /** Edit paths of the mounted views, newest last. */
-  readonly #editors: DocumentEdit[] = [];
+  #view: DocumentViews | undefined;
   /** The registry is landing text: the views' edit callbacks are not the person typing. */
   #landing = false;
   #status: BufferStatus = { kind: "loading" };
@@ -81,11 +81,14 @@ export class Buffer implements TextBuffer {
   #draftKept = true;
   #saving: Promise<SaveOutcome> | undefined;
   #cancelDraft: (() => void) | undefined;
-  /** Draft writes and deletes, in order, so a late write never outlives a save. */
-  #storage: Promise<void> = Promise.resolve();
+  /** Draft writes and deletes, started when asked and applied in order. */
+  readonly #slot = new DraftSlot((kept) => this.#keep(kept));
   #generation = 0;
   /** A disk change arrived while loading or saving: look again afterwards. */
   #recheck = false;
+  /** The disk look under way, and the change reported while it runs. */
+  #looking: Promise<void> | undefined;
+  #again: { file: DiskFile | undefined } | undefined;
   readonly #listeners = new Set<(event: BufferEvent) => void>();
 
   constructor(key: BufferKey, ctx: BufferContext) {
@@ -100,17 +103,9 @@ export class Buffer implements TextBuffer {
   view(): BufferView | undefined {
     const doc = this.#doc;
     if (!doc) return undefined;
-    if (this.#view?.doc !== doc)
-      this.#view = {
-        doc,
-        attach: (edit) => {
-          this.#editors.push(edit);
-          return () => {
-            const index = this.#editors.lastIndexOf(edit);
-            if (index >= 0) this.#editors.splice(index, 1);
-          };
-        },
-      };
+    // Each document keeps its own views: one still leaving an old document never counts as a
+    // view of the new one.
+    if (this.#view?.doc !== doc) this.#view = new DocumentViews(doc);
     return this.#view;
   }
 
@@ -139,6 +134,15 @@ export class Buffer implements TextBuffer {
     return this.#dirty || this.#clash !== undefined || this.#saving !== undefined;
   }
 
+  /**
+   * Its unsaved text is safe on the device: the newest draft write has committed, with no edit
+   * waiting for its pause and no write still out. True when nothing is unsaved.
+   */
+  keptOnDevice(): boolean {
+    if (!this.#dirty) return true;
+    return this.#draftKept && this.#cancelDraft === undefined && !this.#slot.pending;
+  }
+
   /** Hidden, saved and resident: the cap may free it. */
   evictable(): boolean {
     return this.visible === 0 && !this.keeps() && this.#doc !== undefined;
@@ -165,7 +169,7 @@ export class Buffer implements TextBuffer {
       this.#cancelDraft = undefined;
       return this.#persist();
     }
-    return this.#storage;
+    return this.#slot.settled();
   }
 
   async load(): Promise<void> {
@@ -194,8 +198,34 @@ export class Buffer implements TextBuffer {
     this.#settled();
   }
 
-  /** The watcher or a reconnect says the file may have changed; `file` when already read. */
+  /**
+   * The watcher or a reconnect says the file may have changed; `file` when already read. One look
+   * runs at a time: a change reported meanwhile is looked at once it ends (with the newest `file`,
+   * or a fresh read), so two quick writes always end on the later one.
+   */
   async diskChanged(file?: DiskFile): Promise<void> {
+    if (this.#looking) {
+      this.#again = { file };
+      return this.#looking;
+    }
+    let next: { file: DiskFile | undefined } | undefined = { file };
+    const looking = (async () => {
+      while (next) {
+        const { file: read } = next;
+        this.#again = undefined;
+        await this.#look(read);
+        next = this.#again;
+      }
+    })();
+    this.#looking = looking;
+    try {
+      await looking;
+    } finally {
+      if (this.#looking === looking) this.#looking = undefined;
+    }
+  }
+
+  async #look(file?: DiskFile): Promise<void> {
     if (this.#saving || this.#status.kind === "loading") {
       this.#recheck = true;
       return;
@@ -213,6 +243,20 @@ export class Buffer implements TextBuffer {
 
   save(): Promise<SaveOutcome> {
     return this.#write("save");
+  }
+
+  /**
+   * The file was renamed or moved in this window: the buffer is now `key`'s. Its draft is written
+   * under the new path before the old one goes (kept there if the new one can't be stored), and
+   * it looks at the disk at its new path.
+   */
+  moveTo(key: BufferKey): void {
+    const from = this.key;
+    this.key = { ...key };
+    void this.#persist().then(() => {
+      if (this.#draftKept) void this.#slot.write(() => this.#ctx.drafts.delete(from), true);
+    });
+    void this.diskChanged();
   }
 
   replace(): Promise<SaveOutcome> {
@@ -272,8 +316,8 @@ export class Buffer implements TextBuffer {
     this.#dirty = false;
     this.#clash = undefined;
     // The person chose to drop the edits: a draft store that can't be reached changes nothing.
-    this.#queue(() => this.#ctx.drafts.delete(this.key).catch(() => {}));
-    await this.#storage.catch(() => {});
+    const key = this.key;
+    await this.#slot.write(() => this.#ctx.drafts.delete(key), true);
     this.#free();
     await this.load();
   }
@@ -343,6 +387,16 @@ export class Buffer implements TextBuffer {
     const clash = this.#clash;
     const known = clash && "theirs" in clash ? clash.theirs.version : base.version;
     if (disk.version === known && clash?.kind !== "deleted") return;
+    // A new version of the same text (the file renamed, or written back as it was): nothing to
+    // merge, and a deletion seen meanwhile is over.
+    if (disk.text === base.text && (clash === undefined || clash.kind === "deleted")) {
+      this.#base = disk;
+      this.#clash = undefined;
+      this.#emit({ type: "state" });
+      // The draft names the version it is based on: a reload must not see a clash.
+      if (this.#dirty) void this.#persist();
+      return;
+    }
     if (!this.keeps()) {
       // A clean buffer reloads in place; typing that starts meanwhile turns it into a clash.
       if (await this.#land(disk.text, "reload")) {
@@ -384,7 +438,9 @@ export class Buffer implements TextBuffer {
         }
         this.#base = { text, version: result.version };
         this.#clash = undefined;
+        this.#conflictMine = "";
         if (doc.version() === at) this.#markClean();
+        else this.#unclean();
         this.#cancelDraft?.();
         this.#cancelDraft = undefined;
         void this.#persist();
@@ -411,18 +467,16 @@ export class Buffer implements TextBuffer {
       land: (text) => this.#land(text, "merge"),
       setClash: (clash, mine) => {
         this.#clash = clash;
-        if (mine !== undefined) this.#conflictMine = mine;
+        if (clash?.kind !== "conflict") this.#conflictMine = "";
+        else if (mine !== undefined) this.#conflictMine = mine;
         this.#emit({ type: "state" });
       },
       rebase: (theirs, text, newer, by) => {
         this.#base = theirs;
         this.#clash = newer && { kind: "changed", theirs: newer, by };
+        this.#conflictMine = "";
         if (text === theirs.text && !newer) this.#markClean();
-        else {
-          this.#cleanAt = Number.NaN;
-          this.#dirty = true;
-          this.#emit({ type: "state" });
-        }
+        else this.#unclean();
         void this.#persist();
       },
     };
@@ -437,7 +491,8 @@ export class Buffer implements TextBuffer {
     if (this.#doc !== doc || doc.version() !== at) return false;
     this.#landing = true;
     try {
-      landLineChanges(doc, changes, this.#editors.at(-1));
+      const through = this.#view?.doc === doc ? this.#view.views().at(-1) : undefined;
+      landLineChanges(doc, changes, through && ((run) => through.edit(run)));
     } finally {
       this.#landing = false;
     }
@@ -462,9 +517,15 @@ export class Buffer implements TextBuffer {
     this.#emit({ type: "state" });
   }
 
+  /** Lets go of the text: the document, the base it was read from and a conflict's copy. */
   #free(): void {
-    if (!this.#doc) return;
-    this.#doc.dispose();
+    this.#base = undefined;
+    this.#conflictMine = "";
+    const doc = this.#doc;
+    if (!doc) return;
+    // Views still showing it free it once the last of them lets go.
+    if (this.#view?.doc === doc) this.#view.release();
+    else doc.dispose();
     this.#doc = undefined;
     this.bytes = 0;
     this.#emit({ type: "document" });
@@ -477,6 +538,18 @@ export class Buffer implements TextBuffer {
     this.#emit({ type: "state" });
   }
 
+  /**
+   * The base moved under text typed since: the buffer is unsaved against it, even if an earlier
+   * look marked the text clean against the old base. A draft write marks it clean again when the
+   * text matches the new base after all.
+   */
+  #unclean(): void {
+    this.#cleanAt = Number.NaN;
+    if (this.#dirty) return;
+    this.#dirty = true;
+    this.#emit({ type: "state" });
+  }
+
   #settled(): void {
     this.#ctx.changed();
     if (!this.#recheck) return;
@@ -484,32 +557,27 @@ export class Buffer implements TextBuffer {
     void this.diskChanged();
   }
 
-  /** Makes the stored draft match the buffer: its text while unsaved, nothing once saved. */
+  /**
+   * Makes the stored draft match the buffer: its text while unsaved, nothing once saved. Decided
+   * and started now, so the write reflects the buffer as it is and nothing freed later skips it.
+   */
   #persist(): Promise<void> {
-    return this.#queue(async () => {
-      const doc = this.#doc;
-      const base = this.#base;
-      if (!doc || !base) return;
-      const text = doc.text();
-      this.bytes = utf8Length(text);
-      if (text === base.text && this.#clash === undefined) {
-        if (this.#dirty) this.#markClean();
-        await this.#ctx.drafts.delete(this.key).catch(() => {});
-        this.#keep(true);
-      } else if (this.keeps()) {
-        const draft = { text, original: base.text, version: base.version };
-        await this.#ctx.drafts.put(this.key, draft).then(
-          () => this.#keep(true),
-          () => this.#keep(false),
-        );
-      }
-      this.#ctx.changed();
-    });
-  }
-
-  #queue(task: () => Promise<void>): Promise<void> {
-    this.#storage = this.#storage.then(task, task);
-    return this.#storage;
+    const doc = this.#doc;
+    const base = this.#base;
+    if (!doc || !base) return this.#slot.settled();
+    const key = this.key;
+    const text = doc.text();
+    this.bytes = utf8Length(text);
+    let written: Promise<void>;
+    if (text === base.text && this.#clash === undefined) {
+      if (this.#dirty) this.#markClean();
+      written = this.#slot.write(() => this.#ctx.drafts.delete(key), true);
+    } else if (this.keeps()) {
+      const draft = { text, original: base.text, version: base.version };
+      written = this.#slot.write(() => this.#ctx.drafts.put(key, draft));
+    } else written = this.#slot.settled();
+    this.#ctx.changed();
+    return written;
   }
 
   #keep(kept: boolean): void {

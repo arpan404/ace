@@ -21,6 +21,7 @@ export function fakeDisk(files: Record<string, string> = {}, root = "m1/t1") {
   };
   for (const [path, text] of Object.entries(files)) put(path, text);
   let offline = false;
+  let writeGate: Promise<void> | undefined;
   const port: FilePort = {
     async read(key) {
       if (offline) throw new Error("The daemon is offline.");
@@ -28,6 +29,7 @@ export function fakeDisk(files: Record<string, string> = {}, root = "m1/t1") {
       return file ? { kind: "text", ...file } : ({ kind: "missing" } satisfies DiskFile);
     },
     async write(key, text, expected) {
+      if (writeGate) await writeGate;
       if (offline) throw new Error("The daemon is offline.");
       const file = stored.get(id(key));
       if ((file?.version ?? null) !== expected) return { kind: "clash" };
@@ -47,24 +49,50 @@ export function fakeDisk(files: Record<string, string> = {}, root = "m1/t1") {
     setOffline(value: boolean) {
       offline = value;
     },
+    /** Writes wait until the returned function runs (a slow save). */
+    holdWrites(): () => void {
+      const gate = Promise.withResolvers<void>();
+      writeGate = gate.promise;
+      return () => {
+        writeGate = undefined;
+        gate.resolve();
+      };
+    },
   };
 }
 
-/** Device storage: pass the same one to a second registry to simulate a reload. */
+/**
+ * Device storage: pass the same one to a second registry to simulate a reload. Like IndexedDB,
+ * writes and deletes take effect in the order they are called, also while `hold` delays them.
+ */
 export function memoryDrafts() {
   const stored = new Map<string, { key: BufferKey; draft: Draft }>();
   let full = false;
+  let held: (() => void)[] | undefined;
+  /** Applies `change` now, or in call order once released. */
+  const run = (change: () => void) =>
+    new Promise<void>((resolve, reject) => {
+      const apply = () => {
+        try {
+          change();
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      };
+      if (held) held.push(apply);
+      else apply();
+    });
   const store: DraftStore = {
     async get(key) {
       return stored.get(id(key))?.draft;
     },
-    async put(key, draft) {
-      if (full) throw new Error("QuotaExceededError");
-      stored.set(id(key), { key, draft: { ...draft } });
-    },
-    async delete(key) {
-      stored.delete(id(key));
-    },
+    put: (key, draft) =>
+      run(() => {
+        if (full) throw new Error("QuotaExceededError");
+        stored.set(id(key), { key, draft: { ...draft } });
+      }),
+    delete: (key) => run(() => void stored.delete(id(key))),
     async list(root) {
       return [...stored.values()]
         .filter((entry) => entry.key.root === root)
@@ -75,6 +103,17 @@ export function memoryDrafts() {
     store,
     setFull(value: boolean) {
       full = value;
+    },
+    /** The stored draft's text right now, without waiting. */
+    peek: (key: BufferKey) => stored.get(id(key))?.draft.text,
+    /** Writes wait (in order) until the returned function runs: a slow device. */
+    hold(): () => void {
+      held = [];
+      return () => {
+        const waiting = held ?? [];
+        held = undefined;
+        for (const apply of waiting) apply();
+      };
     },
   };
 }

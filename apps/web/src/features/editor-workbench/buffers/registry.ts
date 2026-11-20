@@ -43,13 +43,22 @@ export interface BufferRegistry {
   get(key: BufferKey): TextBuffer | undefined;
   /** The watcher saw the file change (or `file` was read already): reload, or raise a clash. */
   diskChanged(key: BufferKey, file?: DiskFile): void;
+  /**
+   * Files of a checkout were renamed or moved in this window: `moved` maps an old path to its new
+   * one (undefined: untouched). Unsaved buffers move with their drafts, so the edits follow the
+   * tabs; saved ones stay and read the file at the new path when it opens.
+   */
+  rename(root: string, moved: (path: string) => string | undefined): void;
   /** After a reconnect every open buffer of the checkout checks its version (spec 54). */
   recheck(root: string): void;
   /** Writes every pending draft now (pagehide, quit). */
   flushDrafts(): Promise<void>;
   /** Unsaved buffers, of one checkout or all. */
   unsaved(root?: string): TextBuffer[];
-  /** Unsaved buffers whose draft could not be kept on the device: quitting must ask. */
+  /**
+   * Unsaved buffers whose newest text is not yet kept on the device: a draft write failed, is
+   * still out, or waits for typing to pause. Leaving now could lose it, so leaving must ask.
+   */
   unkept(): TextBuffer[];
   /** Paths of a checkout with a stored draft, for reopening files the layout forgot. */
   draftPaths(root: string): Promise<string[]>;
@@ -156,6 +165,18 @@ export function createBufferRegistry(options: BufferRegistryOptions): BufferRegi
     diskChanged(key, file) {
       void buffers.get(id(key))?.diskChanged(file);
     },
+    rename(root, moved) {
+      for (const buffer of of(root)) {
+        const path = moved(buffer.key.path);
+        if (path === undefined || !buffer.keeps()) continue;
+        const to = { root, path };
+        // Something already holds the new path: the edits stay where they are, still unsaved.
+        if (buffers.has(id(to))) continue;
+        buffers.delete(id(buffer.key));
+        buffers.set(id(to), buffer);
+        buffer.moveTo(to);
+      }
+    },
     recheck(root) {
       for (const buffer of of(root)) void buffer.diskChanged();
     },
@@ -163,11 +184,7 @@ export function createBufferRegistry(options: BufferRegistryOptions): BufferRegi
       await Promise.all([...buffers.values()].map((buffer) => buffer.flush()));
     },
     unsaved: (root) => of(root).filter((buffer) => buffer.snapshot().dirty),
-    unkept: () =>
-      of().filter((buffer) => {
-        const snapshot = buffer.snapshot();
-        return snapshot.dirty && !snapshot.draftKept;
-      }),
+    unkept: () => of().filter((buffer) => !buffer.keptOnDevice()),
     async draftPaths(root) {
       const drafts = await options.drafts.list(root);
       return drafts.map((entry) => entry.path).toSorted();

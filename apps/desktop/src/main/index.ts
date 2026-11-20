@@ -317,13 +317,20 @@ function main(target: DaemonTarget, crashDumps: string): void {
     timers,
   });
   const quitGate = new QuitGate({
+    // Drafts the window couldn't keep stop the quit: the window asks Save, Don't save or Cancel.
+    confirm: () => drafts.run(),
+    cancelled: () => {
+      relaunch = undefined;
+      stopDaemonOnQuit = false;
+    },
     shutDown: async () => {
       globalShortcut.unregisterAll();
       // Before the daemon stops or the app goes: no client should keep showing this app's update,
       // and the browser backend tells the daemon it is going. Both at once, then the daemon.
       await shutDownBeforeQuit({
         beforeDaemon: [
-          { name: "drafts kept", run: () => drafts.run() },
+          // An update's restart skips the question; a quit asked it already.
+          { name: "drafts kept", run: async () => void (await drafts.run()) },
           { name: "update report withdrawn", run: () => updateReport.withdraw() },
           { name: "browser backend stopped", run: () => background.stop() },
         ],
@@ -749,7 +756,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
       reload,
-      draftsFlushed: () => drafts.flushed(),
+      draftsFlushed: (kept) => drafts.flushed(kept),
       showLogs,
       reportDiagnostic: rendererReports({ log: logger("renderer"), now: Date.now }),
       desktopChecks: () =>

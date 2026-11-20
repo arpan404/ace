@@ -36,9 +36,7 @@ export function upgradeWorkspace(workspace: ScopeWorkspace): ScopeWorkspace {
     ? migratedInto(deckLayoutOf(workspace), migration.layout)
     : migration.layout;
   const drafts = [...draftsOf(layout), ...migration.drafts];
-  const data: EditorLayout = drafts.length
-    ? { ...layout, [draftsField]: drafts }
-    : withoutDrafts(layout);
+  const data = withDrafts(withoutDrafts(layout), drafts);
   const pinned = workspace.tabs.some((tab) => migration.replaced.includes(tab.key) && tab.pinned);
   let next = migration.replaced.reduce((each, key) => closeTab(each, key), workspace);
   next = openTab(
@@ -77,6 +75,14 @@ export function draftsOf(layout: EditorLayout): MigratedDraft[] {
       ? [{ path, text, original, version }]
       : [];
   });
+}
+
+/**
+ * `layout` carrying `drafts` (none: as it is). Every layout the Deck stores while its drafts
+ * wait for the draft store carries them, so a change made meanwhile never drops them.
+ */
+export function withDrafts(layout: EditorLayout, drafts: readonly MigratedDraft[]): EditorLayout {
+  return drafts.length ? { ...layout, [draftsField]: drafts } : layout;
 }
 
 /** The layout once its drafts are in the draft store. */

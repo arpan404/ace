@@ -25,9 +25,10 @@ function clock() {
   };
 }
 
-const settled = async (promise: Promise<void>) => {
-  let done = false;
-  void promise.then(() => (done = true));
+/** What the quit heard by now: whether the drafts are kept, or nothing yet. */
+const settled = async (promise: Promise<boolean>) => {
+  let done: boolean | undefined;
+  void promise.then((kept) => (done = kept));
   await Promise.resolve();
   await Promise.resolve();
   return done;
@@ -41,9 +42,16 @@ describe("keeping drafts on quit", () => {
     const quitting = flush.run();
     expect(asked).toBe(1);
     time.advance(500);
-    expect(await settled(quitting)).toBe(false);
-    flush.flushed();
+    expect(await settled(quitting)).toBeUndefined();
+    flush.flushed(true);
     expect(await settled(quitting)).toBe(true);
+  });
+
+  it("hears when the window could not keep its drafts, so the quit stops to ask", async () => {
+    const flush = draftFlush({ ask: () => true, timers: clock().timers });
+    const quitting = flush.run();
+    flush.flushed(false);
+    expect(await settled(quitting)).toBe(false);
   });
 
   it("goes ahead after the bound when the window never answers", async () => {
@@ -51,7 +59,7 @@ describe("keeping drafts on quit", () => {
     const flush = draftFlush({ ask: () => true, timers: time.timers, boundMs: 2_000 });
     const quitting = flush.run();
     time.advance(1_999);
-    expect(await settled(quitting)).toBe(false);
+    expect(await settled(quitting)).toBeUndefined();
     time.advance(1);
     expect(await settled(quitting)).toBe(true);
   });

@@ -4,7 +4,13 @@
  */
 
 export { CodeEditor } from "./editor.tsx";
-export type { CodeEditorProps, EditorHandle, SharedDocument } from "./types.ts";
+export type {
+  CodeEditorProps,
+  DocumentView,
+  EditBatch,
+  EditorHandle,
+  SharedDocument,
+} from "./types.ts";
 export { ensureEditorReady } from "./wasm.ts";
 export type { LineHighlighter, Token } from "./highlighter.ts";
 export { EditorStatusLine } from "./status-line.tsx";

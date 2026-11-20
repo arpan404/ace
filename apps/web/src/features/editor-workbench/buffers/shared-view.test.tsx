@@ -1,6 +1,6 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, type Ref } from "react";
+import { createRef, useSyncExternalStore, type Ref } from "react";
 import { beforeAll, beforeEach, expect, test } from "vitest";
 import { CodeEditor, type EditorHandle } from "@/features/editor";
 import { createBufferRegistry } from "./registry.ts";
@@ -83,6 +83,30 @@ test("two editors of one buffer show one text: typing in one shows in the other"
   expect(buffer.snapshot().dirty).toBe(true);
 });
 
+test("typing in one split redraws the other split's rows of the same file", async () => {
+  const { buffer } = await setup("one\ntwo\n");
+  const left = createRef<EditorHandle>();
+  const right = createRef<EditorHandle>();
+  render(
+    <>
+      <View buffer={buffer} label="Left" ref={left} />
+      <View buffer={buffer} label="Right" ref={right} />
+    </>,
+  );
+  await waitFor(() => expect(left.current && right.current).toBeTruthy());
+  const rightRows = screen.getByRole("region", { name: "Right" });
+  expect(within(rightRows).getByText("one")).toBeTruthy();
+
+  act(() => left.current?.focus());
+  act(() =>
+    left.current?.setSelections([{ anchor: { line: 0, column: 3 }, head: { line: 0, column: 3 } }]),
+  );
+  await userEvent.keyboard("!{Enter}three");
+
+  expect(await within(rightRows).findByText("one!")).toBeTruthy();
+  expect(within(rightRows).getByText("three")).toBeTruthy();
+});
+
 test("a merge the registry lands shows in the mounted editor, and unmounting keeps the text", async () => {
   const { disk, registry, buffer } = await setup("a\nb\nc\nd\n");
   const handle = createRef<EditorHandle>();
@@ -105,4 +129,56 @@ test("a merge the registry lands shows in the mounted editor, and unmounting kee
   expect(await screen.findByText("theirs")).toBeTruthy();
   unmount();
   expect(buffer.document()?.text()).toBe("a!\nb\nc\ntheirs\n");
+});
+
+/** A view that follows the buffer to a new document, as the Deck's editor does. */
+function LiveView({
+  ref,
+  buffer,
+  label,
+}: {
+  buffer: TextBuffer;
+  label: string;
+  ref: Ref<EditorHandle>;
+}) {
+  const view = useSyncExternalStore(
+    (changed) => buffer.subscribe(changed),
+    () => buffer.view(),
+  );
+  if (!view) return null;
+  return (
+    <CodeEditor
+      ref={ref}
+      document={view}
+      text={view.doc.text()}
+      path={file.path}
+      label={label}
+      statusLine={false}
+      highlightDelay={60_000}
+      commitAfter={50}
+      onEdit={() => buffer.edited()}
+    />
+  );
+}
+
+test("a document replaced mid typing run is freed only once its editor lets go", async () => {
+  const { buffer } = await setup("one\n");
+  const handle = createRef<EditorHandle>();
+  render(<LiveView buffer={buffer} label="Editor" ref={handle} />);
+  await waitFor(() => expect(handle.current).toBeTruthy());
+  act(() => handle.current?.focus());
+  act(() =>
+    handle.current?.setSelections([
+      { anchor: { line: 0, column: 3 }, head: { line: 0, column: 3 } },
+    ]),
+  );
+  // The typing run's commit is due shortly; the saved file is read again first, which replaces
+  // the document under the mounted editor.
+  await userEvent.keyboard("!");
+  expect(await buffer.save()).toMatchObject({ kind: "saved" });
+  // A render, effect or due commit that reached the freed document would throw and fail the run.
+  await act(() => buffer.reload());
+  await act(() => new Promise((resolve) => setTimeout(resolve, 120)));
+
+  expect(handle.current?.text()).toBe("one!\n");
 });

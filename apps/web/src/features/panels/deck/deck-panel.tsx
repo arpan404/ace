@@ -76,7 +76,7 @@ import { DeckExplorer, type ExplorerOpen } from "./deck-explorer.tsx";
 import { DeckTabMenuItems } from "./deck-tab-menu.tsx";
 import { deckKeys, type DeckCommand } from "./deck-keys.ts";
 import { groupIds, openPaths } from "./deck-layout.ts";
-import { draftsOf, withoutDrafts } from "./deck-migration.ts";
+import { draftsOf, withDrafts, withoutDrafts } from "./deck-migration.ts";
 import { deckRegistry, importDrafts } from "./deck-registry.ts";
 import { RecentEditors, stepRecent } from "./recent-editors.tsx";
 import { useDeckSession } from "./use-deck-session.ts";
@@ -124,7 +124,10 @@ export function DeckPanel(props: TabViewProps) {
   const change = (next: EditorLayout) => {
     if (next === latest.current) return;
     latest.current = next;
-    actions.update(props.tab.key, { data: storedLayout(next, unsavedOf(host)) });
+    // Drafts still on their way to the draft store ride along until it has them.
+    actions.update(props.tab.key, {
+      data: withDrafts(storedLayout(next, unsavedOf(host)), carried),
+    });
   };
   const host: DeckActionsHost = {
     buffers,
