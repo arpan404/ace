@@ -4,6 +4,7 @@
 pub mod activity;
 pub mod autonomy;
 pub mod brain;
+pub mod card;
 pub mod checkpoint;
 pub mod compaction;
 pub mod context;

@@ -317,6 +317,8 @@ impl Transcript {
             | Known::WorkerDetached { .. }
             | Known::DecisionMade(_)
             | Known::Arrived { .. }
+            | Known::CardShown(_)
+            | Known::CardAction { .. }
             | Known::TaskParked { .. } => {}
         }
         if self.open_reply().is_none() {
