@@ -28,13 +28,13 @@ const spade = fileURLToPath(new URL("../../../spade/target/debug/spade", import.
 const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url));
 
 /**
- * The CLI in its own process on Bun, the daemon's runtime: this suite runs on Node only for the
- * Worker's harness.
+ * The CLI in its own process on Node, as release builds run it: Node strips its TypeScript, so a
+ * module Node can't load fails here (this suite runs on Node).
  */
 function invoke(home: string, args: string[], env: Record<string, string>) {
   return new Promise<{ code: number; stdout: string; stderr: string }>((done) => {
     execFile(
-      "bun",
+      process.execPath,
       [cliPath, ...args],
       { env: { ...process.env, ...env, ACE_HOME: home }, maxBuffer: 16 * 1024 * 1024 },
       (error, stdout, stderr) =>
