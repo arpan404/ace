@@ -54,6 +54,11 @@ pub struct Fleet {
     pub lose_commit_answer: AtomicBool,
     /// Answers this many commits and statuses, once delivered, with a 500 instead of the reply.
     pub garble_answers: AtomicU64,
+    /// Delivers every contract call, then says the connection was lost.
+    pub lose_call_answers: AtomicBool,
+    /// Leaves this field out of each listed contract's output schema, as an older version of the
+    /// package listed it.
+    pub unlisted_output_field: Mutex<Option<String>>,
     /// Every request body carried, as sent.
     pub carried: Mutex<Vec<String>>,
     /// Each machine's ace home, by host id, for restarts.
@@ -165,6 +170,22 @@ impl Remote for Link {
                 && self.fleet.lose_commit_answer.swap(false, Ordering::SeqCst)
             {
                 return Err(RemoteError::Disconnected);
+            }
+            if request["op"] == "contract_call"
+                && self.fleet.lose_call_answers.load(Ordering::SeqCst)
+            {
+                return Err(RemoteError::Disconnected);
+            }
+            let mut answer = answer;
+            if request["op"] == "contracts"
+                && let Some(field) = lock(&self.fleet.unlisted_output_field).clone()
+                && let Some(listed) = answer.1["contracts"].as_array_mut()
+            {
+                for contract in listed {
+                    if let Some(fields) = contract["output"]["properties"].as_object_mut() {
+                        fields.remove(&field);
+                    }
+                }
             }
             if matches!(request["step"].as_str(), Some("commit" | "status"))
                 && self
