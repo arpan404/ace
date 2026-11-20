@@ -135,8 +135,24 @@ loopback requests whose top-level page is not itself on a loopback host:
   frame's top-level URL isn't loopback;
 - phone: a `WKContentRuleList` blocks loopback URLs `unless-top-url` is loopback.
 
-Top-level navigations to loopback are allowed, so an OAuth flow that leaves for a provider and
-redirects back to `localhost` still works.
+Neither rule can judge a top-level navigation: its own URL is the top-level URL, so a public page
+could still submit a form to a service on the machine. Each app's navigation policy therefore
+asks one pure function, `loopbackNavigationAllowed` in `@ace/ui-core`, about every top-level
+navigation to loopback (the desktop app from its navigation and redirect events, the phone from
+`WKNavigationDelegate`'s navigation-action policy, which sees each redirect again with its method):
+
+- it goes ahead when the document that started it is itself on a loopback host;
+- it goes ahead when the person started it in ace: a typed address, a tab the app opened, "Open
+  on this phone";
+- it goes ahead when it is a GET: a link, a script setting `location`, or a redirect chain whose
+  request to loopback is a GET, so an OAuth provider's 302 or 303 back to `localhost` works;
+- otherwise it is refused: a non-GET started by any other document, such as a public page's form
+  post or a 307 or 308 redirect that keeps its POST.
+
+A GET from a public page can still reach a loopback page, as it can on the machine itself; a
+service that changes state on a GET is open to that anywhere. The phone's WebKit policy can't
+call into the script while it decides, so Swift keeps a copy of the rule, tested against the same
+table as the function (`loopback-navigation-cases.json`).
 
 ### Spikes
 

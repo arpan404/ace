@@ -30,6 +30,7 @@
     "./machine-loopback": "./src/machine-loopback.ts",
     "./browser-device-settings": "./src/browser-device-settings.ts",
     "./device-loopback": "./src/device-loopback.ts",
+    "./loopback-navigation": "./src/loopback-navigation.ts",
     "./interaction-measurement": "./src/interaction-measurement.ts",
     "./editor-url": "./src/editor-url.ts",
     "./editor-commands": "./src/editor-commands.ts",
