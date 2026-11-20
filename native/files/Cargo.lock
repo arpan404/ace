@@ -14,6 +14,7 @@ dependencies = [
  "files-watch",
  "files-wire",
  "ignore",
+ "libc",
  "regex",
  "tempfile",
  "thiserror",

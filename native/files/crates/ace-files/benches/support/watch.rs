@@ -226,6 +226,14 @@ pub fn burst(
         "MiB",
         format!("index holds {} paths", thousands(index.total as usize)),
     );
+    if let Some(usage) = crate::host::process_usage(wire.pid()) {
+        report.metric(
+            "peak RSS so far",
+            usage.peak_rss as f64 / (1024.0 * 1024.0),
+            "MiB",
+            "VmHWM in /proc/<ace-files>/status",
+        );
+    }
     Ok(())
 }
 
