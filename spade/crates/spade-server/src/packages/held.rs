@@ -23,6 +23,9 @@ pub struct Held {
     pub manifest: Manifest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_zone: Option<String>,
+    /// What proves a market version (`proof`): it is applied only on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof: Option<serde_json::Value>,
 }
 
 impl Held {
@@ -32,6 +35,7 @@ impl Held {
             package: step.package.clone(),
             manifest: step.manifest.clone(),
             time_zone: step.time_zone.clone(),
+            proof: step.proof.clone(),
         }
     }
 
@@ -41,6 +45,7 @@ impl Held {
             package: self.package,
             transaction: self.transaction,
             time_zone: self.time_zone,
+            proof: self.proof,
         }
     }
 }
@@ -115,6 +120,10 @@ pub fn apply_if_still(engine: &Arc<Engine>, bot: &str) {
             }
         }
         Err(PackageError::Busy(_)) => {}
+        // Nothing proves it now: it stays for the person, who sees it held, and isn't applied.
+        Err(error @ PackageError::Unproven(_)) => {
+            tracing::warn!(%error, %bot, "a held package update waits for the person");
+        }
         Err(error @ (PackageError::Failed(_) | PackageError::NotFound)) => {
             tracing::warn!(%error, %bot, "a held package update waits for the next still moment");
         }

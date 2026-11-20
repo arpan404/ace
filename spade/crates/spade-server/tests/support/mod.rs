@@ -768,6 +768,8 @@ impl Spade {
         if let Some(brains) = options.brains.clone() {
             engine.set_brains(brains);
         }
+        // A test's market signs the packages it installs; its key is what this Spade trusts.
+        market::trust(&engine);
         if let Some(before) = &options.before_work {
             before(&engine);
         }

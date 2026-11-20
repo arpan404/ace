@@ -48,7 +48,7 @@ pub fn shipped() -> Vec<MarketKey> {
 
 /// What the daemon passes for a market package: the signed version manifest as the market
 /// served it, and `bot.json` exactly as the archive has it.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct Envelope {
     pub signed: Value,
     pub bot_json: String,

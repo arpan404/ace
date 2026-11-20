@@ -336,6 +336,7 @@ mod tests {
                 bound: None,
                 acts_in: None,
                 launch,
+                raised: None,
             })]
         };
         let allowed = Some((Verdict::Allow, String::new()));

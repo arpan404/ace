@@ -46,6 +46,7 @@ fn packaged(w: &World, on: bool) {
         transaction: None,
         previous: None,
         withdrawn: None,
+        withdrawn_hashes: Vec::new(),
         pending: None,
         installing: false,
     };
@@ -329,6 +330,7 @@ fn two_hosts(w: &World, first: &str, second: &str) {
         transaction: None,
         previous: None,
         withdrawn: None,
+        withdrawn_hashes: Vec::new(),
         pending: None,
         installing: false,
     };
