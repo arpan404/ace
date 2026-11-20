@@ -83,17 +83,20 @@ test("a machine too old to change a link's scopes says to update it or link agai
   expect(scopeChangeRefusal("forbidden", "Old laptop")).toBeUndefined();
 });
 
+const allowWords = (shown: Parameters<typeof allowProjectsWords>[0]["offer"], refused?: string) =>
+  allowProjectsWords({ offer: shown, machine: "Studio", sender: "MacBook", refused });
+
 test("the Allow projects step says in one sentence what stands between the two machines", () => {
-  const words = (offer: Parameters<typeof allowProjectsWords>[0]["offer"], refused?: string) =>
-    allowProjectsWords({ offer, machine: "Studio", sender: "MacBook", refused });
-  expect(words("allow")).toBe("Studio doesn't take projects from MacBook yet.");
-  expect(words("settings")).toBe(
+  expect(allowWords("allow")).toBe("Studio doesn't take projects from MacBook yet.");
+  expect(allowWords("settings")).toBe(
     "Studio doesn't take projects from MacBook yet; allow them on Studio in Settings › Fleet.",
   );
-  expect(words("viewOnly")).toBe(
+  expect(allowWords("viewOnly")).toBe(
     "MacBook's link can only view on Studio, so it can't take projects; unlink and link them again in Settings › Fleet.",
   );
-  expect(words("held")).toBe("Studio takes projects from MacBook now.");
+  expect(allowWords("held")).toBe("Studio takes projects from MacBook now.");
   // An older ace there can't parse the change: update it, whatever the offer was.
-  expect(words("allow", "invalid_message")).toBe(scopeChangeRefusal("invalid_message", "Studio"));
+  expect(allowWords("allow", "invalid_message")).toBe(
+    scopeChangeRefusal("invalid_message", "Studio"),
+  );
 });

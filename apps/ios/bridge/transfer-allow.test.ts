@@ -71,7 +71,7 @@ test("choosing a machine that doesn't take projects says why and allows them the
   // Read again, the laptop takes work from here now.
   await until(
     () =>
-      (app.machines()?.machines as { hostId: string; reason: string | null }[]).find(
+      (app.machines()?.machines as { hostId: string; reason: string | null }[] | undefined)?.find(
         (each) => each.hostId === "laptop",
       )?.reason === null,
     "the laptop allowed",
