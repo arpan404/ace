@@ -13,7 +13,7 @@ import type { Engine } from "../engine/index.ts";
 import { savedView, type ChildLedger, type ChildRow } from "./child-ledger.ts";
 import type { ChildResults } from "./child-results.ts";
 import { questionFacts, questionFate } from "./child-question.ts";
-import { abandonedView, lostLine, silentAbandonedView } from "./child-views.ts";
+import { abandonedView, lostLine, silentAbandonedView, unconfirmableView } from "./child-views.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { parentGone } from "./parent-gone.ts";
 
@@ -104,6 +104,29 @@ function lostSettledRequest(row: ChildRow, name: string): InteractionRequest {
 }
 
 /**
+ * What the parent's approval asks about a child stopped here whose machine never confirmed it,
+ * then was unpaired: nothing can confirm it now, and its work there may still be running.
+ */
+function lostUnconfirmedRequest(row: ChildRow, name: string): InteractionRequest {
+  return {
+    kind: "approval",
+    title: `Lost contact when unpaired: ${name} never confirmed ${row.role} stopped, and is no longer paired, so its work there may still be running.`,
+    description: `Pair ${name} again to keep sending the cancel until it confirms, or stop tracking ${row.role} here.`,
+    options: [
+      {
+        id: STOP_TRACKING,
+        label: `Stop tracking; its work on ${name} may still be running`,
+        kind: "cancel",
+      },
+    ],
+  };
+}
+
+/** What the parent asks about a settled child whose machine is no longer paired. */
+const settledRequest = (row: ChildRow, name: string) =>
+  row.stopped_unconfirmed === 1 ? lostUnconfirmedRequest(row, name) : lostSettledRequest(row, name);
+
+/**
  * Children whose pairing is gone (ADR 0099). Nothing here can read, message or stop them, yet
  * their work there may still be running, so they never settle on their own: each stays lost,
  * its parent unresolved and asking the person, until the pairing returns (tracking resumes) or
@@ -147,14 +170,15 @@ export class LostChildren {
     this.ask(row, name);
   }
   /**
-   * A settled child's pairing is gone before a check after its 24 h mark: the re-check can't
-   * watch it, so its parent asks the person. It stays settled with its result; called on every
-   * poll, so an approval that closed opens again.
+   * A settled child's pairing is gone before a check after its 24 h mark, or while its stop is
+   * unconfirmed: the re-check can't watch it and no cancel can reach it, so its parent asks the
+   * person. It stays settled with its result, still unconfirmed if it was; called on every poll,
+   * so an approval that closed opens again.
    */
   keepSettled(row: ChildRow): void {
     const name = this.deps.label(row.machine);
     if (row.lost_at === null) this.deps.ledger.markLost(row.id, this.deps.now());
-    this.ask(row, name, lostSettledRequest(row, name));
+    this.ask(row, name, settledRequest(row, name));
     this.deps.emit([row.id]);
   }
   /** A settled lost child's pairing is back: the approval closes and the re-check reads it. */
@@ -249,11 +273,16 @@ export class LostChildren {
     const { resolution } = command.payload;
     if (resolution.kind !== "approval" || resolution.optionId !== STOP_TRACKING)
       return { commandId: command.id, ok: false, error: "invalid_resolution" };
-    // A settled child the person stops watching keeps its result; nothing new is owed.
-    if (row.settled === 1 && row.lost_at !== null && row.settled_at !== null) {
+    // A settled child the person stops watching keeps its result; nothing new is owed. One
+    // whose stop was never confirmed stays unconfirmed, and its cancel stops for good.
+    if (
+      row.settled === 1 &&
+      row.lost_at !== null &&
+      (row.settled_at !== null || row.stopped_unconfirmed === 1)
+    ) {
       this.deps.store.atomic(() => {
         this.close(row, { state: "resolved", resolution, resolvedBy: command.deviceId });
-        this.deps.ledger.endWatch(row.id);
+        this.endWatch(row);
       });
       this.deps.emit([row.id]);
       return { commandId: command.id, ok: true, threadId: row.parent_thread };
@@ -290,6 +319,22 @@ export class LostChildren {
     });
     this.deps.emit([row.id]);
     return { commandId: command.id, ok: true, threadId: row.parent_thread };
+  }
+  /**
+   * A settled lost child is no longer watched; a stop never confirmed can't be any more, and
+   * says so.
+   */
+  endWatch(row: ChildRow): void {
+    if (row.stopped_unconfirmed === 1) {
+      const view = unconfirmableView(
+        row,
+        this.deps.label(row.machine),
+        "unpaired",
+        this.deps.now(),
+      );
+      this.deps.ledger.markStopUnconfirmable(row.id, JSON.stringify(view));
+    }
+    this.deps.ledger.endWatch(row.id);
   }
   /** Whether the parent's approval about the child is open. */
   private pending(row: ChildRow): boolean {

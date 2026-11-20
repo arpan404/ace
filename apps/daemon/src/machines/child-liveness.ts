@@ -45,6 +45,11 @@ export interface ChildLivenessDeps {
    * stop can never be confirmed. False when the pairings can't be read.
    */
   unpaired(row: ChildRow): boolean;
+  /**
+   * A child stopped here without confirmation whose pairing is gone: it stays unconfirmed, and
+   * its parent asks the person (LostChildren.keepSettled) until it is paired again or let go.
+   */
+  unpairedStop(row: ChildRow): void;
   label(machine: string): string;
   host?(machine: string): HostId | undefined;
   results: ChildResults;
@@ -152,10 +157,11 @@ export class ChildLiveness {
     }
     // Settled here unconfirmed: the cancel keeps going out, across reconnects and restarts (the
     // ledger keeps when it last went), until its machine reports the child ended. An offline
-    // machine is retried; one no longer paired never can confirm, so ace stops asking.
+    // machine is retried. One no longer paired can't confirm: it stays unconfirmed and its
+    // parent asks the person, never reading done for it, until it is paired again or let go.
     for (const row of this.deps.ledger.unconfirmedStops(CONFIRM_PER_TICK)) {
       if (this.deps.unpaired(row)) {
-        this.unconfirmable(row, "unpaired");
+        this.deps.unpairedStop(row);
         continue;
       }
       const due = (row.stop_last_at ?? 0) + this.confirmRetryMs;
@@ -180,8 +186,8 @@ export class ChildLiveness {
     });
   }
   /**
-   * A child stopped here whose stop can never be confirmed: its cancel stops going out, and it
-   * reads cancelled, saying why, instead of cancelling.
+   * A child stopped here whose machine no longer has it, so its stop can never be confirmed: its
+   * cancel stops going out, and it reads cancelled, saying why, instead of cancelling.
    */
   private unconfirmable(row: ChildRow, why: Unconfirmable): void {
     if (this.closed) return;
