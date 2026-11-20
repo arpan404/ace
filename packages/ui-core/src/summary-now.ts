@@ -113,6 +113,15 @@ function formatSpanWords(from: number, to: number): string {
   return `${hourWords} ${rest} ${rest === 1 ? "minute" : "minutes"}`;
 }
 
+/**
+ * How long work has run, as Now says it: "17m" to see, "working for 17 minutes" to hear. Apart
+ * from Now, so a clock can say it again each tick without the rest. Pure.
+ */
+export function workingSpan(since: number, now: number): { span: string; speak: string } {
+  const to = Math.max(since, now);
+  return { span: formatSpan(since, to), speak: `working for ${formatSpanWords(since, to)}` };
+}
+
 const lowerFirst = (sentence: string): string =>
   sentence.length ? `${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}` : sentence;
 
@@ -189,14 +198,14 @@ export function nowLine(facts: NowFacts): NowLine {
     const since = turn && turn.endedAt === undefined ? turn.startedAt : undefined;
     if (since === undefined)
       return { say: "Working", sub: work(tally), tone: "plain", lead: "Working", speak: "working" };
-    const span = formatSpan(since, Math.max(since, facts.now));
+    const { span, speak } = workingSpan(since, facts.now);
     return {
       say: `Working · ${span}`,
       sub: work(tally),
       tone: "plain",
       lead: "Working",
       span,
-      speak: `working for ${formatSpanWords(since, Math.max(since, facts.now))}`,
+      speak,
     };
   }
   // The thread's own status may say done while a delegated grandchild still works, or before a

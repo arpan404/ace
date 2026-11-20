@@ -24,7 +24,16 @@ export interface SummaryAgentsFacts {
   name(threadId: string, agent: Agent): string;
   /** An item of any thread the tree shows, for a running tool's step and a spawn's outcome. */
   item(threadId: string, id: string): Item | undefined;
+  /** The person opened the "N done" fold: only then do its rows cross. */
+  showDone: boolean;
 }
+
+/**
+ * At most this many rows cross, the groups in order (waiting, working, failed, then the open
+ * fold): each row is a few hundred bytes, and the whole Summary has to fit one 32 KiB frame.
+ * The rest are counted, and the agent tree shows them.
+ */
+export const summaryRowBudget = 30;
 
 type Tone = "plain" | "needs-you" | "failed";
 
@@ -49,6 +58,8 @@ export interface SummaryAgentRow {
   under: string | null;
   /** The way on for a request: "Answer" or "Review". */
   action: string | null;
+  /** The request that way on answers: the one this row shows. */
+  requestId: string | null;
   startedAt: number;
   endedAt: number | null;
   /** Its own work runs now: its row counts its running time. */
@@ -62,6 +73,8 @@ export interface SummaryAgentsView {
   done: SummaryAgentRow[];
   /** "12 done", the fold over the finished rows; null without any. */
   doneWords: string | null;
+  /** Rows past the budget, the folded ones aside: the agent tree has them. */
+  hidden: number;
   /** Finished out of every agent listed, for the header's quiet progress line. */
   progress: { done: number; total: number; words: string };
 }
@@ -120,6 +133,7 @@ function rowOf(entry: SummaryAgentEntry, facts: SummaryAgentsFacts, preview: Pre
         ? "Review"
         : "Answer"
       : null,
+    requestId: asking ? (entry.request?.id ?? null) : null,
     startedAt: node.agent.createdAt,
     endedAt: node.agent.endedAt ?? null,
     ticking: entry.group === "working" && isActivelyRunning(doer) && !words.unsure,
@@ -133,15 +147,25 @@ export function summaryAgentsView(
 ): SummaryAgentsView | null {
   const agents = summaryAgents(facts.threadId, facts.forest, facts.works);
   if (!agents) return null;
-  const rows = (list: readonly SummaryAgentEntry[]) =>
-    list.map((entry) => rowOf(entry, facts, preview));
-  const done = rows(agents.done);
+  let room = summaryRowBudget;
+  let hidden = 0;
+  // Each group takes what room is left, in order; only rows that cross are worded.
+  const rows = (list: readonly SummaryAgentEntry[]) => {
+    const shown = list.slice(0, Math.max(0, room));
+    room -= shown.length;
+    hidden += list.length - shown.length;
+    return shown.map((entry) => rowOf(entry, facts, preview));
+  };
+  const asks = rows(agents.asks);
+  const working = rows(agents.working);
+  const failed = rows(agents.failed);
   return {
-    asks: rows(agents.asks),
-    working: rows(agents.working),
-    failed: rows(agents.failed),
-    done,
-    doneWords: done.length ? `${done.length} done` : null,
+    asks,
+    working,
+    failed,
+    done: facts.showDone ? rows(agents.done) : [],
+    doneWords: agents.done.length ? `${agents.done.length} done` : null,
+    hidden,
     progress: {
       done: agents.finished,
       total: agents.total,

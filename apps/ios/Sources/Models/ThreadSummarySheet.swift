@@ -25,6 +25,14 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
         let model: String
         /// Subagents finished out of all of them, once there are any.
         let progress: Progress?
+        /// The span counts on: the clock patch (`SummaryClock`) says it from here, so the whole
+        /// Summary isn't sent again every second.
+        let ticking: Bool
+    }
+    /// Now's running time while it counts (`thread.summary.clock`), sent apart from the sheet.
+    struct Clock: Codable, Sendable, Equatable {
+        let span: String
+        let speak: String
     }
     struct Progress: Codable, Sendable, Equatable {
         let done: Int
@@ -57,6 +65,8 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
         let under: String?
         /// "Answer" or "Review" for a request.
         let action: String?
+        /// The request that action answers: the one its row shows.
+        let requestId: String?
         let startedAt: Double
         let endedAt: Double?
         /// Its own work runs now: the row counts its running time.
@@ -71,6 +81,8 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
         let done: [Agent]
         /// "12 done", over the folded finished rows.
         let doneWords: String?
+        /// Rows past the bridge's budget, the folded ones aside: the agent tree has them.
+        let hidden: Int
         let progress: Progress
     }
     struct Line: Codable, Sendable, Equatable, Identifiable {

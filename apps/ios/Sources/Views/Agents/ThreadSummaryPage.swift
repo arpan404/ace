@@ -39,10 +39,12 @@ struct ThreadSummaryPage: View {
     @ViewBuilder private func content(_ summary: ThreadSummarySheet) -> some View {
         // The asking agent's row below offers its way on, so Now doesn't repeat it.
         let asksListed = !(summary.agents?.asks.isEmpty ?? true)
-        SummaryNowHeader(now: summary.now, open: asksListed ? nil : summary.now.open.map { target in { open(target) } })
+        SummaryNowHeader(now: summary.now, clock: summary.now.ticking ? model.sheets.summaryClock : nil,
+                         open: asksListed ? nil : summary.now.open.map { target in { open(target) } })
         if !summary.catchUp.isEmpty { catchUp(summary.catchUp) }
         if let agents = summary.agents {
-            SummaryAgentsSection(agents: agents, open: open, openTree: openAgents)
+            SummaryAgentsSection(agents: agents, open: open, openTree: openAgents,
+                                 foldDone: { model.sheet(["kind": "summary.done", "shown": $0]) })
         }
         if summary.hasResults { results(summary) }
         if let plan = summary.plan { SummaryPlanSection(plan: plan) }
@@ -164,7 +166,9 @@ struct ThreadSummaryPage: View {
     /// lives here, else the thread it lives in.
     private func open(_ agent: ThreadSummarySheet.Agent) {
         if let child = agent.childThreadId { openThread?(child) }
-        else if agent.threadId == thread.id, let openAgent { openAgent(SubagentRoute(agentId: agent.agentId, title: agent.name)) }
+        else if agent.threadId == thread.id, let openAgent {
+            openAgent(SubagentRoute(agentId: agent.agentId, title: agent.name, requestId: agent.requestId))
+        }
         else if agent.threadId != thread.id { openThread?(agent.threadId) }
     }
 
@@ -190,6 +194,8 @@ struct ThreadSummaryPage: View {
 /// line; Open goes to the agent asking, when that isn't the thread's own main agent.
 private struct SummaryNowHeader: View {
     let now: ThreadSummarySheet.Now
+    /// The running time since the sheet was sent, while it counts.
+    let clock: ThreadSummarySheet.Clock?
     let open: (() -> Void)?
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
@@ -197,7 +203,7 @@ private struct SummaryNowHeader: View {
                 .aceFont(AceDesign.TextRole.header)
                 .foregroundStyle(ThreadSummaryPage.ink(now.tone, rest: AceDesign.Ink.primary))
                 .monospacedDigit()
-                .accessibilityLabel("Thread status: \(now.speak)")
+                .accessibilityLabel("Thread status: \(clock?.speak ?? now.speak)")
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("summary.now")
             if !now.sub.isEmpty {
@@ -218,7 +224,7 @@ private struct SummaryNowHeader: View {
     }
 
     private var headline: Text {
-        guard let span = now.span else { return Text(now.say) }
+        guard let span = clock?.span ?? now.span else { return Text(now.say) }
         return Text(now.lead) + Text(" · \(span)").foregroundStyle(AceDesign.Ink.muted)
     }
 }

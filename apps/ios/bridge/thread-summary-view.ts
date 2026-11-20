@@ -60,6 +60,8 @@ export interface SummaryFacts {
   catchUp: ThreadCatchUpResponse | undefined;
   plans: readonly SummaryPlan[];
   showClosed: boolean;
+  /** The person opened the agents' "N done" fold. */
+  showDone: boolean;
   now: number;
   /** An agent's name as its tree row says it, in the thread it lives in. */
   name(threadId: string, agent: Agent): string;
@@ -89,6 +91,8 @@ export interface SummaryView {
     model: string;
     /** Subagents finished out of all of them, once there are any. */
     progress: SummaryAgentsView["progress"] | null;
+    /** The span counts on: `thread.summary.clock` says it from here, tick by tick. */
+    ticking: boolean;
   };
   catchUp: { text: string; tone: Tone }[];
   /** Every agent but the main one, by what it needs; null while the main agent works alone. */
@@ -157,6 +161,7 @@ function nowView(
       : null,
     ...mainModel(facts.forest, preview),
     progress: agents?.progress ?? null,
+    ticking: line.span !== undefined && line.lead === "Working",
   };
 }
 
@@ -227,6 +232,7 @@ export function summaryView(facts: SummaryFacts, preview: Preview): SummaryView 
       works: facts.works,
       name: facts.name,
       item: facts.threadItem,
+      showDone: facts.showDone,
     },
     preview,
   );

@@ -13,6 +13,8 @@ struct SummaryAgentsSection: View {
     let open: (ThreadSummarySheet.Agent) -> Void
     /// Opens the whole agent tree; nil where it isn't one tap away.
     let openTree: (() -> Void)?
+    /// Tells the bridge the fold opened or closed: its rows cross only while it is open.
+    let foldDone: (Bool) -> Void
     @State private var showDone = false
 
     var body: some View {
@@ -25,7 +27,8 @@ struct SummaryAgentsSection: View {
                 ForEach(agents.done) { agent in SummaryAgentRow(agent: agent, open: { open(agent) }) }
             }
             if let openTree {
-                Button("Agent tree", action: openTree)
+                // Rows past the bridge's budget are counted here; the tree has them all.
+                Button(agents.hidden > 0 ? "\(agents.hidden) more in the agent tree" : "Agent tree", action: openTree)
                     .buttonStyle(.rowActionOpening)
                     .padding(.horizontal, AceDesign.Space.margin)
                     .accessibilityIdentifier("summary.agents")
@@ -38,6 +41,7 @@ struct SummaryAgentsSection: View {
     private func doneFold(_ words: String) -> some View {
         Button {
             withAnimation(.default) { showDone.toggle() }
+            foldDone(showDone)
         } label: {
             QuietSectionRow {
                 RowStatusIcon(kind: "done", tone: "muted")

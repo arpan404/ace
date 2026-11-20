@@ -10,6 +10,7 @@ import {
   planProgress,
   planShown,
   planTodos,
+  workingSpan,
   type ThreadWork,
 } from "@ace/ui-core";
 import { touchesTree, type PatchSink, type Preview } from "./agents.ts";
@@ -36,6 +37,8 @@ export interface SummaryDeps {
 }
 
 const key = "thread:summary";
+/** Now's running time, put on its own each tick (`clear(key)` takes it too). */
+const clockKey = "thread:summary.clock";
 /** At most one read of the newest turn this often while the thread's events stream in. */
 const turnEveryMs = 2_000;
 
@@ -86,12 +89,16 @@ export class ThreadSummary {
   #turnAgain = false;
   #catchUp: { since: number; reply: ThreadCatchUpResponse } | undefined;
   #showClosed = false;
+  #showDone = false;
   #tick: (() => void) | undefined;
   #closed = false;
   /** The spare room last tried at: one try per rise, cleared once room runs out. */
   #triedRoom: number | undefined;
   /** Plan items and runs shown, whose updates re-read the plan. */
   #planKeys = new Set<string>();
+  /** Items the agent rows read (a running tool, a spawn's report), by thread: their updates
+   * change a row's words without touching the tree, so they put the Summary again. */
+  #rowItems = new Map<string, Set<string>>();
   #forest: ReturnType<typeof agentForest>;
 
   constructor(
@@ -118,7 +125,13 @@ export class ThreadSummary {
         this.#forest = this.#join();
       }
       if (keys === "all" || keys.has("cursor")) this.#readTurn();
-      if (keys === "all" || reshapes(keys) || keys.has("order") || this.#plansMoved(keys))
+      if (
+        keys === "all" ||
+        reshapes(keys) ||
+        keys.has("order") ||
+        this.#plansMoved(keys) ||
+        this.#rowsRead(threadId, keys)
+      )
         this.#put();
     };
     this.#stops.push(store.observe(tap));
@@ -132,6 +145,12 @@ export class ThreadSummary {
   /** Clear: Since you looked goes, until the thread moves on past this cursor. */
   dismiss(): void {
     if (this.#catchUp) this.#deps.cleared.set(this.#threadId, this.#catchUp.since);
+    this.#put();
+  }
+
+  /** Open or close the agents' "N done" fold: its rows cross only while it is open. */
+  doneRows(shown: boolean): void {
+    this.#showDone = shown;
     this.#put();
   }
 
@@ -156,6 +175,14 @@ export class ThreadSummary {
 
   #plansMoved(keys: ReadonlySet<string>): boolean {
     for (const changed of this.#planKeys) if (keys.has(changed)) return true;
+    return false;
+  }
+
+  /** Whether `keys` change an item a row of `threadId` reads. */
+  #rowsRead(threadId: string, keys: ReadonlySet<string> | "all"): boolean {
+    const read = this.#rowItems.get(threadId);
+    if (!read?.size || keys === "all") return false;
+    for (const changed of keys) if (read.has(changed)) return true;
     return false;
   }
 
@@ -256,7 +283,11 @@ export class ThreadSummary {
       if (this.#held.has(id) || id === this.#threadId) continue;
       const lease = this.#reads.thread(id, { optional: true });
       const stop = lease.store.observe((keys) => {
-        if (!reshapes(keys) || this.#held.get(id)?.lease !== lease) return;
+        if (this.#held.get(id)?.lease !== lease) return;
+        if (keys !== "all" && !reshapes(keys)) {
+          if (this.#rowsRead(id, keys)) this.#put();
+          return;
+        }
         this.#works.set(id, workOf(lease.store));
         this.#forest = this.#join();
         this.#put();
@@ -312,6 +343,7 @@ export class ThreadSummary {
         catchUpFacts(caught.reply).length > 0
           ? caught.reply
           : undefined;
+      const rowItems = new Map<string, Set<string>>();
       const summary = summaryView(
         {
           threadId: this.#threadId,
@@ -322,15 +354,22 @@ export class ThreadSummary {
           catchUp: shown,
           plans: this.#plans(),
           showClosed: this.#showClosed,
+          showDone: this.#showDone,
           now,
           name: (threadId, agent) => this.#name(threadId, agent),
           agent: (id) => this.#store.agent(id),
           item: (id) => this.#store.item(id),
-          threadItem: (threadId, id) => this.#storeOf(threadId)?.item(id),
+          threadItem: (threadId, id) => {
+            const read = rowItems.get(threadId);
+            if (read) read.add(`item:${id}`);
+            else rowItems.set(threadId, new Set([`item:${id}`]));
+            return this.#storeOf(threadId)?.item(id);
+          },
         },
         this.#preview,
       );
-      this.#schedule(summary.now.span !== null && summary.now.lead === "Working", now);
+      this.#rowItems = rowItems;
+      this.#schedule(summary.now.ticking);
       return {
         type: "thread.summary",
         threadId: this.#threadId,
@@ -340,17 +379,28 @@ export class ThreadSummary {
     });
   }
 
-  /** While Now counts the turn's time, say it again when the shown time next changes. */
-  #schedule(counting: boolean, now: number): void {
+  /**
+   * While Now counts, put its clock alone when the shown time next changes: the Summary itself,
+   * with its agents, stays put. The sheet says when it counts (`now.ticking`), so a clock left
+   * from before is ignored once it stops.
+   */
+  #schedule(counting: boolean): void {
     this.#tick?.();
     this.#tick = undefined;
     const since = this.#turn?.startedAt;
     if (!counting || since === undefined) return;
-    const elapsed = Math.max(0, now - since);
+    const elapsed = Math.max(0, this.#deps.now() - since);
     const delay = elapsed < 60_000 ? 1_000 - (elapsed % 1_000) : 60_000 - (elapsed % 60_000);
     this.#tick = this.#deps.scheduler.set(delay + 20, () => {
       this.#tick = undefined;
-      this.#put();
+      if (this.#closed) return;
+      this.#sink.put(clockKey, () => ({
+        type: "thread.summary.clock",
+        threadId: this.#threadId,
+        epoch: this.#epoch,
+        ...workingSpan(since, this.#deps.now()),
+      }));
+      this.#schedule(true);
     });
   }
 }
