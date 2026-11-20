@@ -385,6 +385,8 @@ enum BridgePatch: Decodable, Sendable {
     case machineAppUpdate(MachineAppUpdateInfo)
     /// A project's mark, sent once per project (`bridge/project-looks.ts`); nil clears it.
     case projectLook(String, ProjectLookPatch?)
+    /// Each project's logical ids (`bridge/project-looks.ts`), so one project across machines is one filter row.
+    case projectsLogical([String: [String]])
     /// The mark this runtime's machine chose, its own id and the paths it serves
     /// (`bridge/machine-identity.ts`).
     case machineIdentity(MachineIdentityPatch)
@@ -520,6 +522,7 @@ enum BridgePatch: Decodable, Sendable {
         case "project.look":
             // A look that doesn't read draws the initials rather than failing the frame.
             self = .projectLook(try box.decode(String.self, forKey: .id), try? box.decodeIfPresent(ProjectLookPatch.self, forKey: .look))
+        case "projects.logical": self = .projectsLogical(try box.decode([String: [String]].self, forKey: .ids))
         case "machine.identity": self = .machineIdentity(try MachineIdentityPatch(from: decoder))
         case "machine.code": self = .machineCode(try box.decodeIfPresent(String.self, forKey: .asking),
                                                     lockedUntil: try box.decodeIfPresent(Double.self, forKey: .lockedUntil))

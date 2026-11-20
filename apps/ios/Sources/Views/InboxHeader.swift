@@ -37,21 +37,20 @@ struct InboxFilters: View {
     @Binding var machine: String
     @Binding var project: String
 
-    private struct Choice: Hashable { let id: String; let name: String }
-    private var projects: [Choice] {
-        var seen = Set<String>()
-        return inbox.sessions.filter { machine.isEmpty || $0.hostId == machine }.flatMap { $0.client.inbox.values }.compactMap { row in
-            // Each chat's hidden project is not a project to filter by (ADR 0099).
-            guard let id = row.workspaceId, row.chat != true, seen.insert(id).inserted else { return nil }
-            return Choice(id: id, name: row.project)
-        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
+    private var projects: [ProjectFilterRow] { inbox.projectRows(machine: machine) }
 
     /// The scope in words, under the title: "All projects", "ace", "Studio · ace".
     var subtitle: String {
-        let projectName = projects.first { $0.id == project }?.name ?? "All projects"
+        let projectName = ProjectFilterGroups.row(for: project, in: projects)?.name ?? "All projects"
         guard inbox.showsMachineNames else { return projectName }
         return "\(machine.isEmpty ? "All machines" : inbox.name(machine)) · \(projectName)"
+    }
+
+    /// Its threads, and the machines it is on while more than one is paired.
+    private func detail(_ row: ProjectFilterRow) -> String {
+        let threads = row.threads == 1 ? "1 thread" : "\(row.threads) threads"
+        guard inbox.showsMachineNames else { return threads }
+        return "\(threads) · \(row.machines.map(inbox.name).joined(separator: ", "))"
     }
 
     var body: some View {
@@ -61,9 +60,13 @@ struct InboxFilters: View {
                 ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
             }
         }
-        Picker("Project", selection: $project) {
+        // The stored choice may be an older bare id: the row it names reads as chosen.
+        Picker("Project", selection: Binding(get: { ProjectFilterGroups.row(for: project, in: projects)?.id ?? project },
+                                             set: { project = $0 })) {
             Text("All projects").tag("")
-            ForEach(projects, id: \.id) { Text($0.name).tag($0.id) }
+            ForEach(projects) { row in
+                VStack(alignment: .leading) { Text(row.name); Text(detail(row)) }.tag(row.id)
+            }
         }
         sortPicker
     }

@@ -67,7 +67,12 @@ struct InboxStack<Destination: View, Side: View>: View {
         guard let row = inbox.row(key) ?? inbox.pending(key).flatMap({ inbox.row(InboxKey(machineId: key.machineId, id: $0.threadId)) }) else {
             return false
         }
-        return row.workspaceId == project
+        guard let workspace = row.workspaceId else { return false }
+        // One project across machines: each machine's checkout of it (ADR 0189).
+        if let group = ProjectFilterGroups.row(for: project, in: inbox.projectRows(machine: machine)) {
+            return group.checkouts.contains(ProjectFilterGroups.key(key.machineId, workspace))
+        }
+        return workspace == project
     }
 
     /// The scope takes all of a machine's threads: no project chip, and its tab or every machine.
