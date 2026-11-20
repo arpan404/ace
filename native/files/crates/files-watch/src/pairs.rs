@@ -11,11 +11,12 @@
 //! out has no new name, so the wait is bounded and a lone half is then reported alone.
 //!
 //! FSEvents keeps a path's flags for a while, so removing a name that was just renamed into place
-//! arrives as one record flagged both renamed and removed. That record is a removal, not the old
-//! half of another rename: when one of its events says the path was removed and none finds it on
-//! disk, it is reported at once, with every later event of the same record. A real partner that
-//! comes after it is then reported at once too, because its own partner has been seen, so an old
-//! path still reaches the caller no later than the new name it moved to.
+//! arrives as one record flagged both renamed and removed. For a file, that record is a removal,
+//! not the old half of another rename: when one of its events says the file was removed and none
+//! finds it on disk, it is reported at once, with every later event of the same record. A real
+//! partner that comes after it is then reported at once too, because its own partner has been
+//! seen, so an old path still reaches the caller no later than the new name it moved to. A folder's
+//! record waits for its partner as before: its old path alone would empty a whole subtree.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -138,13 +139,18 @@ impl Pairs {
     }
 }
 
-/// Whether a record's notices say its path was removed and is gone: a removal of a name that was
+/// Whether a record's notices say a file was removed and is gone: a removal of a name that was
 /// renamed lately, which has no partner to wait for.
+///
+/// A folder's record keeps waiting even then: it may still be the old half of a move, and its old
+/// path reported alone would take the whole subtree out of every index until the new name came.
+/// FSEvents flags a folder's record as one, which is what the removal's notice carries.
 fn is_a_removal(notices: &[Notice]) -> bool {
     notices.iter().all(|notice| notice.present.is_none())
-        && notices
-            .iter()
-            .any(|notice| notice.change.kind == ChangeKind::Deleted && !notice.rename)
+        && notices.iter().any(|notice| {
+            notice.change.kind == ChangeKind::Deleted && !notice.rename && !notice.change.directory
+        })
+        && !notices.iter().any(|notice| notice.change.directory)
 }
 
 /// Whether a record's notices name an entry that is there now: the new half of a rename.
@@ -172,8 +178,15 @@ mod tests {
         }
     }
 
-    /// The event a record's removed flag becomes, for a path that is gone.
+    /// The event a record's removed flag becomes, for a file that is gone.
     fn removed(path: &str) -> Notice {
+        let mut removed = removed_folder(path);
+        removed.change.directory = false;
+        removed
+    }
+
+    /// The same for a folder: FSEvents flags the record as one.
+    fn removed_folder(path: &str) -> Notice {
         Notice {
             rename: false,
             ..notice(path, ChangeKind::Deleted, false)
@@ -314,10 +327,11 @@ mod tests {
         // would, until the removed event shows there is no rename to complete.
         let mut pairs = Pairs::default();
         let now = Instant::now();
-        let created = Notice {
+        let mut created = Notice {
             rename: false,
             ..notice("brief", ChangeKind::Created, false)
         };
+        created.change.directory = false;
         assert!(pairs.take(70, vec![created], now).is_empty());
         assert_eq!(
             paths(&pairs.take(70, vec![removed("brief")], now)),
@@ -357,5 +371,40 @@ mod tests {
         let new = vec![notice("new", ChangeKind::Created, true)];
         assert_eq!(paths(&pairs.take(91, new, now)), vec!["new"]);
         assert!(pairs.next_due().is_none());
+    }
+
+    #[test]
+    fn a_folder_renamed_after_a_removal_still_waits_for_its_new_name() {
+        // A folder's record can carry a removed flag from earlier history. Reported alone, its
+        // old path would take the whole subtree out of quick open, and nothing would be found
+        // under either name until the new one arrived.
+        let mut pairs = Pairs::default();
+        let now = Instant::now();
+        assert!(pairs.take(100, vec![removed_folder("src")], now).is_empty());
+        assert!(
+            pairs
+                .take(100, vec![notice("src", ChangeKind::Deleted, false)], now)
+                .is_empty()
+        );
+        let late = now + Duration::from_millis(300);
+        let new = vec![notice("Src", ChangeKind::Created, true)];
+        assert_eq!(
+            paths(&pairs.take(101, new, late)),
+            vec!["Src", "src", "src"]
+        );
+        assert!(pairs.next_due().is_none());
+    }
+
+    #[test]
+    fn a_folder_renamed_out_after_a_removal_is_reported_after_the_wait() {
+        let mut pairs = Pairs::default();
+        let now = Instant::now();
+        assert!(
+            pairs
+                .take(110, vec![removed_folder("gone")], now)
+                .is_empty()
+        );
+        assert_eq!(pairs.next_due(), Some(now + WAIT));
+        assert_eq!(paths(&pairs.release_due(now + WAIT)), vec!["gone"]);
     }
 }
