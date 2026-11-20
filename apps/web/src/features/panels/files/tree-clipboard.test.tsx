@@ -60,7 +60,8 @@ test("a folder paste that fails partway leaves no partial folder, and a retry ma
   const download = client.downloadFile.bind(client);
   let failing = true;
   client.downloadFile = (request) => {
-    if (failing && request.path.endsWith("cursor.ts")) throw new Error("The connection dropped.");
+    if (failing && "path" in request && request.path.endsWith("cursor.ts"))
+      throw new Error("The connection dropped.");
     return download(request);
   };
   await press(await row(tree, "apps/"), "{Control>}c{/Control}");

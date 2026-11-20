@@ -1,5 +1,5 @@
 import type { ClientApi } from "@ace/client";
-import type { FilesServerMessage } from "@ace/protocol";
+import { ThreadId, type FilesServerMessage } from "@ace/protocol";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   contentSearchStore,
@@ -130,7 +130,12 @@ test("a search of the whole checkout with no results runs again when its root fo
   const store = new ContentSearchStore(fake.client, "thread-a");
   store.update({ pattern: "quokka" }, true);
   await vi.waitFor(() => expect(store.state.status).toBe("done"));
-  fake.push({ type: "files.folders_changed", threadId: "thread-a", folders: [""], rescan: false });
+  fake.push({
+    type: "files.folders_changed",
+    threadId: ThreadId.parse("thread-a"),
+    folders: [""],
+    rescan: false,
+  });
   await vi.advanceTimersByTimeAsync(250);
   expect(fake.searches).toHaveLength(2);
 });
