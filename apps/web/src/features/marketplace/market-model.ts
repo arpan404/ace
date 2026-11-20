@@ -5,6 +5,7 @@ import type {
   MarketScanReport,
 } from "@ace/protocol/marketplace";
 import { MarketErrorCode } from "@ace/protocol/marketplace";
+import { parseSpadePersonality, spadePersonalityWords } from "@ace/ui-core/spade-chat";
 
 /*
  * The marketplace's words and choices (ADR 0168 §12), pure: how a type is named, what keeps an
@@ -227,6 +228,13 @@ export function canDoSentences(review: MarketReview): string[] {
           ? `Has ${count(body.routines.length, "routine")}, paused until you start them.`
           : "Has no routines.",
         ...(body.tools ? [`Uses only these tools: ${body.tools.join(", ")}.`] : []),
+        ...personalityLine(body.personality),
       ];
   }
+}
+
+/** How a recipe's bot talks, when it ships with a personality: "Talks: Concise, no jokes, no emoji." */
+function personalityLine(raw: unknown): string[] {
+  const personality = parseSpadePersonality(raw);
+  return personality ? [`Talks: ${spadePersonalityWords(personality)}.`] : [];
 }

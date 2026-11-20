@@ -26,6 +26,7 @@ fn started(id: &str, background: bool) -> Event {
         name: "workspace_write".into(),
         risk: Some(Risk::Write),
         background,
+        effect: None,
     })
 }
 

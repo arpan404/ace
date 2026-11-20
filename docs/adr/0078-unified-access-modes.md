@@ -28,7 +28,8 @@ a native setting that means it; ace never emulates a mode with gates, rules or a
 own. The composer hides a mode the provider lacks. When a _default_ or an _inherited_ mode isn't
 supported, the thread runs the nearest stricter supported mode (Auto review → Ask → Read-only),
 never a looser one, and the chip shows the mode in effect. If nothing that strict exists, the
-thread doesn't start until the person picks.
+thread doesn't start until the person picks. (Changed 2026-11-19: a thread's own or default mode
+now runs as the next looser one instead; see the last amendment. Inherited limits are unchanged.)
 
 | Mode        | Claude              | Codex                                              | OpenCode                                                              | Cursor SDK                  | Pi                          | Gemini / Qwen (ACP)             | Claude bridge       | Codex bridge        |
 | ----------- | ------------------- | -------------------------------------------------- | --------------------------------------------------------------------- | --------------------------- | --------------------------- | ------------------------------- | ------------------- | ------------------- |
@@ -138,3 +139,17 @@ thread loosened or tightened every thread they started afterwards. Now a thread'
 place, Settings › Agents › Access, and applies to new threads. A project's own default (Edit
 project) still comes before it for that project's threads, and the new-thread page's pick still
 applies to that draft only.
+
+## Amendment: a mode the agent lacks runs as the next looser one (owner, 2026-11-19)
+
+Refusing to start left some agents unusable: Antigravity offers only Full access, so a thread
+whose default was Auto review or Read-only never ran, and Cursor had nothing for Ask. A thread's
+own mode, or the default it follows, now runs as the nearest stricter mode the agent offers, and
+when there is none, as the nearest looser one: Read-only, then Auto review, then Full access. The
+chip names what runs and why ("Read-only isn't available for Antigravity"), and the thread posts
+one notice the first time it runs looser than asked. A thread's own pick that runs as something
+else is replaced by what runs, so it never reads as pending.
+
+A parent thread's limit is unchanged: a child still runs no looser than its parent, and a child
+whose agent has nothing that strict does not start. A Spade bot still runs read-only or not at
+all.

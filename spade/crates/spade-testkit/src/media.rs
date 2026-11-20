@@ -1,6 +1,9 @@
-//! `FakeMedia` stands in for an endpoint's image and transcription routes (ADR 0134): the
-//! OpenAI-format `POST /images/generations` and `POST /audio/transcriptions`, and a chat model
-//! that answers `POST /chat/completions` with images. It records every request.
+//! `FakeMedia` stands in for an endpoint's image, transcription and speech routes (ADR 0134): the
+//! OpenAI-format `POST /images/generations`, `POST /audio/transcriptions` and
+//! `POST /audio/speech`, and a chat model that answers `POST /chat/completions` with images. It
+//! records every request. Its speech sends the first part of the audio at once and holds the
+//! rest until the test calls [`FakeMedia::finish_speech`], so a test can see audio pass through
+//! before the endpoint is done.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -38,12 +41,19 @@ struct Shared {
     image: Arc<Vec<u8>>,
     transcript: Arc<String>,
     seen: Arc<Mutex<Vec<MediaRequest>>>,
+    rest_of_speech: Arc<tokio::sync::Semaphore>,
 }
+
+/// The first bytes of the fake's spoken answer, sent as soon as it is asked.
+pub const SPEECH_START: &[u8] = b"ID3\x04first-sentence-audio";
+/// The rest, sent once the test lets it go.
+pub const SPEECH_REST: &[u8] = b"-rest-of-the-audio";
 
 pub struct FakeMedia {
     /// The fake's address, to use as an endpoint's base URL.
     pub root: String,
     seen: Arc<Mutex<Vec<MediaRequest>>>,
+    rest_of_speech: Arc<tokio::sync::Semaphore>,
 }
 
 impl FakeMedia {
@@ -63,11 +73,13 @@ impl FakeMedia {
             image: Arc::new(image.to_vec()),
             transcript: Arc::new(transcript.to_owned()),
             seen: Arc::default(),
+            rest_of_speech: Arc::new(tokio::sync::Semaphore::new(0)),
         };
         let app = Router::new()
             .route("/images/generations", post(images))
             .route("/chat/completions", post(chat))
             .route("/audio/transcriptions", post(transcribe))
+            .route("/audio/speech", post(speak))
             .with_state(shared.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address: SocketAddr = listener.local_addr()?;
@@ -75,7 +87,13 @@ impl FakeMedia {
         Ok(Self {
             root: format!("http://{address}/"),
             seen: shared.seen,
+            rest_of_speech: shared.rest_of_speech,
         })
+    }
+
+    /// Lets one spoken answer send the rest of its audio.
+    pub fn finish_speech(&self) {
+        self.rest_of_speech.add_permits(1);
     }
 
     pub fn seen(&self) -> Vec<MediaRequest> {
@@ -141,4 +159,34 @@ async fn transcribe(
     axum::Json(json!({ "text": format!(" {} ", shared.transcript),
                        "usage": { "type": "tokens", "input_tokens": 20, "output_tokens": 5 } }))
     .into_response()
+}
+
+async fn speak(
+    State(shared): State<Shared>,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    record(&shared, &uri, &headers, &body);
+    let gate = shared.rest_of_speech.clone();
+    let parts = futures_util::stream::unfold(0u8, move |part| {
+        let gate = gate.clone();
+        async move {
+            match part {
+                0 => Some((Ok::<_, std::io::Error>(Bytes::from_static(SPEECH_START)), 1)),
+                1 => {
+                    if let Ok(permit) = gate.acquire().await {
+                        permit.forget();
+                    }
+                    Some((Ok(Bytes::from_static(SPEECH_REST)), 2))
+                }
+                _ => None,
+            }
+        }
+    });
+    (
+        [(axum::http::header::CONTENT_TYPE, "audio/mpeg")],
+        axum::body::Body::from_stream(parts),
+    )
+        .into_response()
 }

@@ -10,7 +10,6 @@ import { activeRun, delegationsInFlight, turnOrigin } from "./turn-origin.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { GuestThreads } from "./guest-threads.ts";
 import { HostThreads } from "./host-threads.ts";
-import { ThreadPosts } from "./thread-posts.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
 import type { EngineOptions } from "./engine-options.ts";
 import { reclaimIdleSlot } from "./slot-reclaim.ts";
@@ -91,7 +90,6 @@ export class Engine {
   readonly guests: GuestThreads;
   /** Threads the daemon holds for its own processes, such as Spade (ADR 0121). */
   readonly hosts: HostThreads;
-  readonly posts: ThreadPosts;
   private registry: AdapterRegistry;
   private clock: EngineClock;
   private batchScheduler: Pick<EngineClock, "setTimer">;
@@ -144,7 +142,6 @@ export class Engine {
       () => this.clock.now(),
     );
     this.hosts = new HostThreads(this.repo, () => this.clock.now());
-    this.posts = new ThreadPosts(this.repo, () => this.clock.now());
     this.guests = new GuestThreads(
       this.repo,
       () => this.clock.now(),
@@ -191,6 +188,7 @@ export class Engine {
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
+      ...(options.sessionCatalog ? { catalog: options.sessionCatalog } : {}),
       ...(options.agentHome ? { agentHome: options.agentHome } : {}),
       repo: this.repo,
       ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
@@ -209,6 +207,7 @@ export class Engine {
         this.wakeQueued();
       },
       interrupted: (id) => this.recovery.holdInterrupted(id),
+      report: (error) => this.report(error),
     });
     this.recovery = new Recovery(
       this.repo,
@@ -363,8 +362,8 @@ export class Engine {
       models,
     );
     this.internalHandler = {
-      handle: (command, context) =>
-        this.closing
+      handle: (command, context) => {
+        const result = this.closing
           ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
           : !this.readyState
             ? { commandId: command.id, ok: false, error: "engine_starting" }
@@ -375,7 +374,10 @@ export class Engine {
                   (this.commandPolicy
                     ? this.commandPolicy(command, () => handler.handle(command, context))
                     : handler.handle(command, context)),
-              ),
+              );
+        if (result.ok) this.sessions.commanded(command, (id) => this.actors.get(id), this.report);
+        return result;
+      },
     };
     this.handler = {
       handle: (command, context) => {

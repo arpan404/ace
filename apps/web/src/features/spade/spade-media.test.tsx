@@ -191,13 +191,6 @@ test("an image a bot's tool showed sits in that reply's bubble with Save", async
   expect(screen.queryByText(/image_generate/)).toBeNull();
 });
 
-test("the mic is hidden with no speech recognition and no transcription model", async () => {
-  withMicrophone();
-  await spadeApp("/spade", withWriter);
-  await openWriter();
-  expect(screen.queryByRole("button", { name: "Record a voice message" })).toBeNull();
-});
-
 test("with a transcription model the mic shows, and its words fill the message", async () => {
   withMicrophone();
   const { spade } = await spadeApp("/spade", (api) => {

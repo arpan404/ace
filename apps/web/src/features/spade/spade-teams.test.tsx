@@ -478,3 +478,52 @@ test("Import bot from + refuses a file over 6 MB unread, and opens an imported b
     { format: "spade-bot", version: 1, name: "Scout", task: "Scout news" },
   ]);
 });
+
+/** Spade and `count` more bots on this machine: Bot1, Bot2, … */
+function crowd(count: number) {
+  return (spade: FakeSpadeApi) => {
+    team(spade);
+    for (let n = 1; n <= count; n++) spade.addAgent({ id: `bot${n}`, name: `Bot${n}` });
+  };
+}
+
+test("a club holds 32 bots: its row shows two faces and how many more", async () => {
+  await spadeApp("/spade", (spade) => {
+    crowd(31)(spade);
+    spade.teams.addGroup({
+      id: "all",
+      name: "Everyone",
+      members: [
+        spade.teams.member("main"),
+        ...Array.from({ length: 31 }, (_, n) => spade.teams.member(`bot${n + 1}`)),
+      ],
+    });
+  });
+  const row = await (await roster()).findByRole("link", { name: /^Everyone/ });
+  await waitFor(() => expect(row.querySelector("[data-group-more]")?.textContent).toBe("+30"));
+  // Two faces and the count, in the stack's three places.
+  expect(row.querySelector("[data-group-faces]")?.getAttribute("data-group-faces")).toBe("3");
+});
+
+test("New club with many bots searches its member list, and keeps picked bots in view", async () => {
+  const { spade } = await spadeApp("/spade", crowd(20));
+  await openNew("New club");
+  const draft = within(await screen.findByRole("form", { name: "New club" }));
+  await userEvent.type(draft.getByRole("textbox", { name: "Name" }), "Ops");
+  const search = draft.getByRole("searchbox", { name: "Search bots" });
+  await userEvent.type(search, "bot1");
+  // Bot1 and Bot10 to Bot19, and Spade, picked from the start.
+  const members = within(draft.getByRole("list", { name: "Members" }));
+  expect(members.getAllByRole("checkbox")).toHaveLength(12);
+  await userEvent.click(members.getByRole("checkbox", { name: "Bot12" }));
+  await userEvent.clear(search);
+  await userEvent.type(search, "nobody");
+  // Picked ones stay listed whatever the search says.
+  expect(members.getAllByRole("checkbox")).toHaveLength(2);
+  await userEvent.click(draft.getByRole("button", { name: "Make club" }));
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/groups")).toEqual([
+      expect.objectContaining({ members: [{ agent: "main" }, { agent: "bot12" }] }),
+    ]),
+  );
+});

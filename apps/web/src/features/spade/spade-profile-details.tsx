@@ -4,37 +4,47 @@ import { useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProfileApps } from "./spade-bot-connectors.tsx";
 import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
 import { ProfileSpending } from "./spade-bot-oversight.tsx";
+import { ProfileReach } from "./spade-bot-reach.tsx";
 import { ProfilePlugins } from "./spade-bot-plugins.tsx";
 import { ProfileSecurity } from "./spade-bot-security.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
 import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
+import { ProfilePersonality } from "./spade-profile-personality.tsx";
 import { ProfileRoutines } from "./spade-routines.tsx";
+import { TaskHistory } from "./spade-task-history.tsx";
 import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.ts";
 import { DeleteMakerDialog, type DeletingMaker } from "./spade-delete-maker.tsx";
 import { useMakerWorkers } from "./use-spade-work.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
+import { VoiceRows } from "./spade-voice-settings.tsx";
+import { useSpadeModels } from "./use-spade-models.ts";
+import { voiceKey } from "./use-spoken-replies.ts";
 
 /**
  * Details: what the bot is and how it behaves. A move to another machine, or what needs the
  * person since one, first (ADR 0187). Its task, the model and machine it runs with
- * (and, folded, the models for its other work), its routines, the apps and plugins it may use, its boundaries, its spending, then Duplicate,
- * Export and Delete. Everything edits where it shows.
+ * (and, folded, the models for its other work), how it sounds (Speak replies and its voice, on
+ * this device), its routines, the apps and plugins it may use, its boundaries, its spending,
+ * then Duplicate, Export and Delete. Everything edits where it shows.
  */
 export function ProfileDetails(props: { bot: RosterBot }) {
   const { bot } = props;
   const edit = useEditBot(bot);
   const [modelProblem, setModelProblem] = useState<string>();
+  const speechModel = useSpadeModels(true).data?.speechModel;
   return (
     <>
       <ProfileMoveLine bot={bot} />
       <ProfileSection label="Task">
         <TaskField bot={bot} />
+        <TaskHistory bot={bot} />
       </ProfileSection>
       <ProfileSection label="Runs with">
         <SettingRow
@@ -53,13 +63,56 @@ export function ProfileDetails(props: { bot: RosterBot }) {
         <ProfileMachine bot={bot} />
         <BotRoles bot={bot} />
       </ProfileSection>
+      <ProfilePersonality bot={bot} />
+      <ProfileSection label="Voice">
+        <VoiceRows bot={voiceKey(bot.machine.key, bot.id)} speechModel={speechModel} />
+      </ProfileSection>
       <ProfileRoutines bot={bot} />
+      <ProfileMakesBots bot={bot} />
       <ProfileApps bot={bot} />
       <ProfilePlugins bot={bot} />
       <ProfileSecurity bot={bot} />
       <ProfileSpending bot={bot} />
+      <ProfileReach bot={bot} />
       <Foot bot={bot} />
     </>
+  );
+}
+
+const mayWords = { yes: "Yes", ask: "Ask me first", no: "No" } as const;
+
+/**
+ * May create bots (ADR 0161, amendment 1): whether the bot makes bots for the person, and adds
+ * bots to its clubs, by itself, after asking, or never. With anything untrusted in view it asks
+ * whatever this says.
+ */
+function ProfileMakesBots(props: { bot: RosterBot }) {
+  const { bot } = props;
+  const edit = useEditBot(bot);
+  const [problem, setProblem] = useState<string>();
+  return (
+    <ProfileSection label="Making bots">
+      <SettingRow
+        title="May create bots"
+        inline
+        description={problem && <span className="text-destructive">{problem}</span>}
+      >
+        <Select
+          label="May create bots"
+          className="w-36"
+          value={bot.mayCreateBots}
+          options={(["yes", "ask", "no"] as const).map((value) => ({
+            value,
+            label: mayWords[value],
+          }))}
+          onValueChange={(value) => {
+            if (value !== "yes" && value !== "ask" && value !== "no") return;
+            if (value === bot.mayCreateBots) return;
+            void edit({ may_create_bots: value }).then(setProblem);
+          }}
+        />
+      </SettingRow>
+    </ProfileSection>
   );
 }
 

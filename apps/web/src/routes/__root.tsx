@@ -3,7 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext } from "@tanstack/react-router";
 // Route search schemas load with the route tree on first paint: zod/mini keeps classic Zod out.
 import * as z from "zod/mini";
-import { AppShell } from "@/app/app-shell.tsx";
+import { RootLayout } from "@/app/root-layout.tsx";
 import { RootError, RouteNotFound } from "@/app/route-fallbacks.tsx";
 
 export interface RouterContext {
@@ -18,7 +18,7 @@ const Search = z.object({
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   validateSearch: Search,
-  component: AppShell,
+  component: RootLayout,
   notFoundComponent: RouteNotFound,
   errorComponent: RootError,
 });

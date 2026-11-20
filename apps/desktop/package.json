@@ -16,6 +16,7 @@
   "dependencies": {
     "@ace/browser": "workspace:*",
     "@ace/client": "workspace:*",
+    "@ace/design-tokens": "workspace:*",
     "@ace/diagnostics": "workspace:*",
     "@ace/html": "workspace:*",
     "@ace/protocol": "workspace:*",

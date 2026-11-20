@@ -44,6 +44,7 @@ import {
 import type { SuitPage } from "@ace/protocol/suit-parts";
 import { pageForRoutes } from "./route-page.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
+import { usePushToTalk } from "@/features/spade/index.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
 import { liveIndicatorsHeld } from "./live-motion.ts";
@@ -83,6 +84,8 @@ export function AppShell() {
   // The thread on screen, whose run finishing a Suit's celebration may mark.
   const openThreadId = useParams({ strict: false }).threadId;
   useDesktopUpdates();
+  // The desktop's push-to-talk shortcut opens the main Spade from anywhere.
+  usePushToTalk();
   return (
     <TransferOpenerProvider>
       <OrganizeWindow>

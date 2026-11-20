@@ -7,7 +7,7 @@ duplicated, exported and imported. Everything is under `/v1` with the bearer tok
 
 ## Clubs
 
-A club is a name, a lead and 2 to 8 member bots, with its own transcript. It lives on the lead's
+A club is a name, a lead and 2 to 32 member bots (`group::MOST_MEMBERS`), with its own transcript. It lives on the lead's
 machine; the lead is a bot of that machine. Members may be bots of any of the person's machines.
 People call it a club; the API, events and stored fields keep the name `group`.
 
@@ -53,7 +53,7 @@ answering`, `Research is waiting for you`, `Waiting for Studio to come online`),
   club.
 - `name`: 1 to 60 characters, one line. `lead` is a member's `agent` id on this machine. Without
   `lead`, Spade leads (and is added as a member when it isn't one); with Spade switched off on
-  this machine, the first member of this machine leads. `members` (lead counted) is 2 to 8
+  this machine, the first member of this machine leads. `members` (lead counted) is 2 to 32
   distinct bots. `400` for a body that doesn't fit, `404` for a bot of this machine that doesn't
   exist, `409` when the lead isn't a bot of this machine.
 - Deleting a bot removes it from every club it's in; a club left with fewer than 2 members
@@ -62,7 +62,9 @@ answering`, `Research is waiting for you`, `Waiting for Studio to come online`),
 ### A run
 
 Each message from the person starts a **run**. `@Name` (a member's name, any case, longest match
-first) sends the message to that member; several mentions send it to each. Without a mention it
+first) sends the message to that member; up to four mentions (`group::MOST_ASKED`) send it to
+each. More than four go to the lead alone, with a note naming the others, which it hands each its
+part with `group_ask`: one message never runs every member of a big club. Without a mention it
 goes to the lead.
 
 Each recipient answers in **its own conversation**: the message is stored there as a
@@ -218,7 +220,9 @@ the fleet's machines and devices they named for the work, put first in the turn'
 (`config/templates.json`).
 
 **Template** = `{"id", "name", "blurb", "task", "face", "model_kind": "fast"|"capable",
-"routines": [{"name", "instruction", "schedule"}]}`. `schedule` is a phrase routines read
+"routines": [{"name", "instruction", "schedule"}], "personality"?: {"tone", "humour", "emoji"}}`.
+A template's personality is the bot's from its first turn ([agents.md](agents.md)); `POST
+/v1/agents` may give its own `personality`, which wins. `schedule` is a phrase routines read
 (`weekdays at 8:00`).
 
 `POST /v1/agents` takes `template` (an id): `name`, `task` and `avatar` default to the
@@ -243,7 +247,8 @@ fetches and reviews it; when the person presses Install it posts it to `POST /v1
     "model": "fast",
     "routines": [{ "name": "Morning sort", "instruction": "…", "schedule": "weekdays at 8:00" }],
     "tools": ["web_search"],
-    "notes": ["…"]
+    "notes": ["…"],
+    "personality": { "tone": "concise", "humour": false, "emoji": false }
   },
   "from_recipe": { "source": "market", "name": "inbox", "version": "1.2.0" },
   "grants": {
@@ -259,7 +264,8 @@ It makes one top-level bot as a template does: name, task and face from the reci
 face value is repaired), the person's own fast model for `fast` and their default for `capable`
 (never a model id from the file), and routines from their schedules, paused unless
 `start_routines`. `tools`, when present, narrows the bot's built-in tools as a worker's grant
-does (ADR 0161): it never adds one. `notes` become the bot's own notes.
+does (ADR 0161): it never adds one. `notes` become the bot's own notes. `personality`, when
+present, is how the bot talks from its first turn; a tone Spade doesn't know refuses the recipe.
 
 Nothing in the recipe is a grant; only `grants` is. A granted catalogue id or https address this
 machine has connected is allowed for the bot; the others are named in `left_out` ("Connect after

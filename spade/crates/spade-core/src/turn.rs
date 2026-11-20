@@ -85,7 +85,9 @@ pub fn next_step(events: &[Event]) -> Next {
                     }) if call_id == &call.id => Some(*allowed),
                     _ => None,
                 });
-            let question = turn.iter().position(|event| {
+            // The latest card the call asked: a call held on a Reconnect card that fails again
+            // after reconnecting asks again.
+            let question = turn.iter().rposition(|event| {
                 matches!(event, Event::Known(Known::QuestionAsked { call_id, .. }) if call_id == &call.id)
             });
             if let Some(at) = question {
@@ -424,6 +426,7 @@ mod tests {
             name: "send_email".into(),
             risk: None,
             background: false,
+            effect: None,
         }));
         assert_eq!(
             statuses(&next_step(&events)),

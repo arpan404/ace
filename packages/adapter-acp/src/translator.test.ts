@@ -280,3 +280,37 @@ it("does not expire a silent live tool but marks silent model work unresponsive"
   thinking.tick(1000000);
   expect(thinking.state.status.state).toBe("unresponsive");
 });
+it("treats updates that arrive before the session/new answer as the root, so the turn settles", () => {
+  const h = harness();
+  h.frame("send", { id: 1, method: "session/new", params: { cwd: "/workspace" } });
+  h.update({ sessionUpdate: "available_commands_update", availableCommands: [] }, "early-session");
+  h.frame("recv", { id: 1, result: { sessionId: "early-session" } });
+  h.frame("send", {
+    id: 2,
+    method: "session/prompt",
+    params: { sessionId: "early-session", prompt: [{ type: "text", text: "Hi" }] },
+  });
+  chunk(h, "Hello", "early-session");
+  end(h);
+  expect(Object.keys(h.state.agents)).toHaveLength(1);
+  expect(h.state.status.state).toBe("done");
+});
+it("binds early updates to the root of a fresh session opened after the agent restarts", () => {
+  const h = harness();
+  h.ready();
+  chunk(h, "first", "root-session");
+  end(h);
+  h.frame("note", { event: "process-exit", detail: { deliberate: false } });
+  h.frame("send", { id: 3, method: "session/new", params: { cwd: "/workspace" } });
+  h.update({ sessionUpdate: "available_commands_update", availableCommands: [] }, "next-session");
+  h.frame("recv", { id: 3, result: { sessionId: "next-session" } });
+  h.frame("send", {
+    id: 4,
+    method: "session/prompt",
+    params: { sessionId: "next-session", prompt: [{ type: "text", text: "Again" }] },
+  });
+  chunk(h, "second", "next-session");
+  h.frame("recv", { id: 4, result: { stopReason: "end_turn" } });
+  expect(Object.keys(h.state.agents)).toHaveLength(1);
+  expect(h.state.status.state).toBe("done");
+});

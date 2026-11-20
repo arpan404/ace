@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { connect } from "node:net";
-import { tmpdir } from "node:os";
+import { getPriority, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,6 +17,8 @@ import {
 } from "./process.ts";
 
 const owned: SupervisedProcess[] = [];
+/** Nice 5, or this runner's own when it already runs lower: a child is never raised. */
+const childNice = () => Math.max(5, getPriority());
 const noop = () => {};
 function cleanupGroup(pgid: number) {
   try {
@@ -88,6 +90,33 @@ describe("supervised processes", () => {
     expect(await proc.exited).toEqual({ code: 1, signal: null, reason: "exit" });
     expect(errors.join("\n")).toContain("synthetic crash");
   });
+  it.skipIf(process.platform === "win32")(
+    "runs the child and what it starts below the daemon's priority",
+    async () => {
+      const script = [
+        "const { getPriority } = require('node:os');",
+        "const { execFileSync } = require('node:child_process');",
+        // Asked once the child runs, so it reads what it was lowered to, and what its own child got.
+        "setTimeout(() => {",
+        "  const own = getPriority();",
+        "  const child = execFileSync(process.execPath, ['-p', \"require('node:os').getPriority()\"]);",
+        "  console.log(own + ' ' + String(child).trim());",
+        "}, 300);",
+      ].join("\n");
+      const proc = spawnSupervised({
+        command: process.execPath,
+        args: ["-e", script],
+        env: {},
+        name: "priority",
+      });
+      owned.push(proc);
+      let output = "";
+      for await (const line of proc.stdout) output += line;
+      expect(output.trim()).toBe(`${childNice()} ${childNice()}`);
+    },
+    PROCESS_TEST_TIMEOUT,
+  );
+
   it("reports a missing executable as a spawn failure", async () => {
     const proc = spawnSupervised({
       command: "/no-such-provider-kit-executable",

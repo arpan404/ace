@@ -45,7 +45,7 @@ export function startThreadAddress(context: ServiceContext): void {
         "x-ace-inbox-proof": inboxProof(key, time, threadAskSender, "ace", body),
       };
     },
-    post: (threadId, key, draft) => engine.posts.post(threadId, key, draft),
+    post: (threadId, key, draft) => engine.hosts.posts.post(threadId, key, draft),
     hold: (threadId, task, hold) => {
       const agent = engine.rootAgent(threadId);
       if (agent) engine.externalHold(threadId, AgentId.parse(agent), task, hold);

@@ -9,6 +9,8 @@
     "./log-policy": "./src/log-policy.ts",
     "./triage": "./src/triage.ts",
     "./stall": "./src/stall.ts",
+    "./pressure": "./src/pressure.ts",
+    "./pressure-read": "./src/pressure-read.ts",
     "./stall-worker": "./src/stall-watchdog-worker.ts"
   },
   "scripts": {

@@ -154,6 +154,8 @@ export interface ServerOptions {
   ready?: Promise<void>;
   models?: ModelCatalogApi;
   agentRegistry?: Pick<import("@ace/agent-registry").AgentRegistry, "handle">;
+  /** Generic ACP agents' catalog rows, told when the person approves an agent's update. */
+  acpCatalog?: Pick<NonNullable<import("./services/types.ts").Services["acpCatalog"]>, "updated">;
   port: number;
   remote?: RemoteListener;
   remoteConfig?: import("./config.ts").Config;

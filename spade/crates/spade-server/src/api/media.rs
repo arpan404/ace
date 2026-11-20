@@ -1,5 +1,6 @@
 //! Documents, images and voice over the API (ADR 0134, docs/media.md): messages with files and
-//! a recording, downloads of stored documents and recordings, and transcription.
+//! a recording, downloads of stored documents and recordings, transcription, and replies read
+//! aloud by the person's speech model.
 
 use axum::Json;
 use axum::Router;
@@ -15,7 +16,7 @@ use spade_core::event::{DocumentRef, VoiceRef};
 
 use super::body::Body;
 use super::{AppState, problem, send_problem};
-use crate::engine::{Outgoing, TranscribeError};
+use crate::engine::{Outgoing, SpeakError, SpeakRequest, TranscribeError};
 use crate::media::{AttachError, MOST_DOCUMENTS, save_copy};
 
 /// The largest message body: eight 32 MB documents and eight images as base64, and a recording.
@@ -36,6 +37,7 @@ pub(super) fn routes() -> Router<AppState> {
             "/transcriptions",
             post(transcription).layer(DefaultBodyLimit::max(TRANSCRIPTION_BODY)),
         )
+        .route("/speech", post(speech))
 }
 
 #[derive(Deserialize)]
@@ -340,6 +342,41 @@ async fn transcription(State(state): State<AppState>, Body(body): Body<Recording
             problem(StatusCode::BAD_GATEWAY, &error.to_string())
         }
         Err(error @ TranscribeError::Store(_)) => {
+            problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string())
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct Speak {
+    text: String,
+    #[serde(default)]
+    voice: Option<String>,
+    #[serde(default)]
+    instructions: Option<String>,
+}
+
+/// Reads words aloud with the person's speech model, streaming its audio as it arrives.
+async fn speech(State(state): State<AppState>, Body(body): Body<Speak>) -> Response {
+    let request = SpeakRequest {
+        text: body.text,
+        voice: body.voice,
+        instructions: body.instructions,
+    };
+    match state.engine.speak(request).await {
+        Ok(speech) => (
+            [
+                (header::CONTENT_TYPE, speech.media_type),
+                (header::CACHE_CONTROL, "no-store".to_owned()),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            ],
+            axum::body::Body::from_stream(speech.chunks),
+        )
+            .into_response(),
+        Err(error @ SpeakError::NotSet) => problem(StatusCode::CONFLICT, &error.to_string()),
+        Err(error @ SpeakError::Invalid(_)) => bad(&error.to_string()),
+        Err(error @ SpeakError::Model(_)) => problem(StatusCode::BAD_GATEWAY, &error.to_string()),
+        Err(error @ SpeakError::Store(_)) => {
             problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string())
         }
     }

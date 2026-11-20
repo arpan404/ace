@@ -52,6 +52,8 @@ export interface EngineOptions {
   /** The daemon's data dir, given to agent sessions as `ACE_HOME` (ADR 0178 §10). */
   agentHome?: string;
   sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
+  /** Readies a thread's model catalog row before its session's model is chosen. */
+  sessionCatalog?: NonNullable<ConstructorParameters<typeof Sessions>[0]["catalog"]>;
   ids?: IdSource;
   threadId?: () => string;
   commandId?: () => string;
