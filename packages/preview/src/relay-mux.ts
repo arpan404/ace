@@ -5,8 +5,11 @@ import {
   openState,
   transition,
   type LifecycleEvent,
+  type StreamRemoval,
   type StreamState,
 } from "./stream-lifecycle.ts";
+
+export type { StreamRemoval } from "./stream-lifecycle.ts";
 
 const SocketChunk = z.instanceof(Uint8Array).refine((bytes) => bytes.byteLength <= windowSize);
 
@@ -20,24 +23,28 @@ export type PreviewChannel = {
 };
 /**
  * Native bridges expose bounded socket queues and Node-like stream events. Each stream closes as
- * a TCP connection does (`stream-lifecycle.ts`): `end` is the socket's FIN, and the mux sends END
- * behind every byte read before it. `close` after `end` is graceful; `close` before `end`, `error`
- * and `abort` (the local side giving up, after its end too) reset the stream at once. A stream
- * finishes without a RESET only once both ENDs are exchanged, everything the peer sent has been
- * written, and the socket has closed. A socket that closes with the stream unfinished leaves it
- * waiting for what is still owed (our END going, the peer's END) for at most `gracefulDrainMs`
- * from the close, a deadline nothing extends; peer DATA then resets it, since nothing reads it.
+ * a TCP connection does (`stream-lifecycle.ts`), and the mux alone decides when: a socket only
+ * reports what happened to it and does what the mux asks. `end` is the socket's FIN, handed over
+ * behind every byte read before it, and the mux sends END behind them. `close` after `end` is
+ * graceful; `hangup` is a close after the FIN was read while bytes before it are still being
+ * handed over (`end` follows them). `close` before `end`, `error`, a failed write and `abort`
+ * (the local side giving up, after its end too) reset the stream at once. A stream finishes
+ * without a RESET only once both ENDs are exchanged, everything the peer sent has been written,
+ * and the socket has closed. A socket that closes with the stream unfinished leaves it waiting
+ * for what is still owed (its last bytes and our END going, the peer's END) for at most
+ * `gracefulDrainMs` from the close, a deadline nothing extends; peer DATA then resets it, since
+ * nothing reads it. `destroy` is called once, as the stream leaves the mux, with how it left.
  */
 export type PreviewSocket = {
   readonly readableLength: number;
   readonly writableLength: number;
   pause(): unknown;
   resume(): unknown;
-  destroy(): unknown;
+  destroy(removal: StreamRemoval): unknown;
   end(): unknown;
   write(bytes: Uint8Array, callback: (error?: Error | null) => void): unknown;
   on(event: "data", listener: (bytes: Uint8Array) => void): unknown;
-  on(event: "end" | "close" | "error" | "abort", listener: () => void): unknown;
+  on(event: "end" | "close" | "hangup" | "error" | "abort", listener: () => void): unknown;
   once(event: "connect", listener: () => void): unknown;
 };
 type Stream = {
@@ -132,7 +139,7 @@ export function createMux(options: MuxOptions) {
     streams.clear();
     for (const stream of removed) {
       stream.cancelDeadline?.();
-      stream.socket.destroy();
+      stream.socket.destroy("reset");
       stream.wake?.();
       stream.cancelSend?.();
       options.onStreamRemoved?.(stream.id);
@@ -166,7 +173,7 @@ export function createMux(options: MuxOptions) {
     pendingPayloadBytes -= stream.payloadBytes;
     stream.payloadBytes = 0;
   };
-  const remove = (stream: Stream) => {
+  const remove = (stream: Stream, removal: StreamRemoval) => {
     if (streams.get(stream.id) !== stream) return;
     streams.delete(stream.id);
     stream.state = "gone";
@@ -176,7 +183,7 @@ export function createMux(options: MuxOptions) {
     queuedWriteBytes -= stream.queuedBytes;
     stream.queuedBytes = 0;
     stream.writeQueue.length = 0;
-    stream.socket.destroy();
+    stream.socket.destroy(removal);
     options.onStreamRemoved?.(stream.id);
   };
   /**
@@ -199,7 +206,9 @@ export function createMux(options: MuxOptions) {
       stream.writing = false;
       stream.queuedBytes -= bytes.byteLength;
       queuedWriteBytes -= bytes.byteLength;
-      if (error) return;
+      // Bytes the socket never took can't be delivered: the stream is aborted, whether or not
+      // the socket reports anything else.
+      if (error) return apply(stream, "localAbort");
       stream.receiveCredit += bytes.byteLength;
       void send(kinds.credit, stream.id, bytes.byteLength).catch(close);
       flush(stream);
@@ -228,9 +237,10 @@ export function createMux(options: MuxOptions) {
       if (action === "protocolError") throw new Error(`Stream ${event} breaks its lifecycle`);
       if (action === "reset") {
         // Removed first, so the slot is free before the peer can hear the RESET and open again.
-        remove(stream);
+        remove(stream, "reset");
         void send(kinds.reset, stream.id).catch(close);
-      } else if (action === "remove") remove(stream);
+      } else if (action === "drop") remove(stream, "reset");
+      else if (action === "finish") remove(stream, "finished");
       else if (action === "queueData" && data) queue(stream, data);
       else if (action === "endSocket") stream.socket.end();
       else if (action === "armDeadline")
@@ -313,6 +323,7 @@ export function createMux(options: MuxOptions) {
     // A close before the socket's end is abortive; the lifecycle tells the two apart.
     socket.on("end", () => apply(stream, "localEnd"));
     socket.on("close", () => apply(stream, "localClose"));
+    socket.on("hangup", () => apply(stream, "localHangup"));
     socket.on("error", () => apply(stream, "localAbort"));
     socket.on("abort", () => apply(stream, "localAbort"));
     return stream;
@@ -328,19 +339,19 @@ export function createMux(options: MuxOptions) {
     if (!connection) throw new Error("Missing host socket factory");
     const { socket } = connection;
     if (closed) {
-      socket.destroy();
+      socket.destroy("reset");
       return;
     }
     const stream = bind(id, socket);
     try {
       if (!(await options.allowPort?.(port, id)) || !alive(stream)) {
         // Removed first, so the slot is free before the peer can hear the RESET and open again.
-        remove(stream);
+        remove(stream, "reset");
         await send(kinds.reset, id);
         return;
       }
       const refuse = () => {
-        remove(stream);
+        remove(stream, "reset");
         void send(kinds.reset, id).catch(close);
       };
       if (options.canConnect && !options.canConnect(port, id)) return refuse();
@@ -358,7 +369,7 @@ export function createMux(options: MuxOptions) {
       });
       connection.connect();
     } catch {
-      remove(stream);
+      remove(stream, "reset");
       await send(kinds.reset, id);
     }
   };
@@ -413,7 +424,7 @@ export function createMux(options: MuxOptions) {
         streams.size >= options.maxStreams ||
         nextId > 0xffffffff
       ) {
-        socket.destroy();
+        socket.destroy("reset");
         return undefined;
       }
       const id = nextId++;

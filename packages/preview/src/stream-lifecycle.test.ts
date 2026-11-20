@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  lifecycleActions,
   lifecycleEvents,
   lifecycleStates,
   stateName,
@@ -9,17 +10,18 @@ import {
 
 /*
  * Every state against every event. A row reads `next action action…`, `=` meaning the state is
- * kept. The rows are checked against the module's own state and event lists, so a state or event
- * added without rows fails here.
+ * kept. The rows are checked against the module's own state and event lists, which its types are
+ * derived from, so a state or event added without rows fails here.
  */
 type Row = Record<LifecycleEvent, string>;
-const always = { localAbort: "gone reset", peerReset: "gone remove", peerCredit: "=" } as const;
+const always = { localAbort: "gone reset", peerReset: "gone drop", peerCredit: "=" } as const;
 const table: Record<string, Row> = {
   "open/open/open": {
     ...always,
     localEnd: "ending/open/open sendEnd",
     endSent: "=",
     localClose: "gone reset",
+    localHangup: "open/open/closed armDeadline",
     peerData: "open/writing/open queueData",
     peerEnd: "open/ended/open endSocket",
     writesDrained: "=",
@@ -30,6 +32,7 @@ const table: Record<string, Row> = {
     localEnd: "ending/writing/open sendEnd",
     endSent: "=",
     localClose: "gone reset",
+    localHangup: "gone reset",
     peerData: "= queueData",
     peerEnd: "open/draining/open",
     writesDrained: "open/open/open",
@@ -40,6 +43,7 @@ const table: Record<string, Row> = {
     localEnd: "ending/draining/open sendEnd",
     endSent: "=",
     localClose: "gone reset",
+    localHangup: "gone reset",
     peerData: "= protocolError",
     peerEnd: "= protocolError",
     writesDrained: "open/ended/open endSocket",
@@ -50,6 +54,7 @@ const table: Record<string, Row> = {
     localEnd: "ending/ended/open sendEnd",
     endSent: "=",
     localClose: "gone reset",
+    localHangup: "open/ended/closed armDeadline",
     peerData: "= protocolError",
     peerEnd: "= protocolError",
     writesDrained: "=",
@@ -60,6 +65,7 @@ const table: Record<string, Row> = {
     localEnd: "=",
     endSent: "ended/open/open",
     localClose: "ending/open/closed armDeadline",
+    localHangup: "ending/open/closed armDeadline",
     peerData: "ending/writing/open queueData",
     peerEnd: "ending/ended/open endSocket",
     writesDrained: "=",
@@ -70,6 +76,7 @@ const table: Record<string, Row> = {
     localEnd: "=",
     endSent: "ended/writing/open",
     localClose: "gone reset",
+    localHangup: "gone reset",
     peerData: "= queueData",
     peerEnd: "ending/draining/open",
     writesDrained: "ending/open/open",
@@ -80,6 +87,7 @@ const table: Record<string, Row> = {
     localEnd: "=",
     endSent: "ended/draining/open",
     localClose: "gone reset",
+    localHangup: "gone reset",
     peerData: "= protocolError",
     peerEnd: "= protocolError",
     writesDrained: "ending/ended/open endSocket",
@@ -90,6 +98,7 @@ const table: Record<string, Row> = {
     localEnd: "=",
     endSent: "ended/ended/open",
     localClose: "ending/ended/closed armDeadline",
+    localHangup: "ending/ended/closed armDeadline",
     peerData: "= protocolError",
     peerEnd: "= protocolError",
     writesDrained: "=",
@@ -100,6 +109,7 @@ const table: Record<string, Row> = {
     localEnd: "=",
     endSent: "=",
     localClose: "ended/open/closed armDeadline",
+    localHangup: "ended/open/closed armDeadline",
     peerData: "ended/writing/open queueData",
     peerEnd: "ended/ended/open endSocket",
     writesDrained: "=",
@@ -110,6 +120,7 @@ const table: Record<string, Row> = {
     localEnd: "=",
     endSent: "=",
     localClose: "gone reset",
+    localHangup: "gone reset",
     peerData: "= queueData",
     peerEnd: "ended/draining/open",
     writesDrained: "ended/open/open",
@@ -120,6 +131,7 @@ const table: Record<string, Row> = {
     localEnd: "=",
     endSent: "=",
     localClose: "gone reset",
+    localHangup: "gone reset",
     peerData: "= protocolError",
     peerEnd: "= protocolError",
     writesDrained: "ended/ended/open endSocket",
@@ -129,17 +141,41 @@ const table: Record<string, Row> = {
     ...always,
     localEnd: "=",
     endSent: "=",
-    localClose: "gone remove",
+    localClose: "gone finish",
+    localHangup: "gone finish",
     peerData: "= protocolError",
     peerEnd: "= protocolError",
     writesDrained: "=",
     deadline: "=",
+  },
+  "open/open/closed": {
+    ...always,
+    localEnd: "ending/open/closed sendEnd",
+    endSent: "=",
+    localClose: "=",
+    localHangup: "=",
+    peerData: "gone reset",
+    peerEnd: "open/ended/closed",
+    writesDrained: "=",
+    deadline: "gone reset",
+  },
+  "open/ended/closed": {
+    ...always,
+    localEnd: "ending/ended/closed sendEnd",
+    endSent: "=",
+    localClose: "=",
+    localHangup: "=",
+    peerData: "= protocolError",
+    peerEnd: "= protocolError",
+    writesDrained: "=",
+    deadline: "gone reset",
   },
   "ending/open/closed": {
     ...always,
     localEnd: "=",
     endSent: "ended/open/closed",
     localClose: "=",
+    localHangup: "=",
     peerData: "gone reset",
     peerEnd: "ending/ended/closed",
     writesDrained: "=",
@@ -148,8 +184,9 @@ const table: Record<string, Row> = {
   "ending/ended/closed": {
     ...always,
     localEnd: "=",
-    endSent: "gone remove",
+    endSent: "gone finish",
     localClose: "=",
+    localHangup: "=",
     peerData: "= protocolError",
     peerEnd: "= protocolError",
     writesDrained: "=",
@@ -160,8 +197,9 @@ const table: Record<string, Row> = {
     localEnd: "=",
     endSent: "=",
     localClose: "=",
+    localHangup: "=",
     peerData: "gone reset",
-    peerEnd: "gone remove",
+    peerEnd: "gone finish",
     writesDrained: "=",
     deadline: "gone reset",
   },
@@ -188,4 +226,9 @@ test("no event leads to a state outside the list", () => {
   const known = new Set(lifecycleStates.map(stateName));
   for (const { state, event } of cases)
     expect(known).toContain(stateName(transition(state, event).next));
+});
+
+test("every action the mux knows is one some state asks for", () => {
+  const asked = new Set(cases.flatMap(({ state, event }) => transition(state, event).actions));
+  expect([...asked].toSorted()).toEqual([...lifecycleActions].toSorted());
 });

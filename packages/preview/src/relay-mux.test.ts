@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createMux, gracefulDrainMs, type PreviewSocket } from "./relay-mux.ts";
+import { createMux, gracefulDrainMs, type PreviewSocket, type StreamRemoval } from "./relay-mux.ts";
 import { decodeFrame, encodeFrame, kinds, type Frame } from "./relay-wire.ts";
 
 /*
@@ -10,8 +10,13 @@ import { decodeFrame, encodeFrame, kinds, type Frame } from "./relay-wire.ts";
 /** A socket whose writes complete only when the test lets them. */
 function heldSocket() {
   const writes: Uint8Array[] = [];
-  const callbacks: (() => void)[] = [];
-  const state = { ended: false, destroyed: false, endedAfter: -1 };
+  const callbacks: ((error?: Error) => void)[] = [];
+  const state = {
+    ended: false,
+    destroyed: false,
+    removal: undefined as StreamRemoval | undefined,
+    endedAfter: -1,
+  };
   let connected: (() => void) | undefined;
   const listeners = new Map<string, ((bytes: Uint8Array) => void)[]>();
   const socket: PreviewSocket = {
@@ -19,8 +24,9 @@ function heldSocket() {
     writableLength: 0,
     pause() {},
     resume() {},
-    destroy() {
+    destroy(removal) {
       state.destroyed = true;
+      state.removal = removal;
     },
     end() {
       state.ended = true;
@@ -28,7 +34,7 @@ function heldSocket() {
     },
     write(bytes, callback) {
       writes.push(bytes.slice());
-      callbacks.push(() => callback());
+      callbacks.push((error) => callback(error));
     },
     on(event: string, listener: (bytes: Uint8Array) => void) {
       listeners.set(event, [...(listeners.get(event) ?? []), listener]);
@@ -42,13 +48,13 @@ function heldSocket() {
     writes,
     state,
     connect: () => connected?.(),
-    /** What the socket's own side does: `end` (its FIN), `close`, or `data` it read. */
-    emit(event: "end" | "close" | "data" | "abort", bytes = new Uint8Array(0)) {
+    /** What the socket's own side does: `end` (its FIN), `close`, `hangup`, or `data` it read. */
+    emit(event: "end" | "close" | "hangup" | "data" | "abort", bytes = new Uint8Array(0)) {
       for (const listener of listeners.get(event) ?? []) listener(bytes);
     },
-    /** Completes the oldest write in flight. */
-    drain() {
-      callbacks.shift()?.();
+    /** Completes the oldest write in flight, or fails it. */
+    drain(error?: Error) {
+      callbacks.shift()?.(error);
     },
     get inFlight() {
       return callbacks.length;
@@ -394,4 +400,73 @@ test("a stream refused before its socket dials is reset without a connect", asyn
   expect(made.dials).toBe(0);
   expect(sockets[0]?.state.destroyed).toBe(true);
   expect(sent.map((frame) => [frame.kind, frame.id])).toEqual([[kinds.reset, 1]]);
+});
+
+test("a write the socket reports failed only through its callback resets the stream", async () => {
+  const { peer, opened, sent, removed, credit } = host();
+  const socket = await opened(1);
+  peer(kinds.data, 1, 1, byte(1));
+  peer(kinds.data, 1, 1, byte(2));
+  peer(kinds.end, 1);
+  await settle();
+  socket.drain(new Error("broken pipe"));
+  await settle();
+  // No socket event came; the failed write alone aborts, and nothing finishes it later.
+  expect(kindsOf(sent).at(-1)).toBe(kinds.reset);
+  expect(removed.map((entry) => entry.id)).toEqual([1]);
+  expect(socket.state.removal).toBe("reset");
+  expect(socket.inFlight).toBe(0);
+  expect(socket.state.ended).toBe(false);
+  expect(credit(1)).toBe(0);
+});
+
+test("a stream leaves through its socket as finished only when both sides closed", async () => {
+  const graceful = host();
+  const done = await graceful.opened(1);
+  graceful.peer(kinds.end, 1);
+  done.emit("end");
+  await settle();
+  done.emit("close");
+  await settle();
+  expect(done.state.removal).toBe("finished");
+
+  // The peer's END and then its RESET: the socket hears a reset, not a finished stream.
+  const reset = host();
+  const aborted = await reset.opened(1);
+  reset.peer(kinds.end, 1);
+  aborted.emit("end");
+  reset.peer(kinds.reset, 1);
+  await settle();
+  expect(aborted.state.removal).toBe("reset");
+});
+
+test("a socket that hangs up with bytes still held has the deadline from its hang-up, and ends cleanly within it", async () => {
+  const { peer, opened, sent, removed, advance } = host();
+  const socket = await opened(1);
+  peer(kinds.end, 1);
+  await settle();
+  // Closed after its FIN was read, with bytes before it still being handed over.
+  socket.emit("hangup");
+  advance(gracefulDrainMs - 1);
+  socket.emit("data", byte(7));
+  await settle();
+  socket.emit("end");
+  await settle();
+  expect(kindsOf(sent)).toEqual([kinds.ready, kinds.data, kinds.end]);
+  expect(removed.map((entry) => entry.id)).toEqual([1]);
+  expect(socket.state.removal).toBe("finished");
+});
+
+test("a socket that hangs up and never hands over its end is reset at the deadline from the hang-up", async () => {
+  const { opened, sent, removed, advance } = host();
+  const socket = await opened(1);
+  socket.emit("hangup");
+  advance(gracefulDrainMs - 1);
+  socket.emit("data", byte(7));
+  await settle();
+  expect(removed).toEqual([]);
+  advance(1);
+  await settle();
+  expect(kindsOf(sent).at(-1)).toBe(kinds.reset);
+  expect(socket.state.removal).toBe("reset");
 });

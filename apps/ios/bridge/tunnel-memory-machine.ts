@@ -71,7 +71,10 @@ function devServerSocket(port: number, later: (run: () => void) => void) {
       }
       callback();
     },
-    on(event: "data" | "end" | "close" | "error" | "abort", listener: (bytes: Uint8Array) => void) {
+    on(
+      event: "data" | "end" | "close" | "hangup" | "error" | "abort",
+      listener: (bytes: Uint8Array) => void,
+    ) {
       const none = new Uint8Array(0);
       if (event === "data") data = listener;
       else if (event === "end") ends.push(() => listener(none));

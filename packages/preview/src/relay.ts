@@ -56,7 +56,7 @@ export function attachPreviewRelay(options: {
     socketFactory: (port) => {
       const socket = new Socket({ allowHalfOpen: true });
       return {
-        socket: previewSocket(socket, systemTimer),
+        socket: previewSocket(socket),
         connect: () => socket.connect(loopbackConnection(port)),
       };
     },
@@ -107,7 +107,7 @@ async function createNodeLoopback(options: Parameters<PreviewLoopbackRuntime["li
       }
       socket.setTimeout(0);
       if (bytes < chunk.length) socket.unshift(chunk.subarray(bytes));
-      options.openSocket(previewSocket(socket, systemTimer));
+      options.openSocket(previewSocket(socket));
     };
     socket.on("error", () => socket.destroy());
     socket.on("data", authenticate);

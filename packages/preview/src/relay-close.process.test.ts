@@ -86,7 +86,7 @@ test.each(["credit", "writer"])(
             sockets.add(socket);
             socket.once("close", () => sockets.delete(socket));
             // As the Node runtime does: Bun reads more than one window at a time.
-            openSocket(previewSocket(socket, systemTimer));
+            openSocket(previewSocket(socket));
             let seen = 0;
             socket.on("data", (bytes) => {
               seen += bytes.length;
@@ -232,7 +232,7 @@ async function closedWhileDraining() {
   raw.unshift(last);
   client.end();
   const rawClosed = once(raw, "close");
-  mux.open(previewSocket(raw, clock.timer), 3000);
+  mux.open(previewSocket(raw), 3000);
   await rawClosed;
   const deliveredBytes = () => Buffer.concat(delivered).byteLength;
   expect(deliveredBytes()).toBeLessThan(last.byteLength);
@@ -275,19 +275,20 @@ test("a closed stream whose peer stops returning credit is reset and frees its s
   await turns(() => drain.mux.stats().pendingPayloadBytes === 0);
 });
 
-test("a closed stream that keeps draining slowly is not cut off by the deadline", async () => {
+test("a socket closed with bytes still held is reset at the deadline from its close, though credit keeps coming", async () => {
   const drain = await closedWhileDraining();
   const before = drain.deliveredBytes();
   drain.clock.advance(gracefulDrainMs - 1);
+  // Credit late in the wait moves the held bytes on, but buys no time.
   drain.credit(false);
   await turns(() => drain.deliveredBytes() > before);
-  // Past the deadline from the close, but not from the last progress.
-  drain.clock.advance(gracefulDrainMs - 1);
-  drain.credit(true);
-  await turns(() => drain.after.length > 0 && drain.mux.stats().streams === 0);
+  expect(drain.mux.stats().streams).toBe(1);
+  drain.clock.advance(1);
+  await turns(() => drain.after.length > 0);
 
-  expect(Buffer.concat(drain.delivered)).toEqual(drain.last);
-  expect(drain.after).toEqual(["end"]);
+  expect(drain.after).toEqual(["reset"]);
+  expect(drain.mux.stats().streams).toBe(0);
+  expect(drain.deliveredBytes()).toBeLessThan(drain.last.byteLength);
 });
 
 test.each(["peer reset", "mux close"])(
@@ -356,7 +357,7 @@ async function overRealTcp(serve: (socket: Socket) => void, reads: "at once" | "
       const socket = new Socket();
       socket.on("error", () => {});
       return {
-        socket: previewSocket(socket, systemTimer),
+        socket: previewSocket(socket),
         connect: () => socket.connect(port, "127.0.0.1"),
       };
     },
@@ -365,7 +366,7 @@ async function overRealTcp(serve: (socket: Socket) => void, reads: "at once" | "
   cleanup.push(machine.close, device.close);
   const listener = createServer({ allowHalfOpen: true }, (socket) => {
     socket.on("error", () => {});
-    device.open(previewSocket(socket, systemTimer), devAddress.port);
+    device.open(previewSocket(socket), devAddress.port);
   });
   listener.listen(0, "127.0.0.1");
   await once(listener, "listening");
@@ -504,7 +505,7 @@ async function machineFacing(
       const socket = new Socket({ allowHalfOpen: halfOpen });
       socket.on("error", () => {});
       return {
-        socket: previewSocket(socket, systemTimer),
+        socket: previewSocket(socket),
         connect: () => socket.connect(port, "127.0.0.1"),
       };
     },
