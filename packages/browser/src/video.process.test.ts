@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { connectBrowser } from "./index.ts";
 import { decodeStreamMessage, StreamAssembler, type StreamMessage } from "./stream.ts";
 import type { BrowserVideoChunk } from "./stream-video.ts";
-import { videoWindow } from "./video-fanout.ts";
+import { deadline, videoWindow } from "./video-fanout.ts";
 import { executablePath, fixture } from "./test-support.ts";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -10,6 +10,8 @@ type Fixture = Awaited<ReturnType<typeof fixture>>;
 /** A phone-sized viewer over a binary connection that asks for video. */
 function videoViewer(f: Fixture, connectionId = "phone", codecs = ["avc1.42E033", "vp8"]) {
   const streamed: StreamMessage[] = [];
+  /** When each video chunk arrived, on this process's monotonic clock. */
+  const arrivals: number[] = [];
   /** The type of every JSON message the connection sent. */
   const sent: string[] = [];
   const assembler = new StreamAssembler();
@@ -26,6 +28,7 @@ function videoViewer(f: Fixture, connectionId = "phone", codecs = ["avc1.42E033"
         const envelope = assembler.push(piece);
         const message = envelope && decodeStreamMessage(envelope);
         if (message) streamed.push(message);
+        if (message?.kind === "browser.video") arrivals.push(performance.now());
       }
       for (const waiter of waiters) waiter();
       return true;
@@ -33,6 +36,8 @@ function videoViewer(f: Fixture, connectionId = "phone", codecs = ["avc1.42E033"
   });
   const video = () =>
     streamed.flatMap((message) => (message.kind === "browser.video" ? [message.chunk] : []));
+  /** The video chunks that arrived before `at`. */
+  const videoBefore = (at: number) => video().filter((_chunk, index) => (arrivals[index] ?? 0) < at);
   const until = (done: () => boolean, timeoutMs = 20_000) =>
     new Promise<void>((resolve, reject) => {
       const check = () => {
@@ -62,6 +67,7 @@ function videoViewer(f: Fixture, connectionId = "phone", codecs = ["avc1.42E033"
     streamed,
     sent,
     video,
+    videoBefore,
     until,
     ack,
     subscribe: () =>
@@ -271,19 +277,21 @@ describe.skipIf(!executablePath)("live video from ace's Chrome", () => {
     await f.navigate();
     const stalled = videoViewer(f, "stalled");
     const keeping = videoViewer(f, "keeping-up");
+    // An unacked chunk is lost, and its viewer offered a fresh keyframe, only past its deadline
+    // (#2037): at the soonest, that long after the stalled viewer's first chunk was sent, which
+    // is after it subscribed. Whatever arrives before then came under the window alone.
+    const lossesFrom = performance.now() + deadline(0, 0, undefined);
     await stalled.subscribe();
     await keeping.subscribe();
     await f.evaluate(animate);
     await stalled.until(() => stalled.video().some((chunk) => chunk.key));
-    // Past a full window (a second at 60 fps); one viewer acks each chunk, one none. Checked
-    // well before a chunk can be lost (about 3 s unacked, #2037), after which the stalled viewer
-    // is offered a fresh keyframe.
+    // Well past a full window (a second at 60 fps); one viewer acks each chunk, one none.
     await keeping.until(() => {
       const shown = keeping.video().at(-1);
       if (shown) void keeping.ack(shown.sequence);
-      return keeping.video().length >= videoWindow.frames + 10;
+      return keeping.video().length >= 2 * videoWindow.frames;
     });
-    expect(stalled.video().length).toBeLessThanOrEqual(videoWindow.frames);
+    expect(stalled.videoBefore(lossesFrom).length).toBeLessThanOrEqual(videoWindow.frames);
     await f.evaluate("window.animating=false");
     stalled.bridge.close();
     keeping.bridge.close();
