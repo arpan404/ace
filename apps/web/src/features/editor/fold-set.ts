@@ -13,6 +13,14 @@ import { hiddenRanges, type FoldRange } from "./folding.ts";
 type Range = { from: number; to: number };
 
 /**
+ * Counts the fold entries a set reads or writes, so a test can hold edits to work near the edit
+ * without a clock.
+ */
+export interface FoldWork {
+  entries: number;
+}
+
+/**
  * Sorted pairs whose entries from `gap` on carry a pending `delta`: shifting everything from an
  * index costs the distance from the last shift, not the count after it.
  */
@@ -21,14 +29,21 @@ class ShiftedPairs {
   #b: number[] = [];
   #gap = 0;
   #delta = 0;
+  readonly #work: FoldWork;
+
+  constructor(work: FoldWork) {
+    this.#work = work;
+  }
 
   get length(): number {
     return this.#a.length;
   }
   a(index: number): number {
+    this.#work.entries++;
     return (this.#a[index] ?? 0) + (index >= this.#gap ? this.#delta : 0);
   }
   b(index: number): number {
+    this.#work.entries++;
     return (this.#b[index] ?? 0) + (index >= this.#gap ? this.#delta : 0);
   }
   /** The first index whose `a` is at least `value`. */
@@ -49,6 +64,7 @@ class ShiftedPairs {
       return;
     }
     const delta = this.#delta;
+    this.#work.entries += Math.abs(to - this.#gap);
     for (; this.#gap < to; this.#gap++) {
       this.#a[this.#gap] = (this.#a[this.#gap] ?? 0) + delta;
       this.#b[this.#gap] = (this.#b[this.#gap] ?? 0) + delta;
@@ -68,6 +84,7 @@ class ShiftedPairs {
   /** Replaces `count` entries at `index` with `items`, given in true values. */
   splice(index: number, count: number, items: readonly (readonly [number, number])[]): void {
     this.#moveGap(index);
+    this.#work.entries += count + items.length;
     const delta = this.#delta;
     const a = items.map(([value]) => value - delta);
     const b = items.map(([, value]) => value - delta);
@@ -109,12 +126,17 @@ function mapRange(range: Range, from: number, to: number, inserted: number): Ran
 }
 
 export class FoldSet {
-  readonly #folds = new ShiftedPairs();
+  readonly #folds: ShiftedPairs;
   /** The folds' hidden lines, merged as `hiddenRanges` merges them. */
-  readonly #hidden = new ShiftedPairs();
+  readonly #hidden: ShiftedPairs;
 
-  static of(folds: readonly FoldRange[]): FoldSet {
-    const set = new FoldSet();
+  constructor(work: FoldWork = { entries: 0 }) {
+    this.#folds = new ShiftedPairs(work);
+    this.#hidden = new ShiftedPairs(work);
+  }
+
+  static of(folds: readonly FoldRange[], work?: FoldWork): FoldSet {
+    const set = new FoldSet(work);
     set.replace(folds);
     return set;
   }

@@ -108,20 +108,27 @@ test("an edit that opens a fold shows only that fold's lines; nested folds stay 
   ]);
 });
 
-test("typing in one place among many folds keeps up, however many folds the file has", () => {
+test("typing in one place among many folds touches the folds near it, not every fold", () => {
   const folds = nestedFolds(100_000);
-  const set = FoldSet.of(folds);
-  const started = performance.now();
+  const work = { entries: 0 };
+  const set = FoldSet.of(folds, work);
+  let most = 0;
+  const edit = (span: LineEdit) => {
+    work.entries = 0;
+    set.map([span]);
+    most = Math.max(most, work.entries);
+  };
   // Typing on a visible line in the middle: a header line of a closed fold.
   const header = 400_000;
   for (let key = 0; key < 5_000; key++) {
-    set.map([{ firstLine: header, removedLines: 1, insertedLines: 1 }]);
+    edit({ firstLine: header, removedLines: 1, insertedLines: 1 });
     expect(set.has(header)).toBe(true);
   }
   // Enter after a closing line in the middle, a few times: every fold below moves.
   for (let key = 0; key < 200; key++)
-    set.map([{ firstLine: header + 7, removedLines: 1, insertedLines: 2 }]);
-  expect(performance.now() - started).toBeLessThan(500);
+    edit({ firstLine: header + 7, removedLines: 1, insertedLines: 2 });
+  // A few binary searches' worth per edit; work over every fold would be 300,000.
+  expect(most).toBeLessThan(500);
   expect(set.has(header + 8 + 200)).toBe(true);
   expect(set.size).toBe(folds.length);
 });
