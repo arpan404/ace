@@ -1,6 +1,6 @@
 import { Fragment, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
-import type { DeckGroup, DeckNode, SplitPath } from "./layout.ts";
+import type { GroupNode, SplitNode, NodePath } from "@ace/ui-core/editor-workbench";
 
 /** A group never gets narrower or shorter than this by dragging an edge. */
 const minGroupPx = 160;
@@ -10,10 +10,12 @@ const minGroupPx = 160;
  * between neighbours that resizes by drag or arrows and evens the split on double-click.
  */
 export function SplitGrid(props: {
-  node: DeckNode;
-  path?: SplitPath;
-  renderGroup(group: DeckGroup): ReactNode;
-  onResize(at: SplitPath, sizes: readonly number[]): void;
+  node: SplitNode;
+  path?: NodePath;
+  renderGroup(group: GroupNode): ReactNode;
+  onResize(at: NodePath, sizes: readonly number[]): void;
+  /** Double-click on an edge: even sizes for that split (spec 18). */
+  onEven(at: NodePath): void;
 }) {
   const { node } = props;
   const path = props.path ?? [];
@@ -29,6 +31,7 @@ export function SplitGrid(props: {
               sizes={node.sizes}
               before={index - 1}
               onResize={(sizes) => props.onResize(path, sizes)}
+              onEven={() => props.onEven(path)}
             />
           )}
           <div className="flex min-h-0 min-w-0" style={{ flex: `${node.sizes[index] ?? 1} 1 0px` }}>
@@ -37,6 +40,7 @@ export function SplitGrid(props: {
               path={[...path, index]}
               renderGroup={props.renderGroup}
               onResize={props.onResize}
+              onEven={props.onEven}
             />
           </div>
         </Fragment>
@@ -51,6 +55,7 @@ function SplitEdge(props: {
   /** The child before the edge; the one after is `before + 1`. */
   before: number;
   onResize(sizes: readonly number[]): void;
+  onEven(): void;
 }) {
   const drag = useRef<{ pointer: number; start: number; px: number; sizes: number[] } | undefined>(
     undefined,
@@ -107,8 +112,7 @@ function SplitEdge(props: {
       }}
       onPointerUp={() => (drag.current = undefined)}
       onPointerCancel={() => (drag.current = undefined)}
-      // Spec 18: double-click evens the sizes of this split.
-      onDoubleClick={() => props.onResize(props.sizes.map(() => 1))}
+      onDoubleClick={props.onEven}
       onKeyDown={(event) => {
         const back = props.row ? "ArrowLeft" : "ArrowUp";
         const forward = props.row ? "ArrowRight" : "ArrowDown";

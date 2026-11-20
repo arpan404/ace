@@ -2,7 +2,7 @@ import { useState, type DragEvent, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useBufferFacts, type DeckBuffers } from "./buffers.ts";
 import { writeTabDrag } from "./drag.ts";
-import type { DeckTab } from "./layout.ts";
+import type { EditorTab } from "@ace/ui-core/editor-workbench";
 import { fileName } from "./paths.ts";
 import { slotShows, TabSlot } from "./tab-slot.tsx";
 
@@ -13,7 +13,7 @@ import { slotShows, TabSlot } from "./tab-slot.tsx";
  */
 export function DeckTabView(props: {
   group: string;
-  tab: DeckTab;
+  tab: EditorTab;
   hint: string | undefined;
   active: boolean;
   /** The tab's group is the focused one: its active tab reads in full ink. */

@@ -1,3 +1,4 @@
+import type { EditorTab, GroupNode } from "@ace/ui-core/editor-workbench";
 import type { ReactNode } from "react";
 import {
   ContextMenu,
@@ -5,45 +6,41 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
-import type { DeckBuffers } from "./buffers.ts";
 import type { GroupActions } from "./group-actions.ts";
-import type { DeckGroup, DeckTab } from "./layout.ts";
+
+const unpinned = (tabs: readonly EditorTab[]) => tabs.some((each) => !each.pinned);
 
 /**
- * A tab's context menu (spec 24): the close variants (pinned tabs are skipped by "others" and
- * "to the right"), pin, keep, splits and the path. Open in and Reveal in Files join with W4/W5.
+ * A tab's context menu (spec 24): the close variants (pinned tabs stay for all but Close all),
+ * pin, keep, splits and the path. Open in and Reveal in Files join with W4 and W5.
  */
 export function TabMenu(props: {
-  group: DeckGroup;
-  tab: DeckTab;
-  buffers: DeckBuffers;
+  group: GroupNode;
+  tab: EditorTab;
   actions: GroupActions;
   children: ReactNode;
 }) {
   const { group, tab, actions } = props;
   const index = group.tabs.indexOf(tab);
-  const others = group.tabs.filter((each) => each !== tab && !each.pinned).map((each) => each.path);
-  const right = group.tabs
-    .slice(index + 1)
-    .filter((each) => !each.pinned)
-    .map((each) => each.path);
-  const saved = () =>
-    group.tabs.filter((each) => !props.buffers.facts(each.path).unsaved).map((each) => each.path);
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<div className="flex" />}>{props.children}</ContextMenuTrigger>
       <ContextMenuContent>
         <MenuItem onClick={() => actions.close([tab.path])}>Close</MenuItem>
-        <MenuItem disabled={others.length === 0} onClick={() => actions.close(others)}>
+        <MenuItem
+          disabled={!unpinned(group.tabs.filter((each) => each !== tab))}
+          onClick={() => actions.closeVariant(tab.path, "others")}
+        >
           Close others
         </MenuItem>
-        <MenuItem disabled={right.length === 0} onClick={() => actions.close(right)}>
+        <MenuItem
+          disabled={!unpinned(group.tabs.slice(index + 1))}
+          onClick={() => actions.closeVariant(tab.path, "right")}
+        >
           Close to the right
         </MenuItem>
-        <MenuItem onClick={() => actions.close(saved())}>Close saved</MenuItem>
-        <MenuItem onClick={() => actions.close(group.tabs.map((each) => each.path))}>
-          Close all
-        </MenuItem>
+        <MenuItem onClick={() => actions.closeVariant(tab.path, "saved")}>Close saved</MenuItem>
+        <MenuItem onClick={() => actions.closeVariant(tab.path, "all")}>Close all</MenuItem>
         <MenuSeparator />
         <MenuItem onClick={() => actions.setPinned(tab.path, !tab.pinned)}>
           {tab.pinned ? "Unpin" : "Pin"}

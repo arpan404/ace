@@ -10,9 +10,16 @@ import {
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import type { DeckBuffers } from "./buffers.ts";
 import type { DeckHost, EditorStatus } from "./deck-host.ts";
-import { bindGroupActions } from "./group-actions.ts";
+import {
+  evenSplit,
+  focusedGroup,
+  focusGroup,
+  groupsOf,
+  resizeSplit,
+  type GroupNode,
+} from "@ace/ui-core/editor-workbench";
+import { bindGroupActions, groupContext, type DeckLayoutProps } from "./group-actions.ts";
 import { GroupView } from "./group-view.tsx";
-import { deckGroups, focusedGroup, type DeckLayout, type DeckOps } from "./layout.ts";
 import { fileName } from "./paths.ts";
 import { SplitGrid } from "./split-grid.tsx";
 import { agentChangeNotice, StatusLine } from "./status-line.tsx";
@@ -20,11 +27,7 @@ import { agentChangeNotice, StatusLine } from "./status-line.tsx";
 /** Spec 5: under this width the Deck shows only the focused group. */
 export const compactBelowPx = 760;
 
-export interface DeckProps extends Omit<DeckHost, "reportStatus"> {
-  layout: DeckLayout;
-  /** W1's model; `createInterimOps` until W1 lands. */
-  ops: DeckOps;
-  onLayoutChange(next: DeckLayout): void;
+export interface DeckProps extends Omit<DeckHost, "reportStatus">, DeckLayoutProps {
   /** Steps to the next unseen agent change across open editors (⌥F5). */
   onNextChange?: (() => void) | undefined;
   /** Compact layout's way to the explorer ("Show files"), at the strip's left. */
@@ -36,10 +39,11 @@ export interface DeckProps extends Omit<DeckHost, "reportStatus"> {
  * line for the focused group; ⌘1–9 focus groups while focus is inside it (spec 27).
  */
 export function Deck(props: DeckProps) {
-  const { layout, ops, onLayoutChange } = props;
+  const { layout, onLayoutChange } = props;
   const root = useRef<HTMLDivElement>(null);
   const compact = useCompact(root);
-  const groups = deckGroups(layout.root);
+  const groups = groupsOf(layout);
+  const context = groupContext(props);
   const focused = focusedGroup(layout);
   const [statuses, setStatuses] = useState<ReadonlyMap<string, EditorStatus>>(new Map());
   const reportStatus = useCallback((group: string, status: EditorStatus | undefined) => {
@@ -64,7 +68,7 @@ export function Deck(props: DeckProps) {
     );
   }, [focused.id]);
 
-  const renderGroup = (group: (typeof groups)[number], others?: ReactNode) => {
+  const renderGroup = (group: GroupNode, others?: ReactNode) => {
     const number = groups.indexOf(group) + 1;
     const isFocused = group.id === focused.id;
     return (
@@ -75,7 +79,7 @@ export function Deck(props: DeckProps) {
         focused={isFocused}
         last={groups.length === 1}
         host={host}
-        actions={bindGroupActions(group.id, layout, ops, onLayoutChange)}
+        actions={bindGroupActions(group.id, context)}
         stripLead={compact && isFocused ? props.explorerToggle : undefined}
         groupMenu={others}
       />
@@ -105,7 +109,7 @@ export function Deck(props: DeckProps) {
           return;
         }
         pendingFocus.current = true;
-        onLayoutChange(ops.focus(layout, target.id));
+        onLayoutChange(focusGroup(layout, target.id));
       }}
     >
       <div className="flex min-h-0 flex-1">
@@ -118,7 +122,7 @@ export function Deck(props: DeckProps) {
                   group.id === focused.id ? null : (
                     <MenuItem
                       key={group.id}
-                      onClick={() => onLayoutChange(ops.focus(layout, group.id))}
+                      onClick={() => onLayoutChange(focusGroup(layout, group.id))}
                     >
                       {`Group ${index + 1}: ${group.active ? fileName(group.active) : "empty"}`}
                     </MenuItem>
@@ -132,7 +136,8 @@ export function Deck(props: DeckProps) {
           <SplitGrid
             node={layout.root}
             renderGroup={(group) => renderGroup(group)}
-            onResize={(at, sizes) => onLayoutChange(ops.resize(layout, at, sizes))}
+            onResize={(at, sizes) => onLayoutChange(resizeSplit(layout, at, sizes))}
+            onEven={(at) => onLayoutChange(evenSplit(layout, at))}
           />
         )}
       </div>

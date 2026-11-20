@@ -3,12 +3,12 @@ import { useEffect } from "react";
 import { beforeAll, expect, test, vi } from "vitest";
 import type { EditorStatus } from "./deck-host.ts";
 import { group, StatefulDeck, tab } from "./deck-test-support.tsx";
-import { deckGroups, type DeckLayout } from "./layout.ts";
+import { groupsOf, type EditorLayout } from "@ace/ui-core/editor-workbench";
 import { memoryBuffers } from "./memory-buffers.ts";
 
 /*
  * The Deck through its rendered view: tabs, strips, drops, the notice and the status line,
- * with the layout held by the interim model and buffer facts set by hand.
+ * with the layout held by W1's model and buffer facts set by hand.
  */
 
 beforeAll(() => {
@@ -41,13 +41,15 @@ function editorArea(number: number): HTMLElement {
   return area;
 }
 
-const one = (tabs = [tab("src/a.ts"), tab("src/b.ts")]): DeckLayout => ({
+type Start = Pick<EditorLayout, "root" | "focused">;
+
+const one = (tabs = [tab("src/a.ts"), tab("src/b.ts")]): Start => ({
   root: group("g0", tabs),
   focused: "g0",
 });
 
 test("dragging a tab to a group's right third makes a new group holding it", () => {
-  const seen: DeckLayout[] = [];
+  const seen: EditorLayout[] = [];
   render(<StatefulDeck initial={one()} buffers={memoryBuffers()} onLayout={(l) => seen.push(l)} />);
   const area = editorArea(1);
   area.getBoundingClientRect = () => new DOMRect(0, 0, 300, 300);
@@ -70,7 +72,7 @@ test("dragging a tab to a group's right third makes a new group holding it", () 
 });
 
 test("dropping a tab on another group's strip moves it there at the drop slot", () => {
-  const initial: DeckLayout = {
+  const initial: Start = {
     root: {
       kind: "split",
       direction: "row",
@@ -180,7 +182,7 @@ test("a clean buffer whose disk version moves raises no notice", () => {
 });
 
 test("the status line shows only the focused group's editor status", () => {
-  const initial: DeckLayout = {
+  const initial: Start = {
     root: {
       kind: "split",
       direction: "row",
@@ -220,8 +222,8 @@ function StatusReporter(props: { label: string; report(status: EditorStatus | un
 }
 
 test("double-clicking a split's edge evens its sizes", () => {
-  const seen: DeckLayout[] = [];
-  const initial: DeckLayout = {
+  const seen: EditorLayout[] = [];
+  const initial: Start = {
     root: {
       kind: "split",
       direction: "row",
@@ -234,12 +236,12 @@ test("double-clicking a split's edge evens its sizes", () => {
     <StatefulDeck initial={initial} buffers={memoryBuffers()} onLayout={(l) => seen.push(l)} />,
   );
   fireEvent.doubleClick(screen.getByRole("separator", { name: "Resize groups" }));
-  expect(seen.at(-1)?.root).toMatchObject({ sizes: [1, 1] });
+  expect(seen.at(-1)?.root).toMatchObject({ sizes: [0.5, 0.5] });
 });
 
 test("⌘2 inside the Deck focuses group 2; ⌘ with no such group is left to the app", () => {
-  const seen: DeckLayout[] = [];
-  const initial: DeckLayout = {
+  const seen: EditorLayout[] = [];
+  const initial: Start = {
     root: {
       kind: "split",
       direction: "row",
@@ -275,8 +277,8 @@ test("closing the last tab of the last group shows the calm empty state", () => 
 });
 
 test("closing a non-last group's last tab removes the group", () => {
-  const seen: DeckLayout[] = [];
-  const initial: DeckLayout = {
+  const seen: EditorLayout[] = [];
+  const initial: Start = {
     root: {
       kind: "split",
       direction: "row",
@@ -290,7 +292,8 @@ test("closing a non-last group's last tab removes the group", () => {
   );
   fireEvent.click(within(strip(2)).getByRole("button", { name: "Close c.ts" }));
   expect(screen.queryByRole("region", { name: "Group 2" })).toBeNull();
-  expect(seen.at(-1) && deckGroups(seen.at(-1)!.root).map((each) => each.id)).toEqual(["g0"]);
+  const last = seen.at(-1);
+  expect(last && groupsOf(last).map((each) => each.id)).toEqual(["g0"]);
   expect(seen.at(-1)?.focused).toBe("g0");
 });
 
@@ -326,7 +329,7 @@ test("a loading file shows skeleton lines only after 150 ms", () => {
 test("Open editors groups rows by group and offers Save all only while something is unsaved", () => {
   const buffers = memoryBuffers();
   const onSaveAll = vi.fn();
-  const initial: DeckLayout = {
+  const initial: Start = {
     root: {
       kind: "split",
       direction: "row",
@@ -350,7 +353,7 @@ test("Open editors groups rows by group and offers Save all only while something
 });
 
 test("picking a row in Open editors shows that file in its group", () => {
-  const initial: DeckLayout = {
+  const initial: Start = {
     root: {
       kind: "split",
       direction: "row",

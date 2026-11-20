@@ -4,10 +4,10 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { DeckTabView } from "./deck-tab.tsx";
 import type { DeckBuffers } from "./buffers.ts";
-import { carriesTab, readTabDrag } from "./drag.ts";
+import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
 import type { GroupActions } from "./group-actions.ts";
-import type { DeckGroup } from "./layout.ts";
-import { fileName, folderOf, tabHints } from "./paths.ts";
+import { tabLabels, type GroupNode } from "@ace/ui-core/editor-workbench";
+import { fileName, folderOf } from "./paths.ts";
 import { TabMenu } from "./tab-menu.tsx";
 
 /**
@@ -15,7 +15,7 @@ import { TabMenu } from "./tab-menu.tsx";
  * tab is dragged over it, a ⌄ listing every tab while they overflow, and the group's ⋯.
  */
 export function TabStrip(props: {
-  group: DeckGroup;
+  group: GroupNode;
   focused: boolean;
   buffers: DeckBuffers;
   actions: GroupActions;
@@ -28,7 +28,7 @@ export function TabStrip(props: {
   const scroller = useRef<HTMLDivElement>(null);
   const [drop, setDrop] = useState<number | undefined>(undefined);
   const overflowing = useOverflow(scroller, group.tabs.length);
-  const hints = tabHints(group.tabs.map((tab) => tab.path));
+  const labels = tabLabels(group.tabs.map((tab) => tab.path));
   const activeIndex = Math.max(
     0,
     group.tabs.findIndex((tab) => tab.path === group.active),
@@ -92,18 +92,18 @@ export function TabStrip(props: {
           if (!drag) return;
           event.preventDefault();
           event.stopPropagation();
-          actions.dropInStrip(drag, index);
+          actions.dropInStrip(drag, index, copiesOnDrop(event));
         }}
       >
         {group.tabs.map((tab, index) => (
           <div key={tab.path} className="relative flex shrink-0">
             {drop === index && <DropMark side="before" />}
             {drop === index + 1 && index === group.tabs.length - 1 && <DropMark side="after" />}
-            <TabMenu group={group} tab={tab} buffers={props.buffers} actions={actions}>
+            <TabMenu group={group} tab={tab} actions={actions}>
               <DeckTabView
                 group={group.id}
                 tab={tab}
-                hint={hints.get(tab.path)}
+                hint={labels[index]?.folder}
                 active={tab.path === group.active}
                 groupFocused={props.focused}
                 focusable={index === activeIndex}
@@ -142,9 +142,7 @@ export function TabStrip(props: {
           <MenuSeparator />
           <MenuItem
             disabled={group.tabs.length === 0}
-            onClick={() =>
-              actions.close(group.tabs.filter((tab) => !tab.pinned).map((tab) => tab.path))
-            }
+            onClick={() => actions.close(group.tabs.map((tab) => tab.path))}
           >
             Close all
           </MenuItem>
@@ -165,7 +163,7 @@ function DropMark(props: { side: "before" | "after" }) {
 }
 
 /** Spec 28: shown only while the tabs overflow; lists them with their folders. */
-function OverflowMenu(props: { group: DeckGroup; actions: GroupActions }) {
+function OverflowMenu(props: { group: GroupNode; actions: GroupActions }) {
   return (
     <Menu>
       <MenuTrigger render={<IconButton label="All open files" size="sm" icon={CaretDownIcon} />} />

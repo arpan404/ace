@@ -2,14 +2,13 @@ import { CaretDownIcon, CaretRightIcon } from "@ace/icons";
 import { useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useBufferFacts, type DeckBuffers } from "./buffers.ts";
-import { bindGroupActions, type GroupActions } from "./group-actions.ts";
 import {
-  deckGroups,
-  type DeckGroup,
-  type DeckLayout,
-  type DeckOps,
-  type DeckTab,
-} from "./layout.ts";
+  bindGroupActions,
+  groupContext,
+  type DeckLayoutProps,
+  type GroupActions,
+} from "./group-actions.ts";
+import { groupsOf, type EditorTab, type GroupNode } from "@ace/ui-core/editor-workbench";
 import { fileName, folderOf } from "./paths.ts";
 import { slotShows, TabSlot } from "./tab-slot.tsx";
 
@@ -18,17 +17,16 @@ import { slotShows, TabSlot } from "./tab-slot.tsx";
  * when there is more than one group, each with its folder and the same slot as its tab. Save all
  * shows only while something is unsaved. Folding is the caller's to remember per device.
  */
-export function OpenEditors(props: {
-  layout: DeckLayout;
-  ops: DeckOps;
-  onLayoutChange(next: DeckLayout): void;
-  buffers: DeckBuffers;
-  onSaveAll(paths: readonly string[]): void;
-  open: boolean;
-  onOpenChange(open: boolean): void;
-}) {
+export function OpenEditors(
+  props: DeckLayoutProps & {
+    onSaveAll(paths: readonly string[]): void;
+    open: boolean;
+    onOpenChange(open: boolean): void;
+  },
+) {
   const { layout, buffers } = props;
-  const groups = deckGroups(layout.root);
+  const groups = groupsOf(layout);
+  const context = groupContext(props);
   const paths = [...new Set(groups.flatMap((group) => group.tabs.map((tab) => tab.path)))];
   const unsaved = useUnsaved(buffers, paths);
   const Caret = props.open ? CaretDownIcon : CaretRightIcon;
@@ -71,7 +69,7 @@ export function OpenEditors(props: {
                     tab={tab}
                     current={group.id === layout.focused && group.active === tab.path}
                     buffers={buffers}
-                    actions={bindGroupActions(group.id, layout, props.ops, props.onLayoutChange)}
+                    actions={bindGroupActions(group.id, context)}
                   />
                 ))}
               </ul>
@@ -84,8 +82,8 @@ export function OpenEditors(props: {
 }
 
 function OpenEditorRow(props: {
-  group: DeckGroup;
-  tab: DeckTab;
+  group: GroupNode;
+  tab: EditorTab;
   current: boolean;
   buffers: DeckBuffers;
   actions: GroupActions;

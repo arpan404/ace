@@ -5,10 +5,9 @@ import { Breadcrumbs } from "./breadcrumbs.tsx";
 import { useBufferFacts } from "./buffers.ts";
 import type { DeckHost, EditorStatus } from "./deck-host.ts";
 import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
-import { dropZone, type DropZone } from "./drop-zone.ts";
 import { FileProblem, LoadingLines, NoFileOpen } from "./editor-states.tsx";
 import type { GroupActions } from "./group-actions.ts";
-import type { DeckGroup } from "./layout.ts";
+import { dropZone, type GroupNode, type Side } from "@ace/ui-core/editor-workbench";
 import { TabStrip } from "./tab-strip.tsx";
 
 /**
@@ -17,7 +16,7 @@ import { TabStrip } from "./tab-strip.tsx";
  * over the editor washes the third it would take.
  */
 export function GroupView(props: {
-  group: DeckGroup;
+  group: GroupNode;
   /** 1-based, in reading order: what ⌘1–9 calls it. */
   number: number;
   focused: boolean;
@@ -31,7 +30,7 @@ export function GroupView(props: {
   const { group, host, actions } = props;
   const path = group.active;
   const facts = useBufferFacts(host.buffers, path);
-  const [zone, setZone] = useState<DropZone | undefined>(undefined);
+  const [zone, setZone] = useState<Zone | undefined>(undefined);
   const { reportStatus } = host;
   // Stable per group, so an editor can report from an effect without re-running it.
   const onStatus = useCallback(
@@ -70,10 +69,8 @@ export function GroupView(props: {
           if (!carriesTab(event.dataTransfer)) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = copiesOnDrop(event) ? "copy" : "move";
-          const next = dropZone(
-            { x: event.clientX, y: event.clientY },
-            event.currentTarget.getBoundingClientRect(),
-          );
+          const box = event.currentTarget.getBoundingClientRect();
+          const next = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
           if (next !== zone) setZone(next);
         }}
         onDragLeave={(event) => {
@@ -118,8 +115,10 @@ export function GroupView(props: {
   );
 }
 
+type Zone = Side | "center";
+
 /** The `--active` wash over the part of the group a drop would take (spec 16). */
-function DropWash(props: { zone: DropZone }) {
+function DropWash(props: { zone: Zone }) {
   return (
     <div
       aria-hidden
