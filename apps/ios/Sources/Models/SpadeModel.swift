@@ -12,7 +12,14 @@ import Observation
         let ready: Bool
         let canTurnOn: Bool
     }
-    /// A bot in the list: its name, and its state and one line as web's list says them.
+    /// A face the phone draws: Spade's mark, else an initial on a disc; away dims it.
+    struct Face: Decodable, Equatable, Sendable, Hashable {
+        let main: Bool
+        let initial: String
+        let away: Bool
+    }
+    /// A bot or a group (ADR 0132) in the list: its name, and its state and one line as web's
+    /// list says them.
     struct Bot: Decodable, Equatable, Sendable, Identifiable {
         let id: String
         let conversation: String
@@ -20,6 +27,10 @@ import Observation
         /// Spade itself: its face is the Spade mark.
         let main: Bool
         let initial: String
+        /// A group's id; nil for a bot.
+        let group: String?
+        /// The bot's own face, or a group's first three members'.
+        let faces: [Face]
         /// `needs-you`, `working`, `failed`, `unseen`, `rest` or `off`.
         let state: String
         let line: String
@@ -41,6 +52,13 @@ import Observation
     struct Working: Decodable, Equatable, Sendable {
         let label: String
         let moving: Bool
+        /// In a group, the member answering or waiting.
+        let face: Face?
+    }
+    /// In a group, the member waiting on the person, and its own chat, where the question is.
+    struct Waiting: Decodable, Equatable, Sendable {
+        let name: String
+        let conversation: String
     }
     /// "2 questions for later" in the top bar, and the oldest such card it goes to.
     struct Later: Decodable, Equatable, Sendable {
@@ -55,6 +73,9 @@ import Observation
         let answering: Bool
         let working: Working?
         let later: Later?
+        /// A group's id, while a group's conversation is open.
+        let group: String?
+        let waiting: Waiting?
     }
     struct End: Decodable, Equatable, Sendable {
         let text: String
@@ -66,9 +87,13 @@ import Observation
         case bot(text: String, live: Bool, end: End?)
         case ask(callId: String, sentence: String, detail: String?, reason: String?, always: Bool)
         case question(SpadeQuestionCard)
+        /// A member's message in a group: its name above the first of a run, its face by the last.
+        case member(name: String, text: String, face: Face, first: Bool, last: Bool)
         case note(text: String)
 
-        private enum Keys: String, CodingKey { case kind, text, sending, attached, live, end, callId, sentence, detail, reason, always }
+        private enum Keys: String, CodingKey {
+            case kind, text, sending, attached, live, end, callId, sentence, detail, reason, always, name, face, first, last
+        }
         init(from decoder: any Decoder) throws {
             let box = try decoder.container(keyedBy: Keys.self)
             let text = try box.decodeIfPresent(String.self, forKey: .text) ?? ""
@@ -86,6 +111,11 @@ import Observation
                             always: try box.decodeIfPresent(Bool.self, forKey: .always) ?? false)
             case "question":
                 self = .question(try SpadeQuestionCard(from: decoder))
+            case "member":
+                self = .member(name: try box.decode(String.self, forKey: .name), text: text,
+                               face: try box.decode(Face.self, forKey: .face),
+                               first: try box.decodeIfPresent(Bool.self, forKey: .first) ?? true,
+                               last: try box.decodeIfPresent(Bool.self, forKey: .last) ?? true)
             default:
                 self = .note(text: text)
             }
@@ -138,6 +168,8 @@ import Observation
     /// The app's scene is active, as the bridge was last told (`spadeActive`).
     var active = true
     var opened: String?
+    /// The group whose conversation `opened` is, when it is a group's.
+    var openedGroup: String?
 
     func apply(_ patch: Patch) {
         switch patch {
