@@ -1,9 +1,12 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { CliFailure } from "../output.ts";
-import { checkPackage } from "./check.ts";
+import { writeArchive } from "@ace/marketplace";
+import { folder as archiveFiles, signedVersion } from "@ace/marketplace/testing";
+import { checkAgainstPublished, checkPackage, marketReads } from "./check.ts";
 
 /** Flight watcher with its one contract, `cheapest_fare`, as `input` and `required` shape it. */
 const watcher = (required: string[]) => ({
@@ -81,5 +84,70 @@ describe("ace bot check against the version other bots call", () => {
     );
     // Checked alone, the same folder passes: only callers make it a break.
     await expect(checkPackage(after)).resolves.toMatchObject({ name: "flight-watcher" });
+  });
+});
+
+describe("ace bot publish against the version published in the market", () => {
+  const signed = signedVersion({
+    type: "spade-bot",
+    name: "flight-watcher",
+    files: archiveFiles({ "bot.json": JSON.stringify(watcher(["from", "to"])) }),
+  });
+
+  /** A market serving flight-watcher 1.0.0 on its public read routes, on this machine. */
+  async function market(): Promise<{ origin: string; close(): void }> {
+    const server = createServer((request, response) => {
+      const routes: Record<string, () => void> = {
+        "/v1/entries/spade-bot/flight-watcher": () =>
+          response.end(
+            JSON.stringify({
+              entry: {},
+              versions: [
+                { version: "1.0.0", hash: signed.hash, size: 1, published: 1, downloads: 0 },
+              ],
+            }),
+          ),
+        "/v1/entries/spade-bot/flight-watcher/1.0.0": () =>
+          response.end(JSON.stringify({ manifest: signed.manifest })),
+        [`/v1/objects/${signed.hash}`]: () =>
+          response.end(
+            writeArchive(archiveFiles({ "bot.json": JSON.stringify(watcher(["from", "to"])) })),
+          ),
+      };
+      const route = routes[request.url ?? ""];
+      if (route) route();
+      else {
+        response.statusCode = 404;
+        response.end("{}");
+      }
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    return { origin: `http://127.0.0.1:${port}`, close: () => server.close() };
+  }
+
+  it("refuses a version whose contracts break bots calling the published one", async () => {
+    const served = await market();
+    try {
+      const failure = await checkAgainstPublished(
+        "flight-watcher",
+        watcher(["from", "to", "month"]),
+        marketReads(served.origin),
+      ).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(CliFailure);
+      expect((failure as CliFailure).message).toBe(
+        "Its contracts would break bots that call 1.0.0: cheapest_fare: input.month became required. A breaking change takes a new contract name.",
+      );
+      // A change callers survive, and a package never published, go on to upload.
+      await checkAgainstPublished("flight-watcher", watcher(["from"]), marketReads(served.origin));
+      await checkAgainstPublished(
+        "hotel-scout",
+        watcher(["from", "to", "month"]),
+        marketReads(served.origin),
+      );
+    } finally {
+      served.close();
+    }
   });
 });

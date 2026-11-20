@@ -6,6 +6,8 @@ import { signWithdrawn, verifyWithdrawn, withdrawalKey, type MarketSigningKey } 
 export interface SignerIo {
   /** GET a signer or read route; parsed JSON. */
   get(path: string): Promise<unknown>;
+  /** GET a public read route; undefined when the market has nothing there (404). Without it, `get`. */
+  read?(path: string): Promise<unknown>;
   /** The archive the Worker stored under `hash`, listed or not. */
   object(hash: string): Promise<Uint8Array>;
   /** PUT JSON to a signer route; resolves with the status and body text. */

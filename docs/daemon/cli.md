@@ -1080,6 +1080,8 @@ It installs once, linked to the local package of its name (local/<name>), its ro
 
 Check and test the package, then publish it free: ace market publish spade-bot PATH.
 
+Before uploading it reads the latest version published in the market (ACE_MARKET_URL for a development one) and refuses a change to a contract that would break the bots calling it; a breaking change takes a new name. The market's signer refuses the same change.
+
 - `PATH`: The package's folder; this one when omitted
 
 - `--version VERSION`: The version to publish, such as 1.0.0

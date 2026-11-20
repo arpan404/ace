@@ -232,7 +232,7 @@ The market's signer (`ace market maintainer sign`, on a maintainer's machine, ne
 which can't run Spade) runs a version 3 package's `tests` the same way before it signs it: offline
 on Spade's program with the scripted model, from the bytes the market stored. A version whose
 tests fail is refused for good, with each failure a finding in the report the publisher reads on
-their entry's page; a signer without Spade's program leaves it pending. A publisher's own report
+their entry's page; a signer without Spade's program leaves it pending. Before the tests it compares the version's contracts with the latest signed version before it and refuses for good one that breaks their callers ([contracts.md](contracts.md)); `ace bot publish` makes the same comparison against the market before it uploads. A publisher's own report
 proves nothing, so none is recorded in the signed manifest.
 
 `ace bot dev` reaches the person's Spade through the daemon, or a development Spade directly by

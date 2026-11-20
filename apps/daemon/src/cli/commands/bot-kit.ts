@@ -121,6 +121,8 @@ export const botKitCommands: readonly CommandSpec[] = [
     id: "bot.publish",
     words: ["bot", "publish"],
     summary: "Check and test the package, then publish it free: ace market publish spade-bot PATH",
+    description:
+      "Before uploading it reads the latest version published in the market (ACE_MARKET_URL for a development one) and refuses a change to a contract that would break the bots calling it; a breaking change takes a new name. The market's signer refuses the same change.",
     group: "spade-market",
     mutates: true,
     args: [pathArg],

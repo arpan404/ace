@@ -113,7 +113,10 @@ untrusted with it. Output from another machine is untrusted unless that machine 
   outbox's `stop` on another machine), also after a restart. Stop on the callee ends the call
   `stopped`.
 - **Rollup.** A caller reads `working` while a call is open, and `waiting` ("A bot it asked is
-  waiting for you") while a callee on this machine waits on the person (ADR 0200 §6.2).
+  waiting for you") while its callee waits on the person (ADR 0200 §6.2). For a callee on another
+  machine, that machine answers the call's long poll early, `pending` with `waiting`, whenever
+  the callee starts or stops waiting on the person for it; the caller's outbox entry keeps it and
+  the caller is announced.
 - **A restart of the callee** interrupts its reply; a call still open opens a new reply that
   carries on with it.
 
@@ -127,15 +130,21 @@ bot off and on:
 - `GET /v1/agents/{id}/contracts`: `{contracts, incoming}`.
 - `PUT /v1/agents/{id}/contracts {incoming}`.
 
+The switch (`contracts_incoming_off:<bot>`) moves with the bot (ADR 0187), so a move never turns
+calls back on.
+
 A bot that takes no calls isn't listed by `contracts_find`, and a call to it is refused. A linked
 bot's package view (`GET /v1/agents/{id}/package`) lists its contracts' names, summaries and
 effects for its profile.
 
 ## Developer kit
 
-- `ace bot check [PATH] --against PATH` (and `ace bot publish --against`) compares the contracts
-  with the version other bots call (its folder or `bot.json`) and refuses a change that breaks
-  them: a contract gone; an input field gone, newly required, taking less text, fewer items or a
+- The market's signer refuses for good to sign a version whose contracts break the latest signed
+  version before it (read from the market with the trusted keys), with each change in the reason
+  the publisher reads. `ace bot publish` reads the latest published version itself (from
+  `ACE_MARKET_URL`, else the market) and refuses the same change before anything uploads.
+  `ace bot check [PATH] --against PATH` compares offline with a version's folder or `bot.json`.
+  What counts as breaking callers: a contract gone; an input field gone, newly required, taking less text, fewer items or a
   narrower range; an output field gone or no longer always there, or an output that may now be
   longer, wider, or a word callers never saw. A new optional output field is fine. A breaking
   change takes a new contract name.
