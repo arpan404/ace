@@ -43,6 +43,12 @@ export interface BufferRegistry {
   get(key: BufferKey): TextBuffer | undefined;
   /** The watcher saw the file change (or `file` was read already): reload, or raise a clash. */
   diskChanged(key: BufferKey, file?: DiskFile): void;
+  /**
+   * Files of a checkout were renamed or moved in this window: `moved` maps an old path to its new
+   * one (undefined: untouched). Unsaved buffers move with their drafts, so the edits follow the
+   * tabs; saved ones stay and read the file at the new path when it opens.
+   */
+  rename(root: string, moved: (path: string) => string | undefined): void;
   /** After a reconnect every open buffer of the checkout checks its version (spec 54). */
   recheck(root: string): void;
   /** Writes every pending draft now (pagehide, quit). */
@@ -158,6 +164,18 @@ export function createBufferRegistry(options: BufferRegistryOptions): BufferRegi
     get: (key) => buffers.get(id(key)),
     diskChanged(key, file) {
       void buffers.get(id(key))?.diskChanged(file);
+    },
+    rename(root, moved) {
+      for (const buffer of of(root)) {
+        const path = moved(buffer.key.path);
+        if (path === undefined || !buffer.keeps()) continue;
+        const to = { root, path };
+        // Something already holds the new path: the edits stay where they are, still unsaved.
+        if (buffers.has(id(to))) continue;
+        buffers.delete(id(buffer.key));
+        buffers.set(id(to), buffer);
+        buffer.moveTo(to);
+      }
     },
     recheck(root) {
       for (const buffer of of(root)) void buffer.diskChanged();

@@ -44,6 +44,21 @@ test("F2 renames a file in its row; the new row is selected and its open tab fol
   expect(shown.querySelector(`[data-path="${relay}/socket.ts"]`)).toBeNull();
 });
 
+test("renaming a file with unsaved edits takes the edits to its new name", async () => {
+  const { panel, tree } = await withSocketOpen();
+  const editor = await within(panel).findByRole("textbox", { name: "socket.ts" });
+  editor.focus();
+  await userEvent.keyboard("// typed here{Enter}");
+  const field = await startRename(tree, `${relay}/socket.ts`);
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  await userEvent.keyboard("wire{Enter}");
+
+  const source = await within(panel).findByRole("region", { name: `Source of ${relay}/wire.ts` });
+  await waitFor(() => expect(source.textContent).toContain("// typed here"));
+  const strip = within(panel).getByRole("tablist", { name: "Open files" });
+  expect(within(strip).getByRole("button", { name: "Close wire.ts, unsaved" })).toBeTruthy();
+});
+
 test("renaming a folder keeps it open and selected, and tabs of files inside it follow", async () => {
   const { app, panel, tree } = await withSocketOpen();
   const field = await startRename(tree, `${relay}/`);

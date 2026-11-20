@@ -53,7 +53,8 @@ const message = (error: unknown) =>
  * on the device and a clash with the disk. The registry decides when it lives and dies.
  */
 export class Buffer implements TextBuffer {
-  readonly key: BufferKey;
+  /** Changes only when the file is renamed in this window (`moveTo`). */
+  key: BufferKey;
   /** Leases holding it, and those of them on screen. */
   holders = 0;
   visible = 0;
@@ -244,6 +245,20 @@ export class Buffer implements TextBuffer {
     return this.#write("save");
   }
 
+  /**
+   * The file was renamed or moved in this window: the buffer is now `key`'s. Its draft is written
+   * under the new path before the old one goes (kept there if the new one can't be stored), and
+   * it looks at the disk at its new path.
+   */
+  moveTo(key: BufferKey): void {
+    const from = this.key;
+    this.key = { ...key };
+    void this.#persist().then(() => {
+      if (this.#draftKept) void this.#slot.write(() => this.#ctx.drafts.delete(from), true);
+    });
+    void this.diskChanged();
+  }
+
   replace(): Promise<SaveOutcome> {
     return this.#write("replace");
   }
@@ -372,6 +387,16 @@ export class Buffer implements TextBuffer {
     const clash = this.#clash;
     const known = clash && "theirs" in clash ? clash.theirs.version : base.version;
     if (disk.version === known && clash?.kind !== "deleted") return;
+    // A new version of the same text (the file renamed, or written back as it was): nothing to
+    // merge, and a deletion seen meanwhile is over.
+    if (disk.text === base.text && (clash === undefined || clash.kind === "deleted")) {
+      this.#base = disk;
+      this.#clash = undefined;
+      this.#emit({ type: "state" });
+      // The draft names the version it is based on: a reload must not see a clash.
+      if (this.#dirty) void this.#persist();
+      return;
+    }
     if (!this.keeps()) {
       // A clean buffer reloads in place; typing that starts meanwhile turns it into a clash.
       if (await this.#land(disk.text, "reload")) {

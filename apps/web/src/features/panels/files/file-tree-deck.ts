@@ -1,3 +1,4 @@
+import { useClient } from "@ace/client-react";
 import { useMemo } from "react";
 import {
   deckKind,
@@ -7,7 +8,13 @@ import {
   useWorkspaceActions,
   useWorkspaceStore,
 } from "@/lib/workspace/index.ts";
-import { openEditorsMru, renameInLayout, type DeckRename } from "../deck/deck-layout.ts";
+import {
+  openEditorsMru,
+  renamedPath,
+  renameInLayout,
+  type DeckRename,
+} from "../deck/deck-layout.ts";
+import { deckRegistry } from "../deck/deck-registry.ts";
 import { openInDeck } from "./open-file.ts";
 
 /*
@@ -62,13 +69,14 @@ export interface Deck {
   open(path: string, options: DeckOpenOptions): void;
   /** Open editors, most recently used first. */
   openEditors: readonly string[];
-  /** The explorer renamed an entry: open editors of it (or inside it) follow. */
+  /** The explorer renamed an entry: open editors of it (or inside it) follow, edits included. */
   renamed(rename: DeckRename): void;
 }
 
 /** The thread's Deck as the explorer, search and quick open see it. */
 export function useDeck(threadId: string): Deck {
   const store = useWorkspaceStore();
+  const client = useClient();
   const workspace = useScopeWorkspace(threadId);
   const actions = useWorkspaceActions(threadId);
   const layout = useMemo(() => deckLayoutOf(workspace), [workspace]);
@@ -91,6 +99,8 @@ export function useDeck(threadId: string): Deck {
       }),
     openEditors,
     renamed: (rename) => {
+      // Unsaved buffers and their drafts move first, so the tabs find them at the new paths.
+      deckRegistry(client).rename(threadId, (path) => renamedPath(path, rename));
       const current = store.get(threadId);
       if (!findTab(current, deckKind)) return;
       const before = deckLayoutOf(current);
