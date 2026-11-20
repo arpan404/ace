@@ -9,6 +9,7 @@ import { ProfileApps } from "./spade-bot-connectors.tsx";
 import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
 import { ProfileSpending } from "./spade-bot-oversight.tsx";
+import { ProfileReach } from "./spade-bot-reach.tsx";
 import { ProfilePlugins } from "./spade-bot-plugins.tsx";
 import { ProfileSecurity } from "./spade-bot-security.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
@@ -20,17 +21,22 @@ import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.t
 import { DeleteMakerDialog, type DeletingMaker } from "./spade-delete-maker.tsx";
 import { useMakerWorkers } from "./use-spade-work.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
+import { VoiceRows } from "./spade-voice-settings.tsx";
+import { useSpadeModels } from "./use-spade-models.ts";
+import { voiceKey } from "./use-spoken-replies.ts";
 
 /**
  * Details: what the bot is and how it behaves. A move to another machine, or what needs the
  * person since one, first (ADR 0187). Its task, the model and machine it runs with
- * (and, folded, the models for its other work), its routines, the apps and plugins it may use, its boundaries, its spending, then Duplicate,
- * Export and Delete. Everything edits where it shows.
+ * (and, folded, the models for its other work), how it sounds (Speak replies and its voice, on
+ * this device), its routines, the apps and plugins it may use, its boundaries, its spending,
+ * then Duplicate, Export and Delete. Everything edits where it shows.
  */
 export function ProfileDetails(props: { bot: RosterBot }) {
   const { bot } = props;
   const edit = useEditBot(bot);
   const [modelProblem, setModelProblem] = useState<string>();
+  const speechModel = useSpadeModels(true).data?.speechModel;
   return (
     <>
       <ProfileMoveLine bot={bot} />
@@ -55,11 +61,15 @@ export function ProfileDetails(props: { bot: RosterBot }) {
         <BotRoles bot={bot} />
       </ProfileSection>
       <ProfilePersonality bot={bot} />
+      <ProfileSection label="Voice">
+        <VoiceRows bot={voiceKey(bot.machine.key, bot.id)} speechModel={speechModel} />
+      </ProfileSection>
       <ProfileRoutines bot={bot} />
       <ProfileApps bot={bot} />
       <ProfilePlugins bot={bot} />
       <ProfileSecurity bot={bot} />
       <ProfileSpending bot={bot} />
+      <ProfileReach bot={bot} />
       <Foot bot={bot} />
     </>
   );

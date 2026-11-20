@@ -16,7 +16,13 @@ import {
   type SpadeModels,
   type SpadeSubscription,
 } from "@ace/ui-core/spade-chat";
-import { segment, spadeBody, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
+import {
+  segment,
+  spadeBody,
+  spadeHttp,
+  spadePostBlob,
+  type SpadeTarget,
+} from "./spade-requests.ts";
 
 /*
  * Spade's agent, endpoint and model routes (ADR 0126, 0127), each answer parsed with
@@ -255,6 +261,21 @@ export async function setTranscriptionModel(
   model: string | null,
 ): Promise<void> {
   await spadeHttp(target, "PUT", "/v1/settings", { body: { transcription_model: model } });
+}
+
+/** `endpoint/model` that reads replies aloud; null: the system's own voices (ADR 0134). */
+export async function setSpeechModel(target: SpadeTarget, model: string | null): Promise<void> {
+  await spadeHttp(target, "PUT", "/v1/settings", { body: { speech_model: model } });
+}
+
+/** `words` read aloud by the speech model's endpoint, in `voice`: the audio, whole. */
+export function speakWords(
+  target: SpadeTarget,
+  words: string,
+  voice: string | undefined,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return spadePostBlob(target, "/v1/speech", { text: words, ...(voice ? { voice } : {}) }, signal);
 }
 
 /** A recording's words, from the transcription model's endpoint. */

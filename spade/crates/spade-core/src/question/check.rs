@@ -293,6 +293,7 @@ fn check_one(kind: &Kind, answer: &Value) -> Result<Value, String> {
     }
     match kind {
         Kind::Text { .. } => text(answer).map(Value::String),
+        Kind::Connect(_) => Err(super::connect::ANSWERED_BY_CONNECTING.to_owned()),
         Kind::Choice { options, other } => {
             let picked = answer.as_str().ok_or("the answer is one option's label.")?;
             match label(options, picked) {

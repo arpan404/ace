@@ -114,6 +114,8 @@ impl Transcript {
             }
             Known::QuestionAsked { call_id, .. } => {
                 self.paused = false;
+                // A call that stopped to ask the person (a sign-in to reconnect) runs no longer.
+                self.running.retain(|id| id != call_id);
                 if !self.stopping {
                     self.questions.push(Question {
                         call_id: call_id.clone(),

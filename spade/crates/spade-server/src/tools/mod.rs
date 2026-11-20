@@ -4,6 +4,7 @@
 mod ace;
 mod ace_link;
 mod ace_wait;
+mod apps;
 mod bots;
 mod cloud_account;
 mod connectors;
@@ -83,6 +84,10 @@ pub struct ToolOutput {
     /// Where a command ran and how it went, stored as `command_ran` beside the result for the
     /// reply's steps; the model is not shown it. Set only by the tools that run commands.
     pub command: Option<Box<CommandRun>>,
+    /// Not run because the sign-in to this connector expired and couldn't be renewed: the call
+    /// waits on a Reconnect card and runs again once the person reconnects (ADR 0131,
+    /// amendment 1). Set only by connector tools.
+    pub reconnect: Option<String>,
 }
 
 /// Where a command ran and how it went (`command_ran`).
@@ -136,6 +141,7 @@ impl ToolOutput {
             shared: Box::default(),
             transient: false,
             command: None,
+            reconnect: None,
         }
     }
 
@@ -164,6 +170,7 @@ impl ToolOutput {
             shared: Box::default(),
             transient: false,
             command: None,
+            reconnect: None,
         }
     }
 

@@ -10,8 +10,8 @@ sign-in, sessions, calls), `spade-mcp` (the MCP client shared with ace's tools) 
 `config/connectors.json` ships the makers' official server addresses, each checked against the
 maker's own documentation and the server's live sign-in metadata on its `checked` day (`source`
 names the page). An entry has `id`, `name`, `category`, `url`, `sign_in`, `notes`, `source`,
-`checked`, and maybe `key_url` (where to make a token), `via`, `waits_for`, `effects` and
-`every_tool`. `sign_in` lists what works, best first:
+`checked`, `words` (what a task needing it may say: "issues", "inbox"; see A bot asks below),
+and maybe `key_url` (where to make a token), `via`, `waits_for`, `effects` and `every_tool`. `sign_in` lists what works, best first:
 
 | Value          | Meaning                                                                        |
 | -------------- | ------------------------------------------------------------------------------ |
@@ -137,9 +137,10 @@ token, for display) and the allow lists. Without a keychain only servers needing
 connected.
 
 An access token is renewed with its refresh token when under a minute is left, and whenever the
-server refuses it. A refused refresh (or none to use) marks the connector `needs_reconnect`: its
-tools stay findable, and each call answers that the person must reconnect it. Renewals are done
-once however many calls ask.
+server refuses it; a call refused that way is sent once more on the renewed sign-in (it never ran),
+so the bot sees only its result. A refused refresh (or none to use) marks the connector
+`needs_reconnect`: its tools stay findable, and a call to one waits on a Reconnect card (below)
+instead of failing. Renewals are done once however many calls ask.
 
 ## Sessions and tools
 
@@ -159,6 +160,39 @@ A call is sent once, with a 60-second timeout. Refused before it ran (the sessio
 token was refused): "Not run … It is safe to try again", and a refused token is renewed for the
 next try. Cut off after sending: "Unknown outcome".
 
+## A bot asks
+
+[ADR 0131, amendment 1](../../docs/adr/0131-spade-connectors.md#amendment-1-2026-11-19-a-bot-asks-to-connect-an-app-and-an-expired-sign-in-heals).
+Built in `spade_connect::fit` (matching, what a bot may do), `spade_core::question::connect` (the
+card and what the bot reads), `engine/apps.rs` and `tools/apps.rs`.
+
+- **`apps_find {need}`** lists up to five catalogue apps that fit, best first, one JSON object a
+  line: `{id, name, connected, signs_in}`. `connected` is `yours`, `connected_for_other_bots`,
+  `needs_reconnect` or `no`; `signs_in` is `sign_in`, `key` or `not_available_yet`. Matching is by
+  words: the app's name or id named outright (20), a word its entry lists (3), its category's word
+  (1); apps sharing only a category word are left out when anything fits better.
+- **`app_connect_request {app, why}`** (any other field is refused; `why` up to 300 characters)
+  answers at once when the bot can use the app already. Otherwise it stores a `question_asked`
+  whose one question is `{kind: "connect", prompt: why, app, name, way, can, connector?, key_url?,
+retry?}`, with `way` `sign_in`, `key`, `use`, `reconnect` or `later`, and waits like
+  `ask_user`. A `later` card is stored with its `question_dismissed`, and the bot reads at once
+  that the app can't be connected yet. Helpers don't have it.
+- **The person connects** with the connector routes as usual, then answers the card with
+  `POST /v1/conversations/{id}/questions/{call}/connected {connector, everyone?}`: `202`; `400`
+  when the connector isn't that app, isn't signed in yet, or the card isn't a connect card; `409`
+  when the card isn't open. The bot that asked is let use the connector (every bot with
+  `everyone`) before the answer is stored, `{connector, account?, everyone?}`, on every open card
+  for that app in the conversation. Later and Not now are the question routes' `defer` and
+  `dismiss`; answers in `answers` are refused for a connect card.
+- **A Reconnect card** stands for a connector call refused because its sign-in couldn't be renewed:
+  stored with the call's own id and `retry: true`, it holds the call open. Answered, the call runs
+  again (a call that had started again before a restart reads as an unknown outcome); Later, Not
+  now or a typed reply answer it as not run.
+
+In a debug build, `SPADE_DEV_CATALOGUE` names a JSON list of catalogue entries that replace the
+shipped ones with the same id and are marked local, so a development run signs in to a fake app on
+this machine. A release never reads it.
+
 ## Who may use what
 
 Each bot has an allow list. Spade, the main bot, may use every connected connector unless the
@@ -175,6 +209,7 @@ All under `/v1` with Spade's bearer token, except the callback.
 | ------------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GET /v1/connectors`                 |                                                                                        | `{catalogue: [entry], connectors: [connector]}`                                                                                                                                            |
 | `POST /v1/connectors`                | `{catalogue}` or `{url, name?, local?}`, plus `token?`, `client_id?`, `client_secret?` | `200 {connector}` when connected at once (a token, or no sign-in needed); `202 {id, sign_in_url}` to open in the browser; `202 {id, device: {code, url, expires_in}}` for a device sign-in |
+| `GET /v1/connectors/fit?need=`       |                                                                                        | `{apps: [id]}`: the catalogue apps that fit, best first, at most six                                                                                                                       |
 | `GET /v1/connectors/{id}`            |                                                                                        | `{connector}`; `404`. Poll this after opening the sign-in                                                                                                                                  |
 | `POST /v1/connectors/{id}/connect`   | optional `{token?, client_id?, client_secret?}`                                        | As `POST /v1/connectors`: signs in again                                                                                                                                                   |
 | `DELETE /v1/connectors/{id}`         |                                                                                        | `204`; `404`. Deletes its secrets and its place in every allow list                                                                                                                        |
@@ -183,7 +218,10 @@ All under `/v1` with Spade's bearer token, except the callback.
 | `GET /v1/connectors/callback[/{id}]` | query `code`, `state`, `iss`, `error`                                                  | An HTML page: "Connected to …" (`200`) or why not (`400`). Open, no token; `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a CSP that loads nothing                             |
 
 A connector: `{id, name, url, catalogue, local, sign_in: "oauth"|"token"|"none", state, account, tools,
-problem, device?, bots}`, where `bots` (in `GET /v1/connectors` and `GET /v1/connectors/{id}`) is the
+problem, device?, bots, last_used_ms?, failed?}`, where `last_used_ms` is when a bot last ran one of its tools (written
+at most once a minute), `failed` why its last browser sign-in failed in the last ten minutes
+(`declined`, `needs_admin`, `expired`, `wrong_server`, `failed`; a first sign-in that failed is
+found by `GET /v1/connectors/{id}` only), and `bots` (in `GET /v1/connectors` and `GET /v1/connectors/{id}`) is the
 ids of the bots allowed to use it, in roster order: Spade, the main bot, uses every connector until
 the person narrows it (and none while it is switched off); a bot only those the person allowed. `state` is `connected`, `connecting`, `unreachable`, `needs_reconnect` or
 `signing_in`, and `device` is `{code, url, state: "waiting"|"expired"|"denied"|"failed",

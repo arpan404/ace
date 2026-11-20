@@ -27,6 +27,7 @@ pub mod oversight;
 pub mod personality;
 pub mod provenance;
 pub mod question;
+pub mod reach;
 pub mod redact;
 pub mod research;
 pub mod review;

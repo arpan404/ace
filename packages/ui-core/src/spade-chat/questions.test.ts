@@ -7,6 +7,7 @@ import {
   spadeBubbles,
   spadeCardAnswers,
   spadeCardQuestions,
+  spadeConnectAction,
   spadeForLaterWords,
   spadePickCount,
   spadeRefusedQuestion,
@@ -250,5 +251,101 @@ describe("a draft", () => {
       missing: "Pick a date",
       at: 0,
     });
+  });
+});
+
+/** A connect card for Linear, asking with `way`. */
+const linear = (way: string, extra: Record<string, unknown> = {}) => ({
+  prompt: "To read your Linear board",
+  kind: "connect",
+  app: "linear",
+  name: "Linear",
+  way,
+  can: ["Read and change what your Linear account can", 7],
+  ...extra,
+});
+
+describe("a connect card (ADR 0131, amendment 1)", () => {
+  test("reads as the app it asks for, its one action in words, and a key page only over https", () => {
+    const [read] = spadeCardQuestions([linear("key", { key_url: "http://linear.app/keys" })], "");
+    expect(read?.kind).toBe("connect");
+    if (read?.kind !== "connect") return;
+    expect(read.connect).toEqual({
+      app: "linear",
+      name: "Linear",
+      way: "key",
+      can: ["Read and change what your Linear account can"],
+      connector: undefined,
+      keyUrl: undefined,
+      retry: false,
+    });
+    const action = (way: string) => {
+      const [card] = spadeCardQuestions([linear(way)], "");
+      return card?.kind === "connect" ? spadeConnectAction(card.connect) : "not a connect card";
+    };
+    expect(["sign_in", "key", "use", "reconnect", "later", "teleport"].map(action)).toEqual([
+      "Connect Linear",
+      "Add a key",
+      "Use Linear",
+      "Reconnect Linear",
+      undefined,
+      // A way this client doesn't know offers nothing to press.
+      undefined,
+    ]);
+  });
+
+  test("answered by connecting, it settles to who it is connected as, and Send can never answer it", () => {
+    const c = conversation();
+    asks(c, [linear("sign_in")]);
+    const [open] = c.cards();
+    const question = open?.questions[0];
+    if (!question) throw new Error("no card");
+    expect(spadeCardAnswers(open.questions, [])).toEqual({ missing: "Connect Linear", at: 0 });
+    c.stored({
+      type: "question_answered",
+      call_id: "q1",
+      answers: [{ connector: "linear", account: "ada@example.com" }],
+    });
+    const [settled] = c.cards();
+    expect(settled?.standing).toBe("answered");
+    expect(spadeAnswerWords(question, settled?.answers?.[0])).toBe("Connected as ada@example.com");
+  });
+
+  test("a call held on a Reconnect card that is refused again waits on the card again", () => {
+    const c = conversation();
+    asks(c, [linear("reconnect", { connector: "linear", retry: true })]);
+    c.stored({ type: "question_answered", call_id: "q1", answers: [{ connector: "linear" }] });
+    expect(c.said()).toContain("card q1 answered");
+    c.stored({
+      type: "question_asked",
+      reply: "r1",
+      call_id: "q1",
+      question: "Reconnect Linear",
+      questions: [linear("reconnect", { connector: "linear", retry: true })],
+    });
+    expect(c.said()).toContain("card q1 waiting");
+  });
+
+  test("a call held on a Reconnect card reads as waiting on the person, not as working", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: [{ id: "c1", name: "call_tool" }],
+    });
+    c.stored({ type: "tool_started", reply: "r1", call_id: "c1", name: "call_tool" });
+    expect(c.view().working?.moving).toBe(true);
+    c.stored({
+      type: "question_asked",
+      reply: "r1",
+      call_id: "c1",
+      question: "Reconnect Linear",
+      questions: [linear("reconnect", { connector: "linear", retry: true })],
+    });
+    const view = c.view();
+    expect(view.asking).toBe(true);
+    expect(view.working).toMatchObject({ label: "Waiting for you", moving: false });
   });
 });

@@ -71,6 +71,9 @@ pub(super) struct Settings {
     /// The model that transcribes voice (ADR 0134).
     #[serde(default, deserialize_with = "present")]
     transcription_model: Option<Option<String>>,
+    /// The model that reads replies aloud (ADR 0134, amended).
+    #[serde(default, deserialize_with = "present")]
+    speech_model: Option<Option<String>>,
     /// The model new bots start on; `null` goes back to the first usable model.
     #[serde(default, deserialize_with = "present")]
     new_bot_model: Option<Option<String>>,
@@ -191,6 +194,7 @@ fn models_now(state: &AppState) -> Response {
         "presets": presets,
         "fast_model": fast,
         "transcription_model": engine.transcription_model().ok().flatten(),
+        "speech_model": engine.speech_model().ok().flatten(),
         "new_bot_model": engine.new_bot_model().ok().flatten(),
         "keychain": state.keys.is_some(),
         "starting": engine.starting().is_some(),
@@ -316,6 +320,11 @@ pub(super) async fn settings(
     }
     if let Some(model) = body.transcription_model
         && let Err(error) = state.engine.set_transcription_model(model.as_deref())
+    {
+        return problem(StatusCode::BAD_REQUEST, &error.to_string());
+    }
+    if let Some(model) = body.speech_model
+        && let Err(error) = state.engine.set_speech_model(model.as_deref())
     {
         return problem(StatusCode::BAD_REQUEST, &error.to_string());
     }

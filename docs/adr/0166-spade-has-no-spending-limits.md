@@ -9,6 +9,7 @@ service cap), [ADR 0160](0160-spade-wake-and-owned-services.md) (the `park` wake
 [ADR 0162](0162-spade-model-routing.md) (decision 5, the `<budget>` note) and
 [ADR 0165](0165-spade-digests-and-decision-log.md) (the escalation levels of caps and budget
 parks). The contract is in [spade/docs/oversight.md](../../spade/docs/oversight.md).
+Amended by [ADR 0195](0195-spade-reaches-the-person.md): an alert (never a stop) when a bot's spend rate is unusual, once per episode, which the person can tune or turn off; spend in the app reads live.
 
 ## Context
 
