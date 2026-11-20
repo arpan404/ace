@@ -1,0 +1,99 @@
+{
+  "$id": "https://ace.local/protocol/v1/TransferLive.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bulk": {
+      "properties": {
+        "branch": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "changes": {
+          "properties": {
+            "commit": {
+              "pattern": "^[a-f0-9]{40,64}$",
+              "type": "string"
+            },
+            "ref": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "ref",
+            "commit"
+          ],
+          "type": "object"
+        },
+        "head": {
+          "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "epoch": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "left": {
+      "properties": {
+        "children": {
+          "items": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "queued": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "remoteChildren": {
+          "items": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "shells": {
+          "items": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        }
+      },
+      "required": [
+        "shells",
+        "children",
+        "remoteChildren",
+        "queued"
+      ],
+      "type": "object"
+    },
+    "session": {
+      "$ref": "https://ace.local/protocol/v1/CarriedSession.json"
+    },
+    "sourceThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "unsupported": {
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "required": [
+    "epoch",
+    "sourceThreadId",
+    "left"
+  ],
+  "type": "object"
+}

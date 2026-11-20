@@ -8,6 +8,9 @@
       "minimum": 0,
       "type": "integer"
     },
+    "botsApproved": {
+      "type": "boolean"
+    },
     "deprecated": {
       "maxLength": 500,
       "type": "string"

@@ -77,6 +77,9 @@ class LineRows implements WrapRows {
   }
 }
 
+/** No rows: a line inside a folded region draws nothing. */
+export const noRows: WrapRows = new LineRows(new Int32Array(0), 0, 0);
+
 /** A row that takes the whole line: what a line draws when nothing wraps it. */
 export const wholeLineRow: WrapRows = new LineRows(Int32Array.of(0), Number.POSITIVE_INFINITY, 0);
 

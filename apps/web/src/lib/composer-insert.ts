@@ -1,19 +1,23 @@
 import type { Mention } from "@ace/protocol";
 /** File viewers hand references to the mounted composer in the same thread. */
-const receivers = new Map<string, (mention: Mention) => void>();
+const receivers = new Map<string, (mentions: readonly Mention[]) => void>();
+/** The composer takes every mention of one hand-off in a single edit, in order. */
 export function receiveComposerMentions(
   threadId: string,
-  receive: (mention: Mention) => void,
+  receive: (mentions: readonly Mention[]) => void,
 ): () => void {
   receivers.set(threadId, receive);
   return () => {
     if (receivers.get(threadId) === receive) receivers.delete(threadId);
   };
 }
-export function mentionInComposer(threadId: string, mention: Mention): boolean {
+export function mentionInComposer(
+  threadId: string,
+  mention: Mention | readonly Mention[],
+): boolean {
   const receive = receivers.get(threadId);
   if (!receive) return false;
-  receive(mention);
+  receive(Array.isArray(mention) ? mention : [mention as Mention]);
   return true;
 }
 

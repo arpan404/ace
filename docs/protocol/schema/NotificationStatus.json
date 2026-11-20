@@ -8,6 +8,7 @@
     "unresponsive",
     "background_done",
     "agent_says",
+    "spade",
     "catch_up"
   ],
   "type": "string"

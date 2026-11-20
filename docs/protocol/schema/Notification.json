@@ -62,6 +62,9 @@
       "maxLength": 300,
       "type": "string"
     },
+    "spade": {
+      "$ref": "https://ace.local/protocol/v1/SpadeNotificationTarget.json"
+    },
     "status": {
       "$ref": "https://ace.local/protocol/v1/NotificationStatus.json"
     },

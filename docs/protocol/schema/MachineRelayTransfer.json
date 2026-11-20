@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineRelayTransfer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "request": {
+      "$ref": "https://ace.local/protocol/v1/TransferRelayRequest.json"
+    },
+    "timeoutMs": {
+      "maximum": 3600000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "type": {
+      "const": "machine.transfer",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "id",
+    "request"
+  ],
+  "type": "object"
+}

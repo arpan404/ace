@@ -1,0 +1,62 @@
+{
+  "$id": "https://ace.local/protocol/v1/TransferRelayRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "https://ace.local/protocol/v1/MachineTransferCall.json"
+        },
+        "kind": {
+          "const": "call",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "call"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "maxLength": 1398104,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "chunk",
+          "type": "string"
+        },
+        "offset": {
+          "maximum": 21474836480,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "part": {
+          "enum": [
+            "code",
+            "ignored",
+            "final"
+          ],
+          "type": "string"
+        },
+        "transferId": {
+          "$ref": "https://ace.local/protocol/v1/TransferKey.json"
+        }
+      },
+      "required": [
+        "kind",
+        "transferId",
+        "offset",
+        "part",
+        "data"
+      ],
+      "type": "object"
+    }
+  ]
+}

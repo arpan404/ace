@@ -11,9 +11,11 @@ import { schemaVersion } from "./migrations.ts";
 import {
   beforeInstalls,
   beforeOutsideClients,
+  beforePersonStanding,
   undoInstalls,
   undoMachineCode,
   undoOutsideClients,
+  undoPersonStanding,
 } from "./upgrade-test-support.ts";
 
 test.each([1, 9, 13])(
@@ -262,6 +264,68 @@ test("a populated schema 28 database keeps credentials, install ids and folded r
       expect(reopened.sameDevice(phone.device.id, account)).toBe(true);
     } finally {
       reopened.close();
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("devices paired before the person's standing existed keep their credentials through the upgrade and are not the person's", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-upgrade-person-"));
+  const path = join(home, "events.sqlite");
+  try {
+    const store = new Store(path);
+    const phone = store.devices.create("Phone", ["read", "operate"], 1000);
+    store.close();
+    // The release before ADR 0190: devices recorded no person bit and no standing key.
+    const db = new DatabaseSync(path);
+    db.exec(
+      `${undoPersonStanding}UPDATE schema_version SET version=${beforePersonStanding} WHERE id=1`,
+    );
+    db.close();
+
+    for (let open = 0; open < 2; open++) {
+      const reopened = new Store(path);
+      try {
+        const paired = reopened.devices.authenticate(phone.token, 2000);
+        expect(paired).toMatchObject({ id: phone.device.id, scopes: ["read", "operate"] });
+        // Nobody can tell who made its link, so its token alone is never the person.
+        expect(paired?.person).toBe(false);
+        expect(
+          reopened.devices.standingKeyOf(phone.device.id, paired?.generation, 2000),
+        ).toBeUndefined();
+      } finally {
+        reopened.close();
+      }
+    }
+
+    // A device paired after the upgrade from the person's link is the person's.
+    const reopened = new Store(path);
+    try {
+      const laptop = reopened.devices.create(
+        "Laptop",
+        ["read"],
+        3000,
+        null,
+        undefined,
+        true,
+        "key",
+      );
+      const paired = reopened.devices.authenticate(laptop.token, 3000);
+      expect(paired?.person).toBe(true);
+      expect(reopened.devices.standingKeyOf(laptop.device.id, paired?.generation, 3000)).toBe(
+        "key",
+      );
+    } finally {
+      reopened.close();
+    }
+    const after = new DatabaseSync(path, { readOnly: true });
+    try {
+      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(
+        schemaVersion,
+      );
+    } finally {
+      after.close();
     }
   } finally {
     await rm(home, { recursive: true, force: true });

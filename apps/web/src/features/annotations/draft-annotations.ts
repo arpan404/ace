@@ -2,6 +2,8 @@ import {
   annotationContextItems,
   boundedAnnotations,
   formatBrowserAnnotations,
+  formatCodeAnnotations,
+  type CodeAnnotation,
   type DraftAnnotations,
 } from "@ace/ui-core";
 import {
@@ -11,6 +13,7 @@ import {
   type ContentPart,
 } from "@ace/protocol";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { movedCode, numberedCode, withCode, withoutCode } from "./code-drafts.ts";
 import { composerPorts, type ComposerAnnotationPort } from "./store.ts";
 
 /** A file the daemon holds, or why one couldn't be uploaded. */
@@ -37,11 +40,13 @@ export interface AnnotationItem {
 interface State {
   items: AnnotationItem[];
   pages: (Image & { url: string })[];
+  /** Code marked in the editor; no images, nothing to upload. */
+  code: readonly CodeAnnotation[];
 }
 
 /** What a message being sent takes from the draft's annotations. */
 export interface AnnotationHandOff {
-  /** The `<browser_annotations>` block, as the text part after the person's words. */
+  /** The `<browser_annotations>` and `<code_annotations>` blocks, as the text part after the person's words. */
   part: ContentPart;
   /** Its images, in the block's order, as the attachment pipeline carries files. */
   local: { name: string; mimeType: string; bytes: number; sha256?: string | undefined }[];
@@ -67,6 +72,7 @@ const fromDraft = (draft: DraftAnnotations | undefined): State => ({
     url: page.url,
     ready: { sha256: page.sha256, name: page.name },
   })),
+  code: draft?.code ?? [],
 });
 
 function draftOf(state: State): DraftAnnotations {
@@ -76,6 +82,7 @@ function draftOf(state: State): DraftAnnotations {
       ...(item.crop?.ready ? { crop: item.crop.ready } : {}),
     })),
     pages: state.pages.flatMap((page) => (page.ready ? [{ url: page.url, ...page.ready }] : [])),
+    ...(state.code.length ? { code: state.code } : {}),
   };
 }
 
@@ -121,6 +128,8 @@ export function useDraftAnnotations(options: {
     latest.current = options;
   });
   const previews = useRef(new Set<string>());
+  /** Editors hearing the code annotations change. */
+  const listeners = useRef(new Set<() => void>());
   useEffect(() => {
     const urls = previews.current;
     return () => {
@@ -140,8 +149,10 @@ export function useDraftAnnotations(options: {
       }
   };
   const update = (next: (state: State) => State) => {
+    const code = current.current.code;
     current.current = next(current.current);
     setState(current.current);
+    if (current.current.code !== code) for (const listener of listeners.current) listener();
   };
   const upload = (file: File, done: (outcome: AnnotationOutcome) => void) =>
     latest.current
@@ -246,11 +257,13 @@ export function useDraftAnnotations(options: {
   const drop = (ids: ReadonlySet<string> | "all") => {
     const before = current.current;
     const gone = before.items.filter((item) => ids === "all" || ids.has(item.annotation.id));
+    const code = withoutCode(before.code, ids);
+    if (code !== before.code) update((now) => ({ ...now, code: withoutCode(now.code, ids) }));
     if (!gone.length) return;
     update((now) => {
       const items = renumbered(now.items.filter((item) => !gone.includes(item)));
       const urls = new Set(items.map((item) => item.annotation.url));
-      return { items, pages: now.pages.filter((entry) => urls.has(entry.url)) };
+      return { ...now, items, pages: now.pages.filter((entry) => urls.has(entry.url)) };
     });
     forgetPreviews(gone);
     release(held(before));
@@ -262,6 +275,13 @@ export function useDraftAnnotations(options: {
     remove: (id) => drop(new Set([id])),
     clear: () => drop("all"),
     annotations: () => current.current.items.map((item) => item.annotation),
+    code: () => current.current.code,
+    saveCode: (annotation) => update((now) => ({ ...now, code: withCode(now.code, annotation) })),
+    moveCode: (moves) => update((now) => ({ ...now, code: movedCode(now.code, moves) })),
+    subscribe: (listener) => {
+      listeners.current.add(listener);
+      return () => listeners.current.delete(listener);
+    },
   };
 
   const handOff = (): AnnotationHandOff | undefined => {
@@ -271,16 +291,18 @@ export function useDraftAnnotations(options: {
     const block = formatBrowserAnnotations(
       taken.items.map((item) => item.annotation),
       { page: (url) => usable(pages.get(url)), crop: (id) => usable(crops.get(id)) },
-    );
-    if (!block) return undefined;
+    ) ?? { text: "", images: [] };
+    const code = formatCodeAnnotations(taken.code);
+    if (!block.text && !code) return undefined;
     const images = block.images.flatMap((image) => {
       const found = image.kind === "page" ? pages.get(image.url) : crops.get(image.id);
       return found ? [found] : [];
     });
     forgetPreviews(taken.items);
-    update(() => ({ items: [], pages: [] }));
+    update(() => ({ items: [], pages: [], code: [] }));
+    const text = [block.text, code].filter(Boolean).join("\n\n");
     return {
-      part: { type: "text", text: `\n\n${block.text}` },
+      part: { type: "text", text: `\n\n${text}` },
       local: images.map((image) => {
         const name = image.ready?.name ?? image.file?.name ?? image.name ?? "annotation.png";
         const preview =
@@ -309,6 +331,10 @@ export function useDraftAnnotations(options: {
             ...now.items,
           ].slice(0, browserAnnotationLimit),
           pages: [...taken.pages, ...now.pages.filter((entry) => !pages.has(entry.url))],
+          code: numberedCode([
+            ...taken.code,
+            ...withoutCode(now.code, new Set(taken.code.map((each) => each.id))),
+          ]),
         })),
     };
   };
@@ -316,8 +342,9 @@ export function useDraftAnnotations(options: {
   return {
     /** The annotations as the stored draft keeps them (uploads the daemon holds). */
     draft: boundedAnnotations(draftOf(state)),
-    count: state.items.length,
+    count: state.items.length + state.code.length,
     items: state.items,
+    code: state.code,
     remove: port.remove,
     clear: port.clear,
     /** What the thread's Browser reaches through `useAnnotationPort`. */
@@ -355,6 +382,10 @@ export function useAnnotationPort(
       clear: () => latest.current.port.clear(),
       submit: () => latest.current.submit(),
       annotations: () => latest.current.port.annotations(),
+      code: () => latest.current.port.code(),
+      saveCode: (annotation) => latest.current.port.saveCode(annotation),
+      moveCode: (moves) => latest.current.port.moveCode(moves),
+      subscribe: (listener) => latest.current.port.subscribe(listener),
     });
   }, [threadId]);
 }

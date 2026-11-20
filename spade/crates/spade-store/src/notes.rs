@@ -241,7 +241,7 @@ impl Store {
         most: usize,
     ) -> Result<Saved> {
         let mut connection = self.lock()?;
-        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = connection.transaction()?;
         let existing = {
             let mut statement = tx.prepare(&format!(
                 "SELECT {COLUMNS} FROM notes n

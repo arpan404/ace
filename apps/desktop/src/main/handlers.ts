@@ -86,6 +86,8 @@ export function createHandlers(options: {
   authorizeDaemon(url: string): void;
   quit(): void;
   reload(): void;
+  /** The window wrote its drafts for the quit under way; `kept` false when it couldn't. */
+  draftsFlushed?(kept: boolean): void;
   updateKeymap?(bindings: Record<string, string>): void;
   /** Opens the daemon's and the app's log folders; false when there is nothing to show. */
   showLogs(): Promise<boolean>;
@@ -172,6 +174,10 @@ export function createHandlers(options: {
     },
     "app.reload": () => {
       options.reload();
+      return undefined;
+    },
+    "drafts.flushed": (result) => {
+      options.draftsFlushed?.(result?.kept ?? true);
       return undefined;
     },
     "tray.open": (link, sender) => {

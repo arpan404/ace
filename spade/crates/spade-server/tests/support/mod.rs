@@ -837,7 +837,7 @@ impl Spade {
             let _ = stop.send(());
         }
         let _ = (&mut self.task).await;
-        rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
+        spade_store::Store::connect(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
     }
@@ -855,7 +855,7 @@ impl Spade {
             let _ = stop.send(());
         }
         let _ = (&mut self.task).await;
-        rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
+        spade_store::Store::connect(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, options).await
     }

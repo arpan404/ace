@@ -452,7 +452,7 @@ mod tests {
         {
             // As a database from before the column: the column goes and the version steps back,
             // past the skill store, the helpers table, seen cursors and pins that came after it.
-            let connection = rusqlite::Connection::open(&path)?;
+            let connection = crate::Store::connect(&path)?;
             connection.execute("DROP TABLE helpers", [])?;
             connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
             connection

@@ -54,6 +54,77 @@
     },
     {
       "properties": {
+        "case": {
+          "default": "smart",
+          "enum": [
+            "sensitive",
+            "insensitive",
+            "smart"
+          ],
+          "type": "string"
+        },
+        "exclude": {
+          "default": [],
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "include": {
+          "default": [],
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "includeIgnored": {
+          "default": false,
+          "type": "boolean"
+        },
+        "maxFileBytes": {
+          "default": 4194304,
+          "maximum": 67108864,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxMatches": {
+          "default": 2000,
+          "maximum": 5000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "search",
+          "type": "string"
+        },
+        "pattern": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "regex": {
+          "default": false,
+          "type": "boolean"
+        },
+        "wholeWord": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "pattern"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "op": {
           "const": "stat",
           "type": "string"

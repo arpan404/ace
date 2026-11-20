@@ -187,6 +187,15 @@ export function arbitrary(root: z.ZodType): fc.Arbitrary<unknown> {
         maxLength: Math.max(Number(min), Math.min(Number(max), 2)),
       });
     }
+    if (schema instanceof z.ZodTuple) {
+      if (schema._zod.def.rest) throw new Error("No arbitrary for a tuple with rest items");
+      return fc.tuple(
+        ...schema._zod.def.items.map((item) => {
+          if (!(item instanceof z.ZodType)) throw new Error("Non-classic Zod tuple");
+          return cached(item);
+        }),
+      );
+    }
     if (schema instanceof z.ZodRecord) {
       if (!(schema.valueType instanceof z.ZodType)) throw new Error("Non-classic Zod record");
       return fc

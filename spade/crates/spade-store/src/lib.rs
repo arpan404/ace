@@ -128,6 +128,15 @@ impl Store {
         })
     }
 
+    /// A plain connection to the database at `path` with the settings every connection to it
+    /// shares (WAL, the busy timeout, write transactions begun `IMMEDIATE`), for what reaches
+    /// rows directly: tests and tools. Never migrates; [`Store::open`] does.
+    pub fn connect(path: impl AsRef<Path>) -> Result<Connection> {
+        let mut connection = Connection::open(path)?;
+        schema::share(&mut connection)?;
+        Ok(connection)
+    }
+
     /// The schema version this build brings a database up to: the number of its migrations,
     /// which a release publishes in `ace-data.json` (ADR 0177).
     pub fn schema_version() -> usize {

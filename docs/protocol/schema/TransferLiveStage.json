@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/TransferLiveStage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "readying",
+    "stopping",
+    "handing",
+    "moved",
+    "resumed"
+  ],
+  "type": "string"
+}

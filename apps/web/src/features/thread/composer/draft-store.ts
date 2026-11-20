@@ -2,6 +2,7 @@ import {
   findDraft,
   isEmptyDraft,
   putDraft,
+  readCodeAnnotations,
   readJson,
   touchRecent,
   writeJson,
@@ -49,6 +50,8 @@ const DraftAnnotationsSchema = classic.object({
     }),
   ),
   pages: classic.array(Held.extend({ url: classic.string() })).catch([]),
+  /** Code annotations decode the same way, one by one. */
+  code: classic.array(classic.unknown()).transform(readCodeAnnotations).optional().catch(undefined),
 });
 /** A passage of an agent message being replied to; an unreadable one is dropped, never the draft. */
 const Quote = classic.object({

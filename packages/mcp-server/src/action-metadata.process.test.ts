@@ -68,11 +68,14 @@ test("only tools that delete or overwrite work are destructive; reads never ask"
     destructiveHint: false,
     openWorldHint: false,
   });
-  // transfer carries work to another paired machine, so it alone reaches past this one; every
-  // other control tool acts on this machine's threads.
-  expect(hints.get("transfer")).toMatchObject({ openWorldHint: true, destructiveHint: false });
+  // transfer carries work, and data_send a parcel (ADR 0182), to another paired machine over the
+  // LAN, Tailscale or a relay, so they alone reach past this one; neither replaces anything.
+  // Every other control tool acts on this machine's threads.
+  const reachOut = ["transfer", "data_send"];
+  for (const name of reachOut)
+    expect(hints.get(name), name).toMatchObject({ openWorldHint: true, destructiveHint: false });
   for (const tool of listed) {
-    expect(tool.annotations?.openWorldHint, tool.name).toBe(tool.name === "transfer");
+    expect(tool.annotations?.openWorldHint, tool.name).toBe(reachOut.includes(tool.name));
     expect(tool.title, tool.name).toBeTruthy();
     expect(tool.annotations?.title, tool.name).toBe(tool.title);
   }

@@ -22,6 +22,9 @@
     "handle": {
       "$ref": "https://ace.local/protocol/v1/MarketPublisherName.json"
     },
+    "official": {
+      "type": "boolean"
+    },
     "verified": {
       "type": "boolean"
     }
