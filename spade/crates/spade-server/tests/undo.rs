@@ -154,6 +154,9 @@ async fn a_new_bots_first_write_undoes_back_to_its_empty_folder() -> Result {
         .await?;
     assert_eq!(status, 200, "{preview}");
     assert_eq!(listed(&preview["changes"]["added"]), vec!["plan.md"]);
-    assert!(listed(&preview["changes"]["changed"]).is_empty(), "{preview}");
+    assert!(
+        listed(&preview["changes"]["changed"]).is_empty(),
+        "{preview}"
+    );
     Ok(())
 }
