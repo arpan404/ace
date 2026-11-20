@@ -170,7 +170,12 @@ impl Watcher {
             warning: None,
             readings: Readings::new(),
         };
-        let running = std::thread::spawn(move || worker.run());
+        let running = std::thread::Builder::new()
+            .name("files-watch".to_owned())
+            .spawn(move || worker.run())
+            .map_err(|error| {
+                Error::Unsupported(format!("cannot start the watch thread: {error}"))
+            })?;
         Ok(Watcher {
             control,
             stop,

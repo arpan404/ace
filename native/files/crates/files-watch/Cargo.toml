@@ -23,6 +23,7 @@ thiserror = "2"
 tempfile = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+cap-fs-ext = "4"
 rustix = { version = "1", features = ["event", "fs"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
