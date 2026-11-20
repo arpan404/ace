@@ -2,7 +2,12 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { z } from "zod";
-import { RegistryPendingUpdate, type AcpIdentity, type RegistryResult } from "@ace/protocol";
+import {
+  RegistryPendingUpdate,
+  type AcpIdentity,
+  type RegistryInstallation,
+  type RegistryResult,
+} from "@ace/protocol";
 import { AgentCatalog, AgentRegistry, fileCache, fileInventoryStorage } from "./index.ts";
 import { executable, temporary } from "./testing/support.ts";
 
@@ -19,9 +24,12 @@ const probe = async (command: string) => {
     : { code: 1, stdout: "", stderr: "unknown option" };
 };
 
+/** Installations the registry announced as approved, as the model catalog would hear them. */
+const announced: RegistryInstallation[] = [];
 const roots: { close(): Promise<void> }[] = [];
 afterEach(async () => {
   probed.length = 0;
+  announced.length = 0;
   await Promise.all(roots.splice(0).map((root) => root.close()));
 });
 
@@ -47,6 +55,7 @@ async function open(root: string, now = 5000) {
     now: () => now,
     pinned: join(root, "pinned"),
     probe,
+    onUpdateApproved: (installation) => announced.push(installation),
   });
 }
 
@@ -152,6 +161,8 @@ test("a changed agent never launches before the person approves it, then runs ag
     expect(await updates(registry)).toEqual([]);
     // Approving ran only ace's own version probe of the approved file, once.
     expect(probed).toEqual([agent]);
+    // The model catalog hears of it, with the version ace read.
+    expect(announced).toMatchObject([{ ...custom, version: "1.1.0", versionSource: "probed" }]);
     await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await registry.close();

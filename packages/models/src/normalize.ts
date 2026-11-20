@@ -160,12 +160,12 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
   // model selector, else its legacy `models` list and `session/set_model` (ADR 0044).
   const selectors = sessionSelectors(payload, profile);
   if (generic && !selectors?.model) return [];
-  const configs = acpConfigOptions(payload);
+  const sessionOptions = acpConfigOptions(payload);
   // Each list on its own: a malformed config option beside a usable legacy list, or a malformed
   // legacy list beside a usable selector, still lists the usable one.
-  if (!configs.some(isModelConfig) && !hasLegacyList(payload))
+  if (!sessionOptions.some(isModelConfig) && !hasLegacyList(payload))
     throw new Error("Missing model options");
-  const modelConfig = configs
+  const modelConfig = sessionOptions
     .filter(isSelectConfig)
     .find((config) => config.id === selectors.model?.configId);
   const legacy = modelConfig ? undefined : listedModels(payload);
@@ -182,7 +182,7 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
       : (legacy?.models ?? [])
   ).filter((row) => !sendable || sendable.has(row.modelId));
   if (rows.length > 512) throw new Error("Too many models");
-  const sessionConfigs = configs;
+  const sessionConfigs = sessionOptions;
   const sessionExtensions = sessionConfigs.filter((config) => !isSelectConfig(config));
   const available = rows.filter((row) => chatMetadata(row.native));
   const representative = Math.max(

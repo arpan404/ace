@@ -5,6 +5,7 @@ import {
   RegistryRequest,
   type RegistryResult,
   type RegistryInstallProgress,
+  type RegistryInstallation,
   type AcpIdentity,
 } from "@ace/protocol";
 import { findExecutable } from "@ace/provider-kit/discovery";
@@ -62,6 +63,11 @@ export type RegistryServiceOptions = {
   probe?: ProbeRunner;
   /** The platform launches run on; the daemon's by default. */
   platform?: NodeJS.Platform;
+  /**
+   * Called once an approved update is stored, with the installation as it runs now (its
+   * version, profile revision and `versionSource`), so the model catalog can redo its row.
+   */
+  onUpdateApproved?(installation: RegistryInstallation): void;
 };
 export class AgentRegistry {
   readonly catalog: AgentCatalog;
@@ -183,6 +189,7 @@ export class AgentRegistry {
       this.inventory.replace(installation);
       // Copies of files nothing runs any more go; a session still running one keeps its process.
       await this.#pins?.prune(this.inventory.digests());
+      this.#options.onUpdateApproved?.(structuredClone(installation.metadata));
       return { installation, ...(durability ? { durability } : {}) };
     } finally {
       this.#binding = false;
