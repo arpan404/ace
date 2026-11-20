@@ -1,7 +1,7 @@
 # 0194: A device's own browser opens the machine's localhost
 
-Status: proposed. Date: 2026-11-19. Decided by: the owner, 2026-11-19 (ports, agent tabs, web
-app); the phone's mechanism waits on the spike below. Amends
+Status: accepted. Date: 2026-11-19. Decided by: the owner, 2026-11-19 (ports, agent tabs, web
+app); the desktop and phone mechanisms follow the spikes below. Amends
 [ADR 0008](0008-preview-gateway.md) (preview gateway, which said browsers can't use the relay),
 [ADR 0088](0088-remote-browser-view-v2.md) (remote clients only watch ace's Chrome) and
 [ADR 0114](0114-fastest-path.md) (paths).
