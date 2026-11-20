@@ -161,6 +161,9 @@ club it came through: words from another machine are never the person's own (`40
 | `answer` | `key`, `wait_ms` (0 to 25,000)                                              | `{"status":"pending"                         | "answered"                                    | "stopped"   | "failed" | "unknown", "text"?}` |
 | `stop`   | `key`                                                                       | `{"status":"stopped"                         | "not_running"                                 | "unknown"}` |
 
+`thread_ask`, `thread_answer` and `thread_stop` carry asks from an ace thread on the calling
+machine (below, "Asks from ace threads").
+
 An `ask` for a bot that moved away (ADR 0187) answers `410 {error, moved_to, name}`; the asking
 Spade sends it on to that machine and its clubs list the bot there. `op: "move"` carries moves
 (agents.md, "Moving a bot").
@@ -210,6 +213,15 @@ inbox's signature (`x-ace-from-host: ace:thread`, `x-ace-from-name`, `x-ace-inbo
   change: a reply, a status, a member's turn. A club's `replies` are every member's message in that
   run, in order.
 - `POST /v1/thread-asks/{key}/stop` → `{status: "stopped" | "not_running" | "unknown"}`.
+- `devices` on an ask (the ones the person named, at most 8, as `POST
+/v1/conversations/{id}/messages` takes them): a bot reads them first in its turn's context, a
+  club's asked members first in theirs. They don't make a turn untrusted.
+- From a thread on another of the person's machines, the same three go through the inbox
+  (`POST /v1/inbox`, signed and stamped as above): `{op: "thread_ask", …the ask's body}`,
+  `{op: "thread_answer", key, wait_ms}` and `{op: "thread_stop", key}`, answered as the routes
+  above answer. Their keys are kept under the calling machine (`ace:thread:<pairing>`), apart
+  from this machine's ace and from bot asks, so only that machine reads or stops them. The
+  message's `from_thread` adds `machine`, the calling machine's name.
 
 A person's message to a bot may also carry `devices` (`POST /v1/conversations/{id}/messages`):
 the fleet's machines and devices they named for the work, put first in the turn's context.

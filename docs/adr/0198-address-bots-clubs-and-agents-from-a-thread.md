@@ -131,10 +131,32 @@ for a TypeScript file, a PDF, a Linear tool and a Claude subagent.
 
 ## Limits
 
-- Bots and clubs of other machines are not listed yet; ADR 0132's machine call can carry them.
 - A thread's first message (New thread, New chat) has no picker sources but files: there is no
   thread to share from yet.
-- A bot waiting for the person shows in the thread's line and in Spade's own badge, not in ace's
-  Inbox.
-- Other machines' simulators are not listed: only this machine's devices channel is read.
-- The iPhone app shows the replies as plain assistant text until it reads the new fields.
+- The iPhone app shows the replies as plain assistant text until it reads the new fields, and
+  doesn't list other machines in its picker.
+
+## Amendment 1 (2026-11-20): other machines, the Inbox, devices with clubs
+
+Three limits above are lifted.
+
+- **Bots and clubs on the person's other machines** are listed under Spade bots and Clubs, read
+  from each online machine's own Spade (its main Spade is left out: Spade is listed once), their
+  context line ending "· on ‹machine›". The addressee carries `machine {id, name}`, and so does a
+  reply's `speaker`, so a follow-up goes back to the same machine. The daemon sends that ask as
+  ADR 0132's `spade` machine call with the inbox ops `thread_ask`, `thread_answer` and
+  `thread_stop`, which carry the same bodies as `/v1/thread-asks`. Spade there keeps the keys
+  under the calling machine's pairing, apart from its own ace's and from bot-to-bot asks, and the
+  bot reads that the thread is on that machine. While the machine is away the ask waits ("Fares
+  gets it when Studio is back") for up to 7 days; a refusal there ends it with that machine's
+  words. `thread_answer` needs Read there, the other two Read and act.
+- **Other machines' simulators and emulators** are listed under Devices, from each machine's own
+  `devices.request` `list` through its client, marked "on ‹machine›".
+- **A bot waiting on the person shows in ace's Inbox.** The ask's background row is marked as
+  waiting on the person (core fact `background.waiting`, `waitingForPerson` on the task), and a
+  thread with such a row reads `needs_you`, as a waiting thread does. It clears when the bot goes
+  back to work, answers or stops.
+- **Devices travel with bot and club asks.** The thread ask carries the devices named with it,
+  `here` judged from the machine of the Spade that gets it. A bot reads them first in its turn's
+  context, as in its own chat, and each club member asked reads them first in its own. They are
+  ace's facts, so they don't make the turn untrusted.

@@ -90,7 +90,12 @@ const known = z.discriminatedUnion("type", [
       .catch(undefined),
     /** The person wrote it in an ace thread (ADR 0198): the thread, to link back to. */
     from_thread: z
-      .object({ id: z.string().min(1), title: z.string().catch("") })
+      .object({
+        id: z.string().min(1),
+        title: z.string().catch(""),
+        /** The person's other machine the thread is on; absent for this machine's. */
+        machine: z.string().max(256).optional().catch(undefined),
+      })
       .nullish()
       .catch(undefined),
     // An image, document or recording this client can't read is left out; the message shows.
