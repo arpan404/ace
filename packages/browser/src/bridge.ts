@@ -9,6 +9,7 @@ import {
   type DeviceScope,
 } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
+import type { EnginePreferencePort } from "./engine-move.ts";
 import type { CaptureViewer } from "./viewer-sink.ts";
 import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
 import {
@@ -86,6 +87,8 @@ export function connectBrowser(
       threadId: string,
       sha256: string,
     ) => Promise<{ chunks: AsyncIterable<Uint8Array>; close(): Promise<void> }>;
+    /** Where the daemon keeps each thread's engine. Without it, engine moves are refused. */
+    engine?: EnginePreferencePort;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
   /**
@@ -230,7 +233,11 @@ export function connectBrowser(
         if (
           !options.authorize(
             threadId,
-            message.type === "browser.open" ? message.options.workspaceId : undefined,
+            message.type === "browser.open"
+              ? message.options.workspaceId
+              : message.type === "browser.engine.move"
+                ? message.workspaceId
+                : undefined,
             requiredAccess(message),
           )
         )
@@ -296,6 +303,27 @@ export function connectBrowser(
             });
             respond(null);
             break;
+          case "browser.engine.move": {
+            if (!options.engine) throw new Error("Engine moves aren't available on this machine");
+            const stopProgress = service.downloadProgress((progress) => {
+              if (!closed) options.send(progress);
+            });
+            try {
+              respond(
+                await service.moveEngine(
+                  {
+                    threadId,
+                    workspaceId: message.workspaceId,
+                    engine: message.engine,
+                  },
+                  options.engine,
+                ),
+              );
+            } finally {
+              stopProgress();
+            }
+            break;
+          }
           case "browser.execute":
             respond(
               await service.execute(threadId, message.command, {

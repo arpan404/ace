@@ -207,6 +207,22 @@ export class FakeServicesWire {
           });
           return preference === "embedded" || preference === "headless" ? preference : "auto";
         },
+        engine: {
+          write: async (threadId, value) => {
+            const set = this.settings.handle(
+              {
+                type: "settings.set",
+                requestId: "engine-move",
+                key: "browser.backend",
+                value,
+                layer: { kind: "thread", threadId: ThreadId.parse(threadId) },
+              },
+              () => {},
+            );
+            if (set.type === "settings.result" && !set.ok)
+              throw new Error(set.diagnostics[0]?.message ?? "Couldn't switch the browser engine");
+          },
+        },
       },
     );
     let stopBrowsing: (() => void) | undefined;
