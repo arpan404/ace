@@ -30,11 +30,14 @@ pub(crate) struct Folders {
     open: VecDeque<Folder>,
 }
 
-struct Folder {
+/// One authorized folder handle.
+pub(crate) struct Folder {
     path: String,
-    dir: cap_std::fs::Dir,
+    pub(crate) dir: cap_std::fs::Dir,
     /// What names this folder, kept so the handle can be proven with one lookup.
     identity: Option<Identity>,
+    /// The device the folder lives on, which every file opened through it shares.
+    pub(crate) device: Option<u64>,
 }
 
 impl Folders {
@@ -43,7 +46,7 @@ impl Folders {
     /// `None` when the folder cannot be opened as the folder it was seen as: it is gone, is not a
     /// folder any more, or a link on the way left the root. The caller skips that file, as it skips
     /// one whose open fails.
-    pub(crate) fn get(&mut self, root: &Root, folder: &str) -> Option<&cap_std::fs::Dir> {
+    pub(crate) fn get(&mut self, root: &Root, folder: &str) -> Option<&Folder> {
         let index = self.open.iter().position(|held| held.path == folder);
         let reusable = index.is_some_and(|index| {
             self.open
@@ -62,6 +65,7 @@ impl Folders {
             }
             let dir = root.open_dir(folder).ok()?;
             let identity = root.folder_identity(&dir);
+            let device = crate::open::device(&dir);
             while self.open.len() >= KEPT {
                 self.open.pop_back();
             }
@@ -69,9 +73,10 @@ impl Folders {
                 path: folder.to_owned(),
                 dir,
                 identity,
+                device,
             });
         }
-        self.open.front().map(|held| &held.dir)
+        self.open.front()
     }
 }
 
@@ -91,12 +96,15 @@ mod tests {
         for _ in 0..3 {
             let folder = folders.get(&root, "a/b").expect("the folder opens");
             assert_eq!(
-                folder.read_to_string("one.txt").expect("the file is there"),
+                folder
+                    .dir
+                    .read_to_string("one.txt")
+                    .expect("the file is there"),
                 "one"
             );
         }
         let root_folder = folders.get(&root, "").expect("the root opens");
-        assert!(root_folder.open_dir("a").is_ok());
+        assert!(root_folder.dir.open_dir("a").is_ok());
         assert!(folders.get(&root, "a/missing").is_none());
     }
 
@@ -138,7 +146,7 @@ mod tests {
         assert!(
             folders
                 .get(&root, "d")
-                .is_none_or(|folder| folder.read_to_string("one.txt").is_err()),
+                .is_none_or(|folder| folder.dir.read_to_string("one.txt").is_err()),
             "the cached handle must not answer for a folder that left the root"
         );
     }

@@ -40,10 +40,7 @@ pub(crate) fn search_file(
     let Some(folder) = folders.get(shared.root, folder) else {
         return;
     };
-    let Some(file) = open::open(folder, entry.file_name(), entry) else {
-        return;
-    };
-    let Ok(metadata) = file.metadata() else {
+    let Some((file, metadata)) = open::open(folder, entry.file_name(), entry) else {
         return;
     };
     if !metadata.is_file() {
