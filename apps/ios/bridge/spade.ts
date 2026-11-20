@@ -106,8 +106,10 @@ export class NativeSpade {
   private status: SpadeStatus | undefined;
   private enabled: boolean | undefined;
   private agents: SpadeAgent[] | undefined;
-  /** The machine's groups; none until first read, and the last kept while a read fails. */
-  private groups: SpadeGroup[] = [];
+  /** The machine's groups; undefined until first read, and the last kept while a read fails. */
+  private groups: SpadeGroup[] | undefined;
+  /** Writes to a bot this runtime made (`saved`): a list read begun before one is out of date. */
+  private writes = 0;
   private listFailed = false;
   private watching = false;
   /** This runtime went away: nothing reads again. */
@@ -285,32 +287,42 @@ export class NativeSpade {
     this.stopList();
     if (!this.listable || this.listReading) return;
     this.listReading = true;
+    // A write since this read began (`saved`) is newer than what it brings back about the bots.
+    const writes = this.writes;
     const read = (path: string) => spadeText(this.owner, this.deps.id, "GET", path);
-    // A Spade before groups, or one whose groups fail, still lists its bots.
-    const groups = read("/v1/groups").then(parseSpadeGroups, () => undefined);
-    void read("/v1/agents")
-      .then(
-        (body) => {
-          const agents = parseSpadeAgents(body);
-          if (agents) this.agents = agents;
-          this.listFailed = !agents;
-        },
-        // The last list stays while a read fails; it reads again on its own.
-        () => {
-          this.listFailed = true;
-        },
-      )
-      .then(async () => {
-        const listed = await groups;
-        if (listed) this.groups = listed;
-      })
-      .finally(() => {
-        this.listReading = false;
+    // Bots and groups are two reads, and each shows as it lands: one failing never hides the
+    // other. A Spade before groups answers no list, and the list holds bots only.
+    const agents = read("/v1/agents").then(
+      (body) => {
+        const listed = parseSpadeAgents(body);
+        if (listed && writes === this.writes) this.agents = listed;
+        this.listFailed = !listed;
         this.put();
-        this.publishOpen();
-        this.markSeen();
-        this.scheduleList();
-      });
+      },
+      // The last list stays while a read fails; it reads again on its own.
+      () => {
+        this.listFailed = true;
+        this.put();
+      },
+    );
+    const groups = read("/v1/groups").then(
+      (body) => {
+        const listed = parseSpadeGroups(body);
+        if (!listed) return;
+        this.groups = listed;
+        this.put();
+      },
+      () => {},
+    );
+    void Promise.all([agents, groups]).finally(() => {
+      this.listReading = false;
+      this.put();
+      this.publishOpen();
+      this.markSeen();
+      // Written to while out: read again now, so the list confirms the write.
+      if (writes !== this.writes) this.readList();
+      else this.scheduleList();
+    });
   }
 
   /** The next read of the bots, at the pace for what shows and whether any works. */
@@ -320,7 +332,7 @@ export class NativeSpade {
     const pace = this.watching || this.open ? listEvery.shown : listEvery.away;
     const working =
       (this.agents?.some((agent) => agent.state !== "idle") ?? false) ||
-      this.groups.some((group) => group.state !== "idle");
+      (this.groups?.some((group) => group.state !== "idle") ?? false);
     this.listTimer = this.deps.later(working ? pace.working : pace.idle, () => this.readList());
   }
 
@@ -332,9 +344,17 @@ export class NativeSpade {
       shown: status === undefined ? null : status.hidden !== true,
       line: spadePlaceLine(status, this.enabled),
       list: {
-        rows: this.agents
-          ? spadeListRows(this.agents, this.groups, this.machine ?? "its machine", this.ready)
-          : null,
+        // Bots and groups each show once read; null only while neither has been.
+        rows:
+          this.agents || this.groups
+            ? spadeListRows(
+                this.agents ?? [],
+                this.groups ?? [],
+                this.machine ?? "its machine",
+                this.ready,
+              )
+            : null,
+        // The bots couldn't be read and none are known: the list says so, with Try again.
         failed: this.agents === undefined && this.listFailed,
       },
     }));
@@ -403,6 +423,19 @@ export class NativeSpade {
     return this.agents?.find((agent) => agent.id === id);
   }
 
+  /**
+   * A bot as a write just left it: Spade's answer whole, or the fields the write set. The list
+   * shows it now and the next read confirms it.
+   */
+  saved(change: SpadeAgent | (Pick<SpadeAgent, "id"> & Partial<SpadeAgent>)): void {
+    if (!this.agents?.some((agent) => agent.id === change.id)) return;
+    this.agents = this.agents.map((agent) =>
+      agent.id === change.id ? { ...agent, ...change } : agent,
+    );
+    this.writes++;
+    this.put();
+  }
+
   /** The machine's name, for a profile's Runs on. */
   get machineName(): string {
     return this.machine ?? "This machine";
@@ -410,7 +443,7 @@ export class NativeSpade {
 
   /** A group's name, once the list has said; undefined before. */
   groupName(id: string): string | undefined {
-    return this.groups.find((group) => group.id === id)?.name || undefined;
+    return this.groups?.find((group) => group.id === id)?.name || undefined;
   }
 
   /** The open conversation as it is now: its rows, its order and its head. */
@@ -425,7 +458,7 @@ export class NativeSpade {
       return;
     }
     const { view, problem } = open.follow.get();
-    const group = this.groups.find((each) => each.id === open.group);
+    const group = this.groups?.find((each) => each.id === open.group);
     this.putRows(open.id, spadeGroupRows(view, group, mainOf(this.agents ?? [])));
     this.sink.put("spade:conversation", () =>
       spadeGroupHead(open.id, view, problem, group, this.agents ?? []),
@@ -470,7 +503,7 @@ export class NativeSpade {
     const seen =
       open.kind === "bot"
         ? this.botOf(open.id)
-        : this.groups.find((group) => group.id === open.group);
+        : this.groups?.find((group) => group.id === open.group);
     if (!caughtUp || !seen?.unseen) return;
     const seq = seen.lastMessage?.seq;
     const mark = `${open.id}:${seq ?? "end"}`;

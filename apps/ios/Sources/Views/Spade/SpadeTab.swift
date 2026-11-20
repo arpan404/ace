@@ -90,6 +90,10 @@ private struct SpadeList: View {
             Section { placeLine(line) }
         }
         if let bots = spade.bots {
+            // The groups read but the bots didn't: the groups show, and the bots can be read again.
+            if spade.listFailed {
+                ProblemRow("Couldn't read Spade's bots", id: "spade.listProblem") { client.spadeRefresh() }
+            }
             ForEach(bots) { bot in
                 NavigationLink(value: SpadeRoute(conversation: bot.conversation, group: bot.group)) { SpadeBotRow(bot: bot) }
                     .accessibilityIdentifier(bot.group.map { "spade.group.\($0)" } ?? "spade.bot.\(bot.id)")

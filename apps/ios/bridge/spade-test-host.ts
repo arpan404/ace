@@ -51,7 +51,7 @@ export class Patches {
 }
 
 export async function setUp(
-  seed: (spade: FakeSpadeApi) => void = () => {},
+  seed: (spade: FakeSpadeApi, daemon: FakeDaemon) => void = () => {},
   wait: typeof later = later,
 ) {
   const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
@@ -59,7 +59,7 @@ export async function setUp(
   daemon.services.settings.write("spade.enabled", true);
   daemon.spade.status = { state: "ready", version: "0.6.0" };
   const api = new FakeSpadeApi(daemon.spade, () => Date.now());
-  seed(api);
+  seed(api, daemon);
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-spade-test"),
     expectedHostId: HostId.parse("ios-test-host"),

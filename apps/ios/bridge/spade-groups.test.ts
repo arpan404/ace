@@ -182,3 +182,25 @@ test("a group Spade refuses a message from gives the words back with why", async
   expect(sent).toMatchObject({ ok: false, title: "Couldn't send" });
   expect(patches.bubbles).toEqual([]);
 });
+
+test("a group waiting on the person stays in the list while the bots can't be read", async () => {
+  const { patches } = await setUp((fake, daemon) => {
+    team(fake);
+    const group = fake.teams.groups[0];
+    if (!group) throw new Error("no group");
+    group.state = "waiting";
+    group.status = "Research is waiting for you";
+    // Spade answers its groups, but not its bots.
+    daemon.spade.serve({
+      answer: (request) =>
+        request.path === "/v1/agents" ? { status: 500, body: "{}" } : fake.answer(request),
+      open: (path) => fake.open(path),
+    });
+  });
+
+  await until(() => patches.state?.list.rows?.some((row) => row.group === "launch") === true);
+  expect(patches.state?.list).toMatchObject({
+    rows: [{ group: "launch", state: "needs-you", line: "Research is waiting for you" }],
+    failed: true,
+  });
+});
