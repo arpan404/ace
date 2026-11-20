@@ -75,6 +75,41 @@ enum DevicePageEngine {
 
     static let ruleListIdentifier = "ace.device-tab.loopback.v1"
 
+    /// Which main-frame navigations the person started, as `loopbackNavigationAllowed` means it
+    /// (ADR 0194) and as the desktop app reads it from a request with no initiator: the browser's
+    /// own navigation that no document started. That is the load the app asked for (a typed
+    /// address, a tab it opened, "Open on this phone") and each redirect of it until it commits
+    /// or fails, a reload, and a move back or forward (a form resubmitted by either included).
+    /// A link, a script, or a form a page submitted, and their redirects, are the page's. Pure.
+    struct PersonNavigation {
+        private var asked: URL?
+        private var underway = false
+
+        /// The app is about to load `url` for the person.
+        mutating func asks(_ url: URL) { asked = url; underway = false }
+
+        /// Whether this main-frame navigation action is the person's. WebKit asks again for each
+        /// redirect, with the action's own type (`.other` for the app's load).
+        mutating func started(_ type: WKNavigationType, url: URL?) -> Bool {
+            switch type {
+            case .reload, .backForward, .formResubmitted:
+                return true
+            case .other:
+                if let url, url == asked {
+                    asked = nil
+                    underway = true
+                    return true
+                }
+                return underway
+            default:
+                return false
+            }
+        }
+
+        /// The navigation under way committed or failed: what follows is the page's.
+        mutating func settled() { underway = false }
+    }
+
     /// The compiled rule list, made once for the app.
     @MainActor private static var compiled: WKContentRuleList?
     @MainActor private static var waiting: [(WKContentRuleList?) -> Void] = []

@@ -84,7 +84,8 @@ a stored list, and the guard does not depend on polling:
   scan is over a second old waits for a fresh one, shared with every other open.
 
 The last check runs synchronously as the stream's socket connects, and again once it has
-connected, before any byte moves. Without a successful scan in the last five seconds, a port no
+connected, before any byte moves. Both are the mux's own readiness check: a stream refused there
+is removed (its slot freed) before its RESET goes, and is never READY. Without a successful scan in the last five seconds, a port no
 source names is unknown, and unknown is refused: the guard fails closed. A port that becomes ace's
 (Spade starting on a port a stream already uses) resets every stream open to it.
 
@@ -115,13 +116,17 @@ never a host.
   changes) and `tunnel.refused` (with a stream id for one OPEN, before that stream's RESET;
   without one for the whole tunnel, which then closes). Refusals are `tunnel_off`,
   `tunnel_forbidden`, `tunnel_port_refused` and `tunnel_limit`. A port with nothing listening is
-  a plain RESET, which the client reports as `tunnel_reset`. Once its hello is read, a tunnel
+  a plain RESET, which the client reports as `tunnel_reset`. A RESET that follows a stream's END
+  is the machine's socket closing after its answer while the device has not ended (a
+  `Connection: close` server): what came before the END is still delivered whole. The client keeps
+  a stream's refusal only while that stream is opening. Once its hello is read, a tunnel
   connection carries only its stream frames and pings: its other JSON reaches no service,
   command or read, whatever the device's scopes. Its authority is decided before any frame is
   handled.
 - **Reconnects.** After a drop the client reconnects on a backoff (250 ms up to 10 s), and opens
   honour it: an open while the machine is unreachable waits for the next scheduled attempt,
-  shared with every other open. The backoff starts over only once the machine has accepted the
+  shared with every other open; an open given up meanwhile leaves at once and the attempt still
+  runs for the rest. The backoff starts over only once the machine has accepted the
   tunnel (its port list or a stream), since a refusal can follow the welcome. The client opens
   the tunnel as a device tab opens, not at its first request.
 - **Limits.** 256 open streams per device across its tunnel connections, 100 opens a second
@@ -131,12 +136,15 @@ never a host.
   stream's slot is freed the moment the mux removes it. Per stream at most the mux's window
   (256 KiB) is buffered each way, written to the loopback socket one write at a time with frames
   that arrive meanwhile joined into the next; across a connection at most 32 MiB waits for its
-  sockets, and a stream past it is reset. Excess opens are refused with `tunnel_limit`, never
+  sockets, and a stream past it is reset. That bound is the tunnel's (both its ends pass it to
+  the mux); the preview relay's streams keep only their window. Excess opens are refused with `tunnel_limit`, never
   queued.
 - **Revocation.** Revoking a device, removing its `operate` authority or turning the tunnel off
   ends its open streams at once. The refusal is sent first, then every TCP stream is destroyed,
   and the connection closes once the refusal is written or after two seconds, so the device
-  hears why and backs off instead of retrying the path.
+  hears why and backs off instead of retrying the path. A revoked device's tunnel sockets and
+  relay channels go through this path too (`tunnel_forbidden`), ahead of the generic close its
+  other sockets get.
 
 ### The device side
 
@@ -164,7 +172,9 @@ never a host.
     the app under a hardened ptrace scope, and it needs code per platform.
   - A refused `CONNECT` is answered (`403`, `502`, `503`) and closed within two seconds, read or
     not. A stream that doesn't open within ten seconds, or whose browser leaves, is given up
-    (`MachineTunnel.open`'s `signal`), resetting it on the machine. A plain-HTTP request that
+    (`MachineTunnel.open`'s `signal`), resetting it on the machine. A plain-HTTP request whose
+    browser leaves gives up its open the same way, as does a phone connection the page closes
+    while its stream opens. A plain-HTTP request that
     couldn't reach the machine drops its connection, so Chromium shows its own error page,
     which the tab explains with the port's recorded failure.
   - The tunnel opens with the dialer that pins what the window's own connection verified: only a
@@ -220,7 +230,11 @@ loopback requests from pages that aren't themselves on a loopback host:
   the frame itself), is loopback. A public frame inside a localhost page is refused, while a
   localhost page's own service worker, which has no frame, still works. A request with no
   initiator, or an opaque one, is refused;
-- phone: a `WKContentRuleList` blocks loopback URLs `unless-top-url` is loopback.
+- phone: a `WKContentRuleList` blocks loopback URLs `unless-top-url` is loopback. Its patterns
+  name every host `isMachineLoopbackHost` accepts as WebKit serializes a request's URL, a
+  trailing dot (`localhost.`) and userinfo (`user@localhost`) included; both are tested against
+  one table (`machine-loopback-urls.json`), and real web views on the simulator load each spelling
+  from a public page and from a localhost one.
 
 Neither rule can judge a top-level navigation: its own URL is the top-level URL, so a public page
 could still submit a form to a service on the machine. Each app's navigation policy therefore
@@ -231,8 +245,14 @@ started the load; the phone from
 `WKNavigationDelegate`'s navigation-action policy, which sees each redirect again with its method):
 
 - it goes ahead when the document that started it is itself on a loopback host;
-- it goes ahead when the person started it in ace: a typed address, a tab the app opened, "Open
-  on this phone";
+- it goes ahead when the person started it in ace. Both apps mean the same by that: the
+  browser's own navigation, which no document started. That is the load the app made for the
+  person (a typed address, a tab it opened, "Open on this phone") and each redirect of it, a
+  reload, and a move back or forward. The desktop app reads it as a request with no initiator
+  (Chromium names the initiating document's origin on a navigation and on each of its redirects);
+  the phone as the load it asked for, with its redirects until it commits or fails, or a
+  navigation of type reload, back-forward or form resubmission. A link, a script or a form a page
+  submitted, and their redirects, are the page's;
 - it goes ahead when it is a GET: a link, a script setting `location`, or a redirect chain whose
   request to loopback is a GET, so an OAuth provider's 302 or 303 back to `localhost` works;
 - otherwise it is refused: a non-GET started by any other document, such as a public page's form

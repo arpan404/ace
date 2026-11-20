@@ -55,11 +55,11 @@ struct DevicePageView: UIViewRepresentable {
     private var tab = ""
     private var status: DevicePageStatus?
     private var failed: (String, String) -> Void = { _, _ in }
-    /// The address the app itself is about to load (typed, a new tab, "Open on this phone").
-    private var personLoad: URL?
+    /// Which navigations the person started (`DevicePageEngine.PersonNavigation`).
+    private var person = DevicePageEngine.PersonNavigation()
 
-    /// The next navigation to `url` that no page started is the person's.
-    func personLoads(_ url: URL) { personLoad = url }
+    /// The next navigation to `url` that no page started is the person's, with its redirects.
+    func personLoads(_ url: URL) { person.asks(url) }
 
     func follow(_ view: WKWebView, tab: String, status: DevicePageStatus,
                 report: @escaping @MainActor (String, String, String?) -> Void,
@@ -99,7 +99,12 @@ struct DevicePageView: UIViewRepresentable {
         refresh(view)
     }
 
-    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { status?.failed = false; status?.refused = false }
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        person.settled()
+        status?.failed = false; status?.refused = false
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) { person.settled() }
 
     /// Main-frame navigations to the machine's loopback follow `allowsMainFrame`; frames and
     /// subresources are the rule list's. Redirects come through here again with their method.
@@ -110,9 +115,7 @@ struct DevicePageView: UIViewRepresentable {
         // it never does: read it so a missing one is nil, not a crash.
         let source = navigationAction.value(forKey: "sourceFrame") as? WKFrameInfo
         let url = navigationAction.request.url
-        // Only the load the app asked for, not another navigation that happens to share its URL.
-        let byPerson = navigationAction.navigationType == .other && url != nil && url == personLoad
-        if byPerson { personLoad = nil }
+        let byPerson = person.started(navigationAction.navigationType, url: url)
         let allowed = DevicePageEngine.allowsMainFrame(to: url, method: navigationAction.request.httpMethod,
                                                        sourceHost: source?.securityOrigin.host, byPerson: byPerson)
         if !allowed { status?.refused = true }
@@ -121,6 +124,7 @@ struct DevicePageView: UIViewRepresentable {
 
     /// The load never reached a page: the bridge words why when it was the machine's localhost.
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        person.settled()
         let error = error as NSError
         guard error.code != NSURLErrorCancelled else { return }
         status?.failed = true

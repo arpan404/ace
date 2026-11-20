@@ -188,6 +188,9 @@ struct PageRulesScenario: Sendable {
     let html: @Sendable (_ machine: String, _ publicBase: String, _ hit: String) -> String
     /// Whether the hit reaches the machine, and with which method.
     let reaches: String?
+    /// Where the person's own load starts, given the same bases and the page's path; the page
+    /// itself unless given (a public URL that redirects, say).
+    var start: (@Sendable (_ machine: String, _ publicBase: String, _ hit: String) -> String)?
     /// The name as a path segment: letters, digits and dashes only, so it sits in any quoted HTML.
     var id: String {
         String(name.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" })
@@ -219,7 +222,16 @@ extension PageRulesScenario {
         image(.publicSite, host: "LOCALHOST", reaches: nil),
         image(.publicSite, host: "app.localhost.", reaches: nil),
         image(.publicSite, host: "[::1]", reaches: nil),
+        // The person's own load is the person's through each redirect, whatever its status.
+        personRedirect(302), personRedirect(303), personRedirect(307), personRedirect(308),
     ]
+
+    /// The person opens a public address that redirects to localhost with `status`.
+    private static func personRedirect(_ status: Int) -> PageRulesScenario {
+        PageRulesScenario(name: "the person's own load redirected to localhost with \(status)", origin: .publicSite,
+                          html: { _, _, _ in "" }, reaches: "GET",
+                          start: { machine, publicBase, hit in "\(publicBase)/redirect/\(status)?to=\(machine)\(hit)" })
+    }
 
     /// An image from the machine named by `host` instead of `localhost`.
     private static func image(_ origin: Origin, host: String, reaches: String?) -> PageRulesScenario {
@@ -328,7 +340,7 @@ final class PageBook: @unchecked Sendable {
         let page = "/page/\(scenario.id)"
         book.put(page, scenario.html(machineBase, publicBase, hit))
         let base = scenario.origin == .publicSite ? publicBase : machineBase
-        let start = URL(string: base + page)!
+        let start = URL(string: scenario.start?(machineBase, publicBase, hit) ?? base + page)!
         coordinator.personLoads(start)
         view.load(URLRequest(url: start))
         // One that should arrive gets four seconds; one that shouldn't is given two to try.

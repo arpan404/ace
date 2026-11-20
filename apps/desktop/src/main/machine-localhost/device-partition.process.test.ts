@@ -71,6 +71,9 @@ app.whenReady().then(async () => {
   phase("public page");
   for (const name of ["form-post", "form-307", "form-302", "link-get"])
     results[name] = await visit(partition, config.public + "/" + name, 1200, null);
+  phase("person redirect");
+  // The person's own load of a public address that redirects to localhost: no initiator.
+  results.personRedirect = await visit(partition, config.public + "/person-307", 600, null);
   results.publicFetch = await visit(partition, config.public + "/blank", 200,
     "fetch('" + config.dev + "/from-public-page').then(() => 'reached', () => 'blocked')");
   phase("public frame");
@@ -130,6 +133,7 @@ const Result = z.object({
   "form-307": Visit,
   "form-302": Visit,
   "link-get": Visit,
+  personRedirect: Visit,
   publicFetch: Visit,
   frame: Visit,
   other: Visit,
@@ -225,6 +229,10 @@ it.skipIf(headless)(
         page(
           `<form method="post" action="${action}"><input name="a" value="1"></form><script>document.forms[0].submit()</script>`,
         );
+      if (request.url === "/person-307") {
+        response.writeHead(307, { location: `${machine}/person-after-307` });
+        return response.end();
+      }
       response.writeHead(
         request.url === "/r307" ? 307 : request.url === "/r302" ? 302 : 200,
         request.url === "/r307"
@@ -315,6 +323,8 @@ it.skipIf(headless)(
     expect(hits).not.toContain("POST /after-307");
     expect(hits).toContain("GET /after-302");
     expect(hits).toContain("GET /oauth-back");
+    // The person's own load stays theirs through a 307 to localhost.
+    expect(hits).toContain("GET /person-after-307");
     // Finding 4: a public page, and a public frame inside a localhost page, reach nothing on
     // the machine: no fetch, no websocket.
     expect(result.publicFetch.value).toBe("blocked");
