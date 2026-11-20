@@ -40,3 +40,11 @@ export function stoppableTasks(state: ThreadState): string[] {
 export function tasksToStop(state: ThreadState): string[] {
   return stoppableTasks(state).filter((key) => state.tasks[key]?.stoppable === true);
 }
+
+/**
+ * Those of `stoppableTasks` the provider said it can't stop (an ACP shell that outlived its
+ * prompt, say): a whole-thread Stop leaves them a bounded time to end (`Sessions.closeAfter`).
+ */
+export function tasksLeftToEnd(state: ThreadState): string[] {
+  return stoppableTasks(state).filter((key) => state.tasks[key]?.stoppable !== true);
+}
