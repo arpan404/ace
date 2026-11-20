@@ -192,7 +192,9 @@ export function authenticatedChannel(
             const code = event.success ? event.data.code : 1006;
             if (epoch !== stamp) return;
             if (code !== 4013) {
-              fail();
+              // Messages that came before the close are read first: a refusal the daemon sent
+              // just before closing (a tunnel's, say) still reaches the consumer.
+              void inbound.finally(fail);
               return;
             }
             const waitingEvents = events;
