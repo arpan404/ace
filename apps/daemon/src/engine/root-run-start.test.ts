@@ -41,6 +41,25 @@ describe("a root run's start", () => {
     expect(rootRunStart("goal", parcelNotice)).toEqual({ trigger: "goal", takesInput: false });
   });
 
+  it("takes nothing when a provider's own child wakes the root with its result", () => {
+    const message = { kind: "thread.send" };
+    expect(rootRunStart("subagent_result", message)).toEqual({
+      trigger: "subagent_result",
+      takesInput: false,
+    });
+    expect(rootRunStart("subagent_result", undefined)).toEqual({
+      trigger: "subagent_result",
+      takesInput: false,
+    });
+  });
+
+  it("takes ace's own child result, handed to the provider as given input", () => {
+    expect(rootRunStart("user", { kind: "thread.send", trigger: "subagent_result" })).toEqual({
+      trigger: "subagent_result",
+      takesInput: true,
+    });
+  });
+
   it("a resumed run takes its input; a goal run with nothing waiting takes none", () => {
     expect(rootRunStart("restart", parcelNotice)).toEqual({
       trigger: "restart",

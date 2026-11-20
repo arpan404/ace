@@ -10,14 +10,14 @@ export interface AwaitingInput {
 const GIVEN_INPUT: ReadonlySet<RunTrigger> = new Set(["user", "queue", "unknown"]);
 
 /**
- * Runs whose start takes the input the engine handed the session. A provider's own wake (a
- * finished shell, a goal it pursues) never does: the input it was handed is still waiting.
+ * Runs whose start takes the input the engine handed the session: given input, ace's own labels
+ * for it, and ace's continuations. A provider's own wake (a native child's result, a finished
+ * shell, a goal it pursues) never does: whatever ace handed it is still waiting.
  */
 const TAKES_INPUT: ReadonlySet<RunTrigger> = new Set([
   ...GIVEN_INPUT,
   "spawn",
   "parent_agent",
-  "subagent_result",
   "schedule",
   "restart",
   "limit_resume",
