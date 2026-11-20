@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { checkBot } from "./checks/bot.ts";
 import { effectKey, grantedEffects, recipeEffects } from "./package.ts";
@@ -172,5 +173,24 @@ describe("agent packages", () => {
     );
     const missing = checkBot([bot]);
     expect(missing.problems.map((problem) => problem.path)).toContain("tests/watch-a-trip.json");
+  });
+});
+
+/** The accept and refuse rules Spade's reader runs too (`spade_core::package::read`). */
+const rules = JSON.parse(
+  readFileSync(
+    new URL("../../../spade/crates/spade-core/src/package/rules.json", import.meta.url),
+    "utf8",
+  ),
+) as {
+  base: Record<string, unknown>;
+  cases: { name: string; with: Record<string, unknown>; refused?: string }[];
+};
+
+describe("the rules both readers share", () => {
+  it.each(rules.cases.map((rule) => [rule.name, rule] as const))("%s", (_name, rule) => {
+    const problems = refusals({ ...rules.base, ...rule.with });
+    if (rule.refused === undefined) expect(problems).toEqual([]);
+    else expect(problems.some((problem) => problem.includes(rule.refused!))).toBe(true);
   });
 });

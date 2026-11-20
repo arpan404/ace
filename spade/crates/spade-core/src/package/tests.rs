@@ -328,3 +328,27 @@ fn a_worker_is_held_to_every_packaged_bot_above_it() {
     assert_eq!(narrowed([Some(top), None, Some(maker)]), Some(maker));
     assert_eq!(narrowed([None, Some(top)]), Some(top));
 }
+
+/// One accept or refuse rule of `rules.json`, which the marketplace's reader runs too.
+#[test]
+fn the_shared_rules_accept_and_refuse_as_the_marketplaces_reader_does() {
+    let rules: Value = serde_json::from_str(include_str!("rules.json")).unwrap_or_default();
+    let cases = rules["cases"].as_array().cloned().unwrap_or_default();
+    assert!(cases.len() > 10, "{rules}");
+    for case in cases {
+        let mut manifest = rules["base"].clone();
+        for (key, value) in case["with"].as_object().cloned().unwrap_or_default() {
+            manifest[key] = value;
+        }
+        let name = case["name"].as_str().unwrap_or_default();
+        match (read(&manifest, BUILD), case["refused"].as_str()) {
+            (Ok(_), None) => {}
+            (Err(problems), Some(word)) => assert!(
+                problems.iter().any(|p| p.contains(word)),
+                "{name}: {problems:?} says nothing of {word:?}"
+            ),
+            (Ok(_), Some(word)) => panic!("{name}: accepted, but refused for {word:?}"),
+            (Err(problems), None) => panic!("{name}: refused: {problems:?}"),
+        }
+    }
+}

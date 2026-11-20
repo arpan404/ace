@@ -43,3 +43,30 @@ impl Drop for Busy {
         freed.notify_all();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn a_second_change_to_a_bots_package_waits_for_the_first_and_another_bots_doesnt() {
+        let changing = Arc::new(Changing::default());
+        let first = changing.hold("a1");
+        let (done, finished) = mpsc::channel();
+        for bot in ["a1", "a2"] {
+            let (changing, done) = (changing.clone(), done.clone());
+            std::thread::spawn(move || {
+                let _held = changing.hold(bot);
+                let _ = done.send(bot);
+            });
+        }
+        // Another bot's change goes ahead; the same bot's waits while the first holds it.
+        assert_eq!(finished.recv_timeout(Duration::from_secs(5)), Ok("a2"));
+        assert!(finished.recv_timeout(Duration::from_millis(100)).is_err());
+        drop(first);
+        assert_eq!(finished.recv_timeout(Duration::from_secs(5)), Ok("a1"));
+    }
+}
