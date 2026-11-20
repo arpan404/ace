@@ -59,7 +59,7 @@ it("reads exact byte ranges across persisted output chunks over authenticated so
     call: { detail: { output: { bytes: 10, tail: "abc😀def", truncated: false } } },
   });
 });
-it("limits output reads to 256 KiB and rejects reads before hello or outside readable threads", async () => {
+it("refuses output reads over 256 KiB, answers a 256 KiB read with 16 KiB, and rejects reads before hello or outside readable threads", async () => {
   const f = await fixture({ canReadThread: (_device, id) => id !== ThreadId.parse("denied") });
   cleanups.push(() => f.close());
   const denied = { ...f.thread, id: ThreadId.parse("denied") };
@@ -109,7 +109,10 @@ it("limits output reads to 256 KiB and rejects reads before hello or outside rea
   });
   const data = await allowed.next();
   if (data.type !== "output.data") throw new Error("Expected output");
-  expect(Buffer.from(data.bytes, "base64")).toHaveLength(256 * 1024);
+  // A read returns at most 16 KiB of output however much it asks, so one reply never holds an
+  // urgent message back for long (commit 883589740); the reader goes on from nextOffset.
+  expect(Buffer.from(data.bytes, "base64")).toHaveLength(16 * 1024);
+  expect(data.nextOffset).toBe(16 * 1024);
   expect(data.eof).toBe(false);
 });
 it("caps raw data in live events, replay and snapshots while preserving complete hashed blobs", async () => {
