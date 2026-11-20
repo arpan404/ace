@@ -661,17 +661,19 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
 ## Pause, resume and the running view
 
 ADR 0200 §6. **Pause** is Stop, then hold. The pause is stored first (the `paused_bots` setting,
-`{agent: {at_ms}}`), so a restart holds it, then the bot's turn, jobs, helpers and workers stop
+`{agent: {at_ms, held}}`), so a restart holds it, then the bot's turn, jobs, helpers and workers stop
 as for Stop. Its own sleeps and waits stay open and armed; the stopped work's retries, outage
 waits and parked steps end with it; its services stop. While it is paused:
 
 - no turn starts: a message, a worker's report or a club's ask to it is stored and waits;
-- the wake timer skips its wakes, and one its condition meets (or the person wakes) is kept in
-  memory to fire on Resume;
+- the wake timer skips its wakes, and one its condition meets (or the person wakes) is stored in
+  the pause's `held`, in the one write that marks it held, so a restart before Resume keeps it;
 - its routines' due slots stay due and unclaimed; event and webhook triggers are skipped
   (`skipped_paused`); the person's own Run now is delivered and waits, as a message does.
 
-**Resume** clears the setting, fires each kept wake once, lets the timer find the wakes that came
+**Resume** fires each held wake once (a wake fires only while it is open), then clears the
+setting; a crash in between leaves the bot paused, and resuming again fires nothing twice. It lets
+the timer find the wakes that came
 due by time, lets the routines catch up once (`caught_up`), and answers what waited. Services
 don't restart by themselves. A paused bot can't move to another machine until it is resumed.
 

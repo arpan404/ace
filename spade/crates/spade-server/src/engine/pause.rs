@@ -2,7 +2,8 @@
 //! end now, its services stop, and from then on nothing of it fires. A due wake stays open and
 //! armed, a routine's due slot stays due, a message to it is stored and waits. Resume ends the
 //! hold: each wake that came due fires once, each routine catches up once, and what waited is
-//! answered in order. The pause is stored before anything stops, so it holds through a restart.
+//! answered in order. The pause is stored before anything stops, so it holds through a restart;
+//! so is each wake met while it holds, in the same record, so a restart before Resume loses none.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -13,12 +14,15 @@ use spade_store::StoreError;
 
 use super::Engine;
 
-/// The setting the paused bots are kept in: `{agent: {"at_ms"}}`.
+/// The setting the paused bots are kept in: `{agent: {"at_ms", "held"}}`.
 const PAUSED_BOTS: &str = "paused_bots";
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Stored {
     at_ms: i64,
+    /// Wakes met while it was paused, fired once on Resume.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    held: Vec<Met>,
 }
 
 #[derive(Debug, Clone)]
@@ -28,19 +32,20 @@ struct Paused {
 }
 
 /// A wake its condition met (or the person woke) while its bot was paused: fired on resume.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Met {
     wake: String,
     cause: Cause,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     what: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     data: Vec<String>,
 }
 
-/// The paused bots, read from the setting the first time they are needed, and the wakes met
-/// meanwhile.
+/// The paused bots, read from the setting the first time they are needed.
 #[derive(Default)]
 pub(super) struct Shared {
     paused: Mutex<Option<HashMap<String, Paused>>>,
-    met: Mutex<HashMap<String, Vec<Met>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -108,16 +113,23 @@ impl Engine {
         self.held(id) || self.paused(id)
     }
 
-    fn write_pause(&self, agent: &str, at_ms: Option<i64>) -> Result<(), StoreError> {
+    /// Changes the stored pauses with `change`, read and written under the agent lock in one
+    /// write: what it changes lands whole, or not at all.
+    fn change_pauses(
+        &self,
+        change: impl FnOnce(&mut HashMap<String, Stored>),
+    ) -> Result<(), StoreError> {
         let _held = lock(&self.agent_lock);
         let mut stored = self.stored_pauses()?;
-        match at_ms {
-            Some(at_ms) => stored.insert(agent.to_owned(), Stored { at_ms }),
-            None => stored.remove(agent),
-        };
+        change(&mut stored);
         let raw = (!stored.is_empty())
             .then(|| serde_json::to_string(&stored).unwrap_or_else(|_| "{}".to_owned()));
         self.store.set_setting(PAUSED_BOTS, raw.as_deref())
+    }
+
+    /// Forgets the folded pauses, so they are read from storage again.
+    fn forget_pauses(&self) {
+        *lock(&self.pause_hold.paused) = None;
     }
 
     /// The person pauses `agent`: stored first, so a restart holds it, then its work stops.
@@ -130,7 +142,10 @@ impl Engine {
             return Ok(Some(false));
         }
         let at_ms = self.now_ms();
-        self.write_pause(agent, Some(at_ms))?;
+        self.change_pauses(|stored| {
+            let held = Vec::new();
+            stored.insert(agent.to_owned(), Stored { at_ms, held });
+        })?;
         if let Some(paused) = self.pauses().as_mut() {
             paused.insert(
                 agent.to_owned(),
@@ -148,6 +163,10 @@ impl Engine {
 
     /// The person resumes `agent`: what came due while it was paused fires once, and what
     /// waited is answered. `None` for no such bot; else whether it was paused.
+    ///
+    /// The wakes met meanwhile fire before the stored pause is cleared, each once: a wake fires
+    /// only while it is open. A crash in between leaves the bot paused with them still held, and
+    /// resuming again finds them fired, so nothing fires twice.
     pub fn resume_agent(self: &Arc<Self>, agent: &str) -> Result<Option<bool>, StoreError> {
         let Some(found) = self.store.agent(agent)? else {
             return Ok(None);
@@ -155,16 +174,28 @@ impl Engine {
         if self.paused_since(agent).is_none() {
             return Ok(Some(false));
         }
-        self.write_pause(agent, None)?;
+        let held = self
+            .stored_pauses()?
+            .remove(agent)
+            .map(|stored| stored.held)
+            .unwrap_or_default();
+        // Open in memory from here, so the held wakes fire and what they start runs.
         if let Some(paused) = self.pauses().as_mut() {
             paused.remove(agent);
         }
         let id = found.conversation;
-        // Wakes met meanwhile fire once each; those due by time fire on the timer's next look.
-        let met = lock(&self.pause_hold.met).remove(&id).unwrap_or_default();
-        for met in met {
+        for met in held {
             self.fire_wake(&id, &met.wake, met.cause, met.what.as_deref(), met.data);
         }
+        if let Err(error) = self.change_pauses(|stored| {
+            stored.remove(agent);
+        }) {
+            // It reads paused again, as it will after a restart; Resume can be pressed again,
+            // and what fired stays fired.
+            self.forget_pauses();
+            return Err(error);
+        }
+        // Wakes due by time fire on the timer's next look.
         self.kick_wakes();
         // Routine slots that came due catch up once, on the routines' next look.
         self.routines_shared().wake.notify_one();
@@ -201,9 +232,10 @@ impl Engine {
         self.stop_services(id) || any
     }
 
-    /// While `id`'s bot is paused a wake doesn't fire: one its condition met, or the person
-    /// woke, is kept to fire once on resume (one due by time is found again by the timer).
-    /// Whether it was held.
+    /// While `id`'s bot is paused a wake doesn't fire. One its condition met, or the person
+    /// woke, is stored with the pause, in the one write that marks it held, to fire once on
+    /// Resume, after a restart too. One due by time needs nothing stored: the timer finds it
+    /// again. Whether it was held.
     pub(super) fn hold_firing(
         &self,
         id: &str,
@@ -212,20 +244,33 @@ impl Engine {
         what: Option<&str>,
         data: &[String],
     ) -> bool {
-        if !self.paused(id) {
+        let agent = self.pauses().as_ref().and_then(|paused| {
+            paused
+                .iter()
+                .find(|(_, p)| p.conversation == id)
+                .map(|(agent, _)| agent.clone())
+        });
+        let Some(agent) = agent else {
             return false;
+        };
+        if matches!(cause, Cause::Time | Cause::Timeout) {
+            return true;
         }
-        if !matches!(cause, Cause::Time | Cause::Timeout) {
-            let mut met = lock(&self.pause_hold.met);
-            let list = met.entry(id.to_owned()).or_default();
-            if !list.iter().any(|m| m.wake == wake) {
-                list.push(Met {
-                    wake: wake.to_owned(),
-                    cause,
-                    what: what.map(str::to_owned),
-                    data: data.to_vec(),
-                });
+        let met = Met {
+            wake: wake.to_owned(),
+            cause,
+            what: what.map(str::to_owned),
+            data: data.to_vec(),
+        };
+        let held = self.change_pauses(|stored| {
+            if let Some(pause) = stored.get_mut(&agent)
+                && !pause.held.iter().any(|m| m.wake == met.wake)
+            {
+                pause.held.push(met);
             }
+        });
+        if let Err(error) = held {
+            tracing::error!(%error, %agent, %wake, "a wake met while paused could not be held");
         }
         true
     }

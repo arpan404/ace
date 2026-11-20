@@ -1,12 +1,14 @@
 //! The process model's pause and the task manager (ADR 0200 §6) through the real engine and API,
 //! on a scripted endpoint and a clock the test moves: Pause holds a due wake and a routine slot
 //! across a restart and Resume fires each once; a message to a paused bot waits for Resume; Stop
-//! from the running view stops the bot's workers; `GET /v1/running` says each state in words.
+//! from the running view stops the bot's workers; a wake whose condition is met while the bot is
+//! paused is kept through a restart and fires once on Resume; `GET /v1/running` says each state
+//! in words.
 
 mod support;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -373,5 +375,124 @@ async fn stop_from_the_running_view_stops_the_bot_and_its_workers() -> Result {
                 .is_some_and(|w| w.iter().all(|w| w["state"] == "idle")))
     })
     .await?;
+    Ok(())
+}
+
+/// A local page that answers `503` until `up` is set, then `200` exactly once, then `503` again:
+/// a condition that is met once and never again. `served` is set once it answered `200`.
+async fn once_up() -> Result<(String, Arc<AtomicBool>, Arc<AtomicBool>)> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}/ready", listener.local_addr()?);
+    let up = Arc::new(AtomicBool::new(false));
+    let served = Arc::new(AtomicBool::new(false));
+    let (up_at, served_at) = (up.clone(), served.clone());
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut request = [0_u8; 2048];
+            let _ = socket.read(&mut request).await;
+            let ok = up_at.load(Ordering::SeqCst) && !served_at.swap(true, Ordering::SeqCst);
+            let status = if ok {
+                "200 OK"
+            } else {
+                "503 Service Unavailable"
+            };
+            let answer =
+                format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+            let _ = socket.write_all(answer.as_bytes()).await;
+        }
+    });
+    Ok((url, up, served))
+}
+
+#[tokio::test]
+async fn a_wake_met_while_paused_is_kept_through_a_restart_and_resume_fires_it_once() -> Result {
+    let (url, up, served) = once_up().await?;
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call(
+                "c1",
+                "wait_for",
+                json!({ "condition": { "kind": "url", "url": url },
+                        "reason": "the build server answers" }),
+            ),
+            Script::reply("Waiting for the build server."),
+            title(),
+        ],
+        Vec::new(),
+        Options::default(),
+    )
+    .await?;
+    let (agent, conversation) = told(&spade, "Tell me when the build server is up").await?;
+    act(&spade, &agent, "pause").await?;
+
+    // The page answers once while the bot is paused: the wait is met, and held.
+    up.store(true, Ordering::SeqCst);
+    until("the page answered its one 200", || async {
+        Ok(served.load(Ordering::SeqCst))
+    })
+    .await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let events = spade.events(&conversation).await?;
+    assert_eq!(
+        count(&events, of_type("wake_fired")),
+        0,
+        "{:?}",
+        types(&events)
+    );
+
+    // Spade restarts before Resume. The page never answers again, so only what was kept can
+    // wake the bot.
+    let later = |from| Options {
+        ids: Some(Arc::new(LaterIds(AtomicU64::new(from)))),
+        ..Options::default()
+    };
+    let spade = spade
+        .restart_with(
+            Vec::new(),
+            vec![Script::reply("The build server is up.")],
+            later(1),
+        )
+        .await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(row(&spade, &agent).await?["reads"], "paused");
+    let events = spade.events(&conversation).await?;
+    assert_eq!(
+        count(&events, of_type("wake_fired")),
+        0,
+        "{:?}",
+        types(&events)
+    );
+
+    let resumed = act(&spade, &agent, "resume").await?;
+    assert_eq!(resumed["changed"], true);
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    let fired: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["type"] == "wake_fired")
+        .collect();
+    assert_eq!(fired.len(), 1, "{:?}", types(&events));
+    assert_eq!(fired[0]["cause"], "condition");
+
+    // Resumed again, paused and resumed, and restarted: it never fires twice.
+    assert_eq!(act(&spade, &agent, "resume").await?["changed"], false);
+    act(&spade, &agent, "pause").await?;
+    act(&spade, &agent, "resume").await?;
+    let spade = spade
+        .restart_with(Vec::new(), Vec::new(), later(1_000))
+        .await?;
+    act(&spade, &agent, "pause").await?;
+    act(&spade, &agent, "resume").await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let events = spade.events(&conversation).await?;
+    assert_eq!(
+        count(&events, of_type("wake_fired")),
+        1,
+        "{:?}",
+        types(&events)
+    );
+    assert_eq!(count(&events, of_type("reply_started")), 2);
     Ok(())
 }
