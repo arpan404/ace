@@ -112,7 +112,7 @@ export interface ComposerProps {
    */
   filesOnly?: boolean | undefined;
   /** With `filesOnly`: names `@` offers, inserted as plain text (a Spade group's members). */
-  mentionNames?: readonly string[] | undefined;
+  mentionNames?: readonly MentionMember[] | undefined;
   /** The placeholder on a narrow composer, where `placeholder` would be cut short. */
   shortPlaceholder?: string | undefined;
   autoFocus?: boolean | undefined;
@@ -136,4 +136,10 @@ export interface ComposerProps {
   sendBlocked?: { reason: string; describedBy: string } | undefined;
   onPlan?: (() => void) | undefined;
   ref?: Ref<ComposerHandle> | undefined;
+}
+
+/** A name `@` offers in a Spade chat (a club's member), with its face (ADR 0194). */
+export interface MentionMember {
+  name: string;
+  avatar?: import("@ace/ui-core/spade-chat").SpadeAvatar | undefined;
 }

@@ -59,7 +59,11 @@ export function BotReply(props: { threadId: string; itemId: string }) {
   };
   return (
     <div data-part="bot-reply" className="flex min-w-0 gap-2.5">
-      <SpadeFace avatar={parseSpadeAvatar(speaker.avatar, speaker.id)} size={24} className="mt-0.5" />
+      <SpadeFace
+        avatar={parseSpadeAvatar(speaker.avatar, speaker.id)}
+        size={24}
+        className="mt-0.5"
+      />
       <div className="min-w-0 flex-1">
         <p className="mb-0.5 text-xs text-muted-foreground">
           <span className="font-medium text-foreground">{speaker.name}</span>
@@ -98,7 +102,12 @@ export function BotReply(props: { threadId: string; itemId: string }) {
               </Button>
             </form>
           ) : (
-            <Button size="xs" variant="ghost" className="-ml-1.5 mt-0.5" onClick={() => setReplying(true)}>
+            <Button
+              size="xs"
+              variant="ghost"
+              className="-ml-1.5 mt-0.5"
+              onClick={() => setReplying(true)}
+            >
               Reply
             </Button>
           ))}

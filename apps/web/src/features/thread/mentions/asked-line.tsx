@@ -23,12 +23,13 @@ export function AskedLine(props: { threadId: string; itemId: string }) {
       data-part="asked-line"
       className="flex flex-col items-end gap-1 text-xs text-muted-foreground [[data-layout-messages=flat]_&]:items-start"
     >
-      {line.words && (
-        <p className={userBubble}>{line.words}</p>
-      )}
+      {line.words && <p className={userBubble}>{line.words}</p>}
       <ul className="flex max-w-[80%] flex-wrap justify-end gap-x-3 gap-y-0.5">
         {line.to.map((entry) => (
-          <li key={entry.to.kind === "agent" ? entry.to.threadId : entry.to.id} className="flex min-w-0 items-center gap-1.5">
+          <li
+            key={entry.to.kind === "agent" ? entry.to.threadId : entry.to.id}
+            className="flex min-w-0 items-center gap-1.5"
+          >
             <span className="grid size-3.5 shrink-0 place-items-center">
               <MentionMark picture={addresseePicture(entry.to)} size={14} />
             </span>
@@ -38,7 +39,9 @@ export function AskedLine(props: { threadId: string; itemId: string }) {
             {entry.state === "waiting" && entry.to.kind !== "agent" && (
               <Link
                 to={entry.to.kind === "bot" ? "/spade/$agentId" : "/spade/groups/$groupId"}
-                params={entry.to.kind === "bot" ? { agentId: entry.to.id } : { groupId: entry.to.id }}
+                params={
+                  entry.to.kind === "bot" ? { agentId: entry.to.id } : { groupId: entry.to.id }
+                }
                 className="focus-ring rounded-sm font-medium text-link"
               >
                 Open in Spade

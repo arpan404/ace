@@ -10,6 +10,7 @@ import {
   type ComposerHandle,
   type Draft,
   useStopKey,
+  type MentionMember,
 } from "@/features/thread/index.ts";
 import { prepareSpadeFiles, type SpadeMessage } from "./spade-attachments.ts";
 import { MicButton, useSpadeVoice, VoiceButton, VoiceStrip } from "./spade-mic.tsx";
@@ -47,8 +48,8 @@ export function SpadeComposer(props: {
   stopping?: boolean | undefined;
   /** Words to start with, one tap each ("Ask Inbox"), shown above the composer. */
   chips?: readonly { label: string; text: string; face: ReactNode }[] | undefined;
-  /** Names `@` offers (a group's members), inserted as plain text. */
-  mentionNames?: readonly string[] | undefined;
+  /** Names `@` offers (a group's members), inserted as plain text, with their faces. */
+  mentionNames?: readonly MentionMember[] | undefined;
   /**
    * What the next message answers (a decision the person wants changed): above the field, and
    * quoted before their words when it goes.
@@ -90,7 +91,13 @@ export function SpadeComposer(props: {
       const { images, documents } = await prepareSpadeFiles(files);
       // A recording goes with the words it became; with no words left, it stays behind.
       const recording = text ? voice.voice : undefined;
-      await props.send({ text, images, documents, voice: recording });
+      await props.send({
+        text,
+        images,
+        documents,
+        voice: recording,
+        ...(draft.devices?.length ? { devices: draft.devices } : {}),
+      });
       if (quoted && words) props.quote?.onRemove();
       draft.files.release();
       if (recording) voice.remove();

@@ -2,24 +2,61 @@ import { useState } from "react";
 import type { ThreadRef } from "../sources/index.ts";
 import { triggerAt, type Trigger } from "./draft.ts";
 import { useSuggestions, type Suggestion, type Suggestions } from "./suggestions.tsx";
+import { bestRow, pickerRows } from "@ace/ui-core";
+import { useMentionDevices } from "../mentions/index.ts";
+import type { MentionMember } from "./composer-props.ts";
 
-/** The names matching what follows `@`: those starting with it first, then any containing it. */
-function nameSuggestions(names: readonly string[], query: string): Suggestions {
-  const typed = query.toLowerCase();
-  const items = names
-    .filter((name) => name.toLowerCase().includes(typed))
-    .toSorted(
-      (a, b) =>
-        Number(b.toLowerCase().startsWith(typed)) - Number(a.toLowerCase().startsWith(typed)),
-    )
-    .map((name): Suggestion => ({
-      insert: `@${name}`,
-      label: name,
-      kind: "mention",
-      group: "Members",
-      plain: true,
-    }));
-  return items.length ? { state: "ready", kind: "mention", items } : { state: "closed" };
+/**
+ * What `@` offers in a Spade chat (ADR 0194): the club's members with their faces, inserted as
+ * plain names Spade routes by, then the fleet's devices as chips, matched as the thread's picker
+ * matches.
+ */
+function spadeSuggestions(
+  members: readonly MentionMember[],
+  devices: ReturnType<typeof useMentionDevices>,
+  query: string,
+): Suggestions {
+  const rows = pickerRows<Suggestion>(
+    [
+      ...members.map((member) => ({
+        section: "Spade bots" as const,
+        label: member.name,
+        detail: "In this club",
+        payload: {
+          insert: `@${member.name}`,
+          label: member.name,
+          kind: "mention" as const,
+          group: "Spade bots",
+          plain: true,
+          ...(member.avatar ? { picture: { kind: "bot" as const, avatar: member.avatar } } : {}),
+        },
+      })),
+      ...devices.map((device) => ({
+        section: "Devices" as const,
+        label: device.name,
+        detail: device.detail,
+        payload: {
+          insert: `@${device.name}`,
+          label: device.name,
+          detail: device.detail,
+          kind: "mention" as const,
+          group: "Devices",
+          device: device.item,
+          picture: {
+            kind: "device" as const,
+            device: device.kind,
+            model: device.model,
+            os: device.os,
+          },
+        },
+      })),
+    ],
+    query,
+  );
+  const items = rows.map((row) => row.payload);
+  return items.length
+    ? { state: "ready", kind: "mention", items, best: bestRow(rows) }
+    : { state: "closed" };
 }
 
 /**
@@ -35,7 +72,7 @@ export function useComposerSuggestions(
   /** No project or commands to suggest (Spade): `@`, `/` and + open no list. */
   off = false,
   /** While `off`: names `@` offers instead, inserted as plain text. */
-  names?: readonly string[],
+  names?: readonly MentionMember[],
 ) {
   "use no memo";
   const [dismissed, setDismissed] = useState<number>();
@@ -45,10 +82,11 @@ export function useComposerSuggestions(
     ? { kind: "command" as const, query: "", start: caret, end: caret }
     : triggerAt(text, caret);
   const open = found && found.start !== dismissed ? found : undefined;
-  const named = off && names?.length && open?.kind === "mention" ? open : undefined;
+  const named = off && open?.kind === "mention" ? open : undefined;
   const trigger: Trigger | undefined = off ? named : open;
   const listed = useSuggestions(thread, named ? undefined : trigger, recent, adding);
-  const suggestions = named ? nameSuggestions(names ?? [], named.query) : listed;
+  const devices = useMentionDevices(!!named);
+  const suggestions = named ? spadeSuggestions(names ?? [], devices, named.query) : listed;
   const items = suggestions.state === "ready" ? suggestions.items : [];
   // The highlight resets whenever the token being completed changes.
   const listKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : "";

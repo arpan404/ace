@@ -101,6 +101,10 @@ function deviceRow(device: PickerDevice): MentionDevice {
 }
 
 /** Every machine of the fleet, this one first, then their paired devices and simulators. */
+export function useMentionDevices(open: boolean): MentionDevice[] {
+  return useDevices(open, useMachines());
+}
+
 function useDevices(open: boolean, machines: readonly Machine[]): MentionDevice[] {
   const identity = useHostIdentity();
   const now = useClock()();
