@@ -1,6 +1,7 @@
 import { OutputLimitError } from "./output-budget.ts";
 import { ProbeRequest, ProbeStop, type ProbeReply } from "./probe-messages.ts";
 import { spawnRawSupervised, type RawSupervisedProcess } from "./process.ts";
+import { systemListing } from "./process-listing.ts";
 
 /**
  * The probe worker's side of the protocol. Each probe is a supervised spawn, so it keeps every
@@ -41,7 +42,12 @@ export function createProbeRunner(
       return;
     }
     running.set(id, proc);
-    if (proc.pid !== undefined) reply({ type: "spawned", id, pid: proc.pid });
+    if (proc.pid !== undefined) {
+      // Read here, right after the spawn: by the time the owner hears of it the probe may have
+      // exited and been reaped, and what it started could no longer be traced to it.
+      const unique = systemListing.ancestry?.(proc.pid)?.unique;
+      reply({ type: "spawned", id, pid: proc.pid, ...(unique ? { unique } : {}) });
+    }
     // Read-only probes never write: EOF stdin so a CLI waiting on input exits.
     proc.stdin.end();
     const stdout: Buffer[] = [];

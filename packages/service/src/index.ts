@@ -1,4 +1,10 @@
-export { planService, ServiceConfig, ServiceEnvironment, type ServicePlan } from "./plan.ts";
+export {
+  isDaemonUnit,
+  planService,
+  ServiceConfig,
+  ServiceEnvironment,
+  type ServicePlan,
+} from "./plan.ts";
 export { UserService, type ServiceAction } from "./service.ts";
 export { runProcess, checked, type Runner, type ProcessResult } from "./process.ts";
 export { MaintenanceGate } from "./maintenance.ts";

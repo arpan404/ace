@@ -1,4 +1,5 @@
 import { PreviewPort } from "@ace/protocol/preview";
+export { parseProcessParents } from "@ace/provider-kit/process-tree";
 
 /*
  * Pure parsers for the OS tables that say which process listens where, what its parent is and
@@ -124,20 +125,6 @@ export function joinProcListeners(
     if (pid !== undefined) listeners.push({ pid, port: row.port, reach: row.reach });
   }
   return dedupe(listeners);
-}
-
-/** `ps -A -o pid=,ppid=`: each process's parent. */
-export function parseProcessParents(text: string): Map<number, number> {
-  if (text.length > tableLimit) throw new Error("Process table exceeds limit");
-  const parents = new Map<number, number>();
-  for (const line of text.split("\n")) {
-    const [pid, ppid] = line.trim().split(/\s+/);
-    const child = pidOf(pid ?? "");
-    const parent = Number(ppid);
-    if (child !== undefined && Number.isSafeInteger(parent) && parent >= 0)
-      parents.set(child, parent);
-  }
-  return parents;
 }
 
 /** `lsof -a -d cwd -p <pids> -Fpn`: each process's working directory. */

@@ -27,8 +27,12 @@ import {
 } from "./process-containment.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 import { resolveProbeLaunch, resolveWithin, type ProbeLaunch } from "./probe-resolve.ts";
+import { markedEnv } from "./process-marker.ts";
 export {
   stopOwnedGroups,
+  ownedGroupLeaders,
+  onGroupOwned,
+  guardGroupSignals,
   observeProcessGroups,
   installShutdownHandlers,
   registerGroup,
@@ -133,7 +137,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     : { command: options.command, args: [...(options.args ?? [])], verbatim: false };
   const child = spawn(target.command, target.args, {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: { ...process.env, ...options.env },
+    env: markedEnv({ ...process.env, ...options.env }),
     ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
     windowsVerbatimArguments: target.verbatim,
     stdio: ["pipe", "pipe", "pipe"],

@@ -7,6 +7,7 @@ import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
 import { z } from "zod";
 import { admitProcess, killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
 import { requestOwner, unscoped, type RequestOwner } from "./unscoped.ts";
+import { markedEnv } from "./process-marker.ts";
 
 export type ProbeExit = Omit<Extract<ProbeReply, { type: "exit" }>, "type" | "id">;
 export interface ProbeThread {
@@ -134,10 +135,13 @@ export function createProbeThread(
     const flight = flights.get(message.data.id);
     if (!flight) return;
     if (message.data.type === "spawned") {
-      const { pid } = message.data;
+      const { pid, unique } = message.data;
       flight.pid = pid;
       try {
-        registerGroup(pid, () => stop(flight), { name: "cli-probe" });
+        registerGroup(pid, () => stop(flight), {
+          name: "cli-probe",
+          ...(unique ? { unique } : {}),
+        });
       } catch {
         // Unrecorded, it must not outlive this probe.
         flight.stopping = true;
@@ -211,7 +215,8 @@ export async function probeOffThread(
   // Shared by every caller, so started in no caller's context.
   const thread = options.thread ?? (shared ??= unscoped(() => createProbeThread()));
   const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries({ ...process.env, ...options.env }))
+  // Marked here, on the owner's thread: the probe worker owns no run of its own.
+  for (const [key, value] of Object.entries(markedEnv({ ...process.env, ...options.env })))
     if (value !== undefined) env[key] = value;
   const stop = new AbortController();
   let failure: Error | undefined;
