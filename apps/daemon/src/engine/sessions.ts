@@ -19,7 +19,7 @@ import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
 import { nativeFor } from "./permissions.ts";
 import { customNative } from "./permission-ceiling.ts";
-import { unhonouredAccessNotice } from "./access-notice.ts";
+import { refusedOptionsNotice, unhonouredAccessNotice } from "./selection-notices.ts";
 import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
@@ -100,6 +100,32 @@ export class Sessions {
     return thread?.provider === provider && instance === recorded && thread.effectiveCapabilities
       ? thread.effectiveCapabilities
       : base;
+  }
+  /**
+   * Options the provider didn't take leave the thread's selection, so it shows what runs: the
+   * provider's default. A notice says which, since the person chose it.
+   */
+  private forgetRefusedOptions(
+    actor: ThreadActor,
+    refused: readonly string[] | undefined,
+    agent: string,
+  ): void {
+    if (!refused?.length) return;
+    const repo = this.dependencies.repo;
+    const metadata = repo.session(actor.id);
+    const selection = repo.transitions.get(actor.id).selection ?? {
+      provider: repo.requireState(actor.id).config.provider,
+      options: {},
+      ...metadata,
+    };
+    const dropped = Object.entries(selection.options).filter(([key]) => refused.includes(key));
+    if (!dropped.length) return;
+    const options = Object.fromEntries(
+      Object.entries(selection.options).filter(([key]) => !refused.includes(key)),
+    );
+    this.dependencies.models.remember(actor.id, { ...selection, options });
+    const at = this.dependencies.clock.now();
+    actor.apply([refusedOptionsNotice({ agent, at, dropped })]);
   }
   /** Records what the open session runs, and says so when that isn't the thread's choice. */
   private settleAccess(actor: ThreadActor, access: string | null, agent: string): void {
@@ -516,6 +542,7 @@ export class Sessions {
           this.dependencies.clock.now(),
         );
       });
+      this.forgetRefusedOptions(actor, session.refusedOptions, rootKey);
       this.dependencies.wake(actor.id);
       opening = false;
     } catch (error) {

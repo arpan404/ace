@@ -38,3 +38,26 @@ export function unhonouredAccessNotice(input: {
     },
   };
 }
+
+/** The transcript line for launch options the provider didn't take; it runs its defaults. */
+export function refusedOptionsNotice(input: {
+  agent: string;
+  at: number;
+  dropped: readonly (readonly [string, unknown])[];
+}): Fact {
+  const named = input.dropped.map(([key, value]) =>
+    key === "effort" ? `the ${String(value)} thinking level` : `${key} ${String(value)}`,
+  );
+  return {
+    type: "item.upsert",
+    agent: input.agent,
+    item: `options-refused:${input.at}`,
+    draft: {
+      type: "notice",
+      level: "info",
+      code: "execution_option_refused",
+      text: `This agent didn't take ${named.join(" or ")}, so it runs at its default.`,
+      complete: true,
+    },
+  };
+}

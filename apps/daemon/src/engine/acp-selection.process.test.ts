@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "vitest";
+import { antigravityQuirks } from "@ace/adapter-acp";
 import { ModelCatalog } from "@ace/models";
 import { scriptedModelInstance, seedScriptedModels } from "../testing/models.ts";
 import { cleanupRecovery, dispatch, fixture, restart, text } from "./recovery-test-support.ts";
@@ -47,4 +48,42 @@ test("a generic ACP thread's chosen model opens after a restart, before its agen
   expect(engine.queue(id)).toMatchObject({ paused: false, pendingCount: 0 });
   expect(h.contexts.at(-1)?.model).toBe("model");
   expect(registered).toBe(1);
+});
+
+test("an effort Antigravity didn't take leaves the thread, which says it runs at the default", async () => {
+  const frames = scriptFrames();
+  const h = await fixture([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    provider: "antigravity",
+    capabilities: antigravityQuirks.capabilities("1.2.1"),
+    // Full access is the one mode Antigravity offers.
+    permissionSettings: async () => ({ access: "full-access" as const }),
+  });
+  const original = h.registry.get("antigravity").adapter;
+  h.registry.register(
+    {
+      ...original,
+      async openSession(context) {
+        const session = await original.openSession(context);
+        return Object.assign(session, { refusedOptions: ["effort"] });
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  const created = h.command({
+    type: "thread.create",
+    workspaceId: h.workspace,
+    provider: "antigravity",
+    model: "model",
+    options: { effort: "max" },
+    input: text("first"),
+  });
+  if (!created.ok || !created.threadId) throw new Error(created.error);
+  await h.engine.flush();
+  expect(h.store.getThread(created.threadId)?.live?.options ?? {}).not.toHaveProperty("effort");
+  const notices = Object.values(h.store.snapshotThread(created.threadId).items).filter(
+    (item) => item.type === "notice" && item.code === "execution_option_refused",
+  );
+  expect(notices).toMatchObject([
+    { text: "This agent didn't take the max thinking level, so it runs at its default." },
+  ]);
 });
