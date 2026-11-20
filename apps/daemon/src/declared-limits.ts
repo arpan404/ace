@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +22,14 @@ import type { ProviderInstance } from "@ace/protocol/accounts";
  */
 
 const maxFileBytes = 256 * 1024;
+
+/**
+ * Whether the spawn's error means the executable itself is absent. `ENOENT` is also what a spawn
+ * reports for a working directory that is gone (an account's home someone removed), and a CLI
+ * that is installed shouldn't read as one that isn't.
+ */
+const executableAbsent = (code: string | number | undefined, cwd: string): boolean =>
+  code === "ENOENT" && existsSync(cwd);
 
 /** The real I/O behind a usage read: the CLI's own files, HTTPS and its own executable. */
 export const defaultUsagePorts = (now: () => number): UsagePorts => ({
@@ -62,7 +71,8 @@ export const defaultUsagePorts = (now: () => number): UsagePorts => ({
           const output = `${stdout}\n${stderr}`.toLowerCase();
           if (signedOut.some((words) => output.includes(words.toLowerCase())))
             reject(new UsageRunError("signed_out"));
-          else if (error) reject(new UsageRunError(error.code === "ENOENT" ? "missing" : "failed"));
+          else if (error)
+            reject(new UsageRunError(executableAbsent(error.code, cwd) ? "missing" : "failed"));
           else resolve(stdout);
         },
       );

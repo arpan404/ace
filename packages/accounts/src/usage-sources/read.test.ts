@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { usageDeclaration } from "./builtin.ts";
 import { UsageSource, type UsageDeclaration } from "./declaration.ts";
-import { readDeclaredUsage, type UsageAccount, type UsagePorts } from "./read.ts";
+import { readDeclaredUsage, UsageRunError, type UsageAccount, type UsagePorts } from "./read.ts";
 
 const secret = "tok_live_3f9a8b7c6d5e4f3a2b1c";
 const now = Date.parse("2026-10-15T12:00:00Z");
@@ -487,5 +487,33 @@ test("Antigravity's /usage shows each model group's weekly limit, which never ho
   expect(await antigravity(JSON.stringify({ ...spent, status: "ERROR" }))).toMatchObject({
     ok: false,
     reason: "unavailable",
+  });
+});
+
+/** An Antigravity read whose `agy` command fails as a missing or a broken one does. */
+async function withAgyFailing(kind: "missing" | "failed") {
+  return read(
+    usageDeclaration({ provider: "acp", acpAgentId: "official:antigravity-acp" }),
+    account(await temp()),
+    {
+      ...ports(() => Response.json({})).ports,
+      run: async () => {
+        throw new UsageRunError(kind);
+      },
+    },
+  );
+}
+
+test("a usage CLI that isn't installed asks for the CLI instead of reporting no usage", async () => {
+  expect(await withAgyFailing("missing")).toEqual({
+    ok: false,
+    reason: "unavailable",
+    message: "Install the Antigravity CLI (agy) to see Antigravity’s limits",
+  });
+  // Any other failure of the command still reads as Antigravity's usage being unavailable.
+  expect(await withAgyFailing("failed")).toEqual({
+    ok: false,
+    reason: "unavailable",
+    message: "Antigravity usage is unavailable",
   });
 });
