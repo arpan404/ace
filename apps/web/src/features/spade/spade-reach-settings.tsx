@@ -1,7 +1,7 @@
 import { spadeClock, type SpadeReach } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState, type ReactNode } from "react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingDisclosure, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { reachKey, readReach, setReach, type SpadeReachChange } from "./spade-reach-api.ts";
@@ -214,20 +214,23 @@ function BriefRows({ value, save, choices }: Rows & { choices: readonly BriefCho
           />
         )}
       </SwitchRow>
-      {brief.on &&
-        choices.map((choice) => (
-          <SwitchRow
-            key={choice.id}
-            title={choice.name}
-            indent
-            checked={covered(choice.id)}
-            onChange={(on) => cover(choice.id, on)}
-          />
-        ))}
+      {brief.on && choices.length > 0 && (
+        <SettingDisclosure
+          title={`Covers ${brief.bots === null ? "every bot" : `${choices.filter((c) => covered(c.id)).length} of ${choices.length}`}`}
+        >
+          {choices.map((choice) => (
+            <SwitchRow
+              key={choice.id}
+              title={choice.name}
+              checked={covered(choice.id)}
+              onChange={(on) => cover(choice.id, on)}
+            />
+          ))}
+        </SettingDisclosure>
+      )}
       {brief.on && (
         <SwitchRow
           title="Rewrite with the fast model"
-          indent
           checked={brief.polish}
           onChange={(polish) => save({ brief: { polish } })}
         />
@@ -285,14 +288,13 @@ function SwitchRow(props: {
   title: string;
   description?: string | undefined;
   checked: boolean;
-  indent?: boolean;
   onChange(on: boolean): void;
   children?: ReactNode;
 }) {
   const id = useId();
   return (
     <SettingRow
-      title={props.indent ? <span className="pl-4">{props.title}</span> : props.title}
+      title={props.title}
       description={props.description}
       htmlFor={id}
       density="compact"
