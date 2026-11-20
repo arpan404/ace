@@ -170,17 +170,17 @@ impl Bench<'_> {
             let mut row = format!("| {} | {} | {:.0} |", query.name, first(&a), ms(a.total));
             if !before.is_empty() {
                 let b = median(&before);
-                row += &format!(" {:.0} | {:.2} |", ms(b.total), b.cpu.as_secs_f64());
+                row += &format!(" {:.0} | {} |", ms(b.total), cpu(&b));
             }
             row += &format!(
-                " {} | {:.0} | {:.2} | {:.2} | {:.2} | {:.0} | {:.0} | {} | {} |\n",
+                " {} | {:.0} | {:.2} | {} | {} | {} | {} | {} | {} |\n",
                 first(&r),
                 ms(r.total),
                 a.total.as_secs_f64() / r.total.as_secs_f64().max(1e-9),
-                a.cpu.as_secs_f64(),
-                r.cpu.as_secs_f64(),
-                a.peak_rss as f64 / 1e6,
-                r.peak_rss as f64 / 1e6,
+                cpu(&a),
+                cpu(&r),
+                rss(&a),
+                rss(&r),
                 a.lines,
                 r.lines,
             );
@@ -209,19 +209,35 @@ fn median(samples: &[Sample]) -> Sample {
         values[values.len() / 2]
     };
     let firsts: Vec<Duration> = samples.iter().filter_map(|sample| sample.first).collect();
-    let mut rss: Vec<u64> = samples.iter().map(|sample| sample.peak_rss).collect();
+    let mut rss: Vec<u64> = samples
+        .iter()
+        .filter_map(|sample| sample.peak_rss)
+        .collect();
     rss.sort_unstable();
+    let cpus: Vec<Duration> = samples.iter().filter_map(|sample| sample.cpu).collect();
     Sample {
         first: (!firsts.is_empty()).then(|| middle(firsts)),
         total: middle(samples.iter().map(|sample| sample.total).collect()),
-        cpu: middle(samples.iter().map(|sample| sample.cpu).collect()),
-        peak_rss: rss[rss.len() / 2],
+        cpu: (!cpus.is_empty()).then(|| middle(cpus)),
+        peak_rss: rss.get(rss.len() / 2).copied(),
         lines: samples.first().map_or(0, |sample| sample.lines),
     }
 }
 
 fn ms(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
+}
+
+fn cpu(sample: &Sample) -> String {
+    sample
+        .cpu
+        .map_or_else(|| "-".to_owned(), |cpu| format!("{:.2}", cpu.as_secs_f64()))
+}
+
+fn rss(sample: &Sample) -> String {
+    sample
+        .peak_rss
+        .map_or_else(|| "-".to_owned(), |rss| format!("{:.0}", rss as f64 / 1e6))
 }
 
 fn first(sample: &Sample) -> String {

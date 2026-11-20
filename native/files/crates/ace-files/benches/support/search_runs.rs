@@ -5,7 +5,7 @@
 //! ace's peak memory is the whole process's: it includes the root's quick-open index and watcher,
 //! which a search waits for before it starts.
 //!
-//! Both run under `/usr/bin/time`, which reports the process's CPU time and peak resident set
+//! Both run under `/usr/bin/time` when the machine has it, which reports the process's CPU time and peak resident set
 //! when it exits. ace is timed from the `search` request to its `searchDone` event (the daemon
 //! keeps the process running, so start-up is not part of what a person waits for); `rg` is timed
 //! from spawn to its exit, start-up included. A capped query reads `rg`'s first lines and then
@@ -46,9 +46,10 @@ pub struct Sample {
     /// When the first result reached the reader, if any did.
     pub first: Option<Duration>,
     pub total: Duration,
-    /// User plus system CPU of the whole process.
-    pub cpu: Duration,
-    pub peak_rss: u64,
+    /// User plus system CPU of the whole process; none without `/usr/bin/time`.
+    pub cpu: Option<Duration>,
+    /// Peak resident bytes; none without `/usr/bin/time`.
+    pub peak_rss: Option<u64>,
     /// Matching lines seen: ace's line matches, `rg`'s output lines.
     pub lines: u64,
 }
@@ -68,9 +69,11 @@ pub fn ace(
     let measured = ace_search(&mut wire, root, query);
     wire.stop();
     let mut sample = measured?;
-    let (cpu, peak_rss) = usage(&fs::read_to_string(&report)?)?;
-    sample.cpu = cpu;
-    sample.peak_rss = peak_rss;
+    if timing() {
+        let (cpu, peak_rss) = usage(&fs::read_to_string(&report)?)?;
+        sample.cpu = Some(cpu);
+        sample.peak_rss = Some(peak_rss);
+    }
     Ok(sample)
 }
 
@@ -171,9 +174,11 @@ pub fn rg(rg: &Path, root: &Path, query: &Query, scratch: &Path) -> Result<Sampl
     if !status.success() && status.code() != Some(1) && query.cap == 0 {
         return Err(format!("rg exited with {status}").into());
     }
-    let (cpu, peak_rss) = usage(&fs::read_to_string(&report)?)?;
-    sample.cpu = cpu;
-    sample.peak_rss = peak_rss;
+    if timing() {
+        let (cpu, peak_rss) = usage(&fs::read_to_string(&report)?)?;
+        sample.cpu = Some(cpu);
+        sample.peak_rss = Some(peak_rss);
+    }
     Ok(sample)
 }
 
@@ -208,9 +213,21 @@ pub fn rg_args(query: &Query) -> Vec<String> {
     args
 }
 
-/// `/usr/bin/time` around `program`, in the form that reports peak memory.
+/// Where the external `time` lives; a machine without it still gets wall times.
+const TIME: &str = "/usr/bin/time";
+
+/// Whether CPU and peak memory can be measured here.
+pub fn timing() -> bool {
+    Path::new(TIME).is_file()
+}
+
+/// `/usr/bin/time` around `program`, in the form that reports peak memory, or `program` alone
+/// when the machine has no `/usr/bin/time`.
 fn timed(program: &std::ffi::OsStr) -> Command {
-    let mut command = Command::new("/usr/bin/time");
+    if !timing() {
+        return Command::new(program);
+    }
+    let mut command = Command::new(TIME);
     command.arg(if cfg!(target_os = "macos") {
         "-l"
     } else {
