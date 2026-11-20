@@ -1,11 +1,14 @@
 import { CaretRightIcon, FolderIcon, FolderOpenIcon } from "@ace/icons";
 import { cleanPath, fuzzyPositions, type FolderRow } from "@ace/ui-core";
-import { useEffect, useRef, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
 import { FileRowMenu } from "./file-menu.tsx";
-import type { FileOperationDialog } from "./file-operation.ts";
+import { FileRowItems } from "./file-row-items.tsx";
+import type { OpenHow, TreeCommands } from "./tree-commands.ts";
+import { entryOf } from "./tree-row-keys.ts";
+import type { TreeDrag } from "./use-tree-drag.ts";
 import { Highlighted } from "./highlighted-path.tsx";
 
 const rowClass =
@@ -30,12 +33,21 @@ export interface FileTreeRowViewProps {
   query: string;
   online: boolean;
   dropTarget: string | undefined;
-  onActivate(row: FolderRow, keep: boolean): void;
+  /** `at`: a click's time, so a second click on a file soon after keeps it. */
+  onActivate(row: FolderRow, how: OpenHow, at?: number): void;
+  /** In the tree's selection. */
+  selected: boolean;
+  /** Cut, waiting to be pasted somewhere else. */
+  cut: boolean;
+  /** Where the row sits among its siblings, for a screen reader. */
+  place: { position: number; size: number } | undefined;
+  /** A click on the row, with its modifiers: pick, toggle or extend the selection. */
+  onPick(row: FolderRow, event: MouseEvent<HTMLElement>): void;
   onKeyDown(event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number): void;
   onFocus(key: string): void;
-  onOperation(operation: FileOperationDialog): void;
-  onDragOver(event: DragEvent<HTMLElement>, folder: string): void;
-  onDrop(event: DragEvent<HTMLElement>, folder: string): void;
+  commands: TreeCommands;
+  /** Dragging rows to move them, and dropping on them; unset while the tree is a search. */
+  drag: TreeDrag | undefined;
   onHoverStart(row: FolderRow): void;
   onHoverEnd(): void;
   onRetry(folder: string): void;
@@ -56,6 +68,8 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         role="treeitem"
         aria-disabled="true"
         aria-level={row.depth + 1}
+        aria-posinset={props.place?.position}
+        aria-setsize={props.place?.size}
         tabIndex={-1}
         data-part="tree-status"
         className="flex h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
@@ -71,6 +85,8 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         role="treeitem"
         aria-disabled="true"
         aria-level={row.depth + 1}
+        aria-posinset={props.place?.position}
+        aria-setsize={props.place?.size}
         tabIndex={-1}
         data-part="tree-status"
         className="flex h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
@@ -93,12 +109,9 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
   const folder = row.kind === "folder";
   return (
     <FileRowMenu
-      path={row.key}
       name={row.name}
-      folder={folder}
-      disabled={!props.online}
       tabbable={props.focusable}
-      onOperation={props.onOperation}
+      items={<FileRowItems entry={entryOf(row)} commands={props.commands} />}
     >
       <button
         type="button"
@@ -110,23 +123,33 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         data-row={row.key}
         data-ignored={row.ignored || undefined}
         aria-level={row.depth + 1}
+        aria-posinset={props.place?.position}
+        aria-setsize={props.place?.size}
         aria-expanded={folder ? row.expanded : undefined}
         aria-busy={folder && row.busy ? true : undefined}
-        aria-selected={row.key === props.current}
+        aria-selected={props.selected}
+        aria-description={props.cut ? "Cut" : undefined}
         tabIndex={props.focusable ? 0 : -1}
         title={row.key}
         onFocus={() => props.onFocus(row.key)}
         onPointerEnter={() => props.onHoverStart(row)}
         onPointerLeave={props.onHoverEnd}
-        onClick={() => props.onActivate(row, false)}
-        onDoubleClick={() => !folder && props.onActivate(row, true)}
+        onClick={(event) => props.onPick(row, event)}
+        onDoubleClick={() => !folder && props.onActivate(row, "keep")}
+        // A middle click opens a file in a tab of its own, as a browser opens a link.
+        onMouseDown={(event) => event.button === 1 && event.preventDefault()}
+        onAuxClick={(event) => {
+          if (event.button !== 1 || folder) return;
+          event.preventDefault();
+          props.onActivate(row, "tab");
+        }}
         onKeyDown={(event) => props.onKeyDown(event, row, index)}
-        onDragOver={folder ? (event) => props.onDragOver(event, row.key) : undefined}
-        onDrop={folder ? (event) => props.onDrop(event, row.key) : undefined}
+        {...props.drag?.row(row)}
         style={indent}
         className={cn(
           rowClass,
           row.ignored ? "text-muted-foreground" : "text-foreground",
+          props.cut && "opacity-60",
           folder && props.dropTarget === row.key && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
         )}
       >
@@ -196,6 +219,8 @@ function MoreRow(args: {
       data-variant="more"
       data-row={row.key}
       aria-level={row.depth + 1}
+      aria-posinset={props.place?.position}
+      aria-setsize={props.place?.size}
       tabIndex={props.focusable ? 0 : -1}
       onFocus={() => props.onFocus(row.key)}
       onClick={() => props.onMore(row.folder ?? "")}

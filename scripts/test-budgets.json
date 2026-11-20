@@ -125,7 +125,14 @@
     "packages/settings/src/containment.test.ts": "TODO cleanup (5.1s in the 2026-10 timing run)",
     "apps/web/src/features/suits/suit-parts-drift.test.tsx": "The contract's coverage test must see every screen's list in one file; 13.5s at load 300 on 2026-11-14, 3.9s of it the first full-app render, which a split would repeat per file. Each screen needs its own scenario, so one harness can't serve them",
     "apps/web/src/features/suits/suit-pages-drift.test.tsx": "Walks all 60 routed addresses in one harness (about 250ms each, 15.8s at load 300 on 2026-11-14); one harness is already the cheapest walk and splitting would repeat the boot per file",
-    "apps/daemon/src/machines/child-schedule.test.ts": "Property simulations of the remote-child scheduler on machines of up to 1,000 children, turn by turn over minutes (about 35s under heavy load on 2026-11-14); the pure module's whole cost, no I/O"
+    "apps/daemon/src/machines/child-schedule.test.ts": "Property simulations of the remote-child scheduler on machines of up to 1,000 children, turn by turn over minutes (about 35s under heavy load on 2026-11-14); the pure module's whole cost, no I/O",
+    "apps/web/src/features/panels/files/tree-menu.test.tsx": "Drives the Files tree through the whole app (one harness open per test, about 0.5-1s each, as folder-tree.test.tsx does); 12s in a parallel run on 2026-11-19",
+    "apps/web/src/features/panels/files/tree-selection.test.tsx": "Drives the Files tree through the whole app (one harness open per test, about 0.5-1s each, as folder-tree.test.tsx does); 11s in a parallel run on 2026-11-19",
+    "apps/web/src/features/panels/files/preview-tab.test.tsx": "Drives the Files tree through the whole app (one harness open per test, about 0.5-1s each, as folder-tree.test.tsx does); 8.6s in a parallel run on 2026-11-19",
+    "apps/web/src/features/panels/files/tree-drag.test.tsx": "Drives the Files tree through the whole app (one harness open per test, about 0.5-1s each, as folder-tree.test.tsx does); 8.1s in a parallel run on 2026-11-19",
+    "apps/web/src/features/panels/files/tree-open.test.tsx": "Drives the Files tree through the whole app (one harness open per test, about 0.5-1s each, as folder-tree.test.tsx does); 7s in a parallel run on 2026-11-19",
+    "apps/web/src/features/panels/files/tree-clipboard.test.tsx": "Drives the Files tree through the whole app (one harness open per test, about 0.5-1s each, as folder-tree.test.tsx does); 5.8s in a parallel run on 2026-11-19",
+    "apps/web/src/features/panels/files/tree-keyboard.test.tsx": "Drives the Files tree through the whole app (one harness open per test, about 0.5-1s each, as folder-tree.test.tsx does); 5.8s in a parallel run on 2026-11-19"
   },
   "process": {
     "packages/browser/src/media-video.process.test.ts": "Two real-Chrome streams through the ace-media binary (a tab with route flips and a kill, and a VideoToolbox-encoded screencast): about 30 s on a loaded Mac",

@@ -64,6 +64,12 @@ export interface TabKindOptions {
    * shell's view items. Loaded with the kinds, so keep it small.
    */
   MenuItems?: ComponentType<{ scope: string; tab: WorkspaceTab }>;
+  /**
+   * A preview tab (a file one click opened, which the next click replaces) draws its title in
+   * italics until kept. Answers the data the tab takes once kept (double-clicking it), or
+   * undefined when the tab isn't a preview.
+   */
+  preview?(tab: WorkspaceTab): { kept: unknown } | undefined;
   /** The tab title; default: the title the view last reported, else `label`. */
   title?(tab: WorkspaceTab): string;
   load(): Promise<TabModule>;

@@ -144,22 +144,26 @@ export function useComposerPicks(args: {
     }
     addToken(item, trigger);
   };
-  const insertMention = useEffectEvent((file: Mention) => {
-    if (tokens.length >= referenceLimits.all) {
-      args.setNotice(tooManyReferences);
-      return;
+  const insertMentions = useEffectEvent((files: readonly Mention[]) => {
+    let current = { text, caret: args.caret, tokens };
+    for (const file of files) {
+      if (current.tokens.length >= referenceLimits.all) {
+        args.setNotice(tooManyReferences);
+        break;
+      }
+      const label = `@${file.path}${file.lines ? `:${file.lines.start}-${file.lines.end}` : ""}`;
+      const next = insertAt(current.text, current.caret, `${label} `);
+      const start = next.caret - label.length - 1;
+      current = {
+        ...next,
+        tokens: [
+          ...editComposerTokens(current.text, next.text, current.tokens),
+          { start, end: start + label.length, label, file },
+        ].toSorted((a, b) => a.start - b.start),
+      };
+      args.rememberMention(file.path);
     }
-    const label = `@${file.path}${file.lines ? `:${file.lines.start}-${file.lines.end}` : ""}`;
-    const next = insertAt(text, args.caret, `${label} `);
-    const start = next.caret - label.length - 1;
-    edit({
-      ...next,
-      tokens: [
-        ...editComposerTokens(text, next.text, tokens),
-        { start, end: start + label.length, label, file },
-      ].toSorted((a, b) => a.start - b.start),
-    });
-    args.rememberMention(file.path);
+    if (current.text !== text) edit(current);
   });
   // "Ask agent about this page" from the Browser: the tab, mentioned where the caret is.
   const insertTab = useEffectEvent((tab: ComposerTab) => {
@@ -197,7 +201,7 @@ export function useComposerPicks(args: {
   useEffect(() => {
     if (draft) return;
     const stops = [
-      receiveComposerMentions(threadId, (file) => insertMention(file)),
+      receiveComposerMentions(threadId, (files) => insertMentions(files)),
       receiveComposerTabs(threadId, (tab) => insertTab(tab)),
       receiveComposerText(threadId, (value) => insertText(value)),
     ];

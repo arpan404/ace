@@ -1,5 +1,5 @@
 import { DotsThreeIcon } from "@ace/icons";
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -50,32 +50,21 @@ export function FileMenu(props: {
   );
 }
 /**
- * A file row with its actions: on right-click (or Shift+F10), and from the ⋯ beside it, shown
- * on hover and while the row has focus. The ⋯ is the row's next Tab stop when the row holds the
- * tree's one (`tabbable`), so the actions never need a pointer or Shift+F10.
+ * A tree row with its actions (`items`): on right-click (or Shift+F10, or the context-menu key),
+ * and from the ⋯ beside it, shown on hover and while the row has focus. The ⋯ is the row's next
+ * Tab stop when the row holds the tree's one (`tabbable`), so the actions never need a pointer.
  */
 export function FileRowMenu(props: {
-  path: string;
   name: string;
-  folder: boolean;
-  disabled: boolean;
   tabbable: boolean;
+  items: ReactNode;
   children: ReactElement;
-  onOperation(operation: FileOperationDialog): void;
 }) {
-  const items = (
-    <FileRowItems
-      path={props.path}
-      folder={props.folder}
-      disabled={props.disabled}
-      onOperation={props.onOperation}
-    />
-  );
   return (
     <div role="none" className="group/file relative">
       <ContextMenu>
         <ContextMenuTrigger render={props.children} />
-        <ContextMenuContent>{items}</ContextMenuContent>
+        <ContextMenuContent>{props.items}</ContextMenuContent>
       </ContextMenu>
       <Menu>
         <MenuTrigger
@@ -90,56 +79,8 @@ export function FileRowMenu(props: {
             />
           }
         />
-        <MenuContent align="end">{items}</MenuContent>
+        <MenuContent align="end">{props.items}</MenuContent>
       </Menu>
     </div>
-  );
-}
-
-function FileRowItems(props: {
-  path: string;
-  folder: boolean;
-  disabled: boolean;
-  onOperation(operation: FileOperationDialog): void;
-}) {
-  return (
-    <>
-      <MenuItem
-        disabled={props.disabled}
-        keys="f2"
-        resolve={false}
-        onClick={() => props.onOperation({ kind: "rename", path: props.path })}
-      >
-        Rename
-      </MenuItem>
-      <MenuItem
-        disabled={props.disabled}
-        keys="mod+shift+m"
-        resolve={false}
-        onClick={() => props.onOperation({ kind: "move", path: props.path })}
-      >
-        Move
-      </MenuItem>
-      <MenuItem
-        disabled={props.disabled}
-        keys="delete"
-        resolve={false}
-        danger
-        onClick={() => props.onOperation({ kind: "delete", path: props.path })}
-      >
-        Delete
-      </MenuItem>
-      {props.folder && (
-        <>
-          <MenuSeparator />
-          <MenuItem
-            disabled={props.disabled}
-            onClick={() => props.onOperation({ kind: "archive", path: props.path })}
-          >
-            Download folder…
-          </MenuItem>
-        </>
-      )}
-    </>
   );
 }
