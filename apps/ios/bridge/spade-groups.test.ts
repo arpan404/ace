@@ -1,3 +1,4 @@
+import { faceForId } from "@ace/ui-core/bot-face";
 import { expect, test } from "vitest";
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { until } from "./test-host.ts";
@@ -44,9 +45,9 @@ test("a group lists among the bots by its state, naming who spoke last, with thr
     state: "rest",
     line: "Writer: The draft is in.",
     faces: [
-      { main: true, initial: "S", away: false },
-      { main: false, initial: "R", away: false },
-      { main: false, initial: "W", away: false },
+      { main: true, initial: "S", away: false, character: null },
+      { main: false, initial: "R", away: false, character: faceForId("research") },
+      { main: false, initial: "W", away: false, character: faceForId("writer") },
     ],
   });
   // Idle and oldest, it sits last.
@@ -97,7 +98,7 @@ test("a group's conversation shows each member with its face and name, and a han
       kind: "member",
       name: "Spade",
       text: "On it.",
-      face: { main: true, initial: "S", away: false },
+      face: { main: true, initial: "S", away: false, character: null },
       first: true,
       last: false,
     },
@@ -105,7 +106,7 @@ test("a group's conversation shows each member with its face and name, and a han
       kind: "member",
       name: "Spade",
       text: "I'll ask Research.",
-      face: { main: true, initial: "S", away: false },
+      face: { main: true, initial: "S", away: false, character: null },
       first: false,
       last: true,
     },
@@ -118,7 +119,7 @@ test("a group's conversation shows each member with its face and name, and a han
     working: {
       label: "Research is answering",
       moving: true,
-      face: { main: false, initial: "R", away: false },
+      face: { main: false, initial: "R", away: false, character: faceForId("research") },
     },
     waiting: null,
   });

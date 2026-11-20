@@ -1,3 +1,4 @@
+import { faceForId, storedBotFace } from "@ace/ui-core/bot-face";
 import { expect, test } from "vitest";
 import { until } from "./test-host.ts";
 import { NativeSpadeRequest } from "./spade-requests.ts";
@@ -40,7 +41,12 @@ test("a bot's profile shows its task, model, routines, what it keeps and what it
   if (!("profile" in answer)) throw new Error(JSON.stringify(answer));
   const profile: SpadeProfileRow = answer.profile;
   expect(profile.name).toBe("Writer");
-  expect(profile.face).toEqual({ main: false, initial: "W", away: false });
+  expect(profile.face).toEqual({
+    main: false,
+    initial: "W",
+    away: false,
+    character: faceForId("writer"),
+  });
   expect(profile.details).toMatchObject({
     task: "Draft the release notes every Friday.",
     machine: "Fake machine",
@@ -70,6 +76,34 @@ test("a bot's profile shows its task, model, routines, what it keeps and what it
   });
 });
 
+test("a bot's chosen character face travels through the list and profile", async () => {
+  const chosen = {
+    body: "fox" as const,
+    pair: "ember" as const,
+    ears: "none" as const,
+    marking: "mask" as const,
+    eyes: "big" as const,
+    mouth: "cat" as const,
+    cheeks: "blush" as const,
+    accessory: "scarf" as const,
+  };
+  const { ask, patches } = await setUp((fake) => {
+    fake.addAgent({
+      id: "scout",
+      name: "Scout",
+      avatar: { ...storedBotFace(chosen) },
+    });
+  });
+  await until(() => patches.state?.list.rows?.some((row) => row.id === "scout") === true);
+
+  const row = patches.state?.list.rows?.find((each) => each.id === "scout");
+  expect(row?.faces).toEqual([{ main: false, initial: "S", away: false, character: chosen }]);
+
+  const answer = await ask({ type: "spade.profile", agentId: "scout" });
+  if (!("profile" in answer)) throw new Error(JSON.stringify(answer));
+  expect(answer.profile.face).toEqual({ main: false, initial: "S", away: false, character: chosen });
+});
+
 test("Spade's own Library starts with what every bot knows about the person", async () => {
   const { ask, patches } = await setUp((fake) => {
     fake.addAgent({ id: "spade", name: "Spade", kind: "main" });
@@ -80,7 +114,7 @@ test("Spade's own Library starts with what every bot knows about the person", as
   const answer = await ask({ type: "spade.profile", agentId: "spade" });
 
   if (!("profile" in answer)) throw new Error(JSON.stringify(answer));
-  expect(answer.profile.face.main).toBe(true);
+  expect(answer.profile.face).toEqual({ main: true, initial: "S", away: false, character: null });
   expect(answer.profile.library.about).toEqual({ items: ["Lives in Lisbon."], more: 0 });
   expect(answer.profile.computer.line).toBe("Spade hasn't used its computer yet");
 });
