@@ -72,6 +72,8 @@ export class PatchPump {
   /** The last frame was full, so what remains is backlog rather than a fresh change. */
   #backlog = false;
   #drained: (() => void)[] = [];
+  /** Callers of `delivered`, each until its key is confirmed. */
+  #watchers: { key: string; resolve: () => void }[] = [];
   /** The open thread's ledger and navigation generation, while native keeps that thread. */
   #bound: { ledger: NativeLedger; epoch: number } | undefined;
 
@@ -129,6 +131,19 @@ export class PatchPump {
         snapshotRevision: key === "thread:ready" ? this.#takePendingReadyRevision() : undefined,
       });
     this.#schedule();
+  }
+  /**
+   * Resolves once native has confirmed `key`: nothing for it is queued or in flight. A tail
+   * opening waits on `thread:ready` before its full window may replace it (`main.ts`).
+   */
+  delivered(key: string): Promise<void> {
+    if (!this.#pending(key)) return Promise.resolve();
+    return new Promise((resolve) => this.#watchers.push({ key, resolve }));
+  }
+  #pending(key: string): boolean {
+    const task = this.#queue(key).get(key);
+    if (task && !task.settled) return true;
+    return this.#inFlight?.delivered.some((entry) => entry.task.key === key) ?? false;
   }
   /** Resolves once nothing deliverable is waiting or in flight. */
   drained(): Promise<void> {
@@ -227,6 +242,7 @@ export class PatchPump {
    * coalesced, and each wait would only add to the frames it takes.
    */
   #schedule(): void {
+    if (this.#watchers.length) this.#wake();
     if (this.#inFlight) return;
     const now = host.now();
     let next = this.#fragment ? now : Infinity;
@@ -257,6 +273,14 @@ export class PatchPump {
         this.#flush();
       }),
     };
+  }
+  #wake(): void {
+    const still: { key: string; resolve: () => void }[] = [];
+    for (const waiter of this.#watchers) {
+      if (this.#pending(waiter.key)) still.push(waiter);
+      else waiter.resolve();
+    }
+    this.#watchers = still;
   }
   #flush(): void {
     if (this.#inFlight) return;

@@ -9,6 +9,8 @@ import { createNodeHost, type NodeOperation } from "@ace/native-host/node";
 
 export const native = {
   frames: [] as Record<string, unknown>[],
+  /** How many of `frames` each emitted frame carried, in order (a fragmented patch counts once, on its last piece). */
+  batches: [] as number[],
   ack: (_accepted: boolean) => {},
   calls: new Map<string, NodeOperation>(),
   /** What the bridge asks of its native socket: open, send or close. */
@@ -21,6 +23,7 @@ export const host = createNodeHost({
   randomBytes: (count) => new Uint8Array(count).fill(7),
   socket: (id, action, value) => native.socket(id, action, value),
   emit(frame) {
+    const before = native.frames.length;
     for (const patch of JSON.parse(frame) as Record<string, unknown>[]) {
       if (patch.type !== "fragment") {
         native.frames.push(patch);
@@ -31,6 +34,7 @@ export const host = createNodeHost({
       native.frames.push(JSON.parse(Buffer.from(fragments, "base64").toString("utf8")));
       fragments = "";
     }
+    native.batches.push(native.frames.length - before);
     setTimeout(() => native.ack(true), 0);
   },
 });

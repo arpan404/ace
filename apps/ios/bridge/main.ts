@@ -254,8 +254,13 @@ async function start(json: string): Promise<void> {
     // daemon's own id, not the relay host id this runtime is keyed by.
     ...(account ? {} : { expectedHostId: config.hostId }),
     limits: { items: config.itemLimit, text: 8192 },
-    // A thread paints from one screenful; the rest of its window pages in behind it.
-    openTail: screenTail,
+    // A thread paints from one screenful. The rest of its window is asked for once native has
+    // that screenful (its ready), so the window never replaces it before it is drawn.
+    openTail: {
+      ...screenTail,
+      shown: (threadId) =>
+        visit.threadId === threadId ? pump.delivered("thread:ready") : Promise.resolve(),
+    },
     transport: () => nativeTransport(trust, early),
     credential,
     // An account socket closes when its grant runs out unless it is sent a new one (ADR 0114).
