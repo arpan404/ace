@@ -22,7 +22,7 @@ const cli = new URL("../../../apps/daemon/src/cli.ts", import.meta.url).pathname
 
 /** One production build per process, removed when the process exits. */
 let build: Promise<string> | undefined;
-function webBuild(): Promise<string> {
+export function webBuild(): Promise<string> {
   const prebuilt = process.env.ACE_DECK_PERF_BUILD;
   if (prebuilt) return Promise.resolve(prebuilt);
   build ??= (async () => {
