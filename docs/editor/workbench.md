@@ -236,8 +236,10 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     thread's editor shows them as it left them.
 50. **Quitting never asks** while drafts are kept (hot exit): the desktop app flushes drafts on quit
     and the web app on `pagehide`. Only when drafts cannot be kept (storage full or unavailable)
-    does quitting or closing the web tab ask, naming the files. Deleting a thread with unsaved files
-    adds "and 2 unsaved files" to its existing confirmation.
+    does quitting or closing the web tab ask, naming the files: the desktop quit stops and asks
+    Save, Don't save or Cancel. An edit counts as kept once its draft write has committed, so
+    closing the web tab within the 400 ms pause asks too, while the write finishes. Deleting a
+    thread with unsaved files adds "and 2 unsaved files" to its existing confirmation.
 51. **Auto save** (Settings › Editor): Off (default), After a pause (1 s), When focus leaves. An
     auto save that meets a version clash stops auto-saving that file and raises case 46.
 
