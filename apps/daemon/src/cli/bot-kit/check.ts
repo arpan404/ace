@@ -59,13 +59,15 @@ export function packageWarnings(bot: unknown): CliProblem[] {
   return warnings;
 }
 
+/** A `bot.json` value's contracts, as the market's reader reads them. */
+const contractsOf = (value: unknown) =>
+  typeof value === "object" && value !== null
+    ? (readPackage(value as Record<string, unknown>).recipe?.contracts ?? [])
+    : [];
+
 /** What `bot`'s contracts break for callers of `previous` (both `bot.json` values). Pure. */
 export function contractBreaks(previous: unknown, bot: unknown): CliProblem[] {
-  const contracts = (value: unknown) =>
-    typeof value === "object" && value !== null
-      ? (readPackage(value as Record<string, unknown>).recipe?.contracts ?? [])
-      : [];
-  return breakingChanges(contracts(previous), contracts(bot)).map((change) => ({
+  return breakingChanges(contractsOf(previous), contractsOf(bot)).map((change) => ({
     path: "bot.json",
     message: `contracts: ${change}. A change that breaks callers takes a new contract name.`,
   }));

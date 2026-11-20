@@ -29,21 +29,50 @@ const fare = (change: Partial<PackageContract> = {}): PackageContract => ({
   ...change,
 });
 
-const withInput = (edit: (input: Record<string, any>) => void) => {
+interface Field {
+  [key: string]: unknown;
+  maxLength?: number;
+  minimum?: number;
+  enum?: string[];
+}
+/** A schema's object as a test edits it. */
+interface Shape {
+  properties: Record<string, Field>;
+  required: string[];
+  field(name: string): Field;
+}
+const shape = (schema: Record<string, unknown>): Shape => {
+  const edited = schema as unknown as Omit<Shape, "field">;
+  return {
+    properties: edited.properties,
+    get required() {
+      return edited.required;
+    },
+    set required(names: string[]) {
+      edited.required = names;
+    },
+    field(name: string) {
+      const found = edited.properties[name];
+      if (!found) throw new Error(`no field ${name}`);
+      return found;
+    },
+  };
+};
+const withInput = (edit: (input: Shape) => void) => {
   const contract = structuredClone(fare());
-  edit(contract.input);
+  edit(shape(contract.input));
   return contract;
 };
-const withOutput = (edit: (output: Record<string, any>) => void) => {
+const withOutput = (edit: (output: Shape) => void) => {
   const contract = structuredClone(fare());
-  edit(contract.output);
+  edit(shape(contract.output));
   return contract;
 };
 
 describe("a new version of a package's contracts", () => {
   it("keeps callers working when it only widens what it takes or adds what it gives", () => {
     const wider = withInput((input) => {
-      input.properties.month.maxLength = 10;
+      input.field("month").maxLength = 10;
       input.properties.seat = { type: "string", maxLength: 10 };
       input.required = ["from"];
     });
@@ -61,10 +90,15 @@ describe("a new version of a package's contracts", () => {
       [[withInput((i) => (i.required = ["from", "to", "month"]))], "input.month became required"],
       [[withInput((i) => delete i.properties.direct)], "input.direct is gone"],
       [
-        [withInput((i) => (i.properties.stops = { type: "integer" }) && i.required.push("stops"))],
+        [
+          withInput((i) => {
+            i.properties.stops = { type: "integer" };
+            i.required.push("stops");
+          }),
+        ],
         "input.stops is new and required",
       ],
-      [[withInput((i) => (i.properties.month.maxLength = 5))], "input.month takes less text"],
+      [[withInput((i) => (i.field("month").maxLength = 5))], "input.month takes less text"],
       [
         [withInput((i) => (i.properties.direct = { type: "string", maxLength: 3 }))],
         "input.direct changed kind",
@@ -75,10 +109,10 @@ describe("a new version of a package's contracts", () => {
         "output.fare is gone",
       ],
       [
-        [withOutput((o) => o.properties.currency.enum.push("EUR"))],
+        [withOutput((o) => o.field("currency").enum?.push("EUR"))],
         "output.currency may now be EUR",
       ],
-      [[withOutput((o) => delete o.properties.fare.minimum)], "output.fare may now be lower"],
+      [[withOutput((o) => delete o.field("fare").minimum)], "output.fare may now be lower"],
     ];
     for (const [after, said] of cases)
       expect(breakingChanges([fare()], after).join("\n")).toContain(said);

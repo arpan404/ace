@@ -175,6 +175,9 @@ function covers(wide: Schema, narrow: Schema, at: string, input: boolean, out: s
   }
 }
 
+const read = (contract: PackageContract, side: "input" | "output") =>
+  readSchema(contract[side], side).schema;
+
 /**
  * What a new version's contracts break for callers of the previous version's: a contract gone,
  * an input that no longer takes what it took, or an output that may now hold what callers never
@@ -191,8 +194,6 @@ export function breakingChanges(
       out.push(`${old.name} is gone; callers of it would fail`);
       continue;
     }
-    const read = (contract: PackageContract, side: "input" | "output") =>
-      readSchema(contract[side], side).schema;
     const [oldIn, newIn, oldOut, newOut] = [
       read(old, "input"),
       read(next, "input"),

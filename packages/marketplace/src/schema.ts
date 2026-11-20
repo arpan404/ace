@@ -36,7 +36,7 @@ type Fields = Record<string, unknown>;
 const isFields = (value: unknown): value is Fields =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const common = ["type", "description", "title"];
+const common = new Set(["type", "description", "title"]);
 const everyKeyword = [
   "properties",
   "required",
@@ -56,7 +56,7 @@ const wholeNumber = (value: unknown): value is number =>
 
 function keywords(fields: Fields, at: string, allowed: string[], out: string[]) {
   for (const key of Object.keys(fields))
-    if (!common.includes(key) && !allowed.includes(key))
+    if (!common.has(key) && !allowed.includes(key))
       out.push(`${at}: ${JSON.stringify(key)} isn't in the schema subset contracts use`);
   for (const key of ["description", "title"]) {
     const text = fields[key];
