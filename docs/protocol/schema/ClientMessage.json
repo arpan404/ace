@@ -2504,6 +2504,9 @@
       "$ref": "https://ace.local/protocol/v1/ModelsRefreshRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ModelsLoadRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ModelsResolveRequest.json"
     },
     {
@@ -2578,6 +2581,17 @@
         },
         "installId": {
           "$ref": "https://ace.local/protocol/v1/InstallId.json"
+        },
+        "lastClose": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ClientCloseReport.json"
+            },
+            {
+              "$ref": "https://ace.local/protocol/v1/ClientCloseReport.json",
+              "x-ace-constraint": "A report that doesn't parse is read as none; the hello still stands."
+            }
+          ]
         },
         "link": {
           "$ref": "https://ace.local/protocol/v1/PairingLinkProof.json"

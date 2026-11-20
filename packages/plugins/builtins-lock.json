@@ -49,9 +49,10 @@
       ]
     },
     "ace-computer-use": {
-      "version": 20,
-      "hash": "24fe2c00c2646eb3aad3f0f1e06ff98bf89432d3e609d7355b7c7deacbe54fd3",
+      "version": 21,
+      "hash": "2ae5effd948fc0de78a9efed4605387c67c54d7c7ecbdd29dcca0e9c02ddd36c",
       "previous": [
+        "24fe2c00c2646eb3aad3f0f1e06ff98bf89432d3e609d7355b7c7deacbe54fd3",
         "3a9b9e40174c179d15311205ed4c3e6cfbd4d8fee74114f3a53ab73c29a68533",
         "537eb43b5dbe6591da469e89360fa59134d1e5a0cb913620c295b84af64f67a1",
         "8dcf590fdd511585d1c4e1c22c20f48de74f567a460adf61aaa420c53d77c9d9",

@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
+import { Suspense, type ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { defineWorkspace } from "@/lib/workspace/index.ts";
 import { WhenKindsReady } from "./workspace.tsx";
 
@@ -51,4 +53,28 @@ test("switching workspaces waits for the new workspace's own tools", async () =>
   expect(screen.getByRole("status", { name: "Loading tools" })).toBeTruthy();
   pending.resolve({ default: [] });
   await screen.findByText("Pull request tools");
+});
+
+test("the panel shows its loading state, not a suspended fallback, until its own code has loaded", async () => {
+  const definition = defineWorkspace({
+    label: "Tools",
+    launcher: "launcher",
+    initial: [],
+    kinds: async () => ({ default: [] }),
+  });
+  await definition.load();
+  const code = Promise.withResolvers<() => ReactNode>();
+  const Panel = deferredComponent(() => code.promise);
+  render(
+    <Suspense fallback={<p>Suspended</p>}>
+      <WhenKindsReady definition={definition} visible code={Panel}>
+        <Panel.Component />
+      </WhenKindsReady>
+    </Suspense>,
+  );
+  expect(screen.getByRole("status", { name: "Loading tools" })).toBeTruthy();
+  expect(screen.queryByText("Suspended")).toBeNull();
+  code.resolve(() => <p>Panel tabs</p>);
+  await screen.findByText("Panel tabs");
+  expect(screen.queryByText("Suspended")).toBeNull();
 });

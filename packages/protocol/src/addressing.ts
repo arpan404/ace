@@ -19,7 +19,8 @@ const shownName = z.string().min(1).max(120);
  */
 export const SpadeFaceJson = z
   .record(z.string().max(32), z.union([z.string().max(256), z.number(), z.boolean(), z.null()]))
-  .refine((value) => Object.keys(value).length <= 24, "A face has at most 24 fields");
+  .refine((value) => Object.keys(value).length <= 24, "A face has at most 24 fields")
+  .meta({ "x-ace-constraint": "At most 24 fields." });
 export type SpadeFaceJson = z.infer<typeof SpadeFaceJson>;
 
 export const Addressee = z.discriminatedUnion("kind", [
