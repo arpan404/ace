@@ -8,6 +8,7 @@ import { retryDelay, disconnectDecision, networkDecision } from "./lifecycle.ts"
 import { fitsUtf8 } from "./bounds.ts";
 import { FragmentAssembly, matchesFragments, type FragmentPart } from "./fragment-assembly.ts";
 import { Heartbeat } from "./heartbeat.ts";
+import { closeCause } from "./close-cause.ts";
 import { HeldFrames, type Frame } from "./held-frames.ts";
 import {
   ACCESS_CHANGED_CLOSE,
@@ -321,7 +322,7 @@ export class Connection {
         : undefined;
     this.#closeReport = {
       code: Number.isInteger(code) && code >= 0 && code <= 4999 ? code : 1006,
-      reason: reason.slice(0, 240),
+      cause: reason === heartbeatMissed ? "heartbeat" : closeCause(reason),
       wasReady,
       ...(aliveMs === undefined ? {} : { aliveMs }),
       attempt: this.#attempt,

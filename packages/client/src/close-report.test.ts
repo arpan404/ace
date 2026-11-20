@@ -73,13 +73,13 @@ test("the hello after a relayed drop tells the daemon how the last connection en
   c.at(1_000);
   c.welcome();
   c.at(4_000);
-  c.close(1006, "receive failed (NSPOSIXErrorDomain 40)");
+  c.close(1006, "relay:emsgsize");
   c.at(9_000);
   c.retry();
   await settle();
   expect(c.hellos[1]?.lastClose).toEqual({
     code: 1006,
-    reason: "receive failed (NSPOSIXErrorDomain 40)",
+    cause: "emsgsize",
     wasReady: true,
     aliveMs: 3_000,
     downMs: 5_000,
@@ -92,19 +92,32 @@ test("a welcome settles the report: the next drop reports itself, not the one be
   c.link.start();
   await settle();
   c.welcome();
-  c.close(1006, "first");
+  c.close(1006, "relay:receive_failed");
   c.retry();
   await settle();
   c.at(10_000);
   c.welcome();
   c.at(12_500);
-  c.close(1000, "second");
+  c.close(1000, "Bye for now, recovery phrase alpha bravo");
   c.retry();
   await settle();
   expect(c.hellos[2]?.lastClose).toMatchObject({
     code: 1000,
-    reason: "second",
+    cause: "other",
     wasReady: true,
     aliveMs: 2_500,
   });
+  expect(JSON.stringify(c.hellos[2])).not.toContain("recovery phrase");
+});
+
+test("a cause this build doesn't list is reported as other, and no close reason is ever sent as text", async () => {
+  const c = recorded();
+  c.link.start();
+  await settle();
+  c.welcome();
+  c.close(4000, "relay:something-new");
+  c.retry();
+  await settle();
+  expect(c.hellos[1]?.lastClose).toMatchObject({ code: 4000, cause: "other" });
+  expect(JSON.stringify(c.hellos[1])).not.toContain("something-new");
 });

@@ -73,7 +73,7 @@ it("the daemon's own shutdown closing its sockets is not logged as a client clos
   expect(log.records.filter((record) => record.message === "WebSocket closed")).toEqual([]);
 });
 
-it("a hello that says how the client's last connection ended is logged with those facts", async () => {
+it("a hello that says how the client's last connection ended is logged as its listed cause and numbers only", async () => {
   const log = daemonLog();
   const f = await fixture({ warn: log.warn });
   cleanups.push(() => f.close());
@@ -82,19 +82,22 @@ it("a hello that says how the client's last connection ended is logged with thos
   await once(client.socket, "open");
   const lastClose = {
     code: 1006,
-    reason: "receive failed (NSPOSIXErrorDomain 40)",
+    cause: "emsgsize",
     wasReady: true,
     aliveMs: 900,
     downMs: 30_208,
     attempt: 15,
   };
-  client.send({
-    type: "hello",
-    protocolVersion: 1,
-    deviceId: DeviceId.parse("phone"),
-    token,
-    lastClose,
-  });
+  // Sent raw: free text an older or hostile client might add never reaches the log.
+  client.socket.send(
+    JSON.stringify({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: "phone",
+      token,
+      lastClose: { ...lastClose, reason: "Ada Lovelace's recovery phrase alpha bravo" },
+    }),
+  );
   expect(await client.next()).toMatchObject({ type: "welcome" });
   const record = await vi.waitFor(async () => {
     await log.flush();
@@ -103,6 +106,7 @@ it("a hello that says how the client's last connection ended is logged with thos
     return found;
   });
   expect(record.data).toEqual({ ...lastClose, client: "node", access: "host", remote: false });
+  expect(JSON.stringify(log.records)).not.toContain("recovery phrase");
 });
 
 it("a report this daemon can't read is dropped, and the hello is still welcomed", async () => {
