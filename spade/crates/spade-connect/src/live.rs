@@ -46,9 +46,7 @@ pub enum CallError {
     #[error("{0}")]
     MaybeRan(String),
     /// The sign-in expired and could not be renewed: the person must reconnect.
-    #[error(
-        "the sign-in to {0} expired; ask the person to reconnect it in Settings, Spade, Connectors"
-    )]
+    #[error("the sign-in to {0} expired or was revoked, and only the person can reconnect it")]
     NeedsReconnect(String),
     /// The server refused the request (an unknown tool, bad arguments).
     #[error("{0}")]
@@ -139,20 +137,39 @@ impl Connectors {
                 return Err(CallError::NotRun(self.scrubbed(&record.id, why)));
             }
         };
-        match client.call(tool, arguments).await {
-            Ok(result) => Ok(result),
-            // Refused before it ran: renew the sign-in for the next try, never resend this one.
-            Err(ToolsError::Refused) => match self.renew(&record, generation).await {
-                Ok(()) => Err(CallError::NotRun(format!(
-                    "the sign-in to {} had expired and is now renewed",
-                    record.name
-                ))),
+        let mut answer = client.call(tool, arguments.clone()).await;
+        // Refused before it ran: the sign-in expired. Renewed, the call is sent once more on the
+        // new sign-in, which is safe since the first never ran; the bot never hears of it.
+        if matches!(answer, Err(ToolsError::Refused)) {
+            match self.renew(&record, generation).await {
+                Ok(()) => match self.client(&record).await {
+                    Ok((renewed, _)) => answer = renewed.call(tool, arguments).await,
+                    Err(_) => {
+                        return Err(CallError::NotRun(format!(
+                            "the sign-in to {} had expired and is now renewed",
+                            record.name
+                        )));
+                    }
+                },
                 Err(Unready::NeedsReconnect) => {
                     self.expire(&record);
-                    Err(CallError::NeedsReconnect(record.name))
+                    return Err(CallError::NeedsReconnect(record.name));
                 }
-                Err(Unready::Other(why)) => Err(CallError::NotRun(self.scrubbed(&record.id, why))),
-            },
+                Err(Unready::Other(why)) => {
+                    return Err(CallError::NotRun(self.scrubbed(&record.id, why)));
+                }
+            }
+        }
+        if answer.is_ok() {
+            self.touch(&record.id);
+        }
+        match answer {
+            Ok(result) => Ok(result),
+            // Refused again on a fresh sign-in: the account itself no longer lets Spade in.
+            Err(ToolsError::Refused) => {
+                self.expire(&record);
+                Err(CallError::NeedsReconnect(record.name))
+            }
             Err(ToolsError::NotRun(why) | ToolsError::Unavailable(why)) => Err(CallError::NotRun(
                 format!("{} could not be reached: {why}", record.name),
             )),

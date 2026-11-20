@@ -323,6 +323,8 @@ impl Connectors {
                 device: None,
                 via: Some("cloud"),
                 notice: None,
+                last_used_ms: None,
+                failed: None,
             })
             .collect()
     }
