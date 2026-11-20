@@ -140,6 +140,15 @@ export class Buffer implements TextBuffer {
     return this.#dirty || this.#clash !== undefined || this.#saving !== undefined;
   }
 
+  /**
+   * Its unsaved text is safe on the device: the newest draft write has committed, with no edit
+   * waiting for its pause and no write still out. True when nothing is unsaved.
+   */
+  keptOnDevice(): boolean {
+    if (!this.#dirty) return true;
+    return this.#draftKept && this.#cancelDraft === undefined && !this.#slot.pending;
+  }
+
   /** Hidden, saved and resident: the cap may free it. */
   evictable(): boolean {
     return this.visible === 0 && !this.keeps() && this.#doc !== undefined;

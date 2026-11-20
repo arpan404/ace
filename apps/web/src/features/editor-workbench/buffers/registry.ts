@@ -49,7 +49,10 @@ export interface BufferRegistry {
   flushDrafts(): Promise<void>;
   /** Unsaved buffers, of one checkout or all. */
   unsaved(root?: string): TextBuffer[];
-  /** Unsaved buffers whose draft could not be kept on the device: quitting must ask. */
+  /**
+   * Unsaved buffers whose newest text is not yet kept on the device: a draft write failed, is
+   * still out, or waits for typing to pause. Leaving now could lose it, so leaving must ask.
+   */
   unkept(): TextBuffer[];
   /** Paths of a checkout with a stored draft, for reopening files the layout forgot. */
   draftPaths(root: string): Promise<string[]>;
@@ -163,11 +166,7 @@ export function createBufferRegistry(options: BufferRegistryOptions): BufferRegi
       await Promise.all([...buffers.values()].map((buffer) => buffer.flush()));
     },
     unsaved: (root) => of(root).filter((buffer) => buffer.snapshot().dirty),
-    unkept: () =>
-      of().filter((buffer) => {
-        const snapshot = buffer.snapshot();
-        return snapshot.dirty && !snapshot.draftKept;
-      }),
+    unkept: () => of().filter((buffer) => !buffer.keptOnDevice()),
     async draftPaths(root) {
       const drafts = await options.drafts.list(root);
       return drafts.map((entry) => entry.path).toSorted();

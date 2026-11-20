@@ -38,8 +38,26 @@ const draftOf = (row: z.infer<typeof Row>): Draft => ({
   version: row.version,
 });
 
+/** Runs `run` in a readwrite transaction made now; resolves once it commits. */
+function commit(db: IDBDatabase, run: (target: IDBObjectStore) => void): Promise<void> {
+  try {
+    const transaction = db.transaction(store, "readwrite");
+    const committed = done(transaction);
+    run(transaction.objectStore(store));
+    return committed;
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
 export function deviceDrafts(name = "ace.editor-drafts"): DraftStore {
   let opened: Promise<IDBDatabase> | undefined;
+  /** The open database, once there is one: writes to it start in the caller's own task. */
+  let current: IDBDatabase | undefined;
+  const forget = () => {
+    current = undefined;
+    opened = undefined;
+  };
   const database = () => {
     if (typeof indexedDB === "undefined")
       return Promise.reject(new Error("This browser can't keep drafts."));
@@ -50,19 +68,23 @@ export function deviceDrafts(name = "ace.editor-drafts"): DraftStore {
           .createObjectStore(store, { keyPath: ["root", "path"] })
           .createIndex("root", "root");
       });
-      return request(open);
+      const db = await request(open);
+      db.addEventListener("close", forget);
+      // Another page upgrading the database: let it, and open again on the next write.
+      db.addEventListener("versionchange", () => {
+        db.close();
+        forget();
+      });
+      current = db;
+      return db;
     })();
-    opened.catch(() => {
-      opened = undefined;
-    });
+    opened.catch(forget);
     return opened;
   };
-  const write = async (run: (target: IDBObjectStore) => void) => {
-    const transaction = (await database()).transaction(store, "readwrite");
-    const committed = done(transaction);
-    run(transaction.objectStore(store));
-    await committed;
-  };
+  // A page that is hiding gets no task after its handler, so an open database takes the write
+  // at once. Either way transactions are made in call order, which IndexedDB keeps.
+  const write = (run: (target: IDBObjectStore) => void): Promise<void> =>
+    current ? commit(current, run) : database().then((db) => commit(db, run));
   return {
     async get(key: BufferKey) {
       const db = await database();

@@ -72,6 +72,39 @@ describe("a slow save", () => {
 });
 
 describe("a draft", () => {
+  it("is not counted as kept until the device has committed it", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const drafts = memoryDrafts();
+    const { time, registry } = session(disk, drafts);
+    const { buffer } = await opened(registry);
+
+    replaceLine(buffer, 0, "ONE");
+    expect(registry.unkept()).toEqual([buffer]);
+    const release = drafts.hold();
+    await time.advance(400);
+    expect(registry.unkept()).toEqual([buffer]);
+
+    release();
+    await settle();
+    expect(registry.unkept()).toEqual([]);
+  });
+
+  it("starts its write before a flush returns, behind a write still in flight", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const drafts = memoryDrafts();
+    const { time, registry } = session(disk, drafts);
+    const { buffer } = await opened(registry);
+    replaceLine(buffer, 0, "ONE");
+    const release = drafts.hold();
+    await time.advance(400);
+    release();
+
+    // The page hides: nothing after the handler can be relied on to run.
+    replaceLine(buffer, 0, "LAST");
+    void registry.flushDrafts();
+    expect(drafts.peek(file)).toBe("LAST\n");
+  });
+
   it("is deleted after a save even when the buffer goes while an older write is out", async () => {
     const disk = fakeDisk({ "store.ts": "one\n" });
     const drafts = memoryDrafts();

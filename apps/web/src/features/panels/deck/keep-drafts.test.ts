@@ -70,6 +70,18 @@ test("hiding the page writes pending drafts, and leaving asks only when one can'
   expect(leave()).toBe(true);
 });
 
+test("leaving straight after typing asks, and the pending draft is written meanwhile", async () => {
+  const drafts = memoryDrafts();
+  const registry = await typed(drafts);
+  undo = keepDrafts(() => [registry]);
+
+  // Typing hasn't paused: the newest text is not on the device yet.
+  expect(leave()).toBe(true);
+  expect(drafts.peek(file)).toBe("mine one\n");
+  await settle();
+  expect(leave()).toBe(false);
+});
+
 test("the desktop app's quit waits for the drafts, then hears they are written", async () => {
   const drafts = memoryDrafts();
   const registry = await typed(drafts);
