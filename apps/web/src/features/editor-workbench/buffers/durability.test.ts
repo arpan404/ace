@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { createBufferRegistry } from "./registry.ts";
+import { createBufferRegistry, defaultCapBytes } from "./registry.ts";
 import { fakeDisk, inlineMerge, manualTime, memoryDrafts, ready, settle } from "./test-support.ts";
 import type { TextBuffer } from "./types.ts";
 
@@ -16,7 +16,7 @@ const file = { root: "m1/t1", path: "store.ts" };
 function session(
   disk: ReturnType<typeof fakeDisk>,
   drafts: ReturnType<typeof memoryDrafts>,
-  capBytes?: number,
+  capBytes = defaultCapBytes,
 ) {
   const time = manualTime();
   const registry = createBufferRegistry({
@@ -137,5 +137,37 @@ describe("memory", () => {
 
     expect(a.buffer.snapshot().status).toEqual({ kind: "evicted" });
     expect(a.buffer.baseText()).toBeUndefined();
+  });
+});
+
+describe("two quick disk writes", () => {
+  it("leave a clean buffer showing the later one", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const { registry } = session(disk, memoryDrafts());
+    const { buffer } = await opened(registry);
+
+    disk.write("store.ts", "two\n");
+    registry.diskChanged(file, { kind: "text", text: "two\n", version: "v2" });
+    disk.write("store.ts", "three\n");
+    registry.diskChanged(file, { kind: "text", text: "three\n", version: "v3" });
+    await settle();
+
+    expect(buffer.document()?.text()).toBe("three\n");
+    expect(buffer.snapshot()).toMatchObject({ dirty: false, clash: undefined, version: "v3" });
+  });
+
+  it("read out of order still end on the disk's latest text", async () => {
+    const disk = fakeDisk({ "store.ts": "one\n" });
+    const { registry } = session(disk, memoryDrafts());
+    const { buffer } = await opened(registry);
+
+    disk.write("store.ts", "two\n");
+    registry.diskChanged(file);
+    disk.write("store.ts", "three\n");
+    registry.diskChanged(file);
+    await settle();
+
+    expect(buffer.document()?.text()).toBe("three\n");
+    expect(buffer.snapshot()).toMatchObject({ dirty: false, version: "v3" });
   });
 });

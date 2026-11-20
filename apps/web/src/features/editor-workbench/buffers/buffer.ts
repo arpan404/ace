@@ -87,6 +87,9 @@ export class Buffer implements TextBuffer {
   #generation = 0;
   /** A disk change arrived while loading or saving: look again afterwards. */
   #recheck = false;
+  /** The disk look under way, and the change reported while it runs. */
+  #looking: Promise<void> | undefined;
+  #again: { file: DiskFile | undefined } | undefined;
   readonly #listeners = new Set<(event: BufferEvent) => void>();
 
   constructor(key: BufferKey, ctx: BufferContext) {
@@ -204,8 +207,34 @@ export class Buffer implements TextBuffer {
     this.#settled();
   }
 
-  /** The watcher or a reconnect says the file may have changed; `file` when already read. */
+  /**
+   * The watcher or a reconnect says the file may have changed; `file` when already read. One look
+   * runs at a time: a change reported meanwhile is looked at once it ends (with the newest `file`,
+   * or a fresh read), so two quick writes always end on the later one.
+   */
   async diskChanged(file?: DiskFile): Promise<void> {
+    if (this.#looking) {
+      this.#again = { file };
+      return this.#looking;
+    }
+    let next: { file: DiskFile | undefined } | undefined = { file };
+    const looking = (async () => {
+      while (next) {
+        const { file: read } = next;
+        this.#again = undefined;
+        await this.#look(read);
+        next = this.#again;
+      }
+    })();
+    this.#looking = looking;
+    try {
+      await looking;
+    } finally {
+      if (this.#looking === looking) this.#looking = undefined;
+    }
+  }
+
+  async #look(file?: DiskFile): Promise<void> {
     if (this.#saving || this.#status.kind === "loading") {
       this.#recheck = true;
       return;
