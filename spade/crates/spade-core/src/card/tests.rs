@@ -2,6 +2,31 @@ use serde_json::{Value, json};
 
 use super::*;
 
+/// The value, or the test fails saying what came instead.
+trait Sure<T> {
+    fn sure(self) -> T;
+    fn refused(self) -> Vec<Problem>;
+}
+
+impl<T, E: std::fmt::Debug> Sure<T> for Result<T, E>
+where
+    E: Into<Vec<Problem>>,
+{
+    fn sure(self) -> T {
+        match self {
+            Ok(value) => value,
+            Err(error) => panic!("expected success, got {error:?}"),
+        }
+    }
+
+    fn refused(self) -> Vec<Problem> {
+        match self {
+            Ok(_) => panic!("expected a refusal"),
+            Err(error) => error.into(),
+        }
+    }
+}
+
 fn fare_drop() -> Value {
     json!({
         "title": "Fare dropped: KTM to DEL",
@@ -31,12 +56,12 @@ fn problems(data: Value) -> Vec<String> {
 
 #[test]
 fn every_kind_of_block_that_fits_its_rules_is_kept_in_order() {
-    let card = check(&fare_drop()).expect("fits");
+    let card = check(&fare_drop()).sure();
     assert_eq!(card.title, "Fare dropped: KTM to DEL");
     let kinds: Vec<Value> = card
         .blocks
         .iter()
-        .map(|b| serde_json::to_value(b).expect("serializes")["kind"].clone())
+        .map(|b| serde_json::to_value(b).unwrap_or_default()["kind"].clone())
         .collect();
     assert_eq!(
         kinds,
@@ -124,7 +149,7 @@ fn shown_event(call: &str, card: &str, version: u32, data: Value) -> Event {
         call_id: call.into(),
         card: card.into(),
         version,
-        data: check(&data).expect("fits"),
+        data: check(&data).sure(),
         untrusted: false,
     })))
 }
@@ -136,14 +161,14 @@ fn replacing_a_card_makes_its_next_version_and_an_unknown_one_is_refused() {
         &events,
         &json!({ "data": { "title": "Fare now 170" }, "replaces": "card_1" }),
     )
-    .expect("fits");
+    .sure();
     let next = shown(&events, "r2", "c2", "card_2", show, true);
     assert_eq!(
         (next.card.as_str(), next.version, next.untrusted),
         ("card_1", 2, true)
     );
 
-    let fresh = read(&events, &json!({ "data": { "title": "Another trip" } })).expect("fits");
+    let fresh = read(&events, &json!({ "data": { "title": "Another trip" } })).sure();
     assert_eq!(
         shown(&events, "r2", "c3", "card_3", fresh, false).card,
         "card_3"
@@ -153,14 +178,14 @@ fn replacing_a_card_makes_its_next_version_and_an_unknown_one_is_refused() {
         &events,
         &json!({ "data": { "title": "x" }, "replaces": "card_9" }),
     )
-    .expect_err("no such card");
+    .refused();
     assert_eq!(refused[0].at, "replaces");
     // A card a package ships comes with packages; until then the data carries the card.
     let surface = read(
         &events,
         &json!({ "surface": "fare-drop", "data": { "title": "x" } }),
     )
-    .expect_err("no package");
+    .refused();
     assert_eq!(surface[0].at, "surface");
     assert!(refusal(&surface).starts_with("Not shown: the card doesn't fit."));
 }
@@ -168,7 +193,9 @@ fn replacing_a_card_makes_its_next_version_and_an_unknown_one_is_refused() {
 #[test]
 fn a_choice_comes_back_once_and_only_on_the_version_the_person_saw() {
     let mut events = vec![shown_event("c1", "card_1", 1, fare_drop())];
-    let chose = choose(&events, "card_1", 1, "keep").expect("open");
+    let Ok(chose) = choose(&events, "card_1", 1, "keep") else {
+        panic!("the choice is open");
+    };
     assert_eq!(
         chose,
         Known::CardAction {

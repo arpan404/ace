@@ -10,6 +10,7 @@ mod bots;
 mod brain;
 mod brief;
 mod calls;
+mod cards;
 mod classify;
 mod compact;
 mod computer;
@@ -69,6 +70,7 @@ mod workers;
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
+pub use cards::CardError;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
@@ -314,6 +316,10 @@ impl Engine {
             .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
             .with_tool(Arc::new(crate::tools::ProfileUpdate(handle.clone())))
             .with_tool(Arc::new(crate::tools::ClubAdd(handle.clone())));
+        // `card_show` (ADR 0200 §5.1), unless Spade gave one that keeps images from workspaces.
+        if tools.get(spade_core::card::CARD_SHOW).is_none() {
+            tools = tools.with_tool(Arc::new(crate::tools::CardShow::new(handle.clone(), None)));
+        }
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -765,6 +771,19 @@ impl Engine {
                     if question::standing(events.iter(), call_id)
                         != Some(question::Standing::Deferred)
                     {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    false
+                }
+                // A card's choice lands once per version (ADR 0200 §5.1), and only on the
+                // version the person saw.
+                Event::Known(Known::CardAction {
+                    card,
+                    version,
+                    action,
+                    ..
+                }) => {
+                    if spade_core::card::choose(&events, card, *version, action).is_err() {
                         return Ok(spade_store::Delivered::Duplicate);
                     }
                     false

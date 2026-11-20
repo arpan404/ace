@@ -299,9 +299,7 @@ pub fn markdown() -> String {
         for tool in tools {
             let effect = match tool.source {
                 Source::Table => super::table(tool.name).map_or("?", Effect::name).to_owned(),
-                Source::Ace(most) if most == Effect::Drive => {
-                    "`read`, or `drive` when it acts (ace's)".to_owned()
-                }
+                Source::Ace(Effect::Drive) => "`read`, or `drive` when it acts (ace's)".to_owned(),
                 Source::Ace(most) => format!("`{}` (ace's)", most.name()),
                 Source::Called => "the called tool's".to_owned(),
             };

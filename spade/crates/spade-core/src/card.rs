@@ -400,10 +400,11 @@ pub fn action_text(events: &[Event], event: &Known) -> Option<String> {
     else {
         return None;
     };
-    let title = latest(events, card).map_or("", |view| view.data.title.as_str());
+    let title =
+        latest(events, card).map_or(String::new(), |view| format!(" \"{}\"", view.data.title));
     Some(format!(
-        "<card_action card=\"{card}\" action=\"{action}\">The person chose \"{label}\" on your card \
-         \"{title}\".</card_action>"
+        "<card_action card=\"{card}\" action=\"{action}\">The person chose \"{label}\" on your \
+         card{title}.</card_action>"
     ))
 }
 
