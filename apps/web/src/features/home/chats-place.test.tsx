@@ -321,7 +321,7 @@ async function openMenuItems() {
   return names;
 }
 
-test("a chat's ⋯ menu lists the same actions as its right-click menu", async () => {
+test("a chat's ⋯ menu lists the same actions as its right-click menu, none of them about a repository", async () => {
   await open(everyDay(), "/chats", "Chats");
   await userEvent.click(
     within(chatsNav()).getByRole("button", { name: "Actions for Three days in Lisbon" }),
@@ -334,6 +334,8 @@ test("a chat's ⋯ menu lists the same actions as its right-click menu", async (
   const fromRightClick = await openMenuItems();
   expect(fromMore).toContain("Settle");
   expect(fromMore).toContain("Fork from the last turn…");
+  expect(fromMore).not.toContain("Link pull request…");
+  expect(fromMore).not.toContain("New thread from default branch");
   expect(fromMore).toEqual(fromRightClick);
 });
 
