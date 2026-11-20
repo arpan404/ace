@@ -11,7 +11,7 @@ import { seedFakeWork } from "./fake-spade-work.ts";
  * build server, so the Spade place shows every state the person meets: Spade at work, a bot
  * waiting on an approval, an idle bot, a message from another bot, and the working line.
  */
-export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
+export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpadeApi {
   const now = Date.now();
   const minutes = (count: number) => now - count * 60_000;
   const here = running(daemon);
@@ -566,6 +566,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     },
   });
   remote.endpoints.push({ ...endpoint });
+  return here;
 }
 
 /** How far back the fake's clock reads for what is seeded next, in ms (the transcript's days). */

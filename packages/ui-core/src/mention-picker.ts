@@ -136,18 +136,22 @@ export function deviceDetail(device: PickerDevice): string {
     .join(" · ");
 }
 
-/** The rank a row's name (or, a worse match, its context line) earns for `query`. */
+/**
+ * The rank a row's name earns for `query`, else (a worse match) a word of its context line that
+ * starts with it: "res" finds a club by a member's name, but "li" never finds "online".
+ */
 function rankOf(label: string, detail: string, query: string): number | undefined {
   if (!query) return 0;
   const byName = matchRank(label, query);
   if (byName !== undefined) return byName;
-  const byDetail = matchRank(detail, query);
-  return byDetail === undefined ? undefined : byDetail + 3;
+  const words = detail.toLowerCase().split(/[^\p{L}\p{N}]+/u);
+  return words.some((word) => word.startsWith(query)) ? 3 : undefined;
 }
 
 /**
  * Every row that answers `query`, sections in their order and, within each, best match first
- * (ties keep the order they came in). Nothing typed keeps every row, at most `perSection` each.
+ * (ties keep the order they came in), at most `perSection` each; with nothing typed, at most
+ * half that, so every section shows in one short list.
  */
 export function pickerRows<Payload>(
   rows: readonly (Omit<PickerRow<Payload>, "rank"> & {
@@ -166,7 +170,7 @@ export function pickerRows<Payload>(
     ranked
       .filter((row) => row.section === section)
       .toSorted((a, b) => a.rank - b.rank || a.index - b.index)
-      .slice(0, perSection)
+      .slice(0, needle ? perSection : Math.ceil(perSection / 2))
       .map(({ index: _index, ...row }) => row),
   );
 }

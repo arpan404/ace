@@ -54,10 +54,7 @@ export function SuggestionList(props: {
         {suggestions.state === "ready" ? (
           <ul id={props.id} role="listbox" aria-label={title}>
             {suggestions.items.map((item, index) => (
-              <li
-                key={`${item.group}:${item.entry?.id ?? item.threadId ?? item.tab?.tabId ?? item.insert}`}
-                role="presentation"
-              >
+              <li key={`${item.group}:${suggestionKey(item)}`} role="presentation">
                 {(index === 0 || suggestions.items[index - 1]?.group !== item.group) && (
                   <p className="px-2.5 py-1 text-xs text-subtle-foreground">{item.group}</p>
                 )}
@@ -141,6 +138,14 @@ export function SuggestionList(props: {
       </PopoverContent>
     </Popover>
   );
+}
+
+/** What a row names, unique in its section even when two bots share a name. */
+function suggestionKey(item: Suggestion): string {
+  const to = item.addressee;
+  if (to) return to.kind === "agent" ? `agent:${to.threadId}` : `${to.kind}:${to.id}`;
+  if (item.device) return `device:${item.device.machine.id}/${item.device.id}`;
+  return item.entry?.id ?? item.threadId ?? item.tab?.tabId ?? item.insert;
 }
 
 /** Scroll only the suggestion surface; revealing a command must never move the document. */

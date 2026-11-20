@@ -44,6 +44,12 @@ it("typing filters across every section, and a near miss still finds its row", (
   ]);
   expect(pickerRows(all, "omrch").map((each) => each.label)).toEqual(["omarchy"]);
   expect(pickerRows(all, "zzz")).toEqual([]);
+  // A context line counts by its words' starts: "li" is not "online".
+  expect(pickerRows(all, "li").map((each) => each.label)).toEqual([
+    "Fix login",
+    "omarchy",
+    "Linear",
+  ]);
 });
 
 it("the best match is highlighted first, wherever its section sits", () => {
