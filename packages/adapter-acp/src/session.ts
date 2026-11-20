@@ -146,6 +146,8 @@ class AcpSession implements ProviderSession {
   sequence = 0;
   /** session/prompt frames handed to the transport, to tell a written prompt from one that never left. */
   promptFrames = 0;
+  promptId: unknown;
+  openAtPromptEnd = new Set<string>();
   readonly started: number;
   readonly now: () => number;
   /**
@@ -177,7 +179,15 @@ class AcpSession implements ProviderSession {
     this.proc = proc;
     this.rpc = new JsonRpcPeer(proc, {
       onFrame: (dir, data) => {
-        if (dir === "send" && object(data)["method"] === "session/prompt") this.promptFrames++;
+        const message = object(data);
+        if (dir === "send" && message["method"] === "session/prompt") {
+          this.promptFrames++;
+          this.promptId = message["id"];
+        }
+        // In frame order: the requests open when the prompt answered are the ones its end
+        // closes. A request that arrives after the answer belongs to work that outlived it.
+        if (dir === "recv" && message["method"] === undefined && message["id"] === this.promptId)
+          this.openAtPromptEnd = new Set(this.pending.keys());
         this.frame(dir, "stdio", data);
       },
       onMalformed: (line) => this.frame("recv", "stdio-text", line),
@@ -533,7 +543,10 @@ class AcpSession implements ProviderSession {
         throw error;
       }
       // The translator closes the turn's open requests at its end; nothing can answer them now.
-      this.cancelQuestions(stop === "cancelled" ? undefined : new Set([this.nativeSessionId]));
+      this.cancelQuestions(
+        stop === "cancelled" ? undefined : new Set([this.nativeSessionId]),
+        this.openAtPromptEnd,
+      );
       this.shells.promptEnded(this.nativeSessionId, stop);
       if (this.shells.blocked)
         this.rejectQueue(new Error("ACP shell execution completion is unconfirmed"));
@@ -592,9 +605,9 @@ class AcpSession implements ProviderSession {
     // drain() settles each turn it takes, so its rejection has no reporter here.
     void this.drain().catch(() => {});
   }
-  cancelQuestions(owners?: Set<string>): void {
+  cancelQuestions(owners?: Set<string>, only?: ReadonlySet<string>): void {
     for (const [key, pending] of this.pending)
-      if (!owners || owners.has(pending.owner)) {
+      if ((!owners || owners.has(pending.owner)) && (!only || only.has(key))) {
         this.answered(pending, true);
         pending.answer({ outcome: { outcome: "cancelled" } });
         this.pending.delete(key);
