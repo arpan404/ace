@@ -5,7 +5,7 @@ import type { Capabilities, AcpSessionSupport } from "@ace/protocol";
 import { sessionSelectors, selectorRequest, type SelectorState } from "@ace/agent-registry";
 import { rpcErrorCode, type JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { negotiate, sessionSupport, type Negotiated } from "./negotiation.ts";
-import { redactLease } from "./frame-redaction.ts";
+import { leaseRedaction, redactLease } from "./frame-redaction.ts";
 import { object } from "./data.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
 import type { LaunchOptions } from "./runtime.ts";
@@ -18,21 +18,32 @@ export class AcpConfiguration {
   readonly #ctx: SessionContext;
   readonly #quirks: AcpQuirks;
   readonly #launch: LaunchOptions;
-  readonly #rpc: JsonRpcPeer;
+  readonly #rpc: Pick<JsonRpcPeer, "request">;
   /** The mode the session last reported, or ace last set; a change from it is announced. */
   #mode: string | undefined;
   /** Inside a selection: its caller decides what a moved mode means. */
   #quiet = false;
   /** Off once the agent rejects `session/set_model`: no legacy model picker for the session. */
   #legacyModel = true;
-  constructor(ctx: SessionContext, quirks: AcpQuirks, launch: LaunchOptions, rpc: JsonRpcPeer) {
+  constructor(
+    ctx: SessionContext,
+    quirks: AcpQuirks,
+    launch: LaunchOptions,
+    rpc: Pick<JsonRpcPeer, "request">,
+  ) {
     this.#ctx = ctx;
     this.#quirks = quirks;
     this.#launch = launch;
     this.#rpc = rpc;
   }
   initialize(raw: unknown): Negotiated {
-    this.negotiated = negotiate(raw, this.#quirks, this.#launch.version, this.#launch.profile);
+    this.negotiated = negotiate(
+      raw,
+      this.#quirks,
+      this.#launch.version,
+      this.#launch.profile,
+      this.#launch.profileFit,
+    );
     this.capabilities = this.negotiated.capabilities;
     return this.negotiated;
   }
@@ -42,10 +53,12 @@ export class AcpConfiguration {
   }
   setup(raw: unknown, mcp: AcpSessionSupport["mcp"]): void {
     // Options the agent reported while the session was opening stay unless the reply names them.
-    this.selectors = sessionSelectors(
-      { ...object(this.selectors.raw), ...object(this.#redact(raw)) },
-      this.#profile,
-      this.#legacyModel,
+    this.selectors = sendable(
+      sessionSelectors(
+        { ...object(this.selectors.raw), ...object(this.#redact(raw)) },
+        this.#profile,
+        this.#legacyModel,
+      ),
     );
     this.publish(mcp);
     this.#mode = this.current("mode");
@@ -54,7 +67,7 @@ export class AcpConfiguration {
   update(raw: unknown): void {
     const replacement = { ...object(this.selectors.raw), ...object(this.#redact(raw)) };
     try {
-      this.selectors = sessionSelectors(replacement, this.#profile, this.#legacyModel);
+      this.selectors = sendable(sessionSelectors(replacement, this.#profile, this.#legacyModel));
     } catch {
       this.selectors = { raw: replacement };
     }
@@ -149,6 +162,9 @@ export class AcpConfiguration {
     }
     const reply = object(result);
     const listed = object(reply["models"]);
+    // What the reply itself says runs now, read before it is merged: a reply that drops the
+    // selector (`configOptions: []` beside another `currentModelId`) still named another value.
+    const named = namedCurrent(reply, kind, this.selectors[kind]?.configId);
     this.#quiet = true;
     try {
       if (kind === "mode") this.#mode = value;
@@ -159,7 +175,7 @@ export class AcpConfiguration {
     } finally {
       this.#quiet = false;
     }
-    const now = this.current(kind);
+    const now = named ?? this.current(kind);
     if (now !== undefined && now !== value) {
       if (kind === "mode") this.announceMode();
       throw new SelectorRefused(kind, value, now);
@@ -187,6 +203,67 @@ export class AcpConfiguration {
   #redact(raw: unknown): unknown {
     return redactLease(raw, this.#ctx.mcp?.secrets ?? []);
   }
+}
+
+/**
+ * The selectors with every value lease redaction changed taken out of what may be sent: a
+ * redacted id is another string than the agent's, so sending it would select something the
+ * agent never listed. The redacted setup stays in `raw` for display.
+ */
+function sendable(selectors: SelectorState): SelectorState {
+  const clean = (values: readonly string[]) =>
+    values.filter((value) => !value.includes(leaseRedaction));
+  return {
+    ...selectors,
+    ...(selectors.model
+      ? { model: { ...selectors.model, values: clean(selectors.model.values) } }
+      : {}),
+    ...(selectors.mode
+      ? { mode: { ...selectors.mode, values: clean(selectors.mode.values) } }
+      : {}),
+    ...(selectors.effort
+      ? { effort: { ...selectors.effort, values: clean(selectors.effort.values) } }
+      : {}),
+  };
+}
+
+/** Selector categories (and bare ids) a `configOptions` entry may carry for each kind. */
+const configKinds: Readonly<Record<"model" | "mode" | "effort", readonly string[]>> = {
+  model: ["model"],
+  mode: ["mode", "permission", "permissions"],
+  effort: ["thought_level", "reasoning_effort"],
+};
+
+/**
+ * The value a selection's reply names as running now for `kind`, if it names one explicitly:
+ * the legacy `models.currentModelId` / `modes.currentModeId`, or the `currentValue` of a config
+ * option that is this selector (`configId`) or of its kind.
+ */
+function namedCurrent(
+  reply: Record<string, unknown>,
+  kind: "model" | "mode" | "effort",
+  configId: string | undefined,
+): string | undefined {
+  const options = Array.isArray(reply["configOptions"]) ? reply["configOptions"] : [];
+  for (const option of options) {
+    const entry = object(option);
+    const id = entry["id"];
+    const category = entry["category"];
+    const matches =
+      (configId !== undefined && id === configId) ||
+      (typeof category === "string"
+        ? configKinds[kind].includes(category)
+        : typeof id === "string" && configKinds[kind].includes(id));
+    const value = entry["currentValue"];
+    if (matches && typeof value === "string") return value;
+  }
+  const legacy =
+    kind === "model"
+      ? object(reply["models"])["currentModelId"]
+      : kind === "mode"
+        ? object(reply["modes"])["currentModeId"]
+        : undefined;
+  return typeof legacy === "string" ? legacy : undefined;
 }
 
 /**

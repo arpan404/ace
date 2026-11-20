@@ -59,3 +59,29 @@ test("an agent that went back below its profile's verified version never gets th
     expect(negotiated.profile, reported).toBeUndefined();
   }
 });
+
+test("an agent reporting its profile's verified version doesn't make an unverified profile verified", () => {
+  const profile = matchProfile("gemini", "0.43.0");
+  // ace read 0.45.0 from the approved update's files, so the registry gave the profile unverified.
+  const negotiated = negotiate(
+    {
+      protocolVersion: 1,
+      agentInfo: { name: "synthetic", version: "0.43.0" },
+      agentCapabilities: { loadSession: true },
+    },
+    genericQuirks,
+    "0.45.0",
+    profile,
+    "compatible",
+  );
+  expect(negotiated.profile).toBe(profile);
+  expect(negotiated.profileFit).toBe("compatible");
+  const unchanged = negotiate(
+    { protocolVersion: 1, agentInfo: { name: "synthetic", version: "0.43.0" } },
+    genericQuirks,
+    "0.43.0",
+    profile,
+    "compatible",
+  );
+  expect(unchanged.profileFit).toBe("compatible");
+});
