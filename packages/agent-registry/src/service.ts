@@ -8,6 +8,7 @@ import {
   type AcpIdentity,
 } from "@ace/protocol";
 import { findExecutable } from "@ace/provider-kit/discovery";
+import { probeOutput } from "@ace/provider-kit/process";
 import { AgentCatalog } from "./catalog.ts";
 import { buildInstallPlan, InstallPlanError, type InstallPlan } from "./plans.ts";
 import {
@@ -22,11 +23,14 @@ import {
 import { CommittedWriteError } from "./files.ts";
 import { UpdateApprovalRequired, agentLabel, type UpdateApproval } from "./approvals.ts";
 import { executeInstall, type InstallRuntime } from "./install.ts";
+import { PinnedExecutables } from "./pinned.ts";
+import type { ProbeRunner } from "./version-probe.ts";
 const StoredInstallations = z.array(LocalInstallation).max(512);
 /** Why an approval was refused, in words the person can act on. */
 class ApprovalRefused extends Error {}
 const approvalReasons: ReadonlySet<string> = new Set([
   "The agent changed again; review the update again",
+  "This update was already approved or replaced; review it again",
   "Nothing changed since approval",
   "Approved ACP installation unavailable",
   "Native bridge CLI changed or unavailable",
@@ -49,12 +53,22 @@ export type RegistryServiceOptions = {
   runtime?: Omit<InstallRuntime, "env">;
   /** The clock approvals and pending updates are stamped with. */
   now?: () => number;
+  /**
+   * ace's own store of approved single-file executables, which launches run instead of the
+   * files the agent can rewrite. Without one, approved files run in place, hashed just before.
+   */
+  pinned?: string;
+  /** Runs an approved executable's `--version` at its update's approval; the CLI probe by default. */
+  probe?: ProbeRunner;
+  /** The platform launches run on; the daemon's by default. */
+  platform?: NodeJS.Platform;
 };
 export class AgentRegistry {
   readonly catalog: AgentCatalog;
   readonly inventory: LocalInventory;
   readonly #options: RegistryServiceOptions;
   readonly #digests: ExecutableDigests;
+  readonly #pins: PinnedExecutables | undefined;
   #plans = new Map<string, InstallPlan>();
   #intents = new Map<
     string,
@@ -78,7 +92,13 @@ export class AgentRegistry {
     this.#options = options;
     this.#digests = digests;
     this.catalog = options.catalog;
-    this.inventory = new LocalInventory(entries, digests, options.now);
+    this.#pins = options.pinned
+      ? new PinnedExecutables(options.pinned, digests, options.platform ?? process.platform)
+      : undefined;
+    this.inventory = new LocalInventory(entries, digests, options.now, {
+      ...(this.#pins ? { pins: this.#pins } : {}),
+      run: options.probe ?? probeOutput,
+    });
   }
   static async open(options: RegistryServiceOptions): Promise<AgentRegistry> {
     const digests = new ExecutableDigests(undefined, options.digests);
@@ -149,7 +169,7 @@ export class AgentRegistry {
     if (this.#closed || this.#binding || this.#active) throw new Error("Registry busy");
     this.#binding = true;
     try {
-      const installation = await this.inventory.approved(identity, approval);
+      const installation = await this.inventory.approved(identity, approval, this.#options.env);
       if (this.#closed) throw new Error("Registry closed");
       const next = new LocalInventory(this.inventory.all());
       next.replace(installation);
@@ -161,6 +181,8 @@ export class AgentRegistry {
         durability = "uncertain";
       }
       this.inventory.replace(installation);
+      // Copies of files nothing runs any more go; a session still running one keeps its process.
+      await this.#pins?.prune(this.inventory.digests());
       return { installation, ...(durability ? { durability } : {}) };
     } finally {
       this.#binding = false;
@@ -198,7 +220,9 @@ export class AgentRegistry {
           const approved = await this.approveUpdate(request, {
             executableDigest: request.executableDigest,
             bridgeDigest: request.bridgeDigest,
-            version: request.version,
+            previousExecutableDigest: request.previousExecutableDigest,
+            previousBridgeDigest: request.previousBridgeDigest,
+            generation: request.generation,
           }).catch((error: unknown) => {
             throw new ApprovalRefused(
               error instanceof Error && approvalReasons.has(error.message)

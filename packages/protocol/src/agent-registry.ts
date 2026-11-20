@@ -44,6 +44,8 @@ export const RegistryApproval = z.object({
   executableDigest: digest,
   previousBridgeDigest: digest.optional(),
   bridgeDigest: digest.optional(),
+  /** The installation's approval generation this approval consumed; the next one is one more. */
+  generation: z.number().int().nonnegative().optional(),
 });
 export type RegistryApproval = z.infer<typeof RegistryApproval>;
 export const RegistryInstallation = AcpIdentity.extend({
@@ -60,6 +62,14 @@ export const RegistryInstallation = AcpIdentity.extend({
     .optional(),
   /** Updates approved in place, oldest first; the newest 16 are kept. */
   approvals: z.array(RegistryApproval).max(16).optional(),
+  /** How many updates were approved in place; each approval is good for one generation only. */
+  approvalGeneration: z.number().int().nonnegative().optional(),
+  /**
+   * Where `version` came from. Absent: recorded when the agent was installed or bound. `probed`:
+   * ace read it from the approved files at an update's approval (their package metadata, else
+   * their own `--version`), so no profile counts as verified on it.
+   */
+  versionSource: z.literal("probed").optional(),
 });
 export type RegistryInstallation = z.infer<typeof RegistryInstallation>;
 export const RegistryInstallPlan = z.object({
@@ -82,9 +92,17 @@ export type RegistryInstallPlan = z.infer<typeof RegistryInstallPlan>;
  */
 export const RegistryPendingUpdate = AcpIdentity.extend({
   /** What changed: the agent's own executable, the native CLI a bridge drives, or both. */
-  changed: z.array(z.enum(["agent", "native_cli"])).min(1).max(2),
+  changed: z
+    .array(z.enum(["agent", "native_cli"]))
+    .min(1)
+    .max(2),
   executableDigest: digest,
   bridgeDigest: digest.optional(),
+  /** What the person approved last: an approval names it, so it holds for this step only. */
+  previousExecutableDigest: digest,
+  previousBridgeDigest: digest.optional(),
+  /** The installation's approval generation; an approval consumes it. */
+  generation: z.number().int().nonnegative(),
   observedAt: z.number().nonnegative(),
 });
 export type RegistryPendingUpdate = z.infer<typeof RegistryPendingUpdate>;
@@ -134,10 +152,12 @@ export const RegistryRequest = z.discriminatedUnion("type", [
     type: z.literal("registry.approve-update"),
     requestId: id,
     ...AcpIdentity.shape,
+    /** Exactly the pending update the person was shown: its digests and generation. */
     executableDigest: digest,
     bridgeDigest: digest.optional(),
-    /** The version it is now, when the person's client knows it; else the recorded one stays. */
-    version: id.optional(),
+    previousExecutableDigest: digest,
+    previousBridgeDigest: digest.optional(),
+    generation: z.number().int().nonnegative(),
   }),
 ]);
 export type RegistryRequest = z.infer<typeof RegistryRequest>;
