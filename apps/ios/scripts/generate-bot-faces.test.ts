@@ -24,6 +24,47 @@ import {
 
 const hex = (value: string) => `0x${value.slice(1).toUpperCase()}`;
 
+function subpathPolygons(lines: readonly string[]): { x: number; y: number }[][] {
+  const subpaths: { x: number; y: number }[][] = [];
+  for (const line of lines) {
+    const m = /path\.(?:move|addLine|addCurve)\(to: CGPoint\(x: ([^,]+), y: ([^)]+)\)/.exec(line);
+    if (!m) continue;
+    const point = { x: Number(m[1]), y: Number(m[2]) };
+    if (line.startsWith("path.move")) subpaths.push([point]);
+    else subpaths.at(-1)?.push(point);
+  }
+  return subpaths;
+}
+
+function signedArea2(pts: readonly { x: number; y: number }[]): number {
+  return pts.reduce((area2, a, i) => {
+    const b = pts[(i + 1) % pts.length]!;
+    return area2 + (a.x * b.y - b.x * a.y);
+  }, 0);
+}
+
+/** Nonzero winding number of axis-aligned/polygonal subpaths at (px, py) in y-down coordinates. */
+function windingNumber(
+  subpaths: readonly (readonly { x: number; y: number }[])[],
+  px: number,
+  py: number,
+): number {
+  let wn = 0;
+  for (const pts of subpaths) {
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i]!;
+      const b = pts[(i + 1) % pts.length]!;
+      const side = (b.x - a.x) * (py - a.y) - (px - a.x) * (b.y - a.y);
+      if (a.y <= py) {
+        if (b.y > py && side > 0) wn++;
+      } else if (b.y <= py && side < 0) {
+        wn--;
+      }
+    }
+  }
+  return wn;
+}
+
 describe("generate-bot-faces", () => {
   it("keeps the committed Swift files in sync with @ace/ui-core/bot-face", async () => {
     const generated = generateBotFaceFiles();
@@ -142,35 +183,25 @@ describe("svg-to-swift path and fragment conversion", () => {
     });
   });
 
-  it("normalizes counter-clockwise silhouette subpaths (such as fox's right ear) to clockwise winding", () => {
-    const ccw = svgPathToSwift("M 0 0 L 0 10 L 10 10 Z", { clockwise: true });
-    expect(ccw).toEqual([
-      "path.move(to: CGPoint(x: 0, y: 0))",
-      "path.addLine(to: CGPoint(x: 10, y: 10))",
-      "path.addLine(to: CGPoint(x: 0, y: 10))",
-      "path.closeSubpath()",
-    ]);
+  it("preserves opposite winding for an inner cut-out while keeping fox silhouette contours clockwise", () => {
+    // Clockwise outer square with counter-clockwise inner hole: relative winding must stay opposite
+    // so the cut-out remains a hole under the nonzero winding rule.
+    const donut = subpathPolygons(
+      svgShapesToSwiftPath(
+        `<path d="M 0 0 L 20 0 L 20 20 L 0 20 Z M 6 6 L 6 14 L 14 14 L 14 6 Z"/>`,
+      ),
+    );
+    expect(donut).toHaveLength(2);
+    expect(signedArea2(donut[0]!)).toBeGreaterThan(0);
+    expect(signedArea2(donut[1]!)).toBeLessThan(0);
+    expect(windingNumber(donut, 2, 2)).not.toBe(0);
+    expect(windingNumber(donut, 10, 10)).toBe(0);
 
-    const foxLines = svgShapesToSwiftPath(botFaceBodies.fox.shapes("m"));
-    // Each fox subpath (left ear, right ear, head) must have positive signed area (clockwise in
-    // y-down coordinates) so ear-head overlaps never cancel under nonzero fill or clip.
-    const subpaths: { x: number; y: number }[][] = [];
-    for (const line of foxLines) {
-      const m = /path\.(?:move|addLine|addCurve)\(to: CGPoint\(x: ([^,]+), y: ([^)]+)\)/.exec(line);
-      if (!m) continue;
-      const point = { x: Number(m[1]), y: Number(m[2]) };
-      if (line.startsWith("path.move")) subpaths.push([point]);
-      else subpaths.at(-1)?.push(point);
-    }
-    expect(subpaths).toHaveLength(3);
-    for (const pts of subpaths) {
-      let area2 = 0;
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i]!;
-        const b = pts[(i + 1) % pts.length]!;
-        area2 += a.x * b.y - b.x * a.y;
-      }
-      expect(area2).toBeGreaterThan(0);
+    // Fox's left ear, right ear and head all wind clockwise in ui-core so overlaps stay filled.
+    const fox = subpathPolygons(svgShapesToSwiftPath(botFaceBodies.fox.shapes("m")));
+    expect(fox).toHaveLength(3);
+    for (const pts of fox) {
+      expect(signedArea2(pts)).toBeGreaterThan(0);
     }
   });
 });

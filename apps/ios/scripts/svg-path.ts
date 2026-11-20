@@ -100,101 +100,15 @@ export function arcToCubics(
   return curves;
 }
 
-type Segment =
-  | { kind: "L"; from: Point; to: Point }
-  | { kind: "C"; from: Point; c1: Point; c2: Point; to: Point }
-  | { kind: "Q"; from: Point; c: Point; to: Point };
-
-interface Subpath {
-  start: Point;
-  segments: Segment[];
-  closed: boolean;
-}
-
-const cross = (a: Point, b: Point) => a.x * b.y - b.x * a.y;
-
-/** Exact twice-signed area (positive = clockwise in SVG y-down coordinates). */
-function twiceSignedArea(subpath: Subpath): number {
-  let sum = 0;
-  let end = subpath.start;
-  for (const s of subpath.segments) {
-    if (s.kind === "L") {
-      sum += cross(s.from, s.to);
-    } else if (s.kind === "Q") {
-      sum += (2 * cross(s.from, s.c) + cross(s.from, s.to) + 2 * cross(s.c, s.to)) / 3;
-    } else {
-      sum +=
-        (6 * cross(s.from, s.c1) +
-          3 * cross(s.from, s.c2) +
-          cross(s.from, s.to) +
-          3 * cross(s.c1, s.c2) +
-          3 * cross(s.c1, s.to) +
-          6 * cross(s.c2, s.to)) /
-        10;
-    }
-    end = s.to;
-  }
-  if (Math.hypot(end.x - subpath.start.x, end.y - subpath.start.y) > 1e-9) {
-    sum += cross(end, subpath.start);
-  }
-  return sum;
-}
-
-function reverseClosedSubpath(subpath: Subpath): Subpath {
-  if (subpath.segments.length === 0) return subpath;
-  const ring = [...subpath.segments];
-  const last = ring[ring.length - 1]!.to;
-  if (Math.hypot(last.x - subpath.start.x, last.y - subpath.start.y) > 1e-9) {
-    ring.push({ kind: "L", from: last, to: subpath.start });
-  }
-  const reversed: Segment[] = ring.toReversed().map((s) => {
-    if (s.kind === "L") return { kind: "L", from: s.to, to: s.from };
-    if (s.kind === "Q") return { kind: "Q", from: s.to, c: s.c, to: s.from };
-    return { kind: "C", from: s.to, c1: s.c2, c2: s.c1, to: s.from };
-  });
-  const start = reversed[0]!.from;
-  const tail = reversed[reversed.length - 1];
-  if (tail?.kind === "L" && Math.hypot(tail.to.x - start.x, tail.to.y - start.y) < 1e-9) {
-    reversed.pop();
-  }
-  return { start, segments: reversed, closed: true };
-}
-
-function emitSubpath(subpath: Subpath): string[] {
-  const lines = [`path.move(to: ${fmtPoint(subpath.start)})`];
-  for (const s of subpath.segments) {
-    if (s.kind === "L") {
-      lines.push(`path.addLine(to: ${fmtPoint(s.to)})`);
-    } else if (s.kind === "Q") {
-      lines.push(`path.addQuadCurve(to: ${fmtPoint(s.to)}, control: ${fmtPoint(s.c)})`);
-    } else {
-      lines.push(
-        `path.addCurve(to: ${fmtPoint(s.to)}, control1: ${fmtPoint(s.c1)}, control2: ${fmtPoint(s.c2)})`,
-      );
-    }
-  }
-  if (subpath.closed) lines.push("path.closeSubpath()");
-  return lines;
-}
-
 /** Swift statements appending SVG path `d` into `path`, with every coordinate absolute. */
-export function svgPathToSwift(d: string, options?: { clockwise?: boolean }): string[] {
+export function svgPathToSwift(d: string): string[] {
   const tokens = d.match(/[MmLlHhVvCcSsQqAaZz]|-?(?:\d*\.\d+|\d+\.?)(?:e[-+]?\d+)?/g) ?? [];
-  const subpaths: Subpath[] = [];
-  let current: Subpath | null = null;
+  const lines: string[] = [];
   let at: Point = { x: 0, y: 0 };
   let start: Point = { x: 0, y: 0 };
   let lastCubic: Point | null = null;
   let command = "";
   let index = 0;
-
-  const ensureSubpath = () => {
-    if (!current) {
-      current = { start: at, segments: [], closed: false };
-      subpaths.push(current);
-    }
-    return current;
-  };
 
   const next = () => {
     const token = tokens[index++];
@@ -223,54 +137,50 @@ export function svgPathToSwift(d: string, options?: { clockwise?: boolean }): st
         at = pair();
         start = at;
         lastCubic = null;
-        current = { start: at, segments: [], closed: false };
-        subpaths.push(current);
+        lines.push(`path.move(to: ${fmtPoint(at)})`);
         break;
-      case "L": {
-        const from = at;
+      case "L":
         at = pair();
         lastCubic = null;
-        ensureSubpath().segments.push({ kind: "L", from, to: at });
+        lines.push(`path.addLine(to: ${fmtPoint(at)})`);
         break;
-      }
-      case "H": {
-        const from = at;
+      case "H":
         at = { x: (relative ? at.x : 0) + next(), y: at.y };
         lastCubic = null;
-        ensureSubpath().segments.push({ kind: "L", from, to: at });
+        lines.push(`path.addLine(to: ${fmtPoint(at)})`);
         break;
-      }
-      case "V": {
-        const from = at;
+      case "V":
         at = { x: at.x, y: (relative ? at.y : 0) + next() };
         lastCubic = null;
-        ensureSubpath().segments.push({ kind: "L", from, to: at });
+        lines.push(`path.addLine(to: ${fmtPoint(at)})`);
         break;
-      }
       case "C": {
-        const from = at;
-        const c1 = pair();
-        const c2 = pair();
+        const one = pair();
+        const two = pair();
         at = pair();
-        lastCubic = c2;
-        ensureSubpath().segments.push({ kind: "C", from, c1, c2, to: at });
+        lastCubic = two;
+        lines.push(
+          `path.addCurve(to: ${fmtPoint(at)}, control1: ${fmtPoint(one)}, control2: ${fmtPoint(two)})`,
+        );
         break;
       }
       case "S": {
-        const from = at;
-        const c1 = lastCubic ? { x: 2 * at.x - lastCubic.x, y: 2 * at.y - lastCubic.y } : { ...at };
-        const c2 = pair();
+        const one = lastCubic
+          ? { x: 2 * at.x - lastCubic.x, y: 2 * at.y - lastCubic.y }
+          : { ...at };
+        const two = pair();
         at = pair();
-        lastCubic = c2;
-        ensureSubpath().segments.push({ kind: "C", from, c1, c2, to: at });
+        lastCubic = two;
+        lines.push(
+          `path.addCurve(to: ${fmtPoint(at)}, control1: ${fmtPoint(one)}, control2: ${fmtPoint(two)})`,
+        );
         break;
       }
       case "Q": {
-        const from = at;
-        const c = pair();
+        const control = pair();
         at = pair();
         lastCubic = null;
-        ensureSubpath().segments.push({ kind: "Q", from, c, to: at });
+        lines.push(`path.addQuadCurve(to: ${fmtPoint(at)}, control: ${fmtPoint(control)})`);
         break;
       }
       case "A": {
@@ -280,19 +190,17 @@ export function svgPathToSwift(d: string, options?: { clockwise?: boolean }): st
         const largeArc = next() !== 0;
         const sweep = next() !== 0;
         const to = pair();
-        const sp = ensureSubpath();
-        let prev = at;
         for (const [c1, c2, end] of arcToCubics(at, rx, ry, rotation, largeArc, sweep, to)) {
-          sp.segments.push({ kind: "C", from: prev, c1, c2, to: end });
-          prev = end;
+          lines.push(
+            `path.addCurve(to: ${fmtPoint(end)}, control1: ${fmtPoint(c1)}, control2: ${fmtPoint(c2)})`,
+          );
         }
         at = to;
         lastCubic = null;
         break;
       }
       case "Z":
-        if (current) current.closed = true;
-        current = null;
+        lines.push("path.closeSubpath()");
         at = start;
         lastCubic = null;
         break;
@@ -300,12 +208,5 @@ export function svgPathToSwift(d: string, options?: { clockwise?: boolean }): st
         throw new Error(`Unsupported path command ${command} in ${d}`);
     }
   }
-
-  return subpaths.flatMap((subpath) =>
-    emitSubpath(
-      options?.clockwise && subpath.closed && twiceSignedArea(subpath) < 0
-        ? reverseClosedSubpath(subpath)
-        : subpath,
-    ),
-  );
+  return lines;
 }
