@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import type { TranslatorIdentity } from "./identity.ts";
 import { promptStop } from "./settlement.ts";
 import { retainToolRaw } from "./tool-raw.ts";
-import { finalizeTool } from "./tool-final.ts";
+import { currentToolDetail, finalizeTool } from "./tool-final.ts";
 import { retireTool, renewTool } from "./completed-tools.ts";
-import { appendShellOutput } from "./shell-output.ts";
+import { ShellOutput } from "./shell-output.ts";
 import { decodeContent } from "./content.ts";
 import type { Fact } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
@@ -15,16 +16,9 @@ import { genericQuirks } from "./quirks/generic.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
 import { TranslationState, type AgentState } from "./state.ts";
 import { endPrompt } from "./lifecycle.ts";
-import {
-  mcpArguments,
-  toolDetail,
-  toolError,
-  toolStatus,
-  toolTitle,
-  todos,
-  mergeToolData,
-} from "./tools.ts";
+import { toolDetail, toolError, toolStatus, toolTitle, todos, mergeToolData } from "./tools.ts";
 
+const errorKey = (text: string) => createHash("sha256").update(text).digest("hex");
 export function createAcpTranslator(
   init: { threadId: ThreadId; rootKey: string; identity: TranslatorIdentity },
   quirks: AcpQuirks = genericQuirks,
@@ -36,6 +30,11 @@ export function createAcpTranslator(
 class AcpTranslator implements Translator {
   readonly state: TranslationState;
   private inputNativeId: string | undefined;
+  private readonly shellOutput = new ShellOutput();
+  /** A digest of the failure text each tool's row last showed. */
+  private readonly publishedErrors = new WeakMap<object, string>();
+  /** Each agent's plan row for its current turn, when it has no plan tool. */
+  private readonly plans = new WeakMap<AgentState, { turn: string; key: string }>();
   constructor(state: TranslationState) {
     this.state = state;
   }
@@ -176,6 +175,37 @@ class AcpTranslator implements Translator {
     s.notice(facts, frame.data, method || "jsonrpc");
     return facts;
   }
+  /**
+   * A standard plan update from an agent with no plan tool (TodoWrite, update_plan, todos): the
+   * plan is its own todo row, one per turn, replaced in place as the agent revises it.
+   */
+  plan(agent: AgentState, update: Data, frame: unknown, facts: Fact[]): boolean {
+    const s = this.state;
+    const turn = agent.inputKey ?? "";
+    let plan = this.plans.get(agent);
+    if (plan?.turn !== turn) {
+      s.finishStream(agent, facts);
+      plan = { turn, key: s.key("plan") };
+      this.plans.set(agent, plan);
+    }
+    facts.push({
+      type: "item.upsert",
+      agent: agent.key,
+      item: plan.key,
+      draft: {
+        type: "tool_call",
+        complete: true,
+        call: {
+          kind: "todo",
+          title: "Plan",
+          status: "succeeded",
+          detail: { kind: "todo", todos: todos(update["entries"]) },
+          raw: [raw(frame, "session/update")],
+        },
+      },
+    });
+    return true;
+  }
   update(agent: AgentState, update: Data, frame: unknown, facts: Fact[]): boolean {
     const s = this.state;
     const kind = string(update["sessionUpdate"]);
@@ -266,16 +296,25 @@ class AcpTranslator implements Translator {
             ["exitCode", "totalFiles", "isBackground"].includes(key) && value !== priorOutput[key],
         );
       if (definitionChanged) renewTool(s, tool);
+      const error = tool.status === "failed" ? toolError(update) : undefined;
+      // A failed update that brings new failure text reaches the row; text on an update that
+      // doesn't say it failed stays in diagnostics. Digests, so no native payload is kept.
+      const errorDigest = error === undefined ? undefined : errorKey(error);
+      const newError =
+        update["status"] === "failed" &&
+        errorDigest !== undefined &&
+        errorDigest !== this.publishedErrors.get(tool);
       if (
         tool.finalized &&
         !tool.uncertainShell &&
         !pendingChild &&
         !definitionChanged &&
+        !newError &&
         priorStatus === tool.status
       ) {
         s.notice(facts, frame, "session/update", undefined, agent);
         if (toolDetail(tool.data, s.quirks).kind === "shell")
-          appendShellOutput(s, tool, update, facts);
+          this.shellOutput.append(s, tool, update, facts);
         retireTool(s, tool);
         return true;
       }
@@ -284,10 +323,8 @@ class AcpTranslator implements Translator {
         s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
       s.finishStream(agent, facts);
       agent.segment = "";
-      const detail = live ? toolDetail(tool.data, s.quirks) : finalizeTool(tool, s.quirks);
-      if (detail.kind === "mcp" && tool.completedInput)
-        detail.arguments = mcpArguments(tool.completedInput);
-      const error = tool.status === "failed" ? toolError(update) : undefined;
+      const detail = live ? currentToolDetail(tool, s.quirks) : finalizeTool(tool, s.quirks);
+      if (errorDigest) this.publishedErrors.set(tool, errorDigest);
       facts.push({
         type: "item.upsert",
         agent: agent.key,
@@ -310,7 +347,7 @@ class AcpTranslator implements Translator {
           },
         },
       });
-      if (detail.kind === "shell") appendShellOutput(s, tool, update, facts);
+      if (detail.kind === "shell") this.shellOutput.append(s, tool, update, facts);
       if (detail.kind === "plan") agent.planTool = tool;
       if (s.quirks.provider === "antigravity" && detail.kind === "agent.spawn")
         placeholderChild(s, tool, facts);
@@ -418,6 +455,7 @@ class AcpTranslator implements Translator {
       });
       return true;
     }
+    if (kind === "plan") return this.plan(agent, update, frame, facts);
     if (kind === "usage_update") {
       const usage = object(update["usage"]);
       const input = usage["inputTokens"];

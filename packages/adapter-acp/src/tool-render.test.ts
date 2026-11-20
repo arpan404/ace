@@ -130,7 +130,12 @@ it("a person's attached files, links and audio stay visible in their message", (
   if (message?.type !== "message") throw new Error("Expected the person's message");
   expect(message.parts).toEqual([
     { type: "text", text: "Look at these" },
-    { type: "file", path: "/workspace/a.md", mimeType: "text/markdown" },
+    {
+      type: "file",
+      path: "/workspace/a.md",
+      mimeType: "text/markdown",
+      content: { encoding: "text", data: "# A" },
+    },
     { type: "text", text: "https://example.com/spec" },
     { type: "image", mimeType: "image/png", url: "data:image/png;base64,iVBORw0KGgo=" },
     { type: "text", text: "[audio audio/wav]" },
