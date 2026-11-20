@@ -210,7 +210,9 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     for 2 s, or the person edits it, the bar turns into the ordinary changed-line mark (muted ink)
     and the label goes; hovering any changed-line mark names who changed it and when.
 44. The person's own unsaved lines carry a muted ink bar. Lines changed since HEAD but not in this
-    session keep today's change marks. Three marks, three meanings, one place.
+    session keep today's change marks. Three marks, three meanings, one place. A press on a
+    change mark shows that hunk under its lines (what it replaced, then what is there now) with
+    Revert, which puts the committed lines back and saves through the versioned write, and Close.
 45. When an agent changes files open in the editor, the status line says so ("Claude Code changed
     2 open files") with Next change (⌥F5), which steps through unseen blocks across open editors.
     Attribution: a change is credited to the thread whose live turn reported an edit tool call on

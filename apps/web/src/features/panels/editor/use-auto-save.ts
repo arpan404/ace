@@ -11,11 +11,17 @@ import { setDefaultIndent } from "./editor-registry.ts";
  * the panel's auto save through the context.
  */
 
-export const AutoSaveContext = createContext<AutoSave | undefined>(undefined);
+/** What a group's editor reaches of its panel: auto save, and the panel's save of one file. */
+export interface EditorPanelSaving {
+  autoSave: AutoSave;
+  /** Saves `path` as ⌘S does (the versioned write, asking on a clash). True once saved. */
+  save(path: string): Promise<boolean>;
+}
 
-/** The auto save a group's editor reports its edits and focus to. */
-export function useAutoSaveContext(): AutoSave | undefined {
-  return useContext(AutoSaveContext);
+export const EditorPanelContext = createContext<EditorPanelSaving | undefined>(undefined);
+
+export function useEditorPanelSaving(): EditorPanelSaving | undefined {
+  return useContext(EditorPanelContext);
 }
 
 export function usePanelAutoSave(options: {

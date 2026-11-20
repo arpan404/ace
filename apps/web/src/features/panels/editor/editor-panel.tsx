@@ -1,6 +1,6 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import { ProviderKind } from "@ace/protocol";
-import { formatAge, providerDisplayName } from "@ace/ui-core";
+import { formatAge, hunkAt, providerDisplayName, revertChange } from "@ace/ui-core";
 import {
   focusedGroup,
   groupsOf,
@@ -80,7 +80,8 @@ import { groupIds, openPaths } from "./editor-layout.ts";
 import { draftsOf, withDrafts, withoutDrafts } from "./editor-migration.ts";
 import { editorRegistry, importDrafts } from "./editor-registry.ts";
 import { RecentEditors, stepRecent } from "./recent-editors.tsx";
-import { AutoSaveContext, useAutoSaveContext, usePanelAutoSave } from "./use-auto-save.ts";
+import { EditorPanelContext, useEditorPanelSaving, usePanelAutoSave } from "./use-auto-save.ts";
+import { HunkPeek } from "./hunk-peek.tsx";
 import { useEditorSession } from "./use-editor-session.ts";
 
 /*
@@ -140,6 +141,7 @@ export function EditorPanel(props: TabViewProps) {
     problem: setProblem,
     saved: (path) => autoSave.savedByHand(path),
   };
+  const saving = { autoSave, save: (path: string) => saveFile(host, path) };
   const target = {
     scope: threadId,
     read: () => store.get(threadId),
@@ -410,7 +412,7 @@ export function EditorPanel(props: TabViewProps) {
         </aside>
       )}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        <AutoSaveContext value={autoSave}>
+        <EditorPanelContext value={saving}>
           <Editor
             layout={layout}
             onLayoutChange={change}
@@ -434,7 +436,7 @@ export function EditorPanel(props: TabViewProps) {
               </button>
             }
           />
-        </AutoSaveContext>
+        </EditorPanelContext>
         {recent !== undefined && recentTabs.length > 0 && (
           <RecentEditors tabs={recentTabs} index={recent} onPick={pickRecent} />
         )}
@@ -523,7 +525,7 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
   const reveal = useReveal(threadId, editor.group, editor.path);
   const subscribe = useCallback((changed: () => void) => buffer.subscribe(changed), [buffer]);
   const version = useSyncExternalStore(subscribe, () => buffer.snapshot().version);
-  const marks = useChangeMarks(threadId, editor.path, version);
+  const { marks, hunks } = useChangeMarks(threadId, editor.path, version);
   const onRevealed = useCallback((token: number) => settleReveal(threadId, token), [threadId]);
   // Annotations ride on every group's editor; views of one file map their ranges once per edit.
   const layer = useEditorAnnotations({ threadId, path: editor.path });
@@ -542,10 +544,26 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
     }),
     [preferences],
   );
-  const autoSave = useAutoSaveContext();
+  const saving = useEditorPanelSaving();
+  const autoSave = saving?.autoSave;
   const { path } = editor;
   const onEdited = useCallback(() => autoSave?.edited(path), [autoSave, path]);
   const onBlurred = useCallback(() => autoSave?.blurred(path), [autoSave, path]);
+  // A press on a change mark shows that hunk under its lines; Revert puts the committed lines
+  // back and saves through the panel's own save.
+  const [peekLine, setPeekLine] = useState<number>();
+  const hunk = peekLine === undefined || !hunks ? undefined : hunkAt(hunks, peekLine);
+  const revert = () => {
+    const doc = buffer.document();
+    const change = hunk && doc && revertChange(hunk, (line) => doc.line(line), doc.lenLines());
+    setPeekLine(undefined);
+    if (!change || !buffer.editLines([change])) return;
+    void saving?.save(path);
+  };
+  const peek = hunk && {
+    after: Math.max(...hunk.marks) - 1,
+    content: <HunkPeek hunk={hunk} onRevert={revert} onClose={() => setPeekLine(undefined)} />,
+  };
   return (
     <MentionSelection
       path={editor.path}
@@ -558,6 +576,8 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
         marks={marks}
         layer={layer}
         look={look}
+        onMarkClick={setPeekLine}
+        peek={peek}
         onEdited={onEdited}
         onBlurred={onBlurred}
         onRevealed={onRevealed}

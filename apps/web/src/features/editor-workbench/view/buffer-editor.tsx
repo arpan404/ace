@@ -84,6 +84,8 @@ export function BufferEditor(props: BufferEditorProps) {
       label={`Source of ${props.path}`}
       statusLine={false}
       marks={dirty ? undefined : props.marks}
+      onMarkClick={dirty ? undefined : props.onMarkClick}
+      peek={dirty ? undefined : props.peek}
       layer={props.layer}
       line={reveal?.line}
       column={reveal?.column}

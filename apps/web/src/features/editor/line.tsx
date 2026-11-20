@@ -86,6 +86,8 @@ export const EditorLine = memo(function EditorLine(props: {
   /** The row's height; the font and its size come from the editor's frame. */
   lineHeight: number;
   mark: LineMark | undefined;
+  /** A press on the mark shows the change: the bar says so to the pointer. */
+  markAction?: boolean;
   current: boolean;
   matches: readonly MatchSegment[] | undefined;
   query: string;
@@ -120,6 +122,7 @@ export const EditorLine = memo(function EditorLine(props: {
           "sticky left-0 z-[1] shrink-0 bg-background pr-4 text-right text-subtle-foreground tabular-nums select-none",
           props.current && "text-foreground",
           props.mark && markBar[props.mark],
+          props.mark && props.markAction && "cursor-pointer",
         )}
       >
         {props.number}
@@ -127,7 +130,7 @@ export const EditorLine = memo(function EditorLine(props: {
           <span
             data-fold={props.fold}
             className={cn(
-              "absolute top-0 right-0.5 w-3 text-center text-subtle-foreground",
+              "absolute top-0 right-2 w-3 text-center text-subtle-foreground",
               props.fold === "open" && "opacity-0 group-hover/editor:opacity-100",
             )}
           >

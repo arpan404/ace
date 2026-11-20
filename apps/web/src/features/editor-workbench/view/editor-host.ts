@@ -54,6 +54,10 @@ export interface BufferEditorProps {
   layer?: EditorLayer | undefined;
   /** How the text looks (Settings › Editor); the code editor's defaults where unset. */
   look?: EditorLook | undefined;
+  /** A press on a change mark (1-based line), while the file has no unsaved edits. */
+  onMarkClick?: ((line: number) => void) | undefined;
+  /** An inline block under a line (a change's diff), while the file has no unsaved edits. */
+  peek?: { after: number; content: ReactNode } | undefined;
   /** The person typed in this view (auto save waits for a pause). */
   onEdited?: (() => void) | undefined;
   /** This view's text lost the keyboard (auto save on focus change). */

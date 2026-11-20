@@ -46,6 +46,8 @@ import type { CodeEditorProps } from "./types.ts";
 const paddingRight = 24;
 /** The gutter's right edge, where a line's fold control sits. */
 const foldControl = 16;
+/** The gutter's last pixels, where a changed line's bar takes a press. */
+const markZone = 6;
 /** Rulers are off unless the caller asks for them. */
 const noRulers: readonly number[] = [];
 const noLines: readonly number[] = [];
@@ -398,6 +400,11 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
 
   const pointer = usePointerSelection({
     onGutter: (line, at) => {
+      // The change bar at the gutter's right edge shows what changed on that line.
+      if (props.onMarkClick && at.x >= gutter - markZone && props.marks?.has(line + 1)) {
+        props.onMarkClick(line + 1);
+        return true;
+      }
       // A layer takes presses on the line number; the fold control keeps the gutter's right edge.
       if (at.x < gutter - foldControl && props.layer?.onGutter?.(line, at.shiftKey, layer.view))
         return true;
@@ -575,6 +582,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                       top={index * lineHeight}
                       lineHeight={lineHeight}
                       mark={at === 0 ? (props.marks ?? state.marks)?.get(line + 1) : undefined}
+                      markAction={props.onMarkClick !== undefined && props.marks !== undefined}
                       current={line === caretLine}
                       fold={
                         at !== 0
@@ -615,6 +623,24 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
               />
             </div>
             {doc && props.layer ? props.layer.render(layer.view) : null}
+            {props.peek && layout && props.peek.after < lineCount ? (
+              <div
+                data-editor-peek
+                role="presentation"
+                className="absolute z-[3]"
+                style={{
+                  top:
+                    (layout.startOf(props.peek.after) + layout.rowsOf(props.peek.after).length) *
+                    lineHeight,
+                  left: scroll.left,
+                  width: Math.max(0, viewport.width),
+                }}
+                // Presses inside belong to the peek, not to the caret beneath it.
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                {props.peek.content}
+              </div>
+            ) : null}
           </div>
         </div>
         {doc ? (

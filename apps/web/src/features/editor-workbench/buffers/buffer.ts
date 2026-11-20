@@ -166,6 +166,15 @@ export class Buffer implements TextBuffer {
     }, this.#ctx.draftDelay);
   }
 
+  editLines(changes: readonly { start: number; end: number; text: string }[]): boolean {
+    const doc = this.#doc;
+    if (!doc) return false;
+    const through = this.#view?.doc === doc ? this.#view.views().at(-1) : undefined;
+    landLineChanges(doc, changes, through && ((run) => through.edit(run)));
+    this.edited();
+    return true;
+  }
+
   /** Writes a pending draft now (pagehide, quit). */
   flush(): Promise<void> {
     if (this.#cancelDraft) {
