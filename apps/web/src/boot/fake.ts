@@ -4,7 +4,6 @@ import { fakeMarket } from "./fake-market.ts";
 import { seedFakeSpade } from "./fake-spade.ts";
 import {
   FakeDaemon,
-  FakeMachineAccount,
   ScenarioPlayer,
   buildServerChats,
   crossDevice,
@@ -49,7 +48,12 @@ import { seedMachineChildren } from "./fake-machine-children.ts";
 import { installFakeVideoDecoder } from "./fake-video.ts";
 import { seedBuildServerUsage, seedLimitReadings } from "./fake-usage.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
-import { fakeOrigin, fakePerson, withFakeMachineAccount } from "./fake-account.ts";
+import {
+  fakeMachineAccount,
+  fakeOrigin,
+  fakePerson,
+  withFakeMachineAccount,
+} from "./fake-account.ts";
 
 const timer = {
   set(delayMs: number, callback: () => void) {
@@ -302,7 +306,7 @@ export function bootFake(): {
   if (!empty) seedLimitReadings(daemon, Date.now());
   // This Mac is signed in to the fake ace account, so Fleet shows it reachable from anywhere,
   // and one pairing link waits for a device.
-  (daemon.access.machineAccount ??= new FakeMachineAccount()).signIn(fakeOrigin, fakePerson);
+  (daemon.access.machineAccount ??= fakeMachineAccount()).signIn(fakeOrigin, fakePerson);
   if (!empty)
     daemon.access.pair({ scopes: ["read", "operate"], label: "Kitchen iPad", ttlMs: 3_600_000 });
   // A laptop paired here that's switched off, so Fleet shows a machine offline.
@@ -334,7 +338,7 @@ export function bootFake(): {
 
 /** The connection dev:fake and tests run on: the fake daemon's access routes and devices. */
 export function fakeConnection(daemon: FakeDaemon): DaemonConnection {
-  const account = (daemon.access.machineAccount ??= new FakeMachineAccount());
+  const account = (daemon.access.machineAccount ??= fakeMachineAccount());
   return {
     ...fallback,
     endpoint: {
