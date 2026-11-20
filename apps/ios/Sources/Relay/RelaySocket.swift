@@ -125,10 +125,20 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         // The grant travels as a subprotocol: never in a URL, which logs would keep. Neither it
         // nor the upgrade entry is ever logged.
         let task = session.webSocketTask(with: url, protocols: RelayEarly.protocols(grant: grant, first: first, offer: offer))
-        task.maximumMessageSize = noiseMaxMessage
+        Self.prepare(task)
         self.task = task
         LaunchTrace.mark("relay.open", url.host ?? "")
         task.resume()
+    }
+
+    /// What URLSession may take as one received message. It counts a message as it arrives, so
+    /// one that came through permessage-deflate (which the hosted relay's edge negotiates)
+    /// counts compressed: a full Noise frame doesn't compress and arrives a few bytes past
+    /// `noiseMaxMessage`, which at that limit failed every receive of one with EMSGSIZE (#1876).
+    /// The Noise layer still refuses any frame past `noiseMaxMessage` once it is read.
+    static let receiveLimit = noiseMaxMessage + 4096
+    static func prepare(_ task: URLSessionWebSocketTask) {
+        task.maximumMessageSize = receiveLimit
     }
 
     func send(_ text: String) {
