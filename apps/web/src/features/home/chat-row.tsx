@@ -7,7 +7,7 @@ import { ThreadRow } from "./thread-row.tsx";
 /**
  * A chat in the Chats panel: a thread row (one line led by its provider's mark, its one mark,
  * the hover card) with a chat's
- * hover actions, dimmed while settled. An older chat only the search found draws from its hit.
+ * hover actions, dimmed and offering Unsettle while settled. An older chat only the search found draws from its hit.
  */
 export function ChatRow(props: { id: string; settled: boolean; leaving: boolean }) {
   const listed = useSidebarThread(props.id) !== undefined;
@@ -16,7 +16,7 @@ export function ChatRow(props: { id: string; settled: boolean; leaving: boolean 
   return (
     <ThreadRow
       threadId={props.id}
-      settled={false}
+      settled={props.settled}
       leaving={props.leaving}
       lead="provider"
       actions={ChatRowActions}

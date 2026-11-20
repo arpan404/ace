@@ -104,6 +104,14 @@ const everyDay = () =>
     { scenario: regex, ago: 5 * minute },
   ]);
 
+/** The titles under a list's Active heading, up to the next heading. */
+function active(nav: HTMLElement): string[] {
+  const rows = reading(nav);
+  const after = rows.slice(rows.indexOf("[Active]") + 1);
+  const end = after.findIndex((row) => row.startsWith("["));
+  return end === -1 ? after : after.slice(0, end);
+}
+
 /** Open `path` and wait for a panel's first row. */
 async function open(app: ReturnType<typeof harness>, path: string, panel: "Chats" | "Projects") {
   history.replace(path);
@@ -284,6 +292,49 @@ test("Pin from the row's menu pins the chat, and Unpin brings it back", async ()
     ).toBeNull(),
   );
   expect(within(chatsNav()).getByRole("link", { name: /^Three days in Lisbon/ })).toBeTruthy();
+});
+
+test("the Settle button beside a chat's ⋯ moves it out of Active, and Unsettle brings it back", async () => {
+  await open(everyDay(), "/chats", "Chats");
+  const lisbonActive = () => active(chatsNav()).includes("Three days in Lisbon");
+  await waitFor(() => expect(lisbonActive()).toBe(true));
+  await userEvent.click(
+    within(chatsNav()).getByRole("button", { name: "Settle Three days in Lisbon" }),
+  );
+  await waitFor(() => expect(lisbonActive()).toBe(false));
+  // Still listed, now among the settled chats.
+  expect(reading(chatsNav())).toContain("Three days in Lisbon");
+  await userEvent.click(
+    within(chatsNav()).getByRole("button", { name: "Unsettle Three days in Lisbon" }),
+  );
+  await waitFor(() => expect(lisbonActive()).toBe(true));
+});
+
+/** The names in the open menu, read before closing it. */
+async function openMenuItems() {
+  const menu = await screen.findByRole("menu");
+  const names = within(menu)
+    .getAllByRole("menuitem")
+    .map((item) => item.textContent);
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  return names;
+}
+
+test("a chat's ⋯ menu lists the same actions as its right-click menu", async () => {
+  await open(everyDay(), "/chats", "Chats");
+  await userEvent.click(
+    within(chatsNav()).getByRole("button", { name: "Actions for Three days in Lisbon" }),
+  );
+  const fromMore = await openMenuItems();
+  await userEvent.pointer({
+    keys: "[MouseRight]",
+    target: within(chatsNav()).getByRole("link", { name: /^Three days in Lisbon/ }),
+  });
+  const fromRightClick = await openMenuItems();
+  expect(fromMore).toContain("Settle");
+  expect(fromMore).toContain("Fork from the last turn…");
+  expect(fromMore).toEqual(fromRightClick);
 });
 
 test("Delete from the row's menu asks first and removes the chat", async () => {
