@@ -294,13 +294,23 @@ export function GroupProblem(props: {
   );
 }
 
-/** What an empty list says: nothing matched, nothing starred yet, or nothing listed. */
-export function PickerEmpty(props: { query: string; favorites: boolean }) {
+/**
+ * What an empty list says: nothing matched, nothing starred yet, or nothing listed. An agent
+ * that starts only when asked (an ACP agent without a reviewed profile) offers Load models.
+ */
+export function PickerEmpty(props: {
+  query: string;
+  favorites: boolean;
+  load?: { onLoad(): void; disabled: boolean } | undefined;
+}) {
+  const load = props.query.trim() ? undefined : props.load;
   const [title, hint] = props.query.trim()
     ? [`No models match “${props.query}”`, "Search looks across every provider"]
     : props.favorites
       ? ["No favorites yet", "Star a model to keep it here"]
-      : ["No models", "This provider lists no models yet"];
+      : load
+        ? ["No models yet", "This agent lists its models once a thread starts"]
+        : ["No models", "This provider lists no models yet"];
   return (
     <div
       role="status"
@@ -314,6 +324,11 @@ export function PickerEmpty(props: { query: string; favorites: boolean }) {
       )}
       <p className="text-ui text-foreground">{title}</p>
       <p className="text-xs text-subtle-foreground">{hint}</p>
+      {load && (
+        <Button size="sm" variant="ghost" disabled={load.disabled} onClick={load.onLoad}>
+          Load models
+        </Button>
+      )}
     </div>
   );
 }

@@ -92,6 +92,8 @@ const known = z.discriminatedUnion("type", [
     documents: spadeDocumentList,
     /** A voice message's recording; `text` is its transcript (ADR 0134). */
     voice: spadeVoiceField,
+    /** What Spade fixed with it: the time, and the notes it recalled (`- [n_…] text`). */
+    context: z.string().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("reply_started"), reply, model: z.string().optional() }),
   z.object({ type: z.literal("reply_progress"), reply, text }),
@@ -173,6 +175,8 @@ const known = z.discriminatedUnion("type", [
     name: z.string(),
     /** How much the call could change (`read`, `write`, `memory`, `destructive`); missing from older events. */
     risk: z.string().nullish().catch(undefined),
+    /** What the tool declared it does, as the gate read it (`send_as_person`, `pay`…); missing from older events. */
+    effect: z.string().nullish().catch(undefined),
   }),
   z.object({
     type: z.literal("tool_finished"),
@@ -297,6 +301,44 @@ const known = z.discriminatedUnion("type", [
     type: z.literal("computer_handed_back"),
     text: z.string(),
     data: z.array(z.unknown()).optional(),
+  }),
+  /**
+   * The bot's task or model changed (spade/docs/agents.md). `change` says who changed the task,
+   * from what and why; missing on a change of model alone and on events from before task history.
+   */
+  z.object({
+    type: z.literal("agent_configured"),
+    task: z.string().catch(""),
+    change: z
+      .object({
+        by: z.string().catch(""),
+        previous: z.string().catch(""),
+        why: z.string().catch("").default(""),
+      })
+      .nullish()
+      .catch(undefined),
+  }),
+  /** This bot made a standing bot for the person (ADR 0161, amendment 1). */
+  z.object({
+    type: z.literal("bot_made"),
+    bot: z.string(),
+    name: z.string().catch(""),
+    task: z.string().catch(""),
+  }),
+  /** This bot added a bot to a club it is in. */
+  z.object({
+    type: z.literal("club_added"),
+    club: z.string(),
+    club_name: z.string().catch(""),
+    bot: z.string(),
+    bot_name: z.string().catch(""),
+  }),
+  /** The bot's name or face changed; `by` is `bot` (it named itself) or `person`. */
+  z.object({
+    type: z.literal("profile_changed"),
+    name: z.string().catch(""),
+    by: z.string().catch(""),
+    face: z.boolean().catch(false).default(false),
   }),
   ...spadeCapabilityEvents,
 ]);

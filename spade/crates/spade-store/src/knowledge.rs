@@ -82,6 +82,8 @@ pub struct StoredEntry {
     pub updated_ms: i64,
     pub used_ms: Option<i64>,
     pub uses: u32,
+    /// Where it came from beyond its source: the conversation, the message, what was in view.
+    pub origin: Option<spade_core::provenance::Origin>,
 }
 
 impl StoredEntry {
@@ -164,7 +166,7 @@ pub struct EntryLink {
 
 const COLUMNS: &str = "k.id, k.agent_id, k.topic, k.title, k.body, k.kind, k.source, \
                        k.source_detail, k.trust, k.author, k.created_ms, k.updated_ms, \
-                       k.used_ms, k.uses";
+                       k.used_ms, k.uses, k.origin";
 
 fn entry(row: &Row<'_>) -> rusqlite::Result<StoredEntry> {
     Ok(StoredEntry {
@@ -182,6 +184,7 @@ fn entry(row: &Row<'_>) -> rusqlite::Result<StoredEntry> {
         updated_ms: row.get(11)?,
         used_ms: row.get(12)?,
         uses: u32::try_from(row.get::<_, i64>(13)?).unwrap_or(0),
+        origin: spade_core::provenance::Origin::parse(row.get::<_, Option<String>>(14)?.as_deref()),
     })
 }
 
@@ -323,9 +326,23 @@ impl Store {
         ))?;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let rows = statement.query_map(params![query, bases, limit], |row| {
-            Ok((entry(row)?, row.get::<_, f64>(14)?))
+            Ok((entry(row)?, row.get::<_, f64>(15)?))
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Records where entry `id` came from, once it is written.
+    pub fn set_entry_origin(
+        &self,
+        id: &str,
+        origin: &spade_core::provenance::Origin,
+    ) -> Result<()> {
+        let text = serde_json::to_string(origin).unwrap_or_default();
+        self.lock()?.execute(
+            "UPDATE knowledge SET origin = ?2 WHERE id = ?1",
+            params![id, text],
+        )?;
+        Ok(())
     }
 
     /// Stores an entry in one transaction: unless one in its topic says the same; after folding

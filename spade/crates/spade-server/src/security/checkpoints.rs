@@ -1,6 +1,7 @@
 //! Checkpoints of a bot's workspace (ADR 0167 decision 8): copies taken before runs nobody
 //! reviews (at most once a minute) or when the person asks, so a mistake inside the sandbox can be
-//! undone. Each is `<root>/<bot>/<id>/`, a copy of the workspace (copy-on-write where the file
+//! undone, and the first of each turn's unreviewed work whatever the minute, so a turn's changes
+//! can be undone on their own. Each is `<root>/<bot>/<id>/`, a copy of the workspace (copy-on-write where the file
 //! system clones), with `<id>.json` written once the copy is whole; a folder without its record
 //! is a copy that didn't finish and is removed. Bounded: the newest [`KEEP`], none older than
 //! [`LONGEST`]. Consented folders aren't copied: they are the person's.
@@ -43,6 +44,9 @@ pub struct Checkpoints {
     root: PathBuf,
     /// When each bot's last checkpoint was taken (successfully).
     last: Mutex<HashMap<String, i64>>,
+    /// The turn (its reply) each bot's last automatic checkpoint was taken in. In memory, as
+    /// `last` is: after a restart the next turn's first unreviewed work takes one.
+    turns: Mutex<HashMap<String, String>>,
     /// One checkpoint operation per bot at a time: a list never meets a copy in progress.
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
@@ -59,12 +63,18 @@ impl Checkpoints {
         Self {
             root,
             last: Mutex::new(HashMap::new()),
+            turns: Mutex::new(HashMap::new()),
             locks: Mutex::new(HashMap::new()),
         }
     }
 
     fn folder(&self, bot: &str) -> PathBuf {
         self.root.join(bot)
+    }
+
+    /// Where checkpoint `id`'s copy of `bot`'s workspace is.
+    pub fn copy_of(&self, bot: &str, id: &str) -> PathBuf {
+        self.folder(bot).join(id)
     }
 
     /// Holds `bot`'s checkpoint operations for the guard's life.
@@ -82,6 +92,28 @@ impl Checkpoints {
     pub fn due(&self, bot: &str, now: i64) -> bool {
         let last = self.last.lock().unwrap_or_else(|p| p.into_inner());
         last.get(bot).is_none_or(|at| now - at >= EVERY)
+    }
+
+    /// Whether an automatic checkpoint is due for `bot` at `now` before work of `turn`: one is
+    /// due a minute after the last, and before the first unreviewed work of each turn, so undoing
+    /// a turn never undoes an earlier one's changes too.
+    pub fn due_in(&self, bot: &str, now: i64, turn: Option<&str>) -> bool {
+        if self.due(bot, now) {
+            return true;
+        }
+        let Some(turn) = turn else {
+            return false;
+        };
+        let turns = self.turns.lock().unwrap_or_else(|p| p.into_inner());
+        turns.get(bot).is_none_or(|last| last != turn)
+    }
+
+    /// Records that `bot`'s checkpoint just taken came before `turn`'s work.
+    pub fn taken_in(&self, bot: &str, turn: &str) {
+        self.turns
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(bot.to_owned(), turn.to_owned());
     }
 
     /// The bot's checkpoints, newest first. Copies left unfinished (a crash mid-copy) are
@@ -223,6 +255,10 @@ impl Checkpoints {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(bot);
+        self.turns
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(bot);
     }
 }
 
@@ -316,6 +352,29 @@ mod tests {
         assert!(!checkpoints.due("b1", EVERY - 1));
         assert!(checkpoints.due("b2", 10));
         assert!(checkpoints.due("b1", EVERY));
+    }
+
+    #[test]
+    fn a_new_turn_takes_its_own_checkpoint_within_the_minute() {
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let workspace = dir.path().join("workspace/b1");
+        std::fs::create_dir_all(&workspace).unwrap_or_default();
+        let checkpoints = Checkpoints::new(dir.path().join("checkpoints"));
+        assert!(checkpoints.due_in("b1", 0, Some("r1")));
+        assert!(checkpoints.take("b1", &workspace, "cp1", 0, "auto").is_ok());
+        checkpoints.taken_in("b1", "r1");
+        assert!(
+            !checkpoints.due_in("b1", 10, Some("r1")),
+            "the same turn waits the minute"
+        );
+        assert!(
+            !checkpoints.due_in("b1", 10, None),
+            "work of no turn waits the minute"
+        );
+        assert!(
+            checkpoints.due_in("b1", 10, Some("r2")),
+            "the next turn takes its own"
+        );
     }
 
     #[test]

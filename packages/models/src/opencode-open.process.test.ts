@@ -60,9 +60,11 @@ for (const empty of [false, true])
         onExit: () => {},
       });
       expect(session.nativeSessionId).toBeTruthy();
-      // Opening creates the session and settles its environment gate (3bf92575c, awaited at
-      // open), and sends no prompt.
-      expect(requests).toEqual([
+      // Opening settles the session's environment over ace's plugin RPC; nothing else is sent,
+      // so no input (no prompt or message) reaches the model.
+      const environment = "/api/rpc/ace.agent.environment/settle";
+      expect(requests.filter((request) => request.path === environment)).toHaveLength(1);
+      expect(requests.filter((request) => request.path !== environment)).toEqual([
         {
           path: "/api/session",
           body: {
@@ -71,10 +73,6 @@ for (const empty of [false, true])
             model: { providerID: "opencode-go", id: "muse-spark-1.3-contributor" },
             agent: permissionMode,
           },
-        },
-        {
-          path: "/api/rpc/ace.agent.environment/settle",
-          body: { input: { ok: true, sessionID: session.nativeSessionId } },
         },
       ]);
     },

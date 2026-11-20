@@ -593,3 +593,56 @@ test("hovering a model shows where it comes from in a tooltip, the CLI's own log
   expect(tip.textContent).not.toContain("Your CLI login");
   expect(row.getAttribute("title")).toBeNull();
 });
+
+test("an agent that starts only when asked offers Load models, and loads that agent's own row", async () => {
+  const app = harness();
+  const services = app.daemon.services;
+  const handle = services.handle.bind(services);
+  const requests: unknown[] = [];
+  services.handle = (message, push) => {
+    if (message.type === "models.refresh" || message.type === "models.load") requests.push(message);
+    return message.type !== "models.list"
+      ? handle(message, push)
+      : handle(message, (reply) =>
+          reply.type === "models.result" && "models" in reply.result
+            ? push({
+                ...reply,
+                result: {
+                  ...reply.result,
+                  models: reply.result.models.filter((model) => model.provider !== "acp"),
+                  instances: [
+                    ...reply.result.instances.filter((instance) => instance.provider !== "acp"),
+                    {
+                      provider: "acp",
+                      instance: "acp-gemini-row",
+                      acpAgentId: "local:gemini",
+                      installationId: "gemini-install",
+                      instanceId: "gemini-google",
+                      modelProbe: "on-request",
+                      permissionModes: [],
+                      sources: [],
+                      stale: true,
+                      refreshing: false,
+                    },
+                  ],
+                },
+              })
+            : push(reply),
+        );
+  };
+  const { popover, list } = await openPicker(app);
+  const rail = within(popover).getByRole("tablist", { name: "Model sources" });
+  const agent = within(rail)
+    .getAllByRole("tab")
+    .find((tab) => /Google|Gemini/.test(tab.getAttribute("aria-label") ?? ""));
+  if (!agent) throw new Error("no ACP agent tab");
+  await userEvent.click(agent);
+  expect(within(list).getByText("No models yet")).toBeTruthy();
+  await userEvent.click(within(list).getByRole("button", { name: "Load models" }));
+  // The person's own load of that row, never a refresh, which starts no agent.
+  await waitFor(() =>
+    expect(requests).toEqual([
+      expect.objectContaining({ type: "models.load", instance: "acp-gemini-row" }),
+    ]),
+  );
+});

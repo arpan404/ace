@@ -127,7 +127,7 @@ test("+, the third top button, offers New bot, New club and Import bot, and an i
   const { spade } = await spadeApp("/spade", crew);
   // New bot opens its conversation, not a dialog.
   await openNew("New bot");
-  await screen.findByRole("textbox", { name: "Name" });
+  await screen.findByRole("heading", { name: "What should this bot do?" });
   expect(screen.queryByRole("dialog")).toBeNull();
 
   await openNew("New club");

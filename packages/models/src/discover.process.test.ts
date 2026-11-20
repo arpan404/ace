@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
@@ -10,7 +11,7 @@ import {
   openModelStorage,
 } from "./index.ts";
 import { Clock, codexPayload, deferred, fakeCli, instance, workspace } from "./testing/support.ts";
-import type { ModelInstance } from "./types.ts";
+import type { DiscoverModels, ModelInstance } from "./types.ts";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -104,7 +105,7 @@ test("OpenCode v2 metadata keeps provider/model IDs and image capability", async
   });
 });
 
-test("shared discovery keeps OpenCode metadata without starting an unprofiled ACP agent", async () => {
+test("shared discovery keeps OpenCode metadata and starts no ACP agent without its launch", async () => {
   const work = await workspace();
   cleanups.push(work.close);
   const executable = process.execPath;
@@ -138,7 +139,6 @@ test("shared discovery keeps OpenCode metadata without starting an unprofiled AC
     },
     signal,
   );
-  const acp = await discover({ ...instance("acp"), executable, cwd: work.path }, signal);
   expect(openCode).toEqual([
     expect.objectContaining({
       id: "local/merged-model",
@@ -148,7 +148,9 @@ test("shared discovery keeps OpenCode metadata without starting an unprofiled AC
       efforts: [{ id: "high", level: "high", label: "High" }],
     }),
   ]);
-  expect(acp).toEqual([]);
+  await expect(
+    discover({ ...instance("acp"), executable, cwd: work.path }, signal),
+  ).rejects.toThrow("ACP model probe unavailable");
 });
 
 for (const provider of ["antigravity"] as const) {
@@ -170,6 +172,131 @@ for (const provider of ["antigravity"] as const) {
     expect(rows[0]?.provider).toBe(provider);
   });
 }
+
+test("Antigravity offers full access from its probe, before any thread opens and after a restart", async () => {
+  const { work, config } = await launch("antigravity", {
+    sessionId: "probe",
+    configOptions: [
+      {
+        id: "model",
+        category: "model",
+        type: "select",
+        currentValue: "gemini",
+        options: [{ value: "gemini", name: "Gemini" }],
+      },
+      {
+        id: "mode",
+        category: "mode",
+        type: "select",
+        currentValue: "default",
+        options: [
+          { value: "default", name: "Default", description: "Default permission prompt flow" },
+          { value: "yolo", name: "YOLO", description: "Auto-approve all tools" },
+        ],
+      },
+    ],
+  });
+  const clock = new Clock();
+  const open = (discover: DiscoverModels) =>
+    new ModelCatalog({
+      instances: [config],
+      storage: openModelStorage(join(work.path, "models.sqlite")),
+      discover,
+      now: () => clock.now,
+      deadline: clock.deadline,
+      random: () => 0.5,
+    });
+  let catalog = open(createModelDiscovery());
+  try {
+    await catalog.refresh();
+    expect(catalog.list().instances[0]?.accessModes).toEqual([
+      { mode: "full-access", native: "yolo" },
+    ]);
+    await catalog.close();
+    catalog = open(async () => {
+      throw new Error("A catalog read must not launch an agent");
+    });
+    expect(catalog.list().instances[0]?.accessModes).toEqual([
+      { mode: "full-access", native: "yolo" },
+    ]);
+  } finally {
+    await catalog.close();
+  }
+});
+
+const probeModel = (current: string) => ({
+  id: "model",
+  category: "model",
+  type: "select",
+  currentValue: current,
+  options: [
+    { value: "flash", name: "Flash" },
+    { value: "pro", name: "Pro" },
+    { value: "lite", name: "Lite" },
+  ],
+});
+const probeThinking = (values: string[], current: string) => ({
+  id: "thinking_level",
+  category: "thought_level",
+  type: "select",
+  currentValue: current,
+  options: values.map((value) => ({ value, name: value })),
+});
+test("Antigravity lists each model's own thinking levels, then selects its own model again, without a prompt", async () => {
+  const { config, work } = await launch("antigravity", {
+    sessionId: "probe",
+    configOptions: [probeModel("flash"), probeThinking(["low", "high"], "high")],
+    // "lite" is refused by the agent: it keeps no levels and the listing still succeeds.
+    perModel: {
+      pro: [probeModel("pro"), probeThinking(["low", "medium", "high"], "medium")],
+      flash: [probeModel("flash"), probeThinking(["low", "high"], "high")],
+    },
+  });
+  const log = join(work.path, "methods.log");
+  const rows = await createModelDiscovery()(
+    { ...config, env: { ...config.env, FAKE_METHOD_LOG: log } },
+    new AbortController().signal,
+  );
+  const selections = (await readFile(log, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line): unknown[] => JSON.parse(line))
+    .filter(([method]) => method === "session/set_config_option")
+    .map((call) => call[2]);
+  // The model the agent had when the probe opened is its selection when the probe ends.
+  expect(selections).toEqual(["pro", "lite", "flash"]);
+  expect(
+    rows.map((row) => [row.id, row.efforts.map((effort) => effort.id), row.defaultEffort]),
+  ).toEqual([
+    ["flash", ["low", "high"], "high"],
+    ["pro", ["low", "medium", "high"], "medium"],
+    ["lite", [], undefined],
+  ]);
+});
+
+test("a generic ACP agent's probe never switches its model, so a saved selection stays the agent's", async () => {
+  const { config, work } = await launch("acp", {
+    sessionId: "probe",
+    configOptions: [probeModel("flash")],
+    perModel: { pro: [probeModel("pro")], lite: [probeModel("lite")] },
+  });
+  const log = join(work.path, "methods.log");
+  const rows = await createModelDiscovery({
+    acpProbe: async () => ({
+      command: process.execPath,
+      args: config.args,
+      env: { ...config.env, FAKE_METHOD_LOG: log },
+      cwd: work.path,
+      modes: "reported",
+    }),
+  })(config, new AbortController().signal);
+  expect(rows.map((row) => row.id)).toEqual(["flash", "pro", "lite"]);
+  const methods = (await readFile(log, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line): unknown[] => JSON.parse(line)[0]);
+  expect(methods).not.toContain("session/set_config_option");
+});
 
 test("an agent needing its sign-in method selected lists models with the method the person used", async () => {
   const { config } = await launch("antigravity", {

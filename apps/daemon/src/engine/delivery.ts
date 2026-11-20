@@ -284,9 +284,6 @@ export async function executeIntent(
       repo.evict(actor.id);
       throw error;
     }
-  } else if (p.type === "thread.mode.set") {
-    if (!actor.session.setMode) throw new Error("Provider mode selection unavailable");
-    await actor.session.setMode(p.mode);
   } else if (p.type === "thread.goal.set") {
     if (!actor.session.setGoal) throw new Error("Provider goals unavailable");
     await actor.session.setGoal(p.change);

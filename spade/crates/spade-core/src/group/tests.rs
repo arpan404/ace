@@ -170,3 +170,33 @@ fn a_reply_to_a_group_alone_is_the_groups_but_one_that_also_answers_the_person_i
     assert_eq!(answering.len(), 1);
     assert!(answering.contains("for-group"));
 }
+
+#[test]
+fn a_message_asks_at_most_a_few_members_and_leaves_the_rest_to_the_lead() {
+    // No mention: the lead.
+    assert_eq!(
+        route(&[], Some(0)),
+        Routing {
+            ask: vec![0],
+            via_lead: vec![]
+        }
+    );
+    // A few named: each of them, and not the lead.
+    assert_eq!(
+        route(&[3, 5], Some(0)),
+        Routing {
+            ask: vec![3, 5],
+            via_lead: vec![]
+        }
+    );
+    let four: Vec<usize> = (1..=MOST_ASKED).collect();
+    assert_eq!(route(&four, Some(0)).ask, four);
+    // Thirty named in a club of 32: only the lead runs, and it is left the other 29 to hand on.
+    let thirty: Vec<usize> = (0..30).collect();
+    let routed = route(&thirty, Some(0));
+    assert_eq!(routed.ask, vec![0]);
+    assert_eq!(routed.via_lead, (1..30).collect::<Vec<_>>());
+    // A lead that can't be asked here: still no more than the cap.
+    assert_eq!(route(&thirty, None).ask.len(), MOST_ASKED);
+    assert_eq!(route(&[], None).ask, Vec::<usize>::new());
+}
