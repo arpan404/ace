@@ -6,7 +6,7 @@ import type {
   InteractionResolution,
   Question,
 } from "@ace/protocol";
-import { withoutSecrets } from "@ace/ui-core";
+import { wholeRequestNotRead, withoutSecrets } from "@ace/ui-core";
 import { affirms } from "@ace/projection/interaction-summary";
 import { refusalMessage } from "@/lib/daemon-command.ts";
 import { useThreadFreshness } from "@/lib/live-connection.ts";
@@ -20,7 +20,7 @@ const failures: Record<string, string> = {
   already_resolved: "Already answered or closed.",
   interaction_expired: "This request expired before your answer arrived.",
   not_found: "This request no longer exists.",
-  request_not_read: "The request changed or hadn't loaded in full. Check it again, then answer.",
+  request_not_read: wholeRequestNotRead,
   permission_mode_requires_one_shot: "This mode allows approving one action at a time only.",
   read_only_mutation_denied: "Read only mode can't approve a change.",
 };
