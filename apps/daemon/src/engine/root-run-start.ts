@@ -1,7 +1,7 @@
 import type { RunTrigger } from "@ace/protocol";
 
-/** The engine input the session was handed and has not acknowledged yet. */
-export interface AwaitingInput {
+/** The input ace handed the session that no run has taken yet (`pending.handedOver`). */
+export interface HandedOverInput {
   kind: string;
   trigger?: RunTrigger | undefined;
 }
@@ -24,20 +24,21 @@ const TAKES_INPUT: ReadonlySet<RunTrigger> = new Set([
 ]);
 
 /**
- * The root run a provider started with `trigger`, while `awaiting` waits for acknowledgement:
- * the trigger it records, and whether its start takes that input. A run started for given input
- * while ace's own message waits is that message's run, so it carries the message's trigger
- * (a parcel notice's `background_completion`, say) and takes it, whatever the trigger is. Pure.
+ * The root run a provider started with `trigger`, while `handedOver` is the input ace gave it
+ * that no run has taken: the trigger it records, and whether its start takes that input. A run
+ * started for given input is that input's run, so it carries the input's own trigger (a parcel
+ * notice's `background_completion`, say) and takes it, whatever the trigger is. Only input that
+ * was handed over is ever named here: one still being prepared is no run's yet. Pure.
  */
 export function rootRunStart(
   trigger: RunTrigger,
-  awaiting: AwaitingInput | undefined,
+  handedOver: HandedOverInput | undefined,
 ): { trigger: RunTrigger; takesInput: boolean } {
   if (
-    awaiting?.trigger &&
-    (awaiting.kind === "thread.create" || awaiting.kind === "thread.send") &&
+    handedOver?.trigger &&
+    (handedOver.kind === "thread.create" || handedOver.kind === "thread.send") &&
     GIVEN_INPUT.has(trigger)
   )
-    return { trigger: awaiting.trigger, takesInput: true };
+    return { trigger: handedOver.trigger, takesInput: true };
   return { trigger, takesInput: TAKES_INPUT.has(trigger) };
 }

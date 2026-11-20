@@ -161,10 +161,11 @@ export class EngineRepository {
       correlated: this.store.statement(
         `UPDATE intents SET awaiting=0, acknowledged=1, uncertain=0, status=CASE WHEN uncertain=1 THEN 'done' ELSE status END, error=NULL WHERE thread_id=? AND command_id=? AND submitted_generation IS NOT NULL AND (awaiting=1 OR uncertain=1) RETURNING id`,
       ),
-      // Only input handed to the provider can be taken: a message claimed and not yet sent is
-      // never the one a run started for.
+      // A run start takes the input handed over for it and whatever else of its group was
+      // handed over with it. A member claimed and not yet sent is never taken: it waits for its
+      // own hand-over (`pending.handedOver`).
       ack: this.store
-        .statement(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND ack_target=(
+        .statement(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND submitted_generation IS NOT NULL AND ack_target=(
         SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 AND submitted_generation IS NOT NULL ORDER BY id LIMIT 1
       ) RETURNING id`),
     }));

@@ -122,7 +122,7 @@ export function foldProviderFacts(
     // The start, not its label, says whether the run takes the input ace handed the session.
     let startTakesInput: boolean | undefined;
     if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
-      const start = rootRunStart(fact.trigger, repo.pending.awaiting(id));
+      const start = rootRunStart(fact.trigger, repo.pending.handedOver(id));
       if (start.trigger !== fact.trigger) fact = { ...fact, trigger: start.trigger };
       startTakesInput = start.takesInput;
     }
@@ -240,7 +240,7 @@ export function foldProviderFacts(
       (takesInput.get(event.run.id) ?? rootRunStart(event.run.trigger, undefined).takesInput);
     const pending =
       event.type === "input.admitted" || rootStarted
-        ? (repo.pending.awaiting(id) ??
+        ? (repo.pending.handedOver(id) ??
           (rootStarted ? repo.pending.uncertainContinuation(id) : undefined))
         : undefined;
     const commandId =

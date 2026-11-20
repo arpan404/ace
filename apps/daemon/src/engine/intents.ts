@@ -293,6 +293,16 @@ export class IntentStore {
     ).get(id);
     return row ? header(row) : undefined;
   }
+  /**
+   * The input a run the provider starts now was handed: the oldest one ace actually gave the
+   * provider that no run has taken yet. One claimed and still being prepared isn't it.
+   */
+  handedOver(id: ThreadId): IntentHeader | undefined {
+    const row = this.sql(
+      `SELECT ${columns} FROM intents WHERE thread_id=? AND awaiting=1 AND submitted_generation IS NOT NULL ORDER BY id LIMIT 1`,
+    ).get(id);
+    return row ? header(row) : undefined;
+  }
   running(id: ThreadId): boolean {
     return Boolean(
       this.sql("SELECT 1 FROM intents WHERE thread_id=? AND status='running' LIMIT 1").get(id),
@@ -364,6 +374,15 @@ export class IntentStore {
   submit(intent: IntentHeader, generation: number): void {
     this.sql("UPDATE intents SET submitted_generation=? WHERE id=? AND status='running'").run(
       generation,
+      intent.id,
+    );
+  }
+  /**
+   * A steer handed over while a turn runs goes into that turn, as any steer into a running turn
+   * does: no later run start is waited for to take it.
+   */
+  joinRunningTurn(intent: IntentHeader): void {
+    this.sql("UPDATE intents SET awaiting=0, ack_target=NULL WHERE id=? AND awaiting=1").run(
       intent.id,
     );
   }

@@ -223,6 +223,10 @@ export async function executeIntent(
         generation,
       );
       repo.pending.submit(intent, generation);
+      // A steer claimed between turns that is handed over once a turn runs joins that turn.
+      const live = repo.requireState(actor.id);
+      if (steering && live.agents[live.rootKey ?? ""]?.activeRun)
+        repo.pending.joinRunningTurn(intent);
       // Whose input this is decides whether its steer may cut in: only the person's does.
       await session.send(
         input,
