@@ -232,10 +232,10 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
       if (!list.length && editing?.kind !== "new" && editing?.kind !== "menu") return;
       const old = before.split("\n");
       const now = after.split("\n");
-      setOpen((open) =>
-        mapOpen(open, (span) =>
-          open?.kind === "new"
-            ? reanchor(span, { text: open.marked.excerpt, cut: open.marked.cut }, old, now, after)
+      setOpen((shown) =>
+        mapOpen(shown, (span) =>
+          shown?.kind === "new"
+            ? reanchor(span, { text: shown.marked.excerpt, cut: shown.marked.cut }, old, now, after)
             : { ...span, outdated: false },
         ),
       );
