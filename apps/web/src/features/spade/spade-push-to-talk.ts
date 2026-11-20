@@ -19,7 +19,8 @@ interface TalkBridge {
 
 function bridgeOf(scope: object): TalkBridge | undefined {
   const ace: unknown = Reflect.get(scope, "ace");
-  const spade: unknown = typeof ace === "object" && ace !== null ? Reflect.get(ace, "spade") : undefined;
+  const spade: unknown =
+    typeof ace === "object" && ace !== null ? Reflect.get(ace, "spade") : undefined;
   if (typeof spade !== "object" || spade === null) return undefined;
   const onTalk: unknown = Reflect.get(spade, "onTalk");
   const talkState: unknown = Reflect.get(spade, "talkState");
@@ -73,6 +74,20 @@ export function onPushToTalk(listener: (phase: PushPhase) => void): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+/**
+ * A push to talk whose composer went away before anything was said (the screen remounted it):
+ * the next main composer to listen takes it up.
+ */
+export function resumePushToTalk() {
+  if (listeners.size > 0) {
+    queueMicrotask(() => {
+      for (const listener of listeners) listener("start");
+    });
+    return;
+  }
+  waiting = true;
 }
 
 /** Tells the desktop's indicator how the turn goes; nothing in a browser. */

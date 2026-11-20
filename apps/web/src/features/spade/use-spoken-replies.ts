@@ -2,7 +2,13 @@ import type { SpadeEntry } from "@ace/ui-core/spade-chat";
 import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
-import { onSpeechTrouble, speakTurn, stopReadingOf, type LiveSpeech, type SpeechVoice } from "./spade-speech.ts";
+import {
+  onSpeechTrouble,
+  speakTurn,
+  stopReadingOf,
+  type LiveSpeech,
+  type SpeechVoice,
+} from "./spade-speech.ts";
 import { spokenReply, type SpokenReply } from "./spade-spoken-reply.ts";
 import { botVoice, useVoicePrefs } from "./spade-voice-prefs.ts";
 import { useSpadeModels } from "./use-spade-models.ts";

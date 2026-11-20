@@ -55,21 +55,21 @@ describe("a reply is spoken as it streams", () => {
 
 describe("what is never read aloud", () => {
   test.each([
-    ["code", "Here it is:\n```ts\nconst a = 1;\nconsole.log(a);\n```\nRun it.", [
-      "Here it is:",
-      spokenCode,
-      "Run it.",
-    ]],
-    ["a table", "Prices:\n| Day | Fare |\n|---|---|\n| Mon | $90 |\n\nCheapest is Monday.", [
-      "Prices:",
-      spokenTable,
-      "Cheapest is Monday.",
-    ]],
-    ["a long list", "Pack:\n- socks\n- shirts\n- charger\n- passport\n- book\nThat's all.", [
-      "Pack:",
-      spokenList(5),
-      "That's all.",
-    ]],
+    [
+      "code",
+      "Here it is:\n```ts\nconst a = 1;\nconsole.log(a);\n```\nRun it.",
+      ["Here it is:", spokenCode, "Run it."],
+    ],
+    [
+      "a table",
+      "Prices:\n| Day | Fare |\n|---|---|\n| Mon | $90 |\n\nCheapest is Monday.",
+      ["Prices:", spokenTable, "Cheapest is Monday."],
+    ],
+    [
+      "a long list",
+      "Pack:\n- socks\n- shirts\n- charger\n- passport\n- book\nThat's all.",
+      ["Pack:", spokenList(5), "That's all."],
+    ],
   ])("%s becomes one line saying it is on screen", (_, text, expected) => {
     for (const size of [1, 5, 1000])
       expect(streamed(text, size).map((each) => each.sentence)).toEqual(expected);

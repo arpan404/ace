@@ -281,7 +281,11 @@ export function TalkLine(props: { name: string; talk: TalkMode; push: boolean })
   const line = talkLine(props.talk.state, props.name);
   if (!line) return null;
   const stop =
-    props.talk.state.kind === "speaking" ? " · Esc to stop" : props.talk.state.kind === "listening" && props.push ? " · it sends when you stop talking" : "";
+    props.talk.state.kind === "speaking"
+      ? " · Esc to stop"
+      : props.talk.state.kind === "listening" && props.push
+        ? " · it sends when you stop talking"
+        : "";
   return (
     <p
       role="status"

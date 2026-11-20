@@ -14,9 +14,20 @@ export interface VadOptions {
   ratio: number;
   /** The quietest level that ever counts as talking, whatever the floor. */
   least: number;
+  /** The loudest a room is taken to be before it is heard: talking from the first frame on. */
+  quietRoom: number;
+  /** One stretch of talking ends after this long, so a loud room can't hold it open. */
+  longestMs: number;
 }
 
-export const defaultVad: VadOptions = { startMs: 160, endMs: 900, ratio: 3, least: 0.012 };
+export const defaultVad: VadOptions = {
+  startMs: 160,
+  endMs: 900,
+  ratio: 3,
+  least: 0.012,
+  quietRoom: 0.01,
+  longestMs: 30_000,
+};
 
 export type VadEvent = "speech-start" | "speech-end";
 
@@ -36,6 +47,7 @@ export function createVad(options: VadOptions = defaultVad): Vad {
   let floor: number | undefined;
   let talking = false;
   let loudSince: number | undefined;
+  let talkingSince = 0;
   let quietSince: number | undefined;
   let damping = 1;
 
@@ -48,7 +60,9 @@ export function createVad(options: VadOptions = defaultVad): Vad {
     },
     step(level, at) {
       const heard = Math.max(0, level);
-      floor ??= heard;
+      // Never louder than a quiet room to begin with: someone talking as the microphone opens
+      // is heard, not taken for the room.
+      floor ??= Math.min(heard, options.quietRoom);
       const bar = Math.max(floor * options.ratio, options.least) * damping;
       // The floor follows a quieter room quickly and a noisier one slowly, and never learns
       // from a frame loud enough to be a voice.
@@ -61,8 +75,16 @@ export function createVad(options: VadOptions = defaultVad): Vad {
         loudSince ??= at;
         if (at - loudSince < options.startMs) return undefined;
         talking = true;
+        talkingSince = at;
         quietSince = undefined;
         return "speech-start";
+      }
+      if (at - talkingSince >= options.longestMs) {
+        // Nobody talks this long without a pause: this loudness is the room's.
+        floor = heard;
+        talking = false;
+        loudSince = undefined;
+        return "speech-end";
       }
       // Quieter than the start's bar, so a voice that dips a little isn't taken as an end.
       if (heard >= bar * 0.6) {

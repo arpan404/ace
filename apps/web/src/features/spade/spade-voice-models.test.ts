@@ -48,7 +48,10 @@ test("a model whose saved facts say it transcribes wins over one that only sound
 });
 
 test.each([
-  ["an Anthropic-format endpoint", endpoint("claude", [model("whisper-1")], { format: "anthropic" })],
+  [
+    "an Anthropic-format endpoint",
+    endpoint("claude", [model("whisper-1")], { format: "anthropic" }),
+  ],
   ["an endpoint without its key", endpoint("groq", [model("whisper-large-v3")], { keySet: false })],
   ["an endpoint with chat models only", endpoint("chat", [model("gpt-5"), model("kimi-k2")])],
 ])("%s offers nothing", (_, candidate) => {

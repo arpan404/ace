@@ -119,7 +119,9 @@ test("Stop stops the bot and its speech together", async () => {
   const before = speech.counts.cancels;
   await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
   expect(speech.counts.cancels).toBeGreaterThan(before);
-  await waitFor(() => expect(spade.sent("POST", "/v1/conversations/c-writer/stop")).toHaveLength(1));
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/conversations/c-writer/stop")).toHaveLength(1),
+  );
 });
 
 test("with a speech model, the words go to Spade's speech route and its audio plays", async () => {

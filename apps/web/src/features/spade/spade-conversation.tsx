@@ -371,78 +371,78 @@ export function Conversation(props: {
 
   return (
     <BotVoiceContext value={speech.voice}>
-    <ConversationScreen
-      actions={
-        // Covered by the profile, the chat comes back by the profile's own ‹ Chat.
-        !(panelShown && covering) && (
-          <>
-            {view.questionsForLater > 0 && (
-              <Button size="sm" variant="ghost" onClick={() => showCard(view.forLater[0])}>
-                {spadeForLaterWords(view.questionsForLater)}
-              </Button>
-            )}
-            {panelShown ? (
-              // The top bar's part above the profile holds its strip: Share and close.
-              <ProfileStripActions bot={bot} onClose={closePanel} />
-            ) : (
-              <IconButton
-                icon={SidebarSimpleIcon}
-                label={`Open ${bot.name}'s profile`}
-                tip="Profile"
-                className="-scale-x-100"
-                onClick={() => openProfile()}
-              />
-            )}
-          </>
-        )
-      }
-    >
-      <div className="relative flex h-full min-h-0">
-        <div
-          className={cn("min-w-0 flex-1", panelShown && covering && "invisible")}
-          aria-hidden={panelShown && covering ? true : undefined}
-        >
-          {chat}
-        </div>
-        {panel && (
+      <ConversationScreen
+        actions={
+          // Covered by the profile, the chat comes back by the profile's own ‹ Chat.
+          !(panelShown && covering) && (
+            <>
+              {view.questionsForLater > 0 && (
+                <Button size="sm" variant="ghost" onClick={() => showCard(view.forLater[0])}>
+                  {spadeForLaterWords(view.questionsForLater)}
+                </Button>
+              )}
+              {panelShown ? (
+                // The top bar's part above the profile holds its strip: Share and close.
+                <ProfileStripActions bot={bot} onClose={closePanel} />
+              ) : (
+                <IconButton
+                  icon={SidebarSimpleIcon}
+                  label={`Open ${bot.name}'s profile`}
+                  tip="Profile"
+                  className="-scale-x-100"
+                  onClick={() => openProfile()}
+                />
+              )}
+            </>
+          )
+        }
+      >
+        <div className="relative flex h-full min-h-0">
           <div
-            // Beside the chat the chat keeps a readable column; in a narrow window the profile
-            // takes the window.
-            style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
-            className={cn(
-              "bg-panel",
-              panelReveal,
-              covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
-            )}
+            className={cn("min-w-0 flex-1", panelShown && covering && "invisible")}
+            aria-hidden={panelShown && covering ? true : undefined}
           >
-            {!covering && (
-              <ResizeHandle
-                label="Profile width"
-                edge="left"
-                size={width}
-                min={panelWidth.min}
-                max={panelWidth.max}
-                onResize={setWidth}
-                onResizeEnd={(next) =>
-                  writePanel(storage(), memoryKey, {
-                    ...readPanel(storage(), memoryKey),
-                    width: next,
-                  })
-                }
-                onReset={() => {
-                  setWidth(panelWidth.initial);
-                  writePanel(storage(), memoryKey, {
-                    ...readPanel(storage(), memoryKey),
-                    width: panelWidth.initial,
-                  });
-                }}
-              />
-            )}
-            {panel}
+            {chat}
           </div>
-        )}
-      </div>
-    </ConversationScreen>
+          {panel && (
+            <div
+              // Beside the chat the chat keeps a readable column; in a narrow window the profile
+              // takes the window.
+              style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
+              className={cn(
+                "bg-panel",
+                panelReveal,
+                covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
+              )}
+            >
+              {!covering && (
+                <ResizeHandle
+                  label="Profile width"
+                  edge="left"
+                  size={width}
+                  min={panelWidth.min}
+                  max={panelWidth.max}
+                  onResize={setWidth}
+                  onResizeEnd={(next) =>
+                    writePanel(storage(), memoryKey, {
+                      ...readPanel(storage(), memoryKey),
+                      width: next,
+                    })
+                  }
+                  onReset={() => {
+                    setWidth(panelWidth.initial);
+                    writePanel(storage(), memoryKey, {
+                      ...readPanel(storage(), memoryKey),
+                      width: panelWidth.initial,
+                    });
+                  }}
+                />
+              )}
+              {panel}
+            </div>
+          )}
+        </div>
+      </ConversationScreen>
     </BotVoiceContext>
   );
 }

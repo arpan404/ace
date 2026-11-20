@@ -104,7 +104,9 @@ export function SpadeComposer(props: {
   // Push to talk, on the main Spade: the first press listens, the next sends.
   const pressed = useEffectEvent((phase: PushPhase) => {
     if (phase === "cancel") return talk.end();
-    if (phase === "send" || talk.state.kind !== "off") return talk.sendNow();
+    if (phase === "send") return talk.sendNow();
+    // The desktop says send for a second press; a start while listening is the same press.
+    if (talk.state.kind !== "off") return;
     if (voice.needsSetup) {
       reportPushToTalk("off");
       return voice.openSetup();

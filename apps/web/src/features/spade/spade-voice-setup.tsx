@@ -37,7 +37,8 @@ export function useVoiceModelChoices(role: VoiceRole, enabled: boolean) {
   const live = new Map(endpoints.map((endpoint, at) => [endpoint.id, lists[at]?.data ?? []]));
   return {
     choices: voiceModelChoices(role, models.data?.endpoints ?? [], live),
-    loading: models.isPending || lists.some((list) => list.isPending && list.fetchStatus !== "idle"),
+    loading:
+      models.isPending || lists.some((list) => list.isPending && list.fetchStatus !== "idle"),
   };
 }
 
@@ -110,8 +111,8 @@ export function TranscriptionSetup(props: { onChosen(): void; onClose(): void })
         ) : (
           <>
             <span className="text-foreground">
-              None of your endpoints turns speech into words, and this app can't on its own. Add
-              an OpenAI-format endpoint with a transcription model, such as OpenAI's whisper-1.
+              None of your endpoints turns speech into words, and this app can't on its own. Add an
+              OpenAI-format endpoint with a transcription model, such as OpenAI's whisper-1.
             </span>
             <span className="flex flex-wrap items-center gap-1">
               <Button

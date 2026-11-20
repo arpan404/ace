@@ -97,7 +97,9 @@ export function withLoudMicrophone() {
 /** Audio playback that plays each clip for `ms`, recording which object URLs were played. */
 export function withAudioPlayback(ms = 30) {
   const played: string[] = [];
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (this: HTMLMediaElement) {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (
+    this: HTMLMediaElement,
+  ) {
     played.push(this.src);
     setTimeout(() => this.dispatchEvent(new Event("ended")), ms);
     return Promise.resolve();
@@ -106,10 +108,14 @@ export function withAudioPlayback(ms = 30) {
   return played;
 }
 
-/** Talk for `ms`, then fall quiet for `quiet` ms. */
-export async function talk(mic: { level: number }, ms = 400, quiet = 1_300) {
+/**
+ * Talk until ace says it hears (`heard` resolves), then fall quiet for `quiet` ms: long enough
+ * for the detector to take it as the end. Waiting on ace, not a fixed time, keeps a busy test
+ * machine from missing the words.
+ */
+export async function talk(mic: { level: number }, heard: () => Promise<unknown>, quiet = 1_300) {
   mic.level = 0.2;
-  await new Promise((resolve) => setTimeout(resolve, ms));
+  await heard();
   mic.level = 0.004;
   await new Promise((resolve) => setTimeout(resolve, quiet));
 }

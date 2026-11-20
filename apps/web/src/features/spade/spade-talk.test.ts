@@ -41,10 +41,28 @@ describe("voice activity, on the device", () => {
 
   test.each([
     ["a click", frames([quiet, 500], [voice, 60], [quiet, 2_000])],
-    ["a steady hum the floor learns", frames([0.03, 4_000])],
+    ["a steady hum the floor learns", frames([0.008, 4_000])],
   ])("%s is not talking", (_, input) => {
     const vad = createVad();
     expect(input.map(({ level, at }) => vad.step(level, at)).filter(Boolean)).toEqual([]);
+  });
+
+  test("talking from the moment the microphone opens is heard", () => {
+    const vad = createVad();
+    const input = frames([voice, 600], [quiet, 1_200]);
+    expect(input.map(({ level, at }) => vad.step(level, at)).filter(Boolean)).toEqual([
+      "speech-start",
+      "speech-end",
+    ]);
+  });
+
+  test("a room too loud to fall quiet still ends a stretch of talking", () => {
+    const vad = createVad();
+    const input = frames([quiet, 200], [voice, defaultVad.longestMs + 500]);
+    expect(input.map(({ level, at }) => vad.step(level, at)).filter(Boolean)).toEqual([
+      "speech-start",
+      "speech-end",
+    ]);
   });
 
   test("a short breath in the middle of a sentence doesn't end it", () => {
@@ -79,10 +97,9 @@ describe("a hands-free conversation", () => {
   });
 
   test("the reply is spoken, then it listens again", () => {
-    const { state } = run(
-      [{ kind: "speaking" }, { kind: "turn-over", at: 9_000 }],
-      { kind: "thinking" },
-    );
+    const { state } = run([{ kind: "speaking" }, { kind: "turn-over", at: 9_000 }], {
+      kind: "thinking",
+    });
     expect(state).toEqual({ kind: "listening", since: 9_000 });
   });
 
@@ -93,10 +110,9 @@ describe("a hands-free conversation", () => {
   });
 
   test("nothing made out of a recording sends nothing and listens again", () => {
-    const { state, effects } = run(
-      [{ kind: "words", words: "  ", at: 5 }],
-      { kind: "transcribing" },
-    );
+    const { state, effects } = run([{ kind: "words", words: "  ", at: 5 }], {
+      kind: "transcribing",
+    });
     expect(effects).toEqual([]);
     expect(state).toEqual({ kind: "listening", since: 5 });
   });

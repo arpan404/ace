@@ -4,6 +4,7 @@ import { prepareSpadeVoice, type PreparedVoice } from "./spade-attachments.ts";
 import { transcribe } from "./spade-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import type { SpadeTarget } from "./spade-requests.ts";
+import { resumePushToTalk } from "./spade-push-to-talk.ts";
 import { onSpeechChange, speakingNow, stopSpeaking } from "./spade-speech.ts";
 import {
   talkOff,
@@ -126,7 +127,8 @@ export class TalkController {
     this.open = { stream, context, timer, vad, once, sawAnswer: false };
     // The reply's speech beginning is the bot's turn to speak.
     this.stopSpeech = onSpeechChange(() => {
-      if (speakingNow()?.audible && this.state.kind === "thinking") this.dispatch({ kind: "speaking" });
+      if (speakingNow()?.audible && this.state.kind === "thinking")
+        this.dispatch({ kind: "speaking" });
     });
     this.dispatch({ kind: "start", at: Date.now() });
   }
@@ -141,10 +143,20 @@ export class TalkController {
     this.dispatch({ kind: "end" });
   }
 
-  /** Lets go of everything (the chat is going away). */
-  dispose() {
+  /**
+   * Lets go of everything (the chat is going away). Answers whether a push to talk was still
+   * waiting for words: it is carried to the next main composer, so nothing is said to end.
+   */
+  dispose(): boolean {
+    const carried = this.open?.once === true && this.state.kind === "listening";
+    if (carried) {
+      this.state = talkOff;
+      this.release();
+      return true;
+    }
     if (this.state.kind !== "off") this.dispatch({ kind: "end" });
     this.release();
+    return false;
   }
 
   private frame(analyser: AnalyserNode, samples: Float32Array<ArrayBuffer>) {
@@ -274,8 +286,17 @@ export function useTalkMode(options: Omit<TalkOptions, "fail">) {
   const [controller] = useState(() => new TalkController(client, full));
   useEffect(() => controller.update(client, full));
   // Leaving the chat ends the conversation and lets go of the microphone.
-  useEffect(() => () => controller.dispose(), [controller]);
-  const state = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot);
+  useEffect(
+    () => () => {
+      if (controller.dispose()) resumePushToTalk();
+    },
+    [controller],
+  );
+  const state = useSyncExternalStore(
+    controller.subscribe,
+    controller.snapshot,
+    controller.snapshot,
+  );
   return {
     state,
     /** Hands free: listens again after every reply until ended or quiet for a while. */
