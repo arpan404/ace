@@ -65,8 +65,9 @@ private final class DeflatingServer: @unchecked Sendable {
     func start() async throws -> UInt16 {
         listener.newConnectionHandler = { [messages] connection in
             connection.start(queue: .global())
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, _, _ in
-                let request = String(decoding: data ?? Data(), as: UTF8.self)
+            // TCP can split the upgrade request anywhere: read until its blank line before parsing.
+            Self.readHead(connection, into: Data()) { head in
+                let request = String(decoding: head, as: UTF8.self)
                 let key = request.split(separator: "\r\n")
                     .first { $0.lowercased().hasPrefix("sec-websocket-key:") }
                     .map { $0.split(separator: ":", maxSplits: 1)[1].trimmingCharacters(in: .whitespaces) } ?? ""
@@ -91,6 +92,16 @@ private final class DeflatingServer: @unchecked Sendable {
         }
     }
     func stop() { listener.cancel() }
+
+    /// Reads from `connection` until the HTTP head's terminating blank line has arrived.
+    private static func readHead(_ connection: NWConnection, into buffer: Data, then: @escaping @Sendable (Data) -> Void) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, done, error in
+            var head = buffer
+            if let data { head.append(data) }
+            if head.range(of: Data("\r\n\r\n".utf8)) != nil || done || error != nil { then(head); return }
+            readHead(connection, into: head, then: then)
+        }
+    }
 
     /// Raw DEFLATE stored blocks, ended as permessage-deflate's sync flush leaves them (RFC 7692).
     private static func stored(_ data: Data) -> Data {
