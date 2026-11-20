@@ -18,14 +18,14 @@ Slack can: `bun run docs:connectors slack --yes` creates the app from its manife
 | Vercel | maker approval | Submitted | 10 |  |
 | Pipedrive | maker approval | Not started | 15 | Posting on Pipedrive's developer community needs the owner's signed-in account |
 | Ramp | maker approval | Submitted | 10 |  |
-| Canva | ace cloud app | Not started | 20 |  |
-| Slack | ace cloud app | Not started | 10 |  |
-| Box | ace cloud app | Not started | 15 |  |
-| Zoom | ace cloud app | Not started | 25 |  |
+| Canva | ace cloud app | Blocked | 20 | Canva's developer portal needs the owner's signed-in Canva account, behind a Cloudflare human check |
+| Slack | ace cloud app | Blocked | 10 | Needs SLACK_CONFIG_TOKEN, an app configuration token with app_configurations:write that the owner makes at api.slack.com/apps under Your App Configuration Tokens |
+| Box | ace cloud app | Blocked | 15 | Box's Admin Console needs a signed-in Box enterprise admin, the owner's |
+| Zoom | ace cloud app | Blocked | 25 | Zoom's App Marketplace needs the owner's signed-in Zoom account |
 | GitHub | public app | Not started | 5 |  |
-| Asana | ace cloud app | Not started | 10 |  |
-| HubSpot | ace cloud app | Not started | 10 |  |
-| Front | ace cloud app | Not started | 15 |  |
+| Asana | ace cloud app | Blocked | 10 | Asana's developer console needs the owner's signed-in Asana account |
+| HubSpot | ace cloud app | Blocked | 10 | HubSpot's MCP Connectors page needs the owner's signed-in HubSpot account |
+| Front | ace cloud app | Blocked | 15 | Front's developer settings need a signed-in Front company admin, the owner's |
 | Google Workspace (Gmail, Calendar, Chat, Docs, Drive, Sheets, Slides) | ace cloud app | Blocked | 60 | Owner parked it: OAuth verification plus the yearly security assessment for the restricted scopes |
 
 ## 1. Figma
@@ -132,7 +132,9 @@ Notes:
 
 ## 5. Canva
 
-Kind: ace cloud app. Status: not started. About 20 minutes.
+Kind: ace cloud app. Status: blocked. About 20 minutes.
+
+**Blocked on:** Canva's developer portal needs the owner's signed-in Canva account, behind a Cloudflare human check.
 
 Where: Canva Developer Portal > Your apps > Create an app > Outside Canva, then Configuration > Integration methods > Canva MCP on.
 
@@ -188,7 +190,9 @@ Notes:
 
 ## 6. Slack
 
-Kind: ace cloud app. Status: not started. About 10 minutes.
+Kind: ace cloud app. Status: blocked. About 10 minutes.
+
+**Blocked on:** Needs SLACK_CONFIG_TOKEN, an app configuration token with app_configurations:write that the owner makes at api.slack.com/apps under Your App Configuration Tokens.
 
 Where: Slack API > Your Apps > Create New App > From a manifest, or bun run docs:connectors slack --yes.
 
@@ -246,7 +250,9 @@ Notes:
 
 ## 7. Box
 
-Kind: ace cloud app. Status: not started. About 15 minutes.
+Kind: ace cloud app. Status: blocked. About 15 minutes.
+
+**Blocked on:** Box's Admin Console needs a signed-in Box enterprise admin, the owner's.
 
 Where: Box Admin Console > Integrations > Box MCP server > Configure > Additional Configuration > Add Integration Credentials (Box's guide doesn't give the console's address).
 
@@ -284,7 +290,9 @@ Notes:
 
 ## 8. Zoom
 
-Kind: ace cloud app. Status: not started. About 25 minutes.
+Kind: ace cloud app. Status: blocked. About 25 minutes.
+
+**Blocked on:** Zoom's App Marketplace needs the owner's signed-in Zoom account.
 
 Where: Zoom App Marketplace > Develop > Build app > General app (user-managed OAuth) > Create.
 
@@ -356,7 +364,9 @@ Notes:
 
 ## 10. Asana
 
-Kind: ace cloud app. Status: not started. About 10 minutes.
+Kind: ace cloud app. Status: blocked. About 10 minutes.
+
+**Blocked on:** Asana's developer console needs the owner's signed-in Asana account.
 
 Where: Asana developer console > Create new app > MCP app, then OAuth and Manage distribution in the sidebar.
 
@@ -397,7 +407,9 @@ Notes:
 
 ## 11. HubSpot
 
-Kind: ace cloud app. Status: not started. About 10 minutes.
+Kind: ace cloud app. Status: blocked. About 10 minutes.
+
+**Blocked on:** HubSpot's MCP Connectors page needs the owner's signed-in HubSpot account.
 
 Where: HubSpot > Development > MCP Connectors > Create MCP connector.
 
@@ -434,7 +446,9 @@ Notes:
 
 ## 12. Front
 
-Kind: ace cloud app. Status: not started. About 15 minutes.
+Kind: ace cloud app. Status: blocked. About 15 minutes.
+
+**Blocked on:** Front's developer settings need a signed-in Front company admin, the owner's.
 
 Where: Front > Settings > Company > Developer: create the app, then Features > Add feature > Front MCP, with OAuth on.
 
