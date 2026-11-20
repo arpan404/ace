@@ -12,6 +12,7 @@ import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts"
 import type { SpadeView } from "./view.ts";
 import type { SpadeFailureKind, SpadeStoppedKind } from "./wire.ts";
 import { spadeHelperLine } from "./helper-words.ts";
+import { spadeContractLine } from "./contract-words.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { spadeReplySteps, type SpadeStep } from "./steps.ts";
 import type { SpadeTurnUndo } from "./undo.ts";
@@ -107,6 +108,16 @@ type SpadeBubbleOf =
   | { kind: "named"; key: string; name: string; face: boolean; first: boolean }
   /** The person handed the computer back: one quiet line, its names behind a disclosure. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
+  /** A call the bot made to another bot's contract (ADR 0200 §7): its line and what came back. */
+  | {
+      kind: "contract";
+      key: string;
+      text: string;
+      /** The output's fields in one line, or why it failed; empty while it is open. */
+      result: string;
+      open: boolean;
+      at?: number;
+    }
   /**
    * A helper the bot started (ADR 0152): one quiet line in Spade's words that expands to the
    * helper's own steps, read from its job's hidden conversation.
@@ -248,6 +259,23 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     }
     if (entry.kind === "handback") {
       bubbles.push({ kind: "handback", key: entry.key, text: entry.text, data: entry.data });
+      continue;
+    }
+    if (entry.kind === "contract") {
+      // Its result reaches the bot like a message.
+      if (entry.outcome) {
+        inputs = true;
+        onlyBeats = false;
+        onlyGroups = false;
+      }
+      bubbles.push({
+        kind: "contract",
+        key: entry.key,
+        text: spadeContractLine(entry),
+        result: entry.result,
+        open: entry.outcome === undefined,
+        ...stamp(entry.at),
+      });
       continue;
     }
     if (entry.kind === "helper") {

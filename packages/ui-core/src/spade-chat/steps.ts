@@ -60,6 +60,8 @@ const shownElsewhere = new Set([
   "profile_update",
   // A bot made for the person, or added to a club: their own lines (`made`, `club-added`).
   "club_add",
+  // A call to another bot's contract: its own line, with what came back (ADR 0200 §7).
+  "contract_call",
 ]);
 
 /** A call that has finished one way or another; one still going is the working line's. */

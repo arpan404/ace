@@ -11,6 +11,7 @@ export * from "./provenance.ts";
 export * from "./first-run.ts";
 export type { SpadeStepWeight } from "./step-facts.ts";
 export * from "./words.ts";
+export * from "./contract-words.ts";
 export * from "./helper-words.ts";
 export * from "./agents.ts";
 export * from "./packages.ts";

@@ -36,6 +36,8 @@ export interface FakeSpadeAgent {
   arrived?: Json | null;
   /** The agent package it is linked to (ADR 0200 §3.9). */
   package?: Json | null;
+  /** The person turned calls to its contracts from their other bots off (ADR 0200 §7). */
+  takesCalls?: boolean;
   /** Its accent (ADR 0200 §5.3): `{accent, chosen}`, as Spade shows it; null for none. */
   style?: { accent: string | null; chosen: boolean } | null;
   /**

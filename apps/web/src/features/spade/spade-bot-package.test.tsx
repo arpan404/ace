@@ -257,3 +257,32 @@ test("a development bot says Development in its row, its profile and on Running,
   expect((await item("Flight watcher")).getByText("Development")).toBeTruthy();
   expect((await item("Inbox")).queryByText("Development")).toBeNull();
 });
+
+test("a bot's profile lists its contracts and the person's switch for calls to them", async () => {
+  let api: FakeSpadeApi | undefined;
+  await spadeApp("/spade/fares?profile=details", (spade) => {
+    api = spade;
+    linked({
+      version: "1.0.0",
+      contracts: [
+        {
+          name: "cheapest_fare",
+          summary: "The cheapest fare seen for a route this week.",
+          effects: ["network"],
+        },
+      ],
+    })(spade);
+  });
+  const section = await screen.findByRole("region", { name: "Contracts" });
+  expect(within(section).getByText("cheapest_fare")).toBeTruthy();
+  expect(
+    within(section).getByText(
+      "The cheapest fare seen for a route this week. It may reach outside its folder while answering.",
+    ),
+  ).toBeTruthy();
+  const calls = within(section).getByRole("switch", { name: "Your other bots can call it" });
+  await waitFor(() => expect(calls.getAttribute("aria-checked")).toBe("true"));
+  await userEvent.click(calls);
+  await waitFor(() => expect(calls.getAttribute("aria-checked")).toBe("false"));
+  expect(api?.agents.find((agent) => agent.id === "fares")?.takesCalls).toBe(false);
+});
