@@ -29,6 +29,11 @@ const sharing: [KeymapId, KeymapId, string][] = [
   ["fullView", "files.search", "a Files tab takes ⌘⇧F only while focus is inside it"],
   ["findInTerminal", "files.search", "a terminal and a Files tab never have focus together"],
   ["files.move", "devices", "off Apple the file tree takes Ctrl+Shift+M only on a focused file"],
+  ["jumpToThread", "deck.focusGroup", "the Deck takes ⌘1–9 only while focus is inside it"],
+  ["goSkills", "deck.saveAll", "the Deck takes ⌥⌘S only while focus is inside it"],
+  ["closeTab", "deck.close", "in a browser the Deck takes ⌥⌘W only while focus is inside it"],
+  ["reopenTab", "deck.reopen", "in a browser the Deck takes ⇧⌥⌘T only while focus is inside it"],
+  ["newTab", "deck.reopen", "off Apple in a browser, likewise only while focus is in the Deck"],
   [
     "followUpOther",
     "startInBackground",

@@ -26,6 +26,7 @@ const scopes: readonly { scope: KeyScope; title: string }[] = [
   { scope: "newThread", title: "New thread" },
   { scope: "panel", title: "Side panel tabs" },
   { scope: "files", title: "File tree" },
+  { scope: "deck", title: "Deck" },
   { scope: "terminal", title: "Terminal" },
   { scope: "notifications", title: "Notifications" },
 ];

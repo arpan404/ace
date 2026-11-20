@@ -17,6 +17,7 @@ export type KeyScope =
   | "newThread"
   | "panel"
   | "files"
+  | "deck"
   | "terminal"
   | "notifications";
 
@@ -241,6 +242,85 @@ export const keymap = {
     scope: "files",
     fixed: true,
   },
+  // The Deck, a thread's editor workbench (features/panels/deck), while focus is inside it.
+  // Elsewhere the same keys keep their app-wide meaning: ⌘1–9 open threads, ⌥⌘S goes to Skills,
+  // ⌥⌘W and ⇧⌥⌘T close and reopen panel tabs in a browser.
+  "deck.save": { keys: "mod+s", label: "Save the file", scope: "deck", fixed: true },
+  "deck.saveAll": {
+    keys: "shift+mod+s",
+    also: ["alt+mod+s"],
+    label: "Save all files",
+    scope: "deck",
+    fixed: true,
+  },
+  "deck.close": {
+    keys: "mod+w",
+    web: "alt+mod+w",
+    label: "Close the editor",
+    scope: "deck",
+    fixed: true,
+  },
+  "deck.closeAll": { keys: "mod+k mod+w", label: "Close all editors", scope: "deck", fixed: true },
+  "deck.reopen": {
+    keys: "shift+mod+t",
+    web: "shift+alt+mod+t",
+    label: "Reopen the closed editor",
+    scope: "deck",
+    fixed: true,
+  },
+  // A browser keeps ⌃Tab: there ⌘P with nothing typed lists the same editors.
+  "deck.recent": {
+    keys: "ctrl+tab",
+    also: ["ctrl+shift+tab"],
+    label: "Recent editors (hold ⌃, tap Tab)",
+    scope: "deck",
+    fixed: true,
+  },
+  "deck.focusGroup": {
+    keys: "mod+1",
+    web: "alt+mod+1",
+    label: "Focus group 1 to 9",
+    scope: "deck",
+    fixed: true,
+  },
+  // Off Apple ⌃⌘ would be Ctrl alone, which moves by word: Ctrl+Shift+PageUp/PageDown there.
+  "deck.moveEditorBack": {
+    keys: "ctrl+mod+arrowleft",
+    nonApple: "shift+mod+pageup",
+    label: "Move the editor to the previous group",
+    scope: "deck",
+    fixed: true,
+  },
+  "deck.moveEditorOn": {
+    keys: "ctrl+mod+arrowright",
+    nonApple: "shift+mod+pagedown",
+    label: "Move the editor to the next group",
+    scope: "deck",
+    fixed: true,
+  },
+  "deck.splitRight": { keys: "alt+mod+\\", label: "Split right", scope: "deck", fixed: true },
+  "deck.splitDown": { keys: "shift+alt+mod+\\", label: "Split down", scope: "deck", fixed: true },
+  "deck.explorer": {
+    keys: "mod+b",
+    label: "Show or hide the explorer",
+    scope: "deck",
+    fixed: true,
+  },
+  "deck.nextHit": {
+    keys: "f4",
+    also: ["shift+f4"],
+    label: "Next or previous search hit",
+    scope: "deck",
+    fixed: true,
+  },
+  "deck.nextChange": {
+    keys: "alt+f5",
+    also: ["shift+alt+f5"],
+    label: "Next or previous agent change",
+    scope: "deck",
+    fixed: true,
+  },
+  "deck.composer": { keys: "escape", label: "Back to the composer", scope: "deck", fixed: true },
   // Base UI's toast viewport answers F6 itself; F6 walks regions now (`nextRegion`), so this
   // hands Base UI its F6 under another key (features/shell/regions). GNOME keeps Alt+F6 for
   // switching windows, so Ctrl+F6 off Apple.
