@@ -1,4 +1,4 @@
-import { spadeAgentTaskMax } from "@ace/ui-core/spade-chat";
+import { spadeAgentTaskMax, type SpadePanel } from "@ace/ui-core/spade-chat";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
@@ -35,7 +35,13 @@ import { voiceKey } from "./use-spoken-replies.ts";
  * this device), its routines, the apps and plugins it may use, its boundaries, its spending,
  * then Duplicate, Export and Delete. Everything edits where it shows.
  */
-export function ProfileDetails(props: { bot: RosterBot }) {
+/** A packaged bot's panels, each opened beside its conversation (ADR 0200 §5.2). */
+export interface ProfilePanels {
+  list: readonly SpadePanel[];
+  onOpen(panel: string): void;
+}
+
+export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels | undefined }) {
   const { bot } = props;
   const edit = useEditBot(bot);
   const [modelProblem, setModelProblem] = useState<string>();
@@ -48,6 +54,17 @@ export function ProfileDetails(props: { bot: RosterBot }) {
         <TaskField bot={bot} />
         <TaskHistory bot={bot} />
       </ProfileSection>
+      {props.panels && props.panels.list.length > 0 && (
+        <ProfileSection label="Panels">
+          {props.panels.list.map((panel) => (
+            <SettingRow key={panel.id} title={panel.title} inline>
+              <Button size="sm" variant="ghost" onClick={() => props.panels?.onOpen(panel.id)}>
+                Open
+              </Button>
+            </SettingRow>
+          ))}
+        </ProfileSection>
+      )}
       <ProfileSection label="Runs with">
         <SettingRow
           title="Model"

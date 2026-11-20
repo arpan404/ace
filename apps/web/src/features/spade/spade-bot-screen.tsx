@@ -15,6 +15,8 @@ export interface BotPlace {
   /** With Computer on Files: the folder shown and a file open in it. */
   files?: string;
   file?: string;
+  /** One of its package's panels open beside it, in place of the profile (ADR 0200 §5.2). */
+  panel?: string;
 }
 
 /** The search a bot's route takes for `to`. */
@@ -25,6 +27,7 @@ export function botSearch(bot: RosterBot, to: BotPlace = {}) {
     ...(to.computer === undefined ? {} : { computer: to.computer }),
     ...(to.files === undefined ? {} : { files: to.files || "." }),
     ...(to.file === undefined ? {} : { file: to.file }),
+    ...(to.panel === undefined ? {} : { panel: to.panel }),
   };
 }
 

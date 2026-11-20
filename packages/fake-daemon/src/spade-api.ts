@@ -10,6 +10,7 @@ import { FakeSpadeSearch } from "./spade-search.ts";
 import { FakeSpadeOversight } from "./spade-oversight.ts";
 import { FakeSpadeSecurity } from "./spade-security.ts";
 import { packageRoute } from "./spade-packages.ts";
+import { FakeSpadePanels } from "./spade-panels.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
@@ -165,6 +166,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly reach = new FakeSpadeReach();
   /** The task manager and the person's Stop, Pause and Resume (ADR 0200 §6.3). */
   readonly running: FakeSpadeRunning;
+  /** Packaged bots' panels (ADR 0200 §5.2). */
+  readonly panels: FakeSpadePanels;
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -234,6 +237,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     });
     this.wakes = new FakeSpadeWakes({
       conversationOf,
+      events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
+      store: (conversation, event) => this.store(conversation, event),
+    });
+    this.panels = new FakeSpadePanels({
       events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
       store: (conversation, event) => this.store(conversation, event),
     });
@@ -513,6 +520,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
     if (root === "running" && !id) return this.running.route(request.method, undefined, undefined);
+    if (root === "panels" && id === "pages" && sub) return this.panels.page(sub);
     if (
       root === "agents" &&
       id &&
@@ -1150,6 +1158,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (!list) return problem(404, "No such conversation.");
     const agent = this.agents.find((candidate) => candidate.conversation === id);
     if (sub === "seen" && request.method === "PUT") return this.markSeen(id, list, request.body);
+    if (sub === "panels")
+      return this.panels.conversationRoute(
+        request.method,
+        agent,
+        subId,
+        tail,
+        request.body ? (JSON.parse(request.body) as unknown) : {},
+      );
     if (sub === "events") {
       const after = Number(new URLSearchParams(query).get("after") ?? 0);
       return reply(list.filter((stored) => stored.seq > after));
