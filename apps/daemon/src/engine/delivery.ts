@@ -1,5 +1,5 @@
 import { contextNotice } from "@ace/context";
-import { stoppableTasks, stopsWholeThread } from "./stop-scope.ts";
+import { stopsWholeThread, tasksHoldingPrompts, tasksToStop } from "./stop-scope.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
@@ -333,10 +333,12 @@ export async function executeIntent(
     }
     // A Stop of the whole thread stops the agent's background shells and monitors too (ADR
     // 0052's follow-up): left running, they would keep the thread waiting and keep writing.
-    // Each is bounded like the interrupt; one that won't stop closes the session below.
+    // Each is bounded like the interrupt; one that won't stop closes the session below. Work the
+    // provider said it can't stop is not asked to; what of it keeps the next prompt out gets a
+    // bounded time to end by itself (`closeAfter`).
     const whole = stopsWholeThread(p, state.agents[state.rootKey ?? ""]?.agent.id);
     if (whole)
-      for (const key of stoppableTasks(repo.requireState(actor.id)))
+      for (const key of tasksToStop(repo.requireState(actor.id)))
         try {
           await interruptWithin(session.stopTask(key));
         } catch (error) {
@@ -350,7 +352,7 @@ export async function executeIntent(
       // lost, or it holds work it won't interrupt), ace ends the provider session: owned work is
       // cleaned up and everything still marked running ends with an unknown outcome.
       await sessions.closeForStop(actor);
-    }
+    } else if (whole) sessions.closeAfter(actor, tasksHoldingPrompts(repo.requireState(actor.id)));
   } else if (p.type === "interaction.resolve") {
     const entry = Object.entries(state.interactions).find(
       ([, item]) => item.id === p.interactionId,

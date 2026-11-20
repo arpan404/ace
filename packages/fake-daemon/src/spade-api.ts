@@ -9,11 +9,13 @@ import { FakeSpadeServices } from "./spade-services.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
 import { FakeSpadeOversight } from "./spade-oversight.ts";
 import { FakeSpadeSecurity } from "./spade-security.ts";
+import { packageRoute } from "./spade-packages.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
 import { FakeSpadeReach } from "./spade-reach.ts";
 import { FakeSpadeWakes } from "./spade-wakes.ts";
+import { FakeSpadeRunning } from "./spade-running.ts";
 import { FakeSpadeWork } from "./spade-work.ts";
 import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
 
@@ -161,6 +163,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly wakes: FakeSpadeWakes;
   /** How Spade reaches the person (ADR 0195). */
   readonly reach = new FakeSpadeReach();
+  /** The task manager and the person's Stop, Pause and Resume (ADR 0200 §6.3). */
+  readonly running: FakeSpadeRunning;
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -222,6 +226,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return folders;
       },
       exists: (agent) => this.agents.some((candidate) => candidate.id === agent),
+    });
+    this.running = new FakeSpadeRunning({
+      agents: () => this.agents,
+      status: (agent, state, status) => this.status(agent, state, status),
+      now,
     });
     this.wakes = new FakeSpadeWakes({
       conversationOf,
@@ -432,6 +441,18 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.status(agent, "waiting", null);
   }
 
+  /** A card the bot shows (ADR 0200 §5.1), as `card_show` stores it: its own row, by version. */
+  showCard(agent: FakeSpadeAgent, card: string, version: number, data: Json): void {
+    this.store(agent.conversation, {
+      type: "card_shown",
+      reply: `r${++this.sequence}`,
+      call_id: `show-${card}-${version}`,
+      card,
+      version,
+      data,
+    });
+  }
+
   /** The answer the next card reply gets instead of 202: a status and Spade's error words. */
   refuseQuestion: { status: number; error: string } | undefined;
 
@@ -491,6 +512,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
+    if (root === "running" && !id) return this.running.route(request.method, undefined, undefined);
+    if (
+      root === "agents" &&
+      id &&
+      (sub === "pause" || sub === "resume" || sub === "stop") &&
+      !subId
+    )
+      return this.running.route(request.method, id, sub);
     if (root === "agents" && id && (sub === "computer" || sub === "terminal" || sub === "files"))
       return this.computer.route(
         request.method,
@@ -535,6 +564,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
         this.agents.find((candidate) => candidate.id === id),
         parts.slice(2),
         new URLSearchParams(query),
+        body,
+      );
+    if (root === "agents" && id && sub === "package")
+      return packageRoute(
+        request.method,
+        this.agents.find((candidate) => candidate.id === id),
+        parts.slice(3),
         body,
       );
     if (root === "agents" && id && sub === "wakes")
@@ -1194,6 +1230,42 @@ export class FakeSpadeApi implements FakeSpadeServer {
       };
       if (this.heldSettles) this.heldSettles.push(settle);
       else settle();
+      return reply({}, 202);
+    }
+    // A choice pressed on a card: once per version, and only on the latest one, as Spade does.
+    if (sub === "cards" && subId && tail === "actions" && request.method === "POST") {
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const shown = list.findLast(
+        (stored) => stored.event.type === "card_shown" && stored.event.card === subId,
+      );
+      if (!shown) return problem(404, "no such card");
+      if (shown.event.version !== body.version)
+        return problem(409, "The card changed. Choose on the new one.");
+      const chosen = list.some(
+        (stored) =>
+          stored.event.type === "card_action" &&
+          stored.event.card === subId &&
+          stored.event.version === body.version,
+      );
+      if (chosen) return problem(409, "That card's choice was already made.");
+      const records = (value: unknown): Json[] =>
+        Array.isArray(value)
+          ? value.filter((item): item is Json => typeof item === "object" && item !== null)
+          : [];
+      const data = shown.event.data;
+      const blocks =
+        typeof data === "object" && data !== null ? records((data as Json).blocks) : [];
+      const label = blocks
+        .flatMap((block) => records(block.actions))
+        .find((action) => action.kind === "choose" && action.id === body.action)?.label;
+      if (typeof label !== "string") return problem(409, "The card has no such choice.");
+      this.store(id, {
+        type: "card_action",
+        card: subId,
+        version: body.version,
+        action: body.action,
+        label,
+      });
       return reply({}, 202);
     }
     if (sub === "approvals" && subId && request.method === "POST") {

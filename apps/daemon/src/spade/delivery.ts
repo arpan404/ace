@@ -83,7 +83,9 @@ export class SpadeGrantDelivery {
         this.checkLater();
         return;
       }
-      if (!this.pending && this.options.now() < this.nextMint) {
+      // The once-a-minute limit heals the Spade that already holds a grant; a Spade instance
+      // that appeared since (restarted, with its memory gone) is handed one at once.
+      if (!this.pending && this.handed?.spade === spade && this.options.now() < this.nextMint) {
         this.checkLater();
         return;
       }

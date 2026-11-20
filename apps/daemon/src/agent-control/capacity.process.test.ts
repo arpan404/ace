@@ -72,8 +72,9 @@ test("after Stop, the parent can delegate again in its next turn and earlier res
     }).ok,
   ).toBe(true);
   await h.engine.flush();
-  const again = h.delegate(parent, "after-stop");
-  await h.engine.flush();
+  // From a turn of the parent's that runs: after a Stop, a call from no running turn may be the
+  // stopped turn's, so it stays refused (ADR 0191).
+  const again = await h.duringTurn(parent.threadId, () => h.delegate(parent, "after-stop"));
   expect(h.store.getThread(again.childId)?.status.state).toBe("working");
   h.clock.advance(1050);
   await h.engine.flush();

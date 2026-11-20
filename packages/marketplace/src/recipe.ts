@@ -10,6 +10,7 @@ import {
   type MarketNeed,
   type MarketProblem,
 } from "@ace/protocol/marketplace";
+import { readPackage } from "./package.ts";
 import { secretFieldNames, secretValueProblems } from "./secrets.ts";
 
 /*
@@ -32,6 +33,18 @@ const known = new Set([
   "needs",
   "notes",
   "personality",
+]);
+
+/** Fields only version 3 reads; on a version 2 recipe they are kept as raw data, unused. */
+const v3Only = new Set([
+  "requires",
+  "uses",
+  "triggers",
+  "effects",
+  "limits",
+  "tests",
+  "style",
+  "pricing",
 ]);
 
 export interface ReadRecipe {
@@ -67,6 +80,9 @@ function fromV1(file: z.infer<typeof BotFileV1>, notes: string[]): Recipe {
   return {
     format: "spade-bot",
     version: 2,
+    triggers: [],
+    effects: [],
+    tests: [],
     name: file.name,
     blurb: "",
     task: file.task,
@@ -89,7 +105,11 @@ function fromV1(file: z.infer<typeof BotFileV1>, notes: string[]): Recipe {
  * `bot.json`'s text as a recipe, with every problem that refuses it. `folders` are the skill
  * folders the recipe's own archive holds (`skills/<name>` with a `SKILL.md`).
  */
-export function readRecipe(text: string, folders: ReadonlySet<string> = new Set()): ReadRecipe {
+export function readRecipe(
+  text: string,
+  folders: ReadonlySet<string> = new Set(),
+  options: { spade?: string | undefined } = {},
+): ReadRecipe {
   const problems: MarketProblem[] = [];
   const notes: string[] = [];
   let json: unknown;
@@ -107,14 +127,22 @@ export function readRecipe(text: string, folders: ReadonlySet<string> = new Set(
     const v1 = BotFileV1.safeParse(json);
     if (v1.success) recipe = fromV1(v1.data, notes);
     else problems.push(...issues(v1.error));
+  } else if (version.success && version.data.version === 3) {
+    const read = readPackage(AnyRecord.parse(json), options);
+    problems.push(...read.problems);
+    recipe = read.recipe;
   } else {
-    const v2 = Recipe.safeParse(json);
-    if (v2.success) {
+    // Version 2 has nothing of version 3's: those fields are only raw data here.
+    const fields = AnyRecord.safeParse(json).data ?? {};
+    const v2 = Recipe.safeParse(
+      Object.fromEntries(Object.entries(fields).filter(([key]) => !v3Only.has(key))),
+    );
+    if (v2.success && v2.data.version === 2) {
       const extra: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(json as Record<string, unknown>))
-        if (!known.has(key)) extra[key] = value;
+      for (const [key, value] of Object.entries(fields)) if (!known.has(key)) extra[key] = value;
       recipe = Object.keys(extra).length ? { ...v2.data, extra } : v2.data;
-    } else problems.push(...issues(v2.error));
+    } else if (v2.success) problems.push({ path, message: "bot.json: version is 1, 2 or 3" });
+    else problems.push(...issues(v2.error));
   }
   if (recipe) problems.push(...referenceProblems(recipe, folders));
   return { recipe: problems.length ? undefined : recipe, problems, notes };

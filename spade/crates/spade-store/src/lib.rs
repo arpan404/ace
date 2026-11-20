@@ -21,7 +21,10 @@ mod spend;
 mod teams;
 mod workers;
 
-pub use agents::{Agent, BOT_RECIPE, NewAgent, recipe_key};
+pub use agents::{
+    Agent, BOT_PACKAGE, BOT_PACKAGE_HELD, BOT_RECIPE, NewAgent, package_held_key, package_key,
+    recipe_key,
+};
 pub use digests::{BRIEF, DIGESTS, NewDigest, SPEND_ALERT, StoredDigest, digests_key};
 pub use endpoints::{StoredEndpoint, StoredModel};
 pub use episodes::{NewEpisode, StoredEpisode};

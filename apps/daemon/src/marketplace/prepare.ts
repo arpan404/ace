@@ -66,6 +66,8 @@ export interface PreparePorts {
   badges: Badges;
   /** What the scan compares against: the local index, the verified list, the blocklist. */
   scanContext: (publisher: MarketPublisher | undefined) => ScanContext;
+  /** The running Spade's version, which a package's `requires.spade` is checked against. */
+  spade?: string | undefined;
 }
 
 /** What ADR 0014's manager needs to review a plugin from bytes the marketplace verified. */
@@ -113,7 +115,7 @@ export async function prepareEntry(
     source.kind === "market"
       ? await fromMarket(ports, entryType, name, version)
       : await fromGit(ports, source, entryType, name);
-  const checked = checkFiles(entryType, name, fetched.files);
+  const checked = checkFiles(entryType, name, fetched.files, { spade: ports.spade });
   // A Suit that fails is still reviewed, so the person sees why; it can't be installed.
   if (checked.problems.length > 0 && entryType !== "suit")
     throw new Refused(`${name} doesn't pass ace's checks`, { problems: checked.problems });
@@ -296,7 +298,9 @@ export async function prepareWithBrings(
 ): Promise<{ entry: PreparedEntry; brings: PreparedEntry[] }> {
   const withPrevious = async (entry: PreparedEntry): Promise<PreparedEntry> => {
     const current = store.install(entry.type, entry.name);
-    if (!current || current.hash === entry.hash || entry.type === "spade-bot") return entry;
+    // A bot from a version 2 recipe never updates; a linked one does (ADR 0200 §3.9).
+    if (!current || current.hash === entry.hash || (entry.type === "spade-bot" && !current.linked))
+      return entry;
     const files: ArchiveFile[] = await store.pinned(current.hash, current.type).catch(() => []);
     return { ...entry, previous: { version: current.version, files } };
   };

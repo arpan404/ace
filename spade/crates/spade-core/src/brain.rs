@@ -214,6 +214,8 @@ fn turn_part(event: &Event) -> Option<String> {
         Event::Known(Known::ComputerHandedBack { text, data }) => {
             Some(context::handed_back(text, data))
         }
+        // A choice pressed on a card (ADR 0200 §5.1); the card's title is in the CLI's own view.
+        Event::Known(known @ Known::CardAction { .. }) => crate::card::action_text(&[], known),
         // A wake's note and a job's check-in (ADR 0160), as an endpoint model reads them.
         Event::Known(known) if crate::wake::is_note(known) => crate::wake::note_text(known),
         _ => None,

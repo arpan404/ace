@@ -167,6 +167,9 @@ test(
   { timeout: 30000 },
   async () => {
     const f = await remoteCliFixture();
+    // A welcome hands over the next ticket (ddd2c8897), which would let the reconnect skip the
+    // exchange this outage is on.
+    f.withholdHandedTickets();
     f.loseReplies();
     const args = [
       "run",

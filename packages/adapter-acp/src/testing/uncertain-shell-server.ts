@@ -79,6 +79,16 @@ createInterface({ input: process.stdin }).on("line", (line) => {
             options: [{ optionId: "a", name: "Release", kind: "allow_once" }],
           },
         });
+    } else if (text === "late-tool") {
+      // The reply, then a tool of the root first reported after it, that never ends.
+      send({ id: frame["id"], result: { stopReason: "end_turn" } });
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: "late",
+        kind: "read",
+        status: "in_progress",
+        rawInput: { path: "/big" },
+      });
     } else if (text === "denied-shell") {
       gatedPrompt = frame["id"];
       askShell(101);

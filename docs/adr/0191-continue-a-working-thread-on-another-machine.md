@@ -130,6 +130,15 @@ behaves the same way. Plainly, this ADR changes ordinary Stop in three ways:
   sign the request won't still come: the Stop itself closes the item, while the provider's
   request may still be on its way. A call the provider never
   reported before the Stop can't be told from a new one, and is judged by its agent's run.
+  Amended 2026-11-20 (the delegation-cli fix): Spade's host thread is not fenced. No turn runs
+  in it (ADR 0121); its calls are Spade's own, so no turn of it is ever stopped and none could
+  run to lift a fence, and every Spade delegation after a Stop of it was refused for good. A
+  Stop of it still stops what it delegated, and the cascade refuses calls while that runs.
+  The same day (review of that fix): a delegation to another machine skipped this admission, so
+  a late call from the stopped turn naming `machine` with a fresh request id started a child
+  there, which the cascade, knowing only children already registered, never stopped. It now
+  passes the same stopped-work rule (`DelegationAdmission.validateRemote`, Spade's host thread
+  included) before any task of the call is sent; that machine still checks the rest.
 - **A whole-thread Stop stops background shells.** It used to leave the agent's background
   shells and monitors running (ADR 0052 listed this as a follow-up). It now stops each with the
   provider's own task stop, bounded like the interrupt, and closes the session when one won't

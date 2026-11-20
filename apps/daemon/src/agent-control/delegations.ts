@@ -107,7 +107,7 @@ export class DelegationService {
   readonly conversations: ConversationJournal;
   private senders: MessageSenders;
   private launches: LaunchQueue;
-  private admission: DelegationAdmission;
+  readonly admission: DelegationAdmission;
   private deps: DelegationDependencies;
   /** ace's model lists finished starting: no operation waits on readiness after this. */
   private ready = false;

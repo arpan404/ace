@@ -174,6 +174,9 @@ pub(super) async fn run(
     if let Some(planned) = planned {
         engine.carry_on_as(&id, planned);
     }
+    // An update the person accepted while it worked applies now, if nothing of it still works
+    // (ADR 0200 §6.1); a task carrying on keeps it waiting for that turn's end.
+    crate::packages::held::turn_ended(&engine, &id);
 }
 
 /// Closes `reply`, retrying until it is closed. The worker still owns the reply meanwhile, so no

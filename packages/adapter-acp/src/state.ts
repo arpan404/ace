@@ -49,6 +49,8 @@ export interface ToolState {
   raw: RawPayload[];
   child?: AgentState;
   task?: string;
+  /** The task reporting this tool as holding the next prompt (`prompt-hold.ts`). */
+  holdTask?: string;
   declined: boolean;
 }
 export interface RequestState {

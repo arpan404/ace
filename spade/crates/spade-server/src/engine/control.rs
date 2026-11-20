@@ -18,10 +18,20 @@ impl Engine {
     /// restart recovery all honour it. If storing it fails, everything running is still stopped now, the stop is
     /// retried in the background, and the error is returned so the person is told.
     pub fn stop(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
+        // A sleeping or waiting bot stops sleeping, and its services stop (ADR 0160).
+        self.end_work(id, Self::stop_wakes)
+    }
+
+    /// [`Engine::stop`], with `end_wakes` sweeping the conversation's wakes and services: Stop
+    /// cancels them all, Pause keeps the bot's own sleeps and waits (`pause`).
+    pub(super) fn end_work(
+        self: &Arc<Self>,
+        id: &str,
+        end_wakes: fn(&Arc<Self>, &str) -> bool,
+    ) -> Result<bool, StoreError> {
         // Its workers and ace children stop with it (ADR 0161).
         let under = self.stop_workers(id);
-        // A sleeping or waiting bot stops sleeping, and its services stop (ADR 0160).
-        let woke = self.stop_wakes(id) || under;
+        let woke = end_wakes(self, id) || under;
         let live = self.live(id);
         // What runs is read, a task's waiting step (ADR 0144) called off and the stop stored
         // under the one lock work starts under: no turn, job or step can begin between the
@@ -76,7 +86,7 @@ impl Engine {
         // A wake, service or worker the stopped work stored before the marker, after the first
         // sweep, ends too. One stored after the marker was refused (each is admitted under the
         // record lock), so once Stop returns none from the stopped work exists.
-        let woke = self.stop_workers(id) | self.stop_wakes(id) || woke;
+        let woke = self.stop_workers(id) | end_wakes(self, id) || woke;
         // Then the workers are told.
         let turn = {
             let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
@@ -117,7 +127,7 @@ impl Engine {
         let mut events = Arc::unwrap_or_clone(self.load(id)?);
         events.push(close.clone());
         // While closed for an update nothing new starts; reopening answers what is left.
-        let admitted = self.admission.load(std::sync::atomic::Ordering::SeqCst) && !self.held(id);
+        let admitted = self.admission.load(std::sync::atomic::Ordering::SeqCst) && !self.closed(id);
         if admitted && !self.deleting(id) && unanswered_after(&events, reply) {
             let model = self.reply_model(id);
             let started = Event::reply_started(self.ids.next("r"), model);

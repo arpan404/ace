@@ -29,11 +29,15 @@ export interface CheckedEntry {
   inspection: Inspection | undefined;
 }
 
-/** Checks a folder's files as an entry of `type` named `name`. */
+/**
+ * Checks a folder's files as an entry of `type` named `name`. `spade` is the running Spade's
+ * version, on a device that has one: a package needing a newer one is refused before install.
+ */
 export function checkFiles(
   type: MarketEntryType,
   name: string,
   files: readonly ArchiveFile[],
+  options: { spade?: string | undefined } = {},
 ): CheckedEntry {
   const problems: MarketProblem[] = [];
   const limits = typeLimits[type];
@@ -67,7 +71,7 @@ export function checkFiles(
       break;
     }
     case "spade-bot": {
-      const checked = checkBot(files);
+      const checked = checkBot(files, options);
       problems.push(...checked.problems);
       inspection = checked.inspection;
       break;

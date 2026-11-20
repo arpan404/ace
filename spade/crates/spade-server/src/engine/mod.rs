@@ -10,6 +10,7 @@ mod bots;
 mod brain;
 mod brief;
 mod calls;
+mod cards;
 mod classify;
 mod compact;
 mod computer;
@@ -41,7 +42,9 @@ mod moves;
 pub mod onboarding;
 mod outbox;
 mod oversight;
+mod packages;
 mod park;
+mod pause;
 mod plugin_hooks;
 mod questions;
 mod reach;
@@ -51,6 +54,7 @@ mod review;
 pub mod roster;
 mod routines;
 mod routing;
+mod running;
 mod search;
 mod security;
 mod self_edit;
@@ -69,6 +73,7 @@ mod workers;
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
+pub use cards::CardError;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
@@ -263,6 +268,8 @@ pub struct Engine {
     reach: reach::Shared,
     /// Bots moving to or from another machine (ADR 0187, `moves`).
     moves: moves::Shared,
+    /// Bots the person paused, and the wakes met meanwhile (ADR 0200 §6.1, `pause`).
+    pause_hold: pause::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -314,6 +321,10 @@ impl Engine {
             .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
             .with_tool(Arc::new(crate::tools::ProfileUpdate(handle.clone())))
             .with_tool(Arc::new(crate::tools::ClubAdd(handle.clone())));
+        // `card_show` (ADR 0200 §5.1), unless Spade gave one that keeps images from workspaces.
+        if tools.get(spade_core::card::CARD_SHOW).is_none() {
+            tools = tools.with_tool(Arc::new(crate::tools::CardShow::new(handle.clone(), None)));
+        }
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -382,6 +393,7 @@ impl Engine {
             digests: digests::Shared::default(),
             reach: reach::Shared::default(),
             moves: moves::Shared::default(),
+            pause_hold: pause::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
@@ -437,6 +449,10 @@ impl Engine {
         if let Err(error) = self.resume_groups() {
             tracing::error!(%error, "could not pick up the groups' open asks");
         }
+        // A package update a crash cut short is taken again from the start (ADR 0200 §6.2).
+        crate::packages::recover(self);
+        // An update held while a bot worked applies to each bot that is still now.
+        crate::packages::held::recover(self);
         // Workers owed a report or a start since the last run get it (ADR 0161).
         self.start_workers();
         // Digests on each bot's schedule (ADR 0165).
@@ -500,7 +516,8 @@ impl Engine {
     /// What `id` is doing and its latest message, with everything under it rolled up (ADR
     /// 0161): it reads waiting or working while any worker of it does.
     pub(crate) fn activity(&self, id: &str) -> Result<Activity, StoreError> {
-        let own = self.own_activity(id)?;
+        let mut own = self.own_activity(id)?;
+        own.state = spade_core::running::held(own.state, self.paused(id));
         Ok(self.roll_up(id, own))
     }
 
@@ -531,6 +548,7 @@ impl Engine {
             waiting_for: memory::waiting_for(&transcript),
             questions_for_later: question::for_later(events.iter()),
             problem: spade_core::brain::problem(events.iter()).map(str::to_owned),
+            failure: spade_core::running::failure(events.iter()),
             task: spade_core::task::state_in(events.iter()),
             task_progress: spade_core::goal::view::progress_in(
                 events.iter(),
@@ -617,6 +635,7 @@ impl Engine {
                 .wake
                 .as_ref()
                 .map(|open| spade_core::wake::words(open, |ms| self.short_time(ms))),
+            State::Paused => Some(roster::PAUSED.to_owned()),
             State::Working if self.held(id) => Some(computer::PAUSED_FOR_YOU.to_owned()),
             State::Working => Some(
                 self.live(id)
@@ -769,6 +788,19 @@ impl Engine {
                     }
                     false
                 }
+                // A card's choice lands once per version (ADR 0200 §5.1), and only on the
+                // version the person saw.
+                Event::Known(Known::CardAction {
+                    card,
+                    version,
+                    action,
+                    ..
+                }) => {
+                    if spade_core::card::choose(&events, card, *version, action).is_err() {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    false
+                }
                 // A wake fires once (ADR 0160): only while it is still open.
                 Event::Known(Known::WakeFired { wake, .. }) => {
                     if !spade_core::wake::is_open(&events, wake) {
@@ -804,8 +836,9 @@ impl Engine {
             // The waits this event settles (a job's end, a message) are stored with it, so
             // they are settled once, with what settles them (ADR 0160).
             let settled = spade_core::wake::settled_by(&events, event);
-            // While the person has the bot's computer, messages wait for the hand-back.
-            let admitted = self.admission.load(Ordering::SeqCst) && !self.held(id);
+            // While the person has the bot's computer, messages wait for the hand-back; while
+            // they paused it, for Resume (ADR 0200 §6.1).
+            let admitted = self.admission.load(Ordering::SeqCst) && !self.closed(id);
             let (start, stored) =
                 if quiet || !admitted || Transcript::fold(events.iter()).open_reply().is_some() {
                     // A typed message that can stand for a waiting card's answers is stored with
@@ -1059,7 +1092,7 @@ impl Engine {
     fn resume(self: &Arc<Self>, id: &str) -> Result<(), StoreError> {
         let open = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if self.deleting(id) || self.held(id) {
+            if self.deleting(id) || self.closed(id) {
                 return Ok(());
             }
             let events = self.load(id)?;

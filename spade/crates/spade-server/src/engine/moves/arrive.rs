@@ -276,20 +276,20 @@ impl Engine {
         let staging = self
             .moves_dir(&entry.id)
             .and_then(|folder| paths::child(&folder, "in"))
-            .map_err(&refuse)?;
+            .map_err(refuse)?;
         let total = manifest["parts"].as_u64().unwrap_or(0);
-        let parts_dir = paths::child(&staging, "parts").map_err(&refuse)?;
+        let parts_dir = paths::child(&staging, "parts").map_err(refuse)?;
         let parts: Vec<PathBuf> = (0..total)
             .map(|i| parts_dir.join(format!("{i:06}.json")))
             .collect();
         for name in ["files", "images"] {
-            paths::remove_child(&staging, name).map_err(&refuse)?;
+            paths::remove_child(&staging, name).map_err(refuse)?;
         }
-        let expected_files = inventory(&parts, manifest, &agents).map_err(&refuse)?;
-        assemble(&staging, &parts, &expected_files).map_err(&refuse)?;
+        let expected_files = inventory(&parts, manifest, &agents).map_err(refuse)?;
+        assemble(&staging, &parts, &expected_files).map_err(refuse)?;
         // Every folder made for them reaches the disk before anything is placed from it.
         for name in ["files", "images"] {
-            paths::sync_tree(&staging.join(name)).map_err(&refuse)?;
+            paths::sync_tree(&staging.join(name)).map_err(refuse)?;
         }
         let expected: BTreeMap<String, TableSum> = manifest["tables"]
             .as_object()
@@ -316,11 +316,11 @@ impl Engine {
             .map_err(|e| refuse(e.to_string()))
             .and_then(|mut stage| {
                 for part in rows.by_ref() {
-                    let (table, list) = part.map_err(&refuse)?;
+                    let (table, list) = part.map_err(refuse)?;
                     stage
                         .add(&table, list)
                         .map_err(|e| refuse(e.to_string()))?
-                        .map_err(&refuse)?;
+                        .map_err(refuse)?;
                 }
                 Ok(stage)
             })?;

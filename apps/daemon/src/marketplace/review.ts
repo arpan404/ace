@@ -1,4 +1,5 @@
 import type {
+  MarketBotUpdate,
   MarketEntryType,
   MarketNeed,
   MarketPublisher,
@@ -10,6 +11,7 @@ import type {
 import type { PluginReview } from "@ace/protocol/plugins";
 import {
   hashFiles,
+  recipeEffects,
   recipeEntries,
   recipeNeeds,
   type ArchiveFile,
@@ -55,6 +57,8 @@ export interface PreparedReview extends PreparedEntry {
   /** A recipe's skills and plugins from the same source, each reviewed as itself. */
   brings: PreparedEntry[];
   spadeReady: boolean;
+  /** An update or rollback of a linked bot: which bot, and what Spade's plan says it does. */
+  updating?: MarketBotUpdate | undefined;
 }
 
 const textLimit = 65_536;
@@ -223,6 +227,16 @@ function body(entry: PreparedReview): MarketReviewBody {
         })),
         needs,
         spadeReady: entry.spadeReady,
+        ...(recipe.version === 3
+          ? {
+              linked: true,
+              effects: recipeEffects(recipe),
+              triggers: recipe.triggers,
+              ...(recipe.limits ? { limits: recipe.limits } : {}),
+              unused: Object.keys(recipe.extra ?? {}).slice(0, 64),
+            }
+          : {}),
+        ...(entry.updating ? { update: entry.updating } : {}),
       };
     }
     case undefined:
