@@ -59,10 +59,13 @@ struct RequestStrip: View {
                                    identifier: "approval.\(option.kind)") { model.approve(request, option: option) }
                     }
             }
+            if request.tooLargeToApprove {
+                words.append(DockAction(id: "review", label: "Review", primary: true, identifier: "approval.review", run: review))
+            }
             // The reason and any other option are the sheet's, opened from the request's words.
             return words
         case "plan_review":
-            // A plan too large to review here is approved on a computer.
+            // A summarized plan opens in the review sheet to load in full before it can be approved.
             if request.tooLargeToApprove { return [DockAction(id: "review", label: "Review", primary: true, identifier: "plan.review", run: review)] }
             return [DockAction(id: "review", label: "Review", identifier: "plan.review", run: review),
                     DockAction(id: "approve", label: "Approve", primary: true, enabled: open, identifier: "plan.approve") {
@@ -90,9 +93,15 @@ struct RequestSheet: View {
     let close: () -> Void
     var body: some View {
         if request.kind == "plan_review" {
-            PlanReviewSheet(plan: request.plan, summarized: request.summarized ?? "", submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { answer in
+            PlanReviewSheet(plan: request.plan, summarized: request.summarized ?? "",
+                            wholeState: request.wholeState, wholeRetryable: request.wholeRetryable,
+                            submission: model.approvalSubmissions[request.id], canAct: model.canOperate,
+                            retry: { model.readRequest(request.id, retry: true) }) { answer in
                 close()
                 model.resolve(request, answer: answer)
+            }
+            .task(id: request.id) {
+                if request.tooLargeToApprove { model.readRequest(request.id) }
             }
         } else {
             NavigationStack {

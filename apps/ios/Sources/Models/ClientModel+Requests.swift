@@ -16,6 +16,10 @@ extension ClientModel {
             approvalRequests[id] = nil
         }
     }
+    /// Read a summarized interaction's full payload (`interaction.read`), or retry a failed read.
+    func readRequest(_ interactionId: String, retry: Bool = false) {
+        releaseAction(["type": "request.read", "interactionId": interactionId, "retry": retry], epoch: nil)
+    }
     /// Effort for the next message; nil goes back to the model's default.
     func setEffort(_ effort: String?) async -> Bool {
         guard canOperate else { return false }

@@ -65,6 +65,7 @@ struct QuestionCard: View {
     /// The picks, words and question on screen, kept by the thread so words typed in the
     /// composer can answer it with them.
     @Binding var draft: QuestionDraftState
+    var retry: (() -> Void)? = nil
     let answer: ([String: [String]], Bool) -> Void
     private var answers: QuestionAnswers { get { draft.answers } nonmutating set { draft.answers = newValue } }
     private var page: Int { get { draft.page } nonmutating set { draft.page = newValue } }
@@ -85,7 +86,14 @@ struct QuestionCard: View {
                 .id(question.id)
             }
             if interaction.unanswerable == true {
-                Text(interaction.tooLargeToApprove ? interaction.summarized ?? "" : "This question has more choices than fit here. Answer it on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                if interaction.tooLargeToApprove {
+                    SummarizedRequestNote(text: interaction.summarized ?? "", failed: interaction.wholeState == "failed",
+                                          retryable: interaction.wholeRetryable == true, retry: retry)
+                } else {
+                    Text("This question has more choices than fit here. Answer it on your machine.")
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
             }
             RequestActions {
                 Button(questions.count > 1 ? "Skip these questions" : "Skip this question") { answer([:], true) }

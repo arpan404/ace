@@ -236,9 +236,13 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
     var help: HelpRequest? = nil
     /// The request as its strip above the composer says it (`StripLine`); nil from older bridges.
     var strip: StripLineRow? = nil
-    /// Why only declines are offered: the daemon sent a summary, too large to review on the
-    /// phone (ADR 0157); "" or nil when the request came whole.
+    /// Why only declines are offered until the full request loads (ADR 0157); "" or nil once
+    /// the request came whole or has loaded.
     var summarized: String? = nil
+    /// Whole-request read state for a summarized interaction ("unread", "loading", "loaded", "failed").
+    var wholeState: String? = nil
+    /// Whether a failed whole-request read can be retried.
+    var wholeRetryable: Bool? = nil
     var tooLargeToApprove: Bool { !(summarized ?? "").isEmpty }
 }
 struct PendingRow: Codable, Sendable, Identifiable {
