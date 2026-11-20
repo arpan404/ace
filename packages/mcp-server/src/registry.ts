@@ -4,6 +4,7 @@ import { maxStructuredResultBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { describeAceAction } from "./action-target.ts";
 import { z } from "zod";
+import { actWithin } from "./act-within.ts";
 import { executeContent, type ContentToolDefinition } from "./content-tools.ts";
 import type { McpAttribution, McpCapability } from "@ace/protocol";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
@@ -526,7 +527,15 @@ export class ToolRegistry {
     };
     let act: CallAct | undefined;
     try {
-      act = await this.actAs?.(entry.name, entry.capability, context.caller, context.actingFor);
+      // A host's hook that hangs never holds the slot past the call's abort or its deadline.
+      const answer = await actWithin(
+        this.actAs?.(entry.name, entry.capability, context.caller, context.actingFor),
+        signal,
+        entry.timeoutMs,
+        this.scheduler,
+      );
+      if (answer.kind === "stopped") return unstarted(failure(answer.code));
+      act = answer.act;
     } catch (caught: unknown) {
       return unstarted(toolFailure(caught, this.report(entry.name, context.caller, caught)));
     }

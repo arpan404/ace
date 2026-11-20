@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
 import { launchPluginProcess } from "./index.ts";
+import { preparePluginSession } from "./session.ts";
 import { fixture } from "./test-support.ts";
 
 test.each(["claude", "codex", "cursor", "opencode", "acp", "antigravity"] as const)(
@@ -88,6 +89,46 @@ test("OpenCode launch preserves existing runtime MCP servers and instruction pat
     });
     expect(config.instructions).toContain("/owned/base.md");
     expect(config.skills.paths).toContain("/owned/base-skills");
+  } finally {
+    await f.close();
+  }
+});
+
+test("a projection removal that stalls doesn't hold the exit, and finishes on its own later", async () => {
+  const f = await fixture();
+  try {
+    await f.manager.accept(await f.prepare());
+    const root = join(f.root, "session");
+    // A filesystem that hangs: the removal waits until the test lets it through.
+    const stalled = Promise.withResolvers<void>();
+    const prepare: typeof preparePluginSession = async (...args) => {
+      const session = await preparePluginSession(...args);
+      return { ...session, close: () => stalled.promise.then(session.close) };
+    };
+    const launched = await launchPluginProcess(
+      f.manager,
+      "claude",
+      root,
+      { command: process.execPath, args: ["-e", ""], env: {}, name: "standin" },
+      undefined,
+      { prepare, releaseMs: 50 },
+    );
+    const settled = await Promise.race([
+      launched.exited.then(() => "exited"),
+      new Promise((resolve) => setTimeout(() => resolve("still waiting"), 5_000)),
+    ]);
+    expect(settled).toBe("exited");
+    // Reported with its projection still there; the removal completes once it can.
+    await expect(lstat(join(root, "generated"))).resolves.toBeDefined();
+    stalled.resolve();
+    await expect
+      .poll(() =>
+        lstat(join(root, "generated")).then(
+          () => "present",
+          (error) => error.code,
+        ),
+      )
+      .toBe("ENOENT");
   } finally {
     await f.close();
   }

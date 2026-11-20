@@ -935,6 +935,23 @@ export class Sessions {
       void error;
     }
   }
+  /**
+   * After a whole-thread Stop, the work the provider can't stop (`tasks`) gets the interrupt's
+   * grace to end by itself. Still running then, in the same session, it ends with that session
+   * (`closeForStop`), so a Stop always settles and the thread takes the next message; an ACP
+   * shell that outlived its prompt otherwise blocks prompts for as long as it runs (ADR 0052).
+   */
+  closeAfter(actor: ThreadActor, tasks: readonly string[]): void {
+    if (!tasks.length) return;
+    const session = actor.session;
+    const generation = actor.generation;
+    this.dependencies.clock.setTimer(() => {
+      if (!session || actor.session !== session || actor.generation !== generation) return;
+      const state = this.dependencies.repo.requireState(actor.id);
+      if (!tasks.some((key) => state.tasks[key]?.status === "running")) return;
+      void this.closeForStop(actor);
+    }, INTERRUPT_GRACE_MS);
+  }
   async close(actor: ThreadActor, reason: "idle" | "user" | "shutdown"): Promise<void> {
     const session = actor.session;
     if (!session) return;
