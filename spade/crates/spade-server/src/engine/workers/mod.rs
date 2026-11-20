@@ -297,7 +297,14 @@ impl Engine {
                 None => registry,
             };
             return match self.package_uses(&owner) {
-                Some(uses) => registry.retain(|def| uses_allow(&uses, def.spec.name.as_str())),
+                Some(uses) => registry.retain(|def| {
+                    let name = def.spec.name.as_str();
+                    let app = self
+                        .tools
+                        .get_for(&owner, name)
+                        .is_some_and(|tool| tool.hints().is_some());
+                    spade_core::effect::runtime::uses_allow(&uses, name, app)
+                }),
                 None => registry,
             };
         };
@@ -353,12 +360,4 @@ impl Engine {
             }
         });
     }
-}
-
-/// Whether a packaged bot that uses `uses` keeps tool `name`: a tool of `spade.v1` only when its
-/// module is among them; anything outside the API (a connected app's own tools) is left to the
-/// `apps` module's gate.
-fn uses_allow(uses: &[String], name: &str) -> bool {
-    spade_core::effect::runtime::tool(spade_core::effect::runtime::resolve(name))
-        .is_none_or(|tool| uses.iter().any(|module| module == tool.module.name()))
 }

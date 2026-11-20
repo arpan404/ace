@@ -6,6 +6,8 @@
 //! resumption of a step a crash cut short.
 
 pub mod apply;
+mod busy;
+pub mod envelope;
 pub mod held;
 pub mod switches;
 
@@ -22,6 +24,7 @@ use crate::engine::{Engine, NoteScope, TASK_CHARS};
 use crate::routines;
 
 pub use apply::{recover, update};
+pub use busy::{Busy, Changing};
 
 /// This build, as a manifest's `requires` reads it.
 pub fn build() -> Build<'static> {
@@ -172,67 +175,89 @@ pub struct Linking<'a> {
     pub notes: Vec<MadeNote>,
 }
 
-/// Links a just-made bot to its package: the switches the person left on become grants and
-/// allowed hosts, recorded `by: person`, and the link is stored. On a failure nothing a switch
-/// made is left behind; the caller removes the bot.
+/// The link a bot from a version 3 package is made with, in the bot's own transaction: its
+/// ceiling (the declared effects the person left on) holds from the bot's first moment, and it
+/// is marked installing until [`link_new`] commits it, so nothing is scheduled for it before and
+/// a crash in between leaves a bot the next start removes.
+pub fn installing(manifest: &Manifest, linking: &Linking<'_>) -> Link {
+    Link {
+        package: linking.package.clone(),
+        manifest: manifest.clone(),
+        on: switched_on(manifest, linking.switches),
+        granted: BTreeMap::new(),
+        made: Made::default(),
+        transaction: linking.transaction.clone(),
+        previous: None,
+        withdrawn: None,
+        pending: None,
+        installing: true,
+    }
+}
+
+/// Finishes the link of a just-made bot: the switches the person left on become grants and
+/// allowed hosts, recorded `by: person`, in one transaction with the link, which then stops
+/// being an install's. On a failure nothing a switch made is left behind; the caller removes the
+/// bot.
 pub fn link_new(
     engine: &Engine,
     bot: &str,
     manifest: &Manifest,
     linking: Linking<'_>,
 ) -> Result<Link, PackageError> {
+    let _busy = engine.package_busy.hold(bot);
     let on = switched_on(manifest, linking.switches);
-    let security = engine.security().map(|s| &**s);
-    let mut granted = BTreeMap::new();
-    let applied = switches::apply(security, bot, manifest, &mut granted, &BTreeSet::new(), &on);
-    if let Err(why) = applied {
-        switches::take_back_all(security, bot, &granted);
-        return Err(PackageError::Invalid(format!(
-            "what you allowed couldn't be set up: {why}"
-        )));
-    }
-    let link = Link {
-        package: linking.package,
-        manifest: manifest.clone(),
-        on,
-        granted,
-        made: made(engine, bot, manifest, &linking.routine_ids, linking.notes)?,
-        transaction: linking.transaction,
-        previous: None,
-        withdrawn: None,
-        pending: None,
+    let mut link = Link {
+        made: made(
+            engine,
+            bot,
+            manifest,
+            &linking.routine_ids,
+            linking.notes.clone(),
+        )?,
+        installing: false,
+        ..installing(manifest, &linking)
     };
-    engine.set_bot_package(bot, &link).map_err(failed)?;
+    switches::commit(engine, bot, &mut link, &BTreeSet::new(), on).map_err(|why| {
+        PackageError::Invalid(format!("what you allowed couldn't be set up: {why}"))
+    })?;
     Ok(link)
+}
+
+/// Removes every bot an install a crash cut short left: made, but its link never committed. Run
+/// as Spade opens, before anything is scheduled. Each is removed whole, with what it was allowed.
+pub fn recover_installs(engine: &std::sync::Arc<Engine>) {
+    let Ok(agents) = engine.store().agents() else {
+        return;
+    };
+    for agent in agents {
+        if !engine.installing(&agent.id) {
+            continue;
+        }
+        tracing::warn!(bot = %agent.id, "removing a bot whose package install was cut short");
+        if let Err(error) = engine.forget_unfinished_install(&agent.id) {
+            tracing::error!(%error, bot = %agent.id, "a cut-short install could not be removed");
+        }
+    }
 }
 
 /// The person turns one of the package's effects on or off in the bot's Security page. Only
 /// what the package declared can be turned on.
 pub fn set_switch(engine: &Engine, bot: &str, key: &str, on: bool) -> Result<Link, PackageError> {
+    let _busy = engine.package_busy.hold(bot);
     let mut link = link_of(engine, bot)?;
     if !link.manifest.effect_keys().iter().any(|k| k == key) {
         return Err(PackageError::Invalid(
             "only an effect its package declares can be turned on".to_owned(),
         ));
     }
-    let mut after = link.on.clone();
+    let before = link.on.clone();
+    let mut after = before.clone();
     if on {
         after.insert(key.to_owned());
     } else {
         after.remove(key);
     }
-    let security = engine.security().map(|s| &**s);
-    switches::apply(
-        security,
-        bot,
-        &link.manifest,
-        &mut link.granted,
-        &link.on,
-        &after,
-    )
-    .map_err(PackageError::Invalid)?;
-    link.on = after;
-    engine.set_bot_package(bot, &link).map_err(failed)?;
+    switches::commit(engine, bot, &mut link, &before, after)?;
     Ok(link)
 }
 
@@ -240,6 +265,7 @@ pub fn set_switch(engine: &Engine, bot: &str, key: &str, on: bool) -> Result<Lin
 /// work stops, its wakes and routine slots are held, its services stop and messages to it wait,
 /// through a restart. The reason is shown; nothing is deleted. Saying it again changes nothing.
 pub fn withdraw(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, PackageError> {
+    let _busy = engine.package_busy.hold(bot);
     let mut link = link_of(engine, bot)?;
     if link.withdrawn.is_some() {
         return Ok(link);
@@ -268,6 +294,7 @@ pub fn resume(engine: &Arc<Engine>, bot: &str) -> Result<Link, PackageError> {
 /// Resuming a bot ends its withdrawal's pause too: one pause, not two. Routines a withdrawal
 /// before the full pause stopped run again. Nothing to do for a bot that wasn't withdrawn.
 pub(crate) fn forget_withdrawal(engine: &Engine, bot: &str) -> Result<(), PackageError> {
+    let _busy = engine.package_busy.hold(bot);
     let Some(mut link) = engine.bot_package(bot) else {
         return Ok(());
     };

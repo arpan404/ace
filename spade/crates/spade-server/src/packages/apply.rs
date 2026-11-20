@@ -29,6 +29,9 @@ pub struct Step {
 /// Applies an update or rollback to `bot`. The same transaction asked again answers with the
 /// link it made and does nothing twice.
 pub fn update(engine: &Engine, bot: &str, step: Step) -> Result<Link, PackageError> {
+    // Held from the first read to the commit: a switch turned off meanwhile waits, then reads
+    // what this step stored, never the other way round.
+    let _busy = engine.package_busy.hold(bot);
     let link = link_of(engine, bot)?;
     if link.transaction.as_deref() == Some(step.transaction.as_str())
         && link.package == step.package
@@ -72,6 +75,7 @@ pub fn recover(engine: &Engine) {
         return;
     };
     for agent in agents {
+        let _busy = engine.package_busy.hold(&agent.id);
         let Some(link) = engine.bot_package(&agent.id) else {
             continue;
         };
@@ -255,19 +259,6 @@ fn run(
         link.pending = Some(pending.clone());
         save(engine, bot, &link)?;
     }
-    // Switches: the person's, for what the new version still declares; what it no longer
-    // declares is taken back, and what it newly declares stays off.
-    let security = engine.security().map(|s| &**s);
-    switches::apply(
-        security,
-        bot,
-        &next,
-        &mut link.granted,
-        &link.on,
-        &planned.on,
-    )
-    .map_err(failed)?;
-    link.on = planned.on;
     // A newer version isn't the withdrawn one: what the withdrawal paused runs again.
     if let Some(withdrawn) = link.withdrawn.take() {
         for id in &withdrawn.paused {
@@ -300,6 +291,10 @@ fn run(
     link.transaction = Some(pending.transaction);
     link.manifest = next;
     link.pending = None;
-    save(engine, bot, &link)?;
+    // Switches: the person's, for what the new version still declares; what it no longer
+    // declares is taken back, and what it newly declares stays off. Committed with the new
+    // link in one transaction.
+    let before = link.on.clone();
+    switches::commit(engine, bot, &mut link, &before, planned.on).map_err(failed)?;
     Ok(link)
 }

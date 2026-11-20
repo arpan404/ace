@@ -57,6 +57,12 @@ export interface StoredInstall extends MarketInstalled {
   signed?: boolean | undefined;
   publisher?: string | undefined;
   /**
+   * For a linked bot: the market's signed manifest of the installed version, and of the one it
+   * had before, so an update or a rollback proves its identity to Spade with no network.
+   */
+  signedManifest?: unknown;
+  previousSignedManifest?: unknown;
+  /**
    * For a Spade skill: the hash the person turned on for their bots. `null` when no one with the
    * person's standing has, so no bot sees it; absent on records from before it, which a person
    * installed and which stay on.

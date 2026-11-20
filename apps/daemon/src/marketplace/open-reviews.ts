@@ -159,6 +159,9 @@ export class OpenReviews {
       version: install.previous.version,
       hash: install.previous.hash,
       signed: install.signed ?? false,
+      ...(install.previousSignedManifest === undefined
+        ? {}
+        : { signedManifest: install.previousSignedManifest }),
       reviewed: false,
       byAce: false,
       checked,

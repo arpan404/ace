@@ -522,6 +522,20 @@ impl Security {
     /// Grants `scope` to `bot`, refused when it can never be granted or exceeds what the bot's
     /// parent has.
     pub fn add_grant(&self, bot: &str, scope: Scope, by: &str) -> Result<Grant, SecurityError> {
+        let made = self.admit_grant(bot, scope, by)?;
+        let kept = made.clone();
+        self.change(bot, move |current| {
+            if !current.grants.iter().any(|g| g.scope == kept.scope) {
+                current.grants.push(kept);
+            }
+            Ok(())
+        })?;
+        Ok(made)
+    }
+
+    /// The grant `scope` would be for `bot`, checked as [`Security::add_grant`] checks it, not
+    /// stored yet.
+    pub fn admit_grant(&self, bot: &str, scope: Scope, by: &str) -> Result<Grant, SecurityError> {
         // Refused by what the tool declares it does (ADR 0171), never by its name.
         let engine = self.bots.get();
         let conversation = engine
@@ -549,20 +563,48 @@ impl Security {
                 ));
             }
         }
-        let made = Grant {
+        Ok(Grant {
             id: self.ids.next("gr"),
             scope,
             by: by.to_owned(),
             created_at: self.clock.now_ms(),
-        };
-        let kept = made.clone();
-        self.change(bot, move |current| {
-            if !current.grants.iter().any(|g| g.scope == kept.scope) {
-                current.grants.push(kept);
-            }
-            Ok(())
-        })?;
-        Ok(made)
+        })
+    }
+
+    /// Changes `bot`'s settings and, in the same transaction, the other settings `apply` answers
+    /// with (a package's link beside the grants and hosts its switches made): all of it is
+    /// stored, or none. `apply` sees the machine's settings, which the bot's network follows
+    /// until it has its own.
+    pub fn change_with(
+        &self,
+        bot: &str,
+        apply: impl FnOnce(
+            &mut BotSecurity,
+            &MachineSecurity,
+        ) -> Result<Vec<(String, Option<String>)>, SecurityError>,
+    ) -> Result<BotSecurity, SecurityError> {
+        let _held = self.changing.lock().unwrap_or_else(|p| p.into_inner());
+        self.exists(bot)?;
+        let mut current = self.bot(bot);
+        let also = apply(&mut current, &self.machine())?;
+        let text = serde_json::to_string(&current)
+            .map_err(|error| SecurityError::Store(error.to_string()))?;
+        let key = settings::key(bot);
+        let mut changes: Vec<(&str, Option<&str>)> = vec![(key.as_str(), Some(text.as_str()))];
+        changes.extend(also.iter().map(|(k, v)| (k.as_str(), v.as_deref())));
+        self.store
+            .set_settings(&changes)
+            .map_err(|error| SecurityError::Store(error.to_string()))?;
+        Ok(current)
+    }
+
+    /// Ends every live run's network access for the bots `cut` names (a terminal, a service, a
+    /// command still running), as when their ticket drops: a package's network switch turned off
+    /// takes the egress its bot's runs already had.
+    pub fn cut_egress(&self, cut: &dyn Fn(&str) -> bool) {
+        if let Some(proxy) = &self.proxy {
+            proxy.cut(cut);
+        }
     }
 
     /// Takes a grant back; whether it was there.

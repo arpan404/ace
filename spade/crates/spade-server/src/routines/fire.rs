@@ -46,7 +46,8 @@ pub async fn tick(engine: &Arc<Engine>) -> Result<Option<i64>, StoreError> {
     let now = engine.now_ms();
     for r in engine.store().due_routines(now)? {
         // A paused bot's slot stays due, unclaimed: Resume catches it up once (ADR 0200 §6.1).
-        if engine.paused_since(&r.agent_id).is_some() {
+        // Nor does a bot whose package install hasn't finished (ADR 0200 §3.4).
+        if engine.paused_since(&r.agent_id).is_some() || engine.installing(&r.agent_id) {
             continue;
         }
         if let Err(error) = fire_due(engine, &r, now) {

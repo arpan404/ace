@@ -130,6 +130,16 @@ impl Engine {
 
     /// Creates a bot and its one conversation.
     pub fn create_agent(&self, input: AgentInput) -> Result<AgentView, AgentError> {
+        self.create_agent_with(input, |_| Vec::new())
+    }
+
+    /// [`Engine::create_agent`] with the settings `settings` names for the new bot's id stored
+    /// in the bot's own transaction: a packaged bot's ceiling is there from its first moment.
+    pub fn create_agent_with(
+        &self,
+        input: AgentInput,
+        settings: impl FnOnce(&str) -> Vec<(String, String)>,
+    ) -> Result<AgentView, AgentError> {
         let name = if input.naming && input.name.trim().is_empty() {
             UNNAMED.to_owned()
         } else {
@@ -156,7 +166,12 @@ impl Engine {
         if input.naming {
             configured.push(Event::Known(Known::NamingOpened {}));
         }
-        self.store.create_agent(
+        let settings = settings(&id);
+        let settings: Vec<(&str, &str)> = settings
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect();
+        self.store.create_agent_with(
             NewAgent {
                 id: &id,
                 kind: BOT,
@@ -167,6 +182,7 @@ impl Engine {
                 conversation: &conversation,
             },
             &configured,
+            &settings,
             self.now_ms(),
         )?;
         self.view(&id)

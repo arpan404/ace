@@ -80,8 +80,12 @@ pub(super) struct NewAgent {
     #[serde(default)]
     start_routines: bool,
     /// A version 3 package's market identity (ADR 0200 §3.9): the bot it makes stays linked.
+    /// Believed only as `envelope` proves it.
     #[serde(default)]
     package: Option<spade_core::package::link::PackageId>,
+    /// The market's signed manifest and `bot.json` as it signed it (ADR 0200 §3.2).
+    #[serde(default)]
+    envelope: Option<crate::packages::envelope::Envelope>,
     /// The person's effect switches on the review, by key; one missing is off.
     #[serde(default)]
     switches: std::collections::BTreeMap<String, bool>,
@@ -264,7 +268,7 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
     if let Err(response) = access(body.access.as_deref()) {
         return *response;
     }
-    if body.recipe.is_some() {
+    if body.recipe.is_some() || body.envelope.is_some() {
         return super::recipes::create(state, body.into_recipe()).await;
     }
     let mut body = body;
@@ -319,6 +323,7 @@ impl NewAgent {
             start_routines: self.start_routines,
             time_zone: self.time_zone,
             package: self.package,
+            envelope: self.envelope,
             switches: self.switches,
             also: self.template.is_some() || self.first_message.is_some(),
         }

@@ -25,6 +25,7 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         remote: false,
         classifier: true,
         ceiling: None,
+        command: None,
     }
 }
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { PackagePlan } from "@ace/protocol/marketplace";
 import type { SpadeConnection } from "../spade/forward.ts";
 import { spadeRequest } from "../spade/forward.ts";
-import type { MadeBot, SpadePort } from "./install.ts";
+import type { MadeBot, PackageInput, SpadePort } from "./install.ts";
 
 /*
  * What the marketplace asks of Spade through the daemon's link (ADR 0168 §8, §13): a new bot made
@@ -86,7 +86,20 @@ const Planned = z.object({ plan: PackagePlan });
  * reader in place of the version 2 shape, its market identity, and the person's switches.
  */
 function linked(input: Parameters<SpadePort["createBot"]>[0]["linked"]) {
-  return input ? { recipe: input.manifest, package: input.package, switches: input.switches } : {};
+  return input ? { ...identity(input), switches: input.switches } : {};
+}
+
+/** A package's manifest and, for a market one, what proves its identity to Spade. */
+function identity(input: PackageInput) {
+  return {
+    recipe: input.manifest,
+    ...(input.signed
+      ? {
+          package: input.signed.package,
+          envelope: { signed: input.signed.signedManifest, bot_json: input.signed.botJson },
+        }
+      : {}),
+  };
 }
 
 export function spadePort(
@@ -133,8 +146,7 @@ export function spadePort(
     },
     async updateBot(bot, input) {
       await spadeCall(live(), "POST", `/v1/agents/${encodeURIComponent(bot)}/package`, {
-        recipe: input.manifest,
-        package: input.package,
+        ...identity(input),
         transaction: input.transaction,
       });
     },

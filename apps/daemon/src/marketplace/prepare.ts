@@ -160,6 +160,7 @@ export async function prepareEntry(
     publisher: fetched.publisher,
     from: source.kind === "git" ? source.address : undefined,
     signed: fetched.signed,
+    ...(fetched.signedManifest === undefined ? {} : { signedManifest: fetched.signedManifest }),
     reviewed: fetched.reviewed,
     byAce: fetched.byAce,
     checked,
@@ -178,6 +179,8 @@ interface Fetched {
   title: string | undefined;
   publisher: MarketPublisher | undefined;
   signed: boolean;
+  /** The signed version manifest as the market served it. */
+  signedManifest?: unknown;
   reviewed: boolean;
   byAce: boolean;
   /** The plugin manager's pin: a git commit, or the hash's first 40 digits for the market. */
@@ -253,6 +256,7 @@ async function fromMarket(
     title: "problem" in summary ? undefined : summary.title,
     publisher: manifest.publisher,
     signed: true,
+    signedManifest: body.data.manifest,
     reviewed,
     byAce,
     commit: manifest.hash.slice(0, 40),

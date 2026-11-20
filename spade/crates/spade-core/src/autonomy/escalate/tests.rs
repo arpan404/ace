@@ -26,6 +26,7 @@ fn outside(effect: Option<Effect>) -> Call<'static> {
         remote: false,
         classifier: true,
         ceiling: None,
+        command: None,
     }
 }
 

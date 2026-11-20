@@ -20,9 +20,12 @@ use serde_json::Value;
 use spade_connect::{Access, Connectors};
 use spade_core::package::Manifest;
 use spade_core::package::link::{MadeNote, PackageId};
+use spade_store::package_key;
 
 use super::portable::{Imported, PortableError};
+use crate::engine::packages::link_text;
 use crate::engine::{AgentInput, AvatarInput, BotRecipe, Engine, FromRecipe, NoteScope};
+use crate::packages::envelope::{self, Envelope};
 use crate::packages::{self, Linking};
 use crate::plugins::Plugins;
 use crate::routines::{self, By, RoutineInput};
@@ -60,8 +63,12 @@ pub struct RecipeInput {
     pub start_routines: bool,
     /// The IANA time zone its routines run in; the machine's when absent.
     pub time_zone: Option<String>,
-    /// A version 3 package's market identity, from its signed manifest: the bot stays linked.
+    /// The identity the caller says a version 3 package has: believed only as the market's
+    /// signed manifest in `envelope` proves it, and must match it.
     pub package: Option<PackageId>,
+    /// The market's signed manifest and `bot.json` exactly as it signed it (ADR 0200 §3.2).
+    /// Without one a version 3 package installs as a local package, claiming no publisher.
+    pub envelope: Option<Envelope>,
     /// The person's effect switches, by key; one missing is off.
     pub switches: BTreeMap<String, bool>,
 }
@@ -75,9 +82,37 @@ pub(super) fn secret_problems(value: &Value, path: &str, out: &mut Vec<String>) 
     spade_core::package::manifest::secret_problems(value, path, out);
 }
 
-/// The recipe read and checked, before anything is made.
-fn checked(input: &RecipeInput) -> Result<Manifest, PortableError> {
-    let manifest = packages::manifest(&input.recipe).map_err(|e| invalid(e.to_string()))?;
+/// The recipe read and checked, before anything is made, with the identity a version 3 package
+/// installs under: the market's, when its signed manifest covers these exact bytes, and a local
+/// package's otherwise. A version 2 recipe is a copy the person owns, never linked.
+fn checked(
+    engine: &Engine,
+    input: &RecipeInput,
+) -> Result<(Manifest, Option<PackageId>), PortableError> {
+    let (recipe, signed) = match &input.envelope {
+        Some(sealed) => {
+            let (package, recipe) = envelope::verify(sealed, &engine.market_keys())
+                .map_err(|why| invalid(format!("the package's identity isn't proven: {why}")))?;
+            if !input.recipe.is_null() && input.recipe != recipe {
+                return Err(invalid("recipe isn't the bot.json the market signed"));
+            }
+            if let Some(claimed) = &input.package
+                && (&claimed.name, &claimed.version, &claimed.hash)
+                    != (&package.name, &package.version, &package.hash)
+            {
+                return Err(invalid("package isn't the one the market signed"));
+            }
+            (recipe, Some(package))
+        }
+        // A claimed identity with nothing that proves it is refused, never stored.
+        None if input.package.is_some() => {
+            return Err(invalid(
+                "a package's identity comes from the market's signed manifest (envelope)",
+            ));
+        }
+        None => (input.recipe.clone(), None),
+    };
+    let manifest = packages::manifest(&recipe).map_err(|e| invalid(e.to_string()))?;
     let from = &input.from_recipe;
     if [&from.source, &from.name, &from.version]
         .iter()
@@ -95,27 +130,17 @@ fn checked(input: &RecipeInput) -> Result<Manifest, PortableError> {
     {
         return Err(invalid("more grants than a recipe can ask for"));
     }
-    match (&input.package, manifest.version) {
-        (None, 3) => Err(invalid(
-            "a version 3 package installs with its package {source, name, version, hash}",
-        )),
-        (Some(_), 2) => Err(invalid(
-            "a version 2 recipe installs as a copy you own, never linked",
-        )),
-        (Some(package), _)
-            if [
-                &package.source,
-                &package.name,
-                &package.version,
-                &package.hash,
-            ]
-            .iter()
-            .any(|f| f.trim().is_empty() || f.chars().count() > FROM_CHARS) =>
-        {
-            Err(invalid("package names its source, name, version and hash"))
+    let package = match (manifest.version, signed) {
+        (3, Some(package)) => Some(package),
+        (3, None) => Some(envelope::local(&recipe, &manifest.name)),
+        (_, Some(_)) => {
+            return Err(invalid(
+                "a version 2 recipe installs as a copy you own, never linked",
+            ));
         }
-        _ => Ok(manifest),
-    }
+        (_, None) => None,
+    };
+    Ok((manifest, package))
 }
 
 /// The connectors granted that this machine has, by id, and a line for each it hasn't.
@@ -163,7 +188,16 @@ pub fn from_recipe(
     plugins: Option<&Plugins>,
     input: RecipeInput,
 ) -> Result<Imported, PortableError> {
-    let recipe = checked(&input)?;
+    let (recipe, package) = checked(engine, &input)?;
+    // A version 3 package's link, with its ceiling, is stored with the bot in one transaction,
+    // marked installing until everything below is in place (ADR 0200 §3.4).
+    let linking = package.map(|package| Linking {
+        package,
+        switches: &input.switches,
+        transaction: input.from_recipe.transaction.clone(),
+        routine_ids: BTreeMap::new(),
+        notes: Vec::new(),
+    });
     let plugin_names: BTreeSet<String> = input
         .grants
         .plugins
@@ -182,26 +216,38 @@ pub fn from_recipe(
         _ => None,
     }
     .unwrap_or_else(|| engine.new_bot_default());
-    let made = engine.create_agent(AgentInput {
-        name: recipe.name.clone(),
-        task: recipe.task.clone(),
-        model,
-        avatar: recipe
-            .face
-            .clone()
-            .map(|face| AvatarInput::Character(Value::Object(face))),
-        naming: false,
-    })?;
+    let made = engine.create_agent_with(
+        AgentInput {
+            name: recipe.name.clone(),
+            task: recipe.task.clone(),
+            model,
+            avatar: recipe
+                .face
+                .clone()
+                .map(|face| AvatarInput::Character(Value::Object(face))),
+            naming: false,
+        },
+        |id| match &linking {
+            Some(linking) => vec![(
+                package_key(id),
+                link_text(&packages::installing(&recipe, linking)),
+            )],
+            None => Vec::new(),
+        },
+    )?;
     let id = made.agent.id.clone();
     let furnished = furnish(
         engine,
-        connectors,
-        plugins,
-        &id,
-        &recipe,
-        &input,
-        &granted,
-        &plugin_names,
+        Furnishing {
+            connectors,
+            plugins,
+            id: &id,
+            recipe: &recipe,
+            input: &input,
+            granted: &granted,
+            plugin_names: &plugin_names,
+        },
+        linking,
     );
     if let Err(error) = furnished {
         undo(engine, connectors, plugins, &id);
@@ -222,26 +268,41 @@ pub fn from_recipe(
     Ok(Imported { agent, left_out })
 }
 
+/// What furnishing a just-made bot works from.
+struct Furnishing<'a> {
+    connectors: Option<&'a Connectors>,
+    plugins: Option<&'a Plugins>,
+    id: &'a str,
+    recipe: &'a Manifest,
+    input: &'a RecipeInput,
+    granted: &'a BTreeSet<String>,
+    plugin_names: &'a BTreeSet<String>,
+}
+
 /// Everything after the bot exists: routines, notes, grants, its recipe record and, for a
-/// version 3 package, its link.
-#[allow(clippy::too_many_arguments)]
+/// version 3 package, its link committed. Its routines are made paused and start, when the person
+/// asked, only once all of it is in place: nothing fires while the bot is half made.
 fn furnish(
     engine: &Engine,
-    connectors: Option<&Connectors>,
-    plugins: Option<&Plugins>,
-    id: &str,
-    recipe: &Manifest,
-    input: &RecipeInput,
-    granted: &BTreeSet<String>,
-    plugin_names: &BTreeSet<String>,
+    made: Furnishing<'_>,
+    linking: Option<Linking<'_>>,
 ) -> Result<(), PortableError> {
+    let Furnishing {
+        connectors,
+        plugins,
+        id,
+        recipe,
+        input,
+        granted,
+        plugin_names,
+    } = made;
     if let Some(personality) = recipe.personality {
         engine
             .start_with_personality(id, personality)
             .map_err(|why| invalid(format!("its personality wasn't set: {why}")))?;
     }
-    // Schedule, event and webhook triggers become routines, paused unless the person turned
-    // them on (ADR 0200 §3.5); a webhook's secret is made here, never shipped.
+    // Schedule, event and webhook triggers become routines (ADR 0200 §3.5); a webhook's secret
+    // is made here, never shipped.
     let mut routine_ids = BTreeMap::new();
     for (name, instruction, trigger) in recipe.routines() {
         let made = routines::create(
@@ -252,7 +313,7 @@ fn furnish(
                 instruction: Some(instruction.to_owned()),
                 trigger: Some(trigger),
                 time_zone: input.time_zone.clone(),
-                paused: Some(!input.start_routines),
+                paused: Some(true),
                 untrusted: false,
             },
             By::Person,
@@ -302,20 +363,31 @@ fn furnish(
             },
         )
         .map_err(|e| PortableError::Failed(e.to_string()))?;
-    if let Some(package) = &input.package {
+    if let Some(linking) = linking {
         packages::link_new(
             engine,
             id,
             recipe,
             Linking {
-                package: package.clone(),
-                switches: &input.switches,
-                transaction: input.from_recipe.transaction.clone(),
-                routine_ids,
+                routine_ids: routine_ids.clone(),
                 notes,
+                ..linking
             },
         )
         .map_err(|why| invalid(why.to_string()))?;
+    }
+    if input.start_routines {
+        for (name, routine) in &routine_ids {
+            routines::update(
+                engine,
+                routine,
+                RoutineInput {
+                    paused: Some(false),
+                    ..RoutineInput::default()
+                },
+            )
+            .map_err(|why| invalid(format!("the routine {name:?} didn't start: {why}")))?;
+        }
     }
     Ok(())
 }
