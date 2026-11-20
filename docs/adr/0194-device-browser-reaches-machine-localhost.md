@@ -71,7 +71,16 @@ The tunnel always refuses every port an ace process listens on, whatever the dev
 the daemon's listeners, the preview gateway and Spade's service. A tunnelled connection arrives at
 the machine from loopback, and loopback is what those listeners trust. The daemon reads the
 refused ports from its own listeners when each stream opens, never from a stored list, so a
-listener that moved to another port is still refused.
+listener that moved to another port is still refused. The daemon also runs servers of its own
+that no list names (the MCP endpoint, git leases, page probes), so every port held by the
+daemon's, Spade's or ace-media's process is refused too, from a scan of those processes alone at
+most a second old. A dev server is always another process. On Windows no such scan exists yet:
+there only the named listeners are refused.
+
+The desktop app's SOCKS proxy (see "The device side") is an ace listener on the loopback of the
+computer it runs on, and it reaches another machine with this device's credentials. A device
+tunnelled to that computer must not reach it, so the proxy demands a per-launch secret (SOCKS5
+user and password that only its own sessions know) and refuses any connection without it.
 
 The daemon connects only to `127.0.0.1` or `::1` on the requested port. The device names a port,
 never a host.
@@ -87,8 +96,17 @@ never a host.
   Streams already open finish on the old one, which closes once they have ended or after a bounded
   wait. A stream cut by a lost path is reset. The browser retries the request and hot reload
   reconnects, as after any dropped connection.
-- **Limits.** Streams per device, open attempts per second and buffered bytes per stream are
-  capped. Excess opens are reset, never queued without bound.
+- **Connection.** A tunnel connection says `hello` with `channel: "tunnel"` and the path's own
+  credential: a one-use ticket on a direct path (under the listener's pinned key), the paired
+  token inside a relay's Noise stream. Its welcome must name the expected daemon, on every path.
+  After the welcome the machine sends `tunnel.ports` (the whole listening set, again only when it
+  changes) and `tunnel.refused` (with a stream id for one OPEN, before that stream's RESET;
+  without one for the whole tunnel, which then closes). Refusals are `tunnel_off`,
+  `tunnel_forbidden`, `tunnel_port_refused` and `tunnel_limit`. A port with nothing listening is
+  a plain RESET, which the client reports as `tunnel_reset`.
+- **Limits.** 256 open streams per device across its tunnel connections, 100 opens a second
+  after a burst of 200, and per stream at most the mux's window (256 KiB) buffered each way.
+  Excess opens are refused with `tunnel_limit`, never queued.
 - **Revocation.** Revoking a device, removing its `operate` authority or turning the tunnel off
   ends its open streams at once.
 
@@ -152,9 +170,33 @@ redirects back to `localhost` still works.
    and HTTPS all went through the proxy. Public hosts went direct, and the default session and
    other partitions were unaffected. `window.isSecureContext` stays true and the origin keeps its
    value. Chromium retries a failed HTTPS connect once, so the tunnel sees a duplicate open.
-3. **A Vite dev page over ace's relay** on the slow-link harness (hundreds of module requests,
-   each a stream). Its time to first paint and full load set the bar for the tunnel. This runs
-   with the first tunnel build, since it needs the tunnel.
+3. **A Vite-like dev page, answered 2026-11-19** (`apps/daemon/bench/machine-tunnel.ts`). A
+   dev server in its own process served an HTML page, its entry script and a two-level graph of
+   300 modules (about 2 KB each, 302 requests). A loader stood in for the browser: HTTP/1.1,
+   keep-alive, six connections, each module fetched once its importer arrived. The slow-link
+   shaper (`@ace/perf-kit/link`) sat on the device's leg, in front of the daemon's TLS listener
+   or of a local relay (apps/relay). "No tunnel" is the same loader straight to the dev server
+   over the same link: the floor. Load average about 10 on 12 cores.
+
+   | Link    | Path      | Tunnel up | First paint | Full load |
+   | ------- | --------- | --------: | ----------: | --------: |
+   | lan     | no tunnel |         — |       11 ms |    161 ms |
+   | lan     | direct    |     51 ms |       14 ms |    210 ms |
+   | lan     | relay     |     33 ms |       11 ms |    272 ms |
+   | 3g-fast | no tunnel |         — |      935 ms |    18.4 s |
+   | 3g-fast | direct    |     2.2 s |      924 ms |    21.3 s |
+   | 3g-fast | relay     |     1.2 s |      927 ms |    21.1 s |
+   | 3g-slow | no tunnel |         — |       1.9 s |    29.3 s |
+   | 3g-slow | direct    |     3.7 s |       1.3 s |    33.0 s |
+   | 3g-slow | relay     |     2.3 s |       1.3 s |    32.7 s |
+
+   On 3G the tunnel costs 12 to 15% of full load over the floor, the same on either path: the
+   page is bound by HTTP/1.1's round trips (302 requests over six connections), which the tunnel
+   neither adds nor removes. First paint matches the floor once the tunnel is up (the floor's
+   includes its first TCP handshake). The tunnel itself comes up while the device tab opens: about
+   seven round trips on a direct path (TLS for the ticket exchange, TLS for the socket, the
+   hello), four on a relay. A direct path can drop the exchange by keeping the next ticket the
+   welcome hands out (ADR 0150), a follow-up.
 
 ## Consequences
 

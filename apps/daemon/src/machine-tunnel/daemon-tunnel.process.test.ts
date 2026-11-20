@@ -153,3 +153,11 @@ test("a direct path with another certificate's pin, or another daemon's id, is n
       "offline",
     );
 }, 30_000);
+
+test("two megabytes cross each path whole, many frames to a socket read", async () => {
+  const port = await echoServer();
+  const { direct, relayed, open } = await daemon();
+  const text = "0123456789abcdef".repeat(128 * 1024);
+  for (const path of [direct, relayed])
+    expect(await roundTrip(await open(path).open(port), text)).toBe(text);
+}, 30_000);
