@@ -1,4 +1,9 @@
 import { spawn } from "node:child_process";
+import {
+  lowerChildPriority,
+  systemChildPriority,
+  type ChildPriorityPort,
+} from "./child-priority.ts";
 export { OutputLineDroppedError, type DroppedOutputLine } from "./output-line-drop.ts";
 import type { DroppedOutputLine } from "./output-line-drop.ts";
 export { lineReader } from "./line-reader.ts";
@@ -76,6 +81,11 @@ export type SpawnOptions = {
   /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
   windowsJobFactory?: WindowsJobFactory;
   /**
+   * How the child is lowered below the daemon's priority (`child-priority.ts`, ADR 0196); false
+   * leaves it at the daemon's. Defaults to the real OS.
+   */
+  childPriority?: ChildPriorityPort | false;
+  /**
    * Runs `run` once after `ms`; returns a cancel. Rechecks a retained Windows tree that survived
    * its stop. Defaults to an unref'd timer, so the recheck never keeps the daemon alive.
    */
@@ -135,6 +145,8 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   const destroy = (pid: number) => signalTree(pid, true, windows, killTree, child);
   const controller = new AbortController();
   const pid = child.pid;
+  if (pid !== undefined && options.childPriority !== false)
+    lowerChildPriority(pid, options.childPriority ?? systemChildPriority(process.platform));
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);

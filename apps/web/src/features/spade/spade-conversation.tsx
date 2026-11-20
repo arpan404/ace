@@ -44,6 +44,7 @@ import {
   Scroller,
 } from "./spade-screen-parts.tsx";
 import { questionAnchor } from "./spade-question-bubble.tsx";
+import { useRevealRequest } from "./use-reveal-request.ts";
 import { SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
@@ -85,10 +86,13 @@ export function Conversation(props: {
   profile: ProfileTab | undefined;
   computer: ComputerView | undefined;
   files: FilesAt;
+  /** An approval or question a notification opened, brought forward once it shows. */
+  request?: string | undefined;
 }) {
   const { bot } = props;
   const conversation = useSpadeConversation(bot.conversation);
   const { view, problem } = conversation;
+  useRevealRequest(props.request, view !== undefined);
   const line = spadeStateLine(useSpadeStatus(), true);
   const toast = useToast();
   const skills = useSkillProposals(bot.id, view);

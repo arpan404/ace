@@ -25,6 +25,8 @@ import { createAgent, readModels, type SpadeNewAgent } from "./spade-api.ts";
 import type { SpadeMessage } from "./spade-attachments.ts";
 import { AvatarPopover, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
+import { allowApp } from "./spade-connector-api.ts";
+import { SuggestedApps } from "./spade-suggested-apps.tsx";
 import { SpadeMachineScope, useSpadeClient } from "./spade-machine.tsx";
 import { ConversationSkeleton, PageScroller, useSpadeLine } from "./spade-screen-parts.tsx";
 import { RunsWith, TemplateRows } from "./spade-new-bot-parts.tsx";
@@ -287,6 +289,8 @@ function NewBotConversation(props: {
   const name = typed ?? suggested;
   const [model, setModel] = useState("");
   const [template, setTemplate] = useState<SpadeTemplate>();
+  // Apps connected from the template's suggestions, given to the bot once it is made.
+  const [apps, setApps] = useState<readonly string[]>([]);
   const models = useSpadeModels(props.blocked === undefined);
   const send = async (message: SpadeMessage) => {
     if (message.documents?.length)
@@ -309,6 +313,8 @@ function NewBotConversation(props: {
       },
       message,
     );
+    // A bot starts with no apps; these the person connected for it here.
+    for (const connector of apps) await allowApp(client, agent.id, connector).catch(() => {});
     await cache.invalidateQueries({ queryKey: agentsKey });
     void navigate({
       to: "/spade/$agentId",
@@ -372,6 +378,17 @@ function NewBotConversation(props: {
               setAvatar({ kind: "face", face: picked.face });
             }}
           />
+          {template && (
+            <div className={`${readingColumn} px-1`}>
+              <SuggestedApps
+                task={template.task}
+                title={`Apps ${shown} could use`}
+                onConnected={(connector) =>
+                  setApps((had) => (had.includes(connector.id) ? had : [...had, connector.id]))
+                }
+              />
+            </div>
+          )}
         </PageScroller>
         <SpadeComposer
           name={shown}

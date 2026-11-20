@@ -90,6 +90,9 @@ pub struct Callback {
     pub iss: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
+    /// Read only to tell an admin's refusal from the person's; never shown or kept.
+    #[serde(default)]
+    pub error_description: Option<String>,
     /// The connector whose callback address it came back to (the path, never the query); `None`
     /// at the shared address of sign-ins as Spade's metadata document.
     #[serde(skip)]
@@ -110,6 +113,11 @@ pub enum FinishError {
     /// its words reach the person's browser on Spade's own page.
     #[error("the sign-in was cancelled or refused")]
     Declined,
+    /// The app said an admin must approve Spade for this account first.
+    #[error(
+        "the app says your account needs an admin's approval; ask your admin to allow Spade, then connect again"
+    )]
+    NeedsAdmin,
     #[error("{0}")]
     Failed(String),
 }
@@ -245,6 +253,7 @@ impl Connectors {
         pending.retain(|_, p| p.id != target.id && now - p.started_ms < SIGN_IN_WINDOW_MS);
         self.drop_device(&target.id);
         self.drop_cloud(&target.id);
+        self.clear_failure(&target.id);
         pending.insert(
             attempt.state.clone(),
             Pending {
@@ -273,6 +282,35 @@ impl Connectors {
         let pending = lock(&self.pending)
             .remove(state)
             .ok_or(FinishError::UnknownState)?;
+        let failed = crate::failure::Failure {
+            reason: "failed",
+            at_ms: 0,
+            name: pending.name.clone(),
+            url: pending.url.clone(),
+            catalogue: pending.catalogue.clone(),
+            local: pending.local,
+        };
+        let id = pending.id.clone();
+        let finished = self.finish_pending(pending, callback).await;
+        match &finished {
+            Ok(_) => self.clear_failure(&id),
+            Err(error) => self.note_failure(
+                &id,
+                crate::failure::Failure {
+                    reason: crate::failure::reason(error),
+                    at_ms: self.now(),
+                    ..failed
+                },
+            ),
+        }
+        finished
+    }
+
+    async fn finish_pending(
+        self: &Arc<Self>,
+        pending: Pending,
+        callback: Callback,
+    ) -> Result<View, FinishError> {
         let epoch = self.epoch(&pending.id);
         if self.now() - pending.started_ms >= SIGN_IN_WINDOW_MS {
             return Err(FinishError::Expired);
@@ -285,8 +323,11 @@ impl Connectors {
         if !oauth::issuer_matches(&pending.attempt, callback.iss.as_deref()) {
             return Err(FinishError::WrongIssuer);
         }
-        if callback.error.is_some() {
-            return Err(FinishError::Declined);
+        if let Some(error) = &callback.error {
+            return Err(crate::failure::from_server(
+                error,
+                callback.error_description.as_deref(),
+            ));
         }
         let code = callback
             .code
@@ -381,6 +422,7 @@ impl Connectors {
                 .account
                 .or_else(|| existing.as_ref().and_then(|r| r.account.clone())),
             needs_reconnect: false,
+            last_used_ms: existing.as_ref().and_then(|r| r.last_used_ms),
             added_ms: existing.map_or_else(|| self.now(), |r| r.added_ms),
         };
         self.put_record(record)?;
@@ -734,6 +776,7 @@ impl Connectors {
             auth,
             account: None,
             needs_reconnect: false,
+            last_used_ms: target.existing.as_ref().and_then(|r| r.last_used_ms),
             added_ms: target.existing.map_or_else(|| self.now(), |r| r.added_ms),
         };
         self.put_record(record).map_err(ConnectError::Failed)?;

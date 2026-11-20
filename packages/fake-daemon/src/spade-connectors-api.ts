@@ -27,6 +27,8 @@ export class FakeSpadeConnectors {
   readonly viaCloud = new Set<string>();
   /** This machine isn't signed in to ace, so sign-ins through Spade Cloud are refused. */
   aceSignedOut = false;
+  /** What `GET /v1/connectors/fit` answers, whatever the need: catalogue ids, best first. */
+  fits: string[] = [];
   private deviceCodes = 0;
 
   /** Why a connector signed in through Spade Cloud can't renew now, or `undefined` once it can. */
@@ -45,6 +47,12 @@ export class FakeSpadeConnectors {
       tools: 3,
       device: undefined,
     });
+  }
+
+  /** Ends a sign-in in the browser without connecting, for `reason` (`declined`, `needs_admin`…). */
+  failSignIn(id: string, reason: string): void {
+    const connector = this.connectors.find((candidate) => candidate.id === id);
+    if (connector) Object.assign(connector, { state: "needs_reconnect", failed: reason });
   }
 
   /** Ends a device sign-in without connecting: the code expired, or the person declined. */
@@ -85,6 +93,8 @@ export class FakeSpadeConnectors {
         connectors: this.withBots(this.connectors, roster),
       });
     if (!id && method === "POST") return this.connect(body);
+    // The apps that fit a need: the ones a test names in `fits`, in order.
+    if (id === "fit" && method === "GET") return reply({ apps: this.fits });
     const connector = this.connectors.find((candidate) => candidate.id === id);
     if (!connector) return problem(404, "no such connector");
     if (sub === "connect" && method === "POST") return this.connect({ ...body, id });

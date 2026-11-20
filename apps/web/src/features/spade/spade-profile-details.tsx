@@ -9,6 +9,7 @@ import { ProfileApps } from "./spade-bot-connectors.tsx";
 import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
 import { ProfileSpending } from "./spade-bot-oversight.tsx";
+import { ProfileReach } from "./spade-bot-reach.tsx";
 import { ProfilePlugins } from "./spade-bot-plugins.tsx";
 import { ProfileSecurity } from "./spade-bot-security.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
@@ -66,6 +67,7 @@ export function ProfileDetails(props: { bot: RosterBot }) {
       <ProfilePlugins bot={bot} />
       <ProfileSecurity bot={bot} />
       <ProfileSpending bot={bot} />
+      <ProfileReach bot={bot} />
       <Foot bot={bot} />
     </>
   );
