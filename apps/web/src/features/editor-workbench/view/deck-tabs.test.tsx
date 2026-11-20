@@ -138,6 +138,21 @@ test("closing a non-last group's last tab removes the group and focuses its neig
   expect(last?.focused).toBe("g0");
 });
 
+const caret = (line: number): EditorStatus => ({
+  line,
+  column: 1,
+  selections: 1,
+  selectedCharacters: 0,
+  selectedLines: 0,
+  indent: { tabs: false, size: 2 },
+  lineEnding: "\n",
+  encoding: "UTF-8",
+  language: undefined,
+  languageChosen: false,
+  whitespace: false,
+  readOnly: false,
+});
+
 test("a caret move redraws the status line without redrawing any tab strip", async () => {
   let report: ((status: EditorStatus) => void) | undefined;
   let tabRenders = 0;
@@ -152,20 +167,6 @@ test("a caret move redraws the status line without redrawing any tab strip", asy
         return null;
       },
     },
-  });
-  const caret = (line: number): EditorStatus => ({
-    line,
-    column: 1,
-    selections: 1,
-    selectedCharacters: 0,
-    selectedLines: 0,
-    indent: { tabs: false, size: 2 },
-    lineEnding: "\n",
-    encoding: "UTF-8",
-    language: undefined,
-    languageChosen: false,
-    whitespace: false,
-    readOnly: false,
   });
   act(() => report?.(caret(3)));
   tabRenders = 0;

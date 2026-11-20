@@ -9,13 +9,15 @@ import { settleExplorerAsk, useExplorerAsk } from "@/lib/workspace/index.ts";
  */
 export function useCompactExplorer(thread: string, width: number, initiallyShown: boolean) {
   const [shown, setShown] = useState(initiallyShown);
+  const [taken, setTaken] = useState<number | undefined>(undefined);
   const ask = useExplorerAsk(thread);
   const measured = width > 0;
-  const compact = measured && width < compactBelowPx;
+  if (ask !== undefined && measured && ask !== taken) {
+    setTaken(ask);
+    if (width < compactBelowPx) setShown(true);
+  }
   useEffect(() => {
-    if (ask === undefined || !measured) return;
-    if (compact) setShown(true);
-    settleExplorerAsk(thread, ask);
-  }, [ask, measured, compact, thread]);
+    if (taken !== undefined) settleExplorerAsk(thread, taken);
+  }, [thread, taken]);
   return { shown, setShown };
 }
