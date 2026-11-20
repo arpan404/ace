@@ -96,11 +96,9 @@ export function isModelConfig(
 export const AcpSession = z
   .object({
     configOptions: z.array(ConfigOption).max(64).optional(),
+    // The legacy model list is read by @ace/agent-registry's listedModels, entry by entry.
     models: z
-      .object({
-        currentModelId: id,
-        availableModels: z.array(z.object({ modelId: id, name: id }).passthrough()).max(512),
-      })
+      .object({ availableModels: z.array(z.unknown()) })
       .passthrough()
       .optional(),
   })

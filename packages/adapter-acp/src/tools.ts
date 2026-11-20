@@ -39,8 +39,10 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
     search: "search",
     fetch: "web.fetch",
   };
+  const mcp = object(object(update["_meta"])["mcp"]);
   let kind =
     quirks.toolKind(update) ??
+    (typeof mcp["server"] === "string" && typeof mcp["tool"] === "string" ? "mcp" : undefined) ??
     (Object.hasOwn(mapping, string(update["kind"]))
       ? (mapping[string(update["kind"])] ?? "custom")
       : "custom");
@@ -59,14 +61,19 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
     case "shell":
       return {
         kind,
-        command: string(input["command"] ?? input["CommandLine"] ?? input["commandLine"]),
-        ...(typeof input["Cwd"] === "string" ? { cwd: input["Cwd"] } : {}),
+        command: firstString(input, ["command", "CommandLine", "commandLine", "command_line"]),
+        ...(firstString(input, cwdFields) ? { cwd: firstString(input, cwdFields) } : {}),
         ...(typeof output["exitCode"] === "number" && Number.isInteger(output["exitCode"])
           ? { exitCode: output["exitCode"] }
           : {}),
       };
     case "file.read":
-      return { kind, path: string(input["path"] ?? input["TargetFile"] ?? input["file_path"]) };
+      return {
+        kind,
+        path:
+          firstString(input, ["path", "TargetFile", "file_path"]) ||
+          string(object(list(update["locations"])[0])["path"]),
+      };
     case "file.edit":
     case "file.write":
     case "file.delete":
@@ -85,12 +92,13 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
     case "web.fetch":
       return { kind, url: string(input["url"] ?? input["Url"]) };
     case "mcp": {
-      const meta = object(object(update["_meta"])["mcp"]);
+      // The call's MCP metadata names it; only a recognized envelope's fields stand in for it.
+      const envelope = mcpEnvelope(input);
       return {
         kind,
-        server: string(input["providerIdentifier"] ?? meta["server"]),
-        tool: string(input["toolName"] ?? meta["tool"]),
-        arguments: input["args"] ?? input,
+        server: string(mcp["server"]) || string(envelope?.["providerIdentifier"]),
+        tool: string(mcp["tool"]) || string(envelope?.["toolName"]),
+        arguments: mcpArguments(input),
       };
     }
     case "agent.spawn":
@@ -109,6 +117,66 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
   }
 }
 
+const cwdFields = ["Cwd", "cwd", "working_dir", "workingDir"];
+function firstString(input: Data, keys: readonly string[]): string {
+  for (const key of keys) if (typeof input[key] === "string") return input[key];
+  return "";
+}
+
+const envelopeFields = new Set(["providerIdentifier", "toolName", "args", "arguments"]);
+/**
+ * The envelope some agents wrap an MCP call in (`{providerIdentifier, toolName, arguments}`, or
+ * a lone `args`/`arguments`), else undefined: a call whose own parameters merely include one of
+ * these names is not an envelope.
+ */
+function mcpEnvelope(input: Data): Data | undefined {
+  const keys = Object.keys(input).filter((key) => key !== "_toolName");
+  if (!keys.length || !keys.every((key) => envelopeFields.has(key))) return undefined;
+  const wrapped = keys.includes("args") || keys.includes("arguments");
+  const named =
+    typeof input["providerIdentifier"] === "string" || typeof input["toolName"] === "string";
+  return wrapped || named ? input : undefined;
+}
+
+/** MCP call arguments: unwrapped from a recognized envelope, else the input as sent. */
+export function mcpArguments(input: Data): unknown {
+  const envelope = mcpEnvelope(input);
+  if (!envelope) return input;
+  if (Object.hasOwn(envelope, "args")) return envelope["args"];
+  const wrapped = envelope["arguments"];
+  if (wrapped !== null && typeof wrapped === "object" && !Array.isArray(wrapped)) return wrapped;
+  return Object.hasOwn(envelope, "arguments") ? input : {};
+}
+
+/** The failure text a terminal update carries: a bare string result or its `error` field. */
+export function toolError(update: Data): string | undefined {
+  const output = update["rawOutput"];
+  const error = typeof output === "string" ? output : object(output)["error"];
+  const text = typeof error === "string" ? error : string(object(error)["message"]);
+  return text.trim() ? text.slice(0, errorLimit) : undefined;
+}
+const errorLimit = 16 * 1024;
+
+/** Agents title some calls with a running label ("Running view_file") that outlives the call. */
+export function toolTitle(data: Data, detail: ToolDetailDraft): string {
+  const title = string(data["title"]);
+  if (detail.kind === "file.read" && detail.path && (!title || /^Running [\w.-]+$/.test(title)))
+    return `Read ${displaySafe(detail.path)}`;
+  return title;
+}
+/**
+ * Text ace writes into a generated title, with line breaks, other controls and bidirectional
+ * overrides shown as escapes, so a crafted path cannot fake or hide part of the title. The
+ * original stays in the tool's detail.
+ */
+function displaySafe(text: string): string {
+  return text.replace(
+    // oxlint-disable-next-line no-control-regex -- matching controls is the point
+    /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+    (char) => `\\u{${(char.codePointAt(0) ?? 0).toString(16)}}`,
+  );
+}
+
 export function todos(value: unknown): TodoEntry[] {
   return list(value).flatMap((entry) => {
     const parsed = TodoEntry.safeParse(entry);
@@ -118,7 +186,16 @@ export function todos(value: unknown): TodoEntry[] {
 
 /** Carry interpreted fields between partial refreshes; opaque history belongs to the raw collector. */
 export function mergeToolData(data: Data, update: Data): void {
-  for (const field of ["kind", "title", "name", "rawInput", "rawOutput", "content", "_meta"]) {
+  for (const field of [
+    "kind",
+    "title",
+    "name",
+    "rawInput",
+    "rawOutput",
+    "content",
+    "_meta",
+    "locations",
+  ]) {
     if (!Object.hasOwn(update, field)) continue;
     const value = update[field];
     if (["name", "title", "kind"].includes(field) && typeof value !== "string") continue;
@@ -149,7 +226,11 @@ const inputFields = [
   "command",
   "CommandLine",
   "commandLine",
+  "command_line",
   "Cwd",
+  "cwd",
+  "working_dir",
+  "workingDir",
   "path",
   "TargetFile",
   "file_path",
@@ -162,6 +243,7 @@ const inputFields = [
   "providerIdentifier",
   "toolName",
   "args",
+  "arguments",
   "description",
   "prompt",
   "subagentType",

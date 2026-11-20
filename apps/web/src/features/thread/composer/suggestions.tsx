@@ -1,7 +1,8 @@
 import { commandSuggestions, mentionSuggestions } from "@ace/ui-core";
 import { useMentionTabs, type MentionTab } from "@/features/panels/index.ts";
 import { useConnectionGeneration, useConnectionState, useSidebarIndex } from "@ace/client-react";
-import type { CatalogEntry, ThreadListEntry } from "@ace/protocol";
+import type { Addressee, CatalogEntry, DeviceContextItem, ThreadListEntry } from "@ace/protocol";
+import { mentionRows, useMentionSources, type MentionPicture } from "../mentions/index.ts";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
@@ -20,10 +21,23 @@ export interface Suggestion {
   entry?: CatalogEntry | undefined;
   /** A name inserted as plain text (a Spade group's member), never a reference chip. */
   plain?: boolean | undefined;
+  /** A bot, club or another thread's agent the message also goes to (ADR 0198). */
+  addressee?: Addressee | undefined;
+  /** A device the message names for the work (ADR 0198). */
+  device?: DeviceContextItem | undefined;
+  /** What the row and its chip show beside the name. */
+  picture?: MentionPicture | undefined;
 }
 export type Suggestions = (
   | { state: "closed" }
-  | { state: "ready"; kind: Trigger["kind"]; items: readonly Suggestion[]; refreshing?: boolean }
+  | {
+      state: "ready";
+      kind: Trigger["kind"];
+      items: readonly Suggestion[];
+      refreshing?: boolean;
+      /** The row to highlight first: the best match, wherever it sits. */
+      best?: number;
+    }
   | { state: "loading" | "empty"; kind: Trigger["kind"]; query: string }
   | { state: "failed"; kind: Trigger["kind"]; query: string; retry(): void }
 ) & {
@@ -80,6 +94,11 @@ export function useSuggestions(
   const threads = useSidebarIndex(threadReference, sameThread) ?? [];
   const { id, provider, instanceId, workspaceId, draft } = thread;
   const tabs = useMentionTabs(draft ? undefined : id, trigger?.kind === "mention");
+  const mentionSources = useMentionSources({
+    open: trigger?.kind === "mention" && !draft,
+    threadId: id,
+    workspaceId,
+  });
   const [revision, setRevision] = useState(0);
   const reference = useMemo(
     () => ({ id, provider, instanceId, workspaceId, draft, revision }),
@@ -155,20 +174,34 @@ export function useSuggestions(
   const { kind, query } = trigger;
   if (!scoped || !ready) return { state: "loading", kind, query };
   let items: Suggestion[];
+  let best = 0;
   if (kind === "mention") {
     // An answer that has not recorded its deadline yet is the first of its wait.
     const building = waiting && (since === undefined || indexStillBuilding(mentions.data, since));
     const failing = mentions.isError || mentions.isRefetchError;
-    items = mentionSuggestions({
+    const listed = mentionRows({
       query,
-      recent: query ? [] : recent(),
-      paths: building ? [] : (mentions.data?.paths ?? []),
-      tabs,
-      threads,
-      threadId: thread.id,
-      workspaceId: thread.workspaceId,
-    }).map((item) =>
-      Object.assign(item, { kind, insert: item.path ? `@${item.path}` : `@${item.label}` }),
+      sources: mentionSources,
+      entries: known ?? [],
+      base: mentionSuggestions({
+        query,
+        recent: query ? [] : recent(),
+        paths: building ? [] : (mentions.data?.paths ?? []),
+        tabs,
+        threads,
+        threadId: thread.id,
+        workspaceId: thread.workspaceId,
+      }),
+    });
+    best = listed.best;
+    items = listed.rows.map((item) =>
+      Object.assign(item, {
+        kind,
+        insert: item.path ? `@${item.path}` : `@${item.label}`,
+        picture: item.tab?.favicon
+          ? { kind: "tab" as const, favicon: item.tab.favicon }
+          : item.picture,
+      }),
     );
     // A failed read is retryable even while a cached answer still says the index is building.
     if (!items.length && failing) return { state: "failed", kind, query, retry: retryMentions };
@@ -189,6 +222,12 @@ export function useSuggestions(
     if (!items.length && catalog.stale) return { state: "loading", kind, query };
   }
   return items.length
-    ? { state: "ready", kind, items, refreshing: kind === "command" && catalog?.stale === true }
+    ? {
+        state: "ready",
+        kind,
+        items,
+        best,
+        refreshing: kind === "command" && catalog?.stale === true,
+      }
     : { state: "empty", kind, query, entries: known };
 }

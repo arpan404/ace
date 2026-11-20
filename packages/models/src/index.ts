@@ -1,6 +1,6 @@
 export { ModelCatalog, type CatalogOptions } from "./catalog.ts";
 export { openModelStorage } from "./storage.ts";
-export { createModelDiscovery, type DiscoveryOptions } from "./discover.ts";
+export { createModelDiscovery, type AcpProbeLaunch, type DiscoveryOptions } from "./discover.ts";
 export {
   normalizeCodex,
   normalizeClaude,

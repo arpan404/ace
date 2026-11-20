@@ -115,3 +115,61 @@ test("add by command is offered but never binds, as the web does against a daemo
     SettingsManageRequest.parse({ type: "acp.manual.add", name: "Mine", command: "fake-acp" }),
   ).toThrow();
 });
+
+test("an agent that updated itself waits above the registry until the person approves it on the phone", async () => {
+  const { ask, daemon } = await open();
+  const registry = daemon.services.registry;
+  const identity = {
+    acpAgentId: "local:kiro",
+    installationId: "kiro-1",
+    instanceId: "kiro-1:default",
+  };
+  registry.installations.push({
+    ...identity,
+    version: "1.0.0",
+    profileRevision: "generic-v1",
+    source: "user-local",
+    evidence: "user_local_binding",
+  });
+  const update = (executableDigest: string) => ({
+    ...identity,
+    changed: ["native_cli" as const],
+    executableDigest,
+    bridgeDigest: "d".repeat(64),
+    previousExecutableDigest: "a".repeat(64),
+    previousBridgeDigest: "b".repeat(64),
+    generation: 0,
+    observedAt: 1,
+  });
+  registry.updates = [update("c".repeat(64))];
+  const listed = await ask({ type: "acp.registry", query: "" });
+  expect(listed.screen.updates).toEqual([
+    {
+      installationId: "kiro-1",
+      approval: expect.any(String),
+      title: expect.stringMatching(/changed$/),
+      detail: "The CLI it drives was updated. ace won't run it until you approve.",
+    },
+  ]);
+  const shown = listed.screen.updates[0].approval;
+  // It changes again after the phone drew the row: the tap approves what it showed, so the
+  // daemon refuses it rather than approve the new files unseen.
+  registry.updates = [update("e".repeat(64))];
+  expect(await ask({ type: "acp.registry.approve-update", approval: shown })).toEqual({
+    ok: false,
+    problem: "It changed again since you looked. Check it and approve again.",
+  });
+  expect(
+    registry.installations.find((entry) => entry.installationId === "kiro-1")?.approvals,
+  ).toBeUndefined();
+  const again = (await ask({ type: "acp.registry", query: "" })).screen.updates[0].approval;
+  const approved = await ask({ type: "acp.registry.approve-update", approval: again });
+  expect(approved).toMatchObject({ ok: true, screen: { updates: [] } });
+  expect(
+    registry.installations.find((entry) => entry.installationId === "kiro-1")?.approvals,
+  ).toHaveLength(1);
+  expect(await ask({ type: "acp.registry.approve-update", approval: again })).toEqual({
+    ok: false,
+    problem: "This update is already approved.",
+  });
+});

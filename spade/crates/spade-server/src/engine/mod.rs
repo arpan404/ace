@@ -29,12 +29,16 @@ mod jobs;
 mod judge;
 mod knowledge;
 mod knowledge_api;
+mod learned;
 mod ledger;
+mod local;
 pub(crate) use ledger::Admission;
+mod made;
 mod maintenance;
 mod media;
 mod memory;
 mod moves;
+pub mod onboarding;
 mod outbox;
 mod oversight;
 mod park;
@@ -49,8 +53,10 @@ mod routines;
 mod routing;
 mod search;
 mod security;
+mod self_edit;
 mod services;
 mod speech;
+mod thread_asks;
 mod trim;
 mod try_again;
 mod turn;
@@ -75,14 +81,18 @@ pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use knowledge::{KnowledgeCall, KnowledgeError, entry_json};
 pub use knowledge_api::KnowledgeInput;
+pub use learned::{Forgotten, Learned};
+pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
 pub use reach::ReachError;
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
+pub use thread_asks::FROM_ACE;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
 
+pub use made::Undone;
 pub use moves::{AcceptFor, HostRecord, HostRefused, MoveError};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
@@ -243,6 +253,8 @@ pub struct Engine {
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
     /// Bots' sandbox, network policies and grants (ADR 0167), once the server has set them.
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
+    /// The local model servers Spade looks for; Ollama's and LM Studio's defaults when unset.
+    local_servers: Mutex<Option<Vec<crate::local_models::LocalServer>>>,
     /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
@@ -297,7 +309,11 @@ impl Engine {
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
             .with_tool(Arc::new(BotMessage(handle.clone())))
-            .with_tool(Arc::new(HelperTool(handle.clone())));
+            .with_tool(Arc::new(HelperTool(handle.clone())))
+            // A bot's own task, name and face.
+            .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ProfileUpdate(handle.clone())))
+            .with_tool(Arc::new(crate::tools::ClubAdd(handle.clone())));
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -361,6 +377,7 @@ impl Engine {
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
+            local_servers: Mutex::new(None),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
             reach: reach::Shared::default(),

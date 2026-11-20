@@ -1,4 +1,5 @@
 import type { SpadeCallState, SpadeReplyEntry, SpadeReplyPart } from "./fold.ts";
+import { spadeCantUndo, spadeTurnUndo, spadeUndoable, type SpadeTurnUndo } from "./undo.ts";
 import { spadeToolWords } from "./words.ts";
 
 /*
@@ -23,6 +24,10 @@ export interface SpadeStep {
   blocked: readonly string[];
   /** It shows under the folded line without opening it. */
   notable: boolean;
+  /** The step's position, when undo can put back what it changed in the bot's files. */
+  undoFrom: number | undefined;
+  /** Why it can't be undone (a send, a push, a payment, an app it changed), said plainly. */
+  cantUndo: string | undefined;
 }
 
 export interface SpadeSteps {
@@ -30,6 +35,8 @@ export interface SpadeSteps {
   summary: string;
   /** Every finished step, in the order taken. */
   steps: readonly SpadeStep[];
+  /** Undoing the whole turn, when any of its steps can be undone. */
+  undo: SpadeTurnUndo | undefined;
 }
 
 /**
@@ -46,6 +53,11 @@ const shownElsewhere = new Set([
   "memory_forget",
   "image_generate",
   "share_file",
+  // A bot changing its own task, name or face: its own quiet line (`task-changed`, `named`).
+  "task_update",
+  "profile_update",
+  // A bot made for the person, or added to a club: their own lines (`made`, `club-added`).
+  "club_add",
 ]);
 
 /** A call that has finished one way or another; one still going is the working line's. */
@@ -68,7 +80,8 @@ export function spadeReplySteps(entry: SpadeReplyEntry): SpadeSteps | undefined 
     steps.push(stepOf(part, answers.get(part.key)));
   }
   if (!steps.length) return undefined;
-  return { summary: spadeStepsSummary(steps), steps };
+  const undo = spadeTurnUndo(entry.parts, (part) => spadeToolWords(part.name).done);
+  return { summary: spadeStepsSummary(steps), steps, undo };
 }
 
 /**
@@ -101,13 +114,17 @@ function stepOf(part: CallPart, answer: "allowed" | "denied" | undefined): Spade
   const blocked = (command?.refused ?? []).map(
     (refused) => `Blocked ${refused.host}${because(refused.host, refused.reason)}`,
   );
+  const cantUndo = spadeCantUndo(part);
   return {
     key: part.key,
     line: ran ? words.done : `Didn't ${words.base}`,
     detail: part.detail,
     meta,
     blocked,
+    undoFrom: spadeUndoable(part) ? part.logged : undefined,
+    cantUndo,
     notable:
+      cantUndo !== undefined ||
       blocked.length > 0 ||
       part.state === "refused" ||
       part.state === "declined" ||

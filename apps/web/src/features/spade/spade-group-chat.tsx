@@ -8,6 +8,7 @@ import {
 import { memo } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { FromThreadLine } from "./from-thread-line.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, mineBubble } from "./spade-bubble-style.ts";
@@ -116,6 +117,7 @@ const Row = memo(function Row(props: {
           aria-busy={row.sending || undefined}
           className={cn("flex flex-col items-end", row.sending && "opacity-70", space)}
         >
+          {row.fromThread && <FromThreadLine thread={row.fromThread} />}
           <div {...part("spade-message", undefined, "user")} className={mineBubble}>
             <SpadeBubbleText text={row.text} side="mine" />
           </div>

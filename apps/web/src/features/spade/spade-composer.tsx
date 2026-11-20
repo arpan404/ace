@@ -10,6 +10,7 @@ import {
   type ComposerHandle,
   type Draft,
   useStopKey,
+  type MentionMember,
 } from "@/features/thread/index.ts";
 import { prepareSpadeFiles, type SpadeMessage } from "./spade-attachments.ts";
 import { MicButton, TalkLine, useSpadeVoice, VoiceButton, VoiceStrip } from "./spade-mic.tsx";
@@ -50,13 +51,15 @@ export function SpadeComposer(props: {
   stopping?: boolean | undefined;
   /** Words to start with, one tap each ("Ask Inbox"), shown above the composer. */
   chips?: readonly { label: string; text: string; face: ReactNode }[] | undefined;
-  /** Names `@` offers (a group's members), inserted as plain text. */
-  mentionNames?: readonly string[] | undefined;
+  /** Names `@` offers (a group's members), inserted as plain text, with their faces. */
+  mentionNames?: readonly MentionMember[] | undefined;
   /**
    * What the next message answers (a decision the person wants changed): above the field, and
    * quoted before their words when it goes.
    */
   quote?: { text: string; onRemove(): void } | undefined;
+  /** What sits under the capsule: a new bot's templates and its More settings. */
+  below?: ReactNode;
   send(message: SpadeMessage): Promise<void>;
   /** A message the person spoke is going: its reply is read aloud. */
   onSpoken?: (() => void) | undefined;
@@ -146,7 +149,13 @@ export function SpadeComposer(props: {
       const recording = text ? voice.voice : undefined;
       // Words the person spoke are answered aloud.
       if (recording) props.onSpoken?.();
-      await props.send({ text, images, documents, voice: recording });
+      await props.send({
+        text,
+        images,
+        documents,
+        voice: recording,
+        ...(draft.devices?.length ? { devices: draft.devices } : {}),
+      });
       if (quoted && words) props.quote?.onRemove();
       draft.files.release();
       if (recording) voice.remove();
@@ -248,6 +257,7 @@ export function SpadeComposer(props: {
           }
           onSubmit={submit}
         />
+        {props.below}
       </div>
     </ComposerDock>
   );

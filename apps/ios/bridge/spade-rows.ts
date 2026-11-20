@@ -128,6 +128,8 @@ export function spadeDetailText(detail: SpadeRequestDetail | undefined): string 
       return [detail.to && `To ${detail.to}`, detail.subject].filter(Boolean).join(" · ") || null;
     case "message":
       return `To ${detail.to}: ${detail.text}`;
+    case "task":
+      return detail.after;
     case "fields":
       return detail.fields.map((field) => `${field.label}: ${field.value}`).join("\n") || null;
   }
@@ -186,6 +188,9 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
       return { kind: "note", text: spadeQuietLine(bubble.quiet).label };
     case "remembered":
       return { kind: "note", text: `Remembered: ${bubble.note.text}` };
+    // The iPhone doesn't show which notes a reply had in mind yet.
+    case "recalled":
+      return undefined;
     case "files":
       return { kind: "note", text: bubble.paths.join(", ") };
     case "question":

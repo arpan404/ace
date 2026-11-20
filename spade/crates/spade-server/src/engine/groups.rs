@@ -13,7 +13,7 @@ use super::roster::{self, State};
 
 /// Members a group has at least and at most, the lead counted.
 pub const FEWEST_MEMBERS: usize = 2;
-pub const MOST_MEMBERS: usize = 8;
+pub use spade_core::group::MOST_MEMBERS;
 /// A group's name, in characters.
 pub const GROUP_NAME_CHARS: usize = 60;
 

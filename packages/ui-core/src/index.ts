@@ -267,8 +267,13 @@ export * from "./fork-point.ts";
 export * from "./continuation.ts";
 export * from "./edit-point.ts";
 export * from "./resend.ts";
+export * from "./mention-picker.ts";
+export * from "./mention-marks.ts";
+export { sharesLine, sharesWords, sharedTurns, type ShareFacts } from "./mention-shares.ts";
 export * from "./tex-text.ts";
 export {
+  addresseesOf,
+  devicesOf,
   composerInput,
   editComposerTokens,
   inputWithText,

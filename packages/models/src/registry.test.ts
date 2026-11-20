@@ -31,12 +31,14 @@ const instance = (
   });
 test("generic model listing and explicit refresh never launch a metadata session or a process", async () => {
   const config = instance("one");
-  const rows = await createModelDiscovery({
-    spawn() {
-      throw new Error("Generic discovery must not execute");
-    },
-  })(config, new AbortController().signal);
-  expect(rows).toEqual([]);
+  // Without a probe launch, and a row that allows no probe, nothing is started.
+  await expect(
+    createModelDiscovery({
+      spawn() {
+        throw new Error("Generic discovery must not execute");
+      },
+    })(config, new AbortController().signal),
+  ).rejects.toThrow("ACP model probe unavailable");
   const catalog = new ModelCatalog({
     instances: [config],
     storage: { load: () => [], replace() {}, remove() {}, close() {} },
@@ -185,7 +187,7 @@ test("shutdown leaves storage open until an admitted session write finishes", as
   expect(closed).toBe(true);
 });
 
-test("generic catalogs do not offer unprofiled legacy setters or infer capacity from option names", async () => {
+test("generic catalogs list an unprofiled agent's legacy models and infer no capacity from option names", async () => {
   const config = instance("one");
   const catalog = new ModelCatalog({
     instances: [config],
@@ -201,7 +203,9 @@ test("generic catalogs do not offer unprofiled legacy setters or infer capacity 
         availableModels: [{ modelId: "legacy", name: "Legacy" }],
       },
     });
-    expect(catalog.list().models).toEqual([]);
+    expect(catalog.list().models.map((row) => [row.id, row.selectorMethod, row.isDefault])).toEqual(
+      [["legacy", "session/set_model", true]],
+    );
     await catalog.updateFromSession(config, {
       configOptions: [
         ...metadata("native").configOptions,
@@ -276,4 +280,52 @@ test("model catalog uses the same declared category and config ID as ACP selecti
     instance("one"),
   );
   expect(rows.map((row) => [row.id, row.modelConfigId])).toEqual([["chosen", "actual"]]);
+});
+
+const switchingSession = (current: string, levels: string[]) => ({
+  configOptions: [
+    {
+      id: "model",
+      category: "model",
+      type: "select",
+      currentValue: current,
+      options: [
+        { value: "flash", name: "Flash" },
+        { value: "pro", name: "Pro" },
+      ],
+    },
+    {
+      id: "thinking_level",
+      category: "thought_level",
+      type: "select",
+      currentValue: levels[0],
+      options: levels.map((value) => ({ value, name: value })),
+    },
+  ],
+});
+test("switching models in an Antigravity session keeps the thinking levels learned for the others", async () => {
+  const config = ModelInstance.parse({
+    id: "antigravity-cli-default",
+    provider: "antigravity",
+    loginRevision: "login-one",
+    executable: "/never-executed",
+    cwd: "/repo",
+  });
+  const catalog = new ModelCatalog({
+    instances: [config],
+    storage: { load: () => [], replace() {}, remove() {}, close() {} },
+    discover: async () => [],
+    now: () => 10,
+    deadline: () => () => {},
+  });
+  try {
+    await catalog.updateFromSession(config, switchingSession("pro", ["medium", "high"]));
+    await catalog.updateFromSession(config, switchingSession("flash", ["low", "high"]));
+    const levels = Object.fromEntries(
+      catalog.list().models.map((model) => [model.id, model.efforts.map((effort) => effort.id)]),
+    );
+    expect(levels).toEqual({ flash: ["low", "high"], pro: ["medium", "high"] });
+  } finally {
+    await catalog.close();
+  }
 });

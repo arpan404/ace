@@ -11,7 +11,7 @@ export function MessageReferences(props: { parts: readonly ContentPart[] }) {
       {segment.kind === "text" ? (
         segment.text
       ) : (
-        <MentionChip name={segment.name} kind={segment.mention} />
+        <MentionChip name={segment.name} kind={segment.mention} icon={segment.icon} />
       )}
     </Fragment>
   ));

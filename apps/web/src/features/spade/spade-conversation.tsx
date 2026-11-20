@@ -23,6 +23,7 @@ import {
 } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
+import { SpadeFirstRun } from "./spade-first-run.tsx";
 import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
 import { ConversationPill } from "./spade-pill.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
@@ -206,6 +207,7 @@ export function Conversation(props: {
           .map((other) => [other.id, other.avatar]),
       ),
       names: new Map(props.roster.map((other) => [other.id, other.name])),
+      task: bot.task,
     }),
     [bot, props.roster],
   );
@@ -238,6 +240,7 @@ export function Conversation(props: {
         ) : (
           <SpadeChat
             bot={chatBot}
+            profile={bot.kind === "main" ? undefined : bot}
             start={<ConversationStart avatar={bot.avatar} name={bot.name} task={bot.task} />}
             view={view}
             // While it uses its computer and Computer isn't showing, Watch opens it there.
@@ -318,6 +321,7 @@ export function Conversation(props: {
             }
           />
         )}
+        {bot.kind === "main" && view.loaded && line.ready && <SpadeFirstRun main={bot} />}
       </Scroller>
       <SpadeComposer
         name={bot.name}

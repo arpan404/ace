@@ -62,6 +62,7 @@ export function createAcpAdapter(
           env: { ...ctx.env, ...plan.env, ...ctx.agentEnv },
           version: plan.version,
           ...(plan.profile ? { profile: plan.profile } : {}),
+          ...(plan.profileFit ? { profileFit: plan.profileFit } : {}),
           ...signIn,
         });
       }

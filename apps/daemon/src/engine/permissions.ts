@@ -1,4 +1,4 @@
-import { reportedOrTable, stricterOffer } from "@ace/provider-kit/access-modes";
+import { nearestOffer, reportedOrTable } from "@ace/provider-kit/access-modes";
 import {
   AccessMode,
   PermissionPolicyIdentity,
@@ -50,6 +50,10 @@ export type PermissionSettings = (id: ThreadId) => Promise<AccessDefaults>;
 export interface ResolvedAccess {
   selection: AccessSelection | null;
   native: PermissionMode | null;
+  /** The ace mode asked for (the thread's own or the default), when one was resolved. */
+  wanted?: AccessMode;
+  /** The thread's choice revision this was resolved from (see `Permissions.revision`). */
+  revision: number;
 }
 export class AccessError extends Error {
   readonly code: CeilingRefusal["reason"] | "access_mode_unavailable";
@@ -75,6 +79,8 @@ export function nativeFor(
 /** Durable access ownership (ADR 0075): ace modes per thread, native selectors at the edge. */
 export class Permissions {
   private repo: EngineRepository;
+  /** Bumped by each accepted choice, so an acknowledgement can tell it is about an older one. */
+  private revisions = new Map<ThreadId, number>();
   constructor(repo: EngineRepository) {
     this.repo = repo;
     createPermissionTables(repo);
@@ -134,6 +140,42 @@ export class Permissions {
   }
   effective(id: ThreadId): AccessSelection | null {
     return this.read(id).effective;
+  }
+  /** The revision of the thread's own choice: it changes whenever a new choice is accepted. */
+  revision(id: ThreadId): number {
+    return this.revisions.get(id) ?? 0;
+  }
+  /** Whether `selection` is no broader than what this thread's ancestry allows now. */
+  within(id: ThreadId, selection: AccessSelection | null): boolean {
+    const provider = this.repo.requireState(id).config.provider;
+    try {
+      return this.contained(id, provider, selection, this.offers(id)) === selection;
+    } catch {
+      return false;
+    }
+  }
+  /** Every thread whose access is contained by `id`'s, nearest first (bounded like ancestry). */
+  descendants(id: ThreadId): ThreadId[] {
+    const found: ThreadId[] = [];
+    const seen = new Set<string>([id]);
+    let level: string[] = [id];
+    for (let depth = 0; level.length && depth < 64; depth++) {
+      const next: string[] = [];
+      for (const parent of level) {
+        const rows = this.repo.store.atomic((db) =>
+          db.prepare("SELECT thread_id FROM engine_permissions WHERE parent=?").all(parent),
+        );
+        for (const row of rows) {
+          const child = importThreadId.safeParse((row as { thread_id?: unknown }).thread_id);
+          if (!child.success || seen.has(child.data)) continue;
+          seen.add(child.data);
+          found.push(child.data);
+          next.push(child.data);
+        }
+      }
+      level = next;
+    }
+    return found;
   }
   state(id: ThreadId): PermissionState {
     return permissionState(this.read(id));
@@ -291,6 +333,7 @@ export class Permissions {
     this.repo.store.atomic((db) =>
       db.prepare("UPDATE engine_permissions SET override=? WHERE thread_id=?").run(access, id),
     );
+    this.revisions.set(id, this.revision(id) + 1);
     this.repo.store.appendEvents(
       id,
       [{ type: "thread.updated", permission: { ...this.state(id), pending: true } }],
@@ -300,8 +343,8 @@ export class Permissions {
   }
   /**
    * What the thread runs next: an Advanced native override, else its own mode, else the
-   * project's and daemon's default, stepped down to the nearest stricter mode the provider
-   * offers, then contained by its ancestry. A provider with no ace modes runs its default.
+   * project's and daemon's default, as the nearest mode the provider offers (stricter first,
+   * else looser), then contained by its ancestry. A provider with no ace modes runs its default.
    */
   async resolve(
     id: ThreadId,
@@ -310,6 +353,8 @@ export class Permissions {
   ): Promise<ResolvedAccess> {
     const provider = this.repo.requireState(id).config.provider;
     const defaults = (await settings?.(id)) ?? { access: "auto-review" as const };
+    // Read after the await: a choice accepted while the settings loaded is the one resolved.
+    const revision = this.revision(id);
     const thread = this.repo.store.getThread(id);
     const capabilities =
       nativeCapabilities ?? thread?.effectiveCapabilities ?? thread?.capabilities;
@@ -326,25 +371,28 @@ export class Permissions {
       const selection = this.contained(id, provider, readOnly.mode, offers);
       if (selection !== "read-only")
         throw new AccessError("access_mode_unavailable", "a Spade bot's session must be read-only");
-      return { selection, native: readOnly.native };
+      return { selection, native: readOnly.native, revision };
     }
     let selection: AccessSelection | null;
+    let wanted: AccessMode | undefined;
     if (defaults.custom && supportsPermissionMode(capabilities, defaults.custom))
       selection = customSelection(defaults.custom);
     else if (!offers.length) selection = null;
     else {
       const requested = AccessMode.safeParse(this.read(id).override);
-      const target = requested.success ? requested.data : defaults.access;
-      const offer = stricterOffer(target, offers);
+      wanted = requested.success ? requested.data : defaults.access;
+      const offer = nearestOffer(wanted, offers);
       if (!offer)
-        throw new AccessError(
-          "access_mode_unavailable",
-          `${provider} offers no mode as strict as ${target}; choose one of ${offers.map((o) => o.mode).join(", ")}`,
-        );
+        throw new AccessError("access_mode_unavailable", `${provider} offers no access mode`);
       selection = offer.mode;
     }
     selection = this.contained(id, provider, selection, offers);
-    return { selection, native: nativeFor(selection, offers) };
+    return {
+      selection,
+      native: nativeFor(selection, offers),
+      revision,
+      ...(wanted ? { wanted } : {}),
+    };
   }
   applied(id: ThreadId, selection: AccessSelection | null, at: number): void {
     const provider = this.repo.requireState(id).config.provider;
@@ -360,6 +408,77 @@ export class Permissions {
         at,
       );
     });
+  }
+  /**
+   * What the live session reports running, recorded exactly, even when its ancestry no longer
+   * allows it: the caller brings it back within, and until then the thread doesn't claim less.
+   */
+  observed(id: ThreadId, selection: AccessSelection | null, at: number): void {
+    this.ensure(id);
+    this.repo.store.atomic(() => {
+      this.repo.store.atomic((db) =>
+        db
+          .prepare("UPDATE engine_permissions SET effective=? WHERE thread_id=?")
+          .run(selection, id),
+      );
+      this.repo.store.appendEvents(
+        id,
+        [{ type: "thread.updated", permission: this.state(id) }],
+        at,
+      );
+    });
+  }
+  /**
+   * The agent switched its own mode, within what its ancestry allows: that is now the thread's
+   * mode, its choice included, so it neither reads as pending nor reverts at the next open.
+   */
+  adopted(id: ThreadId, selection: AccessSelection | null, at: number): void {
+    const mode = AccessMode.safeParse(selection);
+    this.ensure(id);
+    this.repo.store.atomic(() => {
+      this.repo.store.atomic((db) =>
+        db
+          .prepare("UPDATE engine_permissions SET override=?, effective=? WHERE thread_id=?")
+          .run(mode.success ? mode.data : null, selection, id),
+      );
+      this.revisions.set(id, this.revision(id) + 1);
+      this.repo.store.appendEvents(
+        id,
+        [{ type: "thread.updated", permission: this.state(id) }],
+        at,
+      );
+    });
+  }
+  /**
+   * The thread's own choice when the session it just opened runs something else, because the
+   * instance doesn't offer that mode. The choice is replaced by what runs, so it never reads as
+   * pending forever; the caller tells the person. Undefined when the choice runs as asked, or
+   * when a Custom native from settings is what runs instead, or when the choice changed since
+   * `revision` (the newer one is still on its way and is never rewritten).
+   */
+  unhonoured(
+    id: ThreadId,
+    running: AccessSelection | null,
+    at: number,
+    revision: number,
+  ): AccessMode | undefined {
+    if (revision !== this.revision(id)) return undefined;
+    const requested = AccessMode.safeParse(this.read(id).override);
+    if (!requested.success || requested.data === running || customNative(running)) return undefined;
+    const kept = AccessMode.safeParse(running);
+    this.repo.store.atomic(() => {
+      this.repo.store.atomic((db) =>
+        db
+          .prepare("UPDATE engine_permissions SET override=? WHERE thread_id=?")
+          .run(kept.success ? kept.data : null, id),
+      );
+      this.repo.store.appendEvents(
+        id,
+        [{ type: "thread.updated", permission: this.state(id) }],
+        at,
+      );
+    });
+    return requested.data;
   }
   /** A provider acknowledged a native selector (Codex reports each turn's). */
   appliedNative(
@@ -377,6 +496,28 @@ export class Permissions {
     const provider = this.repo.requireState(id).config.provider;
     if (this.contained(id, provider, selection, this.offers(id)) !== selection)
       throw new Error("permission_ceiling_unverifiable");
+  }
+  /**
+   * A native mode asked for by name (`thread.mode.set`) is the ace mode the instance maps it to,
+   * checked and applied exactly like `thread.permission.set`. A native mode ace has no mode for
+   * can't be ranked against a parent or tracked, so it is refused; Advanced settings set those.
+   */
+  acceptNative(
+    command: Command,
+    capabilities: Capabilities,
+    at: number,
+  ): CommandResult | undefined {
+    const p = command.payload;
+    if (p.type !== "thread.mode.set") return undefined;
+    const state = this.repo.state(p.threadId);
+    if (!state) return { commandId: command.id, ok: false, error: "thread_not_found" };
+    const offer = offersOf(state.config.provider, capabilities).find(
+      (entry) => entry.native === p.mode,
+    );
+    const error = offer
+      ? this.set(p.threadId, offer.mode, capabilities, at)
+      : "permission_mode_unsupported";
+    return { commandId: command.id, ok: !error, ...(error ? { error } : {}), threadId: p.threadId };
   }
   accept(command: Command, capabilities: Capabilities, at: number): CommandResult | undefined {
     const p = command.payload;

@@ -8,7 +8,11 @@ use serde_json::{Value, json};
 use spade_core::Transcript;
 use spade_core::event::{Event, Known};
 use spade_core::memory::{self, MOST_NOTES, RECALLED, Source};
+use spade_core::provenance::Origin;
 use spade_store::{NewNote, Notes, Saved, StoreError, StoredNote, Updated};
+
+/// How far back a note's origin looks for the person's message its turn answered.
+const ORIGIN_LOOKBACK: usize = 400;
 
 use super::Engine;
 use crate::tools::ToolOutput;
@@ -94,6 +98,7 @@ pub(super) fn with_recall(engine: &Engine, id: &str, event: Event) -> Event {
         from_agent: None,
         from_routine,
         from_group: None,
+        from_thread,
     }) = event
     else {
         return event;
@@ -111,6 +116,7 @@ pub(super) fn with_recall(engine: &Engine, id: &str, event: Event) -> Event {
         from_agent: None,
         from_routine,
         from_group: None,
+        from_thread,
     })
 }
 
@@ -190,6 +196,12 @@ pub(super) fn keep_extracted(engine: &Engine, id: &str, notes: &[String], untrus
             engine.save(Some(&agent.id), text, Source::Compaction)
         };
         match saved {
+            Ok(Saved::New(note)) => {
+                let origin = Origin::conversation(id, None, None, Vec::new());
+                if let Err(error) = engine.store.set_note_origin(&note.id, &origin) {
+                    tracing::warn!(%error, "a compaction note's origin wasn't kept");
+                }
+            }
             Ok(_) | Err(NoteError::Invalid) => {}
             Err(error) => {
                 tracing::warn!(%error, "could not keep a note from compaction");
@@ -276,6 +288,22 @@ impl Engine {
         }
     }
 
+    /// A note an import brings (a recipe's, a bot file's), kept as the person's but remembered
+    /// as coming from `what`, so it can be forgotten with everything else from there.
+    pub fn import_note(
+        &self,
+        scope: &NoteScope,
+        text: &str,
+        what: &str,
+    ) -> Result<(StoredNote, bool), NoteError> {
+        let (note, new) = self.add_note(scope, text)?;
+        if new {
+            self.store
+                .set_note_origin(&note.id, &Origin::imported(what))?;
+        }
+        Ok((note, new))
+    }
+
     /// The person rewrites a note. With `expected` (the `updated_at` the edit started from), a
     /// note changed since is left as it is: [`NoteError::Moved`].
     pub fn change_note(
@@ -337,14 +365,30 @@ impl Engine {
         Ok(self.store.save_note(new, memory::same, MOST_NOTES)?)
     }
 
+    /// Where a note or entry written now in `caller` comes from: the conversation (a helper's
+    /// counts as its bot's), the person's message the turn answers, the call, and the untrusted
+    /// content in view.
+    pub(crate) fn origin_of(&self, caller: &str, turn: &crate::tools::TurnFacts) -> Origin {
+        let message = self
+            .store
+            .last_person_message(caller, ORIGIN_LOOKBACK)
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, "the message a note answers couldn't be read");
+                None
+            });
+        Origin::conversation(caller, message, turn.call.as_deref(), turn.in_view.clone())
+    }
+
     /// Runs a memory tool for the bot whose conversation is `caller`.
     pub(crate) fn memory_call(
         &self,
         caller: &str,
         call: MemoryCall,
         arguments: &Value,
-        suggest: bool,
+        turn: &crate::tools::TurnFacts,
     ) -> ToolOutput {
+        let suggest = turn.memory_suggests;
+        let origin = self.origin_of(caller, turn);
         let agent = match self.store.agent_for_conversation(caller) {
             Ok(Some(agent)) => agent,
             Ok(None) => return ToolOutput::error("This conversation has no bot."),
@@ -352,11 +396,11 @@ impl Engine {
         };
         let text = |key: &str| arguments.get(key).and_then(Value::as_str).unwrap_or("");
         let result = match call {
-            MemoryCall::Save if suggest => self.tool_suggest(&agent.id, text("text")),
+            MemoryCall::Save if suggest => self.tool_suggest(&agent.id, text("text"), &origin),
             MemoryCall::Update if suggest => self
                 .visible_note(&agent.id, text("id"))
-                .and_then(|_| self.tool_suggest(&agent.id, text("text"))),
-            MemoryCall::Save => self.tool_save(&agent.id, text("text"), arguments),
+                .and_then(|_| self.tool_suggest(&agent.id, text("text"), &origin)),
+            MemoryCall::Save => self.tool_save(&agent.id, text("text"), arguments, &origin),
             MemoryCall::Update => self.tool_update(&agent.id, text("id"), text("text")),
             MemoryCall::Forget => self.tool_forget(&agent.id, text("id")),
             MemoryCall::Search => self.tool_search(&agent.id, text("query")),
@@ -374,6 +418,7 @@ impl Engine {
         agent: &str,
         text: &str,
         arguments: &Value,
+        origin: &Origin,
     ) -> Result<ToolOutput, NoteError> {
         let shared = arguments
             .get("about_person")
@@ -381,7 +426,10 @@ impl Engine {
             .unwrap_or(false);
         let scope = (!shared).then_some(agent);
         Ok(match self.save(scope, text, Source::Bot)? {
-            Saved::New(note) => ToolOutput::ok(json!({ "saved": tool_note(&note) }).to_string()),
+            Saved::New(note) => {
+                self.store.set_note_origin(&note.id, origin)?;
+                ToolOutput::ok(json!({ "saved": tool_note(&note) }).to_string())
+            }
             // A suggestion the person has not kept stays out of the bot's sight.
             Saved::Exists(note) if note.suggested => {
                 ToolOutput::ok("A note like this waits for the person to keep it.")
@@ -395,23 +443,30 @@ impl Engine {
 
     /// While only a tainted summary is in view: `text` waits in `agent`'s own notes as a
     /// suggestion for the person to keep or dismiss; the bot doesn't see it until it is kept.
-    fn tool_suggest(&self, agent: &str, text: &str) -> Result<ToolOutput, NoteError> {
-        Ok(
-            match self.store_note(Some(agent), text, Source::Bot, true)? {
-                Saved::New(note) | Saved::Exists(note) if note.suggested => ToolOutput::ok(
-                    json!({
-                        "suggested": tool_note(&note),
-                        "why": "Earlier turns this conversation summarises read untrusted content, \
-                                so the person keeps or dismisses this note in your Memory.",
-                    })
-                    .to_string(),
-                ),
-                Saved::New(note) | Saved::Exists(note) => {
-                    ToolOutput::ok(json!({ "exists": tool_note(&note) }).to_string())
-                }
-                Saved::Full => return Err(NoteError::Full),
-            },
-        )
+    fn tool_suggest(
+        &self,
+        agent: &str,
+        text: &str,
+        origin: &Origin,
+    ) -> Result<ToolOutput, NoteError> {
+        let saved = self.store_note(Some(agent), text, Source::Bot, true)?;
+        if let Saved::New(note) = &saved {
+            self.store.set_note_origin(&note.id, origin)?;
+        }
+        Ok(match saved {
+            Saved::New(note) | Saved::Exists(note) if note.suggested => ToolOutput::ok(
+                json!({
+                    "suggested": tool_note(&note),
+                    "why": "Earlier turns this conversation summarises read untrusted content, \
+                            so the person keeps or dismisses this note in your Memory.",
+                })
+                .to_string(),
+            ),
+            Saved::New(note) | Saved::Exists(note) => {
+                ToolOutput::ok(json!({ "exists": tool_note(&note) }).to_string())
+            }
+            Saved::Full => return Err(NoteError::Full),
+        })
     }
 
     /// A note `agent` may change: its own or a shared one.

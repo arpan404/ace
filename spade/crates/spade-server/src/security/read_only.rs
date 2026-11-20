@@ -158,9 +158,7 @@ pub fn resolve(command: &str, home: &Path) -> Option<Reads> {
     // resolved, a command that runs such a tool doesn't settle.
     #[cfg(target_os = "macos")]
     if needs_developer {
-        let Some(dev) = developer_dir() else {
-            return None;
-        };
+        let dev = developer_dir()?;
         let bin = dev.join("usr/bin");
         if bin.is_dir() {
             reads.path_first.push(bin);
@@ -380,11 +378,31 @@ mod macos {
 
         // A write is refused; /dev/null is open; /dev/tty is not; /Users outside the sandbox is
         // refused.
-        assert!(!run(&runner, &w, "touch new.txt").unwrap().status.success());
+        assert!(
+            !run(&runner, &w, "touch new.txt")
+                .unwrap_or_else(|| panic!("settle"))
+                .status
+                .success()
+        );
         assert!(!w.workspace.join("new.txt").exists());
-        assert!(run(&runner, &w, "cat /dev/null").unwrap().status.success());
-        assert!(!run(&runner, &w, "cat /dev/tty").unwrap().status.success());
-        assert!(!run(&runner, &w, "ls /Users").unwrap().status.success());
+        assert!(
+            run(&runner, &w, "cat /dev/null")
+                .unwrap_or_else(|| panic!("settle"))
+                .status
+                .success()
+        );
+        assert!(
+            !run(&runner, &w, "cat /dev/tty")
+                .unwrap_or_else(|| panic!("settle"))
+                .status
+                .success()
+        );
+        assert!(
+            !run(&runner, &w, "ls /Users")
+                .unwrap_or_else(|| panic!("settle"))
+                .status
+                .success()
+        );
 
         // Loopback is unreachable. `exec` wouldn't settle on its own, so this bypasses `resolve`
         // and tests the profile directly: the shell can't open a socket.
