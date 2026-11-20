@@ -16,6 +16,8 @@ struct AceAccountView: View {
     private var model: AceAccountModel { shared ?? own }
     @State private var forgetting: AceMachine?
     @State private var signingOut = false
+    /// Delete account went through: the page says so once, then offers Sign in.
+    @State private var accountDeleted = false
     @State private var notice: ProblemNotice?
     @State private var browserProblem: String?
     /// The year of work over every machine (`ProfileReads`), and why it couldn't be read.
@@ -26,6 +28,11 @@ struct AceAccountView: View {
 
     var body: some View {
         accountList
+        .alert("Account deleted", isPresented: $accountDeleted) {
+            Button("OK") {}
+        } message: {
+            Text("You're signed out on every device. Your machines keep their threads and code.")
+        }
         .insetGroupedList()
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
@@ -62,7 +69,7 @@ struct AceAccountView: View {
             }
             if model.account != nil {
                 signOut
-                AccountDeleteSection(model: model)
+                AccountDeleteSection(model: model) { accountDeleted = true }
             }
             legal
         }

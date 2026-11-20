@@ -169,18 +169,21 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     }
 
     /// Deletes the ace account everywhere (`DELETE /v1/account`), then forgets it here as
-    /// signing out does. A failure keeps the account, so the person can try again.
-    func deleteAccount() async {
-        guard let token, !busy else { return }
+    /// signing out does. A failure keeps the account, so the person can try again. True once
+    /// the backend has deleted it.
+    @discardableResult func deleteAccount() async -> Bool {
+        guard let token, !busy else { return false }
         busy = true; error = nil
         defer { busy = false }
         do {
             let _: [String: Bool] = try await call("", method: "DELETE", token: token)
             if !forget() { error = "Account deleted. Couldn't clear the saved account session." }
+            return true
         } catch AccountFailure.expired {
             forget()
             error = "Your session ended. Sign in again to delete your account."
         } catch { self.error = "Couldn't delete your account. Reconnect and try again." }
+        return false
     }
 
     /// Drops the session on this phone and its saved copy; false when the copy stayed.
