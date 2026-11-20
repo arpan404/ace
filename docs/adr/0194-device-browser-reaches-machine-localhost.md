@@ -69,13 +69,24 @@ and terminals. Read-only devices are refused. A per-machine setting turns the tu
 
 The tunnel always refuses every port an ace process listens on, whatever the device asks for:
 the daemon's listeners, the preview gateway and Spade's service. A tunnelled connection arrives at
-the machine from loopback, and loopback is what those listeners trust. The daemon reads the
-refused ports from its own listeners when each stream opens, never from a stored list, so a
-listener that moved to another port is still refused. The daemon also runs servers of its own
-that no list names (the MCP endpoint, git leases, page probes), so every port held by the
-daemon's, Spade's or ace-media's process is refused too, from a scan of those processes alone at
-most a second old. A dev server is always another process. On Windows no such scan exists yet:
-there only the named listeners are refused.
+the machine from loopback, and loopback is what those listeners trust. The refused ports are never
+a stored list, and the guard does not depend on polling:
+
+- Every listener in the daemon's own process is held as ace's synchronously as it binds, before
+  it can accept: on Node through the listen tracing channel, which also covers servers no list
+  names (the MCP endpoint, git leases, page probes); on any runtime for the daemon's named
+  listeners, from their `listening` event. A dev server is always another process.
+- ace's other processes register through what they already publish: Spade's port from its
+  `server.json`, read live.
+- A scan of the daemon's, Spade's and ace-media's processes supplements both. It is one pass over
+  the OS tables, shared with the port list devices hear (one `lsof` on macOS, one `netstat` on
+  Windows, the socket tables and only those processes' descriptors on Linux). An open whose last
+  scan is over a second old waits for a fresh one, shared with every other open.
+
+The last check runs synchronously as the stream's socket connects, and again once it has
+connected, before any byte moves. Without a successful scan in the last five seconds, a port no
+source names is unknown, and unknown is refused: the guard fails closed. A port that becomes ace's
+(Spade starting on a port a stream already uses) resets every stream open to it.
 
 The desktop app's SOCKS proxy (see "The device side") is an ace listener on the loopback of the
 computer it runs on, and it reaches another machine with this device's credentials. A device
@@ -103,12 +114,28 @@ never a host.
   changes) and `tunnel.refused` (with a stream id for one OPEN, before that stream's RESET;
   without one for the whole tunnel, which then closes). Refusals are `tunnel_off`,
   `tunnel_forbidden`, `tunnel_port_refused` and `tunnel_limit`. A port with nothing listening is
-  a plain RESET, which the client reports as `tunnel_reset`.
+  a plain RESET, which the client reports as `tunnel_reset`. Once its hello is read, a tunnel
+  connection carries only its stream frames and pings: its other JSON reaches no service,
+  command or read, whatever the device's scopes. Its authority is decided before any frame is
+  handled.
+- **Reconnects.** After a drop the client reconnects on a backoff (250 ms up to 10 s), and opens
+  honour it: an open while the machine is unreachable waits for the next scheduled attempt,
+  shared with every other open. The backoff starts over only once the machine has accepted the
+  tunnel (its port list or a stream), since a refusal can follow the welcome. The client opens
+  the tunnel as a device tab opens, not at its first request.
 - **Limits.** 256 open streams per device across its tunnel connections, 100 opens a second
-  after a burst of 200, and per stream at most the mux's window (256 KiB) buffered each way.
-  Excess opens are refused with `tunnel_limit`, never queued.
+  after a burst of 200, and at most 64 opens waiting for authorization across the daemon. Every
+  OPEN is charged as it arrives, before anything is allocated for it, refused ones included, and
+  a device's bucket is kept until it has refilled, so closing streams buys no opens back. A
+  stream's slot is freed the moment the mux removes it. Per stream at most the mux's window
+  (256 KiB) is buffered each way, written to the loopback socket one write at a time with frames
+  that arrive meanwhile joined into the next; across a connection at most 32 MiB waits for its
+  sockets, and a stream past it is reset. Excess opens are refused with `tunnel_limit`, never
+  queued.
 - **Revocation.** Revoking a device, removing its `operate` authority or turning the tunnel off
-  ends its open streams at once.
+  ends its open streams at once. The refusal is sent first, then every TCP stream is destroyed,
+  and the connection closes once the refusal is written or after two seconds, so the device
+  hears why and backs off instead of retrying the path.
 
 ### The device side
 
