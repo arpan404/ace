@@ -15,7 +15,8 @@ import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
 import { reportBunStdinFailures } from "./bun-stdin.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
-import { registerGroup, signalTree, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
+import { admitProcess, registerGroup, signalTree, stopRetainedGroup } from "./process-owner.ts";
+import { unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import { windowsTreeRunning } from "./process-owner.ts";
 import { toWindowsCommand } from "./process-owner.ts";
@@ -381,24 +382,52 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
 }
 
 /** Bounded, read-only CLI probe. Raw output is returned only to the caller. */
+export type ProbeOptions = {
+  timeoutMs?: number;
+  env?: NodeJS.ProcessEnv;
+  /** Where the CLI will run, so a shim resolves for that project. Defaults to the daemon's. */
+  cwd?: string;
+  maxBytes?: number;
+  signal?: AbortSignal;
+  /** Spawns on this thread instead of the probe worker; tests inject a fake process here. */
+  spawn?: typeof spawnRawSupervised;
+  schedule?: (callback: () => void, milliseconds: number) => () => void;
+  thread?: ProbeThread;
+};
+type ProbeResult = { stdout: string; stderr: string; code: number | null };
 export async function probeOutput(
   command: string,
   args: readonly string[],
-  options: {
-    timeoutMs?: number;
-    env?: NodeJS.ProcessEnv;
-    /** Where the CLI will run, so a shim resolves for that project. Defaults to the daemon's. */
-    cwd?: string;
-    maxBytes?: number;
-    signal?: AbortSignal;
-    /** Spawns on this thread instead of the probe worker; tests inject a fake process here. */
-    spawn?: typeof spawnRawSupervised;
-    schedule?: (callback: () => void, milliseconds: number) => () => void;
-    thread?: ProbeThread;
-  } = {},
-): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  options: ProbeOptions = {},
+): Promise<ProbeResult> {
   const maxBytes = byteLimit(options.maxBytes ?? 1_048_576, "maxBytes");
   if (options.signal?.aborted) throw new Error("Probe aborted");
+  // Owned from the moment it is asked for, as a probe's process is: a global stop while the
+  // command still resolves waits for the probe, which then starts already stopping.
+  const halt = new AbortController();
+  let settled: Promise<unknown> = Promise.resolve();
+  const release = admitProcess(
+    async () => {
+      halt.abort();
+      await settled;
+    },
+    () => halt.abort(),
+  );
+  const running = runProbe(command, args, options, maxBytes, halt.signal);
+  settled = running.catch(() => {});
+  try {
+    return await running;
+  } finally {
+    release();
+  }
+}
+async function runProbe(
+  command: string,
+  args: readonly string[],
+  options: ProbeOptions,
+  maxBytes: number,
+  halt: AbortSignal,
+): Promise<ProbeResult> {
   // A probe only reads. A version manager's shim can install or update its tool when it runs,
   // so a shim is probed through the installed binary its manager names, or not at all.
   const found = await findInstalledExecutable(
@@ -437,6 +466,7 @@ export async function probeOutput(
       signal: options.signal,
       schedule,
       thread: options.thread,
+      halt,
     });
   const proc = options.spawn({
     command: launch.command,
@@ -470,6 +500,10 @@ export async function probeOutput(
   };
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) abort();
+  // A global stop ends the process; what it exited with is still the probe's answer.
+  const stopped = () => void proc.stop({ graceMs: 0 }).catch(() => {});
+  halt.addEventListener("abort", stopped, { once: true });
+  if (halt.aborted) stopped();
   const cancel = schedule(() => {
     failure ??= new Error("Probe timed out");
     // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
@@ -489,6 +523,7 @@ export async function probeOutput(
   } finally {
     cancel();
     options.signal?.removeEventListener("abort", abort);
+    halt.removeEventListener("abort", stopped);
   }
 }
 export async function probe(command: string, args: readonly string[]): Promise<string> {

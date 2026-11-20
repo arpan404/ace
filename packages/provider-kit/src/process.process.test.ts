@@ -369,6 +369,8 @@ describe("supervised processes", () => {
       },
     });
     const rejected = expect(result).rejects.toThrow("Probe timed out");
+    // The probe resolves the command (never a shim) before it starts and schedules its deadline.
+    await expect.poll(() => deadline !== noop).toBe(true);
     deadline();
     await rejected;
   });

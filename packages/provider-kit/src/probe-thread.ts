@@ -192,6 +192,8 @@ export async function probeOffThread(
     signal?: AbortSignal | undefined;
     schedule: (callback: () => void, milliseconds: number) => () => void;
     thread?: ProbeThread | undefined;
+    /** A global stop: ends the process, and its exit is still the probe's answer. */
+    halt?: AbortSignal | undefined;
   },
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   // Shared by every caller, so started in no caller's context.
@@ -220,7 +222,7 @@ export async function probeOffThread(
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
         maxBytes: options.maxBytes,
       },
-      stop.signal,
+      options.halt ? AbortSignal.any([stop.signal, options.halt]) : stop.signal,
     );
     if (failure) throw failure;
     if (exit.reason === "output-limit") throw new OutputLimitError("Probe output exceeded limit");
