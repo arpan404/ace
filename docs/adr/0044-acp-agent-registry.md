@@ -103,3 +103,19 @@ The "Local authentication and accounts" section allows extra accounts for an age
 - An added account's model catalog is registered only once it is signed in, validates its home before each discovery, and carries no sign-in method. A lapsed login is reported rather than starting a browser sign-in. The declared `agy /usage` source reads the CLI's default login and is not applied to added accounts.
 
 Other agents stay single-account until their own home and credential store are verified the same way.
+
+## Amendment: unprofiled agents choose models (owner, 2026-11-19)
+
+The decision above profile-gates the legacy/unstable model setter, and leaves "unprofiled legacy setters remain disabled". The owner lifts that gate. Every ACP agent, with or without a compatibility profile, now offers a model picker when its session lists models. That includes profiles with `legacyModel: false` (Qwen 0.24.7, Goose 1.53.0, Auggie 0.36.0). Old Qwen's `denySelectors` still turns every selector off.
+
+**Rule.** A session's model is chosen through its standard `configOptions` model selector and `session/set_config_option` when it has one. Otherwise ace uses the legacy `models: {availableModels, currentModelId}` list and `session/set_model`. The model catalog lists the same models for an unprofiled agent, with `selectorMethod: "session/set_model"`. The profile's `legacyModel` flag no longer gates selection.
+
+The owner treats this as a security matter. The legacy path is the agent's own unstable surface, so it runs under these rules:
+
+- **Only listed ids are sent.** ace sends only a model id the agent listed in this session's setup or a later reply. A free-form value, or one known only from the catalog or another session, is refused before anything is written to the agent.
+- **A selection is never claimed against the agent's word.** A reply naming another current model (a `models.currentModelId` or a model config option) means the selection did not apply. ace reports it as refused: at start the daemon posts its notice and the thread runs the agent's default, and a later change fails without the thread recording the new model. ACP's `session/set_model` reply has an empty schema, so an empty reply counts as applied. A setter that answers success but changes nothing, such as OpenHands' no-op, still can't be detected; this rule doesn't claim it can.
+- **Lists are decoded leniently and bounded.** A malformed entry (no id, an id that isn't a string of 1–256 characters, a duplicate) is skipped. The rest of the list still works. A list over 512 entries offers no picker and the catalog lists no models for it. The session goes on at the agent's default. Nothing in the list can fail a session or a catalog refresh.
+- **A rejected setter is off for the session.** If the agent answers `session/set_model` with any JSON-RPC error (method not found, or a refusal), the legacy picker is turned off for the rest of that session. The thread stays on the agent's default model, the daemon posts its "didn't take model …" notice, and a diagnostic note `acp-legacy-model-rejected` is recorded. A standard `configOptions` model selector, if the agent later reports one, still works.
+- **Labels are display-safe.** Model names drop control, bidi (overrides and isolates), zero-width and other format characters, and line and paragraph separators; a name left empty shows the id. A model id containing any of those characters is never offered, in the picker or the catalog, because ids go back to the agent unchanged and can't be cleaned.
+
+Code: `listedModels`, `displayLabel` and `sessionSelectors` in `packages/agent-registry/src/selectors.ts`; `AcpConfiguration.select` in `packages/adapter-acp/src/configuration.ts`; `normalizeAcp` in `packages/models/src/normalize.ts`.
