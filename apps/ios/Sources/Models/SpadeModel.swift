@@ -216,8 +216,10 @@ struct SpadeOutcome: Decodable, Sendable {
     let message: String?
     /// A card of questions: the question that needs more, by its place in the card.
     let at: Int?
-    init(ok: Bool, title: String? = nil, message: String? = nil, at: Int? = nil) {
-        self.ok = ok; self.title = title; self.message = message; self.at = at
+    /// A task's save: the task as Spade stored it.
+    let task: String?
+    init(ok: Bool, title: String? = nil, message: String? = nil, at: Int? = nil, task: String? = nil) {
+        self.ok = ok; self.title = title; self.message = message; self.at = at; self.task = task
     }
     /// Why it failed, in one line; nil when it went.
     var problem: String? {

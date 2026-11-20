@@ -24,7 +24,7 @@ struct SpadeProfile: Decodable, Equatable, Sendable {
         let failed: Bool
     }
     struct Details: Decodable, Equatable, Sendable {
-        let task: String
+        var task: String
         let model: String
         let machine: String
         let routines: Part<Routine>
@@ -70,7 +70,7 @@ struct SpadeProfile: Decodable, Equatable, Sendable {
     let id: String
     let name: String
     let face: SpadeModel.Face
-    let details: Details
+    var details: Details
     let library: Library
     let computer: Computer
 }
@@ -83,6 +83,37 @@ struct SpadeProfileAnswer: Decodable, Sendable {
     let message: String?
     var problem: String? {
         SpadeOutcome(ok: ok, title: title, message: message).problem
+    }
+}
+
+/// The profile on the sheet as its reads and the task's saves leave it. Each read takes a ticket;
+/// one that comes back after a newer read or a save began is dropped, so a read that was already
+/// out when the task was saved can't put the old task back.
+struct SpadeProfileReads: Equatable {
+    private(set) var profile: SpadeProfile?
+    private(set) var problem: String?
+    private var generation = 0
+
+    /// A read begins: the ticket it comes back with.
+    mutating func begin() -> Int {
+        generation += 1
+        return generation
+    }
+    /// A read came back. A failed one keeps the profile already shown and says so only while
+    /// there is none.
+    mutating func land(_ answer: SpadeProfileAnswer, ticket: Int) {
+        guard ticket == generation else { return }
+        if let fresh = answer.profile {
+            profile = fresh
+            problem = nil
+        } else if profile == nil {
+            problem = answer.problem ?? "Couldn't read the profile."
+        }
+    }
+    /// The task was saved as `task`: it shows now, whatever reads are still out.
+    mutating func saved(task: String) {
+        generation += 1
+        profile?.details.task = task
     }
 }
 

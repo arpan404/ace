@@ -9,8 +9,9 @@ struct SpadeProfileSheet: View {
     let name: String
     @Environment(\.dismiss) private var dismiss
     @State private var part: Part = .details
-    @State private var profile: SpadeProfile?
-    @State private var problem: String?
+    @State private var reads = SpadeProfileReads()
+    private var profile: SpadeProfile? { reads.profile }
+    private var problem: String? { reads.problem }
 
     enum Part: String, CaseIterable, Identifiable {
         case details = "Details", library = "Library", computer = "Computer"
@@ -82,17 +83,16 @@ struct SpadeProfileSheet: View {
     private func retry() { Task { await load() } }
 
     private func editor(_ task: String) -> some View {
-        SpadeTaskEditor(client: client, agent: agent, task: task) { await load() }
+        SpadeTaskEditor(client: client, agent: agent, task: task) { saved in
+            // The saved task shows at once; reads begun before the save are dropped.
+            reads.saved(task: saved)
+            await load()
+        }
     }
 
     private func load() async {
-        let answer = await client.spadeProfile(agent)
-        if let fresh = answer.profile {
-            profile = fresh
-            problem = nil
-        } else if profile == nil {
-            problem = answer.problem ?? "Couldn't read the profile."
-        }
+        let ticket = reads.begin()
+        reads.land(await client.spadeProfile(agent), ticket: ticket)
     }
 }
 
@@ -103,7 +103,8 @@ struct SpadeTaskEditor: View {
     let client: ClientModel
     let agent: String
     let task: String
-    let saved: () async -> Void
+    /// The task as Spade stored it.
+    let saved: (String) async -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var save = SpadeTaskSave()
@@ -161,7 +162,7 @@ struct SpadeTaskEditor: View {
                 problem = outcome.problem
                 return
             }
-            await saved()
+            await saved(outcome.task ?? words)
             dismiss()
         }
     }
