@@ -79,7 +79,12 @@ test("after the person approves an agent's update, the same thread identity resu
     // Refused before anything ran: one launch so far, the approved one.
     expect((await readFile(marker, "utf8")).trim().split("\n")).toHaveLength(1);
 
-    const reply = await registry.handle({ type: "registry.list", requestId: "list" });
+    const reply = await registry.handle({
+      type: "registry.list",
+      requestId: "list",
+      offset: 0,
+      limit: 50,
+    });
     const update =
       reply.result.ok && "agents" in reply.result ? reply.result.updates?.[0] : undefined;
     if (!update) throw new Error("No update listed");

@@ -64,7 +64,12 @@ async function bind(
 
 /** The updates the person's Settings would list. */
 async function updates(registry: AgentRegistry): Promise<RegistryPendingUpdate[]> {
-  const reply = await registry.handle({ type: "registry.list", requestId: "list" });
+  const reply = await registry.handle({
+    type: "registry.list",
+    requestId: "list",
+    offset: 0,
+    limit: 50,
+  });
   if (!reply.result.ok || !("agents" in reply.result)) throw new Error("No listing");
   return reply.result.updates ?? [];
 }
