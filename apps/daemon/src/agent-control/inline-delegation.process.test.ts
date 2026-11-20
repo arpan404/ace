@@ -14,7 +14,8 @@ function card(h: ReturnType<typeof setup>, parent: import("@ace/protocol").Threa
 test("a prepared delegation is visible before launch and its stable card follows human and failure states", async () => {
   const h = setup();
   const parent = await h.parent();
-  const view = h.store.snapshotThread(parent.threadId);
+  // A client's own copy: the daemon's snapshot is its shared, frozen read (#1965).
+  const view = structuredClone(h.store.snapshotThread(parent.threadId));
   const child = h.service.prepare(
     parent,
     DelegationRequest.parse({
