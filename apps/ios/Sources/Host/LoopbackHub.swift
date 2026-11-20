@@ -49,8 +49,10 @@ final class LoopbackHub: @unchecked Sendable {
         self.queue = queue
     }
 
-    /// Listens on `ports` for `client`, closing any other ports. `answer` runs once every new
-    /// listener is up or failed.
+    /// Listens on `ports` for `client`, closing any other ports. `answer` runs exactly once,
+    /// when every wanted port's listeners are up or have failed, and names as listening only the
+    /// ports this client still holds then: another runtime asking meanwhile leaves it none. When
+    /// the holder asks for nothing, its connections end too: the page is no longer in front.
     func listen(_ ports: [Int], for client: any LoopbackClient, answer: @escaping @Sendable (LoopbackListening) -> Void) {
         queue.async { [self] in
             let wanted = Set(ports.filter { (1...65535).contains($0) }.prefix(Self.maxPorts))
@@ -64,27 +66,42 @@ final class LoopbackHub: @unchecked Sendable {
                 previous?.loopback(.released)
             }
             for port in listeners.keys where !wanted.contains(port) { listeners.removeValue(forKey: port)?.cancel() }
-            if wanted.isEmpty { holder = nil }
-            let fresh = wanted.subtracting(listeners.keys).sorted()
-            let busy = PortList()
-            let group = DispatchGroup()
-            for port in fresh {
+            if wanted.isEmpty {
+                holder = nil
+                endConnections(of: client)
+                answer(LoopbackListening(listening: [], busy: []))
+                return
+            }
+            for port in wanted where listeners[port] == nil {
                 let listener = PortListeners(port: port, queue: queue) { [weak self] connection in
                     self?.accepted(connection, port: port)
                 }
                 listeners[port] = listener
+                // A port another app holds goes, whichever request is waiting on it.
+                listener.whenSettled { [weak self, weak listener] outcome in
+                    guard outcome == .busy, let self, let listener, self.listeners[port] === listener else { return }
+                    self.listeners.removeValue(forKey: port)
+                    listener.cancel()
+                }
+                listener.start()
+            }
+            // Every wanted port, new or kept, counts once its listeners settle: one kept from an
+            // earlier request may still be binding.
+            let outcomes = PortOutcomes()
+            let group = DispatchGroup()
+            for port in wanted {
+                guard let listener = listeners[port] else { continue }
                 group.enter()
-                listener.start { [weak self] up in
-                    if !up {
-                        busy.ports.append(port)
-                        self?.listeners.removeValue(forKey: port)?.cancel()
-                    }
+                listener.whenSettled { outcome in
+                    outcomes.set(port, outcome, listener)
                     group.leave()
                 }
             }
             group.notify(queue: queue) { [weak self] in
-                let listening = self?.listeners.keys.sorted() ?? []
-                answer(LoopbackListening(listening: listening, busy: busy.ports.sorted()))
+                guard let self else { answer(LoopbackListening(listening: [], busy: [])); return }
+                let held = self.holder === client
+                let listening = outcomes.up.filter { held && self.listeners[$0.key] === $0.value }.keys.sorted()
+                answer(LoopbackListening(listening: listening, busy: outcomes.busy.sorted()))
             }
         }
     }
@@ -112,14 +129,11 @@ final class LoopbackHub: @unchecked Sendable {
                     guard let self, self.connections[id] != nil else { return }
                     if error != nil { self.fail(id) } else { accepted.client?.loopback(.written(id)) }
                 })
-            case "end":
-                guard !accepted.sendEnded else { return }
-                accepted.sendEnded = true
-                accepted.connection.send(content: nil, contentContext: .finalMessage, isComplete: true,
-                                         completion: .contentProcessed { [weak self] error in
-                    guard let self, self.connections[id] != nil else { return }
-                    if error != nil { self.fail(id) } else { self.finishIfDone(id) }
-                })
+            case "end": end(id, accepted)
+            case "close":
+                // The machine's side is gone: close once the end has gone, never with a reset.
+                accepted.closing = true
+                if !accepted.sendEnded { end(id, accepted) } else if accepted.endSent { close(id) }
             case "reset":
                 connections.removeValue(forKey: id)
                 accepted.connection.forceCancel()
@@ -129,6 +143,32 @@ final class LoopbackHub: @unchecked Sendable {
     }
 
     // MARK: - On `queue`
+
+    private func end(_ id: String, _ accepted: Accepted) {
+        guard !accepted.sendEnded else { return }
+        accepted.sendEnded = true
+        accepted.connection.send(content: nil, contentContext: .finalMessage, isComplete: true,
+                                 completion: .contentProcessed { [weak self] error in
+            guard let self, self.connections[id] != nil else { return }
+            accepted.endSent = true
+            if error != nil { self.fail(id) } else if accepted.closing { self.close(id) } else { self.finishIfDone(id) }
+        })
+    }
+
+    /// Closes a connection quietly (FIN already sent, no reset), whatever the page still does.
+    private func close(_ id: String) {
+        guard let accepted = connections.removeValue(forKey: id) else { return }
+        accepted.connection.cancel()
+    }
+
+    /// Ends every connection `client` accepted, open or not yet announced.
+    private func endConnections(of client: any LoopbackClient) {
+        for (id, connection) in connections where connection.client === client {
+            connections.removeValue(forKey: id)
+            connection.connection.forceCancel()
+            if connection.announced { client.loopback(.reset(id)) }
+        }
+    }
 
     private func closeListeners() {
         for listener in listeners.values { listener.cancel() }
@@ -185,8 +225,18 @@ final class LoopbackHub: @unchecked Sendable {
     }
 }
 
-/// Ports that failed to bind in one `listen`; touched only on the hub's queue.
-private final class PortList: @unchecked Sendable { var ports: [Int] = [] }
+/// How each port of one `listen` settled; touched only on the hub's queue.
+private final class PortOutcomes: @unchecked Sendable {
+    private(set) var up: [Int: PortListeners] = [:]
+    private(set) var busy: [Int] = []
+    func set(_ port: Int, _ outcome: PortListeners.Outcome, _ listener: PortListeners) {
+        switch outcome {
+        case .up: up[port] = listener
+        case .busy: busy.append(port)
+        case .cancelled: break
+        }
+    }
+}
 
 /// One accepted connection; touched only on the hub's queue.
 private final class Accepted: @unchecked Sendable {
@@ -196,67 +246,120 @@ private final class Accepted: @unchecked Sendable {
     var reading = false
     var receiveEnded = false
     var sendEnded = false
+    /// The end (FIN) has been handed to the network.
+    var endSent = false
+    /// The machine's side is gone: close as soon as the end has gone.
+    var closing = false
     init(connection: NWConnection, client: any LoopbackClient) {
         self.connection = connection; self.client = client
     }
 }
 
-/// One port on both loopback addresses. The port is up when `127.0.0.1` is; `::1` joins when it
-/// can (a phone with IPv6 off has none).
-private final class PortListeners: @unchecked Sendable {
+/// One port on both loopback addresses. It is up once `127.0.0.1` listens and `::1` listens too,
+/// or the phone has no IPv6 loopback (`::1` can't be bound at all, rather than being taken).
+/// Either address failing because the port is in use is tried again a few times, as a port this
+/// app closed a moment ago may still be closing; then the port reads as another app's. It settles
+/// exactly once: up, busy, or cancelled (another request no longer wants it). Touched only on
+/// `queue`.
+final class PortListeners: @unchecked Sendable {
+    enum Outcome: Equatable, Sendable { case up, busy, cancelled }
+    private enum Family { case v4, v6 }
+
     private let port: Int
     private let queue: DispatchQueue
     private let accept: @Sendable (NWConnection) -> Void
     private var v4: NWListener?
     private var v6: NWListener?
-    private var settled = false
+    private var v4Up = false
+    private var v6Up = false
+    /// The phone has no IPv6 loopback to listen on.
+    private var v6Absent = false
+    private(set) var outcome: Outcome?
+    private var waiters: [(Outcome) -> Void] = []
+
+    /// A failed bind is tried this many more times, `retryDelay` apart, before the port is busy.
+    static let retries = 4
+    static let retryDelay: DispatchTimeInterval = .milliseconds(100)
+
     init(port: Int, queue: DispatchQueue, accept: @escaping @Sendable (NWConnection) -> Void) {
         self.port = port; self.queue = queue; self.accept = accept
     }
 
-    /// `done(up)` runs once, on the queue, when `127.0.0.1` is listening or has failed.
-    func start(_ done: @escaping @Sendable (Bool) -> Void) {
-        let finish: @Sendable (Bool) -> Void = { [weak self] up in
-            guard let self, !self.settled else { return }
-            self.settled = true
-            done(up)
-        }
-        bindV4(finish, attempt: 0)
-        if let v6 = Self.listener(.ipv6(.loopback), port: port) {
-            self.v6 = v6
-            v6.newConnectionHandler = accept
-            v6.stateUpdateHandler = { [weak self] state in
-                if case .failed = state { self?.v6?.cancel(); self?.v6 = nil }
-            }
-            v6.start(queue: queue)
-        }
-        queue.asyncAfter(deadline: .now() + LoopbackHub.bindTimeout) { finish(false) }
+    /// `done` runs once, on the queue, when the port has settled (at once if it has).
+    func whenSettled(_ done: @escaping (Outcome) -> Void) {
+        if let outcome { done(outcome) } else { waiters.append(done) }
     }
 
-    /// A port this app closed a moment ago may still be closing: a failed bind is tried again a
-    /// few times before the port reads as another app's.
-    private static let retries = 4
-    private func bindV4(_ finish: @escaping @Sendable (Bool) -> Void, attempt: Int) {
-        guard !settled, let v4 = Self.listener(.ipv4(.loopback), port: port) else { finish(false); return }
-        self.v4 = v4
-        v4.newConnectionHandler = accept
-        v4.stateUpdateHandler = { [weak self] state in
-            switch state {
-            case .ready: finish(true)
-            case .failed:
-                v4.cancel()
-                guard let self, attempt < Self.retries else { finish(false); return }
-                self.queue.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in self?.bindV4(finish, attempt: attempt + 1) }
-            default: break
-            }
+    func start() {
+        bind(.v4, attempt: 0)
+        bind(.v6, attempt: 0)
+        queue.asyncAfter(deadline: .now() + LoopbackHub.bindTimeout) { [weak self] in
+            // Still binding: whatever holds it isn't letting go.
+            guard let self, self.outcome == nil else { return }
+            self.cancelListeners()
+            self.settle(.busy)
         }
-        v4.start(queue: queue)
     }
 
     func cancel() {
-        settled = true
+        cancelListeners()
+        settle(.cancelled)
+    }
+
+    private func settle(_ outcome: Outcome) {
+        guard self.outcome == nil else { return }
+        self.outcome = outcome
+        let waiting = waiters
+        waiters.removeAll()
+        for waiter in waiting { waiter(outcome) }
+    }
+
+    private func cancelListeners() {
         v4?.cancel(); v6?.cancel()
         v4 = nil; v6 = nil
+    }
+
+    private func check() {
+        if v4Up, v6Up || v6Absent { settle(.up) }
+    }
+
+    private func bind(_ family: Family, attempt: Int) {
+        guard outcome == nil else { return }
+        guard let listener = Self.listener(family == .v4 ? .ipv4(.loopback) : .ipv6(.loopback), port: port) else {
+            if family == .v6 { v6Absent = true; check() } else { cancelListeners(); settle(.busy) }
+            return
+        }
+        if family == .v4 { v4 = listener } else { v6 = listener }
+        listener.newConnectionHandler = accept
+        listener.stateUpdateHandler = { [weak self, weak listener] state in
+            guard let self, let listener else { return }
+            switch state {
+            case .ready:
+                guard self.outcome == nil else { return }
+                if family == .v4 { self.v4Up = true } else { self.v6Up = true }
+                self.check()
+            case .failed(let error):
+                listener.cancel()
+                if family == .v4, self.v4 === listener { self.v4 = nil; self.v4Up = false }
+                if family == .v6, self.v6 === listener { self.v6 = nil; self.v6Up = false }
+                guard self.outcome == nil else { return }
+                if family == .v6, !Self.inUse(error) {
+                    // No IPv6 loopback on this phone: the port serves 127.0.0.1 alone.
+                    self.v6Absent = true
+                    self.check()
+                    return
+                }
+                guard attempt < Self.retries else { self.cancelListeners(); self.settle(.busy); return }
+                self.queue.asyncAfter(deadline: .now() + Self.retryDelay) { [weak self] in self?.bind(family, attempt: attempt + 1) }
+            default: break
+            }
+        }
+        listener.start(queue: queue)
+    }
+
+    private static func inUse(_ error: NWError) -> Bool {
+        if case .posix(let code) = error { return code == .EADDRINUSE }
+        return false
     }
 
     private static func listener(_ host: NWEndpoint.Host, port: Int) -> NWListener? {

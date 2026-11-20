@@ -31,6 +31,8 @@ interface Connection {
   written: (() => void) | undefined;
   /** The page sent all it will, and the machine did: the connection is finished. */
   phoneEnded: boolean;
+  /** The tunnel stream is gone: nothing the page sends can reach the machine any more. */
+  gone: boolean;
   machineEnded: boolean;
   done: boolean;
 }
@@ -107,6 +109,7 @@ export class DeviceLoopback {
       answered: false,
       written: undefined,
       phoneEnded: false,
+      gone: false,
       machineEnded: false,
       done: false,
     };
@@ -118,6 +121,13 @@ export class DeviceLoopback {
           return;
         }
         connection.stream = stream;
+        // The machine's side is gone (it closed its socket, or the tunnel went). Once its last
+        // bytes reach the page, the page's connection closes too: after END the read loop is
+        // over, and a page that never writes or ends again would hold its socket forever.
+        void stream.closed.then(() => {
+          connection.gone = true;
+          if (connection.machineEnded) this.#close(id);
+        });
         void this.#toPhone(id, connection, stream);
         this.#host.act(id, "read");
       },
@@ -150,7 +160,8 @@ export class DeviceLoopback {
         if (done) {
           connection.machineEnded = true;
           this.#host.act(id, "end");
-          this.#settle(id);
+          if (connection.gone) this.#close(id);
+          else this.#settle(id);
           return;
         }
         if (value.byteLength === 0) continue;
@@ -181,6 +192,15 @@ export class DeviceLoopback {
     connection.done = true;
     connection.written?.();
     this.#connections.delete(id);
+  }
+
+  /** The machine finished and its side is gone: the page's side closes once its END has gone. */
+  #close(id: string): void {
+    const connection = this.#connections.get(id);
+    if (!connection || connection.done) return;
+    connection.done = true;
+    this.#connections.delete(id);
+    if (!connection.phoneEnded) this.#host.act(id, "close");
   }
 
   /** Ends a connection at once; `phone` resets the phone's side too. */

@@ -56,6 +56,18 @@ describe("a device tab's connection through the tunnel", () => {
     expect(received("c1")).toBe(header(5 * 1024 * 1024) + 5 * 1024 * 1024);
   });
 
+  test("a machine that closed after its answer closes the page's connection without a reset", async () => {
+    const { host, loopback, received } = phone();
+    loopback.event("accept", "c1", 5173);
+    await until(() => host.of("c1", "read").length > 0);
+    loopback.event("data", "c1", request(64));
+    // The page never ends its half; the machine's close still finishes the connection.
+    await until(() => host.of("c1", "close").length > 0);
+    expect(received("c1")).toBe(header(64) + 64);
+    expect(host.of("c1", "end")).toHaveLength(1);
+    expect(host.of("c1", "reset")).toHaveLength(0);
+  });
+
   test("the machine's ports come through for the listeners", async () => {
     const { tunnel } = phone();
     await until(() => tunnel.ports.get().length > 0);

@@ -48,6 +48,37 @@ private func holdPort(_ port: Int) -> Int32 {
     return socket
 }
 
+/// The answers one `listen` gave: exactly one, however it settled.
+private final class Answers: @unchecked Sendable {
+    private let lock = NSLock()
+    private var answers: [LoopbackListening] = []
+    func add(_ answer: LoopbackListening) { lock.withLock { answers.append(answer) } }
+    var all: [LoopbackListening] { lock.withLock { answers } }
+    func waitForOne() async throws {
+        for _ in 0..<400 where all.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        // Any second answer would come right behind the first.
+        try await Task.sleep(for: .milliseconds(50))
+        if all.isEmpty { throw LoopbackTestError.timedOut("answer") }
+    }
+}
+
+/// A port another app holds on `::1` only.
+private func holdPort6(_ port: Int) -> Int32 {
+    let socket = Darwin.socket(AF_INET6, SOCK_STREAM, 0)
+    var on: Int32 = 1
+    setsockopt(socket, IPPROTO_IPV6, IPV6_V6ONLY, &on, socklen_t(MemoryLayout<Int32>.size))
+    var address = sockaddr_in6()
+    address.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+    address.sin6_family = sa_family_t(AF_INET6)
+    address.sin6_port = UInt16(port).bigEndian
+    address.sin6_addr = in6addr_loopback
+    withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { _ = bind(socket, $0, socklen_t(MemoryLayout<sockaddr_in6>.size)) }
+    }
+    listen(socket, 4)
+    return socket
+}
+
 private func listen(_ hub: LoopbackHub, _ ports: [Int], for client: any LoopbackClient) async -> LoopbackListening {
     await withCheckedContinuation { continuation in hub.listen(ports, for: client) { continuation.resume(returning: $0) } }
 }
@@ -200,5 +231,107 @@ private final class PageSocket: @unchecked Sendable {
         let other = await listen(otherHub, [port], for: client)
         #expect(other.listening == [port])
         _ = await listen(otherHub, [], for: client)
+    }
+    @Test func aPortIsListenedOnOnlyOnceBothLoopbackAddressesAreUp() async throws {
+        let hub = LoopbackHub(queue: DispatchQueue(label: "test.loopback"))
+        let client = RecordingClient()
+        let port = freePort()
+        let answer = await listen(hub, [port], for: client)
+        #expect(answer.listening == [port])
+        // At once, with no wait: `::1` was up before the answer.
+        _ = PageSocket(host: .ipv6(.loopback), port: port)
+        _ = try await client.wait("accept on ::1") { if case .accept(_, port) = $0 { true } else { false } }
+        _ = await listen(hub, [], for: client)
+    }
+
+    @Test func aPortAnotherAppHoldsOnlyOnIPv6IsBusyAndItsIPv4ListenerLetsGo() async throws {
+        let hub = LoopbackHub(queue: DispatchQueue(label: "test.loopback"))
+        let client = RecordingClient()
+        let port = freePort()
+        let socket = holdPort6(port)
+        defer { close(socket) }
+        let answer = await listen(hub, [port], for: client)
+        #expect(answer == LoopbackListening(listening: [], busy: [port]))
+        // 127.0.0.1 is free again for whoever asks next.
+        let other = holdPort(port)
+        defer { close(other) }
+        let page = PageSocket(host: .ipv4(.loopback), port: port)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(!client.seen.contains { if case .accept = $0 { true } else { false } })
+        page.connection.cancel()
+    }
+
+    @Test func aPortStillClosingIsTriedAgainUntilItIsFree() async throws {
+        let hub = LoopbackHub(queue: DispatchQueue(label: "test.loopback"))
+        let client = RecordingClient()
+        let port = freePort()
+        let socket = holdPort(port)
+        // Let go after two tries; the hub tries four times more, 100 ms apart.
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(150)) { close(socket) }
+        let answer = await listen(hub, [port], for: client)
+        #expect(answer == LoopbackListening(listening: [port], busy: []))
+        _ = await listen(hub, [], for: client)
+    }
+
+    @Test func aRuntimeOvertakenWhileItsPortBindsStillHearsAnAnswerThatNamesNothingAsItsOwn() async throws {
+        let hub = LoopbackHub(queue: DispatchQueue(label: "test.loopback"))
+        let first = RecordingClient(), second = RecordingClient()
+        let slow = freePort(), other = freePort()
+        // Held, so the first runtime's bind is still retrying when the second asks.
+        let socket = holdPort(slow)
+        defer { close(socket) }
+        let firstAnswer = Answers()
+        hub.listen([slow], for: first) { firstAnswer.add($0) }
+        try await Task.sleep(for: .milliseconds(30))
+        let secondAnswer = await listen(hub, [other], for: second)
+        #expect(secondAnswer == LoopbackListening(listening: [other], busy: []))
+        try await firstAnswer.waitForOne()
+        #expect(firstAnswer.all == [LoopbackListening(listening: [], busy: [])])
+        _ = try await first.wait("released") { $0 == .released }
+        _ = await listen(hub, [], for: second)
+    }
+
+    @Test func aRuntimeOvertakenOnAPortBothWantHearsThatItNoLongerHoldsIt() async throws {
+        let hub = LoopbackHub(queue: DispatchQueue(label: "test.loopback"))
+        let first = RecordingClient(), second = RecordingClient()
+        let port = freePort()
+        // Asked in this order on one thread, so the hub takes them in this order.
+        let firstAnswer = Answers()
+        hub.listen([port], for: first) { firstAnswer.add($0) }
+        let secondAnswer = await listen(hub, [port], for: second)
+        #expect(secondAnswer.listening == [port])
+        try await firstAnswer.waitForOne()
+        #expect(firstAnswer.all.map(\.listening) == [[]])
+        _ = await listen(hub, [], for: second)
+    }
+
+    @Test func theHolderListeningOnNothingEndsTheConnectionsItAccepted() async throws {
+        let hub = LoopbackHub(queue: DispatchQueue(label: "test.loopback"))
+        let client = RecordingClient()
+        let port = freePort()
+        _ = await listen(hub, [port], for: client)
+        let page = PageSocket(host: .ipv4(.loopback), port: port)
+        let accepted = try await client.wait("accept") { if case .accept = $0 { true } else { false } }
+        guard case .accept(let id, _) = accepted else { return }
+        _ = await listen(hub, [], for: client)
+        _ = try await client.wait("reset") { $0 == .reset(id) }
+        try await page.waitFor("dropped") { $0.endedOrFailed.ended || $0.endedOrFailed.failed }
+    }
+    @Test func closingAfterTheMachineIsGoneEndsThePageQuietlyWithItsLastBytes() async throws {
+        let hub = LoopbackHub(queue: DispatchQueue(label: "test.loopback"))
+        let client = RecordingClient()
+        let port = freePort()
+        _ = await listen(hub, [port], for: client)
+        let page = PageSocket(host: .ipv4(.loopback), port: port)
+        let accepted = try await client.wait("accept") { if case .accept = $0 { true } else { false } }
+        guard case .accept(let id, _) = accepted else { return }
+        hub.act(id, action: "write", bytes: Data("last".utf8))
+        hub.act(id, action: "end", bytes: nil)
+        hub.act(id, action: "close", bytes: nil)
+        // The page never ends its half, yet it hears the bytes and a clean end, not a reset.
+        try await page.waitFor("last bytes and end") { $0.text == "last" && $0.endedOrFailed.ended }
+        #expect(!page.endedOrFailed.failed)
+        #expect(!client.seen.contains(.reset(id)))
+        _ = await listen(hub, [], for: client)
     }
 }

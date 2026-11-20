@@ -235,9 +235,11 @@ export interface MediaSocketOpen {
  *   code reads only when asked, so the device side is paced by the tunnel's credit.
  * - `write`: send `bytes` to the connection; `aceLoopback("written", id, 0)` once sent.
  * - `end`: no more bytes from the machine (half-close); reading may go on.
+ * - `close`: after `end`, the machine's side is gone: close the connection once the end has been
+ *   sent, without a reset, whatever the page does.
  * - `reset`: drop the connection at once.
  */
-export type LoopbackAction = "read" | "write" | "end" | "reset";
+export type LoopbackAction = "read" | "write" | "end" | "close" | "reset";
 
 /**
  * What native code tells the script about the loopback (`aceLoopback(event, id, value)`):
