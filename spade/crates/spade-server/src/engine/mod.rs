@@ -7,6 +7,7 @@ mod agents;
 mod autonomy;
 mod bots;
 mod brain;
+mod brief;
 mod calls;
 mod classify;
 mod compact;
@@ -38,6 +39,7 @@ mod oversight;
 mod park;
 mod plugin_hooks;
 mod questions;
+mod reach;
 mod recipes;
 mod retry;
 mod review;
@@ -74,6 +76,7 @@ pub use knowledge_api::KnowledgeInput;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use reach::ReachError;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
 
@@ -239,6 +242,8 @@ pub struct Engine {
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
     digests: digests::Shared,
+    /// What reaches the person and what waits for them (ADR 0195, `reach`).
+    reach: reach::Shared,
     /// Bots moving to or from another machine (ADR 0187, `moves`).
     moves: moves::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
@@ -352,6 +357,7 @@ impl Engine {
             security: std::sync::OnceLock::new(),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
+            reach: reach::Shared::default(),
             moves: moves::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),

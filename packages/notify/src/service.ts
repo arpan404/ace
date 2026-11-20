@@ -241,6 +241,8 @@ export class NotificationService {
               this.database.snoozed(job.notification.threadId, now))) ||
           isQuiet(device.preferences, now) ||
           (job.notification.status === "agent_says" && device.preferences.agentSays === false) ||
+          // Spade's notices reach desktop and web; the phone app doesn't read them yet.
+          (job.notification.status === "spade" && device.address.platform === "phone") ||
           (device.address.platform === "phone" &&
             this.presence.viewedElsewhere(job.notification.threadId, device.id, now))
         ) {

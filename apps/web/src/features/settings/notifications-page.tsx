@@ -57,6 +57,11 @@ export function NotificationSettings() {
               title="Agent messages"
               description="Messages an agent asks ace to tell you about."
             />
+            <CategorySwitch
+              category="spade"
+              title="Spade"
+              description="Your bots: what needs you, what stopped, digests and the morning brief."
+            />
             <QuietHoursRow />
           </SettingSection>
         )

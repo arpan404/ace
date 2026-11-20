@@ -9,6 +9,7 @@ import { SettingCard, SettingRow, settingsGroup } from "@/components/setting-row
 import { Switch } from "@/components/ui/switch.tsx";
 import { setFastModel, setNewBotModel, setTranscriptionModel } from "./spade-api.ts";
 import { ReviewRows, SpendingSection, useOversightSettings } from "./spade-oversight-settings.tsx";
+import { ReachSection } from "./spade-reach-settings.tsx";
 import { LoadingRows, SwitchSkeleton } from "./spade-settings-loading.tsx";
 import { firstUsableWords } from "./spade-model-options.ts";
 import { CouldNotRead, ModelSettingRow, useSpadeRunning } from "./spade-settings-rows.tsx";
@@ -18,7 +19,7 @@ import { useSpadeClient } from "./spade-machine.tsx";
 /**
  * Settings › Spade › General: Spade on or off on this machine; the models it starts new bots
  * on and uses for small jobs and transcription; whether every bot's writes are
- * reviewed (ADR 0135); then what every bot spent together. While the setting or Spade's state is
+ * reviewed (ADR 0135); how Spade reaches the person (ADR 0195); then what every bot spent. While the setting or Spade's state is
  * still being read, the rows hold their place, and the switch shows neither on nor off.
  */
 export function SpadeSettings() {
@@ -75,6 +76,7 @@ export function SpadeSettings() {
           )}
         </SettingCard>
       </div>
+      {line.ready && <ReachSection ready={line.ready} />}
       {(line.ready || reading) && <SpendingSection settings={oversight} />}
     </>
   );

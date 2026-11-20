@@ -219,6 +219,12 @@ export const DeepLink = z.discriminatedUnion("kind", [
     itemId: z.string().optional(),
   }),
   z.object({ kind: z.literal("settings"), page: z.string().optional() }),
+  /** A Spade bot's conversation, with the approval or question to bring forward (ADR 0195). */
+  z.object({
+    kind: z.literal("spade"),
+    agent: z.string().min(1),
+    request: z.string().optional(),
+  }),
   z.object({ kind: z.literal("new-thread") }),
   /** The Usage page (the menu-bar popover's "Open Usage"). */
   z.object({ kind: z.literal("usage") }),
@@ -235,6 +241,8 @@ export function deepLinkRoute(link: DeepLink): string {
       return `/t/${encodeURIComponent(link.threadId)}${link.itemId ? `?item=${encodeURIComponent(link.itemId)}` : ""}`;
     case "settings":
       return `/settings/${link.page ?? "general"}`;
+    case "spade":
+      return `/spade/${encodeURIComponent(link.agent)}${link.request ? `?request=${encodeURIComponent(link.request)}` : ""}`;
     case "new-thread":
       return "/new";
     case "usage":
@@ -250,6 +258,8 @@ export function deepLinkRoute(link: DeepLink): string {
 /** Notification categories; kept in step with the web's Settings › Notifications. */
 export const NotificationCategory = z.enum([
   "agentSays",
+  /** Spade's bots: what needs the person, what stopped, digests, briefs (ADR 0195). */
+  "spade",
   "needsYou",
   "finished",
   "failed",

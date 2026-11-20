@@ -7,6 +7,8 @@ export interface Alert {
   /** Stable per occurrence; the same id twice is the same alert. */
   id: string;
   threadId?: string | undefined;
+  /** Alerts of one group replace each other: a thread's, or a Spade bot's. */
+  group?: string | undefined;
   title: string;
   body: string;
   link: DeepLink;
@@ -50,6 +52,18 @@ export interface RouterOptions {
 
 /** Map the daemon's notification statuses onto the desktop categories. */
 export function alertFromDaemon(notification: Notification): Alert {
+  // A Spade notice opens its bot's conversation, never Spade's host thread it is filed under.
+  if (notification.status === "spade" && notification.spade) {
+    const { agent, request } = notification.spade;
+    return {
+      category: "spade",
+      id: notification.id,
+      group: `spade:${agent}`,
+      title: notification.title,
+      body: notification.message ?? "",
+      link: { kind: "spade", agent, ...(request ? { request } : {}) },
+    };
+  }
   // One alert for the threads still waiting after the app was away; it opens the first.
   if (notification.status === "catch_up")
     return {
@@ -139,8 +153,8 @@ export class NotificationRouter {
     return {
       kind: "show",
       notification: {
-        tag: alert.threadId ? `thread:${alert.threadId}` : `alert:${alert.id}`,
-        groupId: alert.threadId ?? alert.category,
+        tag: alert.group ?? (alert.threadId ? `thread:${alert.threadId}` : `alert:${alert.id}`),
+        groupId: alert.group ?? alert.threadId ?? alert.category,
         title: alert.title,
         body: alert.body,
         link: alert.link,
