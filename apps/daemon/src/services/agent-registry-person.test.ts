@@ -45,7 +45,11 @@ function session(caller: { device: string; proven: boolean }) {
       agentRegistry: {
         handle: async (request): Promise<RegistryResult> => {
           reached.push(request.type);
-          return { type: "registry.result", requestId: request.requestId, result: { ok: true } };
+          return {
+            type: "registry.result",
+            requestId: request.requestId,
+            result: { ok: true, cancelled: false },
+          };
         },
       },
     },
