@@ -460,3 +460,112 @@ test.each(["at once", "held"] as const)(
     await within(() => run.machine.stats().streams === 0 && run.device.stats().streams === 0);
   },
 );
+
+/**
+ * The machine's side of the mux dialing a real dev server, with the test as its peer: frames it
+ * sends are recorded, and an END it sends waits until `releaseEnd` when `holdEnd` is set. Its
+ * socket is half-open with `halfOpen`; otherwise it ends and closes once the server's end arrives.
+ */
+async function machineFacing(
+  serve: (socket: Socket) => void,
+  options: { timer: MuxTimer; holdEnd?: boolean; halfOpen?: boolean },
+) {
+  const { timer, holdEnd = false, halfOpen = false } = options;
+  const frames: { kind: number; value: number }[] = [];
+  let receive: ((frame: Uint8Array) => void) | undefined;
+  let closed = false;
+  const { promise: endGate, resolve: releaseEnd } = Promise.withResolvers<void>();
+  if (!holdEnd) releaseEnd();
+  const devServer = createServer({ allowHalfOpen: true }, (socket) => {
+    socket.on("error", () => {});
+    serve(socket);
+  });
+  devServer.listen(0, "127.0.0.1");
+  await once(devServer, "listening");
+  cleanup.push(() => new Promise<void>((resolve) => devServer.close(() => resolve())));
+  const address = devServer.address();
+  if (!address || typeof address === "string") throw new Error("Missing dev server");
+  const mux = createMux({
+    maxStreams: 1,
+    timer,
+    allowPort: async () => true,
+    socketFactory: (port) => {
+      const socket = new Socket({ allowHalfOpen: halfOpen });
+      socket.on("error", () => {});
+      return {
+        socket: previewSocket(socket, systemTimer),
+        connect: () => socket.connect(port, "127.0.0.1"),
+      };
+    },
+    channel: {
+      async send(bytes) {
+        const frame = decodeFrame(bytes);
+        frames.push({ kind: frame.kind, value: frame.value });
+        if (frame.kind === kinds.end) await endGate;
+      },
+      close() {
+        closed = true;
+      },
+      subscribe(onFrame) {
+        receive = onFrame;
+        return () => {
+          receive = undefined;
+        };
+      },
+    },
+  });
+  cleanup.push(mux.close);
+  const peer = (kind: number, value = 0, data?: Uint8Array) =>
+    receive?.(encodeFrame(kind, 1, value, data));
+  peer(kinds.open, address.port);
+  await within(() => frames.some((frame) => frame.kind === kinds.ready));
+  return { mux, frames, peer, releaseEnd, closed: () => closed };
+}
+
+test("a peer that only returns credit cannot hold a closed stream's slot past the deadline from its close", async () => {
+  const clock = manualTimer();
+  // A server that answers and closes at once; the peer never ends.
+  const run = await machineFacing((socket) => socket.end("answer"), { timer: clock.timer });
+  await within(() => run.frames.some((frame) => frame.kind === kinds.end));
+  // Its socket has closed: wait for the mux to hear it.
+  await sleep(50);
+  const sentBytes = run.frames.find((frame) => frame.kind === kinds.data)?.value ?? 0;
+  expect(sentBytes).toBe(6);
+  for (let i = 0; i < sentBytes; i++) {
+    clock.advance(Math.floor(gracefulDrainMs / sentBytes) - 1);
+    run.peer(kinds.credit, 1);
+  }
+  clock.advance(gracefulDrainMs - (Math.floor(gracefulDrainMs / sentBytes) - 1) * sentBytes - 1);
+  expect(run.mux.stats().streams).toBe(1);
+  clock.advance(1);
+  expect(run.mux.stats().streams).toBe(0);
+  await within(() => run.frames.some((frame) => frame.kind === kinds.reset));
+  expect(run.closed()).toBe(false);
+});
+
+test("the peer's END while ours still waits to go leaves every byte it sent for the server, then its end", async () => {
+  const received: Buffer[] = [];
+  const { promise: serverEnded, resolve: ended } = Promise.withResolvers<void>();
+  const run = await machineFacing(
+    (socket) => {
+      socket.on("data", (bytes: Buffer) => received.push(bytes));
+      socket.on("end", () => ended());
+      // The server answers and ends its side first; it keeps reading.
+      socket.end("answer");
+    },
+    { timer: systemTimer, holdEnd: true, halfOpen: true },
+  );
+  await within(() => run.frames.some((frame) => frame.kind === kinds.end));
+  // Our END is still waiting to go; the peer sends a window's worth and its END.
+  const body = Buffer.from(Array.from({ length: 200_000 }, (_, i) => i % 251));
+  for (let offset = 0; offset < body.byteLength; offset += 16_384) {
+    const piece = body.subarray(offset, offset + 16_384);
+    run.peer(kinds.data, piece.byteLength, piece);
+  }
+  run.peer(kinds.end);
+  await serverEnded;
+  expect(Buffer.concat(received)).toEqual(body);
+  run.releaseEnd();
+  await within(() => run.mux.stats().streams === 0);
+  expect(run.frames.some((frame) => frame.kind === kinds.reset)).toBe(false);
+});

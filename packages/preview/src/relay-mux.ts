@@ -1,6 +1,12 @@
 import { PreviewPort } from "@ace/protocol/preview";
 import { z } from "zod";
 import { decodeFrame, encodeFrame, frameSize, kinds, windowSize } from "./relay-wire.ts";
+import {
+  openState,
+  transition,
+  type LifecycleEvent,
+  type StreamState,
+} from "./stream-lifecycle.ts";
 
 const SocketChunk = z.instanceof(Uint8Array).refine((bytes) => bytes.byteLength <= windowSize);
 
@@ -13,14 +19,14 @@ export type PreviewChannel = {
   readonly bufferedReceiveBytes?: number;
 };
 /**
- * Native bridges expose bounded socket queues and Node-like stream events. A close that follows
- * an end is graceful: the mux still sends every byte it holds and the END before it drops the
- * stream, however soon after the end the close comes. If the peer has not ended by then, the
- * stream stays half-closed, as a TCP connection does when one side closes after its answer: it
- * goes without a RESET at the peer's END, is reset if the peer sends more data (which nothing can
- * read now), and is reset after `gracefulDrainMs` without a frame from the peer. A close without
- * an end, or an error, is abortive and resets the stream at once. RESET is always abortive: the
- * side that gets one drops what still waited for its socket.
+ * Native bridges expose bounded socket queues and Node-like stream events. Each stream closes as
+ * a TCP connection does (`stream-lifecycle.ts`): `end` is the socket's FIN, and the mux sends END
+ * behind every byte read before it. `close` after `end` is graceful; `close` before `end`, `error`
+ * and `abort` (the local side giving up, after its end too) reset the stream at once. A stream
+ * finishes without a RESET only once both ENDs are exchanged, everything the peer sent has been
+ * written, and the socket has closed. A socket that closes with the stream unfinished leaves it
+ * waiting for what is still owed (our END going, the peer's END) for at most `gracefulDrainMs`
+ * from the close, a deadline nothing extends; peer DATA then resets it, since nothing reads it.
  */
 export type PreviewSocket = {
   readonly readableLength: number;
@@ -31,7 +37,7 @@ export type PreviewSocket = {
   end(): unknown;
   write(bytes: Uint8Array, callback: (error?: Error | null) => void): unknown;
   on(event: "data", listener: (bytes: Uint8Array) => void): unknown;
-  on(event: "end" | "close" | "error", listener: () => void): unknown;
+  on(event: "end" | "close" | "error" | "abort", listener: () => void): unknown;
   once(event: "connect", listener: () => void): unknown;
 };
 type Stream = {
@@ -40,8 +46,8 @@ type Stream = {
   ready: boolean;
   sendCredit: number;
   receiveCredit: number;
-  incomingEnded: boolean;
-  outgoingEnded: boolean;
+  /** Where the stream is in its close (`stream-lifecycle.ts`). */
+  state: StreamState;
   pending: Promise<void>;
   wake: (() => void) | undefined;
   cancelSend: (() => void) | undefined;
@@ -52,15 +58,6 @@ type Stream = {
   queuedBytes: number;
   /** One write at a time reaches the socket; the next takes everything queued behind it. */
   writing: boolean;
-  /** The peer's END came while bytes still waited: the socket ends once they are written. */
-  endPending: boolean;
-  /**
-   * The socket closed after its END while the peer had not ended: the stream waits for the
-   * peer's END, within the drain deadline.
-   */
-  halfClosed: boolean;
-  /** Set while a closed stream drains; restarts its deadline whenever a frame is admitted. */
-  progress: (() => void) | undefined;
   cancelDeadline: (() => void) | undefined;
 };
 /** Runs `run` after `ms` unless the returned cancel is called first. */
@@ -70,10 +67,10 @@ export const systemTimer: MuxTimer = (run, ms) => {
   return () => clearTimeout(handle);
 };
 /**
- * How long a gracefully closed stream may go without the peer admitting a frame before it is
- * reset. It matches the relay's other wait-for-the-peer bounds (bridge authentication and
- * request headers, 15 s). It restarts on progress, so a slow drain that is moving finishes, and
- * the total stays bounded: after the close at most one socket read is left to send.
+ * How long a stream whose socket closed after its end may wait for what it is still owed (our END
+ * going behind its last bytes, the peer's END) before it is reset. Fixed from the close: no frame
+ * extends it, so a peer that only returns CREDIT cannot hold the slot. It matches the relay's
+ * other wait-for-the-peer bounds (bridge authentication and request headers, 15 s).
  */
 export const gracefulDrainMs = 15_000;
 /**
@@ -172,6 +169,7 @@ export function createMux(options: MuxOptions) {
   const remove = (stream: Stream) => {
     if (streams.get(stream.id) !== stream) return;
     streams.delete(stream.id);
+    stream.state = "gone";
     stream.cancelDeadline?.();
     stream.wake?.();
     stream.cancelSend?.();
@@ -191,10 +189,7 @@ export function createMux(options: MuxOptions) {
     if (stream.writing || !alive(stream)) return;
     const chunks = stream.writeQueue.splice(0);
     if (chunks.length === 0) {
-      if (stream.endPending) {
-        stream.endPending = false;
-        stream.socket.end();
-      }
+      if (stream.queuedBytes === 0) apply(stream, "writesDrained");
       return;
     }
     const bytes = chunks.length === 1 && chunks[0] ? chunks[0] : joined(chunks);
@@ -209,6 +204,45 @@ export function createMux(options: MuxOptions) {
       void send(kinds.credit, stream.id, bytes.byteLength).catch(close);
       flush(stream);
     });
+  };
+  /** Bytes the peer sent, for a stream the lifecycle lets queue them. */
+  const queue = (stream: Stream, data: Uint8Array) => {
+    if (data.byteLength > stream.receiveCredit) throw new Error("Receive window exceeded");
+    stream.receiveCredit -= data.byteLength;
+    if (queuedWriteBytes + data.byteLength > queueLimit) return apply(stream, "localAbort");
+    stream.writeQueue.push(data);
+    stream.queuedBytes += data.byteLength;
+    queuedWriteBytes += data.byteLength;
+    flush(stream);
+  };
+  /**
+   * Moves `stream` through its lifecycle and performs what that asks. The state is set before
+   * any action runs, so an action that causes another event (a write that completes at once, a
+   * socket that closes as it ends) sees it.
+   */
+  const apply = (stream: Stream, event: LifecycleEvent, data?: Uint8Array): void => {
+    if (!alive(stream)) return;
+    const { next, actions } = transition(stream.state, event);
+    stream.state = next;
+    for (const action of actions) {
+      if (action === "protocolError") throw new Error(`Stream ${event} breaks its lifecycle`);
+      if (action === "reset") {
+        // Removed first, so the slot is free before the peer can hear the RESET and open again.
+        remove(stream);
+        void send(kinds.reset, stream.id).catch(close);
+      } else if (action === "remove") remove(stream);
+      else if (action === "queueData" && data) queue(stream, data);
+      else if (action === "endSocket") stream.socket.end();
+      else if (action === "armDeadline")
+        stream.cancelDeadline = options.timer(() => apply(stream, "deadline"), gracefulDrainMs);
+      else if (action === "sendEnd")
+        // Behind every byte read before the end, never ahead of them.
+        stream.pending = stream.pending.then(async () => {
+          if (!alive(stream)) return;
+          await send(kinds.end, stream.id);
+          apply(stream, "endSent");
+        });
+    }
   };
   const transmit = async (stream: Stream, chunk: Uint8Array) => {
     stream.payloadBytes = chunk.byteLength;
@@ -244,7 +278,6 @@ export function createMux(options: MuxOptions) {
             .catch(() => {});
         });
         offset += length;
-        stream.progress?.();
       }
     } finally {
       releasePayload(stream);
@@ -258,8 +291,7 @@ export function createMux(options: MuxOptions) {
       ready: false,
       sendCredit: windowSize,
       receiveCredit: windowSize,
-      incomingEnded: false,
-      outgoingEnded: false,
+      state: openState,
       pending: Promise.resolve(),
       wake: undefined,
       cancelSend: undefined,
@@ -267,71 +299,22 @@ export function createMux(options: MuxOptions) {
       writeQueue: [],
       queuedBytes: 0,
       writing: false,
-      endPending: false,
-      halfClosed: false,
-      progress: undefined,
       cancelDeadline: undefined,
     };
     streams.set(id, stream);
     socket.pause();
     socket.on("data", (chunk: Uint8Array) => {
       if (!alive(stream)) return;
-      if (stream.payloadBytes || !SocketChunk.safeParse(chunk).success) {
-        remove(stream);
-        void send(kinds.reset, id).catch(close);
-        return;
-      }
+      if (stream.payloadBytes || !SocketChunk.safeParse(chunk).success)
+        return apply(stream, "localAbort");
       socket.pause();
       stream.pending = transmit(stream, chunk).catch(close);
     });
-    let socketEnded = false;
-    socket.on("end", () => {
-      socketEnded = true;
-      stream.pending = stream.pending.then(async () => {
-        if (alive(stream)) {
-          stream.outgoingEnded = true;
-          await send(kinds.end, id);
-        }
-      });
-    });
-    socket.on("error", () => {
-      void send(kinds.reset, id).catch(close);
-      remove(stream);
-    });
-    const finish = () => {
-      if (!alive(stream)) return;
-      remove(stream);
-      if (!stream.incomingEnded || !stream.outgoingEnded) void send(kinds.reset, id).catch(close);
-    };
-    const expire = () => {
-      if (!alive(stream)) return;
-      void send(kinds.reset, id).catch(close);
-      remove(stream);
-    };
-    const arm = () => {
-      stream.cancelDeadline?.();
-      stream.cancelDeadline = options.timer(expire, gracefulDrainMs);
-    };
-    socket.on("close", () => {
-      if (!socketEnded) return finish();
-      // After an end, the END is queued behind any bytes still waiting for credit, within a
-      // deadline so a peer that stops returning credit cannot hold the stream's slot.
-      arm();
-      stream.progress = arm;
-      stream.pending = stream.pending.then(() => {
-        stream.progress = undefined;
-        stream.cancelDeadline?.();
-        stream.cancelDeadline = undefined;
-        if (!alive(stream)) return;
-        if (stream.incomingEnded) return finish();
-        // Bytes the peer sent that the closed socket never took can't be delivered now.
-        if (stream.writing || stream.writeQueue.length > 0) return expire();
-        // Half-closed: the peer's END finishes the stream, its silence resets it.
-        stream.halfClosed = true;
-        arm();
-        stream.progress = arm;
-      });
-    });
+    // A close before the socket's end is abortive; the lifecycle tells the two apart.
+    socket.on("end", () => apply(stream, "localEnd"));
+    socket.on("close", () => apply(stream, "localClose"));
+    socket.on("error", () => apply(stream, "localAbort"));
+    socket.on("abort", () => apply(stream, "localAbort"));
     return stream;
   };
   const ready = (stream: Stream) => {
@@ -395,26 +378,7 @@ export function createMux(options: MuxOptions) {
       }
       const stream = streams.get(frame.id);
       if (!stream) return; // Late frames for a locally reset stream cannot revive it.
-      if (frame.kind === kinds.reset) {
-        remove(stream);
-        return;
-      }
-      if (stream.halfClosed) {
-        if (frame.kind === kinds.end) {
-          if (stream.incomingEnded) throw new Error("Duplicate stream end");
-          // Both sides have ended: the stream goes without a RESET.
-          remove(stream);
-        } else if (frame.kind === kinds.data) {
-          // Nothing reads this side any more, as a closed TCP socket answers data with RST.
-          remove(stream);
-          void send(kinds.reset, stream.id).catch(close);
-        } else if (frame.kind === kinds.credit) {
-          stream.progress?.();
-        } else {
-          throw new Error("Duplicate stream ready");
-        }
-        return;
-      }
+      if (frame.kind === kinds.reset) return apply(stream, "peerReset");
       if (frame.kind === kinds.ready) {
         if (options.allowPort || stream.ready) throw new Error("Duplicate stream ready");
         ready(stream);
@@ -422,30 +386,14 @@ export function createMux(options: MuxOptions) {
       }
       if (!stream.ready) throw new Error("Data before ready");
       if (frame.kind === kinds.credit) {
+        // Against what this side sent and the peer has not acknowledged, in every state.
         if (!frame.value || stream.sendCredit + frame.value > windowSize)
           throw new Error("Invalid stream credit");
         stream.sendCredit += frame.value;
         stream.wake?.();
-      } else if (frame.kind === kinds.data) {
-        if (stream.incomingEnded || frame.value > stream.receiveCredit)
-          throw new Error("Receive window exceeded");
-        stream.receiveCredit -= frame.value;
-        if (queuedWriteBytes + frame.value > queueLimit) {
-          remove(stream);
-          void send(kinds.reset, stream.id).catch(close);
-          return;
-        }
-        stream.writeQueue.push(frame.data);
-        stream.queuedBytes += frame.value;
-        queuedWriteBytes += frame.value;
-        flush(stream);
-      } else if (frame.kind === kinds.end) {
-        if (stream.incomingEnded) throw new Error("Duplicate stream end");
-        stream.incomingEnded = true;
-        // After the bytes still waiting to be written, never ahead of them.
-        stream.endPending = true;
-        flush(stream);
-      }
+        apply(stream, "peerCredit");
+      } else if (frame.kind === kinds.data) apply(stream, "peerData", frame.data);
+      else if (frame.kind === kinds.end) apply(stream, "peerEnd");
     } catch {
       close();
     }
@@ -479,8 +427,7 @@ export function createMux(options: MuxOptions) {
     reset(id: number): void {
       const stream = streams.get(id);
       if (!stream || closed) return;
-      remove(stream);
-      void send(kinds.reset, id).catch(close);
+      apply(stream, "localAbort");
     },
     close,
     // Observability reports counts and windows, never retained payloads.

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createMux, type PreviewSocket } from "./relay-mux.ts";
+import { createMux, gracefulDrainMs, type PreviewSocket } from "./relay-mux.ts";
 import { decodeFrame, encodeFrame, kinds, type Frame } from "./relay-wire.ts";
 
 /*
@@ -42,9 +42,9 @@ function heldSocket() {
     writes,
     state,
     connect: () => connected?.(),
-    /** What the socket's own side does: `end` (its FIN) or `close`. */
-    emit(event: "end" | "close") {
-      for (const listener of listeners.get(event) ?? []) listener(new Uint8Array(0));
+    /** What the socket's own side does: `end` (its FIN), `close`, or `data` it read. */
+    emit(event: "end" | "close" | "data" | "abort", bytes = new Uint8Array(0)) {
+      for (const listener of listeners.get(event) ?? []) listener(bytes);
     },
     /** Completes the oldest write in flight. */
     drain() {
@@ -72,13 +72,16 @@ function host(
   let receive: ((frame: Uint8Array) => void) | undefined;
   const sockets: ReturnType<typeof heldSocket>[] = [];
   let dials = 0;
-  /** Timers armed and not cancelled; run one with `fire`. */
-  const timers = new Set<() => void>();
+  /** Timers armed and not cancelled; they run only as `advance` moves the clock past them. */
+  let now = 0;
+  const timers = new Set<{ at: number; run: () => void }>();
+  let channelClosed = false;
   const mux = createMux({
     maxStreams: 8,
-    timer: (run) => {
-      timers.add(run);
-      return () => timers.delete(run);
+    timer: (run, ms) => {
+      const entry = { at: now + ms, run };
+      timers.add(entry);
+      return () => timers.delete(entry);
     },
     ...(options.maxQueuedBytes === undefined ? {} : { maxQueuedBytes: options.maxQueuedBytes }),
     ...(options.admitOpen ? { admitOpen: options.admitOpen } : {}),
@@ -100,7 +103,9 @@ function host(
       async send(bytes) {
         sent.push(decodeFrame(bytes));
       },
-      close() {},
+      close() {
+        channelClosed = true;
+      },
       subscribe(onFrame) {
         receive = onFrame;
         return () => {};
@@ -120,10 +125,13 @@ function host(
     sent
       .filter((frame) => frame.kind === kinds.credit && frame.id === id)
       .reduce((sum, frame) => sum + frame.value, 0);
-  const fire = () => {
-    const armed = [...timers];
-    timers.clear();
-    for (const run of armed) run();
+  const advance = (ms: number) => {
+    now += ms;
+    for (const entry of timers) {
+      if (entry.at > now) continue;
+      timers.delete(entry);
+      entry.run();
+    }
   };
   return {
     mux,
@@ -133,7 +141,10 @@ function host(
     opened,
     credit,
     removed,
-    fire,
+    advance,
+    get channelClosed() {
+      return channelClosed;
+    },
     get dials() {
       return dials;
     },
@@ -261,19 +272,93 @@ test("a half-closed stream is reset when the peer sends data nothing can read", 
   expect(socket.writes).toHaveLength(0);
 });
 
-test("a half-closed stream whose peer goes quiet is reset at the deadline, which its credit restarts", async () => {
-  const { peer, opened, sent, removed, fire } = host();
+test("a half-closed stream is reset at a deadline from its close that the peer's credit never extends", async () => {
+  const made = host();
+  const { peer, opened, sent, removed, advance } = made;
   const socket = await opened(1);
+  // The socket answers with four bytes, ends and closes; the peer has not ended.
+  socket.emit("data", new Uint8Array([1, 2, 3, 4]));
+  await settle();
   socket.emit("end");
   socket.emit("close");
   await settle();
-  peer(kinds.credit, 1, 1);
-  // The deadline armed before the credit was cancelled and armed again: firing runs the new one.
+  expect(kindsOf(sent)).toEqual([kinds.ready, kinds.data, kinds.end]);
+  // The peer acknowledges the bytes one at a time, right up to the deadline.
+  for (let i = 0; i < 4; i++) {
+    advance(gracefulDrainMs / 4 - 1);
+    peer(kinds.credit, 1, 1);
+    await settle();
+  }
   expect(removed).toEqual([]);
-  fire();
+  advance(3);
+  expect(removed).toEqual([]);
+  advance(1);
   await settle();
   expect(removed.map((entry) => entry.id)).toEqual([1]);
   expect(kindsOf(sent).at(-1)).toBe(kinds.reset);
+  expect(made.channelClosed).toBe(false);
+});
+
+test("a half-closed stream's credit for bytes it never sent closes the channel", async () => {
+  const made = host();
+  const socket = await made.opened(1);
+  socket.emit("end");
+  socket.emit("close");
+  await settle();
+  made.peer(kinds.credit, 1, 1);
+  await settle();
+  expect(made.channelClosed).toBe(true);
+});
+
+test("a socket that closes before taking what the peer sent resets the stream, though both sides ended", async () => {
+  const { peer, opened, sent, removed } = host();
+  const socket = await opened(1);
+  socket.emit("end");
+  // Our END is queued; before it goes, the peer sends its bytes and its END.
+  peer(kinds.data, 1, 1, byte(1));
+  peer(kinds.data, 1, 1, byte(2));
+  peer(kinds.end, 1);
+  socket.emit("close");
+  await settle();
+  // The socket closed with bytes it never took: they can't be delivered, so the stream resets.
+  expect(kindsOf(sent).at(-1)).toBe(kinds.reset);
+  expect(removed.map((entry) => entry.id)).toEqual([1]);
+});
+
+test("a peer's END while ours waits to go: the socket gets every byte, then its end, and nothing resets", async () => {
+  const { peer, opened, sent, removed } = host();
+  const socket = await opened(1);
+  socket.emit("end");
+  peer(kinds.data, 1, 1, byte(1));
+  peer(kinds.data, 1, 1, byte(2));
+  peer(kinds.end, 1);
+  await settle();
+  expect(socket.state.ended).toBe(false);
+  socket.drain();
+  socket.drain();
+  await settle();
+  expect(socket.state.endedAfter).toBe(2);
+  expect(removed).toEqual([]);
+  socket.emit("close");
+  await settle();
+  expect(removed.map((entry) => entry.id)).toEqual([1]);
+  expect(kindsOf(sent)).not.toContain(kinds.reset);
+});
+
+test("an abort after the socket's end resets the stream at once", async () => {
+  const { peer, opened, sent, removed } = host();
+  const socket = await opened(1);
+  socket.emit("end");
+  await settle();
+  expect(kindsOf(sent)).toEqual([kinds.ready, kinds.end]);
+  socket.emit("abort");
+  await settle();
+  expect(kindsOf(sent).at(-1)).toBe(kinds.reset);
+  expect(removed.map((entry) => entry.id)).toEqual([1]);
+  expect(socket.state.destroyed).toBe(true);
+  // The peer's END that crosses the RESET finds nothing.
+  peer(kinds.end, 1);
+  expect(removed).toHaveLength(1);
 });
 
 test("a peer that resets without ending drops what still waited for the socket", async () => {

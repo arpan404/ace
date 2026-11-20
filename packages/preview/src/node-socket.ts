@@ -31,7 +31,9 @@ import { windowSize } from "./relay-wire.ts";
  *
  * Once the raw socket has closed, held bytes can only wait for the peer's credit, so that wait
  * has the mux's drain deadline: no piece delivered within `gracefulDrainMs` drops the held bytes
- * and reports a close with no end, which the mux resets.
+ * and reports a close with no end, which the mux resets. Bytes held are at most one read, so the
+ * wait stays bounded although each delivered piece restarts it; the mux's own deadline, from the
+ * close it is then told about, is fixed.
  */
 export function previewSocket(socket: Socket, timer: MuxTimer): PreviewSocket {
   let deliver: ((bytes: Uint8Array) => void) | undefined;
@@ -126,7 +128,9 @@ export function previewSocket(socket: Socket, timer: MuxTimer): PreviewSocket {
     },
     end: () => socket.end(),
     write: (bytes, callback) => socket.write(bytes, callback),
-    on(event: "data" | "end" | "close" | "error", listener: (bytes: Uint8Array) => void) {
+    on(event: "data" | "end" | "close" | "error" | "abort", listener: (bytes: Uint8Array) => void) {
+      // A Node socket's local abort is its `error` or a close before its end.
+      if (event === "abort") return undefined;
       if (event === "end") return endListeners.push(() => listener(Buffer.alloc(0)));
       if (event === "close") return closeListeners.push(() => listener(Buffer.alloc(0)));
       if (event !== "data") return socket.on(event, listener);

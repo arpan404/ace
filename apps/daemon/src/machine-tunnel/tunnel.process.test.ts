@@ -73,6 +73,8 @@ async function readAll(stream: TunnelStream): Promise<Buffer> {
 /** One device's tunnel connection on a path, joined in memory to the host. */
 function memoryPath(key: string, host: TunnelHost, device: { operate: () => boolean }) {
   const made: { open: boolean }[] = [];
+  /** Kinds of the frames the device sent, in order. */
+  const sent: number[] = [];
   const path: TunnelPath = {
     key,
     link(): TunnelLink {
@@ -121,6 +123,7 @@ function memoryPath(key: string, host: TunnelHost, device: { operate: () => bool
         },
         async sendBinary(bytes) {
           if (!state.open) throw new Error("closed");
+          if (bytes[1] !== undefined) sent.push(bytes[1]);
           const copy = bytes.slice();
           queueMicrotask(() => {
             if (state.open) toHost?.(copy);
@@ -130,7 +133,7 @@ function memoryPath(key: string, host: TunnelHost, device: { operate: () => bool
       };
     },
   };
-  return { path, made };
+  return { path, made, sent };
 }
 
 /** The host's pauses, at most 20 ms here. */
@@ -266,6 +269,41 @@ test("bytes larger than the window arrive whole and in order, both ways", async 
   await stream.write(sent);
   stream.end();
   expect(Buffer.compare(await received, Buffer.from(sent))).toBe(0);
+  await stream.closed;
+});
+
+test("a reset after the device ended its side drops the machine's socket at once, not at a deadline", async () => {
+  // A server still answering after the request ended. It writes only once the device's RESET has
+  // gone: a socket the machine dropped answers that with a TCP reset, and the server's closes.
+  const events: string[] = [];
+  const writer = { start: () => {} };
+  const server = createServer({ allowHalfOpen: true }, (socket) => {
+    let ticking: ReturnType<typeof setInterval> | undefined;
+    writer.start = () => {
+      ticking = setInterval(() => socket.write("x"), 5);
+    };
+    cleanups.push(() => {
+      clearInterval(ticking);
+      socket.destroy();
+    });
+    socket.on("error", () => {});
+    socket.on("end", () => events.push("end"));
+    socket.on("close", () => {
+      clearInterval(ticking);
+      events.push("close");
+    });
+    socket.resume();
+  });
+  const port = await listen(server, "127.0.0.1");
+  const { tunnel, first } = setup();
+  const stream = await tunnel.open(port);
+  stream.end();
+  await expect.poll(() => events).toEqual(["end"]);
+  stream.reset();
+  // At once: the machine's deadline is 15 s, which a reset taken for a close would wait out.
+  await expect.poll(() => first.sent.at(-1), { timeout: 1_000 }).toBe(6);
+  writer.start();
+  await expect.poll(() => events, { timeout: 2_000 }).toEqual(["end", "close"]);
   await stream.closed;
 });
 

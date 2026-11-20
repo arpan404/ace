@@ -38,6 +38,7 @@ export function tunnelStream(
   let deliver: ((bytes: Uint8Array) => void) | undefined;
   const endListeners: (() => void)[] = [];
   const closeListeners: (() => void)[] = [];
+  const abortListeners: (() => void)[] = [];
   let paused = true;
   let ready = false;
   let destroyed = false;
@@ -108,12 +109,15 @@ export function tunnelStream(
     closeEmitted = true;
     emit(closeListeners);
   };
+  /**
+   * An abort, never a close: after `end()` too, the mux sends RESET at once and destroys this
+   * socket, rather than finishing the stream as a close after an end would.
+   */
   const reset = () => {
     if (destroyed || closeEmitted) return;
     fail(new ClientError("tunnel_reset", "Tunnel stream reset"));
-    // A close with no end is abortive: the mux sends RESET and destroys this socket.
     closeEmitted = true;
-    emit(closeListeners);
+    emit(abortListeners);
   };
   const socket: PreviewSocket = {
     get readableLength() {
@@ -172,11 +176,12 @@ export function tunnelStream(
       if ((control?.desiredSize ?? 0) > 0) ack();
       else acks.push(ack);
     },
-    on(event: "data" | "end" | "close" | "error", listener: (bytes: Uint8Array) => void) {
+    on(event: "data" | "end" | "close" | "error" | "abort", listener: (bytes: Uint8Array) => void) {
       const none = new Uint8Array(0);
       if (event === "data") deliver = listener;
       else if (event === "end") endListeners.push(() => listener(none));
       else if (event === "close") closeListeners.push(() => listener(none));
+      else if (event === "abort") abortListeners.push(() => listener(none));
       // No socket error can happen here: a failure is a reset.
     },
     once() {
