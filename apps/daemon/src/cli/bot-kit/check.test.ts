@@ -90,7 +90,9 @@ describe("ace bot check against the version other bots call", () => {
     /** `watcher(required)` with its contract's schemas moved to a file of the package. */
     async function moved(required: string[]) {
       const bot = watcher(required);
-      const [{ input, output, ...rest }] = bot.contracts;
+      const [first] = bot.contracts;
+      if (!first) throw new Error("the watcher has a contract");
+      const { input, output, ...rest } = first;
       const root = await folder({
         ...bot,
         contracts: [{ ...rest, file: "contracts/cheapest-fare.json" }],

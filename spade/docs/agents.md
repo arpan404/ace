@@ -433,25 +433,25 @@ so they survive restarts, and go with their conversation; they are never events,
 model reads changes. The schema step that added them counted every conversation as seen up to
 then.
 
-| Method and path                               | Body                                                                                             | Answer                                                     |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| `GET /agents`                                 |                                                                                                  | `{"agents":[Agent]}`: main first, then by `last_activity`  |
-| `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?, naming?}`                               | `201 {"agent"}`; `model` defaults as below                 |
+| Method and path                               | Body                                                                                                      | Answer                                                     |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `GET /agents`                                 |                                                                                                           | `{"agents":[Agent]}`: main first, then by `last_activity`  |
+| `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?, naming?}`                                        | `201 {"agent"}`; `model` defaults as below                 |
 | `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`, `personality`, `task_why`, `may_create_bots`, `style` | `200 {"agent"}`; `409` for the main agent's name or avatar |
-| `GET /agents/{id}/task/history`               |                                                                                                  | `{"versions":[{seq, at, task, by, why}]}`, newest first    |
-| `DELETE /agents/{id}`                         |                                                                                                  | `204`; `409` for the main agent                            |
-| `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                                               | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |
-| `PUT /main`                                   | `{"enabled": bool}`                                                                              | `204`                                                      |
-| `GET /models`                                 |                                                                                                  | `{"endpoints","presets","fast_model","new_bot_model", …}`  |
-| `POST /endpoints`                             | `{name, format, base_url, headers?, session_header?, needs_key?, preset?}`                       | `201 {"endpoint"}`                                         |
-| `PATCH /endpoints/{id}`                       | same fields but `preset`                                                                         | `200 {"endpoint"}`                                         |
-| `DELETE /endpoints/{id}`                      |                                                                                                  | `204` (its keychain key goes too); `409 {error, agents}`   |
-| `GET /endpoints/{id}/models`                  |                                                                                                  | `{"models":[{id, name?, context?, capabilities?}]}`, live  |
-| `POST /endpoints/{id}/models`                 | `{id, name?, context?, capabilities?}`                                                           | `200 {"endpoint"}`                                         |
-| `DELETE /endpoints/{id}/models?id=<model id>` |                                                                                                  | `204`; `404` if not saved                                  |
-| `PUT /settings`                               | any of `fast_model`, `new_bot_model`: `"endpoint/model" \| null`                                 | `204`                                                      |
-| `PUT`/`DELETE /keys/{endpoint}`               | `{key}`                                                                                          | as before (ADR 0119)                                       |
-| `POST /conversations`                         |                                                                                                  | `410`: create an agent instead                             |
+| `GET /agents/{id}/task/history`               |                                                                                                           | `{"versions":[{seq, at, task, by, why}]}`, newest first    |
+| `DELETE /agents/{id}`                         |                                                                                                           | `204`; `409` for the main agent                            |
+| `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                                                        | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |
+| `PUT /main`                                   | `{"enabled": bool}`                                                                                       | `204`                                                      |
+| `GET /models`                                 |                                                                                                           | `{"endpoints","presets","fast_model","new_bot_model", …}`  |
+| `POST /endpoints`                             | `{name, format, base_url, headers?, session_header?, needs_key?, preset?}`                                | `201 {"endpoint"}`                                         |
+| `PATCH /endpoints/{id}`                       | same fields but `preset`                                                                                  | `200 {"endpoint"}`                                         |
+| `DELETE /endpoints/{id}`                      |                                                                                                           | `204` (its keychain key goes too); `409 {error, agents}`   |
+| `GET /endpoints/{id}/models`                  |                                                                                                           | `{"models":[{id, name?, context?, capabilities?}]}`, live  |
+| `POST /endpoints/{id}/models`                 | `{id, name?, context?, capabilities?}`                                                                    | `200 {"endpoint"}`                                         |
+| `DELETE /endpoints/{id}/models?id=<model id>` |                                                                                                           | `204`; `404` if not saved                                  |
+| `PUT /settings`                               | any of `fast_model`, `new_bot_model`: `"endpoint/model" \| null`                                          | `204`                                                      |
+| `PUT`/`DELETE /keys/{endpoint}`               | `{key}`                                                                                                   | as before (ADR 0119)                                       |
+| `POST /conversations`                         |                                                                                                           | `410`: create an agent instead                             |
 
 - A new bot's `model`, when the body names none: `new_bot_model` (the person's choice in Settings,
   answered by `GET /models`, set with `PUT /settings`; `null` clears it), else the person's first
