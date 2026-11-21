@@ -50,6 +50,15 @@ const file = (path: string, content = "{}", executable = false) => ({
   executable,
 });
 
+/** A component entry as `bot.json` names it. */
+const code = (name: string) => ({
+  name,
+  file: `code/${name}.wasm`,
+  world: "spade:package/bot-tools@1.0.0",
+  imports: ["spade:package/tools"],
+  why: "Exact work.",
+});
+
 describe("agent packages", () => {
   it("read a version 3 manifest, its schedule triggers as routines", () => {
     const { recipe, problems } = read(watcher);
@@ -87,13 +96,6 @@ describe("agent packages", () => {
   });
 
   it("run each component the review listed unless the person turned it off there", () => {
-    const code = (name: string) => ({
-      name,
-      file: `code/${name}.wasm`,
-      world: "spade:package/bot-tools@1.0.0",
-      imports: ["spade:package/tools"],
-      why: "Exact work.",
-    });
     const recipe = read({ ...watcher, code: [code("fares"), code("dates")] }).recipe!;
     const granted = grantedEffects(recipe, { "code:dates": false });
     expect(granted["code:fares"]).toBe(true);
