@@ -353,7 +353,7 @@ impl Policy {
                 let host = host.trim().to_ascii_lowercase();
                 self.endpoints
                     .as_ref()
-                    .is_some_and(|hosts| !hosts.iter().any(|allowed| *allowed == host))
+                    .is_some_and(|hosts| !hosts.contains(&host))
                     .then_some("Your organization doesn't allow that endpoint for shared bots.")
             }
         }

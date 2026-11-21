@@ -37,7 +37,9 @@ fn call(effect: Option<Effect>, place: Place) -> Call<'static> {
 }
 
 fn policy(body: &str) -> &'static Policy {
-    Box::leak(Box::new(Policy::parse(body).expect("a policy")))
+    Box::leak(Box::new(
+        Policy::parse(body).unwrap_or_else(|| panic!("a policy")),
+    ))
 }
 
 fn acme(body: &str) -> Option<Gate<'static>> {
@@ -181,7 +183,8 @@ fn commands_outside_the_sandbox_are_refused_where_the_policy_never_allows_them()
     }
     let policy = policy(never);
     assert!(!policy.may_let_outside(Role::Owner, true));
-    let admins = Policy::parse(r#"{"commands_outside_sandbox": "admins"}"#).expect("policy");
+    let admins = Policy::parse(r#"{"commands_outside_sandbox": "admins"}"#)
+        .unwrap_or_else(|| panic!("policy"));
     assert!(admins.may_let_outside(Role::Admin, true));
     assert!(!admins.may_let_outside(Role::Member, true));
     assert!(!admins.may_let_outside(Role::Admin, false));
@@ -189,7 +192,7 @@ fn commands_outside_the_sandbox_are_refused_where_the_policy_never_allows_them()
 
 #[test]
 fn members_never_turn_on_paying_sending_or_publishing_and_the_policy_narrows_admins() {
-    let open = Policy::parse("{}").expect("policy");
+    let open = Policy::parse("{}").unwrap_or_else(|| panic!("policy"));
     for effect in [Effect::Pay, Effect::SendAsPerson, Effect::Publish] {
         assert_eq!(
             open.switch_refusal(effect, Role::Member, true),
@@ -204,7 +207,7 @@ fn members_never_turn_on_paying_sending_or_publishing_and_the_policy_narrows_adm
         None
     );
     let kept = Policy::parse(r#"{"effects": {"network_without_hosts": "admins", "pay": "off"}}"#)
-        .expect("policy");
+        .unwrap_or_else(|| panic!("policy"));
     assert_eq!(
         kept.switch_refusal(Effect::Network, Role::Member, true),
         Some(policy::ADMINS_ONLY)
@@ -221,7 +224,7 @@ fn members_never_turn_on_paying_sending_or_publishing_and_the_policy_narrows_adm
     );
     // Full access is off unless the policy allows it.
     assert!(!open.may_raise_full_access(Role::Owner, true));
-    let raise = Policy::parse(r#"{"full_access": "admins"}"#).expect("policy");
+    let raise = Policy::parse(r#"{"full_access": "admins"}"#).unwrap_or_else(|| panic!("policy"));
     assert!(raise.may_raise_full_access(Role::Admin, true));
     assert!(!raise.may_raise_full_access(Role::Member, true));
 }
@@ -232,7 +235,7 @@ fn a_word_the_policy_uses_that_this_build_doesnt_know_reads_as_the_narrowest_rul
         r#"{"effects": {"pay": "sometimes"}, "full_access": "weekends",
             "packages": {"mode": "curated"}, "members_create_bots": "yes"}"#,
     )
-    .expect("policy");
+    .unwrap_or_else(|| panic!("policy"));
     assert!(unknown.forbids(Effect::Pay));
     assert!(!unknown.full_access_allowed());
     assert!(!unknown.members_create_bots());
@@ -257,7 +260,7 @@ fn packages_follow_the_organizations_sources_list_and_blocks() {
         "allow": [{"source": "market", "name": "spade-bot/ci-watcher", "versions": ["1.2.0"]},
                   {"source": "registry", "name": "*"}],
         "block": [{"hash": "sha256:bad"}, {"name": "spade-bot/leaky"}]}}"#;
-    let policy = Policy::parse(body).expect("policy");
+    let policy = Policy::parse(body).unwrap_or_else(|| panic!("policy"));
     let package = |source, name, version, hash| Package {
         source,
         name,
@@ -310,7 +313,7 @@ fn packages_follow_the_organizations_sources_list_and_blocks() {
         Some("Your organization blocked spade-bot/ci-watcher.")
     );
     // With no policy, only git is off.
-    let open = Policy::parse("{}").expect("policy");
+    let open = Policy::parse("{}").unwrap_or_else(|| panic!("policy"));
     assert!(
         open.package_refusal(package(Source::Market, "x", "1", "sha256:ok"))
             .is_none()
@@ -325,7 +328,7 @@ fn packages_follow_the_organizations_sources_list_and_blocks() {
 fn shared_bots_route_only_to_the_organizations_endpoints_and_never_to_a_subscription() {
     let policy =
         Policy::parse(r#"{"models": {"endpoints": ["api.example-models.com"], "local": false}}"#)
-            .expect("policy");
+            .unwrap_or_else(|| panic!("policy"));
     assert!(
         policy
             .model_refusal(ModelPlace::Endpoint("API.example-models.com"))
@@ -337,7 +340,7 @@ fn shared_bots_route_only_to_the_organizations_endpoints_and_never_to_a_subscrip
             .is_some()
     );
     assert!(policy.model_refusal(ModelPlace::Local).is_some());
-    let open = Policy::parse("{}").expect("policy");
+    let open = Policy::parse("{}").unwrap_or_else(|| panic!("policy"));
     assert!(
         open.model_refusal(ModelPlace::Endpoint("api.other.com"))
             .is_none()
@@ -379,7 +382,7 @@ fn only_named_approvers_answer_and_a_list_always_keeps_one() {
             access.approvers.clone(),
             vec![],
         )
-        .expect("a list");
+        .unwrap_or_else(|e| panic!("a list: {e}"));
     assert!(narrowed.may(&member("user_carol", "member"), Right::Talk));
     assert!(narrowed.may(&ana, Right::Talk));
     assert!(!narrowed.may(&bob, Right::Talk));
@@ -468,7 +471,7 @@ fn export(entries: &[Chained], checkpoint_at: &[i64]) -> String {
     }
     lines
         .iter()
-        .map(|line| serde_json::to_string(line).expect("json"))
+        .map(|line| serde_json::to_string(line).unwrap_or_else(|e| panic!("json: {e}")))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -508,7 +511,7 @@ fn an_audit_export_verifies_and_any_rewrite_before_its_checkpoint_is_found() {
     let checkpoint = good
         .lines()
         .find(|line| line.contains("\"checkpoint\""))
-        .expect("a checkpoint")
+        .unwrap_or_else(|| panic!("a checkpoint"))
         .to_owned();
     lines.insert(5, checkpoint);
     assert_eq!(

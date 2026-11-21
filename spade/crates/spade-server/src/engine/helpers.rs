@@ -574,8 +574,8 @@ impl Engine {
         allowed: bool,
         always: bool,
         by: Option<&spade_core::org::Member>,
-        entry: Option<spade_core::org::audit::Entry>,
     ) -> Result<(), AnswerError> {
+        let entry = by.and_then(|member| self.answer_entry(bot, call_id, allowed, always, member));
         let asked = events.iter().rev().find_map(|event| match event {
             Event::Known(Known::ApprovalRequested {
                 call_id: c,

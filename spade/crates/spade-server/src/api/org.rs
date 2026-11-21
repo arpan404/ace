@@ -49,9 +49,9 @@ fn org_problem(error: &OrgError) -> Response {
     problem(status, &error.to_string())
 }
 
-fn parse<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, Response> {
+fn parse<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, Box<Response>> {
     serde_json::from_slice(body)
-        .map_err(|error| problem(StatusCode::BAD_REQUEST, &error.to_string()))
+        .map_err(|error| Box::new(problem(StatusCode::BAD_REQUEST, &error.to_string())))
 }
 
 /// `GET /v1/org`.
@@ -128,7 +128,7 @@ pub(super) async fn create(
         };
         let wanted: NewShared = match parse(&body) {
             Ok(wanted) => wanted,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
         if state.engine.org_binding().is_none() {
             return org_problem(&OrgError::NotBound);
@@ -202,7 +202,7 @@ pub(super) async fn set_access(
         };
         let change: AccessChange = match parse(&body) {
             Ok(change) => change,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
         match state.engine.set_access(
             &id,

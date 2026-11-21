@@ -50,7 +50,10 @@ fn main() -> std::process::ExitCode {
     // (ADR 0177): read from the binary that ships, never from source.
     // `ace org audit verify` (ADR 0206 §4.2): an exported log checked offline against the key
     // the host registered. Opens nothing but the file.
-    if args.first().is_some_and(|flag| flag == "--verify-org-audit") {
+    if args
+        .first()
+        .is_some_and(|flag| flag == "--verify-org-audit")
+    {
         let (Some(file), Some(key)) = (args.get(1), args.get(2).and_then(|k| k.to_str())) else {
             eprintln!("usage: spade --verify-org-audit <export.jsonl> <audit key>");
             return std::process::ExitCode::from(2);
@@ -541,7 +544,8 @@ async fn run() -> Result<(), Failure> {
             loop {
                 every.tick().await;
                 let engine = engine.clone();
-                let signed = tokio::task::spawn_blocking(move || engine.org_checkpoint_if_due()).await;
+                let signed =
+                    tokio::task::spawn_blocking(move || engine.org_checkpoint_if_due()).await;
                 if let Ok(Err(error)) = signed {
                     tracing::warn!(%error, "the audit log's checkpoint couldn't be signed");
                 }

@@ -8,8 +8,10 @@ use super::CRASH_BEFORE_ENTRIES;
 use crate::Store;
 
 fn store(dir: &tempfile::TempDir) -> Store {
-    let store = Store::open(&dir.path().join("spade.db")).expect("open");
-    store.create_conversation("c_1", 1).expect("conversation");
+    let store = Store::open(&dir.path().join("spade.db")).unwrap_or_else(|e| panic!("open: {e}"));
+    store
+        .create_conversation("c_1", 1)
+        .unwrap_or_else(|e| panic!("conversation: {e}"));
     store
 }
 
@@ -41,8 +43,13 @@ fn export(store: &Store) -> String {
         host: "HOST".to_owned(),
         key: String::new(),
     }];
-    let checkpoints = store.audit_checkpoints(0, i64::MAX).expect("checkpoints");
-    for chained in store.audit_entries(0, 1000).expect("entries") {
+    let checkpoints = store
+        .audit_checkpoints(0, i64::MAX)
+        .unwrap_or_else(|e| panic!("checkpoints: {e}"));
+    for chained in store
+        .audit_entries(0, 1000)
+        .unwrap_or_else(|e| panic!("entries: {e}"))
+    {
         let seq = chained.seq;
         lines.push(Line::Entry(chained));
         for checkpoint in checkpoints.iter().filter(|c| c.count == seq) {
@@ -51,28 +58,30 @@ fn export(store: &Store) -> String {
     }
     lines
         .iter()
-        .map(|line| serde_json::to_string(line).expect("json"))
+        .map(|line| serde_json::to_string(line).unwrap_or_else(|e| panic!("json: {e}")))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
 #[test]
 fn a_steps_entry_is_chained_and_kept_with_the_step_across_a_reopen() {
-    let dir = tempfile::tempdir().expect("dir");
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("dir: {e}"));
     {
         let store = store(&dir);
         let (stored, chained) = store
             .append_audited("c_1", &[started("k_1")], &[effect(10, "user_ana")], 10)
-            .expect("appended");
+            .unwrap_or_else(|e| panic!("appended: {e}"));
         assert_eq!(stored.len(), 1);
         assert_eq!(chained[0].seq, 1);
         assert_eq!(chained[0].prev, audit::GENESIS);
     }
-    let store = Store::open(&dir.path().join("spade.db")).expect("reopen");
+    let store = Store::open(&dir.path().join("spade.db")).unwrap_or_else(|e| panic!("reopen: {e}"));
     let (_, chained) = store
         .append_audited("c_1", &[started("k_2")], &[effect(20, "user_bob")], 20)
-        .expect("appended");
-    let first = store.audit_entries(0, 10).expect("entries");
+        .unwrap_or_else(|e| panic!("appended: {e}"));
+    let first = store
+        .audit_entries(0, 10)
+        .unwrap_or_else(|e| panic!("entries: {e}"));
     assert_eq!(first.len(), 2);
     assert_eq!(chained[0].prev, first[0].hash);
     let none = |_: &[u8], _: &str| false;
@@ -84,20 +93,26 @@ fn a_steps_entry_is_chained_and_kept_with_the_step_across_a_reopen() {
 
 #[test]
 fn a_step_whose_entry_cant_be_written_isnt_stored_either() {
-    let dir = tempfile::tempdir().expect("dir");
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("dir: {e}"));
     let store = store(&dir);
-    let raw = Store::connect(dir.path().join("spade.db")).expect("connect");
+    let raw =
+        Store::connect(dir.path().join("spade.db")).unwrap_or_else(|e| panic!("connect: {e}"));
     raw.execute_batch(
         "CREATE TRIGGER no_more BEFORE INSERT ON org_audit
          BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
     )
-    .expect("trigger");
+    .unwrap_or_else(|e| panic!("trigger: {e}"));
     assert!(
         store
             .append_audited("c_1", &[started("k_1")], &[effect(10, "user_ana")], 10)
             .is_err()
     );
-    assert!(store.events("c_1", 0).expect("events").is_empty());
+    assert!(
+        store
+            .events("c_1", 0)
+            .unwrap_or_else(|e| panic!("events: {e}"))
+            .is_empty()
+    );
 }
 
 /// Run only as the child of the crash test below: it ends its own process between a step's
@@ -108,7 +123,7 @@ fn crashing_child() {
     let Some(path) = std::env::var_os("SPADE_AUDIT_CRASH_DB") else {
         return;
     };
-    let store = Store::open(std::path::Path::new(&path)).expect("open");
+    let store = Store::open(std::path::Path::new(&path)).unwrap_or_else(|e| panic!("open: {e}"));
     CRASH_BEFORE_ENTRIES.with(|crash| crash.set(true));
     let _ = store.append_audited("c_1", &[started("k_1")], &[effect(10, "user_ana")], 10);
     unreachable!("the child ends before its entries are written");
@@ -116,26 +131,41 @@ fn crashing_child() {
 
 #[test]
 fn a_crash_between_a_steps_events_and_its_entry_leaves_neither() {
-    let dir = tempfile::tempdir().expect("dir");
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("dir: {e}"));
     let path = dir.path().join("spade.db");
     drop(store(&dir));
-    let child = std::process::Command::new(std::env::current_exe().expect("this test"))
-        .args(["--exact", "org_audit::tests::crashing_child", "--ignored"])
-        .env("SPADE_AUDIT_CRASH_DB", &path)
-        .output()
-        .expect("the child ran");
+    let child = std::process::Command::new(
+        std::env::current_exe().unwrap_or_else(|e| panic!("this test: {e}")),
+    )
+    .args(["--exact", "org_audit::tests::crashing_child", "--ignored"])
+    .env("SPADE_AUDIT_CRASH_DB", &path)
+    .output()
+    .unwrap_or_else(|e| panic!("the child ran: {e}"));
     assert_eq!(child.status.code(), Some(86), "{child:?}");
-    let store = Store::open(&path).expect("reopen");
-    assert!(store.events("c_1", 0).expect("events").is_empty());
-    assert!(store.audit_entries(0, 10).expect("entries").is_empty());
+    let store = Store::open(&path).unwrap_or_else(|e| panic!("reopen: {e}"));
+    assert!(
+        store
+            .events("c_1", 0)
+            .unwrap_or_else(|e| panic!("events: {e}"))
+            .is_empty()
+    );
+    assert!(
+        store
+            .audit_entries(0, 10)
+            .unwrap_or_else(|e| panic!("entries: {e}"))
+            .is_empty()
+    );
 }
 
 #[test]
 fn the_log_refuses_a_rewrite_or_a_delete() {
-    let dir = tempfile::tempdir().expect("dir");
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("dir: {e}"));
     let store = store(&dir);
-    store.audit(&[effect(10, "user_ana")], 10).expect("entry");
-    let raw = Store::connect(dir.path().join("spade.db")).expect("connect");
+    store
+        .audit(&[effect(10, "user_ana")], 10)
+        .unwrap_or_else(|e| panic!("entry: {e}"));
+    let raw =
+        Store::connect(dir.path().join("spade.db")).unwrap_or_else(|e| panic!("connect: {e}"));
     for sql in [
         "UPDATE org_audit SET body = '{}' WHERE seq = 1",
         "UPDATE org_audit SET hash = 'x' WHERE seq = 1",
@@ -144,29 +174,41 @@ fn the_log_refuses_a_rewrite_or_a_delete() {
         assert!(raw.execute(sql, []).is_err(), "{sql}");
     }
     // Marking an entry forwarded is the only change it takes.
-    assert_eq!(store.audit_forwarded(1, 20).expect("forwarded"), 1);
+    assert_eq!(
+        store
+            .audit_forwarded(1, 20)
+            .unwrap_or_else(|e| panic!("forwarded: {e}")),
+        1
+    );
 }
 
 #[test]
 fn the_outbox_gives_entries_in_order_and_keeps_what_the_backend_hasnt_taken() {
-    let dir = tempfile::tempdir().expect("dir");
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("dir: {e}"));
     let store = store(&dir);
     for at in 1..=5 {
-        store.audit(&[effect(at, "user_ana")], at).expect("entry");
+        store
+            .audit(&[effect(at, "user_ana")], at)
+            .unwrap_or_else(|e| panic!("entry: {e}"));
     }
     let first: Vec<i64> = store
         .audit_outbox(2)
-        .expect("outbox")
+        .unwrap_or_else(|e| panic!("outbox: {e}"))
         .iter()
         .map(|c| c.seq)
         .collect();
     assert_eq!(first, vec![1, 2]);
-    assert_eq!(store.audit_forwarded(2, 9).expect("forwarded"), 2);
+    assert_eq!(
+        store
+            .audit_forwarded(2, 9)
+            .unwrap_or_else(|e| panic!("forwarded: {e}")),
+        2
+    );
     // Taken again after a restart: from where it stopped, never twice.
-    let store = Store::open(&dir.path().join("spade.db")).expect("reopen");
+    let store = Store::open(&dir.path().join("spade.db")).unwrap_or_else(|e| panic!("reopen: {e}"));
     let rest: Vec<i64> = store
         .audit_outbox(10)
-        .expect("outbox")
+        .unwrap_or_else(|e| panic!("outbox: {e}"))
         .iter()
         .map(|c| c.seq)
         .collect();
@@ -175,13 +217,23 @@ fn the_outbox_gives_entries_in_order_and_keeps_what_the_backend_hasnt_taken() {
 
 #[test]
 fn a_checkpoint_covers_only_the_chains_own_head_and_its_record_needs_none_of_its_own() {
-    let dir = tempfile::tempdir().expect("dir");
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("dir: {e}"));
     let store = store(&dir);
     for at in 1..=3 {
-        store.audit(&[effect(at, "user_ana")], at).expect("entry");
+        store
+            .audit(&[effect(at, "user_ana")], at)
+            .unwrap_or_else(|e| panic!("entry: {e}"));
     }
-    assert_eq!(store.audit_unsigned().expect("unsigned"), (3, Some(1)));
-    let head = store.audit_head().expect("head").expect("a head");
+    assert_eq!(
+        store
+            .audit_unsigned()
+            .unwrap_or_else(|e| panic!("unsigned: {e}")),
+        (3, Some(1))
+    );
+    let head = store
+        .audit_head()
+        .unwrap_or_else(|e| panic!("head: {e}"))
+        .unwrap_or_else(|| panic!("a head"));
     let record = |count| {
         Entry::new(
             "audit.checkpoint",
@@ -197,13 +249,32 @@ fn a_checkpoint_covers_only_the_chains_own_head_and_its_record_needs_none_of_its
         at: 50,
         signature: "s".to_owned(),
     };
-    assert!(!store.put_checkpoint(&wrong, &record(3), 50).expect("put"));
+    assert!(
+        !store
+            .put_checkpoint(&wrong, &record(3), 50)
+            .unwrap_or_else(|e| panic!("put: {e}"))
+    );
     let right = Checkpoint {
         head: head.hash,
         ..wrong
     };
-    assert!(store.put_checkpoint(&right, &record(3), 50).expect("put"));
+    assert!(
+        store
+            .put_checkpoint(&right, &record(3), 50)
+            .unwrap_or_else(|e| panic!("put: {e}"))
+    );
     // The checkpoint's own record is in the chain, for the backend, and owes no checkpoint.
-    assert_eq!(store.audit_head().expect("head").map(|h| h.count), Some(4));
-    assert_eq!(store.audit_unsigned().expect("unsigned"), (0, None));
+    assert_eq!(
+        store
+            .audit_head()
+            .unwrap_or_else(|e| panic!("head: {e}"))
+            .map(|h| h.count),
+        Some(4)
+    );
+    assert_eq!(
+        store
+            .audit_unsigned()
+            .unwrap_or_else(|e| panic!("unsigned: {e}")),
+        (0, None)
+    );
 }

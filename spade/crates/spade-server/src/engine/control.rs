@@ -252,7 +252,7 @@ impl Engine {
         let always = always && !asked_for_a_reason(&events, call_id);
         if transcript.helper_awaiting.iter().any(|(c, _)| c == call_id) {
             // A helper's call (ADR 0152): the answer reaches the helper.
-            self.answer_for_helper(id, &events, call_id, allowed, always, by, entry)?;
+            self.answer_for_helper(id, &events, call_id, allowed, always, by)?;
             drop(_order);
             self.announce(id);
             return Ok(());
