@@ -877,10 +877,14 @@ export class DevicesService {
     }
     if (session.capture?.still) {
       // Stills come on demand while nobody watches: make one of the screen as it is now.
-      try {
-        await session.capture.still();
-      } catch (error) {
-        if (!(error instanceof StillTooLarge)) throw error;
+      const fits = await session.capture.still().then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof StillTooLarge) return false;
+          throw error;
+        },
+      );
+      if (!fits) {
         // The picture is over the frame's bounds and nothing here scales it: the device's own
         // screenshot, fitted on the model-image path.
         const shot = await this.options.platform.screenshot(session.device, () =>

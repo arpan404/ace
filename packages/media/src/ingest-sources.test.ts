@@ -680,32 +680,32 @@ it("a source waiting before ace-media's first start hears every failed start's r
   expect(l.stops).toHaveLength(3);
 });
 
-describe("agents' stills", () => {
-  const request = {
-    maxWidth: 1920,
-    maxHeight: 2160,
-    maxPixels: 1920 * 2160,
-    quality: 80,
-    deadlineMs: 1500,
-  };
-  const takes = (w: ReturnType<typeof world>) =>
-    w.sent.flatMap(({ message }) => (message.type === "still.take" ? [message] : []));
-  /** A device source streaming into ace-media, at `epoch`. */
-  function streaming(w: ReturnType<typeof world>, epoch = 0) {
-    const source = w.sources.add({ ...producer("simulator").p, epoch: () => epoch });
-    w.status("s1", "starting");
-    return source;
-  }
-  const still = (source: ReturnType<typeof streaming>, own = "the device's own") =>
-    source.still?.(
-      request,
-      () => Promise.resolve(own),
-      (made) => `ace-media ${made.width}x${made.height}`,
-    );
+const request = {
+  maxWidth: 1920,
+  maxHeight: 2160,
+  maxPixels: 1920 * 2160,
+  quality: 80,
+  deadlineMs: 1500,
+};
+const takes = (w: ReturnType<typeof world>) =>
+  w.sent.flatMap(({ message }) => (message.type === "still.take" ? [message] : []));
+/** A device source streaming into ace-media, at `epoch`. */
+function streamingDevice(w: ReturnType<typeof world>, epoch = 0) {
+  const source = w.sources.add({ ...producer("simulator").p, epoch: () => epoch });
+  w.status("s1", "starting");
+  return source;
+}
+const still = (source: ReturnType<typeof streamingDevice>, own = "the device's own") =>
+  source.still?.(
+    request,
+    () => Promise.resolve(own),
+    (made) => `ace-media ${made.width}x${made.height}`,
+  );
 
+describe("agents' stills", () => {
   it("comes from ace-media fenced on the newest public epoch it was told, within the frame's 2160-pixel bound", async () => {
     const w = world();
-    const source = streaming(w, 4);
+    const source = streamingDevice(w, 4);
     const taken = still(source);
     expect(takes(w)).toEqual([
       { type: "still.take", request: expect.any(String), source: "s1", minEpoch: 4, ...request },
@@ -720,7 +720,7 @@ describe("agents' stills", () => {
 
   it("falls back to the source's own capture when ace-media can't decode its video here", async () => {
     const w = world();
-    const taken = still(streaming(w));
+    const taken = still(streamingDevice(w));
     const [take] = takes(w);
     // Linux and Windows: ace-media's CPU still path decodes JPEG only.
     w.stills.message(
