@@ -1,6 +1,7 @@
 import type { Agent, BackgroundTask, Interaction, ThreadStatus } from "@ace/protocol";
+import { attentionOrder } from "./agent-order.ts";
 import { agentRuns } from "./agent-runs.ts";
-import { agentTreeWork } from "./agents.ts";
+import { agentTreeWork, isRunning } from "./agents.ts";
 
 /*
  * The agent tree across threads (ADR 0108). A thread's agents form a tree by `parentId`; an
@@ -117,8 +118,23 @@ export const forestBounds = { depth: 6, threads: 16 } as const;
 const runningTask = (task: BackgroundTask) => !task.internal && task.status === "running";
 
 /**
- * The delegated threads to load, breadth first from `root`: never one already reached (a cycle
- * or a thread delegated twice), never deeper than `bounds.depth`, at most `bounds.threads`.
+ * A thread's delegates in the order their threads take the budget: one its row says still works
+ * first, then the newest. A long thread's old, settled delegates are what's left out, so what it
+ * does now and did last is what loads.
+ */
+const byLoadOrder = attentionOrder(
+  (agent: Agent) => ({ needsYou: false, live: isRunning(agent) }),
+  (agent) => agent.createdAt,
+);
+
+/** A thread's agents that delegate to a thread here, in `byLoadOrder`. */
+const delegatesOf = (agents: readonly Agent[]) =>
+  agents.filter((agent) => !agent.machine && agent.childThreadId).toSorted(byLoadOrder);
+
+/**
+ * The delegated threads to load, breadth first from `root`, each thread's delegates in
+ * `byLoadOrder`: never one already reached (a cycle or a thread delegated twice), never deeper
+ * than `bounds.depth`, at most `bounds.threads`.
  */
 function reachable(
   root: string,
@@ -131,7 +147,7 @@ function reachable(
   for (let depth = 1; depth <= bounds.depth && level.length; depth++) {
     const next: string[] = [];
     for (const threadId of level)
-      for (const agent of works.get(threadId)?.agents ?? []) {
+      for (const agent of delegatesOf(works.get(threadId)?.agents ?? [])) {
         // A child on another machine has no thread here to load: its row is all there is.
         const child = agent.machine ? undefined : agent.childThreadId;
         if (!child || seen.has(child) || reach.length >= bounds.threads) continue;
