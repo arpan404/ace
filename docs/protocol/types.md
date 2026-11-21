@@ -14730,6 +14730,12 @@ Example:
       "reason": "example",
       "steps": []
     },
+    "agentPointer": {
+      "at": 1,
+      "kind": "click",
+      "x": 4,
+      "y": 0
+    },
     "controller": "agent",
     "device": {
       "id": "android:9iLafiaTUCNwkb-PsUabVJF0D.vx7_YIBPrhpyw3vAyfj_Ru4gvsIh1gDKrWWT16NXV4.j0oNWJq",
@@ -14740,7 +14746,6 @@ Example:
     },
     "enabled": false,
     "lifecycle": "starting",
-    "personActive": true,
     "posture": "open",
     "sharing": "cowork"
   },
@@ -14852,6 +14857,7 @@ Example:
 | posture | no | [DevicePosture.json](schema/DevicePosture.json) |  |
 | sharing | no | [CoworkSharing.json](schema/CoworkSharing.json) |  |
 | acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
+| video | no | [LiveVideoStatus.json](schema/LiveVideoStatus.json) |  |
 | agentPointer | no | [AgentPointer.json](schema/AgentPointer.json) |  |
 | personActive | no | boolean |  |
 
@@ -19895,6 +19901,24 @@ Example:
 ```json
 {
   "decision": "refuse"
+}
+```
+
+## LiveVideoStatus
+
+[JSON Schema](schema/LiveVideoStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | ["retrying","unavailable"] |  |
+| reason | yes | string | {"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "reason": "example",
+  "status": "unavailable"
 }
 ```
 
@@ -40083,6 +40107,10 @@ Example:
       ],
       "displayId": 2,
       "kind": "display"
+    },
+    "video": {
+      "reason": "example",
+      "status": "retrying"
     }
   },
   "type": "screen.state"
@@ -40135,6 +40163,7 @@ Example:
 | agentPointer | no | [AgentPointer.json](schema/AgentPointer.json) |  |
 | personActive | no | boolean |  |
 | acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
+| video | no | [LiveVideoStatus.json](schema/LiveVideoStatus.json) |  |
 
 Example:
 
@@ -40154,6 +40183,10 @@ Example:
     ],
     "displayId": 6,
     "kind": "display"
+  },
+  "video": {
+    "reason": "example",
+    "status": "retrying"
   }
 }
 ```

@@ -33,8 +33,8 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 132807,
-      "sha256": "ba4a3fc05e008bf80b45b56d8a3c3564148a174f2a0ac47bf5885ed90219ee7b"
+      "bytes": 132834,
+      "sha256": "100ba68b0e3e57f3877edbd3f5be8e8f4fbfbd3fb0d65dc0ee0a20c4f5d5d0ab"
     },
     "requests.md": {
       "bytes": 126694,
@@ -1501,8 +1501,8 @@
       "sha256": "98b93bfdb9c5c1a4e2fd753b48b538b6fca02d7447b0da93a4d6409eb1d698c5"
     },
     "schema/DeviceState.json": {
-      "bytes": 2302,
-      "sha256": "3b3fa8b9dc60d29bffc3979cd9c404232ddfd8c87d4409019c75a569f3341e64"
+      "bytes": 2391,
+      "sha256": "4b502ecdf74c3b77f17a7b56b6b479641961b24d292f546522e5b0c1a782d086"
     },
     "schema/DeviceToken.json": {
       "bytes": 174,
@@ -2575,6 +2575,10 @@
     "schema/ListingDecision.json": {
       "bytes": 384,
       "sha256": "7474a2f2e14d93d14e0785ef82ac10f92780bb06bce1debda661e4f5795e653e"
+    },
+    "schema/LiveVideoStatus.json": {
+      "bytes": 401,
+      "sha256": "faf2c33e850d7fba23d6e469c0f7b49c36f80f4bf1b0058ce9bfd713acc6d20e"
     },
     "schema/LockedUseChanged.json": {
       "bytes": 618,
@@ -4961,8 +4965,8 @@
       "sha256": "327b250631c76285c56c113a651b77f8b96e9969e207db40b84e785cd5ba1085"
     },
     "schema/ScreenState.json": {
-      "bytes": 1781,
-      "sha256": "ada3f65f8407b8b67a2667c735bb83f6818ea62a8a47ec39ec247037d945d172"
+      "bytes": 1870,
+      "sha256": "2bc3c3bdaf3d5b6346e45211e4b3e0a6ed057c3e92b2abc15978f47826e68847"
     },
     "schema/ScreenStatus.json": {
       "bytes": 470,
@@ -6729,10 +6733,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1369228,
-      "sha256": "0cca4dae4f764c5adb98b226c5e1974c89ab941fdc6d64b738df51104c95c7f2"
+      "bytes": 1369908,
+      "sha256": "ddc941b3cce833b10536f704fd06c464de2741bcff8304aadf5d67588d686ab9"
     }
   },
-  "input": "fb8fb4c448d80448398b9446ddfa8988f6b282f0959b1f179043166a25c5451e",
+  "input": "44b2ff0bb0710069b473ab80ecfe6dacd3736bfbcfc0a426e4b27da0f2bf3ee7",
   "version": 1
 }

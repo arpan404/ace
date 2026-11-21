@@ -15,13 +15,15 @@ import { screenOpeningEpoch, wantedStreamSettings, type ScreenMedia } from "./me
  * ends the source with its reason, which the session shows.
  */
 
+/** The largest even size at or below `value`, at least 64, as hardware encoders take. */
+const even = (value: number) => Math.max(64, Math.floor(value / 2) * 2);
+
 /** The encode a viewer's request comes to for pictures of this size: inside its box, even. */
 export function pictureEncode(
   picture: { width: number; height: number },
   settings: Pick<ScreenStreamSettings, "maxWidth" | "maxHeight" | "fps" | "bitrate">,
 ) {
   const fit = Math.min(1, settings.maxWidth / picture.width, settings.maxHeight / picture.height);
-  const even = (value: number) => Math.max(64, Math.floor(value / 2) * 2);
   return {
     id: 1,
     codec: "avc1.42E033",

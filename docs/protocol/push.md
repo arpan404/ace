@@ -3295,6 +3295,7 @@ Example:
     "leaseExpiresAt": 7,
     "lifecycle": "starting",
     "ownedHere": true,
+    "personActive": false,
     "recording": true,
     "sharing": "exclusive",
     "threadId": "example",

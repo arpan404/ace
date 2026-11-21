@@ -108,7 +108,6 @@ export class SessionObservations {
     const settings = ScreenStreamSettings.parse(raw);
     const session = this.live(id);
     this.authorize(session.state.target);
-    const capabilities = session.helper.capabilities;
     // Video comes only from ace-media: a session without a way there stays on stills.
     if (!session.media) return { codec: "jpeg" };
     const result = await session.media.configure(settings);
