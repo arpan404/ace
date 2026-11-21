@@ -18,6 +18,8 @@ export interface Env {
   /** Spade's sign-in broker per caller address, then per account (ADR 0141). */
   BROKER_ADDRESS_REQUESTS?: RateLimit;
   BROKER_ACCOUNT_REQUESTS?: RateLimit;
+  /** Org grant standing checks per member account (ADR 0206 §6), not per caller address. */
+  STANDING_REQUESTS?: RateLimit;
   /**
    * The broker's apps as JSON in place of the shipped list (tests, staging). Each app's client
    * ID and secret are Worker secrets named in its entry, such as `SPADE_CLOUD_ASANA_CLIENT_ID`.

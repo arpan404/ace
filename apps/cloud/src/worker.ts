@@ -97,6 +97,7 @@ function accounts(env: Env) {
       random: (length) => crypto.getRandomValues(new Uint8Array(length)),
       forgotten: (hostId, accountId) =>
         env.RELAY.get(env.RELAY.idFromName(hostId)).registerAgain(accountId),
+      standingLimited: (account) => limited(env.STANDING_REQUESTS, undefined, account),
     });
     const ready = setup.status === "ready" ? setup : undefined;
     const spade = broker({
@@ -131,7 +132,14 @@ export default {
     const gate = serverGate(clientOf(request));
     if (isBrokerPath(url.pathname)) return accounts(env).broker.handle(request, gate);
     if (isAccountPath(url.pathname))
-      return accounts(env).api.handle(request, await limited(env.ACCOUNT_REQUESTS, request), gate);
+      return accounts(env).api.handle(
+        request,
+        // Standing checks are limited per member account instead (ADR 0206 §6).
+        url.pathname === "/v1/grants/standing"
+          ? false
+          : await limited(env.ACCOUNT_REQUESTS, request),
+        gate,
+      );
     const target = forwardPath(url);
     if (target) return forwardHttp(request, env, ctx, target);
     if (!endpoints.has(url.pathname))

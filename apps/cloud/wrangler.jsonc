@@ -56,6 +56,12 @@
       "namespace_id": "1006",
       "simple": { "limit": 120, "period": 60 },
     },
+    // Org grant standing checks (ADR 0206 §6): per member account, after the grant verifies.
+    {
+      "name": "STANDING_REQUESTS",
+      "namespace_id": "1007",
+      "simple": { "limit": 600, "period": 60 },
+    },
   ],
   // Expired sign-ins and sessions are also dropped whenever a sign-in starts.
   "triggers": { "crons": ["17 * * * *", "* * * * *"] },
@@ -118,6 +124,12 @@
           "namespace_id": "1006",
           "simple": { "limit": 120, "period": 60 },
         },
+        // Org grant standing checks (ADR 0206 §6): per member account, after the grant verifies.
+        {
+          "name": "STANDING_REQUESTS",
+          "namespace_id": "1007",
+          "simple": { "limit": 600, "period": 60 },
+        },
       ],
       "triggers": { "crons": ["17 * * * *", "* * * * *"] },
       "observability": { "enabled": false },
@@ -175,6 +187,12 @@
           "name": "BROKER_ACCOUNT_REQUESTS",
           "namespace_id": "1106",
           "simple": { "limit": 120, "period": 60 },
+        },
+        // Org grant standing checks (ADR 0206 §6): per member account, after the grant verifies.
+        {
+          "name": "STANDING_REQUESTS",
+          "namespace_id": "1107",
+          "simple": { "limit": 600, "period": 60 },
         },
       ],
       "triggers": { "crons": ["17 * * * *", "* * * * *"] },

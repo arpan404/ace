@@ -31,6 +31,7 @@ import { orgLocks } from "./org-locks.ts";
 import { portalRevocations } from "./org-portal.ts";
 import { orgRegistryRoutes } from "./org-registry-routes.ts";
 import { orgRoutes } from "./org-routes.ts";
+import { orgStandingRoute } from "./org-standing-route.ts";
 import { orgStore } from "./org-store.ts";
 
 /** Paths the account API owns; everything else on the Worker is the relay. */
@@ -64,6 +65,8 @@ export function accountApi(
     sleep?: (ms: number) => Promise<void>;
     /** A machine left the account's list: one still registered on the relay lists itself again. */
     forgotten?: (hostId: string, accountId: string) => Promise<void>;
+    /** The standing route's limit per member account; none when unset. */
+    standingLimited?: (account: string) => Promise<boolean>;
   },
 ) {
   if (setup.status !== "ready")
@@ -145,6 +148,14 @@ export function accountApi(
   });
   const outbox = auditOutbox({ db: deps.db, workos: workosOrg, now });
   const events = orgEvents({ orgs, workos: workosOrg, portal, outbox, now });
+  const standing = orgStandingRoute({
+    keys,
+    issuer: new URL(config.publicUrl).host,
+    orgs,
+    workos: workosOrg,
+    now,
+    limited: deps.standingLimited ?? (async () => false),
+  });
   const webhook = workosWebhookRoute({ secret: config.webhookSecret, events, now });
   const loginFor = (publicUrl: string) => {
     const selected = { ...config, publicUrl };
@@ -195,6 +206,7 @@ export function accountApi(
     const method = request.method;
     if (pathname === "/v1/keys" && method === "GET") return directory.keys();
     if (pathname === "/v1/grants" && method === "POST") return directory.grant(request);
+    if (pathname === "/v1/grants/standing" && method === "POST") return standing(request);
     if (pathname === "/v1/machine-credentials" && method === "POST")
       return machineSignIn.exchange(request);
     if (pathname === "/v1/machine-enrollments" && method === "POST")
