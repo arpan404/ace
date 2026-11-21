@@ -36,9 +36,9 @@ fn lines(bytes: &[u8], records: &mut Vec<Value>) -> bool {
         if js::trim(line).is_empty() {
             continue;
         }
-        match serde_json::from_str::<Value>(line) {
-            Ok(value) => records.push(value),
-            Err(_) => failed = true,
+        match crate::json::parse(line) {
+            Some(value) => records.push(value),
+            None => failed = true,
         }
     }
     failed

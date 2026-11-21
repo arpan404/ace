@@ -177,6 +177,31 @@ async function piHome(home: string) {
   ]);
 }
 
+/**
+ * JSON JavaScript reads that serde_json's defaults refuse: nesting past 128 levels and integers
+ * past 2^53, which the daemon parses to the same double either way. Lone surrogates and non-ISO
+ * dates read differently by design (ADR 0206) and are pinned by ace-history's own tests.
+ */
+async function edgeHome(home: string) {
+  const id = "33333333-3333-4333-8333-333333333333";
+  const nested = (depth: number): unknown => (depth === 0 ? "deep" : { n: nested(depth - 1) });
+  const user = (text: string, extra: Record<string, unknown>) => ({
+    type: "user",
+    sessionId: id,
+    cwd,
+    message: { role: "user", content: text },
+    ...extra,
+  });
+  const lines = [
+    user("Huge numbers", { timestamp: 9007199254740993 }),
+    user("Fraction", { timestamp: "2026-01-04T00:00:00.123456Z" }),
+    user("Deep", { deep: nested(150) }),
+  ].map((r) => JSON.stringify(r));
+  lines.push(JSON.stringify(user("Bigger", {})).replace("}", ',"big":12345678901234567890}'));
+  await mkdir(join(home, "projects/edges"), { recursive: true });
+  await writeFile(join(home, "projects/edges", `${id}.jsonl`), lines.join("\n") + "\n");
+}
+
 /** One home of each kind OpenCode and Pi keep their saved history in. Synthetic text. */
 export async function providerHomes(root: string) {
   const storage = join(root, "opencode-storage");
@@ -192,10 +217,13 @@ export async function providerHomes(root: string) {
   v2Home(v2);
   const pi = join(root, "pi");
   await piHome(pi);
+  const edges = join(root, "edges");
+  await edgeHome(edges);
   return [
     { id: "opencode-storage", provider: "opencode" as const, homeDir: storage },
     { id: "opencode-v1", provider: "opencode" as const, homeDir: v1 },
     { id: "opencode-v2", provider: "opencode" as const, homeDir: v2 },
     { id: "pi-home", provider: "pi" as const, homeDir: pi },
+    { id: "edge-home", provider: "claude" as const, homeDir: edges },
   ];
 }

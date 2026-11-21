@@ -88,8 +88,7 @@ impl Plan {
             .prepare_cached("SELECT data FROM results WHERE id=?1 ORDER BY ordinal DESC LIMIT 1")?
             .query_row([native], |r| r.get(0))
             .optional()?;
-        data.map(|d| serde_json::from_str(&d).map_err(|e| Error::message(e.to_string())))
-            .transpose()
+        data.map(|d| crate::json::stored(&d)).transpose()
     }
 
     /// The summary that continues a compaction boundary, found ahead of it.
@@ -105,9 +104,7 @@ impl Plan {
         if text.is_empty() {
             return Ok(None);
         }
-        let data = data
-            .map(|d| serde_json::from_str(&d).map_err(|e| Error::message(e.to_string())))
-            .transpose()?;
+        let data = data.map(|d| crate::json::stored(&d)).transpose()?;
         Ok(Some(CompactSummary { text, data }))
     }
 

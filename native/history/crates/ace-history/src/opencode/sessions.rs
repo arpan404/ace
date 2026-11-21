@@ -30,7 +30,7 @@ struct Input {
 fn first_input(rows: &mut Statement<'_>, session: &str) -> Result<Input> {
     let mut rows = rows.query([session])?;
     while let Some(row) = rows.next()? {
-        let Ok(value) = serde_json::from_str::<Value>(&js_string(row.get_ref(0)?)) else {
+        let Some(value) = crate::json::parse(&js_string(row.get_ref(0)?)) else {
             continue;
         };
         let p = object(&value);
@@ -73,7 +73,7 @@ fn count(statement: &mut Statement<'_>, session: &str) -> Result<i64> {
 fn model(latest: &mut Statement<'_>, session: &str) -> Result<Option<String>> {
     let mut rows = latest.query([session])?;
     while let Some(row) = rows.next()? {
-        let Ok(value) = serde_json::from_str::<Value>(&js_string(row.get_ref(0)?)) else {
+        let Some(value) = crate::json::parse(&js_string(row.get_ref(0)?)) else {
             continue;
         };
         let m = object(&value);

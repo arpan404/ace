@@ -222,8 +222,7 @@ pub fn children(db: &Connection, instance: &str, native: &str) -> Result<Vec<Sou
 
 /// A stored summary as shown: the native title when known, and an unreadable descendant.
 pub fn display(db: &Connection, json: &str) -> Result<Session> {
-    let mut summary: Session =
-        serde_json::from_str(json).map_err(|e| Error::message(e.to_string()))?;
+    let mut summary: Session = crate::json::stored(json)?;
     let title: Option<Option<String>> = db
         .prepare_cached("SELECT title FROM native_titles WHERE instance=?1 AND native=?2")?
         .query_row(params![summary.instance_id, summary.native_id], |row| {

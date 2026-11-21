@@ -141,7 +141,7 @@ fn each_message(
         let value: String = row.get(1)?;
         let header = Header {
             path: PathBuf::from(row.get::<_, String>(0)?),
-            value: serde_json::from_str(&value).map_err(|e| Error::message(e.to_string()))?,
+            value: crate::json::stored(&value)?,
             bytes: row.get::<_, i64>(2)? as u64,
         };
         if !each(header) {

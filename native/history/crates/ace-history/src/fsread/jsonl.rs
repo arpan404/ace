@@ -35,8 +35,8 @@ pub struct Record {
 pub fn decode(bytes: &[u8]) -> Option<Value> {
     crate::hooks::decoding(bytes);
     match std::str::from_utf8(bytes) {
-        Ok(text) => serde_json::from_str(text).ok(),
-        Err(_) => serde_json::from_str(&String::from_utf8_lossy(bytes)).ok(),
+        Ok(text) => crate::json::parse(text),
+        Err(_) => crate::json::parse(&String::from_utf8_lossy(bytes)),
     }
 }
 

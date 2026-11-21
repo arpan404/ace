@@ -186,7 +186,7 @@ fn thread_where(db: &Connection, column: &str, value: &str) -> Result<Value> {
         .query_row([value], |row| row.get(0))
         .optional()?;
     Ok(match row {
-        Some(text) => serde_json::from_str(&text).map_err(|e| Error::message(e.to_string()))?,
+        Some(text) => crate::json::stored(&text)?,
         None => Value::Null,
     })
 }
@@ -210,7 +210,7 @@ pub fn agents(db: &Connection, id: &str) -> Result<Value> {
         .query_map([id], |row| row.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     rows.iter()
-        .map(|r| serde_json::from_str(r).map_err(|e| Error::message(e.to_string())))
+        .map(|r| crate::json::stored(r))
         .collect::<Result<Vec<Value>>>()
         .map(Value::Array)
 }
@@ -238,8 +238,7 @@ pub fn page(db: &Connection, thread: &str, after: i64, limit: i64) -> Result<Val
             more = true;
             break;
         }
-        items
-            .push(serde_json::from_str::<Value>(&data).map_err(|e| Error::message(e.to_string()))?);
+        items.push(crate::json::stored::<Value>(&data)?);
         bytes += data.len();
         cursor = row.get(0)?;
     }

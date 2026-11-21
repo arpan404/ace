@@ -24,7 +24,7 @@ pub enum Inbound {
 impl Inbound {
     /// Read one JSON message. Unknown shapes are [`Inbound::Unknown`], never an error.
     pub fn parse(text: &[u8]) -> Inbound {
-        let Ok(value) = serde_json::from_slice::<Value>(text) else {
+        let Some(value) = crate::depth::parse_within(text, crate::depth::WIRE_DEPTH) else {
             return Inbound::Unknown;
         };
         if value.as_str() == Some("cancel") {

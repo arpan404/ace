@@ -8,9 +8,11 @@
 //! array inside one travels as a body frame sent just before it with the same id, and appears in
 //! the JSON as `{"$body": n}`, the n-th body of that message.
 
+mod depth;
 mod frame;
 mod message;
 
+pub use depth::{WIRE_DEPTH, nesting, parse_within};
 pub use frame::{Decoder, Frame, MAX_FRAME_LEN, encode_body, encode_json};
 pub use message::{
     ArchiveCommand, BlobRequest, ImportInit, Inbound, ListBefore, ListRequest, PageRequest,
