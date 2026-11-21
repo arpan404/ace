@@ -498,7 +498,7 @@ function pictureCapture(options: {
       width: options.width,
       height: options.height,
       // Sized from the text before any copy: one too large for ace-media is never decoded.
-      push: (base64) => {
+      push: (base64, epoch) => {
         if (!open || !writer) return;
         if (decodedLength(base64) > maxStillPictureBytes) {
           dropped++;
@@ -507,7 +507,7 @@ function pictureCapture(options: {
         const picture = stillPictureFrame(
           Buffer.from(base64, "base64"),
           { width: options.width, height: options.height },
-          0,
+          epoch,
         );
         if (picture) writer.write(picture);
         else dropped++;

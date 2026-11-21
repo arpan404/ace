@@ -211,9 +211,9 @@ export class LiveVideo {
     const pictures = this.capture?.handle.pictures;
     return pictures ? { width: pictures.width, height: pictures.height } : undefined;
   }
-  /** One screencast frame for a capture fed by pictures. */
-  picture(base64: string): void {
-    this.capture?.handle.pictures?.push(base64);
+  /** One screencast frame for a capture fed by pictures, and the privacy epoch it was captured in. */
+  picture(base64: string, epoch: number): void {
+    this.capture?.handle.pictures?.push(base64, epoch);
   }
   acknowledge(id: string, sequence: number): void {
     const link = this.viewers.get(id)?.link;

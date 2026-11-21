@@ -288,7 +288,7 @@ describe("live video routed through ace-media", () => {
     onTestFinished(ingest.close);
     await added[0]?.producer.point({ ...address("m0"), socket: ingest.path });
     handle.encodes([spec("avc1/640")]);
-    handle.pictures?.push("aGVsbG8=");
+    handle.pictures?.push("aGVsbG8=", 0);
     handle.keyframe("avc1/640");
     expect(added[0]?.encodes).toEqual([
       [{ id: 2 ** 20, codec: "avc1.42E033", width: 640, height: 400, fps: 60, bitrate: 4_000_000 }],
@@ -319,10 +319,18 @@ describe("live video routed through ace-media", () => {
       const sent = added[0];
       const before = JSON.stringify([sent?.encodes, sent?.codecs, sent?.keys]);
       const jpeg = Buffer.alloc(maxStillPictureBytes, 0xab);
-      handle.pictures?.push(jpeg.toString("base64"));
+      handle.pictures?.push(jpeg.toString("base64"), 3);
       await until(() => ingest.received.some((f) => f.kind === 3), 10_000);
       const picture = ingest.received.find((f) => f.kind === 3);
-      expect(picture).toMatchObject({ kind: 3, codec: 7, flags: 1, width: 1280, height: 800 });
+      // With the privacy epoch it was captured in.
+      expect(picture).toMatchObject({
+        kind: 3,
+        codec: 7,
+        flags: 1,
+        width: 1280,
+        height: 800,
+        epoch: 3,
+      });
       expect(Buffer.compare(Buffer.from(picture?.payload ?? []), jpeg)).toBe(0);
       // The source in ace-media was told nothing more: its control lane carried no picture.
       expect(JSON.stringify([sent?.encodes, sent?.codecs, sent?.keys])).toBe(before);
@@ -340,8 +348,8 @@ describe("live video routed through ace-media", () => {
       () => ({}),
     ).open(page, 640, 400, events().sink);
     await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
-    handle.pictures?.push(Buffer.alloc(maxStillPictureBytes + 1).toString("base64"));
-    handle.pictures?.push("aGVsbG8=");
+    handle.pictures?.push(Buffer.alloc(maxStillPictureBytes + 1).toString("base64"), 0);
+    handle.pictures?.push("aGVsbG8=", 0);
     await until(() => ingest.received.some((f) => f.kind === 3));
     expect(handle.pictures?.dropped?.()).toBe(1);
     expect(ingest.received.filter((f) => f.kind === 3).map((f) => f.payload.length)).toEqual([5]);
@@ -360,7 +368,7 @@ describe("live video routed through ace-media", () => {
     await until(ingest.connected);
     ingest.pause();
     for (let n = 1; n <= 40; n++)
-      handle.pictures?.push(Buffer.alloc(512 * 1024, n).toString("base64"));
+      handle.pictures?.push(Buffer.alloc(512 * 1024, n).toString("base64"), 0);
     ingest.resume();
     await until(() => ingest.received.some((f) => f.kind === 3 && f.payload[0] === 40));
     const pictures = ingest.received.filter((f) => f.kind === 3);

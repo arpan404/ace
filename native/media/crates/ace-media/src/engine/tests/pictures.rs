@@ -91,6 +91,36 @@ fn a_picture_newer_than_a_private_epoch_keeps_the_private_one_within_the_read_ga
 }
 
 #[test]
+fn a_picture_captured_before_a_privacy_change_and_delivered_after_never_reaches_encoder_or_egress()
+{
+    // Egress carries a source's units to the daemon's recording and to every viewer.
+    let lane = Kept::default();
+    let mut engine = Engine::new(
+        Box::new(super::super::recorder::NoRecorders),
+        Box::new(lane.clone()),
+    );
+    open(&mut engine, "tab-pictures");
+    send(
+        &mut engine,
+        json!({ "type": "source.egress", "source": "p", "on": true }),
+        &[],
+        NOW,
+    );
+    // Not encoding yet: pictures go to egress as they are. Then the tab changes privacy
+    // (epoch 4) and a picture captured before it (epoch 3) arrives late.
+    picture(&mut engine, 4, at(2_000));
+    picture(&mut engine, 3, at(2_010));
+    assert_eq!(lane.order(), ["unit"], "only the epoch-4 picture went on");
+    // Encoding now: the late one never reaches the encoder either.
+    encodes(&mut engine, spec());
+    assert!(encode_effects(&picture(&mut engine, 3, at(2_020))).is_empty());
+    assert_eq!(
+        encode_effects(&picture(&mut engine, 4, at(2_030))),
+        ["Picture(p, epoch 4)"]
+    );
+}
+
+#[test]
 fn a_tab_source_takes_no_encodes_and_a_closed_source_stops_its_encoder() {
     let mut tab = engine();
     open_tab(&mut tab, "p", 3, 9);

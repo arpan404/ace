@@ -270,7 +270,15 @@ export class LiveCapture {
     if (ack.success) void cdp.send("Page.screencastFrameAck", ack.data).catch(() => {});
     const parsed = Screencast.safeParse(raw);
     if (!parsed.success || this.closed || generation !== this.generation) return;
-    this.video.picture(parsed.data.data);
+    const privacy = this.privacy(),
+      capturedAt = parsed.data.metadata.timestamp;
+    // CDP timestamps identify capture time, not delivery time: a picture captured before the
+    // tab's last privacy change is dropped before it goes anywhere (the video, a still, a
+    // recording). Missing provenance after a change is fail-closed.
+    if (privacy.epoch !== 0 && (capturedAt === undefined || capturedAt * 1000 <= privacy.since))
+      return;
+    // The epoch the picture was captured in goes with it, for ace-media's stills and encodes.
+    this.video.picture(parsed.data.data, privacy.epoch);
     const timestamp = this.now();
     if (timestamp - this.lastFrame < 1000 / this.settings.fps) return;
     this.lastFrame = timestamp;
@@ -284,12 +292,7 @@ export class LiveCapture {
       height: Math.round(parsed.data.metadata.deviceHeight / scale),
       ...this.tabField(),
     };
-    const privacy = this.privacy(),
-      capturedAt = parsed.data.metadata.timestamp;
-    // CDP timestamps identify capture time, not delivery time. Missing provenance after
-    // a private transition is fail-closed for recording.
-    if (privacy.epoch === 0 || (capturedAt !== undefined && capturedAt * 1000 > privacy.since))
-      this.onFrame(frame, privacy.epoch);
+    this.onFrame(frame, privacy.epoch);
   }
   /**
    * Attach to the page and seed its first frame, so every viewer that joins gets pixels at

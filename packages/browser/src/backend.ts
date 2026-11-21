@@ -80,9 +80,15 @@ export interface VideoCaptureHandle {
    */
   /**
    * A JPEG screencast's pictures, for ace-media to encode: `push` takes each one as the browser
-   * sent it (base64); `dropped` counts those too large for ace-media, never sent.
+   * sent it (base64), with the tab's privacy epoch it was captured in (its provenance already
+   * checked); `dropped` counts those too large for ace-media, never sent.
    */
-  pictures?: { width: number; height: number; push(base64: string): void; dropped?(): number };
+  pictures?: {
+    width: number;
+    height: number;
+    push(base64: string, epoch: number): void;
+    dropped?(): number;
+  };
   /**
    * Present on an encoder of its own (a tab capture): its chunks go to `target` from the moment
    * its socket opens, or (undefined) nowhere. They never come to the daemon.

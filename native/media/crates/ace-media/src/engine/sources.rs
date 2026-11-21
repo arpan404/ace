@@ -87,6 +87,8 @@ struct Source {
     /// its running encoder: every command to that encoder and every word from it carries the
     /// token, so a reopened source never takes an earlier encoder's output.
     pictures: bool,
+    /// The newest epoch a picture of this source was captured in: an older one came late.
+    newest_picture: u32,
     encoder: Option<u64>,
     /// Frames taken from the producer's connection since its hello.
     received: u64,
@@ -231,7 +233,8 @@ impl Sources {
         // An emulator's frame file is encoded by the screen helper's `--encode-frames`, and an
         // Android device's scrcpy stream is forwarded by the daemon, which keeps its sockets: both
         // stream in over ingest like any producer and stamp their own epochs. A Simulator's
-        // serve-sim stream is read here.
+        // serve-sim stream is read here. A JPEG source's pictures carry the epoch they were
+        // captured in; its stamper only holds a private epoch through its read gap (`admits`).
         let reads_itself = pictures || matches!(origin, Origin::Simulator { .. });
         let mut stamper = reads_itself.then(|| ReadStamper::new(epoch));
         if let Some(stamper) = &mut stamper {
@@ -252,6 +255,7 @@ impl Sources {
                 encode: 0,
                 recording: None,
                 pictures,
+                newest_picture: epoch,
                 encoder: None,
                 received: 0,
                 syncs: Vec::new(),
@@ -299,6 +303,45 @@ impl Sources {
 
     pub fn bound(&self, conn: IngestId) -> Option<&str> {
         self.bindings.get(&conn).map(String::as_str)
+    }
+
+    /// Whether a frame off `conn` may go anywhere (the still cache, the encoder, egress), and a
+    /// JPEG source's picture stamped for all of them alike. A picture captured in an epoch older
+    /// than the newest one of its source was captured before a privacy change and came late: it
+    /// is dropped before any of them, never cached, encoded, recorded or shown. One that passes
+    /// keeps its own epoch, except within the read gap after the daemon applies the epoch that
+    /// follows a private one: then it takes the private one.
+    pub fn admits(
+        &mut self,
+        conn: IngestId,
+        frame: &mut MediaFrame,
+        now_ms: u64,
+        out: &mut Vec<Effect>,
+    ) -> bool {
+        let Some(source) = self
+            .bindings
+            .get(&conn)
+            .and_then(|id| self.by_id.get_mut(id))
+        else {
+            return true;
+        };
+        if !source.pictures || frame.kind != KIND_PICTURE {
+            return true;
+        }
+        if frame.epoch < source.newest_picture {
+            log(
+                out,
+                Level::Debug,
+                "a picture from an earlier privacy epoch was dropped",
+                &source.id,
+            );
+            return false;
+        }
+        source.newest_picture = frame.epoch;
+        if let Some(private) = source.stamper.as_ref().and_then(|s| s.holding(now_ms)) {
+            frame.epoch = private.min(frame.epoch);
+        }
+        true
     }
 
     /// `source.close`.
@@ -662,15 +705,13 @@ impl Sources {
             && let Some(token) = source.encoder
         {
             source.received += 1;
-            let epoch = source
-                .stamper
-                .as_ref()
-                .map_or(frame.epoch, |s| s.stamp(now.mono_ms).min(frame.epoch));
+            // The epoch the picture was captured in, admitted already (`admits`): the encoder
+            // takes it as the still cache and egress do.
             out.push(Effect::Encode(EncodeEffect::Picture {
                 source: id.clone(),
                 token,
                 jpeg: frame.payload,
-                epoch,
+                epoch: frame.epoch,
                 age_us: frame.age_us,
             }));
             return self.synced(&id, out);

@@ -70,3 +70,72 @@ it("stops the screencast feeding the video once its only viewer is hidden", asyn
   expect(page.calls.slice(stopped)).toContain("Page.startScreencast");
   await live.close();
 });
+
+it("a screencast picture captured before the tab's privacy changed never reaches the video; later ones carry their epoch", async () => {
+  const page = fakePage();
+  let frame: ((raw: unknown) => void) | undefined;
+  page.cdp.on = (event: string, listener: (raw: unknown) => void) => {
+    if (event === "Page.screencastFrame") frame = listener;
+  };
+  const pushed: { data: string; epoch: number }[] = [];
+  let opened = false;
+  const host: VideoHost = {
+    ...picturesHost,
+    open: async (_page, width, height) => (
+      (opened = true),
+      {
+        encodes: () => {},
+        keyframe: () => {},
+        close: () => {},
+        pictures: { width, height, push: (data, epoch) => void pushed.push({ data, epoch }) },
+      }
+    ),
+  };
+  // The person made the tab private at t = 10 s: epoch 1.
+  const privacy = { epoch: 1, since: 10_000 };
+  const recorded: number[] = [];
+  const live = new LiveCapture(
+    page.cdp,
+    () => 20_000,
+    (_frame, epoch) => void recorded.push(epoch),
+    () => privacy,
+    () => ({ width: 800, height: 600 }),
+    () => "tab-1",
+    () => 1,
+    () => ({ host, page: page.cdp }),
+  );
+  await live.start();
+  live.subscribe("phone", { video: { send: () => true } }, viewer(false));
+  await until(() => frame !== undefined && opened);
+  const screencast = (data: string, timestamp?: number) =>
+    frame?.({
+      data,
+      sessionId: 1,
+      metadata: {
+        deviceWidth: 800,
+        deviceHeight: 600,
+        offsetTop: 0,
+        pageScaleFactor: 1,
+        scrollOffsetX: 0,
+        scrollOffsetY: 0,
+        ...(timestamp === undefined ? {} : { timestamp }),
+      },
+    });
+  // Captured at 9 s, before the change, and delivered late: dropped. So is one with no capture time.
+  screencast("before", 9);
+  screencast("unknown");
+  // Captured after the change: it goes on, in the epoch it was captured in.
+  screencast("after", 11);
+  await until(() => pushed.length > 0);
+  expect(pushed).toEqual([{ data: "after", epoch: 1 }]);
+  expect(recorded).toEqual([1]);
+  await live.close();
+});
+
+async function until(condition: () => boolean): Promise<void> {
+  const end = performance.now() + 5_000;
+  while (!condition()) {
+    if (performance.now() > end) throw new Error("timed out");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}

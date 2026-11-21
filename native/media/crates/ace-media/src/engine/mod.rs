@@ -766,7 +766,14 @@ impl Engine {
     }
 
     /// A frame from an ingest connection the engine admitted.
-    pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: Now) {
+    pub fn ingest(&mut self, conn: IngestId, mut frame: MediaFrame, now: Now) {
+        // One epoch rule for every place a picture goes: it is checked here, before them all.
+        if !self
+            .sources
+            .admits(conn, &mut frame, now.mono_ms, &mut self.out)
+        {
+            return;
+        }
         if let Some(source) = self.sources.bound(conn) {
             self.stills.frame(source, &frame, &mut self.out);
             self.delivery

@@ -340,6 +340,36 @@ fn a_screencast_picture_off_its_ingest_is_the_still_fitted_to_the_box() {
 }
 
 #[test]
+fn a_picture_captured_before_a_privacy_change_and_delivered_after_is_never_the_still() {
+    let (mut engine, maker) = with_maker();
+    send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "s1", "handle": 1, "epoch": 1,
+                "origin": { "kind": "tab-pictures" } }),
+        &[9; 32],
+        NOW,
+    );
+    assert!(engine.ingest_hello(1, &[9; 32]));
+    let screencast = |engine: &mut Engine, bytes: Vec<u8>, epoch: u32| {
+        let mut frame = frame(3, 1, epoch, bytes);
+        frame.codec = 7;
+        ingest(engine, 1, frame, NOW)
+    };
+    let now = jpeg(1200, 600);
+    screencast(&mut engine, now.clone(), 2);
+    // Captured in epoch 1 (before the change to epoch 2), delivered late.
+    screencast(&mut engine, jpeg(800, 800), 1);
+    assert_eq!(
+        shot(&mut engine, &maker, "q1", 400),
+        [Answer::Still {
+            request: "q1".into(),
+            picture: now,
+            size: (400, 200)
+        }]
+    );
+}
+
+#[test]
 fn each_still_shows_the_latest_picture_of_the_stream() {
     let (mut engine, maker) = with_maker();
     producing(&mut engine);

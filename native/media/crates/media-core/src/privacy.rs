@@ -662,6 +662,14 @@ impl ReadStamper {
         self.current = epoch;
     }
 
+    /// The private epoch still held at `now`, within its read gap after the next was applied.
+    pub fn holding(&self, now: u64) -> Option<Epoch> {
+        match self.hold {
+            Some((private, until)) if now < until => Some(private),
+            _ => None,
+        }
+    }
+
     /// The epoch for a frame read at `now`.
     pub fn stamp(&self, now: u64) -> Epoch {
         match self.hold {
