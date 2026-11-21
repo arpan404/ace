@@ -1,5 +1,5 @@
 import "./test-host.ts";
-import { WorkspaceId, type ForgeBrowserResult } from "@ace/protocol";
+import { CommandId, WorkspaceId, type ForgeBrowserResult } from "@ace/protocol";
 import { lockedText } from "@ace/ui-core";
 import { expect, test } from "vitest";
 import type { FileReply } from "./forge-code.ts";
@@ -371,7 +371,11 @@ test("a push between reading the pull request and its review state leaves sugges
 
 test("a suggestion commit the daemon lost track of may have landed: it is said to be uncertain, never refused", async () => {
   const { ask } = await connected(undefined, undefined, () =>
-    Promise.resolve({ commandId: "c1", ok: false, error: "action_outcome_uncertain" }),
+    Promise.resolve({
+      commandId: CommandId.parse("c1"),
+      ok: false,
+      error: "action_outcome_uncertain",
+    }),
   );
   const shown = await timeline(ask, pr245);
   const written = await review(
