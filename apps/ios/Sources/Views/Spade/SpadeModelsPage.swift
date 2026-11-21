@@ -105,7 +105,7 @@ struct SpadeModelsPage: View {
     }
 
     private func keyRow(_ endpoint: SpadeSettings.Endpoint, chevron: Bool) -> some View {
-        InsetRow(systemImage: nil, title: "Key", subtitle: endpoint.address) {
+        InsetRow(icon: nil, title: "Key", subtitle: endpoint.address) {
             HStack(spacing: AceDesign.Space.tight) {
                 InsetValue(text: endpoint.key.words)
                 if chevron {

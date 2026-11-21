@@ -168,7 +168,7 @@ struct SpadeSettingRow: View {
     var line: String?
     var value: String?
     var body: some View {
-        InsetRow(systemImage: nil, title: title, subtitle: line) { InsetValue(text: value) }
+        InsetRow(icon: nil, title: title, subtitle: line) { InsetValue(text: value) }
             .accessibilityElement(children: .combine)
     }
 }
