@@ -1,10 +1,11 @@
+import type { SpadeStartedWorker } from "./delegations.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { spadeWakeOf, type SpadeWake } from "./wakes.ts";
 import type { SpadeKnownEvent } from "./wire.ts";
 
 /*
  * The capability events in a conversation's fold (`foldSpade`): goals and checks of done
- * (ADR 0159), workers (ADR 0161) as quiet lines where they happened, and wakes (ADR 0160) as the
+ * (ADR 0159), workers (ADR 0161) on cards where they started, and wakes (ADR 0160) as the
  * open set the resting line reads. Each event does work in proportion to itself.
  */
 
@@ -24,12 +25,14 @@ export function emptySpadeCapabilities(): SpadeCapabilityState {
 
 /**
  * Fold `event` when it is one of these: true when what the person sees changed, false when it
- * didn't, undefined when it isn't one. `place` puts a quiet line where the event happened.
+ * didn't, undefined when it isn't one. `place` puts a quiet line where the event happened;
+ * `started` puts a started bot or ace agent on its call's card (`SpadeWorkersEntry`).
  */
 export function foldSpadeCapability(
   state: SpadeCapabilityState,
   event: SpadeKnownEvent,
   place: (quiet: SpadeQuiet) => void,
+  started: (call: string, worker: SpadeStartedWorker) => void,
 ): boolean | undefined {
   switch (event.type) {
     case "goal_set":
@@ -48,16 +51,17 @@ export function foldSpadeCapability(
       state.workers.set(event.worker, event.name);
       // A helper is its own line already (ADR 0152).
       if (event.kind === "helper") return true;
-      place({
-        kind: "worker-started",
-        worker: event.worker,
-        ace: event.kind === "ace",
-        name: event.name || "a worker",
+      started(event.call, {
+        id: event.worker,
+        kind: event.kind,
+        name: event.name || (event.kind === "ace" ? "An ace agent" : "A worker"),
       });
       return true;
     case "worker_reported":
-      // Stopping still counts as running: its stopped report follows.
+      // Stopping still counts as running: its stopped report follows. A worker started here
+      // has its card, which says how it stands now; a report line would only go stale.
       if (event.kind === "helper" || event.state === "stopping") return false;
+      if (state.workers.has(event.worker)) return false;
       place({
         kind: "worker-reported",
         worker: event.worker,

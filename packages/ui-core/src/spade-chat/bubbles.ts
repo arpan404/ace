@@ -18,6 +18,7 @@ import { spadeReplySteps, type SpadeStep } from "./steps.ts";
 import type { SpadeTurnUndo } from "./undo.ts";
 import type { SpadeNoticeRow } from "./notices.ts";
 import type { SpadeCardRow } from "./cards.ts";
+import type { SpadeWorkersEntry } from "./delegations.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, and under each reply
@@ -110,6 +111,8 @@ type SpadeBubbleOf =
     }
   /** A card the bot showed (ADR 0200 §5.1): its own row, drawn from its data by ace's parts. */
   | ({ kind: "card"; key: string } & SpadeCardRow)
+  /** The bots and ace agents one call started, one row each, where the first started. */
+  | Omit<SpadeWorkersEntry, "at">
   /** A bot's own notice (`notify`): its words and where it went. */
   | ({ kind: "notice"; key: string } & SpadeNoticeRow)
   /** "Named itself Ivy", the name and face changed in place from the line. */
@@ -254,7 +257,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       bubbles.push(entry);
       continue;
     }
-    if (entry.kind === "card" || entry.kind === "notice") {
+    if (entry.kind === "card" || entry.kind === "notice" || entry.kind === "workers") {
       onlyGroups = false;
       const { at, ...row } = entry;
       bubbles.push({ ...row, ...stamp(at) });

@@ -59,6 +59,8 @@ export const spadeCapabilityEvents = [
     worker: z.string(),
     kind: workerKind,
     name: words,
+    /** The call that started it: one `delegate` starting several shares it. */
+    call: words,
   }),
   /** A worker settled; `summary` is Spade's words on how, never the worker's own. */
   z.object({

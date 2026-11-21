@@ -1269,8 +1269,8 @@
       "sha256": "20588f17c74e501efa9b5063089c33fe2d1344c07bc0799054bd4ed595ecdb3f"
     },
     "schema/CliSpadeBot.json": {
-      "bytes": 1805,
-      "sha256": "39773eef30b67c089054919329f820c8ca7c4865c3f2d3487e1a437b807b8038"
+      "bytes": 1841,
+      "sha256": "596900096fcef4f369060a99d8db9d8ce175a26ce8f83cc790b29e2d8c8fee15"
     },
     "schema/CliSpadeChat.json": {
       "bytes": 357,
@@ -3276,6 +3276,10 @@
       "bytes": 663,
       "sha256": "279930ec31ff1c488ce334db02b35f4c9d05fd149934a80ca986b391d2cf9514"
     },
+    "schema/MarketNotices.json": {
+      "bytes": 707,
+      "sha256": "103d9a03b8e026668ca9495ce0ec9707041df7e05fb7d310bae655d6cc2ff428"
+    },
     "schema/MarketOfficialList.json": {
       "bytes": 829,
       "sha256": "954128bea532e478cef2ba62eba9b50d518474d83cb3c6bb331716bbe2d342e4"
@@ -3397,8 +3401,8 @@
       "sha256": "c47c3bb7e4bfe5e003c0d2b66f396bc5b42168874062f662e58d223d86422b88"
     },
     "schema/MarketReviewBody.json": {
-      "bytes": 6564,
-      "sha256": "21b167a3abced42bf1c6d3a3af3bcf06746b76696cdfce099f633a7e4a3e8fa2"
+      "bytes": 6656,
+      "sha256": "672bb486a88b306f66ed50060cb018f5444b8cdde4d918e5144ca6718c1ff936"
     },
     "schema/MarketReviewId.json": {
       "bytes": 183,
@@ -3467,6 +3471,10 @@
     "schema/MarketSpadeSkill.json": {
       "bytes": 598,
       "sha256": "0e16678f366acc518b908f7e1cb7d43e9e196cefc9882b68c0d5fd60f28df38a"
+    },
+    "schema/MarketTermsNotice.json": {
+      "bytes": 660,
+      "sha256": "00ac974154d230adaf80fe2d8bf632ec69a333112320d8b6da99988973ee01be"
     },
     "schema/MarketTopPublisher.json": {
       "bytes": 888,
@@ -5356,6 +5364,10 @@
       "bytes": 399,
       "sha256": "d6f096e12989ca2b511142a7a65a97514d04c13d80389e3f54251217c326de31"
     },
+    "schema/SignedNoticesUpload.json": {
+      "bytes": 393,
+      "sha256": "5c05e2c045bbb2b68225e2acc4765b21d7b08609356d14f0acd02dae1f4e178c"
+    },
     "schema/SignedOfficialUpload.json": {
       "bytes": 396,
       "sha256": "2228e50d824a7b21441f4a3a3a92716a021344ce5e27d1cd9059a37c41158ed9"
@@ -5377,8 +5389,8 @@
       "sha256": "1671e36dedd0ab56257c0a8be904aa032d09ac6c19f54b662adae438bf891d9b"
     },
     "schema/SignerPending.json": {
-      "bytes": 890,
-      "sha256": "8a89fe004047e64423de4f36f0164c819b4aef0c886272da4787e7b3160e071f"
+      "bytes": 972,
+      "sha256": "af7b28408c82269e9c0c541e60d8f1f04e2c5e2ed09718b4c88a4aba5a18a1a0"
     },
     "schema/SiteOrigin.json": {
       "bytes": 307,
@@ -6873,10 +6885,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1393097,
-      "sha256": "f0bad911b5538aaa3013b55369d2b347cb7ff24999d7ff2a85f851b1fe3cfbf7"
+      "bytes": 1394903,
+      "sha256": "5fa799a578d26dfef3683261d5d6957f66a2e94a6969772416f182104ef80f0d"
     }
   },
-  "input": "60bc04bb5709531f81a0fc808ca7638254afa65ccd583e4137775ab535579fde",
+  "input": "a4b480b89533a1be2aa7395bd3b7fb4c4a795a5a0d53f02ec796113f10cc56c3",
   "version": 1
 }

@@ -14,6 +14,7 @@ export type { SpadeStepWeight } from "./step-facts.ts";
 export * from "./words.ts";
 export * from "./contract-words.ts";
 export * from "./helper-words.ts";
+export * from "./delegations.ts";
 export * from "./agents.ts";
 export * from "./packages.ts";
 export * from "./package-updates.ts";
