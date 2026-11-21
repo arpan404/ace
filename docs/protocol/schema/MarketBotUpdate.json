@@ -19,6 +19,9 @@
     "plan": {
       "$ref": "https://ace.local/protocol/v1/PackagePlan.json"
     },
+    "replay": {
+      "$ref": "https://ace.local/protocol/v1/MarketBotReplay.json"
+    },
     "rollback": {
       "type": "boolean"
     }

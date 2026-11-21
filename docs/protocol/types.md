@@ -10107,6 +10107,58 @@ Example:
 }
 ```
 
+## CliBotReplay
+
+[JSON Schema](schema/CliBotReplay.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| mode | yes | ["wiring","model"] |  |
+| model | no | string |  |
+| cases | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliBotReplayCase.json"}} |
+| passed | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| failed | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| outside | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| summary | yes | string |  |
+
+Example:
+
+```json
+{
+  "cases": [],
+  "failed": 2,
+  "mode": "model",
+  "outside": 8,
+  "passed": 9,
+  "summary": "example"
+}
+```
+
+## CliBotReplayCase
+
+[JSON Schema](schema/CliBotReplayCase.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string |  |
+| given | yes | string |  |
+| mark | no | ["right","wrong"] |  |
+| passed | yes | boolean |  |
+| lines | yes | array | {"items":{"type":"string"}} |
+| outside | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "given": "example",
+  "id": "example",
+  "lines": [],
+  "outside": 8,
+  "passed": false
+}
+```
+
 ## CliBotScenario
 
 [JSON Schema](schema/CliBotScenario.json), input validation.
@@ -10153,6 +10205,7 @@ Example:
 | passed | yes | boolean |  |
 | problems | yes | array | {"items":{"type":"string"}} |
 | scenarios | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliBotScenario.json"}} |
+| replay | no | [CliBotReplay.json](schema/CliBotReplay.json) |  |
 
 Example:
 
@@ -10161,6 +10214,15 @@ Example:
   "name": "example",
   "passed": false,
   "problems": [],
+  "replay": {
+    "cases": [],
+    "failed": 0,
+    "mode": "model",
+    "model": "example",
+    "outside": 8,
+    "passed": 5,
+    "summary": "example"
+  },
   "scenarios": []
 }
 ```
@@ -23113,6 +23175,28 @@ Example:
 }
 ```
 
+## MarketBotReplay
+
+[JSON Schema](schema/MarketBotReplay.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| summary | yes | string | {"maxLength":500} |
+| passed | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| failed | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| cases | yes | array | {"maxItems":200,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":80},"given":{"type":"string","maxLength":300},"passed":{"type":"boolean"},"lines":{"maxItems":20,"type":"array","items":{"type":"string","maxLength":2000}}},"required":["id","given","passed","lines"]}} |
+
+Example:
+
+```json
+{
+  "cases": [],
+  "failed": 6,
+  "passed": 2,
+  "summary": "example"
+}
+```
+
 ## MarketBotReview
 
 [JSON Schema](schema/MarketBotReview.json), input validation.
@@ -23159,6 +23243,7 @@ Example:
 | rollback | yes | boolean |  |
 | plan | yes | [PackagePlan.json](schema/PackagePlan.json) |  |
 | asksMore | yes | array | {"maxItems":64,"items":{"type":"string","maxLength":500}} |
+| replay | no | [MarketBotReplay.json](schema/MarketBotReplay.json) |  |
 
 Example:
 
@@ -26664,7 +26749,6 @@ Example:
 ```json
 {
   "items": [],
-  "nextOffset": 6,
   "op": "reviewPage",
   "review": {
     "body": {
@@ -26697,11 +26781,11 @@ Example:
       }
     },
     "byAce": true,
-    "expiresAt": 5,
+    "expiresAt": 6,
     "from": "example",
     "hash": "51b77ff3950f2be9bc92925e36a9bbd830b697bc36eace11c30ffb302c3b2dcb",
     "id": "SyIwyNKmaZDg9IuNm8L9LD7Csrw4zEhF3-xZsLH9f1TBsQ0R30lOsHH-PdoyacMskRZkx",
-    "items": 6,
+    "items": 2,
     "name": "8.edd3-55ov",
     "reviewed": false,
     "signed": true,
@@ -30516,12 +30600,12 @@ Example:
 
 [JSON Schema](schema/PackageModule.json), input validation.
 
-Type: ["task","memory","files","web","apps","agents","ui","schedule","devices","outward","notify"]. See JSON Schema for constraints.
+Type: ["task","memory","files","web","apps","agents","ui","schedule","devices","outward","notify","code"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"files"
+"web"
 ```
 
 ## PackagePlan
@@ -30654,6 +30738,7 @@ Example:
 | name | yes | string | {"minLength":1,"maxLength":60,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
 | instruction | yes | string | {"minLength":1,"maxLength":4000,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
 | event | yes | [PackageEvent.json](schema/PackageEvent.json) |  |
+| verify | no | boolean |  |
 
 Example:
 
@@ -30673,6 +30758,7 @@ Example:
 | kind | yes | `"webhook"` |  |
 | name | yes | string | {"minLength":1,"maxLength":60,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
 | instruction | yes | string | {"minLength":1,"maxLength":4000,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| verify | no | boolean |  |
 
 Example:
 
@@ -30680,7 +30766,8 @@ Example:
 {
   "instruction": "example",
   "kind": "webhook",
-  "name": "example"
+  "name": "example",
+  "verify": false
 }
 ```
 
@@ -36173,7 +36260,7 @@ Example:
 | task | no | string | {"default":"","maxLength":4000} |
 | face | no | object | {"propertyNames":{"type":"string","maxLength":40},"additionalProperties":{}} |
 | model | no | ["fast","capable"] | {"default":"capable"} |
-| routines | no | array | {"default":[],"maxItems":32,"items":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":120,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"instruction":{"type":"string","minLength":1,"maxLength":4000,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"schedule":{"type":"string","minLength":1,"maxLength":200,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."}},"required":["name","instruction","schedule"],"additionalProperties":false}} |
+| routines | no | array | {"default":[],"maxItems":32,"items":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":120,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"instruction":{"type":"string","minLength":1,"maxLength":4000,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"schedule":{"type":"string","minLength":1,"maxLength":200,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"verify":{"type":"boolean"}},"required":["name","instruction","schedule"],"additionalProperties":false}} |
 | skills | no | array | {"default":[],"maxItems":32,"items":{"type":"string","maxLength":80}} |
 | plugins | no | array | {"default":[],"maxItems":16,"items":{"type":"string","maxLength":80}} |
 | needs | no | object | {"default":{"connectors":[]},"properties":{"connectors":{"default":[],"maxItems":32,"type":"array","items":{"anyOf":[{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/RecipeConnectorId.json"},"why":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"required":{"default":false,"type":"boolean"}},"required":["id","why"],"additionalProperties":false},{"type":"object","properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.","x-ace-url-maxLength":2048},"why":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"required":{"default":false,"type":"boolean"}},"required":["url","why"],"additionalProperties":false}]}},"tools":{"maxItems":64,"type":"array","items":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}}},"additionalProperties":false} |
@@ -36189,6 +36276,7 @@ Example:
 | tests | no | array | {"default":[],"maxItems":64,"items":{"type":"string","pattern":"^tests\\/[A-Za-z0-9._-]+\\.json$"}} |
 | style | no | object | {"properties":{"accent":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"required":["accent"],"additionalProperties":false} |
 | surfaces | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageSurface.json"}} |
+| checks | no | array | {"maxItems":32,"items":{}} |
 | code | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/PackageCode.json"}} |
 
 Example:
