@@ -1,10 +1,14 @@
 import { expect, it, vi } from "vitest";
-import { MediaRecording, recoveryMs } from "./recordings.ts";
+import { MediaRecording, recoveryMs, stopAckMs } from "./recordings.ts";
 import { ManualClock } from "./supervisor-test-support.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
 
 function recording(
-  options: { private?: () => boolean; up?: () => boolean; drain?: () => Promise<void> } = {},
+  options: {
+    private?: () => boolean;
+    up?: () => boolean;
+    drain?: (decided: number) => Promise<boolean>;
+  } = {},
 ) {
   const clock = new ManualClock();
   const sent: ToMedia[] = [];
@@ -120,8 +124,11 @@ it("a recording ace-media fails, or can't stop, ends with its reason and the par
 });
 
 it("a stop decides the epoch the producer is in, and drains its frames, before record.stop", async () => {
-  const drained = Promise.withResolvers<void>();
-  const { media, sent, issued } = recording({ drain: () => drained.promise });
+  const drained = Promise.withResolvers<boolean>();
+  const asked: number[] = [];
+  const { media, sent, issued } = recording({
+    drain: (decided) => (asked.push(decided), drained.promise),
+  });
   media.start();
   // Stopped before the first 100 ms beat: epoch 1 holds the whole clip.
   const stopping = media.stop();
@@ -130,7 +137,9 @@ it("a stop decides the epoch the producer is in, and drains its frames, before r
   expect(sent.at(-1)).toMatchObject({ type: "record.epochs", clear: [[1, 1]], discard: [] });
   await Promise.resolve();
   expect(sent.some((m) => m.type === "record.stop")).toBe(false);
-  drained.resolve();
+  // The barrier asks ace-media for epoch 1, the clip's, to be decided with its frames in.
+  expect(asked).toEqual([1]);
+  drained.resolve(true);
   await vi.waitFor(() => expect(sent.at(-1)).toEqual({ type: "record.stop", recording: "r1" }));
   media.message({ type: "record.done", recording: "r1", parts: [part(0)] });
   await expect(stopping).resolves.toEqual({ ok: true, parts: [part(0)] });
@@ -185,4 +194,31 @@ it("a recording that ended sends nothing more for late acknowledgements", async 
   media.acknowledged(2);
   await clock.advance(500);
   expect(sent.length).toBe(before);
+});
+
+it("a stop whose barrier can't confirm the last epoch leaves it out and says so", async () => {
+  const { media, sent } = recording({ drain: async () => false });
+  media.start();
+  const stopping = media.stop();
+  await vi.waitFor(() => expect(sent.at(-1)).toEqual({ type: "record.stop", recording: "r1" }));
+  media.message({ type: "record.done", recording: "r1", parts: [part(0)] });
+  await expect(stopping).resolves.toEqual({ ok: true, parts: [part(0)], truncated: "final-epoch" });
+});
+
+it("a record.stop a live ace-media never answers ends the stop in bounded time with what it has", async () => {
+  const { media, clock, sent } = recording();
+  media.start();
+  media.message({ type: "record.part", recording: "r1", ...part(0) });
+  const stopping = media.stop();
+  await vi.waitFor(() => expect(sent.at(-1)).toEqual({ type: "record.stop", recording: "r1" }));
+  let settled = false;
+  void stopping.then(() => (settled = true));
+  await clock.advance(stopAckMs - 1);
+  expect(settled).toBe(false);
+  await clock.advance(1);
+  await expect(stopping).resolves.toEqual({
+    ok: false,
+    reason: "stop-unanswered",
+    parts: [part(0)],
+  });
 });

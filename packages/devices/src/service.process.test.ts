@@ -212,6 +212,40 @@ describe("in-app device ownership", () => {
       expect(h.service.states()[0]).toMatchObject({ recording: false });
     },
   );
+  it("a second record.start refused as busy leaves cleanup waiting for the first startup", async () => {
+    const h = await harness();
+    await bind(h);
+    await h.request({ op: "start", deviceId });
+    const gate = deferred<void>();
+    h.recorder.startGate = gate.promise;
+    const first = h.request({ op: "record.start", deviceId });
+    const settled = expect(first).rejects.toThrow();
+    await expect(h.request({ op: "record.start", deviceId })).rejects.toMatchObject({
+      code: "busy",
+    });
+    let done = false;
+    const stopping = h.request({ op: "stop", deviceId }).then(() => {
+      done = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The refused start didn't take the first one's place: the stop still waits for it.
+    expect(done).toBe(false);
+    gate.resolve();
+    await stopping;
+    await settled;
+    expect(h.recorder.open).toBe(0);
+  });
+  it("a recording whose last moment ace-media couldn't confirm is saved, and the device says what was left out", async () => {
+    const h = await harness();
+    await bind(h);
+    await h.request({ op: "start", deviceId });
+    await h.request({ op: "record.start", deviceId });
+    h.publish(1);
+    h.recorder.truncate = true;
+    await h.request({ op: "record.stop", deviceId });
+    expect(h.publications).toHaveLength(1);
+    expect(h.service.states()[0]?.recordingNotice).toContain("left out");
+  });
   it("a recording's video downloads through the artifact API as registered", async () => {
     const h = await harness(true);
     await bind(h);

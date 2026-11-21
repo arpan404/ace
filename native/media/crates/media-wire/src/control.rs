@@ -435,6 +435,20 @@ pub enum ToMedia {
         #[serde(rename = "source")]
         source: Id,
     },
+    /// An ingest barrier (X1): answered by `source.synced` once ace-media has taken `frames`
+    /// frames from the source's producer connection since its hello, and its recording, if any,
+    /// has decided epoch `decided`, so a `record.stop` after it finds every frame in place.
+    #[serde(rename = "source.sync")]
+    SourceSync {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "seq")]
+        seq: Sequence,
+        #[serde(rename = "frames")]
+        frames: Sequence,
+        #[serde(rename = "decided")]
+        decided: u32,
+    },
     /// Whether ace-media sends this source's frames back on the egress lane (G1). Off until
     /// the daemon turns it on.
     #[serde(rename = "source.egress")]
@@ -740,6 +754,20 @@ pub enum FromMedia {
         written: Sequence,
         #[serde(rename = "dropped")]
         dropped: Sequence,
+    },
+    /// A producer's ingest connection presented the source's token and was bound to it.
+    #[serde(rename = "source.ingest")]
+    SourceIngest {
+        #[serde(rename = "source")]
+        source: Id,
+    },
+    /// The barrier `source.sync` asked for holds.
+    #[serde(rename = "source.synced")]
+    SourceSynced {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "seq")]
+        seq: Sequence,
     },
     #[serde(rename = "source.status")]
     SourceStatus {

@@ -234,6 +234,8 @@ it.runIf(binary)(
     const end = await start.recording.stop();
     expect(end.ok, JSON.stringify(end)).toBe(true);
     expect(end.parts.flatMap((p) => ids(p.path))).toEqual([0, 1, 2]);
+    // ace-media confirmed the barrier: nothing was left out.
+    expect(end.ok && end.truncated).toBeUndefined();
   },
   30_000,
 );
@@ -264,6 +266,8 @@ it.runIf(binary)(
     const end = await recording.stop();
     expect(end.ok, JSON.stringify(end)).toBe(true);
     expect(end.parts.map((p) => p.index)).toEqual([0]);
+    // The crash took what followed the part's last whole fragment, and the end says so.
+    expect(end.ok && end.truncated).toBe("final-epoch");
     const written = end.parts.flatMap((p) => ids(p.path));
     // Everything up to the last whole fragment before the kill.
     expect(written.length).toBeGreaterThan(20);

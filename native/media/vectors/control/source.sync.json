@@ -1,0 +1,10 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "source.sync",
+    "source": "source-1",
+    "seq": 3,
+    "frames": 41,
+    "decided": 7
+  }
+}

@@ -569,3 +569,61 @@ fn an_android_device_is_fed_by_the_daemon_over_ingest() {
         [("android".into(), Status::Playing, None)]
     );
 }
+
+fn synced(effects: &[Effect]) -> Vec<u64> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Normal(FromMedia::SourceSynced { seq, .. }) => Some(seq.get()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn sync(engine: &mut Engine, seq: u64, frames: u64, decided: u32) -> Vec<Effect> {
+    send(
+        engine,
+        json!({ "type": "source.sync", "source": "s1", "seq": seq, "frames": frames,
+                "decided": decided }),
+        &[],
+        NOW,
+    )
+}
+
+#[test]
+fn a_hello_bound_to_its_source_is_reported_on_the_control_lane() {
+    let mut engine = engine();
+    open_tab(&mut engine, "s1", 1, 9);
+    let bound = hello(&mut engine, 1, 9);
+    assert!(bound.iter().any(|e| matches!(
+        e,
+        Effect::Normal(FromMedia::SourceIngest { source }) if source.get() == "s1"
+    )));
+    // A refused hello reports nothing but its close.
+    let refused = hello(&mut engine, 2, 8);
+    assert!(
+        !refused
+            .iter()
+            .any(|e| matches!(e, Effect::Normal(FromMedia::SourceIngest { .. })))
+    );
+}
+
+#[test]
+fn a_sync_is_answered_only_once_its_frames_arrived_and_its_epoch_is_decided_so_stop_finds_them_written()
+ {
+    let log = Log::default();
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
+    open_tab(&mut engine, "s1", 1, 9);
+    start(&mut engine, "r1", "/tmp/r");
+    hello(&mut engine, 1, 9);
+    ingest(&mut engine, 1, unit(1, true), NOW);
+    // The daemon wrote two frames and asks for epoch 1 decided: neither holds yet.
+    assert!(synced(&sync(&mut engine, 0, 2, 1)).is_empty());
+    assert!(synced(&ingest(&mut engine, 1, unit(1, false), NOW)).is_empty());
+    let decided = decide(&mut engine, 0, 1, json!([[1, 1]]), json!([]), NOW);
+    assert_eq!(synced(&decided), [0]);
+    // Both frames are with the recorder before record.stop.
+    assert_eq!(written(&log), ["write 1 1", "write 1 0"]);
+    // A barrier that already holds is answered at once.
+    assert_eq!(synced(&sync(&mut engine, 1, 2, 1)), [1]);
+}

@@ -77,11 +77,60 @@ it("asks the producer for a keyframe as soon as it connects, at start and after 
   expect(state.keyframes).toBe(2);
 });
 
+it("is accepted only once ace-media binds the hello, never on the socket's own connect", async () => {
+  const { media } = tee();
+  media.open();
+  const accepted = media.accepted();
+  let settled: boolean | undefined;
+  void accepted.then((ok) => (settled = ok));
+  media.message({ type: "source.status", source: "s1", status: "starting" });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(settled).toBeUndefined();
+  media.message({ type: "source.ingest", source: "s2" });
+  media.message({ type: "source.ingest", source: "s1" });
+  await expect(accepted).resolves.toBe(true);
+});
+
+it("an acceptance still waiting is settled false by a reopen, a close or a lost connection", async () => {
+  const { media, drop } = tee();
+  media.open();
+  const reopened = media.accepted();
+  media.open();
+  await expect(reopened).resolves.toBe(false);
+  const closed = media.accepted();
+  media.close();
+  await expect(closed).resolves.toBe(false);
+  media.open();
+  media.message({ type: "source.status", source: "s1", status: "starting" });
+  const lost = media.accepted();
+  drop();
+  await expect(lost).resolves.toBe(false);
+});
+
+it("a sync asks ace-media for every frame written on the connection, and holds once it says so", async () => {
+  const { media, sent, drop } = tee();
+  media.open();
+  media.message({ type: "source.status", source: "s1", status: "starting" });
+  media.message({ type: "source.ingest", source: "s1" });
+  media.push(unit(true));
+  media.push(unit(false));
+  const held = media.sync(4);
+  expect(sent.at(-1)).toEqual({ type: "source.sync", source: "s1", seq: 0, frames: 2, decided: 4 });
+  media.message({ type: "source.synced", source: "s1", seq: 0 });
+  await expect(held).resolves.toBe(true);
+  // A connection lost first answers the barrier: it can't hold.
+  const pending = media.sync(4);
+  drop();
+  await expect(pending).resolves.toBe(false);
+});
+
 it("an ingest connection that ends on its own is reported lost, and later units go nowhere", async () => {
   const { media, frames, lost, drop } = tee();
   media.open();
   const accepted = media.accepted();
   media.message({ type: "source.status", source: "s1", status: "starting" });
+  media.message({ type: "source.ingest", source: "s1" });
   await expect(accepted).resolves.toBe(true);
   media.push(unit(true));
   drop();

@@ -72,6 +72,12 @@ export class MediaTee {
   #epoch: number;
   #skipping = false;
   readonly #accepting: ((ok: boolean) => void)[] = [];
+  /** ace-media bound the current connection (`source.ingest`). */
+  #bound = false;
+  /** Frames written on the current connection since its hello. */
+  #frames = 0;
+  #nextSync = 0;
+  readonly #syncs = new Map<number, (held: boolean) => void>();
 
   constructor(options: MediaTeeOptions, epoch: number) {
     this.#options = options;
@@ -104,9 +110,27 @@ export class MediaTee {
     return true;
   }
 
-  /** ace-media's messages; the tee needs `source.status` for its own source. */
+  /**
+   * ace-media's messages about its own source: `source.status` (connect at `starting`, lost at
+   * `retrying` or `ended`), `source.ingest` (ace-media took the hello: accepted) and
+   * `source.synced` (a barrier holds).
+   */
   message(message: FromMedia): void {
-    if (message.type !== "source.status" || message.source !== this.#options.source) return;
+    if (!("source" in message) || message.source !== this.#options.source) return;
+    if (message.type === "source.ingest") {
+      if (this.#socket && !this.#bound) {
+        this.#bound = true;
+        this.#settle(true);
+      }
+      return;
+    }
+    if (message.type === "source.synced") {
+      const waiter = this.#syncs.get(message.seq);
+      this.#syncs.delete(message.seq);
+      waiter?.(true);
+      return;
+    }
+    if (message.type !== "source.status") return;
     if (message.status === "retrying" || message.status === "ended") {
       if (this.#socket) this.#lose(message.reason ?? `source-${message.status}`);
       return;
@@ -119,14 +143,13 @@ export class MediaTee {
     socket.write(encodeMediaFrame(frame(5, 0, 0, token)));
     token.fill(0);
     this.#socket = socket;
-    socket.ready.then(
-      () => {
-        if (this.#socket === socket) this.#settle(true);
-      },
-      () => {
-        if (this.#socket === socket) this.#lose("ingest-refused");
-      },
-    );
+    this.#bound = false;
+    this.#frames = 0;
+    // Accepted only once ace-media says it bound the hello (`source.ingest`), never on the
+    // socket's own connect: it may still refuse the token and close.
+    socket.ready.catch(() => {
+      if (this.#socket === socket) this.#lose("ingest-refused");
+    });
     socket.onClose(() => {
       if (this.#socket === socket) this.#lose("ingest-closed");
     });
@@ -157,6 +180,7 @@ export class MediaTee {
     const epoch = this.#stamper.stamp(this.#options.now());
     const kind = unit.kind === "video" ? 1 : 2;
     const flags = (unit.keyframe ? 1 : 0) | (unit.description ? 4 : 0);
+    this.#frames++;
     socket.write(
       encodeMediaFrame({
         ...frame(kind, flags, epoch, unit.payload),
@@ -173,10 +197,13 @@ export class MediaTee {
   }
 
   /**
-   * Resolves true once the ingest connection `open` asked for is up (after ace-media reported
-   * the source `starting`), false once it failed or was lost first.
+   * Resolves true once ace-media bound the ingest connection of the latest `open`
+   * (`source.ingest`), false once that connection failed, was lost, reopened or closed first.
+   * Ask after `open`.
    */
   accepted(): Promise<boolean> {
+    if (this.#bound) return Promise.resolve(true);
+    if (!this.#token && !this.#socket) return Promise.resolve(false);
     return new Promise((resolve) => this.#accepting.push(resolve));
   }
 
@@ -184,19 +211,32 @@ export class MediaTee {
     for (const resolve of this.#accepting.splice(0)) resolve(ok);
   }
 
-  /** Resolves once every unit written so far has left the daemon (bounded by `ms`). */
-  async flushed(sleep: (ms: number) => Promise<void>, ms: number): Promise<void> {
-    for (let waited = 0; (this.#socket?.queued ?? 0) > 0 && waited < ms; waited += 10)
-      await sleep(10);
+  /**
+   * An ingest barrier: resolves true once ace-media has taken every frame written so far on
+   * the current connection and its recording decided epoch `decided` (`source.sync`), false
+   * if the connection goes first or the message can't be sent. The caller bounds the wait.
+   */
+  sync(decided: number): Promise<boolean> {
+    if (!this.#bound) return Promise.resolve(false);
+    const seq = this.#nextSync++;
+    const sent = this.#options.send(
+      { type: "source.sync", source: this.#options.source, seq, frames: this.#frames, decided },
+      new Uint8Array(0),
+    );
+    if (!sent) return Promise.resolve(false);
+    return new Promise((resolve) => this.#syncs.set(seq, resolve));
   }
 
   #lose(reason: string): void {
     this.#disconnect();
-    this.#settle(false);
     this.#options.lost?.(reason);
   }
 
   #disconnect(): void {
+    this.#settle(false);
+    for (const waiter of this.#syncs.values()) waiter(false);
+    this.#syncs.clear();
+    this.#bound = false;
     this.#socket?.destroy();
     this.#socket = undefined;
     this.#token?.fill(0);

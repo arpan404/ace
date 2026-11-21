@@ -406,6 +406,14 @@ pub fn media_frame(kind: u8, flags: u32, payload: Vec<u8>) -> Vec<u8> {
     }
 }
 
+/// The source a `source.ingest` names: ace-media bound a producer's hello to it.
+pub fn ingest_of(message: FromMedia) -> String {
+    match message {
+        FromMedia::SourceIngest { source } => source.get().to_owned(),
+        other => panic!("expected source.ingest, got {other:?}"),
+    }
+}
+
 pub fn status_of(message: FromMedia) -> (String, Status) {
     match message {
         FromMedia::SourceStatus { source, status, .. } => (source.get().to_owned(), status),

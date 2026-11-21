@@ -187,7 +187,9 @@ export async function startDevice(
     // as failed when its first-frame promise is cancelled.
     if (session.generation === generation) {
       session.error = owner.failure(error);
-      await stopDevice(session, owner);
+      // A live view that can't stream on an Android image leaves the device to its controller.
+      if (liveVideoUnavailable(session, error)) await endCapture(session, owner);
+      else await stopDevice(session, owner);
     }
     throw error;
   } finally {
@@ -196,14 +198,33 @@ export async function startDevice(
     if (session.cancelStart === cancelStart) delete session.cancelStart;
   }
 }
+/** Stops the device's live view and hands back control of it. */
 export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promise<void> {
+  if (session.stopping) return session.stopping;
+  session.leaseExpiry?.();
+  delete session.leaseExpiry;
+  session.lease.release();
+  return endCapture(session, owner);
+}
+
+/**
+ * An Android device whose capture can't stream video (scrcpy-server can't run on its image):
+ * adb still drives its input and stills, so whoever controls it keeps it.
+ */
+export function liveVideoUnavailable(session: DeviceSession, error: unknown): boolean {
+  return (
+    error instanceof DeviceError &&
+    error.code === "not_supported" &&
+    session.device.platform === "android"
+  );
+}
+
+/** Ends the live view and everything hanging off it; control of the device stays as it is. */
+export function endCapture(session: DeviceSession, owner: LifecycleOwner): Promise<void> {
   if (session.stopping) return session.stopping;
   session.generation++;
   session.cancelStart?.();
   delete session.cancelStart;
-  session.leaseExpiry?.();
-  delete session.leaseExpiry;
-  session.lease.release();
   session.hub.clear();
   delete session.latest;
   session.lifecycle = "stopping";

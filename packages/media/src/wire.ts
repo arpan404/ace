@@ -189,6 +189,15 @@ export const ToMedia = z.discriminatedUnion("type", [
     discard: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
   z.strictObject({ type: z.literal("source.close"), source: id }),
+  /** An ingest barrier (X1): answered by `source.synced` once ace-media took `frames` frames
+   * from the source's producer since its hello and its recording decided epoch `decided`. */
+  z.strictObject({
+    type: z.literal("source.sync"),
+    source: id,
+    seq: sequence,
+    frames: sequence,
+    decided: u32,
+  }),
   z.strictObject({ type: z.literal("source.egress"), source: id, on: z.boolean() }),
   z.strictObject({
     type: z.literal("source.encodes"),
@@ -324,6 +333,10 @@ export const FromMedia = z.discriminatedUnion("type", [
     written: sequence,
     dropped: sequence,
   }),
+  /** A producer's ingest connection presented the source's token and was bound to it. */
+  z.strictObject({ type: z.literal("source.ingest"), source: id }),
+  /** The barrier `source.sync` asked for holds. */
+  z.strictObject({ type: z.literal("source.synced"), source: id, seq: sequence }),
   z.strictObject({
     type: z.literal("source.status"),
     source: id,

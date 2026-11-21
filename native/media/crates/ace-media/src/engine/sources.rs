@@ -88,7 +88,14 @@ struct Source {
     /// token, so a reopened source never takes an earlier encoder's output.
     pictures: bool,
     encoder: Option<u64>,
+    /// Frames taken from the producer's connection since its hello.
+    received: u64,
+    /// `source.sync` barriers not yet answered: seq, frames, the epoch to be decided.
+    syncs: Vec<(Sequence, u64, u32)>,
 }
+
+/// Barriers one source keeps waiting; an older one beyond this is dropped (its asker times out).
+const MAX_SYNCS: usize = 8;
 
 #[derive(Default)]
 pub struct Sources {
@@ -241,6 +248,8 @@ impl Sources {
                 recording: None,
                 pictures,
                 encoder: None,
+                received: 0,
+                syncs: Vec::new(),
             },
         );
         status(out, id, Status::Starting, None, None);
@@ -645,7 +654,8 @@ impl Sources {
             .filter(|r| r.id == *recording);
         if let Some(live) = live {
             live.barrier.decide(decision, now, &mut self.events);
-            return self.release(id.get(), out);
+            self.release(id.get(), out);
+            return self.synced(id.get(), out);
         }
         let key = recording.get();
         let running = self
@@ -686,7 +696,13 @@ impl Sources {
             return out.push(Effect::CloseIngest(conn));
         };
         match frame.kind {
-            KIND_VIDEO | KIND_AUDIO | KIND_PICTURE => self.unit(&id, frame, now, egress, out),
+            KIND_VIDEO | KIND_AUDIO | KIND_PICTURE => {
+                self.unit(&id, frame, now, egress, out);
+                if let Some(source) = self.by_id.get_mut(&id) {
+                    source.received += 1;
+                }
+                self.synced(&id, out);
+            }
             KIND_END => {
                 self.bindings.remove(&conn);
                 out.push(Effect::CloseIngest(conn));
@@ -724,8 +740,62 @@ impl Sources {
             vault.erase(token);
         }
         source.ingest = Some(conn);
+        source.received = 0;
         self.bindings.insert(conn, source.id.get().to_owned());
+        normal(
+            out,
+            FromMedia::SourceIngest {
+                source: source.id.clone(),
+            },
+        );
         true
+    }
+
+    /// `source.sync`: answered once the source has taken `frames` frames from its producer and
+    /// its recording decided `decided` (at once, if both already hold).
+    pub fn sync(
+        &mut self,
+        id: &Id,
+        seq: Sequence,
+        frames: u64,
+        decided: u32,
+        out: &mut Vec<Effect>,
+    ) {
+        let Some(source) = self.by_id.get_mut(id.get()) else {
+            return;
+        };
+        if source.syncs.len() >= MAX_SYNCS {
+            source.syncs.remove(0);
+        }
+        source.syncs.push((seq, frames, decided));
+        self.synced(id.get(), out);
+    }
+
+    /// Answers every barrier of `id` that now holds.
+    fn synced(&mut self, id: &str, out: &mut Vec<Effect>) {
+        let Some(source) = self.by_id.get_mut(id) else {
+            return;
+        };
+        if source.syncs.is_empty() {
+            return;
+        }
+        let received = source.received;
+        let recording = source.recording.as_ref();
+        let (held, waiting): (Vec<_>, Vec<_>) =
+            source.syncs.drain(..).partition(|(_, frames, decided)| {
+                received >= *frames
+                    && recording.is_none_or(|r| r.barrier.decided(*decided).is_some())
+            });
+        source.syncs = waiting;
+        for (seq, _, _) in held {
+            normal(
+                out,
+                FromMedia::SourceSynced {
+                    source: source.id.clone(),
+                    seq,
+                },
+            );
+        }
     }
 
     /// The producer's connection ended without an end-of-source frame.

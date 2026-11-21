@@ -143,7 +143,18 @@ it("an Android device without live video is still the agent's for adb input, and
     "press",
   ]);
   h.platform.screens.set(android, [button]);
+  // Every controller the device reports while sim_start runs.
+  const controllers: string[] = [];
+  const unwatch = h.service.watch((state) => {
+    if (state.device.id === android) controllers.push(state.controller);
+  });
+  onTestFinished(unwatch);
   const started = await h.call("sim_start", { simId: android });
+  // Once the agent took it, control never lapsed while the live view failed: no gap for
+  // another thread to take the device in.
+  const taken = controllers.indexOf("agent");
+  expect(taken).toBeGreaterThanOrEqual(0);
+  expect(controllers.slice(taken).every((controller) => controller === "agent")).toBe(true);
   expect(started.isError).toBe(false);
   expect(started.json).toMatchObject({
     simId: android,

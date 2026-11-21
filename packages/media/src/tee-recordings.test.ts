@@ -5,6 +5,8 @@ import { ManualClock } from "./supervisor-test-support.ts";
 import {
   ingestLossGraceMs,
   recordingStartMs,
+  restartLossGraceMs,
+  syncMs,
   TeeRecordings,
   type TeeRecordingSpec,
 } from "./tee-recordings.ts";
@@ -21,18 +23,29 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
     up: false,
     /** The next ingest connection fails instead of connecting. */
     refuse: false,
+    /** ace-media binds each hello (`source.ingest`); off, it never does, as with a bad token. */
+    bind: true,
+    /** ace-media answers each `source.sync` once it holds. */
+    synced: true,
   };
   let needs = 0;
   let next = 0;
+  let opened = "";
   const written: Uint8Array[] = [];
   const sockets: { drop(): void }[] = [];
   const recordings: TeeRecordings = new TeeRecordings({
     send: (message) => {
       if (!state.up) return false;
       sent.push(message);
-      if (message.type === "source.open")
+      if (message.type === "source.open") {
+        opened = message.source;
         queueMicrotask(() =>
           recordings.message({ type: "source.status", source: message.source, status: "starting" }),
+        );
+      }
+      if (message.type === "source.sync" && state.synced)
+        queueMicrotask(() =>
+          recordings.message({ type: "source.synced", source: message.source, seq: message.seq }),
         );
       return true;
     },
@@ -53,6 +66,10 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
         onClose: (listener) => void closes.push(listener),
       };
       socket.ready.catch(() => {});
+      // ace-media reads the hello and binds the connection to its source.
+      const source = opened;
+      if (!state.refuse && state.bind)
+        queueMicrotask(() => recordings.message({ type: "source.ingest", source }));
       sockets.push({ drop: () => closes.splice(0).forEach((close) => close()) });
       return socket;
     },
@@ -226,6 +243,8 @@ it("after ace-media restarts, the recording reopens its source and continues in 
   m.up();
   expect(m.types()).toEqual(["source.open", "record.start"]);
   m.recordings.message({ type: "record.part", recording: id, ...part(0) });
+  // ace-media binds the new connection before the stop.
+  await m.clock.advance(0);
 
   const stopping = recording.stop();
   await m.clock.advance(200);
@@ -251,7 +270,8 @@ it("a stop during ace-media's restart waits for the new process, which recovers 
   expect(m.types()).toEqual(["source.open", "record.start", "record.stop"]);
   m.recordings.message({ type: "record.part", recording: id, ...part(0) });
   m.recordings.message({ type: "record.done", recording: id, parts: [] });
-  await expect(stopping).resolves.toEqual({ ok: true, parts: [part(0)] });
+  // The crash took the moments after the part's last whole fragment, and the stop says so.
+  await expect(stopping).resolves.toEqual({ ok: true, parts: [part(0)], truncated: "final-epoch" });
   expect(m.needs()).toBe(0);
 });
 
@@ -284,4 +304,59 @@ it("a recording ace-media fails tells its owner, with the parts so far, and rele
   const before = m.written.length;
   recording.push(video);
   expect(m.written.length).toBe(before);
+});
+
+it("refuses when ace-media never binds the recording's hello, even though its socket connected", async () => {
+  const m = media();
+  m.up();
+  m.state.bind = false;
+  const starting = m.recordings.start(spec());
+  await m.clock.advance(recordingStartMs);
+  await expect(starting).resolves.toEqual({
+    ok: false,
+    reason: "ace-media isn't available to record: it didn't accept the recording's video",
+  });
+  expect(m.recordings.active).toBe(0);
+});
+
+it("a loss an exit follows, whose restart never takes the video back, still fails in bounded time", async () => {
+  const m = media();
+  m.up();
+  const failed: string[] = [];
+  await started(m, spec(failed));
+  m.sockets[0]?.drop();
+  m.crash();
+  // ace-media stays down: the loss doesn't wait out the backoff.
+  await m.clock.advance(restartLossGraceMs + 500);
+  expect(failed).toEqual([]);
+  // The stop can't reach ace-media; it ends after its recovery wait, as a failure.
+  await m.clock.advance(recoveryMs);
+  expect(failed).toEqual(["ingest-closed"]);
+  expect(m.recordings.active).toBe(0);
+});
+
+it("a stop in the grace window after a real loss reports the loss, not a clean recording", async () => {
+  const m = media();
+  m.up();
+  const { recording, id } = await started(m);
+  m.sockets[0]?.drop();
+  const stopping = recording.stop();
+  await m.clock.advance(100);
+  m.recordings.message({ type: "record.done", recording: id, parts: [part(0)] });
+  await expect(stopping).resolves.toEqual({ ok: false, reason: "ingest-closed", parts: [part(0)] });
+});
+
+it("a stop goes out only after ace-media confirms the barrier; without that it says the last epoch was left out", async () => {
+  const m = media();
+  m.up();
+  const { recording, id } = await started(m);
+  recording.push(video);
+  m.state.synced = false;
+  const stopping = recording.stop();
+  await m.clock.advance(syncMs - 1);
+  expect(m.types()).not.toContain("record.stop");
+  await m.clock.advance(1);
+  expect(m.types()).toContain("record.stop");
+  m.recordings.message({ type: "record.done", recording: id, parts: [part(0)] });
+  await expect(stopping).resolves.toEqual({ ok: true, parts: [part(0)], truncated: "final-epoch" });
 });

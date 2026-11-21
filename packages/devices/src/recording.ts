@@ -34,6 +34,7 @@ export class DeviceRecording {
   readonly #directory: string;
   readonly #publish: (artifact: DeviceRecordingArtifact) => Promise<PublishedRecording>;
   readonly #release: () => void;
+  readonly #truncated: () => void;
   #result: Promise<PublishedRecording> | undefined;
 
   constructor(options: {
@@ -43,12 +44,15 @@ export class DeviceRecording {
     publish: (artifact: DeviceRecordingArtifact) => Promise<PublishedRecording>;
     /** The capture may leave the recording's stream: called once the recording ends. */
     release: () => void;
+    /** ace-media couldn't confirm the recording's last moment, so it was left out. */
+    truncated: () => void;
   }) {
     this.id = options.id;
     this.#directory = options.directory;
     this.#recording = options.recording;
     this.#publish = options.publish;
     this.#release = options.release;
+    this.#truncated = options.truncated;
   }
 
   /** A frame the capture published; only its video is recorded. */
@@ -76,6 +80,7 @@ export class DeviceRecording {
 
   async #published(end: RecordingEnd): Promise<PublishedRecording> {
     this.#release();
+    if (end.ok && end.truncated) this.#truncated();
     if (!end.parts.length)
       throw new DeviceError(
         "command_failed",
@@ -97,25 +102,11 @@ const missingRecorder: MediaRecorder = {
  * waits for it (`closeDeviceRecording`), and a startup that finds the device moved on stops what
  * it opened, so no recording outlives the cleanup.
  */
-export function recordDevice(
+export async function recordDevice(
   session: DeviceSession,
   options: LifecycleOptions,
   streams: DeviceStreamControl,
   changed: () => void = () => {},
-): Promise<void> {
-  const starting = startRecording(session, options, streams, changed);
-  const joined = starting.catch(() => {});
-  session.recordingStartup = joined;
-  return starting.finally(() => {
-    if (session.recordingStartup === joined) delete session.recordingStartup;
-  });
-}
-
-async function startRecording(
-  session: DeviceSession,
-  options: LifecycleOptions,
-  streams: DeviceStreamControl,
-  changed: () => void,
 ): Promise<void> {
   if (!session.threadId)
     throw new DeviceError(
@@ -136,6 +127,10 @@ async function startRecording(
   delete session.recordingArtifact;
   delete session.recordingNotice;
   session.recordingStarting = true;
+  // The slot is this startup's only once the checks above admit it: a refused second start
+  // never touches the one cleanup waits for, which stays registered until it settles.
+  const owned = Promise.withResolvers<void>();
+  session.recordingStartup = owned.promise;
   const generation = session.generation;
   const threadId = session.threadId;
   const epoch = session.bindingEpoch;
@@ -206,6 +201,12 @@ async function startRecording(
       directory,
       recording: start.recording,
       release: () => void release().catch(() => {}),
+      truncated: () => {
+        if (session.bindingEpoch !== epoch) return;
+        session.recordingNotice =
+          "The recording's last moment couldn't be confirmed, so it was left out. The rest is saved.";
+        changed();
+      },
       publish: async (artifact) => {
         try {
           const result = (await options.publishArtifact(artifact, threadId)) ?? {
@@ -237,6 +238,8 @@ async function startRecording(
     throw error;
   } finally {
     session.recordingStarting = false;
+    if (session.recordingStartup === owned.promise) delete session.recordingStartup;
+    owned.resolve();
   }
 }
 

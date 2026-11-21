@@ -49,11 +49,9 @@ function summary(raw: unknown) {
   };
 }
 
-/** An Android device whose capture can't stream video, which adb can still drive. */
-function liveVideoUnavailable(error: unknown, simId: string): error is DeviceError {
-  return (
-    error instanceof DeviceError && error.code === "not_supported" && simId.startsWith("android:")
-  );
+/** The live-view refusal the device service keeps the agent's control through. */
+function androidWithoutVideo(error: DeviceError, simId: string): boolean {
+  return error.code === "not_supported" && simId.startsWith("android:");
 }
 
 async function run(
@@ -87,10 +85,9 @@ async function run(
       try {
         started = summary(await request({ op: "start", deviceId: simId }));
       } catch (error) {
-        if (!liveVideoUnavailable(error, simId)) throw error;
-        // No live video on this image (scrcpy-server can't run): the agent still drives the
-        // device through adb, input and screencap stills, so it keeps the device and hears why.
-        await service.claimForAgent(simId, { ...actor, guard: () => signal.throwIfAborted() });
+        if (!(error instanceof DeviceError) || !androidWithoutVideo(error, simId)) throw error;
+        // No live video on this image (scrcpy-server can't run): the agent kept the device all
+        // along and drives it through adb, input and screencap stills; it hears why.
         started = {
           simId,
           liveView: "unavailable",

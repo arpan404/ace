@@ -336,6 +336,12 @@ impl Engine {
                     out,
                 );
             }
+            ToMedia::SourceSync {
+                source,
+                seq,
+                frames,
+                decided,
+            } => self.sources.sync(&source, seq, frames.get(), decided, out),
             ToMedia::SourceEpoch {
                 source,
                 seq,

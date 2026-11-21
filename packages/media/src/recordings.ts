@@ -39,11 +39,15 @@ export type MediaRecordingOptions = {
   /** A part closed (its size counts toward the caller's own budget). */
   part?: (part: RecordedPart) => void;
   /**
-   * Resolves once every unit the producer read before the stop has reached ace-media, so the
-   * last epoch's frames are there when the recorder finishes. Immediate when absent.
+   * The ingest barrier before `record.stop`: resolves true once ace-media has taken every unit
+   * the producer read before the stop and decided epoch `decided`, false if it couldn't confirm
+   * that in time (bounded by the caller). Without one, the stop goes out at once.
    */
-  drain?: () => Promise<void>;
+  drain?: (decided: number) => Promise<boolean>;
 };
+
+/** How long a `record.stop` that reached ace-media may go unanswered before the stop ends. */
+export const stopAckMs = 10_000;
 
 /**
  * How long a stop waits for ace-media to come back after it went away mid-recording: the new
@@ -52,7 +56,16 @@ export type MediaRecordingOptions = {
 export const recoveryMs = 30_000;
 
 export type RecordingEnd =
-  | { ok: true; parts: RecordedPart[] }
+  | {
+      ok: true;
+      parts: RecordedPart[];
+      /**
+       * The stop couldn't confirm the last epoch with ace-media (the producer never
+       * acknowledged it, or ace-media didn't answer the barrier in time): its frames were left
+       * out rather than written undecided.
+       */
+      truncated?: "final-epoch";
+    }
   | { ok: false; reason: string; parts: RecordedPart[] };
 
 export class MediaRecording {
@@ -67,6 +80,10 @@ export class MediaRecording {
   #stopSent = false;
   /** Waiting for a new ace-media to recover the recording; cancels that wait. */
   #recovering: (() => void) | undefined;
+  /** The deadline of the `record.stop` ace-media has; cancels it. */
+  #stopAck: (() => void) | undefined;
+  /** The stop's barrier didn't hold: the last epoch was left out. */
+  #truncated = false;
   #ended: RecordingEnd | undefined;
   #waiters: ((end: RecordingEnd) => void)[] = [];
 
@@ -171,11 +188,14 @@ export class MediaRecording {
     if (this.#stopping) return ended;
     this.#stopping = true;
     this.#beat?.();
-    // A last epoch: the producer acknowledges it at once, which decides every one before it.
+    // A last epoch: once the producer acknowledges it, every one before it is decided.
     this.#next();
-    void (this.#options.drain?.() ?? Promise.resolve())
-      .catch(() => {})
-      .then(() => {
+    const decided = this.#ledger.current - 1;
+    const drain = this.#options.drain;
+    void (drain ? drain(decided) : Promise.resolve(true))
+      .catch(() => false)
+      .then((held) => {
+        if (!held) this.#truncated = true;
         if (!this.#ended && !this.#sendStop()) this.#awaitRecovery("media-unavailable");
       });
     return ended;
@@ -185,6 +205,7 @@ export class MediaRecording {
   lost(reason: string): void {
     if (!this.#stopping || this.#ended) return;
     this.#stopSent = false;
+    this.#stopAck?.();
     this.#awaitRecovery(reason);
   }
 
@@ -193,6 +214,14 @@ export class MediaRecording {
       type: "record.stop",
       recording: this.#options.recording,
     });
+    if (this.#stopSent) {
+      // A live but unresponsive ace-media must not hold the stop, and the cleanup after it.
+      this.#stopAck?.();
+      this.#stopAck = this.#options.clock.setTimeout(
+        () => this.#end({ ok: false, reason: "stop-unanswered", parts: this.parts }),
+        stopAckMs,
+      );
+    }
     return this.#stopSent;
   }
 
@@ -235,11 +264,14 @@ export class MediaRecording {
     this.#options.send({ type: "record.epochs", source, recording, ...decision });
   }
 
-  #end(end: RecordingEnd): void {
+  #end(result: RecordingEnd): void {
     if (this.#ended) return;
+    const end: RecordingEnd =
+      result.ok && this.#truncated ? { ...result, truncated: "final-epoch" } : result;
     this.#ended = end;
     this.#beat?.();
     this.#recovering?.();
+    this.#stopAck?.();
     for (const waiter of this.#waiters.splice(0)) waiter(end);
     this.#options.ended?.(end);
   }

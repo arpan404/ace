@@ -36,6 +36,8 @@ export class FakeRecorder implements MediaRecorder {
   spec: TeeRecordingSpec | undefined;
   /** Recordings ace-media holds open now: started and not yet stopped. */
   open = 0;
+  /** ace-media couldn't confirm the stop's barrier: the end says the last epoch was left out. */
+  truncate = false;
   /** While set, a start waits on it, as one waiting for ace-media to come up does. */
   startGate: Promise<void> | undefined;
   async start(spec: TeeRecordingSpec) {
@@ -63,6 +65,7 @@ export class FakeRecorder implements MediaRecorder {
             parts: units.length
               ? [{ path, index: 0, bytes: bytes.length, durationMs: 1, gaps: 0 }]
               : [],
+            ...(this.truncate ? { truncated: "final-epoch" as const } : {}),
           };
         },
       },

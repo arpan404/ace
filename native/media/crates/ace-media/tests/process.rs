@@ -50,6 +50,7 @@ fn starts_authenticates_its_lanes_once_serves_both_lanes_and_exits_when_stdin_cl
     };
     let _ = producer.write_all(&media_frame(5, 0, vec![3; 32]));
     let _ = producer.write_all(&media_frame(1, 1, vec![0; 1000]));
+    assert_eq!(ingest_of(media.read()), "s1");
     assert_eq!(status_of(media.read()), ("s1".into(), Status::Playing));
     drop(producer);
     assert_eq!(status_of(media.read()), ("s1".into(), Status::Retrying));
@@ -110,5 +111,6 @@ fn the_ingest_websocket_admits_only_its_path_and_allowed_origins() {
     assert_eq!(code, 101);
     let _ = socket.write_all(&binary_message(&media_frame(5, 0, vec![4; 32])));
     let _ = socket.write_all(&binary_message(&media_frame(1, 1, vec![0; 500])));
+    assert_eq!(ingest_of(media.read()), "s1");
     assert_eq!(status_of(media.read()), ("s1".into(), Status::Playing));
 }
