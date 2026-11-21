@@ -22,6 +22,7 @@ export * from "./markup.ts";
 export * from "./hosting.ts";
 export * from "./moves.ts";
 export * from "./skills.ts";
+export * from "./skill-standard.ts";
 export * from "./connectors.ts";
 export * from "./plugins.ts";
 export * from "./routines.ts";
