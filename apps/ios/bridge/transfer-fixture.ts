@@ -46,20 +46,7 @@ export function linkedMac(options: { links?: boolean } = {}) {
     hasSentMessage: true,
     details: { workspace },
   });
-  const client = new Client({
-    deviceId: DeviceId.parse("ios-transfer-device"),
-    transport: () => fakeTransport(daemon),
-    credential: async () => daemon.token,
-    storage: { load: async () => null, save: async () => {} },
-    scheduler: {
-      set(delayMs, callback) {
-        const timer = setTimeout(callback, delayMs);
-        return () => clearTimeout(timer);
-      },
-    },
-    random: () => 0.5,
-    id: () => `id-${++ids}`,
-  });
+  const client = phoneOn(daemon, () => `id-${++ids}`);
   const sink = new RecordingSink();
   const transfers = new NativeTransfers(client, sink);
   const settled = () =>
@@ -67,6 +54,7 @@ export function linkedMac(options: { links?: boolean } = {}) {
   const app = {
     daemon,
     build,
+    laptop,
     client,
     sink,
     transfers,
@@ -129,6 +117,24 @@ export function linkedMac(options: { links?: boolean } = {}) {
     },
   };
   return app;
+}
+
+/** The phone's SDK client on `daemon`, as each paired machine has its own runtime. */
+export function phoneOn(daemon: FakeDaemon, id: () => string = () => "id") {
+  return new Client({
+    deviceId: DeviceId.parse("ios-transfer-device"),
+    transport: () => fakeTransport(daemon),
+    credential: async () => daemon.token,
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set(delayMs, callback) {
+        const timer = setTimeout(callback, delayMs);
+        return () => clearTimeout(timer);
+      },
+    },
+    random: () => 0.5,
+    id,
+  });
 }
 
 /** The line's words and its buttons, as the phone reads them. */

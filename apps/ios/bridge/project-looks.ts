@@ -3,6 +3,7 @@ import type { Project } from "@ace/protocol";
 import { projectGlyphIcons, projectMark, type ProjectLook } from "@ace/ui-core";
 import type { PatchSink } from "./agents.ts";
 import { readProjects } from "./project-list.ts";
+import { logicalIds } from "./project-logical.ts";
 
 /*
  * Each project's mark for the inbox rows, sent once per project and again only when it changes.
@@ -53,6 +54,20 @@ export function followProjectLooks(owner: ProjectLooksOwner, pump: PatchSink): (
     else sent.set(id, key);
     pump.put(`project:${id}`, () => ({ type: "project.look", id, look }));
   };
+  let sentLogical: string | undefined;
+  /**
+   * Each project's logical ids (`logicalIds`, ADR 0189), so the phone shows one project across
+   * machines as one row. Sent again only when the grouping changed.
+   */
+  const putLogical = (projects: readonly Project[]) => {
+    const ids = Object.fromEntries(
+      [...logicalIds(projects)].filter(([, logical]) => logical.length > 0),
+    );
+    const key = JSON.stringify(ids);
+    if (key === sentLogical) return;
+    sentLogical = key;
+    pump.put("projects:logical", () => ({ type: "projects.logical", ids }));
+  };
   const show = (project: Project) =>
     put(project.id, project.kind === "chat" ? null : projectLookRow(project));
   const connection = owner.connectionState();
@@ -72,6 +87,7 @@ export function followProjectLooks(owner: ProjectLooksOwner, pump: PatchSink): (
       if (projects.length < maxProjects)
         for (const id of sent.keys()) if (!listed.has(id)) put(id, null);
       for (const project of projects) show(project);
+      putLogical(projects);
     } catch {
       // A machine that can't list its projects keeps the marks the phone last drew.
     } finally {
@@ -87,7 +103,8 @@ export function followProjectLooks(owner: ProjectLooksOwner, pump: PatchSink): (
     if (message.type !== "workspace.changed") return;
     if (message.change === "removed") put(message.workspaceId, null);
     else if (message.workspace) show(message.workspace);
-    else void read();
+    // A project joined, left or changed its identity: group the list again.
+    void read();
   });
   void read();
   return () => {

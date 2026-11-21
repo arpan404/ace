@@ -119,6 +119,9 @@ struct RowLook: Codable, Sendable, Equatable {
     /// "waiting", "limited", "background", "finished", "idle" or "syncing". The lock screen
     /// counts by it. Nil from older bridges.
     var state: String? = nil
+    /// Where its work went (ADR 0191): the row reads "Moved to Studio" and opens it there.
+    struct Moved: Codable, Sendable, Equatable { let hostId: String; let name: String; let threadId: String }
+    var moved: Moved? = nil
     /// The word takes its tone's colour unless the row mutes; waiting never does.
     var loud: Bool { !muted && tone != "waiting" }
 }
@@ -247,6 +250,9 @@ struct PendingRow: Codable, Sendable, Identifiable {
     let label: String?; let token: String?
     /// Why it wasn't sent, behind Details, and the files on it; nil from older bridges.
     var detail: String? = nil; var files: Int? = nil
+    /// Said beside "Not sent" when it is acted on elsewhere ("This thread moved to another
+    /// machine. Continue it there."); empty or nil otherwise.
+    var reason: String? = nil
     /// What runs on the send now ("editing", "retrying"): the other control waits for it.
     var busy: String? = nil
     /// A stale Git lock an earlier daemon left stopped it: Clear stale lock is offered.
@@ -382,6 +388,8 @@ enum BridgePatch: Decodable, Sendable {
     case machineAppUpdate(MachineAppUpdateInfo)
     /// A project's mark, sent once per project (`bridge/project-looks.ts`); nil clears it.
     case projectLook(String, ProjectLookPatch?)
+    /// Each project's logical ids (`bridge/project-looks.ts`), so one project across machines is one filter row.
+    case projectsLogical([String: [String]])
     /// The mark this runtime's machine chose, its own id and the paths it serves
     /// (`bridge/machine-identity.ts`).
     case machineIdentity(MachineIdentityPatch)
@@ -521,6 +529,7 @@ enum BridgePatch: Decodable, Sendable {
         case "project.look":
             // A look that doesn't read draws the initials rather than failing the frame.
             self = .projectLook(try box.decode(String.self, forKey: .id), try? box.decodeIfPresent(ProjectLookPatch.self, forKey: .look))
+        case "projects.logical": self = .projectsLogical(try box.decode([String: [String]].self, forKey: .ids))
         case "machine.identity": self = .machineIdentity(try MachineIdentityPatch(from: decoder))
         case "machine.code": self = .machineCode(try box.decodeIfPresent(String.self, forKey: .asking),
                                                     lockedUntil: try box.decodeIfPresent(Double.self, forKey: .lockedUntil))

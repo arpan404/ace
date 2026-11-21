@@ -150,6 +150,8 @@ import QuartzCore
     var appUpdate: MachineAppUpdateInfo?
     /// Each project's mark by workspace id, as rows draw it (`bridge/project-looks.ts`).
     var projectLooks: [String: ProjectMarkLook] = [:]
+    /// Each project's logical ids by workspace id (ADR 0189); a project of its own has none.
+    private(set) var projectLogical: [String: [String]] = [:]
     /// The mark this machine chose; nil until it says (rows then draw a laptop).
     var machineGlyph: AceIcon.Name?
     /// False for a view-only grant: the phone reads threads but submits no commands.
@@ -261,7 +263,7 @@ import QuartzCore
         // Cards for later keep what was filled in across another route to the same machine.
         if !sameMachine { spade.cards.reset() }
         inboxLayout = .empty; chatLayout = .empty
-        machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
+        machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; projectLogical = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
         connection = "connecting"; error = nil; problem = nil; sawConfirmedRow = false
@@ -588,6 +590,7 @@ import QuartzCore
             case .machineAdmission(let info): admission = info
             case .machineAppUpdate(let info): appUpdate = info
             case .projectLook(let id, let look): projectLooks[id] = look.map(ProjectMarkLook.init)
+            case .projectsLogical(let ids): if projectLogical != ids { projectLogical = ids; projectsVersion &+= 1 }
             case .machineIdentity(let identity):
                 machineGlyph = AceIcon.Name(rawValue: identity.glyph)
                 onMachineIdentity?(identity)
