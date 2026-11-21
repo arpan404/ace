@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use spade_core::service;
 use spade_core::wake::{CancelledBy, Cause, Purpose};
 use spade_store::StoreError;
@@ -64,6 +65,31 @@ pub(super) struct Shared {
     /// Wakes met while their bot was paused whose write failed, by agent: written again until
     /// it lands, and fired on Resume either way.
     unsaved: Mutex<HashMap<String, Vec<Met>>>,
+}
+
+/// The paused bots as the setting keeps them; `None` (removed) when none is.
+pub(super) fn pauses_text(stored: &HashMap<String, Stored>) -> Option<String> {
+    (!stored.is_empty()).then(|| serde_json::to_string(stored).unwrap_or_else(|_| "{}".to_owned()))
+}
+
+/// `held` (the setting's text) with a fresh pause at `at_ms` for each of `agents` not paused
+/// already: what a cutover writes for bots that must arrive paused. Pure.
+pub(super) fn with_new_pauses(held: Option<&str>, agents: &[String], at_ms: i64) -> String {
+    let mut all: HashMap<String, Value> = held
+        .and_then(|text| serde_json::from_str(text).ok())
+        .unwrap_or_default();
+    for agent in agents {
+        all.entry(agent.clone()).or_insert_with(|| {
+            serde_json::to_value(Stored {
+                at_ms,
+                held: Vec::new(),
+                services: Vec::new(),
+                routines: Vec::new(),
+            })
+            .unwrap_or_default()
+        });
+    }
+    serde_json::to_string(&all).unwrap_or_else(|_| "{}".to_owned())
 }
 
 /// The longest wait between writes of a met wake that failed to store.
@@ -143,9 +169,8 @@ impl Engine {
         let _held = lock(&self.agent_lock);
         let mut stored = self.stored_pauses()?;
         change(&mut stored);
-        let raw = (!stored.is_empty())
-            .then(|| serde_json::to_string(&stored).unwrap_or_else(|_| "{}".to_owned()));
-        self.store.set_setting(PAUSED_BOTS, raw.as_deref())
+        self.store
+            .set_setting(PAUSED_BOTS, pauses_text(&stored).as_deref())
     }
 
     /// Forgets the folded pauses, so they are read from storage again.
@@ -156,46 +181,65 @@ impl Engine {
     /// The person pauses `agent`: stored first, so a restart holds it, then its work stops.
     /// `None` for no such bot; else whether it was running (not paused already).
     pub fn pause_agent(self: &Arc<Self>, agent: &str) -> Result<Option<bool>, StoreError> {
+        if self.store.agent(agent)?.is_none() {
+            return Ok(None);
+        }
+        let Some((conversation, record)) = self.pause_record(agent)? else {
+            return Ok(Some(false));
+        };
+        let at_ms = record.at_ms;
+        self.change_pauses(|stored| {
+            stored.insert(agent.to_owned(), record);
+        })?;
+        self.after_pause_stored(agent, &conversation, at_ms)?;
+        Ok(Some(true))
+    }
+
+    /// The pause `agent` is stored with if paused now, and its conversation: `None` for a bot
+    /// that is gone, paused already, or held frozen by a move (which carries it as it is).
+    pub(super) fn pause_record(&self, agent: &str) -> Result<Option<(String, Stored)>, StoreError> {
         let Some(found) = self.store.agent(agent)? else {
             return Ok(None);
         };
-        // A bot a move holds frozen is neither paused nor resumed: the move carries it as it is.
         if self.paused_since(agent).is_some() || self.frozen(&found.conversation) {
-            return Ok(Some(false));
-        }
-        let at_ms = self.now_ms();
-        // Pause ends its code worker (ADR 0203 §4).
-        if let Some(code) = self.code() {
-            code.retire(agent);
+            return Ok(None);
         }
         // The services it runs now, stored with the pause: Resume starts them again, after a
         // restart too.
         let services = self.running_services(&found.conversation)?;
-        self.change_pauses(|stored| {
-            let held = Vec::new();
-            stored.insert(
-                agent.to_owned(),
-                Stored {
-                    at_ms,
-                    held,
-                    services,
-                    routines: Vec::new(),
-                },
-            );
-        })?;
+        let record = Stored {
+            at_ms: self.now_ms(),
+            held: Vec::new(),
+            services,
+            routines: Vec::new(),
+        };
+        Ok(Some((found.conversation, record)))
+    }
+
+    /// Once `agent`'s pause is stored: its work stops. Nothing new starts from here on; what
+    /// runs stops, and the bot's own wakes are kept.
+    pub(super) fn after_pause_stored(
+        self: &Arc<Self>,
+        agent: &str,
+        conversation: &str,
+        at_ms: i64,
+    ) -> Result<(), StoreError> {
+        // Pause ends its code worker (ADR 0203 §4).
+        if let Some(code) = self.code() {
+            code.retire(agent);
+        }
         if let Some(paused) = self.pauses().as_mut() {
             paused.insert(
                 agent.to_owned(),
                 Paused {
-                    conversation: found.conversation.clone(),
+                    conversation: conversation.to_owned(),
                     at_ms,
                 },
             );
         }
-        // Nothing new starts from here on; what runs stops, and the bot's own wakes are kept.
-        self.end_work(&found.conversation, Self::hold_wakes)?;
-        self.announce(&found.conversation);
-        Ok(Some(true))
+        self.end_work(conversation, Self::hold_wakes)?;
+        self.announce(conversation);
+        Ok(())
     }
 
     /// The person resumes `agent`: what came due while it was paused fires once, and what

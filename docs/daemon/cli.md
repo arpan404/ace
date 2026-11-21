@@ -1466,6 +1466,35 @@ Apply for ace's verified mark.
 
 Check your proofs again now.
 
+### `ace org audit export [flags]`
+
+Write this org host's audit log as JSON Lines, with its signed checkpoints.
+
+The log Spade keeps on this host (ADR 0206 §4.2): a header naming the organization, the host and its audit key, then each entry chained to the one before and each checkpoint the host signed. --from and --to take a date or milliseconds since 1970; without them, the whole log. Nothing in it is message text or a bot's arguments.
+
+- `--from WHEN`: The first moment to include
+- `--to WHEN`: The last moment to include
+- `--out FILE`: Write it to FILE instead of standard output
+
+    ace org audit export --out audit.jsonl
+    # The whole log, to a file
+
+    ace org audit export --from 2026-11-01 --to 2026-12-01
+    # One month of it
+
+### `ace org audit verify FILE [flags]`
+
+Check an exported audit log's chain and signed checkpoints, offline.
+
+Every entry must chain to the one before and every checkpoint must be signed by the audit key over the chain's head at that point, so an entry changed or removed before the last checkpoint no longer matches. --key is the host's audit key as the organization registered it (base64url); without it, this machine's Spade gives its own, which proves only that the file is this host's log as it is now.
+
+- `FILE`: A file ace org audit export wrote
+
+- `--key KEY`: The host's registered audit key, base64url
+
+    ace org audit verify audit.jsonl --key 4YnbPAZLpD557zJQT9bDShIgb4lSIpvda8dHoDmZPM8
+    # Against the key the organization registered
+
 ## Agent tools
 
 ### `ace browser screenshot [THREAD] [flags]`
@@ -1842,6 +1871,8 @@ everywhere.
   appeals | appeal ID --answer TEXT --approve|--keep
   verify|unverify HANDLE --reason TEXT
   official add|remove ACCOUNT
+  notice PROVIDER allowed|unclear|refused --note TEXT
+                                       a subscription's terms change; devices only tighten
 
 The old ace market VERB spellings still work for now.
 ```

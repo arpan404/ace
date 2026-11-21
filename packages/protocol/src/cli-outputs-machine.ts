@@ -111,7 +111,7 @@ export const CliSpadeBot = z.object({
    * is being applied (§6.2), which counts as working.
    */
   state: z.enum(["idle", "working", "waiting", "paused", "updating"]),
-  waitingFor: z.enum(["approval", "question"]).optional(),
+  waitingFor: z.enum(["approval", "question", "worker", "callee"]).optional(),
   status: z.string().optional(),
   problem: z.string().optional(),
   unseen: z.boolean(),

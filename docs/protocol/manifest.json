@@ -1269,8 +1269,8 @@
       "sha256": "20588f17c74e501efa9b5063089c33fe2d1344c07bc0799054bd4ed595ecdb3f"
     },
     "schema/CliSpadeBot.json": {
-      "bytes": 1805,
-      "sha256": "39773eef30b67c089054919329f820c8ca7c4865c3f2d3487e1a437b807b8038"
+      "bytes": 1841,
+      "sha256": "596900096fcef4f369060a99d8db9d8ce175a26ce8f83cc790b29e2d8c8fee15"
     },
     "schema/CliSpadeChat.json": {
       "bytes": 357,
@@ -6917,10 +6917,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1399214,
-      "sha256": "a1dc9bae95367e29f7b974b416c64035a398e16ddf2c2a969cf46cd890a0e011"
+      "bytes": 1399232,
+      "sha256": "d165bd0899ace856206a63d81de850543e8ae67fc9bec4de2b36ea8c5695ea17"
     }
   },
-  "input": "d0bfeb21b5571cafe46b95327fc10ff9bc7aa7769dc2067cdd01d72beda2367e",
+  "input": "7ad901b6e3d902fcf3706ba44341902524e65b134b3361f86dd8655b32ceb143",
   "version": 1
 }

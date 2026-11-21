@@ -11301,7 +11301,7 @@ Example:
 | model | yes | string |  |
 | conversation | yes | string |  |
 | state | yes | ["idle","working","waiting","paused","updating"] |  |
-| waitingFor | no | ["approval","question"] |  |
+| waitingFor | no | ["approval","question","worker","callee"] |  |
 | status | no | string |  |
 | problem | no | string |  |
 | unseen | yes | boolean |  |

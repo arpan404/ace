@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { ReleaseTarget } from "@ace/protocol";
 import type { z } from "zod";
 import { stagedAceFiles } from "./ace-files.ts";
+import { stagedAceHistory } from "./ace-history.ts";
 import { stagedAceMedia } from "./ace-media.ts";
 import {
   readScreenHelperIdentity,
@@ -41,6 +42,7 @@ function assertSignedNatives(
   const natives = [
     { label: "ace-media", path: stagedAceMedia(root, target) },
     { label: "ace-files", path: stagedAceFiles(root, target) },
+    { label: "ace-history", path: stagedAceHistory(root, target) },
   ];
   if (target.startsWith("darwin-"))
     for (const native of natives) {

@@ -107,6 +107,17 @@ Spade is one of ace's places. It adds no navigation of its own.
   for the whole turn and each undoable step offers it in the detail. The confirmation lists which
   files go back, which new files are removed and which deleted files come back (paths in mono on
   `--chat-well`). It also lists the actions undo can't take back (ADR 0167, spade/docs/security.md).
+- **Workers it started (ADR 0161).** The ace agents and bots one call starts are one card in the
+  turn that started them, drawn with ace's own delegated-child rows (one component with a
+  thread's): one row while a lone worker runs, else "Started 4 agents" with each state's count in
+  its tone, opening to a row per worker. A row is its provider's mark (a bot's face), its name,
+  "Delegated · model", "on <machine>" when it runs elsewhere, its state in words and its last
+  line; it opens the agent's thread on its machine, or the bot's chat. States come live from
+  ace's thread list on the bot's machine, else the bot's tree; nothing reads done while either
+  says it runs. The bot's own words about them stay as written. A worker waiting on the person
+  shows Review on its row, and its request waits at the end of the chat as ace's own card
+  (Approve plan, an answer), answered there for the agent through its machine; a bot that waits
+  opens its chat. "Needs you" in the list and a notice open the chat at that card.
 - **What it had in mind.** Under a finished reply whose message recalled notes, one quiet line
   ("Had 2 notes in mind") opens to them; each opens where it's from.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.

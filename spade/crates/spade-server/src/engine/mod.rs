@@ -487,6 +487,8 @@ impl Engine {
             registration_hold: Mutex::default(),
         });
         handle.set(&engine);
+        // What a package step records on an org host is written with the step (ADR 0206 §4.1).
+        engine.watch_package_links(&engine.store);
         engine.sync_endpoints()?;
         // The shipped terms record, tightened by the newest signed notices (ADR 0205 §4).
         engine.reload_terms_notices();

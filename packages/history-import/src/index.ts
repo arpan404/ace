@@ -1,9 +1,10 @@
 /* oxlint-disable unicorn/require-post-message-target-origin -- Node worker_threads has no targetOrigin. */
-import type { WorkerOptions } from "node:worker_threads";
 import { type WorkerPort, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
 import { RecoveringWorker } from "./recovering-worker.ts";
 import { validateIndexPath } from "./index-path.ts";
 import { ReaderProcess, systemReaderRuntime, type ReaderProcessRuntime } from "./reader-process.ts";
+import { findHistoryBinary } from "./rust/reader-binary.ts";
+import { fileURLToPath, pathToFileURL } from "node:url";
 type HistoryWorker = WorkerPort & { idle?(): void; started?: boolean };
 import { Agent, ThreadId } from "@ace/protocol/entities";
 import {
@@ -35,6 +36,10 @@ export interface HistoryRuntime {
   delay?: IdleWorkerRuntime["delay"];
   /** The reader process's memory watchdog: its limit, sampler and clock. */
   reader?: Partial<ReaderProcessRuntime>;
+  /** The ace-history executable (ADR 0207); found beside the daemon by default. */
+  readerBinary?: string;
+  /** More environment for the reader process, as a development build's test hooks read. */
+  readerEnv?: Readonly<Record<string, string>>;
 }
 export { readerMemoryLimitBytes, readerMemoryError } from "./reader-process.ts";
 const ImportedAgents = z.array(Agent).max(512);
@@ -43,36 +48,40 @@ const Progress = z.object({
   progress: z.number().int().nonnegative(),
   result: ScanResult,
 });
-/** One worker owns writes; up to eight bounded reads may overlap its yielded scan. */
+/**
+ * The saved-history reader: ace-history (ADR 0207) in a process of its own, restarted with
+ * backoff when it dies. One operation owns writes at a time; up to eight bounded reads may
+ * overlap a scan.
+ */
 export async function openHistory(
   options: HistoryOptions,
-  spawnWorker?: (url: URL, options: WorkerOptions) => WorkerPort,
   runtime: HistoryRuntime = {},
 ): Promise<HistoryService> {
-  // The reader runs in a process of its own, held to a memory limit (reader-process.ts).
-  // Callers may still inject a worker thread, as tests that observe the reader's internals do.
-  const reader = { ...systemReaderRuntime(), ...runtime.reader };
-  const spawn =
-    spawnWorker ??
-    ((url: URL, workerOptions: WorkerOptions) => new ReaderProcess(url, workerOptions, reader));
   const parsed = Options.parse(options);
   await validateIndexPath(parsed.indexPath, parsed.instances);
+  const binary = runtime.readerBinary ?? findHistoryBinary();
+  if (binary === undefined)
+    throw new Error(
+      "Saved conversations need ace-history, and this install has none. Reinstall ace; in a development tree, build native/history with cargo.",
+    );
+  const reader = { ...systemReaderRuntime(), ...runtime.reader };
+  const delay =
+    runtime.delay ??
+    ((callback: () => void, milliseconds: number) => {
+      const timer = setTimeout(callback, milliseconds);
+      timer.unref();
+      return () => clearTimeout(timer);
+    });
   const worker = new RecoveringWorker(
-    new URL("./worker.ts", import.meta.url),
+    pathToFileURL(binary),
     {
-      workerData: { ...parsed, memoryLimitBytes: reader.limitBytes },
-      // Applies to an injected worker thread; the reader process has its watchdog instead.
-      resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
+      workerData: parsed,
+      ...(runtime.readerEnv ? { env: { ...process.env, ...runtime.readerEnv } } : {}),
     },
     {
-      spawn,
-      delay:
-        runtime.delay ??
-        ((callback, milliseconds) => {
-          const timer = setTimeout(callback, milliseconds);
-          timer.unref();
-          return () => clearTimeout(timer);
-        }),
+      spawn: (entry, workerOptions) =>
+        new ReaderProcess(fileURLToPath(entry), workerOptions, reader),
+      delay,
     },
   );
   const service = new HistoryService(worker);

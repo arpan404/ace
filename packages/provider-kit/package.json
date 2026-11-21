@@ -16,6 +16,7 @@
     "./user-tool-paths": "./src/user-tool-paths.ts",
     "./sdk": "./src/sdk.ts",
     "./ipc": "./src/ipc.ts",
+    "./console-guard": "./src/console-guard.ts",
     "./jsonrpc": "./src/jsonrpc.ts",
     "./acp-sign-in": "./src/acp-sign-in.ts",
     "./elision": "./src/elision.ts",

@@ -123,3 +123,34 @@ fn a_members_name_is_kept_on_one_short_line() {
     assert_eq!(name(Some("   ")), None);
     assert_eq!(name(Some(&"x".repeat(500))).map(|n| n.len()), Some(128));
 }
+
+#[test]
+fn the_daemons_request_stamp_verifies_for_its_route_body_and_role_only() {
+    let v = vector();
+    let key = key(&v);
+    let at = v["at"].as_i64().unwrap_or_default();
+    let requests = v["requests"].as_array().cloned().unwrap_or_default();
+    assert_eq!(requests.len(), 3);
+    for request in &requests {
+        let (method, path, body, role, stamp) = (
+            text(&request["method"]),
+            text(&request["path"]),
+            text(&request["body"]),
+            text(&request["role"]),
+            text(&request["stamp"]),
+        );
+        // Spade signs the path it routes, without the query, and the body's digest.
+        let target = format!("{method} {}", path.split('?').next().unwrap_or_default());
+        let value = spade_core::org::audit::digest(body.as_bytes());
+        let (member, _) = check_request(&key, stamp, Some(role), &target, &value, at)
+            .unwrap_or_else(|bad| panic!("{target}: {bad:?}"));
+        assert_eq!(member.account, "user_01JSPADE");
+        assert_eq!(member.role, role);
+        // Another route, another body or another role: no stamp of the daemon's counts there.
+        let elsewhere = format!("{method} /v1/agents/a_2/access");
+        assert!(check_request(&key, stamp, Some(role), &elsewhere, &value, at).is_err());
+        let other = spade_core::org::audit::digest(b"{}");
+        assert!(check_request(&key, stamp, Some(role), &target, &other, at).is_err());
+        assert!(check_request(&key, stamp, Some("owner"), &target, &value, at).is_err());
+    }
+}

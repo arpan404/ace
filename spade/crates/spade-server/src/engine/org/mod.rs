@@ -4,6 +4,7 @@
 //! its list, never a person's.
 
 mod audit;
+mod steps;
 
 pub use audit::MEMBER_BY;
 
@@ -139,7 +140,11 @@ impl Engine {
     /// seeing a higher one in a member grant): applied only when its statement verifies with the
     /// pinned grant keys, is over this exact body, names this organization, and is newer than
     /// the one held, so an old one can't be replayed. Answers the version held after.
-    pub fn offer_policy(&self, offered: &Offered) -> Result<u64, OrgError> {
+    ///
+    /// A bot running a version the new policy blocks is paused in the same write that applies
+    /// it (§3): its pause, its link saying why and its `package.paused` entry land with the
+    /// policy, or nothing does. Its work stops right after.
+    pub fn offer_policy(self: &std::sync::Arc<Self>, offered: &Offered) -> Result<u64, OrgError> {
         let binding = self.org_binding().ok_or(OrgError::NotBound)?;
         let token = offered
             .statement
@@ -149,10 +154,17 @@ impl Engine {
         if signed.version != offered.version || offered.org != binding.org {
             return Err(statement::Refused::Malformed.into());
         }
-        if Policy::parse(&offered.body).is_none() {
+        let Some(next) = Policy::parse(&offered.body) else {
             return Err(OrgError::Invalid("That policy isn't one.".to_owned()));
-        }
-        let _held = self.agent_lock.lock().unwrap_or_else(|p| p.into_inner());
+        };
+        // The bots it blocks take no other package step while it lands; held before the agent
+        // lock, as every package step holds them.
+        let blocking = self.blocked_by(&next);
+        let _busy: Vec<_> = blocking
+            .iter()
+            .map(|(agent, _, _)| self.package_busy.hold(agent))
+            .collect();
+        let held_lock = self.agent_lock.lock().unwrap_or_else(|p| p.into_inner());
         let held = self.applied_policy().map_or(0, |a| a.version);
         if signed.version <= held {
             return Err(statement::Refused::NotNewer.into());
@@ -165,7 +177,50 @@ impl Engine {
             set_at: signed.set_at,
         };
         let text = serde_json::to_string(&applied).map_err(|e| OrgError::Invalid(e.to_string()))?;
-        self.store.set_setting(org::POLICY, Some(&text))?;
+        let mut changes = vec![(org::POLICY.to_owned(), Some(text))];
+        let mut pauses = self.stored_pauses()?;
+        let mut stopping = Vec::new();
+        // Read again under the locks; a bot whose link changed meanwhile, unheld, waits for the
+        // next policy.
+        for (agent, mut link, why) in self.blocked_by(&next) {
+            if !blocking.iter().any(|(held, _, _)| *held == agent) {
+                continue;
+            }
+            link.withdrawn = Some(spade_core::package::link::Withdrawn {
+                reason: why.chars().take(500).collect(),
+                paused: Vec::new(),
+            });
+            if let Some((conversation, record)) = self.pause_record(&agent)? {
+                stopping.push((agent.clone(), conversation, record.at_ms));
+                pauses.insert(agent.clone(), record);
+            }
+            changes.push((
+                spade_store::package_key(&agent),
+                Some(crate::engine::packages::link_text(&link)),
+            ));
+        }
+        if !stopping.is_empty() {
+            changes.push((
+                super::pause::PAUSED_BOTS.to_owned(),
+                super::pause::pauses_text(&pauses),
+            ));
+        }
+        let changes: Vec<(&str, Option<&str>)> = changes
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_deref()))
+            .collect();
+        org::acting::acting(Some(spade_core::org::steps::Actor::Policy), || {
+            self.store.set_settings(&changes)
+        })?;
+        drop(held_lock);
+        if !stopping.is_empty() {
+            self.after_audit();
+        }
+        for (agent, conversation, at_ms) in stopping {
+            if let Err(error) = self.after_pause_stored(&agent, &conversation, at_ms) {
+                tracing::warn!(%error, bot = %agent, "a blocked bot's work didn't stop yet");
+            }
+        }
         Ok(signed.version)
     }
 

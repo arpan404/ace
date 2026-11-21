@@ -24,6 +24,7 @@ mod skills;
 mod spend;
 mod teams;
 mod used;
+mod watch;
 mod workers;
 
 pub use agents::{
@@ -50,6 +51,7 @@ pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
 pub use skills::{SkillOrigin, SkillUse, StoredSkill};
 pub use spend::{MODEL_ROLES, roles_key};
 pub use teams::{Delivered, Delivery, InboxEntry, OutboxEntry, StoredGroup, StoredMember};
+pub use watch::{Watch, Watched};
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -126,6 +128,8 @@ pub struct Conversation {
 
 pub struct Store {
     connection: Mutex<Connection>,
+    /// Settings whose changes write audit entries with them (`watch`).
+    watching: watch::Watching,
 }
 
 impl Store {
@@ -137,6 +141,7 @@ impl Store {
         gate::install(&connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
+            watching: watch::Watching::new(),
         })
     }
 

@@ -174,8 +174,6 @@ export async function bundleDaemon(
                 contents = contents.replace('"./worker-entry.ts"', '"./usage-worker.mjs"');
               if (args.path.endsWith("/review/src/review-isolate.ts"))
                 contents = contents.replace('"./worker.ts"', '"./review-worker.mjs"');
-              if (args.path.endsWith("/history-import/src/index.ts"))
-                contents = contents.replace('"./worker.ts"', '"./history-import-worker.mjs"');
               if (args.path.endsWith("/browser/src/process-guardian.ts"))
                 contents = contents.replace(
                   '"./process-guardian-entry.ts"',
@@ -278,7 +276,6 @@ export async function bundleDaemon(
     ["apps/daemon/src/pi-login-worker.ts", "pi-login-worker.mjs"],
     ["packages/provider-kit/src/discovery/pi-credentials-worker.ts", "pi-credentials-worker.mjs"],
     ["packages/provider-kit/src/probe-worker.ts", "probe-worker.mjs"],
-    ["packages/history-import/src/worker.ts", "history-import-worker.mjs"],
     ["packages/browser/src/encoder-process.ts", "browser-encoder-process.mjs"],
     ["packages/devices/src/tools-entry.ts", "device-tools-process.mjs"],
     ["packages/browser/src/process-guardian-entry.ts", "browser-process-guardian.mjs"],

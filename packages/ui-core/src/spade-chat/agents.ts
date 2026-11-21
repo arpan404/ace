@@ -65,8 +65,11 @@ export interface SpadeAgent {
   /** When the person pinned it (ms); undefined when it isn't pinned. */
   pinnedAt: number | undefined;
   state: SpadeAgentState;
-  /** What it waits on the person for while `waiting`: an approval, or a question. */
-  waitingFor: "approval" | "question" | undefined;
+  /**
+   * What it waits on the person for while `waiting`: an approval, a question, a worker it started
+   * that waits on them (ADR 0161), or a bot it called that does (ADR 0200 §6.2).
+   */
+  waitingFor: "approval" | "question" | "worker" | "callee" | undefined;
   /** Its cards the person left for later and hasn't answered or dismissed (ADR 0154). */
   questionsForLater: number;
   /** A few words on what it is doing now, while it works. */
@@ -166,7 +169,7 @@ const agentShape = z.object({
   last_activity: time.default(0),
   pinned_at: z.number().nullish().catch(undefined),
   state: z.enum(["idle", "working", "waiting", "paused", "updating"]).optional().catch(undefined),
-  waiting_for: z.enum(["approval", "question"]).nullish().catch(undefined),
+  waiting_for: z.enum(["approval", "question", "worker", "callee"]).nullish().catch(undefined),
   questions_for_later: z.number().int().nonnegative().nullish().catch(undefined),
   /** Before 0127 Spade said only whether it worked. */
   working: z.boolean().optional().catch(undefined),
