@@ -323,7 +323,8 @@ struct ConversationFeed: View {
             let frame = geometry.containerSize.height + insets.top + insets.bottom
             return TranscriptScrollIntent.Metrics(y: geometry.contentOffset.y,
                 top: geometry.contentOffset.y + insets.top,
-                bottom: geometry.contentSize.height + insets.bottom - geometry.contentOffset.y - frame,
+                bottom: CGFloat(ScrollEnd.fromEnd(contentHeight: geometry.contentSize.height, offsetY: geometry.contentOffset.y,
+                                                  containerHeight: geometry.containerSize.height, topInset: insets.top)),
                 viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
