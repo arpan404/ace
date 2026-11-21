@@ -14,6 +14,7 @@ mod knowledge;
 mod moves;
 mod notes;
 mod org_audit;
+mod outside;
 mod oversight;
 mod panels;
 mod routines;
@@ -42,6 +43,7 @@ pub use moves::{
 };
 pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
 pub use org_audit::AuditHead;
+pub use outside::OUTSIDE_HOSTS;
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use panels::{BOT_PANELS, Collected, PANEL_PAGE, page_key, panels_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};

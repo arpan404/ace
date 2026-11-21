@@ -3,10 +3,10 @@ import { once } from "node:events";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, expect, test } from "vitest";
-import { inboxProof } from "../machines/target-spade.ts";
-import { canonicalJson, cardKey } from "./card-signature.ts";
+import { canonicalJson, cardKey, type CardKey } from "./card-signature.ts";
 import { draft, grantFixture } from "./grant-test-support.ts";
 import { outsideBase, type OutsideBase } from "./oauth/base.ts";
+import { outsideProof } from "./outside-proof.ts";
 import { spadeContracts } from "./spade-contracts.ts";
 
 const aceToken = "a1".repeat(32);
@@ -53,18 +53,21 @@ afterEach(async () => {
 
 const base: OutsideBase = outsideBase("relay", "https://relay.example/m/host-1");
 const local: OutsideBase = outsideBase("local", "http://127.0.0.1:7000");
-const machineKey = cardKey(generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey);
+const freshKey = () => cardKey(generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey);
 
 async function world(answers: Record<string, { status: number; body?: unknown }> = {}) {
   const spade = await fakeSpade(answers);
   const grants = grantFixture(Date.now());
+  const machine: { key: CardKey } = { key: freshKey() };
+  let nonces = 0;
   const serve = spadeContracts({
     verify: (token, resource) => grants.tokens.verify(token, resource),
     touch: (grant) => grants.grants.touch(grant),
     spade: () => spade.connection,
     key: () => aceToken,
-    cardKey: () => machineKey,
+    cardKey: () => machine.key,
     now: () => grants.clock.now,
+    nonce: () => `nonce-${String(++nonces).padStart(16, "0")}`,
   });
   /** An access token for a grant with `scopes`, issued at `base`. */
   const token = (scopes: Parameters<typeof draft>[0] = {}) => {
@@ -89,7 +92,7 @@ async function world(answers: Record<string, { status: number; body?: unknown }>
       at,
       path,
     );
-  return { spade, grants, token, request };
+  return { spade, grants, token, request, machine };
 }
 
 const toolsCall = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {} });
@@ -158,7 +161,7 @@ test("a call goes to Spade stamped as the caller's grant and signed by ace, and 
   expect(answered.status).toBe(200);
   expect(await answered.json()).toEqual(answer);
 
-  const [sent, ...more] = w.spade.received;
+  const [sent, ...more] = w.spade.received.splice(0);
   expect(more).toEqual([]);
   if (!sent) throw new Error("nothing reached Spade");
   expect(sent.method).toBe("POST");
@@ -166,10 +169,28 @@ test("a call goes to Spade stamped as the caller's grant and signed by ace, and 
   expect(sent.headers["x-ace-from-host"]).toBe(`ace:outside:${grant.id}`);
   const name = String(sent.headers["x-ace-from-name"]);
   expect(decodeURIComponent(name)).toBe("Claude Code ✓");
+  // Signed over the method, Spade's route, the protocol headers, the body and its nonce.
   const time = Number(sent.headers["x-ace-inbox-time"]);
+  const nonce = String(sent.headers["x-ace-outside-nonce"]);
   expect(sent.headers["x-ace-inbox-proof"]).toBe(
-    inboxProof(aceToken, time, `ace:outside:${grant.id}`, name, sent.body),
+    outsideProof(aceToken, {
+      time,
+      nonce,
+      method: "POST",
+      route: "/v1/outside/mcp",
+      sender: `ace:outside:${grant.id}`,
+      name,
+      headers: { "mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call" },
+      body: sent.body,
+    }),
   );
+  // The same call again carries a nonce of its own, so Spade takes it as a new request.
+  await w.request(base, "/spade/mcp", {
+    bearer: token,
+    body: toolsCall,
+    headers: { "mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call" },
+  });
+  expect(w.spade.received[0]?.headers["x-ace-outside-nonce"]).not.toBe(nonce);
   expect(sent.headers["mcp-protocol-version"]).toBe("2026-07-28");
   expect(sent.headers["mcp-method"]).toBe("tools/call");
   expect(sent.headers["x-other"]).toBeUndefined();
@@ -254,4 +275,54 @@ test("the Agent Card is Spade's, addressed here and signed with this machine's k
     );
   expect(verifies(payload)).toBe(true);
   expect(verifies({ ...payload, supportedInterfaces: [] })).toBe(false);
+});
+
+/** The `kid` a card's first signature names. */
+async function kidOf(answer: Response): Promise<string> {
+  const { signatures } = (await answer.json()) as { signatures: { protected: string }[] };
+  const header = Buffer.from(signatures[0]?.protected ?? "", "base64url").toString();
+  return (JSON.parse(header) as { kid: string }).kid;
+}
+
+test("a rotated card key reaches verifiers: the key set and card revalidate and change with it", async () => {
+  const fromSpade = { name: "Spade", skills: [] };
+  const w = await world({ "/v1/outside/card": { status: 200, body: fromSpade } });
+  const { token } = w.token({ scopes: ["threads:read", "spade-contracts"] });
+  const keySet = (ifNoneMatch?: string) =>
+    w.request(base, "/spade/jwks.json", {
+      method: "GET",
+      ...(ifNoneMatch ? { headers: { "if-none-match": ifNoneMatch } } : {}),
+    });
+  const card = (ifNoneMatch?: string) =>
+    w.request(base, "/.well-known/agent-card.json", {
+      method: "GET",
+      bearer: token,
+      ...(ifNoneMatch ? { headers: { "if-none-match": ifNoneMatch } } : {}),
+    });
+
+  const first = await keySet();
+  expect(first.status).toBe(200);
+  // Kept briefly, and asked again after: never an hour's stale key.
+  const cacheControl = first.headers.get("cache-control") ?? "";
+  expect(cacheControl).toContain("must-revalidate");
+  expect(Number(/max-age=(\d+)/.exec(cacheControl)?.[1])).toBeLessThanOrEqual(300);
+  const tag = first.headers.get("etag") ?? "";
+  expect(tag).not.toBe("");
+  const unchanged = await keySet(tag);
+  expect(unchanged.status).toBe(304);
+  expect(await unchanged.text()).toBe("");
+  const firstCard = await card();
+  const cardTag = firstCard.headers.get("etag") ?? "";
+  expect(await kidOf(firstCard)).toBe(w.machine.key.jwk.kid);
+  expect((await card(cardTag)).status).toBe(304);
+
+  // The key rotates: the same tags now get the new key and a card it signs.
+  w.machine.key = freshKey();
+  const rotated = await keySet(tag);
+  expect(rotated.status).toBe(200);
+  const { keys } = (await rotated.json()) as { keys: { kid: string }[] };
+  expect(keys.map((key) => key.kid)).toEqual([w.machine.key.jwk.kid]);
+  const newCard = await card(cardTag);
+  expect(newCard.status).toBe(200);
+  expect(await kidOf(newCard)).toBe(w.machine.key.jwk.kid);
 });

@@ -211,6 +211,11 @@
         },
         "output": {
           "description": "With `given.call`: fields the call's output holds, each with this value. The output is\nalways checked against the contract's schema."
+        },
+        "results": {
+          "description": "Fields a tool's answer holds, by tool name, each with this value: its last answer, read\nas a JSON object. How a scenario checks what a package's own code answered\n(`code_<component>_<tool>`, ADR 0203 §6).",
+          "type": "object",
+          "additionalProperties": true
         }
       },
       "additionalProperties": false

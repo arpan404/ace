@@ -3969,6 +3969,7 @@ dependencies = [
  "spade-server",
  "spade-store",
  "spade-testkit",
+ "spade-wasm",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

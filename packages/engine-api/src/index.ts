@@ -257,6 +257,8 @@ export interface ProviderMcpControl {
   disable(name: string): Promise<void>;
 }
 export interface ProviderSession {
+  /** A person's steer requires cancelling the active prompt before sending the next one. */
+  readonly steerViaCancel?: true;
   readonly mcp?: ProviderMcpControl;
   readonly instanceId?: string;
   readonly nativeSessionId: string;

@@ -4,6 +4,8 @@ import {
   SignerPending,
   type MarketBlocklist,
   type MarketKeySet,
+  type MarketNotices,
+  type MarketTermsNotice,
   type MarketOfficialList,
   type MarketPublisher,
   type MarketVerifiedList,
@@ -12,9 +14,11 @@ import {
 import { sha256Hex } from "./hash.ts";
 import {
   signBlocklist,
+  signNotices,
   signOfficialList,
   signVerifiedList,
   verifyBlocklist,
+  verifyNotices,
   verifyOfficialList,
   verifyVerifiedList,
   type MarketSigningKey,
@@ -190,4 +194,32 @@ export async function signWithdrawAll(
       at,
     })),
   );
+}
+
+/**
+ * Signs a provider's terms status into the notices (ADR 0205 §4), in place of any earlier notice
+ * for it. Devices let a notice only tighten what their build ships, so loosening one is for
+ * putting right an earlier tightening, never for allowing more than a build does.
+ */
+export async function signNoticeChange(
+  io: SignerIo,
+  key: MarketSigningKey,
+  now: () => number,
+  trusted: MarketKeySet,
+  change: Omit<MarketTermsNotice, "at">,
+): Promise<Answer> {
+  const pending = await pendingOf(io);
+  const earlier: MarketNotices | undefined = pending.notices
+    ? verifyNotices(pending.notices, trusted)
+    : undefined;
+  const at = now();
+  const notices = [
+    ...(earlier?.notices ?? []).filter((notice) => notice.provider !== change.provider),
+    { ...change, at },
+  ];
+  const signed = signNotices(
+    { format: "ace-market-notices", issued: at, notices, key: key.id },
+    key,
+  );
+  return io.put("/v1/signer/notices", { notices: signed, ...basedOn(earlier) });
 }

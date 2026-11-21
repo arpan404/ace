@@ -1,11 +1,23 @@
-import { spadeFormatNames, spadeModelFacts, type SpadeEndpoint } from "@ace/ui-core/spade-chat";
+import {
+  spadeChecksLine,
+  spadeFormatNames,
+  spadeModelFacts,
+  type SpadeEndpoint,
+} from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { removeEndpoint, removeKey, removeModel, saveModel, setKey } from "./spade-api.ts";
+import {
+  checkModel,
+  removeEndpoint,
+  removeKey,
+  removeModel,
+  saveModel,
+  setKey,
+} from "./spade-api.ts";
 import { modelsKey } from "./use-spade-models.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { SpadeModelChoice } from "./spade-model-picker.tsx";
@@ -34,6 +46,14 @@ export function EndpointSection(props: { endpoint: SpadeEndpoint; keychain: bool
       toast.error({ title: "Couldn't remove the model", description: fault(error) });
     }
   };
+  const recheck = async (model: string) => {
+    try {
+      await checkModel(client, endpoint.id, model);
+      await refresh();
+    } catch (error) {
+      toast.error({ title: "Couldn't check the model", description: fault(error) });
+    }
+  };
   return (
     <div>
       <SettingSection label={endpoint.name}>
@@ -57,6 +77,9 @@ export function EndpointSection(props: { endpoint: SpadeEndpoint; keychain: bool
               <>
                 <span className="font-mono">{model.id}</span>
                 {spadeModelFacts(model) && ` · ${spadeModelFacts(model)}`}
+                {endpoint.local && spadeChecksLine(model) && (
+                  <span className="block">{spadeChecksLine(model)}</span>
+                )}
               </>
             }
             density="compact"
@@ -65,6 +88,16 @@ export function EndpointSection(props: { endpoint: SpadeEndpoint; keychain: bool
             {/* Only the person's saved models can go; the preset's come with the endpoint. */}
             {model.source !== "preset" && (
               <div className={onHover}>
+                {endpoint.local && model.checks?.state !== "checking" && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Check ${model.name} again`}
+                    onClick={() => void recheck(model.id)}
+                  >
+                    Check again
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"

@@ -1,5 +1,4 @@
 import { DeviceQueue } from "./device-queue.ts";
-import { SetupPictures } from "./setup-pictures.ts";
 import { DeviceSubscriptions } from "./subscriptions.ts";
 import {
   DeviceAck,
@@ -13,6 +12,7 @@ import {
   LinkFollow,
   PictureChannel,
   pictureLinkLimits,
+  SetupPictures,
   type PictureTransport,
 } from "@ace/browser/picture-channel";
 import { framePicture } from "@ace/screen";

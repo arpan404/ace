@@ -37,6 +37,7 @@ export const SpadeReplayEstimate = z.object({
 });
 export type SpadeReplayEstimate = z.infer<typeof SpadeReplayEstimate>;
 
+/** Spade's answers: `{replay}` and `{estimate}`. */
 const ReplayAnswer = z.object({ replay: SpadeReplay });
 const EstimateAnswer = z.object({ estimate: SpadeReplayEstimate });
 

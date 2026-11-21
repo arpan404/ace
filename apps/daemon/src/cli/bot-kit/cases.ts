@@ -13,6 +13,7 @@ import { botsNamed, listedBots, type ListedBot } from "./from-bot.ts";
  * yes. Spade does the replaying; this reads the folder, asks and prints.
  */
 
+/** Spade's answer to a replay: `{replay}`. */
 const ReplayAnswer = z.object({ replay: CliBotReplay });
 
 const Estimate = z.object({

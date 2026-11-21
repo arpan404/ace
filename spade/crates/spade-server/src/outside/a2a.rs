@@ -10,8 +10,11 @@
 //!   unless `returnImmediately`.
 //! - `contract_return` completes the task with one data artifact, untrusted when the callee
 //!   read anything untrusted.
-//! - `CancelTask` is the caller's Stop. Streaming, push notifications, task lists and the
-//!   extended card are not offered.
+//! - `CancelTask` is the caller's Stop: it reaches that call's work and nobody else's. Streaming,
+//!   push notifications, task lists and the extended card are not offered.
+//! - A request that waits holds one of its grant's wait slots: a `SendMessage` beyond the cap is
+//!   refused before it is delivered (`returnImmediately` needs none), a `CancelTask` beyond it
+//!   answers at once. `GetTask` never waits, and reads only what its call stored.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -281,6 +284,23 @@ async fn send(
             "A skill takes its input as one application/json data part.",
         );
     };
+    let at_once = params["configuration"]["returnImmediately"] == true;
+    // A wait is admitted before anything is delivered.
+    let slot = if at_once {
+        None
+    } else {
+        match engine.outside_wait_slot(caller) {
+            Some(slot) => Some(slot),
+            None => {
+                return fault(
+                    id,
+                    code::UNSUPPORTED_OPERATION,
+                    "This client has too many tasks waiting; send with returnImmediately and \
+                     read the task with GetTask.",
+                );
+            }
+        }
+    };
     let call = match engine.outside_call(caller, OutsideVia::A2a, key, skill, input) {
         Ok(call) => call,
         Err(OutsideRefused::NoSuchTool) => {
@@ -292,7 +312,6 @@ async fn send(
         }
         Err(OutsideRefused::Problem(why)) => return fault(id, code::INVALID_PARAMS, &why),
     };
-    let at_once = params["configuration"]["returnImmediately"] == true;
     let mut state = engine.outside_state(caller, &call);
     // Until the call ends or its callee waits on the person (an interrupted state).
     while !at_once && matches!(state, OutsideCallState::Open { waiting: false }) {
@@ -300,6 +319,7 @@ async fn send(
             .outside_wait(caller, &call, crate::engine::OUTSIDE_LONGEST_WAIT, false)
             .await;
     }
+    drop(slot);
     reply(id, json!({ "task": task(engine, caller, &call, &state) }))
 }
 
@@ -328,6 +348,13 @@ async fn cancel(
         OutsideCallState::Open { .. } => {}
     }
     engine.outside_stop(caller, call);
+    // Waiting for the stop to land takes a slot; without one the task is answered as it is.
+    let Some(_slot) = engine.outside_wait_slot(caller) else {
+        return reply(
+            id,
+            task(engine, caller, call, &engine.outside_state(caller, call)),
+        );
+    };
     let until = tokio::time::Instant::now() + CANCEL_WAIT;
     let mut state = engine.outside_state(caller, call);
     while let OutsideCallState::Open { waiting } = state {

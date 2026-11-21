@@ -218,6 +218,10 @@ pub fn action_text(event: &Known) -> Option<String> {
     else {
         return None;
     };
+    // An MCP app's page (ADR 0202 §4) speaks with its own words, and only ever as the page.
+    if crate::app_page::is_app_panel(surface) {
+        return crate::app_page::action_text(event);
+    }
     let value = value
         .as_ref()
         .map_or(String::new(), |v| format!(" Its value, as data: {v}"));

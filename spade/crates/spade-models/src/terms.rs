@@ -20,6 +20,21 @@ pub enum TermsStatus {
 }
 
 impl TermsStatus {
+    /// How strict it is: `allowed`, then `unclear`, then `refused`.
+    fn strictness(self) -> u8 {
+        match self {
+            Self::Allowed => 0,
+            Self::Unclear => 1,
+            Self::Refused => 2,
+        }
+    }
+
+    pub fn parse(word: &str) -> Option<Self> {
+        [Self::Allowed, Self::Unclear, Self::Refused]
+            .into_iter()
+            .find(|s| s.name() == word)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Allowed => "allowed",
@@ -44,6 +59,18 @@ pub struct TermsRecord {
     pub source: Option<String>,
     #[serde(default)]
     pub note: String,
+    /// When a signed notice made this record stricter than the build ships it (ADR 0205 §4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noticed_ms: Option<i64>,
+}
+
+/// A change to one provider's terms between builds, from the market's signed notices.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TermsNotice {
+    pub provider: String,
+    pub status: TermsStatus,
+    pub note: String,
+    pub at_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,7 +125,39 @@ impl CliTerms {
                 checked: None,
                 source: None,
                 note: String::new(),
+                noticed_ms: None,
             })
+    }
+
+    /// This record with `notices` applied, each only where it is stricter than this record
+    /// (ADR 0205 §4): a notice can turn a provider `unclear` or `refused`, never back. Loosening
+    /// needs a build.
+    pub fn tightened(&self, notices: &[TermsNotice]) -> Self {
+        let mut next = self.clone();
+        for notice in notices {
+            let shipped = self.record(&notice.provider);
+            if notice.status.strictness() <= shipped.status.strictness() {
+                continue;
+            }
+            let record = TermsRecord {
+                status: notice.status,
+                note: notice.note.clone(),
+                noticed_ms: Some(notice.at_ms),
+                ..shipped
+            };
+            match next
+                .providers
+                .iter_mut()
+                .find(|r| r.provider == notice.provider)
+            {
+                Some(held) if held.status.strictness() < notice.status.strictness() => {
+                    *held = record;
+                }
+                Some(_) => {}
+                None => next.providers.push(record),
+            }
+        }
+        next
     }
 
     pub fn status(&self, provider: &str) -> TermsStatus {
@@ -175,6 +234,50 @@ mod tests {
         let refused = CliTerms::from_json(&record("refused", "\"https://example.com/terms\""))?;
         assert_eq!(refused.status("codex"), TermsStatus::Refused);
         assert_eq!(refused.status("claude"), TermsStatus::Unclear);
+        Ok(())
+    }
+
+    fn notice(provider: &str, status: TermsStatus) -> TermsNotice {
+        TermsNotice {
+            provider: provider.to_owned(),
+            status,
+            note: "Read again".to_owned(),
+            at_ms: 7,
+        }
+    }
+
+    #[test]
+    fn a_notice_only_ever_makes_a_status_stricter() -> Result<(), String> {
+        let shipped = CliTerms::from_json(
+            r#"{"version":3,"providers":[
+                {"provider":"codex","name":"Codex","status":"allowed","checked":"2026-11-20",
+                 "source":"https://example.com/codex"},
+                {"provider":"claude","name":"Claude","status":"refused","checked":"2026-11-20",
+                 "source":"https://example.com/claude"}]}"#,
+        )?;
+        let after = shipped.tightened(&[
+            notice("codex", TermsStatus::Refused),
+            notice("claude", TermsStatus::Allowed),
+            notice("pi", TermsStatus::Allowed),
+            notice("opencode", TermsStatus::Refused),
+        ]);
+        let codex = after.record("codex");
+        assert_eq!(codex.status, TermsStatus::Refused);
+        assert_eq!(
+            (codex.noticed_ms, codex.note.as_str()),
+            (Some(7), "Read again")
+        );
+        assert_eq!(codex.shown_name(), "Codex");
+        // Loosening is ignored, whatever the build ships.
+        assert_eq!(after.record("claude").status, TermsStatus::Refused);
+        assert_eq!(after.record("pi").status, TermsStatus::Unclear);
+        assert_eq!(after.record("opencode").status, TermsStatus::Refused);
+        // A milder notice doesn't undo a stricter one in the same list.
+        let both = shipped.tightened(&[
+            notice("codex", TermsStatus::Refused),
+            notice("codex", TermsStatus::Unclear),
+        ]);
+        assert_eq!(both.record("codex").status, TermsStatus::Refused);
         Ok(())
     }
 

@@ -3,6 +3,7 @@
 //! [`Script`] (or a sequence of them, one per request), and records every request it receives.
 //! [`FakeConnector`] stands in for an app's remote MCP server and its OAuth server.
 
+pub mod a2a;
 mod anthropic;
 pub mod client_document;
 pub mod cloud;
@@ -27,6 +28,7 @@ use futures_util::stream;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
+pub use a2a::FakeAgent;
 pub use client_document::ClientDocument;
 pub use cloud::FakeCloud;
 pub use connector::FakeConnector;

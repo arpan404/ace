@@ -180,6 +180,14 @@ Proactive notices to the person, under their quiet hours, do not disturb, interr
 | --- | --- | --- |
 | `notify` | `write_local` | 0.0.25 |
 
+## `code`
+
+The tools of the package's own WebAssembly components (ADR 0203), one per tool a component gives, named `code_<component>_<tool>`. Each runs in the bot's sandbox with no authority of its own: what it reaches through `spade:package/http` and `spade:package/tools` Spade does after the gate, the ceiling first. A component the person turned off gives no tools.
+
+| Tool | Effect | Since |
+| --- | --- | --- |
+| `code_*` | its imports': `network` with `http`, else `write_local` with `kv`, else `read`; each `tools` call the called tool's | 0.0.25 |
+
 <!-- spec:end modules -->
 
 Tools marked "ace's" belong to ace's integration: they are listed by name and effect only, and a

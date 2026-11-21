@@ -717,7 +717,13 @@ impl Engine {
     /// passed over: a bot only runs on one the person chose for it (ADR 0205 §1).
     pub fn new_bot_default(&self) -> String {
         match self.new_bot_model() {
-            Ok(Some(model)) if !model.is_empty() && !CliModel::is(&model) => model,
+            Ok(Some(model))
+                if !model.is_empty()
+                    && !CliModel::is(&model)
+                    && self.check_runs_bots(&model).is_ok() =>
+            {
+                model
+            }
             _ => self.default_model(),
         }
     }
@@ -734,6 +740,10 @@ impl Engine {
     /// model only: a subscription is chosen per bot, with its terms read.
     pub fn set_new_bot_model(&self, model: Option<&str>) -> Result<(), EndpointError> {
         let model = model.map(|m| self.endpoint_choice(m)).transpose()?;
+        if let Some(model) = &model {
+            self.check_runs_bots(model)
+                .map_err(|e| invalid(e.to_string()))?;
+        }
         Ok(self.store.set_setting(NEW_BOT_MODEL, model.as_deref())?)
     }
 
@@ -761,7 +771,13 @@ fn first_model(endpoints: &[Endpoint], usable: impl Fn(&Endpoint) -> bool) -> St
     near.into_iter()
         .chain(far)
         .filter(|e| usable(e))
-        .find_map(|e| e.models.first().map(|m| format!("{}/{}", e.id, m.id)))
+        .find_map(|e| {
+            // Only a model that can run a bot: one that calls tools (ADR 0205 §3).
+            e.models
+                .iter()
+                .find(|m| m.can(spade_models::Capability::Tools))
+                .map(|m| format!("{}/{}", e.id, m.id))
+        })
         .unwrap_or_default()
 }
 

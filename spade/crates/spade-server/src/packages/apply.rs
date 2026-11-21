@@ -27,6 +27,8 @@ pub struct Step {
     /// What proves a market version: the market's signed manifest and `bot.json` as it signed
     /// it (`proof`). A step without one to a market version isn't taken.
     pub proof: Option<serde_json::Value>,
+    /// Its components' pins (name to sha256), whose bytes were kept when it was accepted.
+    pub code: BTreeMap<String, String>,
 }
 
 /// Applies an update or rollback to `bot`. The same transaction asked again answers with the
@@ -80,12 +82,14 @@ pub fn update(engine: &Engine, bot: &str, step: Step) -> Result<Link, PackageErr
         notes_added: Vec::new(),
         notes_removed: Vec::new(),
         proof: None,
+        code: BTreeMap::new(),
     });
     let pending = Pending {
         transaction: step.transaction,
         package: step.package,
         manifest: step.manifest,
         proof: step.proof,
+        code: step.code,
         ..carried
     };
     run(engine, bot, link, pending, step.time_zone)
@@ -334,11 +338,17 @@ fn run(
     link.package = pending.package;
     link.transaction = Some(pending.transaction);
     link.manifest = next;
+    link.code = pending.code;
     link.pending = None;
     // Switches: the person's, for what the new version still declares; what it no longer
     // declares is taken back, and what it newly declares stays off. Committed with the new
     // link in one transaction.
     let before = link.on.clone();
     switches::commit(engine, bot, &mut link, &before, planned.on).map_err(failed)?;
+    // Its worker ends; the next call starts one with the new version's components.
+    if let Some(code) = engine.code() {
+        code.retire(bot);
+        crate::code::warm(engine, bot);
+    }
     Ok(link)
 }

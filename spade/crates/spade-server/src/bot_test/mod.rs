@@ -6,12 +6,17 @@
 //! takes, as a linked bot with its switches on (the developer is the person), and the person's
 //! part of each approval is answered yes. What happened is read from the conversation's events
 //! and checked by [`spade_core::package::scenario::check`].
+//!
+//! A package's own code runs for real (ADR 0203 §6): its components install with it and run on
+//! a worker in the sandbox, offline; their `http` requests are answered by the scenario's
+//! `http:<host>` fakes, and their `tools` calls reach the same tools as the model's.
 
 pub(crate) mod fakes;
 pub(crate) mod observe;
 pub(crate) mod throwaway;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -98,6 +103,8 @@ pub async fn run(folder: &Path) -> Report {
             })
             .collect();
     let pages = Value::Object(pages);
+    // Its components install with it, as the daemon sends them (ADR 0203 §6).
+    let code = code_sent(folder, &manifest);
     let triggers: Vec<&str> = manifest.routines().map(|(name, _, _)| name).collect();
     for file in &manifest.tests {
         let scenario = std::fs::read_to_string(folder.join(file))
@@ -114,15 +121,14 @@ pub async fn run(folder: &Path) -> Report {
             .and_then(|scenario| fakes_problems(&scenario).map(|()| scenario));
         match scenario {
             Ok(scenario) => {
-                let ran =
-                    tokio::time::timeout(SCENARIO_TIME, one(&recipe, &manifest, &pages, &scenario))
-                        .await
-                        .unwrap_or_else(|_| {
-                            Err(
-                                format!("it didn't finish within {}s", SCENARIO_TIME.as_secs())
-                                    .into(),
-                            )
-                        });
+                let ran = tokio::time::timeout(
+                    SCENARIO_TIME,
+                    one(&recipe, &manifest, (&pages, &code), &scenario),
+                )
+                .await
+                .unwrap_or_else(|_| {
+                    Err(format!("it didn't finish within {}s", SCENARIO_TIME.as_secs()).into())
+                });
                 let (failures, calls, cards) = match ran {
                     Ok(observed) => (
                         scenario::check(&scenario, &observed),
@@ -183,7 +189,22 @@ fn toolbox(scenario: &Scenario, workspace: &Path, bots: &EngineHandle) -> Toolbo
             .unwrap_or_default();
         tools.push(fakes::Fake::new(&name, answers));
     }
-    Toolbox::new(tools)
+    Toolbox::new(tools).with_source(Arc::new(crate::code::tools::CodeTools::new(bots.clone())))
+}
+
+/// Each component `manifest` names, read from `folder`, by path in base64.
+fn code_sent(folder: &Path, manifest: &Manifest) -> Value {
+    use base64::Engine as _;
+    let code: serde_json::Map<String, Value> = manifest
+        .code
+        .iter()
+        .filter_map(|entry| {
+            let bytes = std::fs::read(folder.join(&entry.file)).ok()?;
+            let text = base64::engine::general_purpose::STANDARD.encode(bytes);
+            Some((entry.file.clone(), Value::String(text)))
+        })
+        .collect();
+    Value::Object(code)
 }
 
 /// The id a scenario's given call has, which its scripted `contract_return` names.
@@ -193,7 +214,7 @@ pub use spade_core::package::scenario::CALL;
 async fn one(
     recipe: &Value,
     manifest: &Manifest,
-    pages: &Value,
+    (pages, code): (&Value, &Value),
     scenario: &Scenario,
 ) -> Result<Observed, Failure> {
     let fake = FakeProvider::start_turns(
@@ -209,8 +230,16 @@ async fn one(
         ),
         crate::home::VERSION,
     )?;
-    let spade =
+    let mut spade =
         Throwaway::start(models, |workspace, bots| toolbox(scenario, workspace, bots)).await?;
+    // Its code runs for real, offline: `http` from the scenario's `http:<host>` fakes.
+    let fakes = crate::code::http::Fakes::new(
+        scenario
+            .tools
+            .iter()
+            .map(|(name, answers)| (name.clone(), answers.list())),
+    );
+    spade.run_code(code.clone(), Arc::new(fakes))?;
     let (_, events) =
         throwaway::run_on(&spade, (recipe, manifest, pages), scenario, MODEL, None).await?;
     Ok(observe::observed(&events))

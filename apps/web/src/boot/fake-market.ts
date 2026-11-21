@@ -184,8 +184,8 @@ function listing(entry: MarketEntrySummary) {
 
 export function fakeMarket(now: number): MarketplaceSeed {
   const listed = [
-    ...byAce.map((entry, index) => summary(entry, ace, index, now)),
-    ...byHarbour.map((entry, index) => summary(entry, harbour, index + 3, now)),
+    ...byAce.map((item, index) => summary(item, ace, index, now)),
+    ...byHarbour.map((item, index) => summary(item, harbour, index + 3, now)),
   ];
   const find = (name: string) => listed.filter((entry) => entry.name === name);
   const picks = ["mizzle", "inbox", "research", "meeting-notes", "tarn"].flatMap(find);

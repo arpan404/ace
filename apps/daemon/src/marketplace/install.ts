@@ -16,7 +16,7 @@ import {
 import type { PluginReview } from "@ace/protocol/plugins";
 import { panelPageTexts, type BotInspection } from "@ace/marketplace/checks";
 import { Transaction } from "./journal.ts";
-import { bytesJson, bytesText, contractTexts } from "./package-diff.ts";
+import { bytesJson, bytesText, codeBytes, contractTexts } from "./package-diff.ts";
 import type { PluginFilesInput } from "./prepare.ts";
 import type { PreparedEntry, PreparedReview } from "./review.ts";
 import { approvedForBots, type MarketStore, type StoredInstall } from "./store.ts";
@@ -80,6 +80,11 @@ export interface PackageInput {
     | undefined;
   /** Its panels' pages (ADR 0200 §5.2), by path: Spade keeps them by hash with the bot. */
   pages?: Record<string, string> | undefined;
+  /**
+   * Its WebAssembly components (ADR 0203 §5), by path, in base64: Spade checks them, holds a
+   * market version's to the bytes its signed manifest lists, and pins them by sha256.
+   */
+  code?: Record<string, string> | undefined;
 }
 
 /** What the daemon asks of Spade, through its link (`POST /v1/agents` with `recipe`). */
@@ -128,6 +133,16 @@ export interface SpadePort {
    */
   bots(): Promise<SpadeBots>;
   deleteBot(id: string): Promise<void>;
+  /**
+   * Hands Spade the market's signed terms notices (ADR 0205 §4). Spade verifies them itself and
+   * lets them only tighten what its build ships.
+   */
+  termsNotices(signed: unknown): Promise<void>;
+  /**
+   * Whether any model a package's bot naming `fast` or `capable` would think with calls tools
+   * (ADR 0205 §3), which a bot using apps or agents needs.
+   */
+  packageTools(): Promise<{ fast: boolean; capable: boolean }>;
 }
 
 /** A bot Spade says is linked to a package, and the version it has. */
@@ -392,6 +407,7 @@ async function installIn(
       ? {
           manifest: bytesJson(review.checked.files),
           pages: panelPageTexts(recipe.surfaces, review.checked.files),
+          code: codeBytes(recipe.code, review.checked.files),
           signed:
             review.signedManifest === undefined
               ? undefined

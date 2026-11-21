@@ -116,6 +116,7 @@ function sanitizedError(error: unknown, ctx: SessionContext): Error {
   );
 }
 class AcpSession implements ProviderSession {
+  readonly steerViaCancel = true;
   nativeSessionId = "";
   readonly configuration: AcpConfiguration;
   get effectiveCapabilities() {

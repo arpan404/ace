@@ -250,6 +250,10 @@ export async function fakeSpade() {
   let beforeCreate: (() => Promise<void> | void) | undefined;
   const hanging: ServerResponse[] = [];
   const packageCalls: { bot: string; method: string; path: string; body: unknown }[] = [];
+  /** The terms notices handed over, each as sent. */
+  const notices: unknown[] = [];
+  /** Whether a package's `fast` and `capable` routes hold a model that calls tools. */
+  let packageTools = { fast: true, capable: true };
   /** What Spade's plan says an update does: here, the person's edited task stays. */
   let packagePlan: unknown = {
     name: "same",
@@ -274,6 +278,15 @@ export async function fakeSpade() {
       ? JSON.parse(Buffer.concat(chunks).toString("utf8"))
       : undefined;
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (request.method === "GET" && url.pathname === "/v1/models/package-routes")
+      return send(response, 200, {
+        fast: { tools: packageTools.fast, route: [] },
+        capable: { tools: packageTools.capable, route: [] },
+      });
+    if (request.method === "PUT" && url.pathname === "/v1/subscriptions/notices") {
+      notices.push(body);
+      return send(response, 200, { applied: true });
+    }
     if (request.method === "GET" && url.pathname === "/v1/agents")
       return send(response, 200, {
         // oxlint-disable-next-line oxc/no-map-spread -- Builds the answer from stored bots without changing them.
@@ -363,6 +376,10 @@ export async function fakeSpade() {
     allowed,
     /** Updates, rollbacks, withdrawals and resumptions of linked bots, in order. */
     packageCalls,
+    notices,
+    setPackageTools(next: { fast: boolean; capable: boolean }) {
+      packageTools = next;
+    },
     setPlan(plan: unknown) {
       packagePlan = plan;
     },

@@ -1,5 +1,6 @@
 {
   "checked": "2026-11-13",
+  "local": [],
   "roles": {
     "main": "opencode-go/kimi-k3.1-pro",
     "fast": "opencode-go-anthropic/claude-haiku-5-5",

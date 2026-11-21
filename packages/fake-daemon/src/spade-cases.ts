@@ -2,8 +2,6 @@ import type { FakeSpadeAnswer } from "./spade.ts";
 
 type Json = Record<string, unknown>;
 
-const runs = (n: number) => (n === 1 ? "kept run" : "kept runs");
-
 const reply = (body: unknown, status = 200): FakeSpadeAnswer => ({
   status,
   body: JSON.stringify(body),
@@ -25,6 +23,9 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
  * person marked hidden as `•••`. Spade's own redaction of secrets and the person's names is
  * Spade's to test; here a seeded case holds what the test gives it.
  */
+
+/** "kept run" or "kept runs", for `n`. */
+const runs = (n: number) => (n === 1 ? "kept run" : "kept runs");
 export class FakeSpadeCases {
   /** Every kept case, `{summary, case}` as Spade answers, by agent. */
   readonly kept = new Map<string, Json[]>();
@@ -107,18 +108,18 @@ export class FakeSpadeCases {
     this.replays.push({ agent, body });
     const kept = (this.kept.get(agent) ?? []).slice(0, 20);
     const model = typeof body.model === "string";
+    // oxlint-disable-next-line oxc/no-map-spread -- Builds each case's answer anew; the kept run stays untouched.
     const cases = kept.map((each) => {
       const summary = each.summary as Json;
       const why = this.differs.get(text(summary.id));
-      const judged: Json = {
+      return {
         id: summary.id,
         given: summary.given || "A kept run",
+        ...(summary.mark ? { mark: summary.mark } : {}),
         passed: why === undefined,
         lines: why === undefined ? [] : [why],
         outside: 0,
       };
-      if (summary.mark) judged.mark = summary.mark;
-      return judged;
     });
     const passed = cases.filter((each) => each.passed).length;
     const failed = cases.length - passed;

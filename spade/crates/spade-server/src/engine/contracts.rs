@@ -536,17 +536,14 @@ impl Engine {
         }
     }
 
-    /// Stops callee `bot`'s turn for call `call`, while the call is open.
+    /// Stops callee `bot`'s work for call `call`, while the call is open: its turn when that
+    /// serves this call alone, else the call alone (`Engine::stop_call`).
     pub(super) fn stop_callee(self: &Arc<Self>, bot: &str, call: &str) {
         let Ok(Some(callee)) = self.store.agent(bot) else {
             return;
         };
-        let Ok(events) = self.load(&callee.conversation) else {
-            return;
-        };
-        let open = contract::open(&events).iter().any(|r| r.call == call);
-        if open && let Err(error) = self.stop(&callee.conversation) {
-            tracing::warn!(%error, "could not stop a callee's turn");
+        if let Err(error) = self.stop_call(&callee.conversation, call) {
+            tracing::warn!(%error, "could not stop a callee's work for its call");
         }
     }
 

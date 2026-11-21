@@ -43,8 +43,7 @@ import { OutsideAccess } from "./outside.ts";
 import { grantOfCaller } from "./principals.ts";
 import { missingScope, shorthandScopes, withheldTools } from "./scopes.ts";
 import { tokenFiles } from "./token-files.ts";
-import { loadCardKey } from "./card-key.ts";
-import type { CardKey } from "./card-signature.ts";
+import { cardKeys } from "./card-key.ts";
 import { spadeContracts } from "./spade-contracts.ts";
 import { readLocalToken } from "../local-token.ts";
 import { externalTools } from "./tools.ts";
@@ -105,7 +104,8 @@ export async function externalMcp(context: ServiceContext) {
     listening = server;
   });
   const reachSettings = await outsideReachSettings(context);
-  let card: CardKey | undefined;
+  // Read again whenever its file changes, so a rotated key needs no restart.
+  const card = cardKeys(context.config.dataDir);
   const spade = spadeContracts({
     verify: (token, resource) => outside.tokens.verify(token, resource),
     touch: (grant) => outside.grants.touch(grant),
@@ -117,8 +117,9 @@ export async function externalMcp(context: ServiceContext) {
         return undefined;
       }
     },
-    cardKey: () => (card ??= loadCardKey(context.config.dataDir)),
+    cardKey: () => card.current(),
     now: () => context.now(),
+    nonce: () => randomBytes(16).toString("base64url"),
   });
   const oauth = outsideOAuth({
     outside,

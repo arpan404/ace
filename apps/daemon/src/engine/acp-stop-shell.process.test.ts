@@ -71,18 +71,72 @@ async function antigravity(first = "antigravity-shell", beforeSend?: EngineOptio
     },
     { installed: true, auth: "logged_in", loginHint: "", version: "1.2.1" },
   );
-  const id = await h.create(first);
+  const id = first === "hold-for-steer" ? startHeldPrompt() : await h.create(first);
+  function startHeldPrompt() {
+    const result = h.command({
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "antigravity",
+      model: "model",
+      input: [{ type: "text", text: first }],
+    });
+    if (!result.ok) throw new Error(result.error);
+    const thread = h.store.listThreads()[0];
+    if (!thread) throw new Error("Missing created thread");
+    return thread.id;
+  }
   const running = () =>
     Object.values(h.store.snapshotThread(id).backgroundTasks).filter(
       (task) => task.status === "running",
     );
-  await expect.poll(() => running().length).toBe(1);
+  if (first === "hold-for-steer")
+    await expect
+      .poll(() => Object.values(h.store.snapshotThread(id).items))
+      .toContainEqual(
+        expect.objectContaining({
+          type: "tool_call",
+          call: expect.objectContaining({ status: "running" }),
+        }),
+      );
+  else await expect.poll(() => running().length).toBe(1);
   // Waiting on the shell, or working on the late tool: never done while it runs.
   expect(h.store.getThread(id)?.status.state).not.toBe("done");
   const send = (text: string) =>
     h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text }] }).ok;
   return { h, id, sessions, running, send };
 }
+
+test("a person's ACP steer cancels its target turn and sends the follow-up once", async () => {
+  const { h, id, sessions } = await antigravity("hold-for-steer");
+  const active = Object.values(h.store.snapshotThread(id).runs).find(
+    (run) => run.state === "active",
+  );
+  if (!active) throw new Error("Expected the first prompt to be active");
+
+  expect(
+    h.command({
+      type: "thread.send",
+      threadId: id,
+      input: [{ type: "text", text: "read a different file" }],
+      delivery: "steer",
+      runId: active.id,
+    }).ok,
+  ).toBe(true);
+
+  try {
+    await expect
+      .poll(() => sessions.map((session) => session.prompts))
+      .toEqual([["hold-for-steer", "read a different file"]]);
+    expect(h.store.snapshotThread(id).runs[active.id]).toMatchObject({
+      state: "interrupted",
+      endedBy: "steer",
+    });
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+  } finally {
+    if (h.store.snapshotThread(id).runs[active.id]?.state === "active")
+      h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+  }
+});
 
 test("a Stop over an Antigravity shell that outlived its reply closes the session once its grace runs out", async () => {
   const { h, id, sessions, running, send } = await antigravity();

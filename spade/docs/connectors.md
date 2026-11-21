@@ -211,6 +211,72 @@ A call is sent once, with a 60-second timeout. Refused before it ran (the sessio
 token was refused): "Not run … It is safe to try again", and a refused token is renewed for the
 next try. Cut off after sending: "Unknown outcome".
 
+## App pages (MCP Apps)
+
+ADR 0202 §4, at MCP Apps 2026-01-26. Built in `spade_core::app_page` (the rules),
+`spade-mcp` (the `io.modelcontextprotocol/ui` capability, `read_resource`, a tool's `page`),
+the server's `engine/app_pages.rs`, `@ace/html`'s `mcp-app.ts` and the web's `use-mcp-app-host.ts`.
+
+- Spade's MCP sessions declare the UI extension with `mimeTypes: ["text/html;profile=mcp-app"]`.
+  A tool's `_meta.ui.resourceUri` (or the older `_meta["ui/resourceUri"]`) names its page, a
+  `ui://` address; `_meta.ui.visibility` says who may call it (`["model", "app"]` when absent). A
+  tool without `model` is never offered to a bot.
+- When a bot's call of such a tool returns, Spade reads the page once with `resources/read`, keeps
+  it by sha256 beside packages' panel pages, and stores a `panel_updated` for panel
+  `app.<connector>.<hash>` with `{app, input, result}`: the app (`connector`, `name`, `tool`,
+  `uri`, `page`, `refused`, `tools` with `model` and `app` for each, `withheld`), the call's
+  arguments and its result as MCP wrote it. The bot reads the tool's answer and "Linear's page for
+  this shows beside the chat, as a panel."
+- **Not drawn:** a page whose contents declare `ui.csp.connectDomains` or `frameDomains`. The bot
+  reads, after the tool's own text, "This app's page needs the network. Spade doesn't open those
+  yet." and the panel shows the same words. A page that isn't `text/html;profile=mcp-app`, or is
+  larger than 1 MB, isn't drawn either. Declared `resourceDomains`, `baseUriDomains` and
+  permissions (camera, microphone, location, clipboard) are listed in `withheld` and never
+  granted: the frame's policy is a package panel's, `default-src 'none'`.
+- **What the page sends** is mapped onto the panel channel ([surfaces.md](surfaces.md)): its
+  `tools/call` (only a tool whose visibility includes `app`), `ui/message` and
+  `ui/update-model-context` reach the bot as the page's untrusted request, `panel_action` with
+  `from="page"`, tainting the turn (context waits for the bot's next turn instead of waking it).
+  The bot is told whether it may call the tool asked for; a tool only pages may call stays out of
+  its tools. Nothing a page sends is ever the person's.
+
+## Outside agents (A2A)
+
+ADR 0202 §5, at A2A 1.0.1 over its JSON-RPC binding. Built in the server's `a2a` module (`card`,
+`client`, `task`, `tools`) and the web's `spade-outside-agents.tsx`.
+
+- **Adding one:** `POST /v1/a2a-agents {address}`. Spade reads the card at the address when it
+  names a `.json`, or at `/.well-known/agent-card.json` on its origin: https only (plain http to
+  this machine's loopback, for an agent the person runs locally), redirects refused, at most
+  256 KiB. It needs a `JSONRPC` interface at `1.0`, at least one skill, and no
+  `securityRequirements` (an agent that requires a sign-in is refused with its schemes' names
+  until sign-in to agents is built). An ES256 signature in `signatures` is checked over the card's
+  RFC 8785 form without `signatures`, against the key its protected header's `kid` names in the
+  JWK set at its `jku`, which must be on the card's own origin: "Signed by its publisher's key",
+  or "Not signed" with why (none, another algorithm, a key set elsewhere, or a card changed after
+  it was signed). An unsigned card is added, marked so.
+- **Its skills** are deferred tools `<agent id>__<skill id>` for the main bot. A skill whose input
+  and output modes both include `application/json` takes its arguments as one data part; any other
+  takes `{message}` as text. Every call reads as `send_as_person`, so it goes to the person every
+  call; the card's words never lower it.
+- **A call** sends `SendMessage` with the call's key as `messageId` (so a call run again after a
+  restart reaches the same task) and `returnImmediately`, then reads the task with `GetTask`
+  (200 ms, growing to 5 s). A long call goes on as the bot's background job. Completed: one
+  `<agent_result agent=… skill=… untrusted="true">` with its text, data parts as JSON (each at
+  most 256 KiB) and file parts named, never fetched. Input required: the agent's words, quoted as
+  untrusted, for the bot to ask the person. Auth required, failed, rejected, canceled: the call
+  fails with the agent's reason, quoted. **Stop** cuts the call off and sends `CancelTask` for its
+  task, up to five times until the agent answers.
+
+| Method and path              | Body        | Answer                                                                                |
+| ---------------------------- | ----------- | ------------------------------------------------------------------------------------- |
+| `GET /v1/a2a-agents`         |             | `{agents: [agent]}`                                                                   |
+| `POST /v1/a2a-agents`        | `{address}` | `201 {agent}`; `400 {error}` with why its card can't be used (or it is added already) |
+| `DELETE /v1/a2a-agents/{id}` |             | `204`; `404`                                                                          |
+
+An agent: `{id, name, description, address, endpoint, signed, signature, unsigned_because?,
+skills: [{id, name, description, tool, effect: "send_as_person", json}]}`.
+
 ## A bot asks
 
 [ADR 0131, amendment 1](../../docs/adr/0131-spade-connectors.md#amendment-1-2026-11-19-a-bot-asks-to-connect-an-app-and-an-expired-sign-in-heals).
@@ -284,7 +350,14 @@ keychain.
 ## Not yet
 
 - Step-up sign-in on a `403 insufficient_scope`: today the call fails and the person reconnects.
-- The old HTTP+SSE transport, MCP Apps (interactive UI), and connector triggers.
+- The old HTTP+SSE transport and connector triggers.
+- MCP Apps pages that need the network, and a page's `resources/read`; a page's `tools/call` is
+  answered at once ("Sent to the bot…"), the result reaching the page only when the bot runs the
+  tool. Plugin servers' pages aren't shown yet, only connected apps'.
+- Outside agents: sign-in by the card's security schemes, per-bot access (only the main bot has
+  them), a question card for `TASK_STATE_INPUT_REQUIRED` and a Reconnect card for
+  `TASK_STATE_AUTH_REQUIRED` (the bot reads them as results today), streaming status, the
+  person lowering a skill to `network`, and keeping file parts in the workspace.
 - MCP 2026-07-28's `input_required` results (forms sent as a result, answered by calling again):
   Spade speaks 2025-11-25 sessions, where a form is a request during the call. URL-mode forms
   are declined.

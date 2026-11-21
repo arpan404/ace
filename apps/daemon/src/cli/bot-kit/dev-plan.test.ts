@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { asksMore, devBotOf, devFolderKey } from "./dev-plan.ts";
 
+/** A contract named `name`, with nothing else to compare. */
 const contract = (name: string) => ({ name, summary: "A fare.", input: {}, output: {} });
 
 describe("the development bot of a folder", () => {
