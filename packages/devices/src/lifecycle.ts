@@ -117,7 +117,13 @@ export async function startDevice(
         ? {
             media: withVideoStatus(
               withMediaWant(options.media, (settings) => owner.mediaWant?.(session, settings)),
-              (video) => owner.videoStatus?.(session, video),
+              (video) => {
+                if (session.generation !== generation) return;
+                owner.videoStatus?.(session, video);
+                // The capture holds the device whatever its video does: a view whose video
+                // can't reach ace-media yet opens with the device's control, saying why.
+                if (video) firstResolve?.();
+              },
             ),
           }
         : {}),
@@ -127,6 +133,8 @@ export async function startDevice(
         if (session.generation !== generation || !["starting", "live"].includes(session.lifecycle))
           return;
         session.latest = frame;
+        // The current capture's picture is back: whatever stopped its video no longer holds.
+        if (session.video) owner.videoStatus?.(session, undefined);
         firstResolve?.();
         session.hub.publish(frame);
         session.recording?.push(frame);

@@ -15,13 +15,13 @@ import type { DeviceMedia } from "../media-paths.ts";
  */
 export async function loopbackMedia(
   cleanup: (() => Promise<void> | void)[],
-): Promise<DeviceMedia & { add: DeviceMedia["attach"]; pictures: string[] }> {
+): Promise<DeviceMedia & { add: DeviceMedia["attach"]; pictures: Buffer[] }> {
   const dir = await mkdtemp(join(tmpdir(), "ace-loopback-"));
   const socket = join(dir, "ingest.sock");
   const byToken = new Map<string, { producer: IngestProducer; path: string }>();
   let paths = 0;
-  /** JPEG pictures sources handed to ace-media to encode (a JPEG-only screen's). */
-  const pictures: string[] = [];
+  /** JPEG pictures a source's ingest carried for ace-media to encode (a JPEG-only screen's). */
+  const pictures: Buffer[] = [];
   const open = new Set<import("node:net").Socket>();
   const server: Server = createServer((connection) => {
     open.add(connection);
@@ -38,6 +38,7 @@ export async function loopbackMedia(
         const frame = decodeMediaFrame(buffered.subarray(0, length));
         buffered = buffered.subarray(length);
         if (frame.kind === 5) owner = byToken.get(Buffer.from(frame.payload).toString("hex"));
+        else if (owner && frame.kind === 3) pictures.push(Buffer.from(frame.payload));
         else if (owner && frame.kind === 1)
           owner.producer.consumers.deliver({
             source: owner.path,
@@ -69,10 +70,7 @@ export async function loopbackMedia(
       codecs: () => {},
       encodes: () => {},
       key: () => {},
-      picture: (base64) => {
-        pictures.push(base64);
-        return true;
-      },
+      picture: () => false,
       close: () => void byToken.delete(Buffer.from(token).toString("hex")),
     };
   };

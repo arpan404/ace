@@ -432,7 +432,7 @@ it("a Simulator whose screen helper can only make JPEG still gets a live view: a
   ).resolves.toMatchObject({ codec: "h264" });
   // The helper's pictures go to ace-media to encode; none of the JPEG reaches the view itself.
   await waitFor(() => expect(f.media.pictures.length).toBeGreaterThan(0));
-  expect(Buffer.from(f.media.pictures[0] ?? "", "base64").toString()).toMatch(/^simulator:/);
+  expect(f.media.pictures[0]?.toString()).toMatch(/^simulator:/);
   expect(shown.every((codec) => codec !== "jpeg")).toBe(true);
 });
 

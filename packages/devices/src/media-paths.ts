@@ -59,41 +59,28 @@ export function withMediaWant(
   };
 }
 
-/** Why a device's video can't play now; undefined once a unit arrives again. */
+/** Why a device's video can't play now; undefined once a picture arrives again. */
 export type DeviceVideoStatus = { status: StopStatus; reason: string } | undefined;
 
 /**
  * A device's media whose producers report why their video stopped (ace-media restarting,
- * unavailable, or refusing the source) and that it plays again at the next unit back on egress,
- * for the device's state (`DeviceState.video`).
+ * unavailable, or refusing the source), for the device's state (`DeviceState.video`). What
+ * clears it is the session's own next picture, after the path merge, whichever source carried
+ * it, so a source opened again never leaves an older reason standing.
  */
 export function withVideoStatus(
   media: DeviceMedia,
   status: (video: DeviceVideoStatus) => void,
 ): DeviceMedia {
   return {
-    attach: (producer) => {
-      let stalled = false;
-      const deliver = producer.consumers.deliver;
-      return media.attach({
+    attach: (producer) =>
+      media.attach({
         ...producer,
-        consumers: {
-          ...producer.consumers,
-          deliver: (unit) => {
-            if (stalled) {
-              stalled = false;
-              status(undefined);
-            }
-            deliver(unit);
-          },
-        },
         stopped: (reason, kind) => {
-          stalled = true;
           status({ status: kind, reason });
           producer.stopped?.(reason, kind);
         },
-      });
-    },
+      }),
   };
 }
 
