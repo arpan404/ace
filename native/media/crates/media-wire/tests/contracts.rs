@@ -30,6 +30,11 @@ fn every_control_message_round_trips_with_payload_and_lane()
             match kind {
                 "init" | "source.open" | "media.ticket" => 32,
                 "relay.keys" => 120,
+                "image.job" => m["inputs"].as_array().map_or(0, |inputs| inputs
+                    .iter()
+                    .filter(|input| input["kind"] != "file")
+                    .map(|input| input["bytes"].as_u64().unwrap_or(0))
+                    .sum::<u64>()) as usize,
                 "listen" =>
                     (m["remote"]["certificateBytes"].as_u64().unwrap_or(0)
                         + m["remote"]["keyBytes"].as_u64().unwrap_or(0))

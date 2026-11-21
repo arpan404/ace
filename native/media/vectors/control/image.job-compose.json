@@ -1,0 +1,50 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "image.job",
+    "request": "image-3",
+    "deadlineMs": 3000,
+    "inputs": [
+      { "kind": "bytes", "bytes": 2 },
+      { "kind": "rgba", "bytes": 4, "width": 1, "height": 1 },
+      { "kind": "file", "path": "/data/chrome.png", "maxBytes": 4194304 }
+    ],
+    "op": {
+      "op": "compose",
+      "width": 1600,
+      "height": 556,
+      "background": [24, 24, 24, 255],
+      "maxPixels": 16777216,
+      "layers": [
+        {
+          "kind": "image",
+          "input": 0,
+          "left": 0,
+          "top": 0,
+          "width": 400,
+          "height": 250,
+          "fit": "contain",
+          "mask": 1
+        },
+        {
+          "kind": "image",
+          "input": 2,
+          "left": -4,
+          "top": 0,
+          "width": 400,
+          "height": 250,
+          "fit": "fill"
+        },
+        {
+          "kind": "text",
+          "text": "+120 MS HITCH",
+          "left": 8,
+          "top": 256,
+          "size": 16,
+          "color": [255, 139, 106, 255]
+        }
+      ],
+      "output": { "format": "jpeg", "quality": 65, "background": [24, 24, 24] }
+    }
+  }
+}

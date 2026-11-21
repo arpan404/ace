@@ -628,6 +628,16 @@ impl Engine {
                 now.mono_ms,
                 out,
             ),
+            // The image threads land with the media-image crate; until then a job is refused.
+            ToMedia::ImageJob { request, .. } => normal(
+                out,
+                FromMedia::ImageFailed {
+                    request,
+                    reason: media_wire::image::ImageFailure::Unsupported,
+                    message: "This ace-media has no image threads.".into(),
+                },
+            ),
+            ToMedia::ImageCancel { .. } => {}
         }
     }
 
