@@ -544,10 +544,10 @@ export class OutgoingTransfers {
     // a pairing replaced meanwhile is used from the next attempt on. One unlinked waits like one
     // offline, and a transfer never goes on to another machine linked since under its name.
     const client = {
-      call: (call: Parameters<TransferClient["call"]>[0], signal?: AbortSignal) =>
-        this.clientFor(transferId, signal).then((client) => client.call(call, signal)),
+      call: (call: Parameters<TransferClient["call"]>[0], abort?: AbortSignal) =>
+        this.clientFor(transferId, abort).then((linked) => linked.call(call, abort)),
       chunk: (...args: Parameters<TransferClient["chunk"]>) =>
-        this.clientFor(transferId, args[3]).then((client) => client.chunk(...args)),
+        this.clientFor(transferId, args[3]).then((linked) => linked.chunk(...args)),
     };
     let plan = record.plan ?? { source: "", name: "" };
     let method: TransferMethod;

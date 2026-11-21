@@ -305,14 +305,14 @@ export class IncomingTransfers {
   /** Whether `step` for `record` settled within `recoveryStepMs`; it is logged when it didn't. */
   private async bounded(record: IncomingRecord, step: Promise<void>): Promise<boolean> {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const settled = await Promise.race([
+    const inTime = await Promise.race([
       step.then(() => true),
       new Promise<boolean>((resolve) => {
         timer = setTimeout(() => resolve(false), this.deps.recoveryStepMs ?? 60_000);
         timer.unref?.();
       }),
     ]).finally(() => clearTimeout(timer));
-    if (!settled) {
+    if (!inTime) {
       // Left to finish on its own: neither recovery nor closing waits on a step that may never.
       step.catch((error: unknown) =>
         this.deps.log("Transfer recovery step failed late", {
@@ -322,7 +322,7 @@ export class IncomingTransfers {
       );
       this.deps.log("Transfer recovery step overran", { transferId: record.transferId });
     }
-    return settled;
+    return inTime;
   }
   /**
    * Refuses, as retryable, a commit while recovery rolls back: an import it started would be

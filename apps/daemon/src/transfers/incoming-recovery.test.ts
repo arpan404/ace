@@ -163,6 +163,43 @@ const thread = {
   },
 };
 
+/** A folder `root` holds that a transfer made, with the record of having made it. */
+async function made(root: string, name: string) {
+  const path = join(root, name);
+  await mkdir(path);
+  await writeFile(join(path, "work.ts"), "work");
+  return { path, id: folderIdentity(await stat(path)) };
+}
+
+/**
+ * As the build before the fix left it: a move cancelled at recovery though its thread was made
+ * here, and, beside it, an import that failed before its cutoff, whose folder is still to undo.
+ */
+async function wronglyCancelled(t: Awaited<ReturnType<typeof target>>) {
+  const checkout = await made(t.root, "app-there");
+  t.rows.insert(record("move.2", { state: "cancelled" }), 0);
+  t.rows.update(
+    "move.2",
+    {
+      commit: { op: "commit", transferId: "move.2", live, thread },
+      result: { ...result, path: checkout.path },
+      createdPath: checkout.path,
+      createdId: checkout.id,
+      registeredId: "w",
+      error: { code: "transfer_cancelled", message: "Start the transfer again." },
+    },
+    0,
+  );
+  const failed = await made(t.root, "app-failed");
+  t.rows.insert(record("failed.1", { state: "failed" }), 0);
+  t.rows.update(
+    "failed.1",
+    { createdPath: failed.path, createdId: failed.id, registeredId: "w-failed" },
+    0,
+  );
+  return { checkout: checkout.path, failed: failed.path };
+}
+
 describe("a target's recovery after a restart", () => {
   it("never completes a transfer without its setup, however long the setup keeps failing", async () => {
     const t = await target({
@@ -242,43 +279,6 @@ describe("a target's recovery after a restart", () => {
     expect(await readFile(join(checkout, "work.ts"), "utf8")).toBe("the moved thread's work");
     expect(t.unregistered).toEqual([]);
   });
-
-  /** A folder this target made for `transferId`, with the record of having made it. */
-  async function made(t: Awaited<ReturnType<typeof target>>, name: string) {
-    const path = join(t.root, name);
-    await mkdir(path);
-    await writeFile(join(path, "work.ts"), "work");
-    return { path, id: folderIdentity(await stat(path)) };
-  }
-
-  /**
-   * As the build before the fix left it: a move cancelled at recovery though its thread was made
-   * here, and, beside it, an import that failed before its cutoff, whose folder is still to undo.
-   */
-  async function wronglyCancelled(t: Awaited<ReturnType<typeof target>>) {
-    const checkout = await made(t, "app-there");
-    t.rows.insert(record("move.2", { state: "cancelled" }), 0);
-    t.rows.update(
-      "move.2",
-      {
-        commit: { op: "commit", transferId: "move.2", live, thread },
-        result: { ...result, path: checkout.path },
-        createdPath: checkout.path,
-        createdId: checkout.id,
-        registeredId: "w",
-        error: { code: "transfer_cancelled", message: "Start the transfer again." },
-      },
-      0,
-    );
-    const failed = await made(t, "app-failed");
-    t.rows.insert(record("failed.1", { state: "failed" }), 0);
-    t.rows.update(
-      "failed.1",
-      { createdPath: failed.path, createdId: failed.id, registeredId: "w-failed" },
-      0,
-    );
-    return { checkout: checkout.path, failed: failed.path };
-  }
 
   it("keeps the checkout of a move an earlier build cancelled past its cutoff, and still undoes one that failed before it", async () => {
     const t = await target();

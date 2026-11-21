@@ -93,16 +93,21 @@ async function lostAnswer(options: { live: boolean; committed?: boolean }) {
   }
   /** What the thread shows and is told: its "Moving to" row, moves and resumes. */
   const thread: string[] = [];
-  const live = new LiveSource({
+  const ports: Pick<
+    LiveSourcePorts,
+    "ownership" | "hold" | "moved" | "released" | "resume" | "atomic" | "now"
+  > = {
     ownership,
     hold: (_thread, _transfer, change) =>
-      thread.push("title" in change ? `hold: ${change.title}` : "hold ended"),
-    moved: (_thread, to) => thread.push(`moved to ${to.name}`),
-    released: () => thread.push("released"),
-    resume: (_thread, _transfer, text) => thread.push(`told: ${text}`),
+      void thread.push("title" in change ? `hold: ${change.title}` : "hold ended"),
+    moved: (_thread, to) => void thread.push(`moved to ${to.name}`),
+    released: () => void thread.push("released"),
+    resume: (_thread, _transfer, text) => void thread.push(`told: ${text}`),
     atomic: (run) => store.atomic(run),
     now: () => 0,
-  } as unknown as LiveSourcePorts);
+  };
+  // Only what a handover's end reaches; the stop's own ports are never called here.
+  const live = new LiveSource(ports as LiveSourcePorts);
   const machines: Record<string, Machine> = {};
   /** Every call that left, as `<host the link names>:<op>`. */
   const asked: string[] = [];
