@@ -130,7 +130,7 @@ pub fn read(value: Option<&Value>, declared: &[Effect], out: &mut Vec<String>) -
     contracts
 }
 
-const FIELDS: [&str; 6] = ["name", "summary", "input", "output", "effects", "examples"];
+pub(crate) const FIELDS: [&str; 6] = ["name", "summary", "input", "output", "effects", "examples"];
 
 fn contract(
     item: &Value,

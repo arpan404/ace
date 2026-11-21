@@ -45,8 +45,7 @@ pub mod schema;
 pub mod self_edit;
 pub mod service;
 pub mod skills;
-#[cfg(test)]
-mod spec;
+pub mod spec;
 pub mod spending;
 pub mod task;
 pub mod title;

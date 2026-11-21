@@ -81,7 +81,20 @@ pub fn read(value: &Value, at: &str) -> Result<Schema, Vec<String>> {
     }
 }
 
-const COMMON: [&str; 3] = ["type", "description", "title"];
+pub(crate) const COMMON: [&str; 3] = ["type", "description", "title"];
+/// Each kind of the subset, with the keywords it takes beside the common ones, in the order the
+/// spec lists them.
+pub(crate) const KINDS: [(&str, &[&str]); 5] = [
+    ("object", &OBJECT_KEYWORDS),
+    ("string", &STRING_KEYWORDS),
+    ("number, integer", &NUMBER_KEYWORDS),
+    ("boolean", &[]),
+    ("array", &ARRAY_KEYWORDS),
+];
+const OBJECT_KEYWORDS: [&str; 3] = ["properties", "required", "additionalProperties"];
+const STRING_KEYWORDS: [&str; 3] = ["maxLength", "minLength", "enum"];
+const NUMBER_KEYWORDS: [&str; 2] = ["minimum", "maximum"];
+const ARRAY_KEYWORDS: [&str; 3] = ["items", "maxItems", "minItems"];
 /// Every keyword some kind of the subset takes.
 const EVERY_KEYWORD: [&str; 11] = [
     "properties",
@@ -153,7 +166,7 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
         "object" => object(fields, at, depth, out),
         "string" => string(fields, at, out),
         "number" | "integer" => {
-            keywords(fields, at, &["minimum", "maximum"], out);
+            keywords(fields, at, &NUMBER_KEYWORDS, out);
             let bound = |key: &str, out: &mut Vec<String>| match fields.get(key) {
                 None => None,
                 Some(n) if n.is_number() => n.as_f64(),
@@ -179,7 +192,7 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
             Some(Schema::Boolean)
         }
         "array" => {
-            keywords(fields, at, &["items", "maxItems", "minItems"], out);
+            keywords(fields, at, &ARRAY_KEYWORDS, out);
             let max = count(fields, "maxItems", at, out);
             let min = count(fields, "minItems", at, out).unwrap_or(0);
             let max = match max {
@@ -222,12 +235,7 @@ fn object(
     depth: usize,
     out: &mut Vec<String>,
 ) -> Option<Schema> {
-    keywords(
-        fields,
-        at,
-        &["properties", "required", "additionalProperties"],
-        out,
-    );
+    keywords(fields, at, &OBJECT_KEYWORDS, out);
     match fields.get("additionalProperties") {
         None | Some(Value::Bool(false)) => {}
         Some(_) => out.push(format!(
@@ -280,7 +288,7 @@ fn object(
 }
 
 fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<String>) -> Option<Schema> {
-    keywords(fields, at, &["maxLength", "minLength", "enum"], out);
+    keywords(fields, at, &STRING_KEYWORDS, out);
     let one_of = match fields.get("enum") {
         None => None,
         Some(Value::Array(values)) if (1..=MOST_ENUM).contains(&values.len()) => {

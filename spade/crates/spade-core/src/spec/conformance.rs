@@ -1,13 +1,15 @@
 //! The conformance suite's case tables (`spade/spec/conformance/`, ADR 0201 §5), as Spade's own
 //! tests read them. The suite is the test of both of ace's readers, not a copy: Spade's reader
 //! here and the marketplace's (`packages/marketplace/src/package.test.ts`, `schema.test.ts`) run
-//! every case from the same files, so deleting a case drops it from both.
+//! every case from the same files, so deleting a case drops it from both. The spec lists each
+//! part's cases from the same files.
 
 use serde_json::Value;
 
-/// One case file: its part, and its text.
+/// One case file: its part, its path under `spade/spec/conformance/`, and its text.
 pub struct Suite {
     pub part: &'static str,
+    pub file: &'static str,
     pub text: &'static str,
 }
 
@@ -15,18 +17,22 @@ pub struct Suite {
 pub const MANIFESTS: [Suite; 4] = [
     Suite {
         part: "package",
+        file: "package/manifests.json",
         text: include_str!("../../../../spec/conformance/package/manifests.json"),
     },
     Suite {
         part: "effects",
+        file: "effects/manifests.json",
         text: include_str!("../../../../spec/conformance/effects/manifests.json"),
     },
     Suite {
         part: "contracts",
+        file: "contracts/manifests.json",
         text: include_str!("../../../../spec/conformance/contracts/manifests.json"),
     },
     Suite {
         part: "surfaces",
+        file: "surfaces/manifests.json",
         text: include_str!("../../../../spec/conformance/surfaces/manifests.json"),
     },
 ];
@@ -34,6 +40,7 @@ pub const MANIFESTS: [Suite; 4] = [
 /// The bounded schema subset's cases.
 pub const SCHEMAS: Suite = Suite {
     part: "contracts",
+    file: "contracts/schemas.json",
     text: include_str!("../../../../spec/conformance/contracts/schemas.json"),
 };
 

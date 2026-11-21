@@ -8,7 +8,10 @@ recipe still installs as an unlinked copy the person owns.
 ## The manifest
 
 `bot.json`, read by `spade_core::package::read` (and `readRecipe` in `@ace/marketplace`, which
-must agree). Version 3 adds, beside version 2's fields:
+must agree, held to it by the conformance suite in `spade/spec/conformance/`). The format is an
+open standard, the Spade Agent Format ([ADR 0201](../../docs/adr/0201-spade-agent-format-is-an-open-standard.md)),
+whose spec is [`spade/spec/`](../spec/README.md), written from the same tables. Version 3 adds,
+beside version 2's fields:
 
 | Field       | What it is                                                                                                                                                                                       |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
