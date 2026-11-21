@@ -3,6 +3,7 @@ import type { Agent, BackgroundTask, Interaction } from "@ace/protocol";
 import type { ThreadReader } from "@ace/client";
 import { agentName, agentTreeWork, agentWorkState, taskState } from "./agents.ts";
 import { attentionOrder } from "./agent-order.ts";
+import { subagentsAtWork } from "./live-status.ts";
 import { lostChildAsk, type LostChildAsk } from "./lost-child.ts";
 import { modelLabel } from "./providers.ts";
 import { toneToken, type StatusDisplay, type StatusToken } from "./mobile-status.ts";
@@ -381,6 +382,18 @@ export function agentSheet(
         ? { used: meter.usedTokens, window: meter.windowTokens }
         : null,
     treeRunning: work.running.size > 0,
-    summary: agentTreeSummary({ agents, tasks: listed, work, asking, fresh }),
+    summary: agentTreeSummary({
+      agents,
+      tasks: listed,
+      work,
+      asking,
+      fresh,
+      // The count the thread's chip says, so the two never disagree while rows still arrive.
+      working: subagentsAtWork(
+        agents.filter((agent) => agent.origin !== "root" && work.running.has(agent.id)).length,
+        reader.thread?.live,
+        agents.find((agent) => agent.origin === "root")?.status,
+      ),
+    }),
   };
 }

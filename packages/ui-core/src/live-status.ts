@@ -235,6 +235,21 @@ export function treeInBackground(facts: TreeFacts): boolean {
   return !facts.needsYou && !treeWorking(facts) && facts.backgroundCommands > 0;
 }
 
+/**
+ * How many subagents are at work, as the thread's chip, its live line and the Agents page all
+ * count them: the most of the rows this client holds (`held`), the daemon's own count, and the
+ * subagents the root says it waits on. Rows still arriving never make the count shrink.
+ */
+export function subagentsAtWork(
+  held: number,
+  live: Pick<ThreadRunMetadata, "runningSubagentCount"> | undefined,
+  rootStatus: AgentStatus | undefined,
+): number {
+  const waited =
+    rootStatus?.state === "blocked" && rootStatus.on === "subagents" ? rootStatus.refs.length : 0;
+  return Math.max(held, live?.runningSubagentCount ?? 0, waited);
+}
+
 /** The tree facts a listed thread carries in its status and the daemon's live hints. */
 export function listTreeFacts(thread: {
   status: ThreadStatus;

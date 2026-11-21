@@ -116,18 +116,19 @@ export function agentTreeSummary(input: {
   work: Work;
   /** Agents with a request of their own the person can answer. */
   asking: number;
+  /** Subagents at work, as the thread's chip counts them (`subagentsAtWork`). */
+  working: number;
   fresh: boolean;
 }): AgentTreeSummary {
-  const { agents, work, asking, fresh } = input;
+  const { agents, work, asking, working, fresh } = input;
   const subagents = agents.filter((agent) => agent.origin !== "root");
-  const live = subagents.filter((agent) => work.running.has(agent.id));
   const commands = input.tasks.filter((task) => !task.internal && task.status === "running").length;
   if (!fresh) return { text: `${syncingWord} agents`, token: "neutral" };
   if (asking > 0) {
-    const waiting = live.length - asking;
+    const waiting = working - asking;
     return waiting > 0
       ? {
-          text: `Waiting on ${subagentsWord(live.length)}. ${needWords(asking)}`,
+          text: `Waiting on ${subagentsWord(working)}. ${needWords(asking)}`,
           token: "needsYou",
         }
       : {
@@ -137,10 +138,10 @@ export function agentTreeSummary(input: {
   }
   const root = agents.find((agent) => agent.origin === "root");
   const rootWorks = root?.status.state === "working" || root?.status.state === "starting";
-  if (live.length > 0)
+  if (working > 0)
     return rootWorks
-      ? { text: `Working with ${subagentsWord(live.length)}`, token: "working" }
-      : { text: `Waiting on ${subagentsWord(live.length)}`, token: "waiting" };
+      ? { text: `Working with ${subagentsWord(working)}`, token: "working" }
+      : { text: `Waiting on ${subagentsWord(working)}`, token: "waiting" };
   if (commands > 0)
     return {
       text: `Running ${commands} ${commands === 1 ? "command" : "commands"}`,
