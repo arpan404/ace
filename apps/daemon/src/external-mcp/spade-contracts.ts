@@ -7,17 +7,20 @@
  *   here. No token is a 401 naming the resource's metadata; a grant without the scope is a 403
  *   `insufficient_scope`, so the client can ask the person for it. Nothing reaches Spade then.
  * - What is let through goes to Spade with the grant stamped on it (`ace:outside:<grant>`, the
- *   client's name), signed with ace's local token as every request ace makes for someone is.
- *   Spade takes nothing that isn't, so its bearer alone can't speak for a client.
+ *   client's name), signed with ace's local token over the method, Spade's route, the protocol
+ *   headers, the body and a fresh nonce (`outside-proof.ts`). Spade takes nothing that isn't,
+ *   and each nonce once, so its bearer alone can't speak for a client and a captured request
+ *   can't be sent again.
  * - The Agent Card is Spade's, given its address here and signed with this machine's card key;
- *   the key's JWK set is public.
+ *   the key's JWK set is public. Both answer an ETag and a short max-age with must-revalidate,
+ *   and a matching If-None-Match gets a 304, so a verifier sees a rotated key within minutes.
  */
 import { createHash } from "node:crypto";
 import type { OutsideGrant } from "@ace/protocol";
 import { spadeRequest, type SpadeConnection } from "@ace/service/spade";
-import { inboxProof } from "../machines/target-spade.ts";
 import { resourceMetadataUrl, resourceOf, type OutsideBase, type SpadePath } from "./oauth/base.ts";
 import { canonicalJson, signCard, type CardKey } from "./card-signature.ts";
+import { outsideProof, signedHeaders } from "./outside-proof.ts";
 
 /** The largest message passed on: a 64 KiB input and its envelope, as Spade takes it. */
 const maxBodyBytes = 256 * 1024;
@@ -25,8 +28,8 @@ const maxBodyBytes = 256 * 1024;
 const maxAnswerBytes = 1024 * 1024;
 /** The A2A version the card's interface speaks. */
 const a2aVersion = "1.0";
-/** The headers MCP and A2A mirror from the body, passed on as the client sent them. */
-const mirrored = ["mcp-protocol-version", "mcp-method", "mcp-name", "a2a-version"] as const;
+/** How long a verifier may keep the card's public key before it asks again. */
+const jwksMaxAge = 300;
 /** Characters a stamped name keeps, as the machine stamps do: within Spade's header cap. */
 const maxStampedName = 100;
 const quotable = /^[\x20-\x21\x23-\x5b\x5d-\x7e]*$/;
@@ -39,9 +42,11 @@ export interface SpadeContractsDeps {
   spade(): SpadeConnection | undefined;
   /** ace's local token, which signs what reaches Spade; undefined when it can't be read. */
   key(): string | undefined;
-  /** This machine's card key. */
+  /** This machine's card key, as its file holds it now. */
   cardKey(): CardKey;
   now(): number;
+  /** A fresh nonce for each request's stamp: 16 to 128 URL-safe characters. */
+  nonce(): string;
 }
 
 function challenge(parameters: Record<string, string>): string {
@@ -58,16 +63,41 @@ function json(body: unknown, status = 200, headers: Record<string, string> = {})
   });
 }
 
-/** The stamp Spade checks: the grant as sender, the client's name, signed over the body. */
-function stamped(grant: OutsideGrant, key: string, time: number, body: Buffer) {
+interface Stamp {
+  key: string;
+  time: number;
+  nonce: string;
+  method: string;
+  route: string;
+  headers: Record<string, string>;
+  body: Buffer;
+}
+
+/** The stamp Spade checks: the grant as sender and the client's name, signed with the rest. */
+function stamped(grant: OutsideGrant, stamp: Stamp) {
   const sender = `ace:outside:${grant.id}`;
   const name = encodeURIComponent(Array.from(grant.name).slice(0, maxStampedName).join(""));
   return {
     "x-ace-from-host": sender,
     "x-ace-from-name": name,
-    "x-ace-inbox-time": String(time),
-    "x-ace-inbox-proof": inboxProof(key, time, sender, name, body),
+    "x-ace-inbox-time": String(stamp.time),
+    "x-ace-outside-nonce": stamp.nonce,
+    "x-ace-inbox-proof": outsideProof(stamp.key, { ...stamp, sender, name }),
   };
+}
+
+/** Whether `request` already holds the representation tagged `etag`. */
+function fresh(request: Request, etag: string): boolean {
+  const asked = request.headers.get("if-none-match");
+  if (asked === null) return false;
+  return asked
+    .split(",")
+    .map((tag) => tag.trim().replace(/^W\//, ""))
+    .some((tag) => tag === etag || tag === "*");
+}
+
+function notModified(etag: string, cacheControl: string): Response {
+  return new Response(null, { status: 304, headers: { etag, "cache-control": cacheControl } });
 }
 
 async function bounded(request: Request): Promise<Buffer | undefined> {
@@ -130,7 +160,18 @@ export function spadeContracts(deps: SpadeContractsDeps) {
           method,
           path,
           ...(method === "POST" ? { body, contentType: "application/json" } : {}),
-          headers: { ...headers, ...stamped(grant, key, deps.now(), body) },
+          headers: {
+            ...headers,
+            ...stamped(grant, {
+              key,
+              time: deps.now(),
+              nonce: deps.nonce(),
+              method,
+              route: path,
+              headers,
+              body,
+            }),
+          },
         },
         { signal, maxBytes: maxAnswerBytes },
       );
@@ -148,8 +189,15 @@ export function spadeContracts(deps: SpadeContractsDeps) {
     });
   }
 
-  async function card(grant: OutsideGrant, base: OutsideBase, signal: AbortSignal) {
-    const answer = await forward(grant, "GET", "/v1/outside/card", Buffer.alloc(0), {}, signal);
+  async function card(grant: OutsideGrant, base: OutsideBase, request: Request) {
+    const answer = await forward(
+      grant,
+      "GET",
+      "/v1/outside/card",
+      Buffer.alloc(0),
+      {},
+      request.signal,
+    );
     if (answer.status !== 200) return answer;
     const body: unknown = await answer.json();
     if (typeof body !== "object" || body === null || Array.isArray(body))
@@ -162,8 +210,22 @@ export function spadeContracts(deps: SpadeContractsDeps) {
     };
     const signed = signCard(addressed, deps.cardKey(), `${base.url}/spade/jwks.json`);
     const { signatures: _signatures, ...payload } = signed;
-    const tag = createHash("sha256").update(canonicalJson(payload)).digest("base64url");
-    return json(signed, 200, { "cache-control": "private, max-age=60", etag: `"${tag}"` });
+    // Tagged by what it says and the key that signs it, so a rotation is a new card.
+    const tag = createHash("sha256")
+      .update(`${deps.cardKey().jwk.kid}\n${canonicalJson(payload)}`)
+      .digest("base64url");
+    const etag = `"${tag}"`;
+    const cacheControl = "private, max-age=60, must-revalidate";
+    if (fresh(request, etag)) return notModified(etag, cacheControl);
+    return json(signed, 200, { "cache-control": cacheControl, etag });
+  }
+
+  function jwks(request: Request): Response {
+    const key = deps.cardKey();
+    const etag = `"${key.jwk.kid}"`;
+    const cacheControl = `public, max-age=${jwksMaxAge}, must-revalidate`;
+    if (fresh(request, etag)) return notModified(etag, cacheControl);
+    return json({ keys: [key.jwk] }, 200, { "cache-control": cacheControl, etag });
   }
 
   /** Serves `path` below `base`, one of `spadeContractPaths` (`oauth/base.ts`). */
@@ -171,12 +233,12 @@ export function spadeContracts(deps: SpadeContractsDeps) {
     const method = request.method;
     if (path === "/spade/jwks.json")
       return method === "GET"
-        ? json({ keys: [deps.cardKey().jwk] }, 200, { "cache-control": "public, max-age=3600" })
+        ? jwks(request)
         : new Response(null, { status: 405, headers: { allow: "GET" } });
     if (path === "/.well-known/agent-card.json") {
       if (method !== "GET") return new Response(null, { status: 405, headers: { allow: "GET" } });
       const admitted = admit(request, base, "/spade/a2a");
-      return admitted.grant ? card(admitted.grant, base, request.signal) : admitted.refused;
+      return admitted.grant ? card(admitted.grant, base, request) : admitted.refused;
     }
     const resource = path === "/spade/mcp" ? "/spade/mcp" : "/spade/a2a";
     // Stateless: one POST per message, no server stream to open and no session to end.
@@ -186,7 +248,7 @@ export function spadeContracts(deps: SpadeContractsDeps) {
     const body = await bounded(request);
     if (!body) return json({ error: "The message is too large." }, 413);
     const passed: Record<string, string> = {};
-    for (const name of mirrored) {
+    for (const name of signedHeaders) {
       const value = request.headers.get(name);
       if (value !== null) passed[name] = value;
     }

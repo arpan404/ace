@@ -13,6 +13,7 @@ pub mod gated;
 pub mod market;
 #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 pub mod org;
+pub mod outside;
 pub mod packaged;
 pub mod plugins;
 pub mod sandbox;

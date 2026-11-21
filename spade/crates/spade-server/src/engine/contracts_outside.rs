@@ -5,6 +5,14 @@
 //! callee's own gate and ceiling and held to the contract's effects, answered with
 //! `contract_return` checked against the output schema, untrusted when the callee read anything
 //! untrusted, and stopped by the caller's Stop. Nothing here is offered to other people's agents.
+//!
+//! - A caller's Stop reaches its own call only (`Engine::stop_call`): the callee's turn stops
+//!   when it serves that call alone, else the call ends alone and the turn carries on.
+//! - Each call's (grant, key) record (its inbox row, and its outcome once it ended) outlives the
+//!   inbox's cleanup until long after it ended, so its task, its Stop and a retry of its key
+//!   keep finding it, and the retry never delivers again.
+//! - Reading a call reads from where it was delivered, and its outcome once stored: the work is
+//!   the call's, never the callee's history. Waits are capped (`outside_admit`).
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -12,7 +20,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use spade_core::contract::{Outcome, Request};
+use spade_core::contract::{Ending, Outcome, Request};
 use spade_core::event::FromAgent;
 use spade_core::package::contract::Contract;
 use spade_core::package::link::PackageId;
@@ -20,11 +28,14 @@ use spade_store::{Delivered, Delivery, InboxEntry};
 
 use super::Engine;
 use super::contracts::call_message;
+use super::outside_admit::WaitSlot;
 
 /// The sender an outside client's calls are stored under, its grant's id after it. No paired
 /// machine's device id and no thread ask looks like it, so none can read or stop another's.
-pub const FROM_OUTSIDE: &str = "ace:outside:";
+pub const FROM_OUTSIDE: &str = spade_store::OUTSIDE_HOSTS;
 const DAY_MS: i64 = 24 * 60 * 60_000;
+/// How long a call's record stays after it ended: a retry of its key is never that late.
+const KEEP_ENDED_MS: i64 = 30 * DAY_MS;
 /// The longest one wait for a call's end lasts; a caller waiting longer asks again.
 pub const LONGEST_WAIT: Duration = Duration::from_secs(25);
 
@@ -148,6 +159,8 @@ impl Engine {
     ) -> Result<String, Refused> {
         let call = caller.call_id(key);
         let host = caller.host();
+        let _ = self.store.prune_outside(self.now_ms() - KEEP_ENDED_MS);
+        // The key's record, whatever the tool names now: a retry never delivers again.
         if self.store.inbox(&host, &call).ok().flatten().is_some() {
             return Ok(call);
         }
@@ -214,23 +227,52 @@ impl Engine {
             .map(|a| a.name)
     }
 
-    /// Where `caller`'s call `call` stands now.
+    /// Where `caller`'s call `call` stands now: its stored outcome once it ended, else read from
+    /// where it was delivered, so a read costs the call's own events, never the callee's
+    /// history. The first outcome read is stored, and stays.
     pub fn outside_state(&self, caller: &OutsideCaller, call: &str) -> CallState {
-        let Ok(Some(entry)) = self.store.inbox(&caller.host(), call) else {
+        let host = caller.host();
+        let Ok(Some(entry)) = self.store.inbox(&host, call) else {
             return CallState::Unknown;
         };
-        let Ok(Some(agent)) = self.store.agent(&entry.agent_id) else {
-            return CallState::Ended(Outcome::Failed {
-                problems: vec!["The bot was deleted before it answered.".to_owned()],
-            });
-        };
-        let mut from = None;
-        match self.call_outcome(&agent.conversation, call, &mut from) {
-            Some(outcome) => CallState::Ended(outcome),
-            None => CallState::Open {
-                waiting: self.call_waiting(&agent.conversation, call),
-            },
+        if let Some(outcome) = self
+            .store
+            .outside_outcome(&host, call)
+            .ok()
+            .flatten()
+            .and_then(|stored| outcome_of(&stored))
+        {
+            return CallState::Ended(outcome);
         }
+        let outcome = match self.store.agent(&entry.agent_id) {
+            Ok(Some(agent)) => {
+                let mut from = Some(entry.seq - 1);
+                match self.call_outcome(&agent.conversation, call, &mut from) {
+                    Some(outcome) => outcome,
+                    None => {
+                        return CallState::Open {
+                            waiting: self.callee_waiting(&agent.conversation),
+                        };
+                    }
+                }
+            }
+            Ok(None) => Outcome::Failed {
+                problems: vec!["The bot was deleted before it answered.".to_owned()],
+            },
+            Err(_) => return CallState::Open { waiting: false },
+        };
+        let stored = self
+            .store
+            .end_outside(&host, call, &stored_outcome(&outcome), self.now_ms())
+            .ok()
+            .and_then(|stored| outcome_of(&stored));
+        CallState::Ended(stored.unwrap_or(outcome))
+    }
+
+    /// A slot for one request of `caller` to wait on its call, or `None` when it, or all outside
+    /// callers together, wait on as many as allowed (`outside_admit`).
+    pub fn outside_wait_slot(&self, caller: &OutsideCaller) -> Option<WaitSlot<'_>> {
+        self.outside.wait_slot(&caller.grant)
     }
 
     /// Waits up to `wait` for `caller`'s call `call` to end, or for its callee's waiting on the
@@ -273,29 +315,45 @@ impl Engine {
         self.ids.next("key")
     }
 
-    /// Remembers which call MCP request `request` of grant `grant` is making, so a legacy
-    /// client's `notifications/cancelled` for that request finds it.
-    pub fn outside_request_started(&self, grant: &str, request: &str, call: &str) {
-        self.outside_requests
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(format!("{grant}\n{request}"), call.to_owned());
+    /// Claims MCP request `request` (its JSON-RPC id, as JSON) of grant `grant` for call `call`,
+    /// so a legacy client's `notifications/cancelled` for that request finds it. False when
+    /// that id is in flight already.
+    pub fn outside_request_started(&self, grant: &str, request: &Value, call: &str) -> bool {
+        self.outside.claim_request(grant, request, call)
     }
 
     /// The request ended; it no longer names a call.
-    pub fn outside_request_ended(&self, grant: &str, request: &str) {
-        self.outside_requests
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(&format!("{grant}\n{request}"));
+    pub fn outside_request_ended(&self, grant: &str, request: &Value) {
+        self.outside.release_request(grant, request);
     }
 
     /// The call MCP request `request` of grant `grant` is making, while it runs.
-    pub fn outside_request_call(&self, grant: &str, request: &str) -> Option<String> {
-        self.outside_requests
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get(&format!("{grant}\n{request}"))
-            .cloned()
+    pub fn outside_request_call(&self, grant: &str, request: &Value) -> Option<String> {
+        self.outside.request_call(grant, request)
     }
+
+    /// Takes the nonce of a stamp ace signed at `time`, once within `window_ms` of it.
+    pub fn outside_take_nonce(&self, nonce: &str, time: i64, window_ms: i64) -> bool {
+        self.outside
+            .take_nonce(nonce, time, self.now_ms(), window_ms)
+    }
+}
+
+/// A call's outcome as its record keeps it.
+fn stored_outcome(outcome: &Outcome) -> String {
+    let ending = match outcome.clone() {
+        Outcome::Returned { output, untrusted } => Ending::Returned { output, untrusted },
+        Outcome::Failed { problems } => Ending::Failed { problems },
+        Outcome::Stopped { why } => Ending::Stopped { why },
+    };
+    serde_json::to_string(&ending).unwrap_or_default()
+}
+
+/// The outcome a record keeps; `None` for one this build can't read.
+fn outcome_of(stored: &str) -> Option<Outcome> {
+    Some(match serde_json::from_str::<Ending>(stored).ok()? {
+        Ending::Returned { output, untrusted } => Outcome::Returned { output, untrusted },
+        Ending::Failed { problems } => Outcome::Failed { problems },
+        Ending::Stopped { why } => Outcome::Stopped { why },
+    })
 }
