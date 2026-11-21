@@ -15,7 +15,11 @@ import Testing
             "update": update, "state": state, "waitsForBots": false, "status": "Version 1.0.0",
             "section": section, "meta": "Skill · 1.0.0", "off": state != "on", "notes": notes,
             "updateLabel": update is NSNull ? NSNull() as Any : "Update \(name)" as Any, "updateLine": updateLine,
-            "rollBackTo": NSNull(), "turnOnWord": turnOn,
+            "rollBackTo": NSNull(), "turnOnWord": turnOn, "turnOnQuick": state == "off",
+            "turnOnAsk": state == "withdrawn"
+                ? ["question": "Turn \(name) back on?", "detail": "Its publisher withdrew it: Leaked headers.",
+                   "confirm": "Turn back on anyway"] as Any
+                : NSNull() as Any,
             "removeQuestion": "Remove \(name)?", "removeDetail": "Your bots and agents stop seeing this skill.",
         ]
     }
@@ -57,6 +61,10 @@ import Testing
         #expect(row.off)
         #expect(row.notes.first == "Off · Withdrawn by its publisher: Leaked headers.")
         #expect(row.turnOnWord == "Turn back on")
+        // A withdrawn entry never comes back in one swipe: only through its question.
+        #expect(!row.turnOnQuick)
+        #expect(row.turnOnAsk?.confirm == "Turn back on anyway")
+        #expect(row.turnOnAsk?.detail == "Its publisher withdrew it: Leaked headers.")
         #expect(row.updateLabel == nil)
     }
 }

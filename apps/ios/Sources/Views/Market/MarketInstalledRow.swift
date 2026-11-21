@@ -22,7 +22,8 @@ struct MarketInstalledPage: Decodable, Equatable {
 /// One installed entry: the shared row (`MarketInstall`) and what Installed shows and offers.
 struct MarketInstalledItem: Decodable, Identifiable, Hashable {
     private enum Keys: String, CodingKey {
-        case section, meta, off, notes, updateLabel, updateLine, rollBackTo, turnOnWord, removeQuestion, removeDetail
+        case section, meta, off, notes, updateLabel, updateLine, rollBackTo, turnOnWord, turnOnQuick, turnOnAsk,
+             removeQuestion, removeDetail
     }
     let install: MarketInstall
     /// `updates` or `installed`.
@@ -37,8 +38,14 @@ struct MarketInstalledItem: Decodable, Identifiable, Hashable {
     /// For a bot made from a package: which one bot moves.
     let updateLine: String?
     let rollBackTo: String?
+    /// The question before a withdrawn entry runs again: its publisher's reason and the risk.
+    struct Ask: Decodable, Hashable { let question: String; let detail: String; let confirm: String }
     /// "Turn back on" or "Resume"; nil when it can't come back (on, or blocked).
     let turnOnWord: String?
+    /// Only what the person turned off comes back in one step, as a swipe.
+    let turnOnQuick: Bool
+    /// Set for a withdrawn entry: it comes back only through this question, from the row's menu.
+    let turnOnAsk: Ask?
     let removeQuestion: String
     let removeDetail: String
 
@@ -55,6 +62,8 @@ struct MarketInstalledItem: Decodable, Identifiable, Hashable {
         updateLine = try values.decodeIfPresent(String.self, forKey: .updateLine)
         rollBackTo = try values.decodeIfPresent(String.self, forKey: .rollBackTo)
         turnOnWord = try values.decodeIfPresent(String.self, forKey: .turnOnWord)
+        turnOnQuick = try values.decode(Bool.self, forKey: .turnOnQuick)
+        turnOnAsk = try values.decodeIfPresent(Ask.self, forKey: .turnOnAsk)
         removeQuestion = try values.decode(String.self, forKey: .removeQuestion)
         removeDetail = try values.decode(String.self, forKey: .removeDetail)
     }
