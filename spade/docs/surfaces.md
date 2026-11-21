@@ -7,7 +7,9 @@ desktop beside the bot's conversation. Phones show the bot's cards.
 ## Declaring them
 
 `bot.json`'s `surfaces` (at most 16, at most 8 panels), each with an `id` of lower-case letters,
-digits and dashes:
+digits and dashes: A card's `id` is what `card_show`'s `surface` names: the card still comes in `data`, and the
+package's `schema` checks on `card:<id>` hold it before it is shown ([quality.md](quality.md),
+Checks).
 
 ```json
 "surfaces": [
@@ -114,6 +116,35 @@ While one line waits, the page can't swap it for another. Cancel sends nothing.
 Every message out of the page is JSON text of at most 16 KiB of UTF-8. The outer document drops
 anything else unread, refuses a longer string on its length alone and counts the bytes before it
 parses one; the host reads the text with the same bound.
+
+## An app's page as a panel
+
+An MCP app's `ui://` page ([connectors.md](connectors.md#app-pages-mcp-apps), ADR 0202 §4)
+opens as a panel of that app, in exactly this sandbox and policy, so it reaches no network
+whatever it declares. It is listed with the bot's panels, its id `app.<connector>.<hash>`, with
+`app` saying which app and tool it belongs to; one that needs the network lists with no page and
+`app.refused` saying so, which the panel shows.
+
+The page speaks MCP Apps' JSON-RPC instead of `acePanel`. Its own bridge answers the watchdog's
+ping and reports a fault as panel text; its outer document writes each JSON-RPC object as text
+within the same 16 KiB bound before relaying it, answers the page itself with an error for a
+message over the bound, and lets `tools/call`, `ui/message` and `ui/open-link` out only while the
+person is pressing or typing in the page. The host then answers:
+
+| From the page                           | ace                                                                                                                       |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `ui/initialize`                         | Version `2026-01-26`; `openLinks`, `serverTools`, `logging`; the person's theme and tokens, inline only, the panel's size |
+| `ui/notifications/initialized`          | The tool's input (`tool-input`) and result (`tool-result`); a new result whenever the bot runs a tool of that page again  |
+| `tools/call`                            | Only for a tool offered to pages: to the bot as the page's request; answered at once that the bot decides                 |
+| `ui/message`, `ui/update-model-context` | To the bot as the page's, never the person's words                                                                        |
+| `ui/open-link`                          | https only, on ace's own line ("Linear asks to open linear.app (…)"), opened only on the person's real press              |
+| `ui/request-display-mode`               | `inline`, always                                                                                                          |
+| `ping`                                  | `{}`                                                                                                                      |
+| Anything else (`resources/read`)        | Refused, `-32601`                                                                                                         |
+
+What reaches the bot is posted as the panel's action (`tools/call`, `ui/message`,
+`ui/update-model-context`), never with `confirmed`: Spade refuses `confirmed` for an app's
+panel, so nothing a page sends carries the person's standing.
 
 ## Bounds
 

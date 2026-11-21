@@ -11,6 +11,7 @@ import {
 } from "@ace/protocol/marketplace";
 import type { Refusal, RuleId } from "./rules.ts";
 import { surfaceProblems } from "./surfaces.ts";
+import { checkProblems, declaredCards, declaredContracts, verifyProblems } from "./checks.ts";
 import { codeProblems } from "./code.ts";
 
 /*
@@ -70,6 +71,7 @@ const known = new Set([
   "pricing",
   "surfaces",
   "contracts",
+  "checks",
   "code",
   ...identity,
   ...executions,
@@ -105,14 +107,27 @@ export function recipeEffects(recipe: Recipe): MarketEffectRow[] {
   }));
 }
 
-/** The switches the person left on: a missing switch is off, a key not declared turns nothing on. */
+/** A component's switch key, beside the effects' (`code:fares`, ADR 0203 §5). */
+export function codeSwitchKey(name: string): string {
+  return `code:${name}`;
+}
+
+/**
+ * The switches the person left on: a missing effect switch is off, a key not declared turns
+ * nothing on. A component shown on the review runs unless the person turned it off there: Install
+ * accepts the code the review listed (ADR 0203 §5).
+ */
 export function grantedEffects(
   recipe: Recipe,
   switches: Readonly<Record<string, boolean>>,
 ): Record<string, boolean> {
-  return Object.fromEntries(
-    recipeEffects(recipe).map((row) => [row.key, switches[row.key] === true]),
-  );
+  return Object.fromEntries([
+    ...recipeEffects(recipe).map((row) => [row.key, switches[row.key] === true]),
+    ...(recipe.code ?? []).map((code) => {
+      const key = codeSwitchKey(code.name);
+      return [key, switches[key] !== false];
+    }),
+  ]);
 }
 
 const versionParts = (version: string) =>
@@ -211,8 +226,10 @@ function issues(error: z.ZodError): MarketProblem[] {
     .filter(
       (issue) =>
         !(issue.path[0] === "effects" && (issue.path[2] === "why" || issue.path[2] === "effect")) &&
-        // `surfaceProblems` says what's wrong with a surface, in Spade's words.
-        issue.path[0] !== "surfaces",
+        // `surfaceProblems` and `checkProblems` say what's wrong, in Spade's words.
+        issue.path[0] !== "surfaces" &&
+        issue.path[0] !== "checks" &&
+        !(issue.path[0] === "triggers" && issue.path[2] === "verify"),
     )
     .slice(0, 20)
     .map((issue) =>
@@ -302,6 +319,13 @@ export function readPackage(
       );
   }
   for (const found of surfaceProblems(json["surfaces"])) problems.push(fromRefusal(found));
+  // What a result is held to before it counts as done (ADR 0204 §3).
+  const places = {
+    contracts: declaredContracts(json["contracts"]),
+    cards: declaredCards(json["surfaces"]),
+  };
+  for (const found of checkProblems(json["checks"], places)) problems.push(fromRefusal(found));
+  for (const found of verifyProblems(json["triggers"])) problems.push(fromRefusal(found));
   if (json["uses"] !== undefined && !Array.isArray(json["uses"]))
     problems.push(problem("package.uses", "uses lists runtime modules"));
   const effects: unknown[] = Array.isArray(json["effects"]) ? json["effects"] : [];

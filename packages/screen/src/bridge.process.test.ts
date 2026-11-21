@@ -358,3 +358,59 @@ it("a resubscribe on the same media connection that fails keeps delivering on th
   expect(d.live.size).toBe(0);
   expect(d.views.size).toBe(0);
 });
+
+it("a viewer that subscribes again to a still screen gets its picture, though the helper makes no new one", async () => {
+  const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
+  cleanups.push(test.close);
+  const state = await ready(test.screen);
+  const assembler = new StreamAssembler();
+  const pictures: StreamMessage[] = [];
+  const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
+    send: () => {},
+    media: {
+      bufferedBytes: () => 0,
+      write: async (piece) => {
+        const envelope = assembler.push(piece);
+        const message = envelope && decodeStreamMessage(envelope);
+        if (message?.kind === "screen.frame") pictures.push(message);
+      },
+    },
+  });
+  cleanups.push(async () => connection.close());
+  const subscribe = (requestId: string) =>
+    connection.request({
+      type: "screen.request",
+      requestId,
+      operation: { op: "subscribe", sessionId: state.sessionId },
+    });
+  await subscribe("watch");
+  // The helper starts the video with one keyframe, the screen as it is; a still screen makes
+  // no other picture.
+  await connection.request({
+    type: "screen.request",
+    requestId: "video",
+    operation: {
+      op: "stream.configure",
+      sessionId: state.sessionId,
+      settings: { codec: "h264", maxWidth: 1280, maxHeight: 800, fps: 60, bitrate: 8_000_000 },
+    },
+  });
+  await expect.poll(() => pictures.length).toBe(1);
+  const [still] = pictures;
+  if (still?.kind !== "screen.frame") throw new Error("No picture");
+  expect(still.frame.key).toBe(true);
+  connection.ack({
+    type: "screen.ack",
+    sessionId: state.sessionId,
+    streamId: still.frame.streamId,
+    sequence: still.frame.sequence,
+  });
+  // The view comes back (a client binding again, or retrying) with the settings it had, so it
+  // asks for no new video: it starts from the session's current picture.
+  await subscribe("again");
+  await expect.poll(() => pictures.length, { timeout: 3_000 }).toBe(2);
+  const again = pictures[1];
+  if (again?.kind !== "screen.frame") throw new Error("No picture");
+  expect(again.frame.key).toBe(true);
+  expect(Buffer.from(again.frame.bytes)).toEqual(Buffer.from(still.frame.bytes));
+});

@@ -175,13 +175,26 @@ always-on box. A machine has exactly one owner, a person or an organization.
   The machine credential is reissued bound to this enrollment of the host
   (`machine_credentials.org_id` and `enrollment`; the `machines` row gains `org_id`), and speaks
   for the organization only while that is the host's current enrollment. Another account's
-  credential for the machine is never bound. Every paired device's person standing ends, as any owner
+  credential for the machine is never bound.
+- **The organization's own credential.** Once the daemon confirms the enrollment it signs in as
+  the organization, not as the member who enrolled it, so that person signing out, letting their
+  session lapse or being deprovisioned never takes the host off the relay. The backend issues an
+  **organization credential** (`machine_credentials.kind = 'org'`, migration 0008): no session
+  behind it, its account the organization's principal `org:<org id>`, bound to the enrollment.
+  `POST /v1/orgs/{org}/hosts/{hostId}/credential` issues it once per enrollment and renews it for
+  30 days, both on the host key's proof alone (`orgHostCredentialProof`, a MAC over host,
+  organization, credential and time, taken within five minutes), and only while the organization
+  holds the host under that enrollment. It mints only its own host's `machine` grant: never a
+  member, device, Spade Cloud or market grant, so it yields no person's standing. The daemon
+  keeps it as its sign-in (`source: "org"`), gives the enroller's credential back, renews it with
+  the host key, and is signed out once a renewal is refused. A person's handover or `ace login`
+  can't replace it while the machine answers to the organization. Every paired device's person standing ends, as any owner
   change does. Nothing on disk is deleted: the person's earlier threads and bots on it stay, and
   stay theirs (2.4).
 - **Releasing.** An owner of the organization, from a proven socket, chooses "Release this host";
   or a local reset with the daemon stopped. The next person's proof sets the new owner. Release
-  revokes every credential bound to that enrollment, so the machine signs in again before it
-  speaks for anyone.
+  revokes every credential bound to that enrollment, the organization credential included, so the
+  machine signs in again before it speaks for anyone.
 - **Recommended setup.** A box enrolled from fresh, with the host's sign-ins (git host, mail,
   error tracker) being team service accounts, never a member's personal ones. The guide and
   the enroll page say so, because a shared bot's "send as" is whoever is signed in on the host.

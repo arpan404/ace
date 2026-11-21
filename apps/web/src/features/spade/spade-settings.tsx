@@ -112,6 +112,7 @@ function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
         value={models.newBotModel}
         none={firstUsableWords(spadeFirstUsableModel(models.endpoints))}
         follows={spadeFirstUsableModel(models.endpoints)}
+        forBots
         save={saved((model) => setNewBotModel(client, model))}
       />
       <ModelSettingRow

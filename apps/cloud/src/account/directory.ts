@@ -107,7 +107,7 @@ export function directoryRoutes(deps: {
      * - A machine credential: `machine` grants for its own host only; device grants in format 2
      *   with a machine's standing, which older daemons (which treat any format 1 device grant as
      *   the person) refuse; market grants as `machine`, which the market refuses for sensitive
-     *   actions.
+     *   actions. An org host's organization credential: its own host's `machine` grant only.
      * - A session a machine kept (`exposed`), or one from before standing was kept (`legacy`): the
      *   same, but `machine` grants for any host, as an older daemon asks for its own.
      * - The person's session: format 1 device grants, and with `host` and `key` the person's
@@ -123,6 +123,11 @@ export function directoryRoutes(deps: {
         if (!parsed.success) return fail(400, "invalid_request");
         const { kind, subject, purpose, host, key, action, org } = parsed.data;
         if (kind === "member") return member(principal, parsed.data);
+        // An org host's organization credential (ADR 0206 §2.1) names the organization, never a
+        // person: it mints only the machine grant its own relay connection needs. No device,
+        // Spade Cloud or market grant, in any format.
+        if (principal.kind === "machine" && principal.org !== undefined)
+          if (kind !== "machine" || purpose !== undefined) return fail(403, "org_credential");
         if (org !== undefined && purpose !== "market-publish") return fail(400, "invalid_request");
         if (kind === "machine" && !HostId.safeParse(subject).success)
           return fail(400, "invalid_request");

@@ -8,6 +8,7 @@ use jiff::tz::TimeZone;
 use spade_ace::events::{ThreadChange, ThreadState};
 use spade_core::Event;
 use spade_core::event::{FromRoutine, Known};
+use spade_core::goal::view::{RunCheck, run_check};
 use spade_core::routine::{self, AceEvent, Trigger};
 use spade_store::{HEARTBEAT, ROUTINE, StoreError, StoredRoutine, StoredRun};
 
@@ -358,6 +359,23 @@ fn answered(
     };
     let after = run.seq.unwrap_or(1) - 1;
     let events = engine.store().events(&agent.conversation, after)?;
+    let check = run_check(events.iter().map(|stored| &stored.event), &run.id);
+    match &check {
+        Some(RunCheck::Done) => return Ok(("verified", None)),
+        Some(RunCheck::Failed(missing)) => {
+            let mut why = format!(
+                "The check said not yet {} times.",
+                spade_core::goal::verify::MOST_ROUTINE_NOT_YET
+            );
+            if let Some(first) = missing.first() {
+                why.push(' ');
+                why.push_str(first);
+            }
+            return Ok(("failed", Some(why)));
+        }
+        Some(RunCheck::Ended) => return Ok(("stopped", None)),
+        Some(RunCheck::Checking) | None => {}
+    }
     for stored in &events {
         let Event::Known(known) = &stored.event else {
             continue;
@@ -366,6 +384,8 @@ fn answered(
             Known::ReplyFinished { text, .. } if r.kind == HEARTBEAT && routine::is_quiet(text) => {
                 ("quiet", None)
             }
+            // A verified run isn't done when its reply ends: its check decides.
+            Known::ReplyFinished { .. } if check.is_some() => ("checking", None),
             Known::ReplyFinished { .. } => ("answered", run.detail.clone()),
             Known::ReplyFailed { error, .. } => ("failed", Some(error.clone())),
             Known::ReplyStopped { .. } => ("stopped", None),

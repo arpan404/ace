@@ -29,6 +29,8 @@ pub(super) struct RecipeBody {
     pub switches: std::collections::BTreeMap<String, bool>,
     /// A package's panel pages, by path.
     pub pages: std::collections::BTreeMap<String, String>,
+    /// A package's components, by path, in base64.
+    pub code: std::collections::BTreeMap<String, String>,
     /// The body also named a template or a first message, which a recipe doesn't take.
     pub also: bool,
 }
@@ -120,6 +122,7 @@ pub(super) async fn create(state: AppState, body: RecipeBody) -> Response {
         shipped: None,
         switches: body.switches,
         pages: body.pages,
+        code: body.code,
     };
     let made_state = state.clone();
     let answer = off_thread(move || {

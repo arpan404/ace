@@ -220,6 +220,10 @@
       "bytes": 919,
       "sha256": "cc25d0891c6f25c5753cd8ab3e699f0752d47c0e907947aa26c495b01f659b94"
     },
+    "schema/AceOrgHostCredentialRequest.json": {
+      "bytes": 626,
+      "sha256": "5f26973119cb5e68a8ceebed834105d53119b791c980f8204046a721d77e6610"
+    },
     "schema/AceOrgHostEnrollRequest.json": {
       "bytes": 490,
       "sha256": "4bcbf6d6c8baaa95eab996fb90b06b995375d86da51a9f1b7759bf131517db4a"
@@ -1120,6 +1124,14 @@
       "bytes": 636,
       "sha256": "8e3dcc89ba2cc99bb3fe67e6c3cbe0437330a88e4bfde7a06fd11be512f41a24"
     },
+    "schema/CliBotReplay.json": {
+      "bytes": 911,
+      "sha256": "ed71d96a2b5bf9f724026c45a4510f59b30680b4867b4dc9b9843a7122680e5c"
+    },
+    "schema/CliBotReplayCase.json": {
+      "bytes": 689,
+      "sha256": "88cd1770023a4f3a42a34b18dbf96c6081f83668384081397e8fb04e4a5bf290"
+    },
     "schema/CliBotScenario.json": {
       "bytes": 622,
       "sha256": "434ffe952836a4e969c8a52311e5cfa33230f7f0465256fd409521efed0c9b55"
@@ -1129,8 +1141,8 @@
       "sha256": "a3bc46cb7e054ddc6f61808d81623e6cd308e85b88a40b99e963d1993d7329e5"
     },
     "schema/CliBotTest.json": {
-      "bytes": 608,
-      "sha256": "2d34455ee722892e8f3afad6658a8dea2c63a53cd574d8a90b89ba855d39512f"
+      "bytes": 695,
+      "sha256": "d5619827c226ac08cc56468e214b572fd8ebd2146be58593427d35e9a1c36c29"
     },
     "schema/CliCleanupReceipt.json": {
       "bytes": 1208,
@@ -3048,13 +3060,17 @@
       "bytes": 1722,
       "sha256": "f20d6272934e32339a77fb7b3fd98fb4522aa1cc0160f685f51bf36edcf4d622"
     },
+    "schema/MarketBotReplay.json": {
+      "bytes": 1217,
+      "sha256": "99f0f7930f4710a101e005d6dec5ce8129d1605c8347de9eb1fcb0eb57931f93"
+    },
     "schema/MarketBotReview.json": {
       "bytes": 1527,
       "sha256": "b959ae4fbbe964c1261b248906f6a60ef77039eae582e254a7a4a2448ae7e307"
     },
     "schema/MarketBotUpdate.json": {
-      "bytes": 644,
-      "sha256": "960f6bbc75e747ac29cf02148014bd1e5d20152843b8c10c4f7474d6c27020de"
+      "bytes": 734,
+      "sha256": "57c11634bfd95975e9b6f3331203eade90a3d7a7a6747169af9d1e03b98d1e22"
     },
     "schema/MarketCatalogFile.json": {
       "bytes": 537,
@@ -4045,8 +4061,8 @@
       "sha256": "2637a41743ce03ceeb1ee45d5a22376663ac59c32023396a5768c3903edd7b93"
     },
     "schema/PackageModule.json": {
-      "bytes": 307,
-      "sha256": "0d73ad6cde283b6175b5aeb9092a2dd8a3c6026a3570a364a758f659d2784379"
+      "bytes": 319,
+      "sha256": "15bfdd98122fd13d3ee47e290f9a1263d9307bd668c366529875f14b8fe36fd2"
     },
     "schema/PackagePlan.json": {
       "bytes": 1631,
@@ -4061,8 +4077,8 @@
       "sha256": "97a2f60fcdff290ec58138f6b76555278dcd5c50a5c01dcae722b76173c004e0"
     },
     "schema/PackageTrigger.json": {
-      "bytes": 2456,
-      "sha256": "6856f557b6436c26bb082340d890131f63b84448673dc3e9af07f6bf3178340c"
+      "bytes": 2574,
+      "sha256": "2c14f67c115ebc8f56c87184cad84d08843eed4debab8dd63d33a57af1b87659"
     },
     "schema/PairRedeem.json": {
       "bytes": 652,
@@ -4729,8 +4745,8 @@
       "sha256": "56549ee3cb5c0441b782e3de8a87e4cfc8504d7310fc9ad34b0d59dba575ea45"
     },
     "schema/Recipe.json": {
-      "bytes": 7074,
-      "sha256": "1f5220995b7cfc32b6d7dbf627bf294644cbbba5569981e7ebc57b4535669c90"
+      "bytes": 7225,
+      "sha256": "12f6c0b0c5fd35fad14b7787bce0f34e9da0cce9691941a0fea04226cdcd1395"
     },
     "schema/RecipeConnectorId.json": {
       "bytes": 193,
@@ -6857,10 +6873,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1390047,
-      "sha256": "3438bd72ea769233791bdc1396b9f894c6d3855269360008fb50d15ff6acb594"
+      "bytes": 1393097,
+      "sha256": "f0bad911b5538aaa3013b55369d2b347cb7ff24999d7ff2a85f851b1fe3cfbf7"
     }
   },
-  "input": "a4afb6d33de965d1ef581f97376d2f6cf29228c80a9dae1c62f21148ca48c5a6",
+  "input": "60bc04bb5709531f81a0fc808ca7638254afa65ccd583e4137775ab535579fde",
   "version": 1
 }

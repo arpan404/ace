@@ -350,3 +350,84 @@ fn a_call_from_an_outside_client_reads_as_the_persons_agent_never_as_the_person(
     );
     assert!(!text.contains("another bot's request"), "{text}");
 }
+
+fn job_started(reply: &str, job: &str) -> Event {
+    Event::Known(Known::JobStarted {
+        reply: reply.into(),
+        job: job.into(),
+        name: "shell".into(),
+    })
+}
+
+#[test]
+fn a_stop_reaches_the_turn_only_when_it_serves_that_call_alone() {
+    let events = vec![
+        Event::user_message("Watch fares"),
+        Event::reply_started("r1", "m"),
+        job_started("r1", "j-old"),
+        finished("r1"),
+        call("c1", Vec::new()),
+        Event::reply_started("r2", "m"),
+        job_started("r2", "j-call"),
+    ];
+    let running = ["j-old".to_owned(), "j-call".to_owned()];
+    // The bot's older job is not the call's: only the turn that took the call up and its job.
+    assert_eq!(
+        stop_reach(&events, "c1", &running),
+        StopReach::Reply {
+            reply: "r2".into(),
+            jobs: vec!["j-call".into()],
+        }
+    );
+}
+
+#[test]
+fn a_stop_on_a_call_sharing_its_turn_ends_that_call_alone() {
+    // Two callers' calls in one turn: either one's Stop can't stop the other's work.
+    let shared = vec![
+        call("c1", Vec::new()),
+        Event::reply_started("r1", "m"),
+        call("c2", Vec::new()),
+    ];
+    assert_eq!(stop_reach(&shared, "c1", &[]), StopReach::Call);
+    assert_eq!(stop_reach(&shared, "c2", &[]), StopReach::Call);
+    // Nor the person's words in the same turn.
+    let with_person = vec![
+        call("c1", Vec::new()),
+        Event::reply_started("r1", "m"),
+        Event::user_message("Also check trains"),
+    ];
+    assert_eq!(stop_reach(&with_person, "c1", &[]), StopReach::Call);
+    // A call no turn took up yet ends alone too.
+    assert_eq!(
+        stop_reach(&[call("c3", Vec::new())], "c3", &[]),
+        StopReach::Call
+    );
+}
+
+#[test]
+fn a_call_its_caller_stopped_alone_reads_stopped_and_the_turn_ending_later_doesnt_change_it() {
+    let events = vec![
+        call("c1", Vec::new()),
+        Event::reply_started("r1", "m"),
+        call("c2", Vec::new()),
+        Event::Known(Known::ContractEnded {
+            call: "c1".into(),
+            ending: Ending::Stopped {
+                why: "Its caller stopped it.".into(),
+            },
+        }),
+        returned("c2"),
+        finished("r1"),
+    ];
+    assert!(matches!(
+        ended(&events, "c1"),
+        Some(Outcome::Stopped { .. })
+    ));
+    assert!(matches!(
+        ended(&events, "c2"),
+        Some(Outcome::Returned { .. })
+    ));
+    // Once ended, a Stop reaches nothing.
+    assert_eq!(stop_reach(&events[..4], "c1", &[]), StopReach::Ended);
+}

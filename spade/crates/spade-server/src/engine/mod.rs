@@ -5,6 +5,7 @@
 mod adopt;
 mod agents;
 mod app_forms;
+mod app_pages;
 mod apps;
 mod archive;
 mod autonomy;
@@ -39,8 +40,12 @@ mod knowledge_api;
 mod learned;
 mod ledger;
 mod local;
+mod local_probes;
+mod outside_admit;
+mod replays;
 pub(crate) use app_forms::Given;
 pub(crate) use ledger::Admission;
+mod code;
 mod made;
 mod maintenance;
 mod media;
@@ -67,12 +72,14 @@ mod routing;
 mod running;
 mod search;
 mod security;
+pub use code::CodeCall;
 mod self_edit;
 mod services;
 mod speech;
 mod style;
 mod suggest;
 mod terms;
+mod terms_notices;
 mod thread_asks;
 mod trim;
 mod try_again;
@@ -110,10 +117,16 @@ pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use outside_admit::{
+    WAITS_AT_ONCE as OUTSIDE_WAITS_AT_ONCE, WAITS_PER_GRANT as OUTSIDE_WAITS_PER_GRANT,
+    WaitSlot as OutsideWaitSlot,
+};
 pub use panels::{PanelError, PanelView};
 pub use reach::ReachError;
+pub use replays::{ReplayError, ReplayInput};
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
 pub use suggest::{MarketBots, MarketFuture};
+pub use terms_notices::{Applied, Notices, verify_notices};
 pub use thread_asks::FROM_ACE;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
@@ -207,9 +220,9 @@ pub struct Engine {
     /// What a test runs right before a call is screened.
     screening_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     live: Mutex<HashMap<String, Arc<Live>>>,
-    /// The outside MCP requests making a call now, by grant and request id, to their call
-    /// (ADR 0202 §3): a legacy client's cancel names its request.
-    outside_requests: Mutex<HashMap<String, String>>,
+    /// What outside callers hold at once (ADR 0202 §3, §6): their MCP requests' calls, their
+    /// waits and the stamps' nonces (`outside_admit`).
+    outside: outside_admit::Shared,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
     record_lock: Mutex<()>,
@@ -266,6 +279,8 @@ pub struct Engine {
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
     /// The person's apps (ADR 0131, `apps`), once the server has set them.
     apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
+    /// The person's outside A2A agents (ADR 0202 §5), once the server has set them.
+    outside_agents: std::sync::OnceLock<Arc<crate::a2a::OutsideAgents>>,
     /// The market as suggestions read it (ADR 0200 §8, `suggest`), once the server has set it.
     market: std::sync::OnceLock<Arc<dyn suggest::MarketBots>>,
     /// Held while the open package suggestions are read and written.
@@ -298,8 +313,12 @@ pub struct Engine {
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
     /// Bots' sandbox, network policies and grants (ADR 0167), once the server has set them.
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
+    /// The package code this Spade runs (ADR 0203), once set up.
+    code: std::sync::OnceLock<Arc<crate::code::Code>>,
     /// The local model servers Spade looks for; Ollama's and LM Studio's defaults when unset.
     local_servers: Mutex<Option<Vec<crate::local_models::LocalServer>>>,
+    /// Local models whose checks run now (ADR 0205 §3, `local_probes`).
+    probing: local_probes::Probing,
     /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
@@ -394,6 +413,8 @@ impl Engine {
         let data = setup.images.dir().parent().unwrap_or(setup.images.dir());
         let media = Arc::new(crate::media::Media::open(data));
         let decisions = classify::Decisions::new(data.join("classifier"));
+        // Stamps ace signed before now can't be checked against nonces this run saw.
+        let started_ms = setup.clock.now_ms();
         let engine = Arc::new(Self {
             store: setup.store,
             models: setup.models,
@@ -412,7 +433,7 @@ impl Engine {
                 u64::try_from(calls::CLASSIFY_TIME.as_millis()).unwrap_or(u64::MAX),
             ),
             live: Mutex::default(),
-            outside_requests: Mutex::default(),
+            outside: outside_admit::Shared::new(started_ms),
             record_lock: Mutex::default(),
             app_forms: app_forms::Open::default(),
             package_busy: crate::packages::Changing::default(),
@@ -437,6 +458,7 @@ impl Engine {
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             apps: std::sync::OnceLock::new(),
+            outside_agents: std::sync::OnceLock::new(),
             market: std::sync::OnceLock::new(),
             suggest_lock: Mutex::default(),
             plugins: std::sync::OnceLock::new(),
@@ -448,7 +470,9 @@ impl Engine {
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
+            code: std::sync::OnceLock::new(),
             local_servers: Mutex::new(None),
+            probing: local_probes::Probing::default(),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
             reach: reach::Shared::default(),
@@ -464,6 +488,8 @@ impl Engine {
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
+        // The shipped terms record, tightened by the newest signed notices (ADR 0205 §4).
+        engine.reload_terms_notices();
         // Levels Spade no longer has move forward to the auto-review (ADR 0163); then Spade exists
         // from the first answer, whatever setup does later.
         engine.retire_levels()?;
@@ -635,6 +661,7 @@ impl Engine {
                 .filter(|called| called.machine.is_some())
                 .map(|called| called.call.clone())
                 .collect(),
+            code: spade_core::running::code_in(events.iter()),
         };
         self.activity
             .lock()

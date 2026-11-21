@@ -3788,6 +3788,7 @@ version = "0.1.0"
 dependencies = [
  "jiff",
  "percent-encoding",
+ "regex",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -3968,6 +3969,7 @@ dependencies = [
  "spade-server",
  "spade-store",
  "spade-testkit",
+ "spade-wasm",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

@@ -2,9 +2,10 @@ import type { MarketReviewBody } from "@ace/protocol/marketplace";
 import { Switch } from "@/components/ui/switch.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { effectStartsOn, updateSentences } from "@ace/ui-core/spade-chat";
-import { decidedEachTime, effectWords, triggerWhen } from "./market-package-words.ts";
+import { codeKey, decidedEachTime, effectWords, triggerWhen } from "./market-package-words.ts";
 import { needCatalogue } from "./market-model.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
+import { ReplayLine } from "@/features/spade/index.ts";
 
 /*
  * A bot's part of its review (ADR 0168 §8, ADR 0200 §3.4, §6.1). For an install: what it may do,
@@ -12,8 +13,8 @@ import { AppMark } from "@/components/ui/app-mark.tsx";
  * a send, a payment or an access change still comes to the person each time; from anyone but ace
  * only its declared hosts start on, `effectStartsOn`); its apps as
  * switches; its routines and other triggers, paused unless Start its routines is on. For an
- * update or a rollback: what changes, what stays because the person changed it, and what it asks
- * for that starts off.
+ * update or a rollback: what changes, what stays because the person changed it, what it asks
+ * for that starts off, and how the bot's kept runs replay on the new version (ADR 0204 §2).
  */
 
 type Recipe = Extract<MarketReviewBody, { type: "spade-bot" }>;
@@ -50,6 +51,12 @@ export function UpdateChoices(props: { recipe: Recipe }) {
       <Sentences label="What changes" lines={words.changes} />
       <Sentences label="Stays because you changed it" lines={words.kept} />
       <Sentences label="Asks for more" lines={words.more} />
+      {update.replay && update.replay.cases.length > 0 && (
+        <>
+          <Head>Your kept runs</Head>
+          <ReplayLine replay={update.replay} />
+        </>
+      )}
     </>
   );
 }
@@ -98,6 +105,40 @@ function EffectChoices(props: {
   );
 }
 
+/**
+ * Its own code (ADR 0203 §5): each component a row with the sentence its binary's imports make,
+ * why it is there, and a switch that starts on; one turned off doesn't run.
+ */
+function CodeChoices(props: {
+  recipe: Recipe;
+  effects: Readonly<Record<string, boolean>>;
+  onEffects(next: (before: Record<string, boolean>) => Record<string, boolean>): void;
+}) {
+  const rows = props.recipe.code ?? [];
+  if (!rows.length) return null;
+  return (
+    <>
+      <Head>Runs its own code</Head>
+      {rows.map((row) => {
+        const key = codeKey(row.name);
+        return (
+          <div key={key} className="mk-fact-row">
+            <span className="mk-words">
+              <span className="mk-name">{row.sentence}</span>
+              <span className="mk-meta">{row.why}</span>
+            </span>
+            <Switch
+              aria-label={`Run ${row.name}`}
+              checked={props.effects[key] !== false}
+              onCheckedChange={(on) => props.onEffects((before) => ({ ...before, [key]: on }))}
+            />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 /** A recipe's or package's choices on its install review. */
 export function RecipeChoices(props: {
   recipe: Recipe;
@@ -121,12 +162,18 @@ export function RecipeChoices(props: {
   ];
   return (
     <>
+      {recipe.modelWarning && (
+        <p role="note" className="mk-withdrawn-line">
+          {recipe.modelWarning}
+        </p>
+      )}
       <EffectChoices
         recipe={recipe}
         byAce={props.byAce}
         effects={props.effects}
         onEffects={props.onEffects}
       />
+      <CodeChoices recipe={recipe} effects={props.effects} onEffects={props.onEffects} />
       {recipe.needs.length > 0 && (
         <>
           <Head>Apps</Head>

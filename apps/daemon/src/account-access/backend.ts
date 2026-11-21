@@ -1,4 +1,6 @@
 import { GrantKeySet } from "@ace/account-grant";
+import { AceAccountGrant } from "@ace/protocol/ace-account";
+import type { AceOrgHostCredentialRequest } from "@ace/protocol/ace-org";
 
 /** Why the account backend did not answer: 401 means the session is gone. */
 export class AccountBackendError extends Error {
@@ -13,8 +15,8 @@ export class AccountBackendError extends Error {
 const responseLimit = 64 * 1024;
 
 /**
- * The account backend's published grant keys (ADR 0111), and whether this machine is an
- * organization's host (ADR 0206). Everything else (sign-in, grants) goes through
+ * The account backend's published grant keys (ADR 0111), whether this machine is an
+ * organization's host, and that host's organization credential (ADR 0206). Everything else (sign-in, grants) goes through
  * `@ace/client/ace-account`, which leaves keys out to keep Ed25519 from web bundles.
  */
 export function accountBackend(options: { fetch: typeof fetch }) {
@@ -51,6 +53,29 @@ export function accountBackend(options: { fetch: typeof fetch }) {
   return {
     async keys(origin: string, signal: AbortSignal): Promise<GrantKeySet> {
       return GrantKeySet.parse(await call(`${origin}/v1/keys`, { method: "GET" }, signal));
+    },
+    /**
+     * This org host's organization credential (ADR 0206 §2.1), issued or renewed on the host
+     * key's proof alone: no bearer, since no person's session is behind it.
+     */
+    async orgHostCredential(
+      origin: string,
+      org: string,
+      hostId: string,
+      body: AceOrgHostCredentialRequest,
+      signal: AbortSignal,
+    ): Promise<AceAccountGrant> {
+      return AceAccountGrant.parse(
+        await call(
+          `${origin}/v1/orgs/${encodeURIComponent(org)}/hosts/${encodeURIComponent(hostId)}/credential`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+          signal,
+        ),
+      );
     },
     /**
      * Whether the backend holds this machine as `org`'s host (ADR 0206 §2.1): an organization's

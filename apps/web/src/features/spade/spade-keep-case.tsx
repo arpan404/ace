@@ -42,9 +42,7 @@ export function KeepCaseDialog(props: {
   return (
     <Dialog open={props.reply !== undefined} onOpenChange={(open) => !open && props.onDone()}>
       <DialogContent>
-        {reply && (
-          <KeepCaseForm key={reply} bot={props.bot} reply={reply} onDone={props.onDone} />
-        )}
+        {reply && <KeepCaseForm key={reply} bot={props.bot} reply={reply} onDone={props.onDone} />}
       </DialogContent>
     </Dialog>
   );

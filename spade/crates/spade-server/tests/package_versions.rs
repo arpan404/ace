@@ -74,6 +74,7 @@ async fn a_held_update_nothing_proves_is_never_applied_and_stays_for_the_person(
             .unwrap_or_else(|e| panic!("{e}")),
         time_zone: None,
         proof: None,
+        code: Default::default(),
     };
     Store::open(&spade.database())?.set_setting(
         &spade_store::package_held_key(&bot),

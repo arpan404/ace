@@ -205,6 +205,26 @@ export const AceOrgHostEnrollRequest = z.object({
 });
 export type AceOrgHostEnrollRequest = z.infer<typeof AceOrgHostEnrollRequest>;
 
+/**
+ * `POST /v1/orgs/{org}/hosts/{hostId}/credential` (ADR 0206 §2.1): an org host asks for its
+ * organization credential, or renews it, with its host key. The credential has no person's
+ * session behind it: a member signing out or leaving never touches it. It is issued once per
+ * enrollment, renewed only while the organization still holds the host under that enrollment,
+ * and revoked when the host is released. The answer is an `AceAccountGrant` for the
+ * organization's own principal.
+ */
+export const AceOrgHostCredentialRequest = z.object({
+  /** The relay host key the host id names (X25519, base64url). */
+  hostKey: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  /** The credential to issue or renew, chosen by the daemon and kept on its disk first. */
+  credential: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  /** When the daemon made `proof`, on its clock; the backend takes it within five minutes. */
+  at: z.number().int().positive(),
+  /** `orgHostCredentialProof` over the host id, organization, credential and `at`. */
+  proof: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+export type AceOrgHostCredentialRequest = z.infer<typeof AceOrgHostCredentialRequest>;
+
 const AuditRef = z.object({
   type: z.string().regex(/^[a-z_]{1,32}$/),
   id: z.string().min(1).max(256),

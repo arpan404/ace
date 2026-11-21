@@ -63,10 +63,56 @@ async function program(context: CommandContext): Promise<string> {
 }
 
 async function test(context: CommandContext): Promise<void> {
+  const cases = option(context.args, "cases");
+  if (cases) return testCases(context, cases);
+  if (option(context.args, "model"))
+    throw usageFailure("--model replays kept runs on a model; pass --cases BOT with it.", {
+      argument: "--model",
+    });
   const { testPackage, testLines } = await import("../bot-kit/test.ts");
   const { emit } = await import("../io.ts");
   const report = await testPackage(folderOf(context), await program(context));
   await emit(context.args, report, { human: testLines, quiet: () => [] });
+}
+
+/** `ace bot test --cases BOT [PATH]`: the bot's kept runs replayed (ADR 0204 §2). */
+async function testCases(context: CommandContext, wanted: string): Promise<void> {
+  const { testCases: replay, replayLines } = await import("../bot-kit/cases.ts");
+  const { emit } = await import("../io.ts");
+  const folder = context.args.words[0];
+  let version;
+  if (folder) {
+    const { packageJson } = await import("../bot-kit/check.ts");
+    const { panelPages } = await import("../bot-kit/dev.ts");
+    const recipe = await packageJson(folder);
+    const surfaces =
+      typeof recipe === "object" && recipe !== null && "surfaces" in recipe
+        ? recipe.surfaces
+        : undefined;
+    version = { recipe, pages: await panelPages(folder, surfaces) };
+  }
+  const yes = context.args.flags.yes === true;
+  const confirm = async (question: string, lines: readonly string[]) => {
+    for (const line of lines) process.stderr.write(`  ${line}\n`);
+    if (yes) return true;
+    if (!context.args.interactive) return false;
+    const { askConfirm } = await import("../ask.ts");
+    return askConfirm(question, false);
+  };
+  const options = { version, model: option(context.args, "model"), confirm };
+  const show = (exchange: Parameters<typeof replay>[0]) =>
+    replay(exchange, wanted, options).then((report) =>
+      emit(context.args, report, { human: replayLines, quiet: () => [] }),
+    );
+  const direct = option(context.args, "spade");
+  if (direct) {
+    const { directExchange } = await import("../bot-kit/dev.ts");
+    return show(await directExchange(direct));
+  }
+  const { spadeExchanger } = await import("../spade-call.ts");
+  await withSession(context, context.args, async ({ client, signal }) =>
+    show(await spadeExchanger(client, signal)),
+  );
 }
 
 async function dev(context: CommandContext): Promise<void> {

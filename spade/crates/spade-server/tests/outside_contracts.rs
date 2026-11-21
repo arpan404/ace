@@ -11,199 +11,18 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::Router;
-use axum::body::Bytes;
-use axum::extract::State;
-use axum::http::{HeaderMap, Method, StatusCode};
-use axum::response::{IntoResponse, Response};
-use axum::routing::any;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use spade_core::contract::Outcome;
 use spade_core::tools::Risk;
 use spade_mcp::serve::{KEY_META, MODERN, UNTRUSTED_META};
-use spade_mcp::{McpClient, McpConfig, Secret};
 use spade_server::engine::{OutsideCallState, OutsideCaller};
 use spade_server::outside::a2a::EXTENSION;
-use spade_server::teams::proof::inbox_proof;
 use spade_testkit::Script;
-use support::contracts::{World, input, install, of_type, returns, world_in};
-use support::{FakeTool, Options, Result, TOKEN};
-
-/// ace's local token in its home, which signs what the daemon forwards.
-const DAEMON_TOKEN: &str = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
-/// Two grants with `spade-contracts`, each with its bearer and its client's name as the daemon
-/// stamps it (percent-encoded), as ace keeps them.
-const GRANTS: [(&str, &str, &str); 2] = [
-    ("bearer-one", "g_one", "Claude Code"),
-    ("bearer-two", "g_two", "Other%20agent"),
-];
-const TOOL: &str = "flight_watcher__cheapest_fare";
-
-fn fare() -> Value {
-    json!({ "fare": 182, "currency": "USD" })
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
-}
-
-/// The id Spade gives grant `grant`'s call with key `key`.
-fn call_of(grant: &str, key: &str) -> String {
-    OutsideCaller {
-        grant: grant.to_owned(),
-        name: String::new(),
-    }
-    .call_id(key)
-}
-
-/// The headers ace's daemon signs a forwarded request with, for `host` named `name`.
-fn stamp(host: &str, name: &str, body: &[u8], key: &str) -> Vec<(&'static str, String)> {
-    let time = now_ms();
-    vec![
-        ("x-ace-from-host", host.to_owned()),
-        ("x-ace-from-name", name.to_owned()),
-        ("x-ace-inbox-time", time.to_string()),
-        (
-            "x-ace-inbox-proof",
-            inbox_proof(key, time, host, name, body).unwrap_or_default(),
-        ),
-    ]
-}
-
-/// The stand-in daemon: `/mcp`, `/a2a` and `/card` for a client holding a grant's bearer.
-async fn forward(
-    State(spade): State<String>,
-    method: Method,
-    uri: axum::http::Uri,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Response {
-    let bearer = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "));
-    let Some((_, grant, name)) = GRANTS.iter().find(|(b, ..)| Some(*b) == bearer) else {
-        return StatusCode::UNAUTHORIZED.into_response();
-    };
-    let path = match (method.as_str(), uri.path()) {
-        ("POST", "/mcp") => "/v1/outside/mcp",
-        ("POST", "/a2a") => "/v1/outside/a2a",
-        ("GET", "/card") => "/v1/outside/card",
-        _ => return StatusCode::METHOD_NOT_ALLOWED.into_response(),
-    };
-    let mut request = reqwest::Client::new()
-        .request(method, format!("{spade}{path}"))
-        .bearer_auth(TOKEN);
-    for (header, value) in stamp(&format!("ace:outside:{grant}"), name, &body, DAEMON_TOKEN) {
-        request = request.header(header, value);
-    }
-    for mirrored in [
-        "mcp-protocol-version",
-        "mcp-method",
-        "mcp-name",
-        "a2a-version",
-        "content-type",
-    ] {
-        if let Some(value) = headers.get(mirrored) {
-            request = request.header(mirrored, value.clone());
-        }
-    }
-    let Ok(answer) = request.body(body).send().await else {
-        return StatusCode::BAD_GATEWAY.into_response();
-    };
-    let status = StatusCode::from_u16(answer.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-    let kind = answer
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/json")
-        .to_owned();
-    let bytes = answer.bytes().await.unwrap_or_default();
-    (status, [("content-type", kind)], bytes).into_response()
-}
-
-struct Daemon {
-    url: String,
-}
-
-async fn daemon(spade: &str) -> Result<Daemon> {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let url = format!("http://{}", listener.local_addr()?);
-    let app = Router::new()
-        .fallback(any(forward))
-        .with_state(spade.to_owned());
-    tokio::spawn(async move { axum::serve(listener, app).await });
-    Ok(Daemon { url })
-}
-
-/// Flight watcher and a Trip planner that never calls, on a Spade beside ace's home, with the
-/// stand-in daemon in front. `watcher` is given nothing: the call ids are the clients'.
-async fn world(
-    watcher: Vec<Script>,
-    tools: Vec<Arc<dyn spade_server::tools::Tool>>,
-) -> Result<(World, Daemon)> {
-    let home = tempfile::tempdir()?.keep();
-    std::fs::write(home.join("daemon-token"), format!("{DAEMON_TOKEN}\n"))?;
-    let options = Options {
-        ace_home: Some(home),
-        ..Options::default()
-    };
-    let world = world_in(options, install(), Vec::new(), |_| watcher, tools).await?;
-    let daemon = daemon(&world.spade.base).await?;
-    Ok((world, daemon))
-}
-
-fn mcp_client(daemon: &Daemon, bearer: &str) -> McpClient {
-    McpClient::new(
-        McpConfig::new(format!("{}/mcp", daemon.url), Duration::from_secs(30))
-            .bearer(Secret::new(bearer.to_owned()))
-            .direct(),
-    )
-}
-
-fn keyed(key: &str) -> Map<String, Value> {
-    let mut meta = Map::new();
-    meta.insert(KEY_META.to_owned(), json!(key));
-    meta
-}
-
-/// Each call delivered to the watcher, as its conversation holds it.
-fn deliveries(events: &[Value]) -> Vec<&Value> {
-    events
-        .iter()
-        .filter(|e| e["type"] == "user_message" && e["from_agent"]["contract"].is_object())
-        .collect()
-}
-
-async fn a2a(
-    daemon: &Daemon,
-    bearer: &str,
-    version: Option<&str>,
-    method: &str,
-    params: Value,
-) -> Result<Value> {
-    let mut request = reqwest::Client::new()
-        .post(format!("{}/a2a", daemon.url))
-        .bearer_auth(bearer)
-        .json(&json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }));
-    if let Some(version) = version {
-        request = request.header("A2A-Version", version);
-    }
-    Ok(request.send().await?.json().await?)
-}
-
-fn message(id: &str, skill: &str, data: Value) -> Value {
-    json!({
-        "message": {
-            "messageId": id,
-            "role": "ROLE_USER",
-            "parts": [{ "data": data, "mediaType": "application/json" }],
-            "metadata": { EXTENSION: { "skill": skill } },
-        }
-    })
-}
+use support::contracts::{input, of_type, returns};
+use support::outside::{
+    DAEMON_TOKEN, TOOL, a2a, call_of, deliveries, fare, keyed, mcp_client, message, stamp, world,
+};
+use support::{FakeTool, Result, TOKEN};
 
 #[tokio::test]
 async fn an_mcp_client_calls_a_contract_through_ace_and_gets_its_typed_output_once() -> Result {
@@ -268,9 +87,33 @@ async fn a_call_spade_cant_trace_to_ace_is_refused_and_reaches_no_bot() -> Resul
     // Spade's own bearer alone, a stamp signed with another key, and a thread ask's sender.
     for stamped in [
         Vec::new(),
-        stamp("ace:outside:g_one", "Claude Code", &body, &"b2".repeat(32)),
-        stamp("ace:thread", "ace", &body, DAEMON_TOKEN),
-        stamp("ace:outside:", "Claude Code", &body, DAEMON_TOKEN),
+        stamp(
+            "ace:outside:g_one",
+            "Claude Code",
+            "POST",
+            "/v1/outside/mcp",
+            &[],
+            &body,
+            &"b2".repeat(32),
+        ),
+        stamp(
+            "ace:thread",
+            "ace",
+            "POST",
+            "/v1/outside/mcp",
+            &[],
+            &body,
+            DAEMON_TOKEN,
+        ),
+        stamp(
+            "ace:outside:",
+            "Claude Code",
+            "POST",
+            "/v1/outside/mcp",
+            &[],
+            &body,
+            DAEMON_TOKEN,
+        ),
     ] {
         assert_eq!(post(stamped).await?.status().as_u16(), 403);
     }

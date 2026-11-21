@@ -95,6 +95,8 @@ export const SignerPending = z.object({
   verified: Signed.optional(),
   /** The official list as last signed. */
   official: Signed.optional(),
+  /** The terms notices as last signed (ADR 0205 §4). */
+  notices: Signed.optional(),
 });
 export type SignerPending = z.infer<typeof SignerPending>;
 
@@ -118,6 +120,8 @@ export const CollectionsUpload = z.object({ collections: z.array(MarketCollectio
 
 /** `PUT /v1/signer/official`: the whole signed official list (ADR 0174 §14). */
 export const SignedOfficialUpload = z.object({ official: Signed, basedOn: BasedOn });
+/** `PUT /v1/signer/notices`: the whole signed list of terms notices (ADR 0205 §4). */
+export const SignedNoticesUpload = z.object({ notices: Signed, basedOn: BasedOn });
 
 /* ---------------------------------------------------------------- the scan's context */
 

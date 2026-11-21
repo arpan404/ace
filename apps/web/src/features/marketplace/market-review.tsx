@@ -132,7 +132,7 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
   );
   const [startRoutines, setStartRoutines] = useState(false);
   const [bots, setBots] = useState<readonly string[]>([]);
-  const [failed, setFailed] = useState<ReviewFailure>();
+  const [failed, setFailed] = useState<{ failure: ReviewFailure; retry(): void }>();
   const recipe = body.type === "spade-bot" ? body : undefined;
   const moving = recipe?.update;
   const missing =
@@ -142,14 +142,14 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
     review.blocked ??
     (missing.length ? `${review.title} can't work without ${missing.join(" and ")}.` : undefined);
   const run = () => {
-    setFailed(undefined);
-    install.mutate(
-      {
-        review,
-        // A package's effect switches; a version 2 recipe declares none.
-        choices: { bots: [...bots], needs, startRoutines, ...(recipe?.linked ? { effects } : {}) },
-      },
-      {
+    const input = {
+      review,
+      // A package's effect switches; a version 2 recipe declares none.
+      choices: { bots: [...bots], needs, startRoutines, ...(recipe?.linked ? { effects } : {}) },
+    };
+    const send = () => {
+      setFailed(undefined);
+      install.mutate(input, {
         onSuccess: (answer) => {
           const bot = review.type === "spade-bot" ? answer.installed?.target : undefined;
           if (bot) {
@@ -157,9 +157,10 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
             void navigate({ to: "/spade/$agentId", params: { agentId: bot } });
           } else nav.back();
         },
-        onError: (error) => setFailed(reviewFailure(error)),
-      },
-    );
+        onError: (error) => setFailed({ failure: reviewFailure(error), retry: send }),
+      });
+    };
+    send();
   };
   const who = publisherName(review);
   const lines = [
@@ -247,7 +248,7 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
       <ShowFiles items={items} hash={review.hash}>
         {review.type === "suit" && <ReviewTexts items={items} />}
       </ShowFiles>
-      <ReviewFoot stuck={stuck} failure={failed} onSignedIn={run}>
+      <ReviewFoot stuck={stuck} failure={failed?.failure} onSignedIn={() => failed?.retry()}>
         <Button
           variant="ghost"
           size="lg"

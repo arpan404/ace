@@ -1,6 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import { spadeExchange, type SpadeExchange } from "@ace/client/spade-http";
 import { SpadeDaemonLive, type SpadeLiveEnd, type SpadeLiveSink } from "@ace/client/spade-live";
+import { isStandingRefusal, withStanding } from "@/boot/person-standing.ts";
 import { desktopSpade, type DesktopSpade, type DirectAnswer } from "./desktop-spade.ts";
 import {
   afterLook,
@@ -105,11 +106,17 @@ export class SpadeTransport {
       const reply = await this.direct(exchange, options.signal);
       if (reply) return reply;
     }
-    const answer = await spadeExchange(this.client, exchange, {
-      id: this.deps.id,
-      signal: options.signal,
-      timeoutMs: options.timeoutMs,
-    });
+    const answer = await withStanding(
+      this.client,
+      () =>
+        spadeExchange(this.client, exchange, {
+          id: this.deps.id,
+          signal: options.signal,
+          timeoutMs: options.timeoutMs,
+        }),
+      (result) =>
+        result.kind === "error" && result.code === "forbidden" && isStandingRefusal(result.message),
+    );
     if (answer.kind === "error") return answer;
     const { status, contentType, body, encoding } = answer;
     return {

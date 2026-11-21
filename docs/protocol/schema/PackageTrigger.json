@@ -64,6 +64,9 @@
           "minLength": 1,
           "type": "string",
           "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+        },
+        "verify": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -92,6 +95,9 @@
           "minLength": 1,
           "type": "string",
           "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+        },
+        "verify": {
+          "type": "boolean"
         }
       },
       "required": [

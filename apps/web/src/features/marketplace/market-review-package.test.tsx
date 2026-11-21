@@ -109,6 +109,39 @@ test("a stranger's package starts with only its declared hosts on, and only what
     });
 });
 
+test("a package's own code is a row per component, on unless the person turns it off", async () => {
+  const code = [
+    {
+      name: "fares",
+      imports: ["spade:package/tools" as const, "spade:package/http" as const],
+      why: "Parses fare tables and picks the cheapest.",
+      sentence:
+        "Runs its own code: fares. It can reach api.example-fares.com and call Spade's tools as this bot.",
+    },
+    {
+      name: "dates",
+      imports: [],
+      why: "Works out dates.",
+      sentence: "Runs its own code: dates. It reaches nothing outside itself.",
+    },
+  ];
+  const { daemon } = await openApp("/chats?market=bot/flight-watcher/review", {
+    entries: [watcher({ byAce: false, body: { ...body, code } })],
+  });
+  const market = await findMarket();
+  await within(market).findByRole("switch", { name: "Run fares" });
+  expect(within(market).getByText("Runs its own code")).toBeTruthy();
+  expect(within(market).getByText(code[0]!.sentence)).toBeTruthy();
+  expect(within(market).getByText("Parses fare tables and picks the cheapest.")).toBeTruthy();
+  expect(checked(market, "Run fares")).toBe("true");
+  expect(checked(market, "Run dates")).toBe("true");
+  await userEvent.click(within(market).getByRole("switch", { name: "Run dates" }));
+  await userEvent.click(within(market).getByRole("button", { name: "Install" }));
+  await expect
+    .poll(() => daemon.marketplace.accepted[0]?.choices.effects)
+    .toMatchObject({ "code:fares": true, "code:dates": false });
+});
+
 test("a package by ace starts with what it declares on", async () => {
   await openApp("/chats?market=bot/flight-watcher/review", {
     entries: [watcher({ byAce: true, body: { ...body, effects: strong } })],
@@ -169,6 +202,60 @@ test("an update says what changes, what stays because you changed it, and what s
   // Nothing new is switched on here: no effect switches on an update.
   expect(within(market).queryByRole("switch", { name: "Publishes and posts" })).toBeNull();
   expect(within(market).getByRole("button", { name: "Update" })).toBeTruthy();
+});
+
+test("an update says how the bot's kept runs replay on the new version, and why one differs", async () => {
+  await openApp("/chats?market=bot/flight-watcher/update", {
+    entries: [
+      watcher({
+        version: "2.0.0",
+        updates: "1.0.0",
+        body: {
+          ...body,
+          update: {
+            bot: "bot_1",
+            rollback: false,
+            plan: {
+              name: "same",
+              task: "same",
+              face: "same",
+              personality: "same",
+              routines: [],
+              notes_kept: 0,
+              asks_more: [],
+              off: [],
+            },
+            asksMore: [],
+            replay: {
+              summary: "1 of 2 kept runs replay the same. 1 doesn't: see why.",
+              passed: 1,
+              failed: 1,
+              cases: [
+                { id: "case_1", given: "Check fares", passed: true, lines: [] },
+                {
+                  id: "case_2",
+                  given: "Mail my agent the fare",
+                  passed: false,
+                  lines: ["send_message was refused: Flight watcher doesn't declare sending."],
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ],
+    installed: [{ ...installed("1.0.0"), update: "2.0.0" }],
+  });
+  const market = await findMarket();
+  expect(
+    await within(market).findByText("1 of 2 kept runs replay the same. 1 doesn't: see why."),
+  ).toBeTruthy();
+  await userEvent.click(within(market).getByRole("button", { name: "See why" }));
+  const differ = within(within(market).getByRole("list", { name: "Kept runs that differ" }));
+  expect(differ.getByText("Mail my agent the fare")).toBeTruthy();
+  expect(
+    differ.getByText("send_message was refused: Flight watcher doesn't declare sending."),
+  ).toBeTruthy();
 });
 
 test("a rollback says where it goes back to, from the copy on this machine", async () => {

@@ -25,8 +25,16 @@ function seed(spade: FakeSpadeApi) {
     name: "lookup",
     content: "ORD-55821 ships Friday",
   });
-  spade.store(orders.conversation, { type: "step_finished", reply: "r1", text: "It ships Friday." });
-  spade.store(orders.conversation, { type: "reply_finished", reply: "r1", text: "It ships Friday." });
+  spade.store(orders.conversation, {
+    type: "step_finished",
+    reply: "r1",
+    text: "It ships Friday.",
+  });
+  spade.store(orders.conversation, {
+    type: "reply_finished",
+    reply: "r1",
+    text: "It ships Friday.",
+  });
 }
 
 test("a finished reply is kept as a test after a review that hides what the person marks", async () => {
@@ -43,7 +51,10 @@ test("a finished reply is kept as a test after a review that hides what the pers
 
   await userEvent.click(dialog.getByRole("radio", { name: "This was wrong" }));
   await userEvent.type(dialog.getByRole("textbox", { name: "Why" }), "Missed the date");
-  await userEvent.type(dialog.getByRole("textbox", { name: "Something else to hide" }), "ORD-55821");
+  await userEvent.type(
+    dialog.getByRole("textbox", { name: "Something else to hide" }),
+    "ORD-55821",
+  );
   await userEvent.click(dialog.getByRole("button", { name: "Hide" }));
   // The review reads again, the marked value hidden everywhere it showed.
   expect(await kept.findByText("Where is order •••?")).toBeTruthy();
@@ -73,7 +84,9 @@ test("the profile lists a bot's kept runs with Delete, and lists nothing once no
   const section = within(await screen.findByRole("region", { name: "Kept as tests" }));
   expect(section.getByText("Where is order •••?")).toBeTruthy();
   expect(
-    section.getByText(/Marked wrong · Missed the date · From Morning check\s+Answered: It ships Friday\./),
+    section.getByText(
+      /Marked wrong · Missed the date · From Morning check\s+Answered: It ships Friday\./,
+    ),
   ).toBeTruthy();
   await userEvent.click(
     section.getByRole("button", { name: "Delete the test “Where is order •••?”" }),

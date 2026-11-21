@@ -407,26 +407,27 @@ describe("a bot package's own tests", () => {
   });
 });
 
-describe("a bot package's contracts", () => {
-  /** `cheapest_fare`, its input requiring `required`. */
-  const fare = (required: string[]) => ({
-    contracts: [
-      {
-        name: "cheapest_fare",
-        summary: "The cheapest fare seen for a route this week.",
-        input: {
-          type: "object",
-          properties: {
-            from: { type: "string", maxLength: 3 },
-            to: { type: "string", maxLength: 3 },
-            month: { type: "string", maxLength: 7 },
-          },
-          required,
+/** `cheapest_fare`, its input requiring `required`. */
+const fare = (required: string[]) => ({
+  contracts: [
+    {
+      name: "cheapest_fare",
+      summary: "The cheapest fare seen for a route this week.",
+      input: {
+        type: "object",
+        properties: {
+          from: { type: "string", maxLength: 3 },
+          to: { type: "string", maxLength: 3 },
+          month: { type: "string", maxLength: 7 },
         },
-        output: { type: "object", properties: { fare: { type: "number" } }, required: ["fare"] },
+        required,
       },
-    ],
-  });
+      output: { type: "object", properties: { fare: { type: "number" } }, required: ["fare"] },
+    },
+  ],
+});
+
+describe("a bot package's contracts", () => {
   const before = samplePackage(fare(["from", "to"]));
   const signedBefore = signedVersion({
     type: "spade-bot",

@@ -1,9 +1,11 @@
 //! Spade's server: the local API ([`api`]) over the engine ([`engine`]) that runs turns.
 
+pub mod a2a;
 pub mod api;
 mod atomic;
 pub mod bot_test;
 pub mod clock;
+pub mod code;
 pub mod computer;
 pub mod config;
 pub mod conform;
@@ -19,6 +21,7 @@ pub mod packages;
 pub mod plugins;
 pub mod presets;
 pub mod proof;
+pub mod replay;
 pub mod research;
 pub mod routines;
 pub mod security;

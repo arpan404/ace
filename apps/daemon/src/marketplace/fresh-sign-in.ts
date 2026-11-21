@@ -10,8 +10,7 @@ import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
  * made) does these. Pure.
  */
 
-export const reauthSentence =
-  "This is yours to do: do it in the ace app signed in as you, or on a device you paired from it.";
+export const reauthSentence = "Confirm your identity to continue.";
 
 /**
  * The daemon's person-only operations (`personOnlyOperations`: install, turning a skill on for

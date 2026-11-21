@@ -7,12 +7,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub mod code;
 pub mod contracts;
 pub mod fleet;
 pub mod gated;
 pub mod market;
 #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 pub mod org;
+pub mod outside;
 pub mod packaged;
 pub mod plugins;
 pub mod sandbox;
@@ -544,6 +546,18 @@ impl Spade {
         Self::serve(fake, dir, tools, options).await
     }
 
+    /// Like `start`, with each streamed request (a turn's model step) taking the next of `turns`
+    /// and every plain one (a title, the check of done) answered by `plain`.
+    pub async fn start_turns(
+        turns: Vec<Script>,
+        plain: Script,
+        tools: Vec<Arc<dyn Tool>>,
+    ) -> Result<Self> {
+        let fake = FakeProvider::start_turns(turns, plain).await?;
+        let dir = Arc::new(tempfile::tempdir()?);
+        Self::serve(fake, dir, tools, Options::default()).await
+    }
+
     /// Like `start`, with tools that also come from a live `source`.
     pub async fn start_with_source(
         scripts: Vec<Script>,
@@ -685,6 +699,13 @@ impl Spade {
         } else {
             None
         };
+        // As in Spade: the person's outside A2A agents (ADR 0202 §5).
+        let outside_agents =
+            spade_server::a2a::OutsideAgents::open(Store::open(&dir.path().join("spade.sqlite"))?);
+        tools = tools.with_source(Arc::new(spade_server::a2a::tools::OutsideAgentSource::new(
+            outside_agents.clone(),
+            Store::open(&dir.path().join("spade.sqlite"))?,
+        )));
         let plugins = match &options.plugins {
             Some(daemon) => {
                 let workspaces = options.workspaces.clone().unwrap_or_else(|| {
@@ -783,6 +804,7 @@ impl Spade {
         if let Some(hub) = &connectors {
             engine.set_connector_grants(hub.clone());
         }
+        engine.set_outside_agents(outside_agents);
         if let Some(plugins) = plugins {
             engine.set_profile_source(plugins.clone());
             engine.set_plugins(plugins);

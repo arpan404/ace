@@ -183,6 +183,8 @@ pub struct Linking<'a> {
     pub transaction: Option<String>,
     pub routine_ids: BTreeMap<String, String>,
     pub notes: Vec<MadeNote>,
+    /// Its components' pins (name to sha256), their bytes kept before the bot is made.
+    pub code: BTreeMap<String, String>,
 }
 
 /// The link a bot from a version 3 package is made with, in the bot's own transaction: its
@@ -202,6 +204,7 @@ pub fn installing(manifest: &Manifest, linking: &Linking<'_>) -> Link {
         withdrawn_hashes: Vec::new(),
         pending: None,
         installing: true,
+        code: linking.code.clone(),
     }
 }
 
@@ -272,9 +275,9 @@ pub fn recover_installs(engine: &std::sync::Arc<Engine>) {
 pub fn set_switch(engine: &Engine, bot: &str, key: &str, on: bool) -> Result<Link, PackageError> {
     let _busy = engine.package_busy.hold(bot);
     let mut link = link_of(engine, bot)?;
-    if !link.manifest.effect_keys().iter().any(|k| k == key) {
+    if !link.manifest.switch_keys().iter().any(|k| k == key) {
         return Err(PackageError::Invalid(
-            "only an effect its package declares can be turned on".to_owned(),
+            "only an effect or a component its package declares can be turned on".to_owned(),
         ));
     }
     let before = link.on.clone();
@@ -285,6 +288,14 @@ pub fn set_switch(engine: &Engine, bot: &str, key: &str, on: bool) -> Result<Lin
         after.remove(key);
     }
     switches::commit(engine, bot, &mut link, &before, after)?;
+    // A component turned on or off: its bot's worker ends, and the next starts with exactly the
+    // components on (ADR 0203 §5).
+    if spade_core::package::code::run::switch_component(key).is_some()
+        && let Some(code) = engine.code()
+    {
+        code.retire(bot);
+        crate::code::warm(engine, bot);
+    }
     Ok(link)
 }
 
@@ -383,6 +394,14 @@ pub fn view(link: &Link) -> Value {
         "withdrawn": link.withdrawn.as_ref().map(|w| json!({ "reason": w.reason })),
         "updating": link.pending.as_ref().map(|p| p.package.version.clone()),
         "effects": effects,
+        // Its components (ADR 0203 §5), each with its switch and the bytes it is pinned to.
+        "code": link.manifest.code.iter().map(|c| json!({
+            "name": c.name,
+            "imports": c.imports,
+            "why": c.why,
+            "sha256": link.code.get(&c.name),
+            "on": link.on.contains(&spade_core::package::code::run::switch_key(&c.name)),
+        })).collect::<Vec<_>>(),
         "limits": link.manifest.limits,
         // Typed calls the person's other bots may make to it (ADR 0200 §7).
         "contracts": link.manifest.contracts.iter().map(|c| json!({

@@ -453,11 +453,23 @@ export class MarketplaceService {
       });
       await turnOffWithdrawn(() => this.#installPorts(), this.#store, withdrawn);
       await markUpdates(this.#store);
+      await this.#passNotices();
       this.#emit();
     })().finally(() => {
       this.#refreshing = undefined;
     });
     return this.#refreshing;
+  }
+
+  /**
+   * Hands Spade the newest terms notices this device verified (ADR 0205 §4), on every refresh:
+   * the daily one included. Spade keeps only a list newer than the one it has, so sending the
+   * same one again changes nothing; while Spade isn't running the next refresh sends it.
+   */
+  async #passNotices(): Promise<void> {
+    const signed = this.#trust.signedNotices();
+    if (signed === undefined || !this.#options.spade.ready()) return;
+    await this.#options.spade.termsNotices(signed).catch(() => {});
   }
 
   /** A stale listing is read again in the background; the answer uses what the daemon has. */

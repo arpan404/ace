@@ -34,6 +34,7 @@ fn tool(name: &str) -> Target {
 async fn bot(dir: &Path) -> (BotCode, String) {
     let place = Place {
         program: Path::new(PROGRAM).to_path_buf(),
+        args: Vec::new(),
         folder: dir.join("data/code/bot1"),
         home: dir.join("home"),
         spade_data: dir.join("data"),
@@ -316,5 +317,104 @@ async fn the_worker_refuses_to_compile_a_component_outside_spades_world() {
             .as_ref()
             .is_err_and(|why| why.contains("no file system or sockets")),
         "{refused:?}"
+    );
+}
+
+/// Runs to its end, or panics after `within`: a call that can't end would hang the test.
+async fn ends_within(running: spade_wasm::Running, answer: HostValue, within: Duration) -> Outcome {
+    let answer = Arc::new(answer);
+    tokio::time::timeout(
+        within,
+        running.finish(move |_| {
+            let answer = Arc::clone(&answer);
+            async move { Ok((*answer).clone()) }
+        }),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("the call never ended"))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_too_large_for_the_pipe_reads_failed_and_never_hangs() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    let (code, component) = bot(dir.path()).await;
+    let running = code
+        .call(&component, tool("big"), "", bounds(10_000))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let none = HostValue::Done;
+    let outcome = ends_within(running, none, Duration::from_secs(30)).await;
+    let Outcome::Failed { cut, message, .. } = &outcome else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(*cut, Cut::Trap);
+    assert!(message.contains("16 MiB"), "{message}");
+    // The worker serves on.
+    let echoed = run(&code, &component, tool("echo"), "hi", bounds(5_000)).await;
+    assert!(matches!(echoed, Outcome::Done { .. }), "{echoed:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn spades_answer_too_large_for_the_pipe_reaches_the_component_as_a_failure() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    let (code, component) = bot(dir.path()).await;
+    let running = code
+        .call(&component, tool("ask"), "fares_lookup", bounds(10_000))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let huge = HostValue::Json {
+        json: "a".repeat(17 * 1024 * 1024),
+    };
+    let outcome = ends_within(running, huge, Duration::from_secs(30)).await;
+    let Outcome::Done { output, .. } = &outcome else {
+        panic!("{outcome:?}");
+    };
+    assert!(
+        output.as_ref().is_err_and(|why| why.contains("16 MiB")),
+        "{output:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn memory_is_bounded_across_all_of_a_calls_memories() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    let (code, _) = bot(dir.path()).await;
+    let two = code
+        .add(&fixture::two_memories())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let outcome = run(&code, &two, tool("grow"), "", bounds(10_000)).await;
+    let Outcome::Failed { cut, stats, .. } = &outcome else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(*cut, Cut::Memory);
+    // The peak is both memories' together, never past the bound.
+    assert!(stats.peak_memory > 64 * 1024 * 1024, "{stats:?}");
+    assert!(stats.peak_memory <= 128 * 1024 * 1024, "{stats:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_started_outside_spades_sandbox_compiles_nothing() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    let folder = dir.path().join("code");
+    std::fs::create_dir_all(&folder).unwrap_or_else(|e| panic!("{e}"));
+    // As anyone could start it by hand: no sandbox, the network reachable.
+    let worker = spade_wasm::Worker::start(tokio::process::Command::new(PROGRAM))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let bytes = fixture::component();
+    let sha: String =
+        sha2::Digest::finalize(<sha2::Sha256 as sha2::Digest>::new_with_prefix(&bytes))
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+    let path = folder.join(format!("{sha}.wasm"));
+    std::fs::write(&path, &bytes).unwrap_or_else(|e| panic!("{e}"));
+    let loaded = worker.load(&sha, &path).await;
+    assert!(
+        loaded
+            .as_ref()
+            .is_err_and(|why| why == spade_wasm::confine::NOT_CONFINED),
+        "{loaded:?}"
     );
 }

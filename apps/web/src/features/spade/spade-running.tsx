@@ -1,6 +1,7 @@
 import { botFaceStateOf } from "@ace/ui-core/bot-face";
 import {
   spadeRunningAlertWords,
+  spadeRunningCodeWords,
   spadeRunningNetworkWords,
   spadeRunningSpendWords,
   spadeRunningUsesWords,
@@ -110,6 +111,7 @@ function RunningItem(props: {
   const facts = [
     uses,
     spent ? spadeRunningSpendWords(row.spend) : undefined,
+    spadeRunningCodeWords(row.code),
     reached ? spadeRunningNetworkWords(row.network) : undefined,
     wake,
     row.archived ? "Archived" : undefined,

@@ -47,6 +47,9 @@ pub fn observed(events: &[Value]) -> Observed {
                 if name == spade_core::card::CARD_SHOW && error {
                     seen.card_problems.push(content.clone());
                 }
+                if !error {
+                    seen.results.insert(name.clone(), content.clone());
+                }
                 match calls.iter_mut().find(|(call, _)| *call == id) {
                     Some((_, call)) if error => call.outcome = Outcome::Failed(content),
                     Some(_) => {}

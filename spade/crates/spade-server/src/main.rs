@@ -132,6 +132,15 @@ fn main() -> std::process::ExitCode {
             pipe, port, ready,
         ));
     }
+    // A bot's code worker (ADR 0203 §3): started by Spade inside the bot's sandbox, offline, it
+    // serves Spade's frames on stdin and stdout until Spade closes the pipe. Nothing else writes
+    // to stdout first.
+    if let Some(flag) = args.first()
+        && flag == spade_wasm::launch::WORKER_ARG
+    {
+        let code = spade_wasm::serve::serve(std::io::stdin().lock(), std::io::stdout());
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
     {
@@ -365,6 +374,16 @@ async fn run() -> Result<(), Failure> {
     let person_home = env(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(std::path::PathBuf::from)
         .unwrap_or_default();
+    // A bot's code runs in its own worker, inside its sandbox, offline (ADR 0203 §3): Spade's own
+    // binary, started with --code-worker.
+    let code_workers = spade_server::code::Workers {
+        program: std::env::current_exe().map_err(other)?,
+        args: vec![spade_wasm::launch::WORKER_ARG.into()],
+        home: person_home.clone(),
+        spade_data: home.dir.clone(),
+        ace_data: env("SPADE_ACE_HOME").map(std::path::PathBuf::from),
+    };
+    let code_runner = runner.clone();
     let security = spade_server::security::Security::start(spade_server::security::Setup {
         runner,
         store: Store::open(&home.database()).map_err(other)?,
@@ -517,6 +536,13 @@ async fn run() -> Result<(), Failure> {
         // An app's form mid-call becomes a card from the bot (ADR 0202 §2).
         .with_forms(bots.clone()),
     ));
+    // The person's outside A2A agents (ADR 0202 §5): each skill a tool, every call theirs.
+    let outside_agents =
+        spade_server::a2a::OutsideAgents::open(Store::open(&home.database()).map_err(other)?);
+    tools = tools.with_source(Arc::new(spade_server::a2a::tools::OutsideAgentSource::new(
+        outside_agents.clone(),
+        Store::open(&home.database()).map_err(other)?,
+    )));
     // The person's plugins (ADR 0151), read from ace: rules, hooks and local MCP servers.
     let plugins = match &ace {
         Some(link) => {
@@ -537,6 +563,10 @@ async fn run() -> Result<(), Failure> {
         None => None,
     };
 
+    // Each linked bot's components' tools (ADR 0203 §2).
+    tools = tools.with_source(Arc::new(spade_server::code::tools::CodeTools::new(
+        bots.clone(),
+    )));
     let engine = Engine::open(Setup {
         store: Store::open(&home.database()).map_err(other)?,
         models,
@@ -569,8 +599,18 @@ async fn run() -> Result<(), Failure> {
         });
     }
     engine.set_security(security.clone());
+    engine.set_code(spade_server::code::Code::new(
+        &home.dir.join("code"),
+        spade_server::code::sandboxed(code_runner, code_workers),
+        Arc::new(spade_server::code::http::Proxied {
+            security: security.clone(),
+        }),
+    ));
+    // Bytes no version names any more, and folders of bots gone, before any call.
+    spade_server::code::collect_unused(&engine);
     // Workers get connectors only from their makers' (ADR 0161).
     engine.set_connector_grants(connectors.clone());
+    engine.set_outside_agents(outside_agents);
     if let Some(plugins) = &plugins {
         engine.set_plugins(plugins.clone());
         // Plugin agents are helper profiles of the bots allowed their plugins.

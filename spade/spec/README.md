@@ -76,7 +76,9 @@ both.
 | [`conformance/contracts/manifests.json`](conformance/contracts/manifests.json) | [`contracts`](contracts.md) | 18 |
 | [`conformance/surfaces/manifests.json`](conformance/surfaces/manifests.json) | [`surfaces`](surfaces.md) | 16 |
 | [`conformance/code/manifests.json`](conformance/code/manifests.json) | [`code`](code.md) | 19 |
+| [`conformance/package/checks.json`](conformance/package/checks.json) | [`package`](package.md) | 20 |
 | [`conformance/contracts/schemas.json`](conformance/contracts/schemas.json) | [`contracts`](contracts.md) | 11 |
+| [`conformance/package/check-rules.json`](conformance/package/check-rules.json) | [`package`](package.md) | 21 |
 | [`conformance/runtime/packages.json`](conformance/runtime/packages.json) | [`runtime`](runtime.md) | 10 |
 | [`conformance/runtime/scenarios.json`](conformance/runtime/scenarios.json) | [`runtime`](runtime.md) | 3 |
 | [`conformance/surfaces/panels.json`](conformance/surfaces/panels.json) | [`surfaces`](surfaces.md) | 6 |

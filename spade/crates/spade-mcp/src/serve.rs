@@ -104,6 +104,9 @@ pub enum Called {
     Failed(String),
     /// No tool by that name is offered to this caller.
     NoSuchTool(String),
+    /// A request with the same id is still running: JSON-RPC ids are unique among a client's
+    /// requests in flight, and a cancellation names one by its id.
+    DuplicateId,
 }
 
 /// Who answers, for `serverInfo`.
@@ -402,6 +405,13 @@ pub fn called(message: &Message, server: Server<'_>, outcome: &Called) -> Answer
             message.id.as_ref(),
             code::INVALID_PARAMS,
             &format!("Unknown tool: {name}"),
+            None,
+        ),
+        Called::DuplicateId => error(
+            200,
+            message.id.as_ref(),
+            code::INVALID_REQUEST,
+            "A request with this id is still running; give each request its own id.",
             None,
         ),
     }
