@@ -13,15 +13,13 @@ import type { FromMedia } from "./wire.ts";
 
 const built: RouteCapabilities = {
   ingest: ["tab-pictures"],
-  recordings: false,
-  stills: false,
   delivery: false,
 };
 const settings: MediaSettings = {
   encode: "auto",
   delivery: "auto",
-  recordings: "legacy",
-  stills: "legacy",
+  recordings: "auto",
+  stills: "auto",
 };
 
 const routes = () => mediaRoutes(settings, "healthy", built);
@@ -57,7 +55,7 @@ function world() {
     kind: "tab-pictures",
     origin: { kind: "tab-pictures" } as IngestProducer["origin"],
     epoch: () => 0,
-    consumers: { record: () => {}, still: () => {} },
+    consumers: { deliver: () => {} },
     point: () => Promise.resolve(),
     keyframe: () => {},
   };

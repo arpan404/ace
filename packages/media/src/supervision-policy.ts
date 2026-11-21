@@ -2,11 +2,15 @@ import type { ToMedia } from "./wire.ts";
 
 /** The supervision rules of docs/media/plan.md ("Supervision"), as pure values and functions. */
 
+type WireSettings = Extract<ToMedia, { type: "init" }>["settings"];
 /**
- * The settings ace-media is started with. `delivery` is only ever `auto`: the daemon has no
- * deliverer of its own (X3). The wire still names `legacy`, so an older ace-media parses it.
+ * The daemon's media settings. Recordings and stills are always ace-media's (X1), and so is
+ * delivery (X3): the wire keeps their `legacy` value for older binaries, but the daemon never
+ * sends it. Only `encode` still chooses a path.
  */
-export type MediaSettings = Omit<Extract<ToMedia, { type: "init" }>["settings"], "delivery"> & {
+export type MediaSettings = Omit<WireSettings, "recordings" | "stills" | "delivery"> & {
+  recordings: "auto";
+  stills: "auto";
   delivery: "auto";
 };
 export type MediaHealth = "healthy" | "restarting" | "unavailable";
@@ -40,14 +44,11 @@ export function crashLoop(failures: readonly number[], now: number) {
   return { recent, looping: recent.length >= supervisionTimings.crashLimit };
 }
 
-/** The setting gate: ace-media is only ever started while some setting asks for it. */
-export function mediaWanted(settings: MediaSettings): boolean {
-  return Object.values(settings).some((value) => value === "auto");
-}
-
-export const legacyMediaSettings: MediaSettings = {
-  recordings: "legacy",
-  stills: "legacy",
+/** The settings a daemon starts with: live video on its own paths, recordings and stills in
+ * ace-media. */
+export const defaultMediaSettings: MediaSettings = {
+  recordings: "auto",
+  stills: "auto",
   encode: "legacy",
   delivery: "auto",
 };

@@ -5,8 +5,7 @@ const cleanup: Cleanup = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
-const fixture = (options: { ffmpeg?: boolean; resetAtControl?: boolean } = {}) =>
-  scrcpyFixture(cleanup, options);
+const fixture = (options: { resetAtControl?: boolean } = {}) => scrcpyFixture(cleanup, options);
 it("the live view is the emulator's own H.264, and every keyframe can start a decoder", async () => {
   const { frames, commands } = await fixture();
   await until(() => (frames.length >= 2 ? true : undefined));
@@ -22,7 +21,7 @@ it("the live view is the emulator's own H.264, and every keyframe can start a de
   expect(key?.payload).toEqual(Buffer.concat([sps, nal(0x65, 1)]));
   expect(delta?.header).toMatchObject({ codec: "h264", keyframe: false });
   expect(delta?.payload).toEqual(nal(0x41, 2));
-  // Pushed and started through one tunnel; no screenrecord and no ffmpeg anywhere.
+  // Pushed and started through one tunnel; no screenrecord anywhere.
   expect(commands.some((line) => line.startsWith("-s emulator-5554 push"))).toBe(true);
   expect(commands.some((line) => line.includes("screenrecord"))).toBe(false);
 });
@@ -136,7 +135,7 @@ it("a viewer's keyframe request resets the device encoder once the stream is run
   );
 });
 
-it("without ffmpeg, a request for still images keeps the H.264 view rather than going dark", async () => {
+it("a request for still images keeps the H.264 view, which agents' stills never decode", async () => {
   const { capture } = await fixture();
   await expect(
     capture.configure?.({
@@ -147,30 +146,6 @@ it("without ffmpeg, a request for still images keeps the H.264 view rather than 
       bitrate: 4_000_000,
     }),
   ).resolves.toEqual({ codec: "h264" });
-});
-
-it("a device stopped while it switches to still images leaves no ffmpeg running", async () => {
-  const { capture, ffmpegPids } = await fixture({ ffmpeg: true });
-  const switching = capture.configure?.({
-    codec: "jpeg",
-    maxWidth: 1920,
-    maxHeight: 2160,
-    fps: 60,
-    bitrate: 4_000_000,
-  });
-  await capture.stop();
-  await switching?.catch(() => {});
-  // Give a late decoder time to start, then check none outlived the device.
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  const running = (await ffmpegPids()).filter((pid) => {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  expect(running).toEqual([]);
 });
 
 it("the view fails when the emulator side of the stream goes away", async () => {

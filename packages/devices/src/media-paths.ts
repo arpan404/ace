@@ -135,7 +135,7 @@ export class DeviceVideoPaths {
       origin: options.origin,
       deviceId: options.deviceId,
       epoch: () => 0,
-      consumers: { record: unit, still: unit },
+      consumers: { deliver: unit },
       point: (address) => this.#point(address),
       keyframe: () => options.keyframe(),
       pathEnded: (path, interrupted) => {

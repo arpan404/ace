@@ -141,7 +141,6 @@ export class DevicesService {
         !session.startup &&
         !session.stopping &&
         !session.recording &&
-        !session.recordingOpening &&
         !session.recordingClosing &&
         !session.completed &&
         !session.logs.running &&

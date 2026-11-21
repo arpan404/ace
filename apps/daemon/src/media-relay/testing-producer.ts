@@ -54,7 +54,7 @@ function producer(
   return {
     ...ids,
     epoch: () => 0,
-    consumers: { record: () => {}, still: () => {} },
+    consumers: { deliver: () => {} },
     keyframe: () => {},
     stop,
     point: (address) => {

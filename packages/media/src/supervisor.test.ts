@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeEgress, encodeEgress } from "./frame.ts";
-import {
-  legacyMediaSettings,
-  mediaBinaryPath,
-  MediaSupervisor,
-  restartDelay,
-} from "./supervisor.ts";
+import { mediaBinaryPath, MediaSupervisor, restartDelay } from "./supervisor.ts";
 import { harness } from "./supervisor-test-support.ts";
 import type { ToMedia } from "./wire.ts";
 
@@ -60,16 +55,18 @@ async function running(overrides: Parameters<typeof harness>[0] = {}) {
   return { ...h, supervisor, release };
 }
 
-describe("MediaSupervisor", () => {
-  it("starts on a need with every other media setting legacy: only ace-media delivers live views", async () => {
-    const h = harness({ settings: () => legacyMediaSettings });
-    const supervisor = new MediaSupervisor(h.options);
-    expect(supervisor.snapshot().phase).toBe("idle");
-    supervisor.need();
-    await h.clock.advance(0);
-    expect(h.host.children).toHaveLength(1);
-  });
+/** A control frame of `json` with no payload, as any peer writes it. */
+function rawControl(json: string): Uint8Array {
+  const body = new TextEncoder().encode(json);
+  const bytes = new Uint8Array(8 + body.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 4 + body.length);
+  view.setUint32(4, body.length);
+  bytes.set(body, 8);
+  return bytes;
+}
 
+describe("MediaSupervisor", () => {
   it("starts on first need, authenticates both lanes with init's secret, then listens and replays", async () => {
     const h = harness();
     const supervisor = new MediaSupervisor(h.options);
@@ -95,6 +92,18 @@ describe("MediaSupervisor", () => {
     expect(h.events.replays).toBe(1);
     expect(supervisor.health()).toBe("healthy");
     expect(supervisor.capabilities()?.[0]?.codec).toBe("avc1.640028");
+  });
+
+  it("skips a newer ace-media's message type instead of killing it, and still kills on a malformed known one", async () => {
+    const { host, events, clock } = await running();
+    host.last.stdout.emit(rawControl(JSON.stringify({ type: "source.someday", source: "s1" })));
+    await clock.advance(0);
+    expect(host.last.killed).toBe(false);
+    expect(events.messages).toEqual([]);
+    host.last.stdout.emit(rawControl(JSON.stringify({ type: "source.status", source: "s1" })));
+    await clock.advance(0);
+    expect(host.last.killed).toBe(true);
+    expect(events.exits[0]).toMatchObject({ cause: "protocol" });
   });
 
   it("treats capabilities.changed before ready as a protocol failure and never forwards it", async () => {

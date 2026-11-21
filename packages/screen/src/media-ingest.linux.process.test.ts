@@ -76,8 +76,8 @@ it.runIf(runs)(
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "auto",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     };
     const producers = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
@@ -121,11 +121,10 @@ it.runIf(runs)(
               producer.pathEnded?.(path, interrupted);
             },
             consumers: {
-              record: (unit) => {
+              deliver: (unit) => {
                 counted(unit);
-                producer.consumers.record(unit);
+                producer.consumers.deliver(unit);
               },
-              still: producer.consumers.still,
             },
           }),
       },

@@ -43,8 +43,8 @@ it.runIf(!!binary)(
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "auto",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     };
     const runtime = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
@@ -61,7 +61,7 @@ it.runIf(!!binary)(
       id: randomUUID,
       listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
       log: () => {},
-      capabilities: { ingest: ["scrcpy"], recordings: false, stills: false, delivery: false },
+      capabilities: { ingest: ["scrcpy"], delivery: false },
     });
     onTestFinished(() => runtime.dispose());
 
@@ -77,10 +77,10 @@ it.runIf(!!binary)(
             ...producer,
             consumers: {
               ...producer.consumers,
-              record: (unit) => {
+              deliver: (unit) => {
                 fromEgress = true;
                 try {
-                  producer.consumers.record(unit);
+                  producer.consumers.deliver(unit);
                 } finally {
                   fromEgress = false;
                 }

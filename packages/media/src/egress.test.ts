@@ -25,32 +25,26 @@ function frame(mark: number, encode = 0): MediaFrame {
 }
 
 function consumers() {
-  const got = {
-    record: [] as EgressUnit[],
-    still: [] as EgressUnit[],
-  };
-  const sinks: LegacyConsumers = {
-    record: (unit) => void got.record.push(unit),
-    still: (unit) => void got.still.push(unit),
-  };
+  const got = { deliver: [] as EgressUnit[] };
+  const sinks: LegacyConsumers = { deliver: (unit) => void got.deliver.push(unit) };
   return { got, sinks };
 }
 
 const marks = (units: EgressUnit[]) => units.map((unit) => unit.frame.payload[0]);
 
-/** encode auto, recordings and stills legacy, with ace-media ingesting every kind. */
+/** encode auto, delivery legacy, with ace-media ingesting every kind. */
 const allLegacy: SourceRoute = sourceRoute(
   "tab",
-  { encode: "auto", delivery: "auto", recordings: "legacy", stills: "legacy" },
+  { encode: "auto", delivery: "auto", recordings: "auto", stills: "auto" },
   "healthy",
-  { ingest: sourceKinds, recordings: true, stills: true, delivery: true },
+  { ingest: sourceKinds, delivery: true },
 );
-/** stills auto too: only the recorder stays in the daemon. */
-const stillsByMedia: SourceRoute = sourceRoute(
+/** A kind whose producer streams to the daemon: nothing comes back on egress. */
+const onDaemon: SourceRoute = sourceRoute(
   "tab",
-  { encode: "auto", delivery: "auto", recordings: "legacy", stills: "auto" },
+  { encode: "legacy", delivery: "auto", recordings: "auto", stills: "auto" },
   "healthy",
-  { ingest: sourceKinds, recordings: true, stills: true, delivery: true },
+  { ingest: sourceKinds, delivery: true },
 );
 
 /** A router whose route table the test changes, as `RouteWatch` would. */
@@ -70,27 +64,13 @@ it("two interleaved sources with the same encode id each reach only their own co
   router.push(encodeEgress(hb, 0, frame(2, 7)));
   router.push(encodeEgress(ha, 1, frame(3, 7)));
   router.push(encodeEgress(hb, 1, frame(4, 7)));
-  for (const kind of ["record", "still"] as const) {
-    expect(marks(a.got[kind])).toEqual([1, 3]);
-    expect(marks(b.got[kind])).toEqual([2, 4]);
-  }
-  expect(a.got.record.every((unit) => unit.source === "a")).toBe(true);
-});
-
-it("frames reach only the consumers the current route keeps in the daemon", () => {
-  const { table, router } = routed(stillsByMedia);
-  const { got, sinks } = consumers();
-  const handle = router.open("s", "tab", sinks);
-  router.push(encodeEgress(handle, 0, frame(1)));
-  expect([got.record.length, got.still.length]).toEqual([1, 0]);
-
-  table.route = allLegacy;
-  router.push(encodeEgress(handle, 1, frame(2)));
-  expect(marks(got.still)).toEqual([2]);
+  expect(marks(a.got.deliver)).toEqual([1, 3]);
+  expect(marks(b.got.deliver)).toEqual([2, 4]);
+  expect(a.got.deliver.every((unit) => unit.source === "a")).toBe(true);
 });
 
 it("each source follows the route of its own kind", () => {
-  const routes = { tab: allLegacy, screen: stillsByMedia } as const;
+  const routes = { tab: allLegacy, screen: onDaemon } as const;
   const router = new EgressRouter((kind) => (kind === "screen" ? routes.screen : routes.tab));
   const tab = consumers(),
     screen = consumers();
@@ -98,9 +78,20 @@ it("each source follows the route of its own kind", () => {
   const hs = router.open("s", "screen", screen.sinks);
   router.push(encodeEgress(ht, 0, frame(1)));
   router.push(encodeEgress(hs, 0, frame(2)));
-  expect(marks(tab.got.still)).toEqual([1]);
-  expect(marks(screen.got.still)).toEqual([]);
-  expect(marks(screen.got.record)).toEqual([2]);
+  expect(marks(tab.got.deliver)).toEqual([1]);
+  expect(marks(screen.got.deliver)).toEqual([]);
+  expect(router.drops().unrouted).toBe(1);
+});
+
+it("a reserved handle (a recording's tee) never delivers, and is never given out again", () => {
+  const { router } = routed(allLegacy);
+  const { got, sinks } = consumers();
+  const reserved = router.reserve();
+  const open = router.open("s", "tab", sinks);
+  expect(open).not.toBe(reserved);
+  router.push(encodeEgress(reserved, 0, frame(1)));
+  expect(got.deliver).toEqual([]);
+  expect(router.drops().closed).toBe(1);
 });
 
 it("frames with an unknown or closed handle are dropped and counted", () => {
@@ -114,7 +105,7 @@ it("frames with an unknown or closed handle are dropped and counted", () => {
   router.push(encodeEgress(closed, 0, frame(1)));
   router.push(encodeEgress(9_999, 0, frame(2)));
   router.push(new Uint8Array([1, 2, 3]));
-  expect(got.record).toEqual([]);
+  expect(got.deliver).toEqual([]);
   expect(router.drops()).toMatchObject({ closed: 1, unknown: 1, invalid: 1 });
 });
 
@@ -123,7 +114,7 @@ it("a gap in a source's sequence is counted and marked on the next unit", () => 
   const { got, sinks } = consumers();
   const handle = router.open("s", "tab", sinks);
   for (const sequence of [0, 1, 4, 5]) router.push(encodeEgress(handle, sequence, frame(sequence)));
-  expect(got.record.map((unit) => unit.gap)).toEqual([false, false, true, false]);
+  expect(got.deliver.map((unit) => unit.gap)).toEqual([false, false, true, false]);
   expect(router.drops().gaps).toBe(2);
 });
 
@@ -131,10 +122,10 @@ it("once the route moves the producer back to the daemon, egress still in flight
   const settings = {
     encode: "auto",
     delivery: "auto",
-    recordings: "legacy",
-    stills: "legacy",
+    recordings: "auto",
+    stills: "auto",
   } as const;
-  const capabilities = { ingest: sourceKinds, recordings: true, stills: true, delivery: true };
+  const capabilities = { ingest: sourceKinds, delivery: true };
   const { table, router } = routed(sourceRoute("tab", settings, "healthy", capabilities));
   const { got, sinks } = consumers();
   const handle = router.open("s", "tab", sinks);
@@ -143,7 +134,7 @@ it("once the route moves the producer back to the daemon, egress still in flight
   table.route = sourceRoute("tab", settings, "restarting", capabilities);
   router.push(encodeEgress(handle, 1, frame(2)));
   router.push(encodeEgress(handle, 2, frame(3)));
-  expect(marks(got.record)).toEqual([1]);
+  expect(marks(got.deliver)).toEqual([1]);
   expect(router.drops().unrouted).toBe(2);
 });
 
@@ -160,7 +151,7 @@ it("an end marker reaches its source after its units whatever the route, and a g
   // The route already left ace-media: the marker still arrives, clean, since nothing is missing.
   table.route = { ...allLegacy, producer: "daemon", egress: false };
   router.push(encodeEgressEnd(handle, 2, false));
-  expect(marks(a.got.record)).toEqual([1, 2]);
+  expect(marks(a.got.deliver)).toEqual([1, 2]);
   expect(ended).toEqual([false]);
 
   const b = consumers();
@@ -185,7 +176,7 @@ it("a draining handle keeps the route it was opened with while the kind's route 
   router.push(encodeEgress(handle, 0, frame(1)));
   draining = false;
   router.push(encodeEgress(handle, 1, frame(2)));
-  expect(marks(a.got.record)).toEqual([1]);
+  expect(marks(a.got.deliver)).toEqual([1]);
   expect(router.drops().unrouted).toBe(1);
 });
 
@@ -201,7 +192,7 @@ it("a unit lost anywhere in a handle's life makes its end marker interrupted, ev
   // Sequence 1 was dropped in ace-media; 2 arrives, and the marker carries the next, 3.
   router.push(encodeEgress(handle, 2, frame(3)));
   router.push(encodeEgressEnd(handle, 3, false));
-  expect(marks(a.got.record)).toEqual([1, 3]);
+  expect(marks(a.got.deliver)).toEqual([1, 3]);
   expect(ended).toEqual([true]);
 });
 

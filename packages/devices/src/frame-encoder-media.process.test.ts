@@ -48,8 +48,8 @@ it.runIf(process.platform === "darwin" && !!binary)(
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "auto",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     };
     const resumed: string[] = [];
     const runtime = new MediaRuntime({
@@ -73,8 +73,6 @@ it.runIf(process.platform === "darwin" && !!binary)(
       },
       capabilities: {
         ingest: ["emulator-frames"],
-        recordings: false,
-        stills: false,
         delivery: false,
       },
     });
@@ -108,10 +106,10 @@ it.runIf(process.platform === "darwin" && !!binary)(
             },
             consumers: {
               ...producer.consumers,
-              record: (unit) => {
+              deliver: (unit) => {
                 const stamp = readProducerStamp(unit.frame.extension);
                 if (stamp) viaEgress.add(stamp.timestamp);
-                producer.consumers.record(unit);
+                producer.consumers.deliver(unit);
               },
             },
           }),

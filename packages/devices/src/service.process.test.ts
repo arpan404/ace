@@ -150,7 +150,7 @@ describe("in-app device ownership", () => {
     expect(slow).toEqual([0, 20]);
     expect(fast.at(-1)).toBe(20);
   });
-  it("recording publishes the actual stored screen packets and opaque metadata", async () => {
+  it("a recording hands ace-media the capture's video and publishes the part it wrote", async () => {
     const h = await harness();
     await bind(h);
     await h.request({ op: "start", deviceId });
@@ -159,25 +159,118 @@ describe("in-app device ownership", () => {
     const result = await h.request({ op: "record.stop", deviceId });
     const artifact = h.publications[0];
     if (!artifact) throw new Error("No recording publication");
+    // The capture streamed H.264 for the recording, starting at the keyframe the recording asked
+    // for, and ace-media got the units as they came.
+    expect(h.recorder.units.map((unit) => unit.payload.toString())).toEqual([
+      "h264-1000",
+      "h264-1",
+    ]);
+    expect(h.recorder.units[0]?.keyframe).toBe(true);
     const bytes = await readFile(artifact.path);
-    expect(bytes.includes(Buffer.from("jpeg-0"))).toBe(true);
-    expect(bytes.length).toBe(artifact.bytes);
-    expect(result).toEqual({ id: artifact.id, bytes: artifact.bytes, mimeType: artifact.mimeType });
+    expect(bytes.toString()).toBe("h264-1000h264-1");
+    expect(result).toEqual({ id: artifact.id, bytes: artifact.bytes, mimeType: "video/mp4" });
   });
-  it("recording enforces its byte cap and downloads the registered bytes through the artifact API", async () => {
+  it("a recording refuses to start, saying why, when ace-media can't make it, and a later one starts", async () => {
+    const h = await harness();
+    await bind(h);
+    await h.request({ op: "start", deviceId });
+    h.recorder.refuse = "ace-media isn't available to record: it keeps failing";
+    await expect(h.request({ op: "record.start", deviceId })).rejects.toMatchObject({
+      code: "tool_missing",
+      message: "ace-media isn't available to record: it keeps failing",
+    });
+    expect(h.service.states()[0]).toMatchObject({ recording: false });
+    h.recorder.refuse = undefined;
+    await h.request({ op: "record.start", deviceId });
+    expect(h.service.states()[0]).toMatchObject({ recording: true });
+  });
+  it.each(["stop", "move"] as const)(
+    "a %s while a recording waits on ace-media returns only once that recording is closed",
+    async (change) => {
+      const h = await harness();
+      await bind(h);
+      await h.request({ op: "start", deviceId });
+      const gate = deferred<void>();
+      h.recorder.startGate = gate.promise;
+      const recording = h.request({ op: "record.start", deviceId });
+      // The device moved on under the startup: it fails rather than record for nobody.
+      const settled = expect(recording).rejects.toThrow();
+      let done = false;
+      const cleanup = (
+        change === "stop" ? h.request({ op: "stop", deviceId }) : delegateTo(h, "thread-2")
+      ).then(() => {
+        done = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      // The cleanup waits for the startup it owns.
+      expect(done).toBe(false);
+      gate.resolve();
+      await cleanup;
+      await settled;
+      // ace-media opened the recording after all; the startup closed it before cleanup returned.
+      expect(h.recorder.open).toBe(0);
+      expect(h.service.states()[0]).toMatchObject({ recording: false });
+    },
+  );
+  it("a second record.start refused as busy leaves cleanup waiting for the first startup", async () => {
+    const h = await harness();
+    await bind(h);
+    await h.request({ op: "start", deviceId });
+    const gate = deferred<void>();
+    h.recorder.startGate = gate.promise;
+    const first = h.request({ op: "record.start", deviceId });
+    const settled = expect(first).rejects.toThrow();
+    await expect(h.request({ op: "record.start", deviceId })).rejects.toMatchObject({
+      code: "busy",
+    });
+    let done = false;
+    const stopping = h.request({ op: "stop", deviceId }).then(() => {
+      done = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The refused start didn't take the first one's place: the stop still waits for it.
+    expect(done).toBe(false);
+    gate.resolve();
+    await stopping;
+    await settled;
+    expect(h.recorder.open).toBe(0);
+  });
+  it("a recording whose end ace-media couldn't confirm is saved, and the device says the end may be incomplete", async () => {
+    const h = await harness();
+    await bind(h);
+    await h.request({ op: "start", deviceId });
+    await h.request({ op: "record.start", deviceId });
+    h.publish(1);
+    h.recorder.truncate = true;
+    await h.request({ op: "record.stop", deviceId });
+    expect(h.publications).toHaveLength(1);
+    expect(h.service.states()[0]?.recordingNotice).toContain("may be incomplete");
+  });
+  it("a stop that fails after parts closed saves them and still fails with its reason", async () => {
+    const h = await harness();
+    await bind(h);
+    await h.request({ op: "start", deviceId });
+    await h.request({ op: "record.start", deviceId });
+    h.publish(1);
+    h.recorder.stopFailure = "stop-unanswered";
+    await expect(h.request({ op: "record.stop", deviceId })).rejects.toThrow("stop-unanswered");
+    // What ace-media wrote is in the thread all the same.
+    expect(h.publications).toHaveLength(1);
+  });
+  it("a recording's video downloads through the artifact API as registered", async () => {
     const h = await harness(true);
     await bind(h);
     await h.request({ op: "start", deviceId });
     await h.request({ op: "record.start", deviceId });
-    h.publish(1, 600);
+    h.publish(1, 400);
     const result = await h.request({ op: "record.stop", deviceId });
     const meta = await import("zod").then(({ z }) =>
       z.object({ id: z.string(), bytes: z.number() }).parse(result),
     );
     const stored = h.publications[0];
     if (!stored || !h.files) throw new Error("Artifact not registered");
-    expect(stored.bytes).toBeGreaterThan(0);
-    expect(stored.bytes).toBeLessThanOrEqual(512);
+    // The keyframe the recording asked for, then the 400-byte frame.
+    expect(stored.bytes).toBe("h264-1000".length + 400);
     const download = await h.files.download("reader", {
       op: "artifact.download",
       artifactId: meta.id,
@@ -304,6 +397,7 @@ describe("in-app device ownership", () => {
     await h.request({ op: "start", deviceId });
     await h.request({ op: "logs.start", deviceId });
     await h.request({ op: "record.start", deviceId });
+    h.publish(1);
     h.failStop();
     await expect(h.request({ op: "stop", deviceId })).rejects.toThrow("cleanup");
     expect((await h.nativeExit()).reason).toBe("stopped");
@@ -351,6 +445,8 @@ describe("in-app device ownership", () => {
     await received.promise;
     await h.request({ op: "record.start", deviceId });
     h.publish(1, 600);
+    // Past the recording's budget: it ends and publishes on its own.
+    h.recorder.closePart(600);
     await h.published.promise;
     await delegateTo(h, "thread-2");
     await expect(h.request({ op: "record.stop", deviceId })).rejects.toMatchObject({
@@ -704,19 +800,18 @@ it("a recording leaves a watched live view on its 60 fps video from start to sto
   await h.request({ op: "record.stop", deviceId });
   expect(h.profiles).toEqual([videoProfile]);
 });
-it("an unwatched recording streams its image budget until its quota completes", async () => {
+it("an unwatched recording streams video at its own budget until it stops", async () => {
   const h = await harness();
   await bind(h);
   await h.request({ op: "start", deviceId, fps: 60 });
   await h.request({ op: "record.start", deviceId });
   expect(h.profiles.at(-1)).toMatchObject({
-    codec: "jpeg",
+    codec: "h264",
     maxWidth: 1280,
-    maxHeight: 720,
-    fps: 15,
+    maxHeight: 2560,
+    fps: 30,
   });
-  h.publish(1, 1024);
-  await h.published.promise;
+  h.publish(1, 64);
   await h.request({ op: "record.stop", deviceId });
   expect(h.profiles.at(-1)).toMatchObject({ codec: "jpeg", maxHeight: 2160, fps: 30 });
 });
@@ -787,14 +882,16 @@ it("a screenshot while someone watches comes from the device and never switches 
   });
 }
 
-it("recording startup failure releases its image lease and permits a later attempt", async () => {
-  const h = await harness(false, false, "/dev/null/ace-recording");
+it("a recording ace-media refuses releases its video demand and permits a later attempt", async () => {
+  const h = await harness();
   await bind(h);
   await h.request({ op: "start", deviceId, fps: 60 });
-  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+  h.recorder.refuse = "ace-media isn't available to record: it didn't start in time";
   for (let i = 0; i < 2; i++) {
-    await expect(h.request({ op: "record.start", deviceId })).rejects.toBeInstanceOf(Error);
-    expect(h.profiles.at(-1)).toEqual(videoProfile);
+    await expect(h.request({ op: "record.start", deviceId })).rejects.toThrow(
+      "it didn't start in time",
+    );
+    expect(h.profiles.at(-1)).toMatchObject({ codec: "jpeg" });
   }
 });
 it("recording quota releases image demand before a stalled publisher completes", async () => {
@@ -804,6 +901,7 @@ it("recording quota releases image demand before a stalled publisher completes",
   const publication = h.blockPublication();
   await h.request({ op: "record.start", deviceId });
   h.publish(1, 1024);
+  h.recorder.closePart(1024);
   await h.publishing.promise;
   // The capture leaves the recording's budget while its publication is still stalled.
   await vi.waitFor(() =>
@@ -958,7 +1056,7 @@ it("a first-frame timeout explains how to repair the Android live view", async (
   const rejected = expect(starting).rejects.toMatchObject({
     code: "timeout",
     message: "The live view didn't send its first frame",
-    hint: expect.stringContaining("ffmpeg"),
+    hint: expect.stringContaining("scrcpy-server"),
   });
   await h.frameDeadline.promise;
   h.deadlines();
@@ -971,6 +1069,8 @@ it("reaching a recording limit reports why capture stopped and publishes its vid
   await h.request({ op: "start", deviceId });
   await h.request({ op: "record.start", deviceId });
   h.publish(1, 600);
+  // ace-media closed a part past the recording's budget.
+  h.recorder.closePart(600);
   await h.published.promise;
   expect(h.service.states()[0]).toMatchObject({
     recording: false,

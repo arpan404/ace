@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { MediaRuntime } from "@ace/media/runtime";
-import { legacyMediaSettings, systemMediaClock, type MediaHost } from "@ace/media/supervisor";
+import { defaultMediaSettings, systemMediaClock, type MediaHost } from "@ace/media/supervisor";
 import { keyPair } from "@ace/secure-channel";
 import { daemonDelivery } from "../services/media.ts";
 import { lateMediaRelay } from "./port.ts";
@@ -24,7 +24,7 @@ function runtime() {
     binary: "/nonexistent/ace-media",
     runtimeDir: "/nonexistent",
     dataDir: "/nonexistent",
-    settings: () => legacyMediaSettings,
+    settings: () => defaultMediaSettings,
     host: neverStarted,
     clock: systemMediaClock,
     random: () => 0,

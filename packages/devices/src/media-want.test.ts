@@ -9,7 +9,7 @@ const producer = (): IngestProducer => ({
   origin: { kind: "scrcpy", host: "127.0.0.1", port: 0 },
   deviceId: "android:emulator-5554",
   epoch: () => 0,
-  consumers: { record: () => {}, still: () => {} },
+  consumers: { deliver: () => {} },
   point: () => Promise.resolve(),
   keyframe: () => {},
 });

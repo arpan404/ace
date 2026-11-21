@@ -141,7 +141,7 @@ function session(platform = "macos", helperCodecs: string[] = ["jpeg", "h264"]) 
     return producer;
   };
   const egress = (path: string, sequence: number, keyframe = false) =>
-    ready().consumers.record({
+    ready().consumers.deliver({
       source: path,
       sequence,
       gap: false,

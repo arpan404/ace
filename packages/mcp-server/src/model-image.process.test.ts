@@ -1,74 +1,91 @@
+import { deflateSync, inflateSync } from "node:zlib";
 import { expect, it } from "vitest";
-import { findExecutable } from "@ace/provider-kit/discovery";
-import { spawnRawSupervised } from "@ace/provider-kit/process";
+import { fitImage } from "@ace/provider-kit/image";
 import { modelImage } from "./index.ts";
 
-it("large model screenshots preserve pixels and point scale within bounded JPEG dimensions", async (test) => {
-  const ffmpeg = await findExecutable("ffmpeg", process.env);
-  if (!ffmpeg) {
-    test.skip("ffmpeg unavailable; no download attempted");
-    return;
+// The real resize (Bun's image pipeline): a solid red PNG in, a bounded JPEG out.
+
+function crc32(bytes: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
   }
-  // OS boundary stand-in supplies an image with known solid red pixels.
-  const payload = Buffer.concat([
-    Buffer.from("P6\n2000 1000\n255\n"),
-    Buffer.alloc(2000 * 1000 * 3, Buffer.from([255, 0, 0])),
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function chunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(body));
+  return Buffer.concat([length, body, crc]);
+}
+/** A PNG (ISO/IEC 15948) of one solid RGB colour. */
+function solidPng(width: number, height: number, rgb: [number, number, number]): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8; // bit depth
+  header[9] = 2; // RGB
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, Buffer.from(rgb))]);
+  const pixels = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(pixels)),
+    chunk("IEND", Buffer.alloc(0)),
   ]);
+}
+/** The first pixel of an 8-bit RGB or RGBA PNG. */
+function firstPixel(png: Buffer): number[] {
+  let at = 8;
+  let channels = 3;
+  const data: Buffer[] = [];
+  while (at < png.length) {
+    const length = png.readUInt32BE(at);
+    const type = png.toString("latin1", at + 4, at + 8);
+    const body = png.subarray(at + 8, at + 8 + length);
+    if (type === "IHDR") channels = body[9] === 6 ? 4 : 3;
+    if (type === "IDAT") data.push(body);
+    at += 12 + length;
+  }
+  const raw = inflateSync(Buffer.concat(data));
+  return [...raw.subarray(1, 1 + channels)].slice(0, 3);
+}
+
+it("large model screenshots keep their pixels and point scale within bounded JPEG dimensions", async () => {
+  const payload = solidPng(2000, 1000, [255, 0, 0]);
   const image = await modelImage(
     { payload, width: 2000, height: 1000, scale: 2 },
     new AbortController().signal,
   );
-  expect(image).toMatchObject({ width: 1536, height: 768, scale: 1.536 });
+  expect({ width: image.width, height: image.height, scale: image.scale }).toEqual({
+    width: 1536,
+    height: 768,
+    scale: 1.536,
+  });
   expect(image.payload.readUInt16BE(0)).toBe(0xffd8);
   expect(image.payload.length).toBeLessThanOrEqual(1024 * 1024);
-  const decoder = spawnRawSupervised({
-    command: ffmpeg,
-    args: [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-i",
-      "pipe:0",
-      "-vf",
-      "scale=1:1",
-      "-frames:v",
-      "1",
-      "-f",
-      "rawvideo",
-      "-pix_fmt",
-      "rgb24",
-      "pipe:1",
-    ],
-    env: {},
-    name: "model-image-proof",
-    maxOutputBytes: 8192,
-  });
-  const pixel: Buffer[] = [];
-  decoder.stdout.on("data", (chunk: Buffer) => pixel.push(chunk));
-  decoder.stderr.resume();
-  decoder.stdin.end(image.payload);
-  try {
-    expect((await decoder.exited).code).toBe(0);
-    const rgb = Buffer.concat(pixel);
-    expect(rgb.length).toBe(3);
-    expect(rgb[0]).toBeGreaterThan(240);
-    expect(rgb[1]).toBeLessThan(10);
-    expect(rgb[2]).toBeLessThan(10);
-  } finally {
-    await decoder.stop({ graceMs: 0 });
-  }
-  // The JPEG's SOF reports the actual encoded size, not just returned metadata.
+  // The JPEG's SOF reports the size it was encoded at, not just the returned metadata.
   let offset = 2;
-  while (offset < image.payload.length) {
+  let size: [number, number] | undefined;
+  while (offset < image.payload.length && !size) {
     const marker = image.payload.readUInt16BE(offset);
-    offset += 2;
-    const length = image.payload.readUInt16BE(offset);
-    if ([0xffc0, 0xffc1, 0xffc2].includes(marker)) {
-      expect(image.payload.readUInt16BE(offset + 3)).toBe(768);
-      expect(image.payload.readUInt16BE(offset + 5)).toBe(1536);
-      return;
-    }
-    offset += length;
+    const length = image.payload.readUInt16BE(offset + 2);
+    if ([0xffc0, 0xffc1, 0xffc2].includes(marker))
+      size = [image.payload.readUInt16BE(offset + 7), image.payload.readUInt16BE(offset + 5)];
+    offset += 2 + length;
   }
-  throw new Error("Missing JPEG dimensions");
+  expect(size).toEqual([1536, 768]);
+  // Still red once decoded.
+  const pixel = await fitImage(
+    { input: image.payload, maxPixels: 1 << 24, autoOrient: false },
+    { width: 1, height: 1 },
+    { format: "png" },
+  );
+  const [r = 0, g = 255, b = 255] = firstPixel(pixel.bytes);
+  expect(r).toBeGreaterThan(240);
+  expect(g).toBeLessThan(16);
+  expect(b).toBeLessThan(16);
 });

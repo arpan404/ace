@@ -79,8 +79,9 @@ function wire(address: IngestAddress): VideoIngestTarget {
   };
 }
 
-/** A browser source has no legacy consumers: its recordings come from the screencast. */
-const consumers = { record: () => {}, still: () => {} };
+/** A browser source takes nothing back on egress: ace-media delivers its views (X3), and its
+ * recordings come from the screencast. */
+const consumers = { deliver: () => {} };
 
 /**
  * The routed host for each backend host, kept per inner host so what a host learned (that

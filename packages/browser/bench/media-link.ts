@@ -91,8 +91,8 @@ const home = await mkdtemp(join(tmpdir(), "ace-media-link-"));
 let settings: MediaSettings = {
   encode: "auto",
   delivery: "auto",
-  recordings: "legacy",
-  stills: "legacy",
+  recordings: "auto",
+  stills: "auto",
 };
 let ids = 0;
 const runtime = new MediaRuntime({

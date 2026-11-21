@@ -21,12 +21,11 @@ export type EgressUnit = {
 };
 
 /**
- * The daemon's legacy consumers of one source: the legacy recorder and the legacy still maker.
- * Viewers are never among them: ace-media delivers every live view itself (X3).
+ * The daemon's side of one source: until X2, the frames a recording tees into ace-media's
+ * recorder. No viewer is fed from egress: ace-media delivers every live view itself (X3).
  */
 export type LegacyConsumers = {
-  record: (unit: EgressUnit) => void;
-  still: (unit: EgressUnit) => void;
+  deliver: (unit: EgressUnit) => void;
   /**
    * The source's end marker: every unit ace-media sent for this handle has arrived before it.
    * `interrupted` when the stream was cut (the producer's connection dropped, or a unit went
@@ -95,6 +94,12 @@ export class EgressRouter {
     return handle;
   }
 
+  /** A handle for a source whose frames never come back (a recording's tee). */
+  reserve(): number {
+    if (this.#nextHandle > maxHandle) throw new Error("Egress handles exhausted");
+    return this.#nextHandle++;
+  }
+
   close(handle: number): void {
     this.#open.delete(handle);
   }
@@ -142,8 +147,6 @@ export class EgressRouter {
       sequence: egress.sequence,
       gap: lost > 0,
     };
-    const { consumers } = open;
-    if (route.recorder === "legacy") consumers.record(unit);
-    if (route.stills === "legacy") consumers.still(unit);
+    open.consumers.deliver(unit);
   }
 }

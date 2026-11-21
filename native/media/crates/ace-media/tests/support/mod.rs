@@ -74,6 +74,8 @@ pub struct Media {
     pub listen_port: u32,
     /// The binary's capability list: `ready`'s, replaced by each `capabilities.changed`.
     pub capabilities: Vec<Capability>,
+    /// The optional features `ready` agreed to.
+    pub features: Option<Vec<String>>,
 }
 
 impl Drop for Media {
@@ -85,14 +87,29 @@ impl Drop for Media {
 }
 
 impl Media {
+    /// ace-media as this daemon starts it: offered the optional features it speaks.
     pub fn spawn(name: &str) -> Self {
+        Self::spawn_offering(name, Some("source.ingest,source.sync"))
+    }
+
+    /// ace-media as an older daemon starts it: offered nothing.
+    pub fn spawn_unoffered(name: &str) -> Self {
+        Self::spawn_offering(name, None)
+    }
+
+    fn spawn_offering(name: &str, offer: Option<&str>) -> Self {
         let dir = std::env::temp_dir().join(format!("am-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         if let Err(error) = std::fs::create_dir_all(&dir) {
             panic!("runtime dir: {error}");
         }
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
-        let child = Command::new(env!("CARGO_BIN_EXE_ace-media"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_ace-media"));
+        match offer {
+            Some(offer) => command.env("ACE_MEDIA_FEATURES", offer),
+            None => command.env_remove("ACE_MEDIA_FEATURES"),
+        };
+        let child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -109,6 +126,7 @@ impl Media {
             stdout,
             dir,
             listen_port: 0,
+            features: None,
             capabilities: Vec::new(),
         }
     }
@@ -230,9 +248,11 @@ impl Media {
                 control,
                 ingest,
                 listen,
+                features,
                 ..
             } => {
                 self.listen_port = listen.loopback_port;
+                self.features = features;
                 assert_eq!(pid, self.child.id());
                 assert_eq!(version, env!("CARGO_PKG_VERSION"));
                 assert!(!capabilities.is_empty(), "the CPU path is always reported");
@@ -403,6 +423,14 @@ pub fn media_frame(kind: u8, flags: u32, payload: Vec<u8>) -> Vec<u8> {
     match frame.encode() {
         Ok(bytes) => bytes,
         Err(_) => panic!("frame did not encode"),
+    }
+}
+
+/// The source a `source.ingest` names: ace-media bound a producer's hello to it.
+pub fn ingest_of(message: FromMedia) -> String {
+    match message {
+        FromMedia::SourceIngest { source } => source.get().to_owned(),
+        other => panic!("expected source.ingest, got {other:?}"),
     }
 }
 

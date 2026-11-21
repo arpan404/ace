@@ -189,6 +189,15 @@ export const ToMedia = z.discriminatedUnion("type", [
     discard: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
   z.strictObject({ type: z.literal("source.close"), source: id }),
+  /** An ingest barrier (X1): answered by `source.synced` once ace-media took `frames` frames
+   * from the source's producer since its hello and its recording decided epoch `decided`. */
+  z.strictObject({
+    type: z.literal("source.sync"),
+    source: id,
+    seq: sequence,
+    frames: sequence,
+    decided: u32,
+  }),
   z.strictObject({ type: z.literal("source.egress"), source: id, on: z.boolean() }),
   z.strictObject({
     type: z.literal("source.encodes"),
@@ -311,6 +320,9 @@ export const FromMedia = z.discriminatedUnion("type", [
     ingest: Ingest,
     control: Control,
     listen: Listen,
+    /** What ace-media agreed to speak of the features the daemon offered at spawn
+     * (`ACE_MEDIA_FEATURES`); absent when none were offered. */
+    features: z.array(text).optional(),
   }),
   z.strictObject({ type: z.literal("capabilities.changed"), capabilities: z.array(Capability) }),
   z.strictObject({ type: z.literal("pong"), id: id, stats: Stats }),
@@ -324,6 +336,10 @@ export const FromMedia = z.discriminatedUnion("type", [
     written: sequence,
     dropped: sequence,
   }),
+  /** A producer's ingest connection presented the source's token and was bound to it. */
+  z.strictObject({ type: z.literal("source.ingest"), source: id }),
+  /** The barrier `source.sync` asked for holds. */
+  z.strictObject({ type: z.literal("source.synced"), source: id, seq: sequence }),
   z.strictObject({
     type: z.literal("source.status"),
     source: id,
@@ -484,6 +500,32 @@ export function decodeFromMedia(
   validatePayload(message, frame.payload, lane);
   return { message, payload: frame.payload };
 }
+/**
+ * Whether a frame `decodeFromMedia` refused is a well-formed message of a type this build
+ * doesn't know (a newer ace-media's): it is skipped, never fatal. A known type that is malformed
+ * still is.
+ */
+export function unknownFromMedia(bytes: Uint8Array, lane: ControlLane): boolean {
+  try {
+    const { message } = decodeControl(bytes, lane);
+    if (typeof message !== "object" || message === null || !("type" in message)) return false;
+    const { type } = message;
+    return typeof type === "string" && !fromMediaTypes.has(type);
+  } catch {
+    return false;
+  }
+}
+const fromMediaTypes: ReadonlySet<string> = new Set(
+  FromMedia.options.map((option) => option.shape.type.value),
+);
+
+/**
+ * Optional features this daemon speaks, offered to ace-media at spawn (`ACE_MEDIA_FEATURES`); a
+ * binary that knows one lists it in `ready.features`, and only then is it used.
+ */
+export const mediaFeatures = ["source.ingest", "source.sync"] as const;
+export type MediaFeature = (typeof mediaFeatures)[number];
+
 export function decodeToMedia(
   bytes: Uint8Array,
   lane: ControlLane,

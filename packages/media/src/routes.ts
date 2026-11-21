@@ -4,13 +4,17 @@ import type { ToMedia } from "./wire.ts";
 /**
  * Routes and setting combinations (docs/media/plan.md). For each source kind: where its producer
  * sends frames, whether the daemon tees them into ace-media or ace-media sends them back on
- * egress, and whether each consumer (recorder, still maker) is the daemon's legacy one or
- * ace-media's. Every combination of settings, health and capabilities is a complete route: each
- * consumer gets frames from somewhere.
+ * egress, and whether ace-media delivers its viewers. Every combination of settings, health and
+ * capabilities is a complete route.
  *
  * Viewers are only ever ace-media's (X3): the daemon has no deliverer of its own. A source
  * whose frames aren't in ace-media has no deliverer (`none`), and its live views say why
  * (`undeliveredReason`).
+ *
+ * Recordings and stills have no legacy consumer since X1. Until X2 moves every producer into
+ * ace-media, a recording takes the source's frames where the daemon has them and tees them into
+ * ace-media's recorder (`tee-recordings.ts`), so ace-media always hands a source it ingests back
+ * on egress. A still is ace-media's for a source it has, else the source's own capture.
  */
 
 export type SourceKind = Extract<ToMedia, { type: "source.open" }>["origin"]["kind"];
@@ -25,9 +29,6 @@ export const sourceKinds: readonly SourceKind[] = [
   "emulator-frames",
 ];
 
-/** Where a consumer runs: in the daemon (legacy) or in ace-media. */
-export type ConsumerPlace = "legacy" | "ace-media";
-
 /** Who delivers a source's pictures to viewers: ace-media, or nobody while it can't. */
 export type DelivererPlace = "ace-media" | "none";
 
@@ -38,8 +39,6 @@ export type SourceRoute = {
   /** ace-media sends the source's frames back to the daemon. */
   egress: boolean;
   deliverer: DelivererPlace;
-  recorder: ConsumerPlace;
-  stills: ConsumerPlace;
 };
 
 export type MediaRoutes = Record<SourceKind, SourceRoute>;
@@ -51,22 +50,16 @@ export type MediaRoutes = Record<SourceKind, SourceRoute>;
 export type RouteCapabilities = {
   /** Source kinds whose producers can stream into ace-media's ingest (E1–E4). */
   ingest: readonly SourceKind[];
-  /** ace-media records (F1). */
-  recordings: boolean;
-  /** ace-media makes stills (F2). */
-  stills: boolean;
   /** ace-media serves viewers (D1). */
   delivery: boolean;
 };
 
 /**
  * Today's build: browser producers stream into ace-media (E4), and ace-media serves viewers on
- * clients' media connections (D1); recordings and stills still act as legacy.
+ * clients' media connections (D1).
  */
 export const builtRouteCapabilities: RouteCapabilities = {
   ingest: ["tab", "tab-pictures", "user-tab", "embedded"],
-  recordings: false,
-  stills: false,
   delivery: true,
 };
 
@@ -91,10 +84,6 @@ export function platformRouteCapabilities(platform: string): RouteCapabilities {
   };
 }
 
-function place(setting: "auto" | "legacy", capable: boolean, healthy: boolean): ConsumerPlace {
-  return setting === "auto" && capable && healthy ? "ace-media" : "legacy";
-}
-
 /** The route for one source kind. Anything but a healthy ace-media makes every `auto` legacy. */
 export function sourceRoute(
   kind: SourceKind,
@@ -103,23 +92,19 @@ export function sourceRoute(
   capabilities: RouteCapabilities,
 ): SourceRoute {
   const healthy = health === "healthy";
-  const recorder = place(settings.recordings, capabilities.recordings, healthy);
-  const stills = place(settings.stills, capabilities.stills, healthy);
   const producer =
     settings.encode === "auto" && healthy && capabilities.ingest.includes(kind)
       ? "ace-media"
       : "daemon";
   // ace-media delivers what its producer streams into it; the tee never feeds viewers.
   const deliverer = producer === "ace-media" && capabilities.delivery ? "ace-media" : "none";
-  const anyInMedia = recorder === "ace-media" || stills === "ace-media";
-  const anyLegacy = recorder === "legacy" || stills === "legacy";
   return {
     producer,
-    tee: producer === "daemon" && anyInMedia,
-    egress: producer === "ace-media" && anyLegacy,
+    // Recordings tee on their own (`tee-recordings.ts`); no viewer is fed by a tee.
+    tee: false,
+    // The daemon takes a recording's frames itself until X2 (see above).
+    egress: producer === "ace-media",
     deliverer,
-    recorder,
-    stills,
   };
 }
 
@@ -137,8 +122,6 @@ export function undeliveredReason(
   if (health === "restarting") return "Live video is starting. It shows in a moment.";
   if (health === "unavailable")
     return "Live video stopped: ace's media process keeps failing on this computer. Restart ace to try again.";
-  if (settings.encode !== "auto")
-    return "Live video needs the new media pipeline. Turn it on in Settings › Beta.";
   return "This computer can't stream this live view yet.";
 }
 
@@ -161,9 +144,7 @@ export function changedRoutes(before: MediaRoutes, after: MediaRoutes): SourceKi
       a.producer !== b.producer ||
       a.tee !== b.tee ||
       a.egress !== b.egress ||
-      a.deliverer !== b.deliverer ||
-      a.recorder !== b.recorder ||
-      a.stills !== b.stills
+      a.deliverer !== b.deliverer
     );
   });
 }
