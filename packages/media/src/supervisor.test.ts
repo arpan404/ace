@@ -61,14 +61,13 @@ async function running(overrides: Parameters<typeof harness>[0] = {}) {
 }
 
 describe("MediaSupervisor", () => {
-  it("never starts ace-media while every media setting is legacy", async () => {
+  it("starts on a need with every other media setting legacy: only ace-media delivers live views", async () => {
     const h = harness({ settings: () => legacyMediaSettings });
     const supervisor = new MediaSupervisor(h.options);
+    expect(supervisor.snapshot().phase).toBe("idle");
     supervisor.need();
-    await h.clock.advance(120_000);
-    expect(h.host.children).toHaveLength(0);
-    expect(supervisor.snapshot().phase).toBe("disabled");
-    expect(supervisor.health()).toBe("unavailable");
+    await h.clock.advance(0);
+    expect(h.host.children).toHaveLength(1);
   });
 
   it("starts on first need, authenticates both lanes with init's secret, then listens and replays", async () => {

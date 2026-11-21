@@ -20,10 +20,11 @@ export type EgressUnit = {
   gap: boolean;
 };
 
-/** The daemon's legacy consumers of one source: `LiveVideo.publish` and the picture hubs, the
- * legacy recorder, and the legacy still maker. */
+/**
+ * The daemon's legacy consumers of one source: the legacy recorder and the legacy still maker.
+ * Viewers are never among them: ace-media delivers every live view itself (X3).
+ */
 export type LegacyConsumers = {
-  deliver: (unit: EgressUnit) => void;
   record: (unit: EgressUnit) => void;
   still: (unit: EgressUnit) => void;
   /**
@@ -142,7 +143,6 @@ export class EgressRouter {
       gap: lost > 0,
     };
     const { consumers } = open;
-    if (route.deliverer === "legacy") consumers.deliver(unit);
     if (route.recorder === "legacy") consumers.record(unit);
     if (route.stills === "legacy") consumers.still(unit);
   }

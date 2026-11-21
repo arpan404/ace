@@ -228,7 +228,7 @@ try {
   const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
   const p10 = sorted[Math.floor(sorted.length / 10)] ?? 0;
 
-  settings = { ...settings, delivery: "legacy" };
+  settings = { ...settings, delivery: "auto" };
   runtime.settingsChanged();
   const legacy = await watch(false, undefined, hopSeconds * 1000);
   settings = { ...settings, delivery: "auto" };

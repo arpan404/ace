@@ -71,7 +71,7 @@ function producer(
   cleanups.push(stop);
   const made: IngestProducer = {
     epoch: () => 0,
-    consumers: { deliver: () => {}, record: () => {}, still: () => {} },
+    consumers: { record: () => {}, still: () => {} },
     keyframe: () => {},
     ...ids,
     point: (address) => {

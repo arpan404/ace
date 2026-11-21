@@ -4,9 +4,13 @@ import type { ToMedia } from "./wire.ts";
 /**
  * Routes and setting combinations (docs/media/plan.md). For each source kind: where its producer
  * sends frames, whether the daemon tees them into ace-media or ace-media sends them back on
- * egress, and whether each consumer (deliverer, recorder, still maker) is the daemon's legacy
- * one or ace-media's. Every combination of settings, health and capabilities is a complete route:
- * each consumer gets frames from somewhere.
+ * egress, and whether each consumer (recorder, still maker) is the daemon's legacy one or
+ * ace-media's. Every combination of settings, health and capabilities is a complete route: each
+ * consumer gets frames from somewhere.
+ *
+ * Viewers are only ever ace-media's (X3): the daemon has no deliverer of its own. A source
+ * whose frames aren't in ace-media has no deliverer (`none`), and its live views say why
+ * (`undeliveredReason`).
  */
 
 export type SourceKind = Extract<ToMedia, { type: "source.open" }>["origin"]["kind"];
@@ -24,13 +28,16 @@ export const sourceKinds: readonly SourceKind[] = [
 /** Where a consumer runs: in the daemon (legacy) or in ace-media. */
 export type ConsumerPlace = "legacy" | "ace-media";
 
+/** Who delivers a source's pictures to viewers: ace-media, or nobody while it can't. */
+export type DelivererPlace = "ace-media" | "none";
+
 export type SourceRoute = {
   producer: "daemon" | "ace-media";
   /** The daemon copies the frames it receives into ace-media's ingest. */
   tee: boolean;
   /** ace-media sends the source's frames back to the daemon. */
   egress: boolean;
-  deliverer: ConsumerPlace;
+  deliverer: DelivererPlace;
   recorder: ConsumerPlace;
   stills: ConsumerPlace;
 };
@@ -96,16 +103,16 @@ export function sourceRoute(
   capabilities: RouteCapabilities,
 ): SourceRoute {
   const healthy = health === "healthy";
-  const deliverer = place(settings.delivery, capabilities.delivery, healthy);
   const recorder = place(settings.recordings, capabilities.recordings, healthy);
   const stills = place(settings.stills, capabilities.stills, healthy);
   const producer =
     settings.encode === "auto" && healthy && capabilities.ingest.includes(kind)
       ? "ace-media"
       : "daemon";
-  const anyInMedia =
-    deliverer === "ace-media" || recorder === "ace-media" || stills === "ace-media";
-  const anyLegacy = deliverer === "legacy" || recorder === "legacy" || stills === "legacy";
+  // ace-media delivers what its producer streams into it; the tee never feeds viewers.
+  const deliverer = producer === "ace-media" && capabilities.delivery ? "ace-media" : "none";
+  const anyInMedia = recorder === "ace-media" || stills === "ace-media";
+  const anyLegacy = recorder === "legacy" || stills === "legacy";
   return {
     producer,
     tee: producer === "daemon" && anyInMedia,
@@ -114,6 +121,25 @@ export function sourceRoute(
     recorder,
     stills,
   };
+}
+
+/**
+ * Why a source's live views get no pictures now, for the person (X3's "Unavailable"), or
+ * undefined while ace-media delivers it. Pure: the route's inputs.
+ */
+export function undeliveredReason(
+  kind: SourceKind,
+  settings: MediaSettings,
+  health: MediaHealth,
+  capabilities: RouteCapabilities,
+): string | undefined {
+  if (sourceRoute(kind, settings, health, capabilities).deliverer === "ace-media") return undefined;
+  if (health === "restarting") return "Live video is starting. It shows in a moment.";
+  if (health === "unavailable")
+    return "Live video stopped: ace's media process keeps failing on this computer. Restart ace to try again.";
+  if (settings.encode !== "auto")
+    return "Live video needs the new media pipeline. Turn it on in Settings › Beta.";
+  return "This computer can't stream this live view yet.";
 }
 
 export function mediaRoutes(

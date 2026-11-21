@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { MediaAcceleration } from "./media-acceleration.ts";
 import { MediaLinkHint } from "./media-link.ts";
-import { MediaBinding, MediaCodecs, MediaSubscribed } from "./media-connection.ts";
+import { MediaBinding, MediaCodecs, MediaSubscribed, MediaUndelivered } from "./media-connection.ts";
 import { ThreadId, AgentId } from "./ids.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import { ScreenId, ScreenStreamSettings, ScreenPermissions } from "./screen-base.ts";
@@ -310,6 +310,8 @@ export const DeviceServerMessage = z.discriminatedUnion("type", [
     error: DeviceFailure.optional(),
     /** A `subscribe` that named a media connection: where its pictures go. */
     media: MediaSubscribed.optional(),
+    /** A `subscribe` whose pictures won't come, and why (`MediaUndelivered`). */
+    undelivered: MediaUndelivered.optional(),
   }),
   z.object({ type: z.literal("devices.state"), state: DeviceState }),
   /** Devices were turned on or off for the daemon's machine, by any client. */

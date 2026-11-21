@@ -1,4 +1,4 @@
-import type { MediaLinkHint, MediaSubscribed } from "@ace/protocol";
+import type { MediaLinkHint, MediaSubscribed, MediaUndelivered } from "@ace/protocol";
 import type { IngestProducer } from "./ingest-sources.ts";
 import type { MediaConnections, MediaOwner } from "./media-connections.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
@@ -228,6 +228,8 @@ export class MediaViewers {
 export type MediaDeliveryPort = {
   /** Whether ace-media delivers this kind's viewers now (setting, health and route). */
   serves(kind: import("./routes.ts").SourceKind): boolean;
+  /** Why it doesn't, for the person (`undeliveredReason`); undefined while it does. */
+  unserved(kind: import("./routes.ts").SourceKind): string | undefined;
   /** The view's id, or undefined when the requester doesn't own the connection. */
   bind(request: Omit<ViewIntent, "viewer">): string | undefined;
   granted(viewer: string): boolean;
@@ -312,5 +314,32 @@ export function mediaSubscribed(
       height: poster.height,
       jpeg: Buffer.from(poster.jpeg).toString("base64"),
     },
+  };
+}
+
+/**
+ * Why a subscribe's pictures won't come (X3: only ace-media delivers live views): a client that
+ * named no media connection is older than this daemon; otherwise ace-media can't serve the
+ * view now. `port` absent: this daemon has no ace-media at all.
+ */
+export function mediaUndelivered(
+  named: boolean,
+  port: Pick<MediaDeliveryPort, "unserved"> | undefined,
+  kinds: readonly import("./routes.ts").SourceKind[],
+): MediaUndelivered {
+  if (!named)
+    return {
+      code: "update",
+      reason: "Update this app to see live video. This computer now sends it a newer way.",
+    };
+  if (!port)
+    return {
+      code: "unavailable",
+      reason: "Live video isn't available here: ace's media process can't run on this computer.",
+    };
+  const reasons = kinds.map((kind) => port.unserved(kind));
+  return {
+    code: "unavailable",
+    reason: reasons.find((reason) => reason !== undefined) ?? "Live video isn't available now.",
   };
 }

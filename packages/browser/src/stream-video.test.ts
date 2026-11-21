@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   decodeStreamMessage,
-  encodeBrowserFrame,
-  encodeBrowserVideo,
   StreamAssembler,
   StreamEnvelopeError,
   streamPieceBytes,
   type StreamMessage,
 } from "./stream.ts";
+import { encodeBrowserFrame, encodeBrowserVideo } from "./stream-encode.ts";
 import { encodeStream, streamKinds } from "./stream-envelope.ts";
 
 const header = {

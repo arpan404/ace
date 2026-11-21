@@ -1,6 +1,6 @@
 import { ThreadId } from "@ace/protocol";
 import { z } from "zod";
-import { encodeStream, streamKinds, StreamEnvelopeError } from "./stream-envelope.ts";
+import { streamKinds, StreamEnvelopeError } from "./stream-envelope.ts";
 
 /*
  * The browser audio kind's header (`streamKinds.browserAudio`): one encoded chunk of a tab's
@@ -29,7 +29,6 @@ export interface BrowserAudioChunk {
   bytes: Uint8Array;
 }
 
-const utf8 = (value: string) => new TextEncoder().encode(value);
 const text = (bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 
 const Header = z.object({
@@ -44,35 +43,6 @@ const Header = z.object({
     .regex(/^[A-Za-z0-9.]+$/),
   tabId: z.string().min(1).max(128).optional(),
 });
-
-/** One chunk's binary messages: its header and bytes. */
-export function encodeBrowserAudio(
-  id: number,
-  threadId: string,
-  chunk: Omit<BrowserAudioChunk, "bytes">,
-  bytes: Uint8Array,
-): Uint8Array[] {
-  const codec = utf8(chunk.codec);
-  const thread = utf8(threadId);
-  const tab = utf8(chunk.tabId ?? "");
-  if (codec.length > 255) throw new StreamEnvelopeError("Codec too long");
-  const meta = new Uint8Array(26 + codec.length + thread.length + tab.length);
-  const view = new DataView(meta.buffer);
-  view.setFloat64(0, chunk.sequence);
-  view.setFloat64(8, chunk.timestamp);
-  view.setUint32(16, chunk.sampleRate);
-  view.setUint8(20, chunk.channels);
-  view.setUint8(21, codec.length);
-  let at = 22;
-  meta.set(codec, at);
-  at += codec.length;
-  for (const part of [thread, tab]) {
-    view.setUint16(at, part.length);
-    meta.set(part, at + 2);
-    at += 2 + part.length;
-  }
-  return encodeStream(streamKinds.browserAudio, id, meta, bytes);
-}
 
 /** An audio chunk from its header and payload; throws on anything malformed. */
 export function decodeBrowserAudio(

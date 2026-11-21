@@ -187,7 +187,7 @@ const producer = (threadId: string): IngestProducer => ({
   origin: { kind: "tab" },
   threadId,
   epoch: () => 0,
-  consumers: { deliver: () => {}, record: () => {}, still: () => {}, end: () => {} },
+  consumers: { record: () => {}, still: () => {}, end: () => {} },
   point: () => Promise.resolve(),
   keyframe: () => {},
 });

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   decodeStreamMessage,
-  encodeBrowserFrame,
   isStreamPiece,
   StreamAssembler,
   StreamEnvelopeError,
   streamPieceBytes,
   type StreamMessage,
 } from "./stream.ts";
+import { encodeBrowserFrame } from "./stream-encode.ts";
 import { encodeStream } from "./stream-envelope.ts";
 
 const jpeg = (size: number) => Uint8Array.from({ length: size }, (_, index) => (index * 31) % 251);

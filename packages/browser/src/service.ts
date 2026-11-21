@@ -50,12 +50,6 @@ const defaultGlideMs = 220;
 import { PolicyGate } from "./policy-call.ts";
 import { watchWake } from "./wake-watch.ts";
 import { setMaxListeners } from "node:events";
-import {
-  encodeBrowserAudio,
-  encodeBrowserVideo,
-  type BrowserAudioChunk,
-  type BrowserVideoChunk,
-} from "./stream.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
 import type { DownloadRead } from "./download-read.ts";
@@ -75,9 +69,6 @@ export class BrowserService {
   private opening = new Map<string, Promise<BrowserSession>>();
   private profiles: BrowserProfiles;
   private subscriptions: BrowserSubscriptions;
-  private videoPieces = new WeakMap<BrowserVideoChunk, readonly Uint8Array[]>();
-  private audioPieces = new WeakMap<BrowserAudioChunk, readonly Uint8Array[]>();
-  private streamIds = 0;
   private now: () => number;
   private id: () => string;
   private closing: Promise<void> | undefined;
@@ -818,10 +809,6 @@ export class BrowserService {
     if (generation === undefined) throw new Error("Browser generation unavailable");
     return generation;
   }
-  /** A viewer that subscribed again starts over at a keyframe. */
-  replayFrame(threadId: string, connectionId: string): void {
-    this.get(threadId).live.replay(connectionId);
-  }
   state(threadId: string): BrowserState {
     return this.get(threadId).state;
   }
@@ -939,42 +926,6 @@ export class BrowserService {
       this.cursorStyle = { fill: style.fill, outline: style.outline };
       for (const session of this.sessions.values()) session.restyleCursors();
     }
-  }
-  /**
-   * A viewer showed every video chunk up to `sequence` (ADR 0088); `keyframe`: its decoder lost
-   * its place and needs one.
-   */
-  acknowledgeVideo(
-    threadId: string,
-    connectionId: string,
-    sequence: number,
-    keyframe = false,
-  ): void {
-    const video = this.get(threadId).live.video;
-    video.acknowledge(connectionId, sequence);
-    if (keyframe) video.keyframe(connectionId);
-  }
-  /** One binary encoding of a video chunk, shared by every viewer of its encode. */
-  streamVideo(threadId: string, chunk: BrowserVideoChunk): readonly Uint8Array[] {
-    let pieces = this.videoPieces.get(chunk);
-    if (!pieces) {
-      this.streamIds = (this.streamIds + 1) >>> 0;
-      const { bytes, ...header } = chunk;
-      pieces = encodeBrowserVideo(this.streamIds, threadId, header, bytes);
-      this.videoPieces.set(chunk, pieces);
-    }
-    return pieces;
-  }
-  /** One binary encoding of an audio chunk, shared by every listener. */
-  streamAudio(threadId: string, chunk: BrowserAudioChunk): readonly Uint8Array[] {
-    let pieces = this.audioPieces.get(chunk);
-    if (!pieces) {
-      this.streamIds = (this.streamIds + 1) >>> 0;
-      const { bytes, ...header } = chunk;
-      pieces = encodeBrowserAudio(this.streamIds, threadId, header, bytes);
-      this.audioPieces.set(chunk, pieces);
-    }
-    return pieces;
   }
   private stateObservers = new Set<(state: BrowserState) => void>();
   /** Every thread's browser state as it changes, for daemon-wide views (who is browsing). */

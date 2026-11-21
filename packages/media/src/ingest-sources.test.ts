@@ -45,7 +45,7 @@ function world() {
   const state = {
     settings: {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "legacy",
       stills: "legacy",
     } as MediaSettings,
@@ -126,8 +126,7 @@ function producer(kind: SourceKind = "tab", source = "p") {
     threadId: "t1",
     epoch: () => 0,
     consumers: {
-      deliver: (unit) => void units.push(unit),
-      record: () => {},
+      record: (unit) => void units.push(unit),
       still: () => {},
     },
     point: (address) => {

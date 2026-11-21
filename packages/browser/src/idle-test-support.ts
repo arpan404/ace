@@ -10,7 +10,7 @@ import type {
   CaptureEvents,
   VideoHost,
 } from "./backend.ts";
-import type { VideoEncode } from "./video-policy.ts";
+import type { VideoEncode } from "./backend.ts";
 import { BrowserService, connectBrowser } from "./index.ts";
 import { decodeStreamMessage, StreamAssembler } from "./stream.ts";
 import type { BrowserVideoChunk } from "./stream-video.ts";

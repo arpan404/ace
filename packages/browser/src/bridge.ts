@@ -14,6 +14,7 @@ import type { CaptureViewer } from "./viewer-sink.ts";
 import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
 import {
   mediaSubscribed,
+  mediaUndelivered,
   viewLink,
   viewSwap,
   viewViewport,
@@ -22,6 +23,9 @@ import {
 import type { MediaOwner } from "@ace/media/media-connections";
 
 type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
+
+/** The source kinds a thread's browser video can be in ace-media. */
+const browserKinds = ["tab", "embedded", "tab-pictures", "user-tab"] as const;
 
 function requiredAccess(message: BrowserClientMessage): BrowserAccess {
   if (
@@ -67,8 +71,9 @@ export function connectBrowser(
     ) => boolean;
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
     /**
-     * Sends one frame's binary stream messages (`@ace/browser/stream`), all of them or none;
-     * false is backpressure. Without it, every viewer gets frames as JSON.
+     * Sends one download chunk's binary stream messages (`@ace/browser/stream`), all of them or
+     * none; false is backpressure. Without it, downloads can't be read here. Live video never
+     * goes this way: ace-media delivers it on the client's media connection.
      */
     sendStream?: (pieces: readonly Uint8Array[]) => boolean;
     /** The connection is on this machine (the daemon's loopback listener, never a client claim). */
@@ -76,7 +81,8 @@ export function connectBrowser(
     /**
      * Delivery by ace-media (D1) for subscribes that name a media connection, with who this
      * connection is: its session, device and admission (a main session, or a channel of its
-     * own). Without it, or while ace-media doesn't serve, a subscribe is served here.
+     * own). Without it, or while ace-media doesn't serve, a subscribe gets no pictures and its
+     * reply says why (`undelivered`).
      */
     media?: { owner: () => MediaOwner | undefined; delivery: () => MediaDeliveryPort | undefined };
     /**
@@ -91,19 +97,14 @@ export function connectBrowser(
     engine?: EnginePreferencePort;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
-  /**
-   * `binary`: this connection's viewers of the thread take frames as binary stream messages;
-   * `video`: and encoded video in these codecs (ADR 0088).
-   */
+  /** `video`: the codecs this connection's viewers of the thread decode (ADR 0088). */
   type Subscription = {
     stop(): void;
     subscribers: Set<string>;
-    binary: boolean;
     video?: BrowserVideoRequest | undefined;
     /**
      * Each subscriber ace-media delivers to, with the media connection it named. The capture
-     * still runs here, so the producer streams; while every subscriber is delivered by ace-media,
-     * nothing goes on this socket.
+     * runs here, so the producer streams into ace-media; nothing goes on this socket.
      */
     media: Map<string, string>;
     /**
@@ -114,15 +115,13 @@ export function connectBrowser(
     /** The view the capture was last told about, to tell it again when delivery changes. */
     shown?: CaptureViewer | undefined;
   };
-  /** Every subscriber of the entry is delivered by ace-media: nothing goes on this socket. */
-  const allMedia = (entry: Subscription) =>
-    entry.media.size > 0 && entry.media.size >= entry.subscribers.size;
   /**
-   * This connection's view as the daemon's capture sees it: delivered by ace-media while every
-   * subscriber is, so the capture runs ace-media's plan for it and the daemon sends it nothing.
+   * This connection's view as the daemon's capture sees it: delivered by ace-media while any
+   * subscriber is, so the capture runs ace-media's plan for it. A subscriber ace-media doesn't
+   * deliver gets no pictures at all, so it never keeps a capture running.
    */
   const deliveredBy = (entry: Subscription, capture: CaptureViewer): CaptureViewer =>
-    allMedia(entry) ? { ...capture, delivered: true } : capture;
+    entry.media.size > 0 ? { ...capture, delivered: true } : capture;
   /**
    * A subscriber leaves its media connection's view: the view to close when it was the last one
    * there (the caller closes it, so a subscribe can close it only once it has succeeded).
@@ -147,32 +146,7 @@ export function connectBrowser(
     entry.stop = service.subscribe(
       threadId,
       options.connectionId,
-      sendStream
-        ? {
-            video: {
-              send: (chunk) => {
-                if (allMedia(entry)) {
-                  queueMicrotask(() =>
-                    service.acknowledgeVideo(threadId, options.connectionId, chunk.sequence, false),
-                  );
-                  return true;
-                }
-                return entry.binary && entry.video !== undefined
-                  ? sendStream(service.streamVideo(threadId, chunk))
-                  : false;
-              },
-            },
-            audio: {
-              send: (chunk) =>
-                allMedia(entry)
-                  ? true
-                  : entry.binary && entry.video !== undefined
-                    ? sendStream(service.streamAudio(threadId, chunk))
-                    : false,
-            },
-            ...(options.local === true ? { local: true } : {}),
-          }
-        : {},
+      options.local === true ? { local: true } : {},
       (state) => options.send({ type: "browser.state", state }),
       (event) => options.send(event),
       capture,
@@ -181,7 +155,7 @@ export function connectBrowser(
   /**
    * A subscribe naming a media connection: its viewer on that connection, when ace-media
    * delivers this browser's video now. A connection of another session is refused; otherwise,
-   * while ace-media doesn't serve, the subscribe is served on this socket.
+   * while ace-media doesn't serve, the subscribe gets no pictures (its reply says why).
    */
   const bindMedia = (
     threadId: string,
@@ -192,8 +166,7 @@ export function connectBrowser(
     const media = options.media;
     const delivery = media?.delivery();
     const owner = media?.owner();
-    const kinds = ["tab", "embedded", "tab-pictures", "user-tab"] as const;
-    if (!owner || !delivery || !kinds.some((kind) => delivery.serves(kind))) return undefined;
+    if (!owner || !delivery || !browserKinds.some((kind) => delivery.serves(kind))) return undefined;
     // Another subscriber of this thread already has the connection's view: share it.
     const shared = entry?.views.get(connection);
     if (shared !== undefined) return { viewer: shared, created: false };
@@ -450,7 +423,6 @@ export function connectBrowser(
               subscribers: new Set(existing.subscribers),
               media: new Map(existing.media),
               views: new Map(existing.views),
-              binary: existing.binary,
               video: existing.video,
               shown: existing.shown,
             };
@@ -475,10 +447,7 @@ export function connectBrowser(
               joined = message.media
                 ? bindMedia(threadId, message.media.connection, message, existing)
                 : undefined;
-              // The newest subscriber's build decides how frames travel on this connection.
-              const binary = message.binaryFrames === true && sendStream !== undefined;
-              // Video travels only as binary stream messages.
-              const video = binary ? message.video : undefined;
+              const video = message.video;
               // A viewer that says what it shows gets frames sized for it from the first one.
               const capture = message.viewport ? viewer(message.viewport, video) : undefined;
               const join = (entry: Subscription) => {
@@ -488,7 +457,6 @@ export function connectBrowser(
               };
               let entry = existing;
               if (entry) {
-                entry.binary = binary;
                 entry.video = video;
                 join(entry);
                 entry.subscribers.add(subscriber);
@@ -496,12 +464,10 @@ export function connectBrowser(
                 if (capture) entry.shown = capture;
                 if (shown) service.configureCapture(threadId, options.connectionId, shown);
                 options.send({ type: "browser.state", state: service.state(threadId) });
-                service.replayFrame(threadId, options.connectionId);
               } else {
                 entry = {
                   subscribers: new Set([subscriber]),
                   stop() {},
-                  binary,
                   video,
                   media: new Map(),
                   views: new Map(),
@@ -552,7 +518,19 @@ export function connectBrowser(
                 });
               break;
             }
-            respond(null);
+            // No pictures will come: the view says why instead of staying blank.
+            if (!closed)
+              options.send({
+                type: "browser.result",
+                requestId: message.requestId,
+                ok: true,
+                result: null,
+                undelivered: mediaUndelivered(
+                  message.media !== undefined,
+                  options.media?.delivery(),
+                  browserKinds,
+                ),
+              });
             break;
           }
           case "browser.unsubscribe": {
@@ -560,7 +538,7 @@ export function connectBrowser(
             const subscriber = message.subscriberId ?? "legacy";
             retire(entry, subscriber);
             entry?.subscribers.delete(subscriber);
-            // Who is left decides again whether the daemon or ace-media delivers this view.
+            // Who is left decides again whether ace-media delivers this view.
             if (entry?.subscribers.size && entry.shown)
               service.configureCapture(
                 threadId,
@@ -596,14 +574,7 @@ export function connectBrowser(
             break;
           }
           case "browser.ack":
-            // Live views are video only: an ack without `video` names nothing the daemon sent.
-            if (message.video)
-              service.acknowledgeVideo(
-                threadId,
-                options.connectionId,
-                message.sequence,
-                message.keyframe === true,
-              );
+            // Acks go on the media connection now: the daemon sends no video to ack here.
             break;
           case "browser.recording.start":
             await service.startRecording(threadId, {

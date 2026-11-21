@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { MediaAcceleration } from "./media-acceleration.ts";
 import { MediaLinkHint } from "./media-link.ts";
-import { MediaBinding, MediaCodecs, MediaSubscribed } from "./media-connection.ts";
+import { MediaBinding, MediaCodecs, MediaSubscribed, MediaUndelivered } from "./media-connection.ts";
 import { ScreenAgentScope } from "./screen-ui.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import {
@@ -214,6 +214,8 @@ export const ScreenServerMessage = z.discriminatedUnion("type", [
     holder: z.object({ sessionId: ScreenId, owner: z.string().max(1024) }).optional(),
     /** A `subscribe` that named a media connection: where its pictures go. */
     media: MediaSubscribed.optional(),
+    /** A `subscribe` whose pictures won't come, and why (`MediaUndelivered`). */
+    undelivered: MediaUndelivered.optional(),
   }),
 ]);
 export type ScreenPermissions = z.infer<typeof ScreenPermissions>;

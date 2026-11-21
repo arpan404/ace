@@ -92,13 +92,11 @@ function produce(socketPath: string, token: Uint8Array, mark: number): void {
 }
 
 function legacy() {
-  const got: Record<"deliver" | "record" | "still", EgressUnit[]> = {
-    deliver: [],
+  const got: Record<"record" | "still", EgressUnit[]> = {
     record: [],
     still: [],
   };
   const sinks: LegacyConsumers = {
-    deliver: (unit) => void got.deliver.push(unit),
     record: (unit) => void got.record.push(unit),
     still: (unit) => void got.still.push(unit),
   };
@@ -114,7 +112,7 @@ it.runIf(real)(
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-egress-"));
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "legacy",
       stills: "legacy",
     };
@@ -201,7 +199,7 @@ it.runIf(real)(
     expect(watch.routes().tab).toMatchObject({
       producer: "ace-media",
       egress: true,
-      deliverer: "legacy",
+      deliverer: "none",
       recorder: "legacy",
       stills: "legacy",
     });
@@ -220,7 +218,7 @@ it.runIf(real)(
       ["a", 0xa],
       ["b", 0xb],
     ] as const)
-      for (const kind of ["deliver", "record", "still"] as const) {
+      for (const kind of ["record", "still"] as const) {
         const units = sources[id].got[kind];
         expect(units.length).toBeGreaterThanOrEqual(5);
         expect(units.every((unit) => unit.source === id && unit.frame.payload[0] === mark)).toBe(
@@ -230,9 +228,9 @@ it.runIf(real)(
 
     // The daemon closes "a" before ace-media hears of it: its frames still in flight are dropped.
     router.close(handles.get("a") ?? 0);
-    const before = sources.a.got.deliver.length;
+    const before = sources.a.got.record.length;
     await until(() => router.drops().closed > 0, deadline, "a frame dropped for the closed source");
-    expect(sources.a.got.deliver.length).toBe(before);
+    expect(sources.a.got.record.length).toBe(before);
     // The relay carried the units (they arrived), but never a readable byte of them, nor the
     // control messages' JSON.
     const egress = Buffer.concat(relay.lanes.flatMap((lane) => lane.toDaemon));
@@ -254,7 +252,7 @@ it.runIf(real)(
     );
     const back = changes.find((c) => c.at > killed && c.routes.tab.producer === "daemon");
     expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
-    expect(back?.routes.tab).toMatchObject({ egress: false, tee: false, deliverer: "legacy" });
+    expect(back?.routes.tab).toMatchObject({ egress: false, tee: false, deliverer: "none" });
   },
   processBudgetMs,
 );

@@ -19,7 +19,7 @@ const built: RouteCapabilities = {
 };
 const settings: MediaSettings = {
   encode: "auto",
-  delivery: "legacy",
+  delivery: "auto",
   recordings: "legacy",
   stills: "legacy",
 };
@@ -57,7 +57,7 @@ function world() {
     kind: "tab-pictures",
     origin: { kind: "tab-pictures" } as IngestProducer["origin"],
     epoch: () => 0,
-    consumers: { deliver: () => {}, record: () => {}, still: () => {} },
+    consumers: { record: () => {}, still: () => {} },
     point: () => Promise.resolve(),
     keyframe: () => {},
   };

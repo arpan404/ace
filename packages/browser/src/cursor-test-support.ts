@@ -5,7 +5,6 @@ import type { BrowserState } from "@ace/protocol";
 import { pixel } from "./annotation-test-support.ts";
 import type { Actor } from "./session.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
-import type { BrowserVideoChunk } from "./stream-video.ts";
 import { fixture } from "./test-support.ts";
 
 export { executablePath } from "./test-support.ts";
@@ -43,45 +42,10 @@ async function bytesImage(bytes: Uint8Array) {
 }
 
 /**
- * Decodes one keyframe with WebCodecs in a page of its own and returns the picture as a PNG:
- * what the person's screen shows for it.
- */
-const decodeKeyframe = (chunk: BrowserVideoChunk) => {
-  const config = {
-    codec: chunk.codec,
-    codedWidth: chunk.codedWidth,
-    codedHeight: chunk.codedHeight,
-    ...(chunk.description
-      ? { description: Buffer.from(chunk.description).toString("base64") }
-      : {}),
-  };
-  return `(async () => {
-    const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const config = ${JSON.stringify(config)};
-    let picture;
-    const errors = [];
-    const decoder = new VideoDecoder({
-      output: (frame) => { picture?.close(); picture = frame; },
-      error: (error) => errors.push(String(error)),
-    });
-    decoder.configure({ ...config, ...(config.description ? { description: bytes(config.description) } : {}) });
-    decoder.decode(new EncodedVideoChunk({ type: "key", timestamp: 0, data: bytes(${JSON.stringify(Buffer.from(chunk.bytes).toString("base64"))}) }));
-    await decoder.flush().catch((error) => errors.push(String(error)));
-    if (!picture) throw new Error("No picture: " + errors.join("; "));
-    const canvas = new OffscreenCanvas(picture.displayWidth, picture.displayHeight);
-    canvas.getContext("2d").drawImage(picture, 0, 0);
-    picture.close();
-    const png = new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer());
-    let text = "";
-    for (let index = 0; index < png.length; index += 8192)
-      text += String.fromCharCode(...png.subarray(index, index + 8192));
-    return btoa(text);
-  })()`;
-};
-
-/**
- * A thread browser with agent cursors on, a person watching its live video with a magenta
- * accent, and helpers to look for the cursor in what each side sees.
+ * A thread browser with agent cursors on, a person watching its live view with a magenta
+ * accent, and helpers to look for the cursor in what each side sees. ace-media delivers the
+ * person's video from the tab's own pixels (X3), so the person's view here is the tab as the
+ * person's screenshot shows it.
  */
 export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}) {
   const server = createServer((request, response) => {
@@ -102,23 +66,8 @@ export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}
     agentCursor: { glideMs: 60, name: (_thread, agentId) => (agentId ? "Helper" : undefined) },
     ...options,
   });
-  const chunks: BrowserVideoChunk[] = [];
   const states: BrowserState[] = [];
-  f.service.subscribe(
-    "thread",
-    "person",
-    {
-      video: {
-        send: (chunk) => {
-          chunks.push(chunk);
-          // Acknowledge each chunk at once, as a viewer that keeps up does.
-          queueMicrotask(() => f.service.acknowledgeVideo("thread", "person", chunk.sequence));
-          return true;
-        },
-      },
-    },
-    (state) => states.push(state),
-  );
+  f.service.subscribe("thread", "person", {}, (state) => states.push(state));
   f.service.configureCapture("thread", "person", {
     viewport: {
       width: 800,
@@ -127,6 +76,7 @@ export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}
       cursor: { fill: accent, outline: "#FFFFFF" },
     },
     video: { codecs: ["avc1.42E033", "vp8"] },
+    delivered: true,
   });
   await f.service.execute("thread", { action: "resize", width: 800, height: 600 });
   await f.service.execute("thread", { action: "navigate", url: `${origin}/` });
@@ -143,28 +93,14 @@ export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}
       if (magenta(await pixel(image, width, x + dx, y + dy))) return true;
     return false;
   };
-  // The person's screen: a page of its own in another thread, where pictures are decoded.
-  let screen: Promise<unknown> | undefined;
-  /** What the person's live view shows now: a fresh keyframe, decoded. */
-  const frameImage = async () => {
-    screen ??= f.service
-      .open({ threadId: "screen", workspaceId: "workspace" })
-      .then(() => f.service.execute("screen", { action: "navigate", url: `${origin}/next` }));
-    await screen;
-    const asked = chunks.length;
-    f.service.acknowledgeVideo("thread", "person", chunks.at(-1)?.sequence ?? 0, true);
-    const fresh = () => chunks.slice(asked).find((chunk) => chunk.key);
-    await vi.waitFor(() => expect(fresh()).toBeDefined(), { timeout: 5_000, interval: 20 });
-    const key = fresh();
-    if (!key) throw new Error("No live keyframe");
-    const data = z
-      .string()
-      .parse(
-        await f.service.execute("screen", { action: "evaluate", expression: decodeKeyframe(key) }),
-      );
-    const { default: sharp } = await import("sharp");
-    return { data, width: (await sharp(Buffer.from(data, "base64")).metadata()).width ?? 0 };
-  };
+  /** What the person's live view shows now: the tab's pixels, unmasked. */
+  const frameImage = async () =>
+    bytesImage(
+      await f.service.screenshot("thread", undefined, undefined, {}, {
+        kind: "human",
+        connectionId: "person",
+      }),
+    );
   return {
     ...f,
     origin,

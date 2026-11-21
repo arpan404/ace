@@ -2,7 +2,13 @@ import type { ToMedia } from "./wire.ts";
 
 /** The supervision rules of docs/media/plan.md ("Supervision"), as pure values and functions. */
 
-export type MediaSettings = Extract<ToMedia, { type: "init" }>["settings"];
+/**
+ * The settings ace-media is started with. `delivery` is only ever `auto`: the daemon has no
+ * deliverer of its own (X3). The wire still names `legacy`, so an older ace-media parses it.
+ */
+export type MediaSettings = Omit<Extract<ToMedia, { type: "init" }>["settings"], "delivery"> & {
+  delivery: "auto";
+};
 export type MediaHealth = "healthy" | "restarting" | "unavailable";
 
 export const supervisionTimings = {
@@ -43,5 +49,5 @@ export const legacyMediaSettings: MediaSettings = {
   recordings: "legacy",
   stills: "legacy",
   encode: "legacy",
-  delivery: "legacy",
+  delivery: "auto",
 };

@@ -1,6 +1,5 @@
 import { BrowserFrame, ThreadId } from "@ace/protocol";
 import {
-  encodeStream,
   streamKinds,
   StreamEnvelopeError,
   type StreamEnvelope,
@@ -34,10 +33,9 @@ export {
   streamPieceBytes,
   type StreamEnvelope,
 } from "./stream-envelope.ts";
-export { encodeBrowserVideo, type BrowserVideoChunk } from "./stream-video.ts";
-export { encodeBrowserAudio, type BrowserAudioChunk } from "./stream-audio.ts";
+export type { BrowserVideoChunk } from "./stream-video.ts";
+export type { BrowserAudioChunk } from "./stream-audio.ts";
 export {
-  encodePicture,
   pictureRotations,
   type PictureChunk,
   type PictureKind,
@@ -45,7 +43,6 @@ export {
 } from "./stream-picture.ts";
 
 // Made per call (they are cheap): importing this module needs no text codecs.
-const utf8 = (value: string) => new TextEncoder().encode(value);
 const text = (bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 
 /** A frame as it arrives in binary: `BrowserFrame` with the JPEG's bytes instead of base64. */
@@ -64,28 +61,6 @@ export type StreamMessage =
   | DownloadChunkMessage;
 
 const FrameHeader = BrowserFrame.omit({ data: true });
-
-/** One frame's binary messages: its header and its JPEG, cut into socket-sized pieces. */
-export function encodeBrowserFrame(
-  id: number,
-  threadId: string,
-  frame: Omit<BrowserFrame, "data">,
-  jpeg: Uint8Array,
-): Uint8Array[] {
-  const thread = utf8(threadId);
-  const tab = utf8(frame.tabId ?? "");
-  const meta = new Uint8Array(28 + thread.length + tab.length);
-  const view = new DataView(meta.buffer);
-  view.setFloat64(0, frame.sequence);
-  view.setFloat64(8, frame.timestamp);
-  view.setUint32(16, frame.width);
-  view.setUint32(20, frame.height);
-  view.setUint16(24, thread.length);
-  meta.set(thread, 26);
-  view.setUint16(26 + thread.length, tab.length);
-  meta.set(tab, 28 + thread.length);
-  return encodeStream(streamKinds.browserFrame, id, meta, jpeg);
-}
 
 function decodeFrame(meta: Uint8Array, payload: Uint8Array): StreamMessage {
   if (meta.length < 28) throw new StreamEnvelopeError("Short frame header");
