@@ -4,9 +4,12 @@ import type { ToMedia } from "./wire.ts";
 /**
  * Routes and setting combinations (docs/media/plan.md). For each source kind: where its producer
  * sends frames, whether the daemon tees them into ace-media or ace-media sends them back on
- * egress, and whether the deliverer is the daemon's legacy one or ace-media's. Every combination
- * of settings, health and capabilities is a complete route: each consumer gets frames from
- * somewhere.
+ * egress, and whether ace-media delivers its viewers. Every combination of settings, health and
+ * capabilities is a complete route.
+ *
+ * Viewers are only ever ace-media's (X3): the daemon has no deliverer of its own. A source
+ * whose frames aren't in ace-media has no deliverer (`none`), and its live views say why
+ * (`undeliveredReason`).
  *
  * Recordings and stills have no legacy consumer since X1. Until X2 moves every producer into
  * ace-media, a recording takes the source's frames where the daemon has them and tees them into
@@ -26,8 +29,8 @@ export const sourceKinds: readonly SourceKind[] = [
   "emulator-frames",
 ];
 
-/** Where a consumer runs: in the daemon (legacy) or in ace-media. */
-export type ConsumerPlace = "legacy" | "ace-media";
+/** Who delivers a source's pictures to viewers: ace-media, or nobody while it can't. */
+export type DelivererPlace = "ace-media" | "none";
 
 export type SourceRoute = {
   producer: "daemon" | "ace-media";
@@ -35,7 +38,7 @@ export type SourceRoute = {
   tee: boolean;
   /** ace-media sends the source's frames back to the daemon. */
   egress: boolean;
-  deliverer: ConsumerPlace;
+  deliverer: DelivererPlace;
 };
 
 export type MediaRoutes = Record<SourceKind, SourceRoute>;
@@ -81,30 +84,45 @@ export function platformRouteCapabilities(platform: string): RouteCapabilities {
   };
 }
 
-function place(setting: "auto" | "legacy", capable: boolean, healthy: boolean): ConsumerPlace {
-  return setting === "auto" && capable && healthy ? "ace-media" : "legacy";
-}
-
 /** The route for one source kind. Anything but a healthy ace-media makes every `auto` legacy. */
 export function sourceRoute(
   kind: SourceKind,
-  settings: MediaSettings,
+  /** Kept for the callers until the media settings go; no route reads them. */
+  _settings: MediaSettings,
   health: MediaHealth,
   capabilities: RouteCapabilities,
 ): SourceRoute {
   const healthy = health === "healthy";
-  const deliverer = place(settings.delivery, capabilities.delivery, healthy);
-  const producer =
-    settings.encode === "auto" && healthy && capabilities.ingest.includes(kind)
-      ? "ace-media"
-      : "daemon";
+  // ace-media is the only media path: every producer that can stream into it does, while it is
+  // healthy, whatever any setting says.
+  const producer = healthy && capabilities.ingest.includes(kind) ? "ace-media" : "daemon";
+  // ace-media delivers what its producer streams into it; the tee never feeds viewers.
+  const deliverer = producer === "ace-media" && capabilities.delivery ? "ace-media" : "none";
   return {
     producer,
-    tee: producer === "daemon" && deliverer === "ace-media",
+    // Recordings tee on their own (`tee-recordings.ts`); no viewer is fed by a tee.
+    tee: false,
     // The daemon takes a recording's frames itself until X2 (see above).
     egress: producer === "ace-media",
     deliverer,
   };
+}
+
+/**
+ * Why a source's live views get no pictures now, for the person (X3's "Unavailable"), or
+ * undefined while ace-media delivers it. Pure: the route's inputs.
+ */
+export function undeliveredReason(
+  kind: SourceKind,
+  settings: MediaSettings,
+  health: MediaHealth,
+  capabilities: RouteCapabilities,
+): string | undefined {
+  if (sourceRoute(kind, settings, health, capabilities).deliverer === "ace-media") return undefined;
+  if (health === "restarting") return "Live video is starting. It shows in a moment.";
+  if (health === "unavailable")
+    return "Live video stopped: ace's media process keeps failing on this computer. Restart ace to try again.";
+  return "This computer can't stream this live view yet.";
 }
 
 export function mediaRoutes(

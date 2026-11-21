@@ -17,7 +17,7 @@ import {
  */
 
 /** The media connection's binary hello for a `media.connect` ticket (base64url). */
-export function mediaHello(ticket: string): Uint8Array {
+export function mediaHello(ticket: string): Uint8Array<ArrayBuffer> {
   const bytes = Buffer.from(ticket, "base64url");
   if (bytes.length !== mediaHelloBytes - 5) throw new Error("A media ticket is 32 bytes");
   const hello = new Uint8Array(mediaHelloBytes);

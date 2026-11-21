@@ -35,6 +35,7 @@ const picturesHost: VideoHost = {
 const viewer = (paused: boolean): CaptureViewer => ({
   viewport: { width: 800, height: 600, devicePixelRatio: 1, paused },
   video: { codecs: ["avc1.42E033"] },
+  delivered: true,
 });
 
 it("stops the screencast feeding the video once its only viewer is hidden", async () => {
@@ -51,7 +52,7 @@ it("stops the screencast feeding the video once its only viewer is hidden", asyn
     () => ({ host: picturesHost, page: page.cdp }),
   );
   await live.start();
-  live.subscribe("phone", { video: { send: () => true } }, viewer(false));
+  live.subscribe("phone", {}, viewer(false));
   await vi.advanceTimersByTimeAsync(500);
   const started = page.calls.lastIndexOf("Page.startScreencast");
   expect(started).toBeGreaterThan(-1);

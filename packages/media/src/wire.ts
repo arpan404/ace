@@ -378,7 +378,7 @@ export const FromMedia = z.discriminatedUnion("type", [
     type: z.literal("grant.refused"),
     kind: text,
     id: id,
-    reason: z.enum(["owner", "revoked", "expired", "unknown-connection"]),
+    reason: z.enum(["owner", "revoked", "expired", "unknown-connection", "limit"]),
   }),
   z.strictObject({ type: z.literal("relay.dialed"), stream: id }),
   z.strictObject({ type: z.literal("relay.failed"), stream: id, reason: text }),

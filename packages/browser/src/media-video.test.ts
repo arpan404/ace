@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { EgressUnit } from "@ace/media/egress";
-import type { MediaFrame } from "@ace/media/frame";
 import type { IngestAddress, IngestProducer } from "@ace/media/ingest-sources";
 import type {
   BrowserCdp,
@@ -12,37 +10,9 @@ import type {
   VideoMediaKind,
 } from "./backend.ts";
 import { mediaVideoHost, type BrowserMedia } from "./media-video.ts";
-import type { VideoEncode } from "./video-policy.ts";
+import type { VideoEncode } from "./backend.ts";
 
 const page = {} as BrowserCdp;
-
-function frame(encode: number, key: boolean, payload: number): MediaFrame {
-  return {
-    kind: 1,
-    flags: key ? 5 : 0,
-    ageUs: 4_000,
-    width: 640,
-    height: 400,
-    displayWidth: 640,
-    displayHeight: 400,
-    scale: 1000,
-    rotation: 0,
-    codec: 2,
-    encode,
-    epoch: 0,
-    codecString: "avc1.640020",
-    description: key ? new Uint8Array([1, 0x64, 0, 0x20]) : new Uint8Array(0),
-    extension: new Uint8Array(0),
-    payload: new Uint8Array([payload]),
-  };
-}
-
-const unit = (path: string, f: MediaFrame): EgressUnit => ({
-  source: path,
-  frame: f,
-  sequence: 0,
-  gap: false,
-});
 
 const address = (path: string): IngestAddress => ({
   url: "ws://127.0.0.1:9/ingest",
@@ -157,17 +127,6 @@ const spec = (key: string): VideoEncode => ({
   bitrate: 4_000_000,
 });
 
-const daemonChunk = (encode: string, key: boolean, mark: number): EncodedChunk => ({
-  encode,
-  key,
-  codec: "avc1.42E033",
-  codedWidth: 640,
-  codedHeight: 400,
-  bytes: new Uint8Array([mark]),
-});
-
-const marks = (chunks: EncodedChunk[]) => chunks.map((chunk) => chunk.bytes[0]);
-
 describe("live video routed through ace-media", () => {
   it.each(["tab", "tab-pictures"] as const)(
     "a %s capture tells ace-media the codecs its encoder runs",
@@ -185,7 +144,7 @@ describe("live video routed through ace-media", () => {
     },
   );
 
-  it("a tab's own encoder is pointed at the ingest with its token, and egress units reach the capture as its chunks", async () => {
+  it("a tab's own encoder is pointed at the ingest with its token, under the daemon's own encode ids", async () => {
     const { media, added } = fakeMedia({ routed: true });
     const { host, captures } = fakeHost("tab", true);
     const e = events();
@@ -198,69 +157,9 @@ describe("live video routed through ace-media", () => {
     handle.encodes([spec("avc1/640"), spec("avc1/320")]);
     // The daemon's own encodes take ids above ace-media's, which start at 1 (D1).
     expect(captures[0]?.encodes[0]?.map((s) => s.id)).toEqual([2 ** 20, 2 ** 20 + 1]);
-    // The producer moved: its last word on the daemon's path lets ace-media's units through.
-    captures[0]?.events.moved?.("ingest");
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20 + 1, true, 9)));
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20 + 1, false, 10)));
-    producer?.consumers.deliver(unit("m1", frame(77, false, 11)));
-    expect(e.chunks).toEqual([
-      expect.objectContaining({
-        encode: "avc1/320",
-        key: true,
-        codec: "avc1.640020",
-        age: 4,
-        description: new Uint8Array([1, 0x64, 0, 0x20]),
-      }),
-      expect.objectContaining({ encode: "avc1/320", key: false }),
-    ]);
-    expect(e.chunks[1]).not.toHaveProperty("description");
     handle.close();
     expect(added[0]?.closed).toBe(true);
     expect(captures[0]?.closed).toBe(true);
-  });
-
-  it("a flip back to the daemon holds its new keyframe until ace-media's late deltas and its end marker are in", async () => {
-    const { media, added } = fakeMedia({ routed: true });
-    const { host, captures } = fakeHost("tab", true);
-    const e = events();
-    const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, e.sink);
-    handle.encodes([spec("avc1/640")]);
-    const producer = added[0]?.producer;
-    const daemon = captures[0]?.events;
-    daemon?.chunk(daemonChunk("avc1/640", true, 1));
-    await producer?.point(address("m1"));
-    daemon?.moved?.("ingest");
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20, true, 2)));
-    // Back to the daemon: the encoder's fresh keyframe overtakes ace-media's last deltas.
-    await producer?.point(undefined);
-    expect(captures[0]?.targets.at(-1)).toBeUndefined();
-    daemon?.moved?.("daemon");
-    daemon?.chunk(daemonChunk("avc1/640", true, 5));
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 3)));
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 4)));
-    expect(marks(e.chunks)).toEqual([1, 2, 3, 4]);
-    producer?.pathEnded?.("m1", false);
-    daemon?.chunk(daemonChunk("avc1/640", false, 6));
-    expect(marks(e.chunks)).toEqual([1, 2, 3, 4, 5, 6]);
-  });
-
-  it("a cut ace-media path lets the daemon's path in from its keyframe only", async () => {
-    const { media, added } = fakeMedia({ routed: true });
-    const { host, captures } = fakeHost("tab", true);
-    const e = events();
-    const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, e.sink);
-    handle.encodes([spec("avc1/640")]);
-    const producer = added[0]?.producer;
-    const daemon = captures[0]?.events;
-    await producer?.point(address("m1"));
-    daemon?.moved?.("ingest");
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20, true, 1)));
-    await producer?.point(undefined);
-    daemon?.chunk(daemonChunk("avc1/640", false, 2));
-    daemon?.chunk(daemonChunk("avc1/640", true, 3));
-    producer?.pathEnded?.("m1", true);
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 9)));
-    expect(marks(e.chunks)).toEqual([1, 3]);
   });
 
   it("a screencast tab routed to ace-media never opens the browser's encoder: pictures and encodes go to ace-media", async () => {
@@ -281,8 +180,6 @@ describe("live video routed through ace-media", () => {
     ]);
     expect(added[0]?.pictures).toEqual(["aGVsbG8="]);
     expect(added[0]?.keys).toEqual([2 ** 20]);
-    added[0]?.producer.consumers.deliver(unit("m1", frame(2 ** 20, true, 1)));
-    expect(e.chunks.map((c) => c.encode)).toEqual(["avc1/640"]);
   });
 
   it("codecs ace-media can't encode end the capture, and the tab's next captures stay with the browser's encoder", async () => {
@@ -456,10 +353,6 @@ it("out of daemon ids, the source reopens, and waiting encodes run once the old 
   expect(captures[0]?.encodes.at(-1)?.map((s) => s.key)).toEqual(["a"]);
   expect(added[0]?.reconnects).toBe(1);
   await producer?.point(address("m2"));
-  // The old path's late unit of `b` keeps its label.
-  captures[0]?.events.moved?.("ingest");
-  producer?.consumers.deliver(unit("m1", frame(first + 1, true, 1)));
-  expect(e.chunks.map((c) => c.encode)).toEqual(["b"]);
   // Its end marker: ids start over past `a`, and `c` runs.
   producer?.pathEnded?.("m1", false);
   expect(captures[0]?.encodes.at(-1)).toEqual([

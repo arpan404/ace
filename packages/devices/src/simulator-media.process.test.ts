@@ -72,7 +72,7 @@ it.runIf(!!binary)(
 
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "auto",
       stills: "auto",
     };

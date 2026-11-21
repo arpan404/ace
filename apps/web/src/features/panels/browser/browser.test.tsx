@@ -130,6 +130,23 @@ test("the browser shows the page an agent works in, marks its tab with the agent
   expect(within(panel).queryByRole("button", { name: /Take over|Hand back/ })).toBeNull();
 });
 
+test("when ace-media goes away, the last picture stays dimmed with why, never passing for a live page", async () => {
+  const { app, panel } = await openBrowser(coldStartReplay(), "/t/thread-cold-start", "turn-2");
+  await agentPage(panel);
+  // ace-media dies and comes back unable to serve: the view reconnects and is told why.
+  act(() => {
+    app.daemon.media.serving = false;
+    app.daemon.media.dropAll();
+  });
+  await waitFor(
+    () =>
+      expect(within(panel).getByRole("status").textContent).toBe("Live video isn't available now."),
+    { timeout: 5_000 },
+  );
+  // The old picture is still there underneath, dimmed.
+  expect((await agentPage(panel)).className).toContain("opacity-40");
+});
+
 test("a browser that can't decode video says so in place of the page, and the rest still works", async () => {
   // jsdom has no WebCodecs, as an older browser hasn't.
   const scenario = coldStartReplay();

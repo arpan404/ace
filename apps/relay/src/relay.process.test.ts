@@ -1,4 +1,5 @@
-import { encodeBrowserVideo, StreamAssembler } from "@ace/browser/stream";
+import { StreamAssembler } from "@ace/browser/stream";
+import { encodeBrowserVideo } from "@ace/browser/stream-encode";
 import { afterEach, expect, it } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import { keyPair, hostId, NoiseXX } from "@ace/secure-channel";

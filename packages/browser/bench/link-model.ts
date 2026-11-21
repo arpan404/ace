@@ -1,5 +1,5 @@
 /*
- * The simulated links `video-link.ts` puts between the daemon and a viewer (ADR 0149, N1). Pure:
+ * The simulated links `media-link.ts` puts between ace-media and a viewer (ADR 0149, N1). Pure:
  * every call takes the time it happens at and returns when the bytes arrive, and randomness comes
  * from a seeded generator, so a profile replays exactly and can drive unit tests.
  *

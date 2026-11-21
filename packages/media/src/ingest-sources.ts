@@ -305,6 +305,25 @@ export class IngestSources {
   }
 
   /** The producers streaming into ace-media now, with their ids there. */
+  /** The kinds of the open sources `shows` picks (a device's, a screen session's). */
+  kinds(shows: (producer: IngestProducer) => boolean): SourceKind[] {
+    const out = new Set<SourceKind>();
+    for (const entry of this.#entries)
+      if (!entry.closed && shows(entry.producer)) out.add(entry.producer.kind);
+    return [...out];
+  }
+
+  /** Where the open sources `shows` picks are: in ace-media, on their way, or refused there. */
+  state(shows: (producer: IngestProducer) => boolean): "live" | "pending" | "failed" {
+    let state: "live" | "pending" | "failed" | undefined;
+    for (const entry of this.#entries) {
+      if (entry.closed || !shows(entry.producer)) continue;
+      if (entry.live) return "live";
+      state = entry.failed ? "failed" : "pending";
+    }
+    return state ?? "pending";
+  }
+
   live(): { producer: IngestProducer; path: string }[] {
     const out: { producer: IngestProducer; path: string }[] = [];
     for (const entry of this.#entries)

@@ -50,6 +50,9 @@ pub enum Refusal {
     Expired,
     #[serde(rename = "unknown-connection")]
     UnknownConnection,
+    /// ace-media holds as many viewers as it may (`MAX_VIEWERS`): the view isn't opened.
+    #[serde(rename = "limit")]
+    Limit,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Level {

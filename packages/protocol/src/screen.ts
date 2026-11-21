@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { MediaAcceleration } from "./media-acceleration.ts";
 import { MediaLinkHint } from "./media-link.ts";
-import { MediaBinding, MediaCodecs, MediaSubscribed } from "./media-connection.ts";
+import {
+  MediaBinding,
+  MediaCodecs,
+  MediaSubscribed,
+  MediaUndelivered,
+} from "./media-connection.ts";
 import { ScreenAgentScope } from "./screen-ui.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import {
@@ -159,6 +164,17 @@ export const ScreenOperation = z.discriminatedUnion("op", [
     link: MediaLinkHint.optional(),
     /** Deliver the pictures on that media connection (`media.connect`) instead of this socket. */
     media: MediaBinding.optional(),
+    /**
+     * This client takes live pictures only from its media connection (X3), so a subscribe naming
+     * none is a client still connecting one, not an older build. Absent: an older client, whose
+     * views are told, in fields it already shows, to update.
+     */
+    mediaClient: z.literal(true).optional(),
+    /**
+     * This client reads `*.delivery` pushes: whether its bound view gets pictures now. Absent,
+     * none is sent: an older client's decoder would refuse a message type it doesn't know.
+     */
+    deliveryStatus: z.literal(true).optional(),
     /** The viewer's decoders, best first (WebCodecs strings); with `media`, ace-media encodes for them. */
     codecs: MediaCodecs.optional(),
   }),
@@ -204,6 +220,16 @@ export type ScreenAck = z.infer<typeof ScreenAck>;
 export const ScreenServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("screen.enabled"), enabled: z.boolean() }),
   z.object({ type: z.literal("screen.state"), state: ScreenState }),
+  /**
+   * After a subscribe that named a media connection: whether its view is getting pictures now.
+   * `undelivered` while its source isn't streaming into ace-media (starting, or it failed),
+   * absent once it is. Sent only to a client that takes media (`mediaClient`), on every change.
+   */
+  z.object({
+    type: z.literal("screen.delivery"),
+    sessionId: ScreenId,
+    undelivered: MediaUndelivered.optional(),
+  }),
   z.object({
     type: z.literal("screen.result"),
     requestId: ScreenId,
@@ -214,6 +240,8 @@ export const ScreenServerMessage = z.discriminatedUnion("type", [
     holder: z.object({ sessionId: ScreenId, owner: z.string().max(1024) }).optional(),
     /** A `subscribe` that named a media connection: where its pictures go. */
     media: MediaSubscribed.optional(),
+    /** A `subscribe` whose pictures won't come, and why (`MediaUndelivered`). */
+    undelivered: MediaUndelivered.optional(),
   }),
 ]);
 export type ScreenPermissions = z.infer<typeof ScreenPermissions>;

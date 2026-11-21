@@ -8,11 +8,12 @@ import { nodeBinary } from "@ace/provider-kit/testing";
 import type { DeviceRuntime } from "./runtime.ts";
 import { ScreenManager } from "@ace/screen";
 import { ThreadId, AgentId } from "@ace/protocol";
-import type { DeviceServerMessage } from "@ace/protocol/devices";
+import { DeviceFailure, DeviceState, type DeviceServerMessage } from "@ace/protocol/devices";
 import { DeviceClient, DeviceClientError, type DeviceTransport } from "./client.ts";
 import { DevicesService, DevicePlatform, reserveDevices, agentOwner } from "./index.ts";
 import type { DevicePeer } from "./bridge.ts";
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
+import { updateReason } from "@ace/media/media-viewers";
 
 /*
  * The iOS Simulator live view end to end, minus macOS: a fake `xcrun simctl` keeps the
@@ -375,30 +376,6 @@ it("without an open Devices view no scheduled inventory ticks read device state"
   expect(await f.readCount()).toBe(closed);
 });
 
-it("frames from a simulator reach the client as H.264 only", async () => {
-  const f = await fixture();
-  await writeFile(f.state, "booted");
-  const { client } = connect(f.service);
-  await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
-  await client.request({ op: "enable", enabled: true });
-  await client.request({ op: "list" });
-  const shown: string[] = [];
-  const codecs = new Set<string>();
-  client.watchPictures(deviceId, async (picture) => {
-    shown.push(Buffer.from(picture.bytes).toString());
-    codecs.add(picture.codec);
-    client.ack(picture);
-  });
-
-  await client.request({ op: "start", deviceId, fps: 10 });
-  await client.request({ op: "subscribe", deviceId });
-
-  expect(deviceState(client)).toMatchObject({ lifecycle: "live" });
-  await waitFor(() => expect(shown).toContain("simulator:home"));
-  expect(codecs.size).toBe(1);
-  expect(codecs.has("jpeg")).toBe(false);
-});
-
 it("a Simulator that can only make JPEG refuses the live view and names serve-sim", async () => {
   const f = await fixture({ video: false });
   await writeFile(f.state, "booted");
@@ -437,11 +414,6 @@ it("input is refused without control and reaches the simulator with it", async (
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "list" });
-  const shown: string[] = [];
-  client.watchPictures(deviceId, async (picture) => {
-    shown.push(Buffer.from(picture.bytes).toString());
-    client.ack(picture);
-  });
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({ op: "subscribe", deviceId });
 
@@ -473,7 +445,6 @@ it("input is refused without control and reaches the simulator with it", async (
     { button: "Volume Up" },
     { button: "Action" },
   ]);
-  await waitFor(() => expect(shown).toContain("simulator:after-text.type"));
 });
 
 it("without Screen Recording the live view says which permission is missing, asks macOS for it, and starts once granted", async () => {
@@ -622,25 +593,19 @@ it("lease expiry posts mouse-up at the native boundary without another client co
   expect(deviceState(client)?.controller).toBe("none");
 });
 
-it("a Simulator streams to a person and is handed to an agent while computer use stays off", async () => {
+it("a Simulator goes live for a person and is handed to an agent while computer use stays off", async () => {
   const f = await fixture();
   await writeFile(f.state, "booted");
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "list" });
-  const shown: string[] = [];
-  client.watchPictures(deviceId, async (picture) => {
-    shown.push(Buffer.from(picture.bytes).toString());
-    client.ack(picture);
-  });
   expect(await client.request({ op: "permissions" })).toEqual({
     screenRecording: true,
     accessibility: true,
   });
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({ op: "subscribe", deviceId });
-  await waitFor(() => expect(shown).toContain("simulator:home"));
   expect(deviceState(client)).toMatchObject({ lifecycle: "live" });
   expect(deviceState(client)?.threadId).toBeUndefined();
   await client.request({
@@ -677,46 +642,6 @@ it("a resubscribe on the same media connection that fails keeps delivering on th
   expect(m.d.views.size).toBe(0);
 });
 
-it("a media resubscribe that fails leaves the legacy view its stream and its pictures", async () => {
-  const f = await fixture();
-  await writeFile(f.state, "booted");
-  const d = fakeDelivery();
-  const failing = { on: false };
-  const { client } = connect(f.service, "browser-1", {
-    delivery: {
-      owner: () => phoneOwner,
-      port: () => ({
-        ...d.port,
-        poster: () =>
-          failing.on ? Promise.reject(new Error("poster gone")) : Promise.resolve(undefined),
-      }),
-    },
-  });
-  await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
-  await client.request({ op: "enable", enabled: true });
-  await client.request({ op: "list" });
-  let shown = 0;
-  client.watchPictures(deviceId, async (picture) => {
-    shown++;
-    client.ack(picture);
-  });
-  await client.request({ op: "start", deviceId, fps: 10 });
-  // Watched on the main socket: the daemon delivers it.
-  await client.request({ op: "subscribe", deviceId });
-  await waitFor(() => expect(shown).toBeGreaterThan(0));
-  failing.on = true;
-  await expect(
-    client.request({ op: "subscribe", deviceId, media: { connection: "mc_aaaaaaaaaaaa" } }),
-  ).rejects.toThrow();
-  failing.on = false;
-  expect(d.views.size).toBe(0);
-  // The old view keeps its stream request: the device still makes H.264, so the next picture
-  // reaches it. (A withdrawn request would leave the device on JPEG, which live views drop.)
-  const before = shown;
-  await client.request({ op: "stream.keyframe", deviceId });
-  await vi.waitFor(() => expect(shown).toBeGreaterThan(before), { timeout: 2_000 });
-});
-
 it("a subscribe superseded while it is set up never takes its successor's view", async () => {
   const m = await mediaChannel(["ok", "wait", "wait"]);
   await m.subscribe("o", "mc_aaaaaaaaaaaa");
@@ -742,7 +667,10 @@ it("a subscribe superseded while it is set up never takes its successor's view",
  * serves. Each subscribe's poster does what `posters` says in turn: come at once, fail, or wait
  * until the test lets it go (`release`).
  */
-async function mediaChannel(posters: ("ok" | "fail" | "wait")[]) {
+async function mediaChannel(
+  posters: ("ok" | "fail" | "wait")[],
+  overrides: Partial<ReturnType<typeof fakeDelivery>["port"]> = {},
+) {
   const f = await fixture();
   await writeFile(f.state, "booted");
   const d = fakeDelivery();
@@ -760,6 +688,7 @@ async function mediaChannel(posters: ("ok" | "fail" | "wait")[]) {
       owner: () => phoneOwner,
       port: () => ({
         ...d.port,
+        ...overrides,
         poster: () => {
           const next = posters.shift() ?? "ok";
           if (next === "fail") return Promise.reject(new Error("poster gone"));
@@ -780,8 +709,9 @@ async function mediaChannel(posters: ("ok" | "fail" | "wait")[]) {
     d,
     waiting,
     request,
+    sent,
     subscribe: (requestId: string, connection: string) =>
-      request(requestId, { op: "subscribe", deviceId, media: { connection } }),
+      request(requestId, { op: "subscribe", deviceId, media: { connection }, mediaClient: true }),
     answer: (requestId: string) =>
       sent.find((m) => m.type === "devices.result" && m.requestId === requestId),
   };
@@ -818,4 +748,71 @@ it("of resubscribes in quick succession the last one wins, and only its view is 
   expect(m.answer("c")).toMatchObject({ ok: true });
   expect(m.d.views.size).toBe(1);
   expect([...m.d.live]).toEqual([...m.d.views.keys()]);
+});
+
+it("a device whose own source ace-media can't serve here gets no view and says why, though other kinds are served", async () => {
+  const reason = "This computer can't stream this live view yet.";
+  const m = await mediaChannel([], {
+    sourceKinds: () => ["emulator-frames"],
+    serves: (kind) => kind !== "emulator-frames",
+    unserved: (kind) => (kind === "emulator-frames" ? reason : undefined),
+  });
+  await m.subscribe("watch", "mc_aaaaaaaaaaaa");
+  expect(m.answer("watch")).toMatchObject({
+    ok: true,
+    undelivered: { code: "unavailable", reason },
+  });
+  expect(m.answer("watch")).not.toHaveProperty("media");
+  expect(m.d.views.size).toBe(0);
+});
+
+it("an older client is told to update in the device's error, which it already shows; a current one isn't", async () => {
+  const m = await mediaChannel([]);
+  const errorIn = (requestId: string) => {
+    const answer = m.answer(requestId);
+    if (answer?.type !== "devices.result" || !answer.ok) throw new Error(`${requestId} failed`);
+    // The state as every older client parses it: its error a `DeviceFailure` it shows.
+    const state = DeviceState.parse(answer.data);
+    return state.error && DeviceFailure.parse(state.error).message;
+  };
+  // A pre-X3 client: no `mediaClient`, no media connection.
+  await m.request("old", { op: "subscribe", deviceId });
+  expect(errorIn("old")).toBe(updateReason);
+  // A current client without a connection yet says why itself: no update is asked of it.
+  await m.request("current", { op: "subscribe", deviceId, mediaClient: true });
+  expect(errorIn("current")).toBeUndefined();
+});
+
+it("a device's delivery status goes only to a subscriber that asked for it", async () => {
+  const m = await mediaChannel([], { granted: () => false, sourceState: () => "pending" });
+  const statuses = () => m.sent.filter((message) => message.type === "devices.delivery");
+  // A client of before `deliveryStatus`: its decoder would close on an unknown message type.
+  await m.subscribe("older", "mc_aaaaaaaaaaaa");
+  expect(statuses()).toEqual([]);
+  await m.request("current", {
+    op: "subscribe",
+    deviceId,
+    media: { connection: "mc_aaaaaaaaaaaa" },
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  expect(statuses().at(-1)).toMatchObject({ deviceId, undelivered: { code: "starting" } });
+});
+
+it("a device's view refused at ace-media's viewer limit says so in its reply and status", async () => {
+  // The device streams, but ace-media refused the view: it holds as many as it may.
+  const m = await mediaChannel([], { granted: () => false, why: () => "limit" });
+  await m.request("watch", {
+    op: "subscribe",
+    deviceId,
+    media: { connection: "mc_aaaaaaaaaaaa" },
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const limit = { code: "refused", reason: expect.stringMatching(/^Too many live views/) };
+  expect(m.answer("watch")).toMatchObject({ ok: true, undelivered: limit });
+  expect(m.sent.findLast((message) => message.type === "devices.delivery")).toMatchObject({
+    deviceId,
+    undelivered: limit,
+  });
 });

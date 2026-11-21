@@ -250,6 +250,8 @@ impl Grants {
                 "viewer.open refused: viewer limit",
                 grant.id,
             );
+            // The daemon tells its subscriber why, instead of leaving a blank view.
+            refuse(out, &grant, Refusal::Limit);
             return false;
         }
         self.viewers.insert(

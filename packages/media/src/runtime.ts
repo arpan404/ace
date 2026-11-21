@@ -2,7 +2,12 @@ import { MediaAccelerationStore } from "./acceleration.ts";
 import { EgressRouter } from "./egress.ts";
 import { pictureCodecs, pictureEncoders } from "./picture-codecs.ts";
 import { RouteWatch } from "./route-watch.ts";
-import { builtRouteCapabilities, sourceKinds, type RouteCapabilities } from "./routes.ts";
+import {
+  builtRouteCapabilities,
+  sourceKinds,
+  undeliveredReason,
+  type RouteCapabilities,
+} from "./routes.ts";
 import { IngestSources } from "./ingest-sources.ts";
 import { MediaConnections, MediaIssue } from "./media-connections.ts";
 import { MediaViewers, type MediaDeliveryPort } from "./media-viewers.ts";
@@ -64,11 +69,15 @@ export class MediaRuntime {
   readonly stills: MediaStills;
 
   readonly #encoders: readonly string[];
+  readonly #settings: MediaRuntimeOptions["settings"];
+  readonly #capabilities: RouteCapabilities;
 
   constructor(options: MediaRuntimeOptions) {
     this.#encoders = options.platform === undefined ? [] : pictureEncoders(options.platform);
     this.acceleration = options.acceleration ?? new MediaAccelerationStore();
     const capabilities = options.capabilities ?? builtRouteCapabilities;
+    this.#settings = options.settings;
+    this.#capabilities = capabilities;
     this.supervisor = new MediaSupervisor({
       ...options,
       replay: () => {
@@ -182,12 +191,14 @@ export class MediaRuntime {
   delivery(): MediaDeliveryPort {
     return {
       // Frames must be in ace-media for it to deliver them: the producer streams there.
-      serves: (kind) => {
-        const route = this.routes.routes()[kind];
-        return route.deliverer === "ace-media" && route.producer === "ace-media";
-      },
+      serves: (kind) => this.routes.routes()[kind].deliverer === "ace-media",
+      unserved: (kind) =>
+        undeliveredReason(kind, this.#settings(), this.supervisor.health(), this.#capabilities),
+      sourceKinds: (shows) => this.sources.kinds(shows),
+      sourceState: (shows) => this.sources.state(shows),
       bind: (intent) => this.viewers.bind(intent),
       granted: (viewer) => this.viewers.granted(viewer),
+      why: (viewer) => this.viewers.why(viewer),
       poster: (viewer) => this.viewers.poster(viewer),
       configure: (viewer, viewport, audio) => this.viewers.configure(viewer, viewport, audio),
       pause: (viewer, paused) => this.viewers.pause(viewer, paused),

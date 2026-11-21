@@ -165,8 +165,8 @@ export class ScreenMediaSource {
       origin: { kind: "screen", platform: options.platform },
       sessionId: options.sessionId,
       epoch: () => screenOpeningEpoch,
-      // The screen's legacy viewer, recorder and stills all hang off the frames the helper
-      // socket feeds, so each unit goes in once whichever of them egress serves.
+      // The screen's recording tee hangs off the frames the helper socket feeds, so each unit
+      // goes in once; no viewer is fed from egress (X3).
       consumers: { deliver: unit },
       point: (address) => {
         // Back on the helper socket (a route flip, ace-media gone): ace-media's views no longer

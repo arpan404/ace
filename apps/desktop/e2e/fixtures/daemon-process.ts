@@ -145,9 +145,10 @@ function prepareThread(daemon: Daemon, request: Extract<DaemonRequest, { op: "th
 }
 
 /**
- * Remote viewers of a page's live video, as a web connection is one: each counts the chunks
- * and keyframes it receives and acknowledges every chunk, as a client does. A viewer's sink
- * is a callback, so it lives here and the spec reads its counts.
+ * Remote viewers of a page's live video. ace-media delivers every view on a client's media
+ * connection (X3), so the daemon hands this fixture no chunks: a viewer here keeps the capture
+ * running as a delivered view, and its counts stay at zero until it watches through a media
+ * connection (`@ace/media/testing/media-test-client`).
  */
 type Viewer = { chunks: number; keyframes: number; stop(): void };
 const viewers = new Map<string, Viewer>();
@@ -156,27 +157,12 @@ const viewerKey = (request: { threadId: string; connectionId: string }) =>
 function watchVideo(daemon: Daemon, request: Extract<DaemonRequest, { op: "watchVideo" }>) {
   const { threadId, connectionId } = request;
   const viewer: Viewer = { chunks: 0, keyframes: 0, stop: () => {} };
-  viewer.stop = daemon.browser.subscribe(
-    threadId,
-    connectionId,
-    {
-      video: {
-        send(chunk) {
-          viewer.chunks++;
-          if (chunk.key) viewer.keyframes++;
-          queueMicrotask(() =>
-            daemon.browser.acknowledgeVideo(threadId, connectionId, chunk.sequence),
-          );
-          return true;
-        },
-      },
-    },
-    () => {},
-  );
+  viewer.stop = daemon.browser.subscribe(threadId, connectionId, {}, () => {});
   viewers.set(viewerKey(request), viewer);
   daemon.browser.configureCapture(threadId, connectionId, {
     viewport: { ...request.viewport, devicePixelRatio: 1 },
     video: { codecs: request.codecs },
+    delivered: true,
   });
   return null;
 }

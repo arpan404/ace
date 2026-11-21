@@ -308,6 +308,11 @@ export interface PreviewSource {
    */
   decodesVideo?(): boolean | undefined;
   /**
+   * Why the thread's live view gets no pictures, for the person (ace-media can't serve it now,
+   * or this client has no media connection); undefined while video comes or may come.
+   */
+  undelivered?(threadId: string): string | undefined;
+  /**
    * A tab's last picture from when it was the shown one (the video follows the shown tab), for
    * split view's other half; undefined when this client never saw it.
    */

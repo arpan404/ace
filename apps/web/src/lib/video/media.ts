@@ -4,6 +4,7 @@ import {
   MediaConnection,
   type OpenMediaRelay,
   type OpenMediaSocket,
+  unavailableReason,
 } from "@ace/client/media";
 import type { MediaRoute } from "@ace/browser/live-view";
 import { webCodecsSupport, within, type VideoSupport } from "./codecs.ts";
@@ -21,7 +22,7 @@ export interface WebMedia {
   readonly route: MediaRoute;
   /**
    * How this client reaches the daemon through the relay, from whichever view knows its
-   * endpoint; a grant without a `url` opens a relay stream with it, and goes legacy without.
+   * endpoint; a grant without a `url` opens a relay stream with it, and is unavailable without.
    */
   relayWith(open: OpenMediaRelay | undefined): void;
 }
@@ -46,6 +47,23 @@ const transient = new Set<string>(["offline", "timeout", "aborted", "stale", "bu
 
 const media = new WeakMap<ClientApi, WebMedia>();
 
+/** Where `fake-media:` addresses open: the fake world's daemons (`boot/fake.ts`), or none. */
+let fakeSockets: OpenMediaSocket | undefined;
+
+/**
+ * The fake world's media connections: its daemons grant `fake-media:` addresses, opened in this
+ * page instead of over the network. Undefined stops it.
+ */
+export function useFakeMediaSockets(open: OpenMediaSocket | undefined): void {
+  fakeSockets = open;
+}
+
+/** The platform's socket, or the fake world's for its own addresses. */
+const defaultSocket: OpenMediaSocket = (url, events) =>
+  url.startsWith("fake-media:") && fakeSockets
+    ? fakeSockets(url, events)
+    : browserMediaSocket(url, events);
+
 /** The client's media connection, opened for its current socket on first use. */
 export function mediaFor(client: ClientApi, options: WebMediaOptions = {}): WebMedia {
   const known = media.get(client);
@@ -61,7 +79,7 @@ export function mediaFor(client: ClientApi, options: WebMediaOptions = {}): WebM
         if (error instanceof ClientError && transient.has(error.code)) throw error;
         return { refused: true };
       }),
-    socket: options.socket ?? browserMediaSocket,
+    socket: options.socket ?? defaultSocket,
     schedule: later,
     now: options.now ?? (() => performance.now()),
   });
@@ -75,6 +93,7 @@ export function mediaFor(client: ClientApi, options: WebMediaOptions = {}): WebM
     watch: (listener) => connection.watch(listener),
     onStream: (listener) => connection.onStream(listener),
     ack: (message) => connection.ack(message),
+    unavailable: () => unavailableReason(connection.state),
   };
   const made: WebMedia = {
     connection,

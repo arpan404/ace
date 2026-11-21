@@ -18,7 +18,7 @@ import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 const executablePath = await detectChromium();
 const exec = promisify(execFile);
 describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
-  it("streams to two authenticated clients, lets both use the page beside an agent, and persists recordings as thread artifacts", async () => {
+  it("subscribes two authenticated clients, lets both use the page beside an agent, and persists recordings as thread artifacts", async () => {
     if (!executablePath) throw new Error("Missing explicit test Chromium");
     const home = await mkdtemp(join(tmpdir(), "ace-browser-wire-"));
     const daemon = await startDaemon({
@@ -51,11 +51,11 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
           threadId: "unknown",
         }),
       ).toMatchObject({ ok: false, error: "Browser thread access denied" });
-      // Viewers watch as the apps do (ADR 0088): binary video in a codec this machine's Chrome
-      // encodes (H.264 where it can, else VP8), sized for the pane they show.
-      await Promise.all(
-        clients.map((client, index) =>
-          client.request({
+      // Viewers subscribe as the apps do (ADR 0088). Pictures come only from ace-media on a media
+      // connection (X3): a subscribe without one is told to update, never left blank.
+      for (const [index, client] of clients.entries())
+        expect(
+          await client.request({
             type: "browser.subscribe",
             requestId: `subscribe-${index}`,
             threadId: thread.id,
@@ -63,26 +63,7 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
             viewport: { width: 640, height: 400, devicePixelRatio: 2 },
             video: { codecs: ["avc1.42E033", "vp8"] },
           }),
-        ),
-      );
-      for (const found of await Promise.all(
-        clients.map((client) =>
-          client.nextStream((message) =>
-            message.kind === "browser.video" &&
-            message.threadId === thread.id &&
-            message.chunk.key &&
-            message.chunk.bytes.length > 0
-              ? message
-              : undefined,
-          ),
-        ),
-      )) {
-        if (found.kind !== "browser.video") throw new Error("Expected a keyframe");
-        const key = found.chunk;
-        expect(["avc1.42E033", "vp8"]).toContain(key.codec);
-        // Sized as the picture is (one scale on both axes), not as an encoder pads it.
-        expect(key.codedHeight / key.height).toBeCloseTo(key.codedWidth / key.width, 2);
-      }
+        ).toMatchObject({ ok: true, undelivered: { code: "update" } });
       // Nobody takes control (ADR 0067, Collaboration): both people and an agent use the page.
       expect(
         await second.request({

@@ -229,6 +229,16 @@ export function NoVideo() {
   );
 }
 
+/**
+ * The live view gets no pictures and the daemon or this client said why (ace-media can't serve
+ * it now, or there is no media connection): that reason, never a blank pane (X3).
+ */
+export function NoLiveVideo(props: { reason: string }) {
+  return (
+    <EmptyState icon={BrowserIcon} title="Live video isn't showing" description={props.reason} />
+  );
+}
+
 /** Offline with nothing to show: say so; the toolbar stays where it is. */
 export function Offline() {
   return (

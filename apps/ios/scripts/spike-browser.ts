@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { decodeStreamMessage, encodeBrowserVideo, StreamAssembler } from "@ace/browser/stream";
+import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
+import { encodeBrowserVideo } from "@ace/browser/stream-encode";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import { ThreadId } from "@ace/protocol";

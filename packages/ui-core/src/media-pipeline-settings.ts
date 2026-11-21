@@ -1,26 +1,32 @@
 /*
  * Settings › Beta's one switch, the new media pipeline (ADR 0147), shared by the web and the
- * phone: its words, and how the two settings it covers (`media.encode`, `media.delivery`) read
- * as one switch. On means both are `auto`; anything else shows off, and a mixed pair says only
- * part is on. Pure.
+ * phone: its words, and how `media.encode` reads as the switch. `media.delivery` is always
+ * `auto` now (X3: only ace-media delivers live video), so the switch covers encoding alone, and
+ * a stored `delivery` no longer counts. Pure.
  */
 
 export const mediaPipelineSwitch = {
   title: "New media pipeline",
   description:
-    "Encodes and streams live video with ace-media; encoding switches at once, and video that's already open moves over when you open it again.",
+    "Encodes live video with ace-media on this computer's hardware; it switches at once. ace-media always delivers live video.",
   partly: "Only part of the new pipeline is on.",
 } as const;
 
-/** The settings the switch writes together, in the order it writes them. */
-export const mediaPipelineKeys = ["media.encode", "media.delivery"] as const;
+/** The settings the switch writes, in the order it writes them. */
+export const mediaPipelineKeys = ["media.encode"] as const;
 
-/** What the switch shows for the stored pair: on only when both are `auto`. */
+/**
+ * What the switch shows for the stored value: on only when `media.encode` is `auto`. `partly` is
+ * never true any more (delivery has no `legacy`); it stays for clients that still read it.
+ */
 export function mediaPipelineState(
   encode: unknown,
-  delivery: unknown,
-): { on: boolean; partly: boolean } {
-  return { on: encode === "auto" && delivery === "auto", partly: encode !== delivery };
+  _delivery?: unknown,
+): {
+  on: boolean;
+  partly: boolean;
+} {
+  return { on: encode === "auto", partly: false };
 }
 
 /** The value both settings take when the switch turns on or off. */

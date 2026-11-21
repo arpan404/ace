@@ -4,13 +4,14 @@ import type { ToMedia } from "./wire.ts";
 
 type WireSettings = Extract<ToMedia, { type: "init" }>["settings"];
 /**
- * The daemon's media settings. Recordings and stills are always ace-media's (X1): the wire keeps
- * their `legacy` value for older binaries, but the daemon never sends it. Only `encode` and
- * `delivery` still choose a path.
+ * The daemon's media settings. Recordings and stills are always ace-media's (X1), and so is
+ * delivery (X3): the wire keeps their `legacy` value for older binaries, but the daemon never
+ * sends it. Only `encode` still chooses a path.
  */
-export type MediaSettings = Omit<WireSettings, "recordings" | "stills"> & {
+export type MediaSettings = Omit<WireSettings, "recordings" | "stills" | "delivery"> & {
   recordings: "auto";
   stills: "auto";
+  delivery: "auto";
 };
 export type MediaHealth = "healthy" | "restarting" | "unavailable";
 
@@ -49,5 +50,5 @@ export const defaultMediaSettings: MediaSettings = {
   recordings: "auto",
   stills: "auto",
   encode: "legacy",
-  delivery: "legacy",
+  delivery: "auto",
 };

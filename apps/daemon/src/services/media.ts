@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,14 +25,61 @@ import type { MediaRelayPort } from "../media-relay/port.ts";
 import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
 
 /*
- * The daemon's ace-media (ADR 0147): one `MediaRuntime`, made once the binary is found and
- * `media.encode` or `media.delivery` asks for it, or the first recording does. Live video takes
- * the producers' own paths whenever ace-media isn't healthy; recordings have no other path, so
- * one refuses to start, saying why, when ace-media can't make it.
+ * The daemon's ace-media (ADR 0147): one `MediaRuntime`, made once the binary is found. It is
+ * the only deliverer of live views (X3) and the only recorder (X1), so it is made at start;
+ * while ace-media isn't healthy, captures take the producers' own paths, live views say why, and
+ * a recording refuses to start, saying why.
  */
 
-const MediaSetting = (value: unknown): "auto" | "legacy" => (value === "auto" ? "auto" : "legacy");
-const mediaKeys = ["media.encode", "media.delivery"] as const;
+/**
+ * What ace-media is started with: everything through it. No setting is read (ADR 0147: ace-media
+ * is the only media path); the wire still carries the values for older binaries.
+ */
+const mediaSettings: MediaSettings = { ...defaultMediaSettings, encode: "auto" };
+
+/** What makes an executable the one it is: path, size, mtime and inode; undefined if it's gone. */
+function executable(path: string): string | undefined {
+  try {
+    const info = statSync(path);
+    return `${path}:${info.size}:${info.mtimeMs}:${info.ino}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Why ace-media didn't start, for the person. */
+function mediaFailure(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return `Live video can't start: ace's media process didn't run (${detail.slice(0, 160)}).`;
+}
+
+/**
+ * Delivery while ace-media didn't start: every view is told why, a media connection is refused
+ * with the same reason, and asking for one tries to start ace-media again.
+ */
+export function failedDelivery(reason: string, retry: () => void): DaemonDelivery {
+  return {
+    serves: () => false,
+    unserved: () => reason,
+    sourceKinds: () => [],
+    sourceState: () => "failed",
+    bind: () => undefined,
+    granted: () => false,
+    why: () => undefined,
+    poster: () => Promise.resolve(undefined),
+    configure: () => {},
+    pause: () => {},
+    regrant: () => {},
+    unbind: () => {},
+    connect: () => {
+      retry();
+      return Promise.resolve({ ok: false, code: "unavailable", message: reason });
+    },
+    sessionStarted: () => {},
+    sessionEnded: () => {},
+    sample: () => {},
+  };
+}
 
 /** The binary this daemon runs: the bundled one in a release, the Cargo build from source. */
 export function findMediaBinary(): string | undefined {
@@ -55,9 +102,8 @@ export function findMediaBinary(): string | undefined {
 
 /**
  * Delivery by ace-media (D1): clients' media connections and the views on them. Present while
- * the runtime exists, so sessions are always cleaned up; it connects and serves only while
- * `media.delivery` is `auto`. Every call answers at once, so a subscribe never waits on
- * ace-media longer than its poster's deadline.
+ * the runtime exists, so sessions are always cleaned up. Every call answers at once, so a
+ * subscribe never waits on ace-media longer than its poster's deadline.
  */
 export type DaemonDelivery = MediaDeliveryPort & {
   connect(owner: MediaOwner): Promise<MediaConnectGrant>;
@@ -65,8 +111,9 @@ export type DaemonDelivery = MediaDeliveryPort & {
   sessionEnded(session: string): void;
   /** One round trip measured on a main session, with the bytes queued to it. */
   sample(session: string, rttMs: number, backlogBytes: number): void;
-  /** Relay media streams (D2): dials, hand-overs and relay hellos' tickets. */
-  relay: MediaRelayPort;
+  /** Relay media streams (D2): dials, hand-overs and relay hellos' tickets; none while ace-media
+   * didn't start. */
+  relay?: MediaRelayPort;
 };
 
 /** The daemon's ace-media as its producers see it. */
@@ -94,7 +141,12 @@ export const noMediaRecorder: MediaRecorder = refusingRecorder(
 /** One per daemon: the browser and the screen share it. */
 const started = new WeakMap<object, DaemonMedia | undefined>();
 
-export function startMedia(context: ServiceContext): DaemonMedia | undefined {
+/** What starting ace-media needs of the daemon: no setting among it. */
+export type MediaContext = Pick<ServiceContext, "services" | "id" | "resources" | "log"> & {
+  config: Pick<ServiceContext["config"], "dataDir">;
+};
+
+export function startMedia(context: MediaContext): DaemonMedia | undefined {
   if (started.has(context.services)) return started.get(context.services);
   const media = createMedia(context);
   started.set(context.services, media);
@@ -104,13 +156,19 @@ export function startMedia(context: ServiceContext): DaemonMedia | undefined {
   return media;
 }
 
-function createMedia(context: ServiceContext): DaemonMedia | undefined {
+function createMedia(context: MediaContext): DaemonMedia | undefined {
   if (process.platform === "win32") return undefined; // No lanes in the binary there yet.
   const binary = findMediaBinary();
   if (!binary) return undefined;
-  const { services, id, config, resources } = context;
-  let settings: MediaSettings = defaultMediaSettings;
+  const { id, config, resources } = context;
   let runtime: MediaRuntime | undefined;
+  /** Why ace-media didn't start, until a later try does: what live views and recordings say. */
+  let failure: string | undefined;
+  /** Failed starts in a row, and when the next try may run: 1 s doubling to 60 s. */
+  let failures = 0;
+  let retryAt = 0;
+  /** The executable that failed (path, size, mtime, inode): a replaced one is tried at once. */
+  let failedAs: string | undefined;
   let starting: Promise<void> | undefined;
   let closed = false;
   let runtimeDir: string | undefined;
@@ -123,8 +181,21 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   let relayPort: RuntimeRelayPort | undefined;
   const acceleration = new MediaAccelerationStore();
 
-  const start = () =>
-    (starting ??= (async () => {
+  const start = () => {
+    // Within the cooldown after a failed start, every ask gets the cached reason: no new try.
+    // A replaced executable (an update) ends the cooldown: it is a different program.
+    if (
+      !starting &&
+      failure !== undefined &&
+      performance.now() < retryAt &&
+      executable(binary) === failedAs
+    )
+      return Promise.resolve();
+    if (starting) return starting;
+    // Fingerprinted before its probe runs: an update landing mid-probe is a different program,
+    // so the failure that comes is cached against the one that ran, never the replacement.
+    const trying = executable(binary);
+    return (starting = (async () => {
       const { stdout } = await promisify(execFile)(binary, ["--version"], { timeout: 5_000 });
       if (closed) return;
       runtimeDir = mkdtempSync(join(tmpdir(), "acem-"));
@@ -133,7 +204,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         binary,
         runtimeDir,
         dataDir: config.dataDir,
-        settings: () => settings,
+        settings: () => mediaSettings,
         host: nodeMediaHost(process.env),
         clock: systemMediaClock,
         wallClock: systemWallClock,
@@ -148,37 +219,28 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         onMessage: (message, payload) => relayPort?.message(message, payload),
         onExit: () => relayPort?.exit(),
       });
-      relayPort = new RuntimeRelayPort(runtime, () => settings.delivery === "auto");
+      relayPort = new RuntimeRelayPort(runtime);
       for (const [producer, slot] of waiting) {
         slot.source = runtime.sources.add(producer);
         if (slot.codecs) slot.source.codecs(slot.codecs);
       }
+      failure = undefined;
+      failures = 0;
       runtime.settingsChanged();
     })().catch((error: unknown) => {
       starting = undefined;
+      failure = mediaFailure(error);
+      retryAt = performance.now() + Math.min(1_000 * 2 ** failures, 60_000);
+      failedAs = trying;
+      failures++;
       context.log.log("warn", `ace-media is not available: ${String(error)}`);
     }));
-
-  const read = async () => {
-    const [encode, delivery] = await Promise.all(
-      mediaKeys.map(async (key) => MediaSetting((await services.settings?.get(key))?.value)),
-    );
-    settings = {
-      ...defaultMediaSettings,
-      encode: encode ?? "legacy",
-      delivery: delivery ?? "legacy",
-    };
-    if (settings.encode === "auto" || settings.delivery === "auto") await start();
-    runtime?.settingsChanged();
   };
-  void read().catch(() => {});
-  const stop = services.settings?.onChange((layer, keys) => {
-    if (layer.kind === "global" && mediaKeys.some((key) => keys.includes(key)))
-      void read().catch(() => {});
-  });
+
+  // ace-media is the only media path: it starts with the daemon, reading no setting.
+  void start();
   resources.own(() => {
     closed = true;
-    stop?.();
     runtime?.dispose();
     if (runtimeDir) rmSync(runtimeDir, { recursive: true, force: true });
   });
@@ -195,7 +257,11 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
       },
     },
     delivery: () =>
-      runtime && relayPort ? daemonDelivery(runtime, relayPort, () => settings) : undefined,
+      runtime && relayPort
+        ? daemonDelivery(runtime, relayPort)
+        : failure
+          ? failedDelivery(failure, () => void start())
+          : undefined,
     acceleration,
     pid: () => runtime?.supervisor.snapshot().pid,
     add: (producer) => runtime?.sources.add(producer),
@@ -232,21 +298,10 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
  * Delivery by a live runtime, as producers and sessions see it. Built on every lookup; `relay`
  * is the runtime's one port, so lookups never add watchers.
  */
-export function daemonDelivery(
-  live: MediaRuntime,
-  relay: MediaRelayPort,
-  settings: () => MediaSettings,
-): DaemonDelivery {
+export function daemonDelivery(live: MediaRuntime, relay: MediaRelayPort): DaemonDelivery {
   return {
     ...live.delivery(),
-    connect: (owner) =>
-      settings().delivery === "auto"
-        ? live.connections.connect(owner)
-        : Promise.resolve({
-            ok: false,
-            code: "unavailable",
-            message: "ace-media isn't serving viewers.",
-          }),
+    connect: (owner) => live.connections.connect(owner),
     sessionStarted: (session) => live.links.started(session),
     sessionEnded: (session) => {
       live.links.ended(session);

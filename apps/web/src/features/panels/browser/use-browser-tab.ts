@@ -246,6 +246,7 @@ export function useBrowserTab(
     frame,
     /** Whether this client can show a live page at all (it streams only as video). */
     decodesVideo: source.decodesVideo?.(),
+    undelivered: source.undelivered?.(threadId),
     state: own,
     loading: own.phase === "loading" || !!shown?.loading || !!live?.loading,
     /** The address the bar shows: what is loading or failed here, else the tab's own. */

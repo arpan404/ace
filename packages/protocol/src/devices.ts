@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { MediaAcceleration } from "./media-acceleration.ts";
 import { MediaLinkHint } from "./media-link.ts";
-import { MediaBinding, MediaCodecs, MediaSubscribed } from "./media-connection.ts";
+import {
+  MediaBinding,
+  MediaCodecs,
+  MediaSubscribed,
+  MediaUndelivered,
+} from "./media-connection.ts";
 import { ThreadId, AgentId } from "./ids.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import { ScreenId, ScreenStreamSettings, ScreenPermissions } from "./screen-base.ts";
@@ -233,6 +238,17 @@ export const DeviceOperation = z.discriminatedUnion("op", [
     link: MediaLinkHint.optional(),
     /** Deliver the pictures on that media connection (`media.connect`) instead of this socket. */
     media: MediaBinding.optional(),
+    /**
+     * This client takes live pictures only from its media connection (X3), so a subscribe naming
+     * none is a client still connecting one, not an older build. Absent: an older client, whose
+     * views are told, in fields it already shows, to update.
+     */
+    mediaClient: z.literal(true).optional(),
+    /**
+     * This client reads `*.delivery` pushes: whether its bound view gets pictures now. Absent,
+     * none is sent: an older client's decoder would refuse a message type it doesn't know.
+     */
+    deliveryStatus: z.literal(true).optional(),
     /** The viewer's decoders, best first (WebCodecs strings); with `media`, ace-media encodes for them. */
     codecs: MediaCodecs.optional(),
   }),
@@ -310,8 +326,20 @@ export const DeviceServerMessage = z.discriminatedUnion("type", [
     error: DeviceFailure.optional(),
     /** A `subscribe` that named a media connection: where its pictures go. */
     media: MediaSubscribed.optional(),
+    /** A `subscribe` whose pictures won't come, and why (`MediaUndelivered`). */
+    undelivered: MediaUndelivered.optional(),
   }),
   z.object({ type: z.literal("devices.state"), state: DeviceState }),
+  /**
+   * After a subscribe that named a media connection: whether its view is getting pictures now.
+   * `undelivered` while its source isn't streaming into ace-media (starting, or it failed),
+   * absent once it is. Sent only to a client that takes media (`mediaClient`), on every change.
+   */
+  z.object({
+    type: z.literal("devices.delivery"),
+    deviceId: AppDeviceId,
+    undelivered: MediaUndelivered.optional(),
+  }),
   /** Devices were turned on or off for the daemon's machine, by any client. */
   z.object({ type: z.literal("devices.enabled"), enabled: z.boolean() }),
   /** The device inventory changed (a simulator booted or shut down outside ace, say). */

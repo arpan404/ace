@@ -106,7 +106,7 @@ it.runIf(real)(
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-egress-"));
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "auto",
       stills: "auto",
     };
@@ -191,7 +191,7 @@ it.runIf(real)(
     expect(watch.routes().tab).toMatchObject({
       producer: "ace-media",
       egress: true,
-      deliverer: "legacy",
+      deliverer: "none",
     });
 
     // Local handles only mean source.open was queued on stdin. Ingest is a separate socket:
@@ -241,7 +241,7 @@ it.runIf(real)(
     );
     const back = changes.find((c) => c.at > killed && c.routes.tab.producer === "daemon");
     expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
-    expect(back?.routes.tab).toMatchObject({ egress: false, tee: false, deliverer: "legacy" });
+    expect(back?.routes.tab).toMatchObject({ egress: false, tee: false, deliverer: "none" });
   },
   processBudgetMs,
 );

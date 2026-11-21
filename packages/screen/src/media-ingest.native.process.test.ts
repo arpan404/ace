@@ -66,7 +66,7 @@ it.runIf(runs)(
     onTestFinished(() => rmSync(runtimeDir, { recursive: true, force: true }));
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "auto",
       stills: "auto",
     };
@@ -355,7 +355,7 @@ it.runIf(windowsRuns)(
     onTestFinished(() => rmSync(runtimeDir, { recursive: true, force: true, maxRetries: 10 }));
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "auto",
       stills: "auto",
     };

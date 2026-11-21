@@ -128,14 +128,14 @@ export class DeviceVideoPaths {
       bytes: (unit) => unit.payload.length,
       schedule: options.schedule,
     });
-    const deliver = (egress: EgressUnit) => this.#egress(egress);
+    const unit = (egress: EgressUnit) => this.#egress(egress);
     this.#source = options.media.attach({
       source: options.source,
       kind: options.kind,
       origin: options.origin,
       deviceId: options.deviceId,
       epoch: () => 0,
-      consumers: { deliver },
+      consumers: { deliver: unit },
       point: (address) => this.#point(address),
       keyframe: () => options.keyframe(),
       pathEnded: (path, interrupted) => {
