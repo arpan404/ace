@@ -101,6 +101,8 @@ pub fn copy_snapshot(
         let journal = safe_open(home, wal)?;
         let opened = journal.metadata()?;
         let size = opened.len();
+        // Where a commit or checkpoint can race the copy: the WAL's size is already frozen.
+        crate::hooks::at_path("snapshot-wal-sized", &wal.to_string_lossy());
         let wal_target = std::path::PathBuf::from(format!("{}-wal", target.display()));
         let copied = stream(&journal, &wal_target, size, cancel)?;
         // Compare only the copied bytes: later commits need not stop the scan.

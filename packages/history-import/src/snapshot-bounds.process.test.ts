@@ -1,12 +1,19 @@
 import { afterEach, expect, test } from "vitest";
-import { Worker, type WorkerOptions } from "node:worker_threads";
 import { DatabaseSync } from "node:sqlite";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn as spawnProcess } from "node:child_process";
 import { once } from "node:events";
 import { openHistory, type HistoryOptions } from "./index.ts";
-import { cwd, environment, init, memorySink, roomySnapshots, text } from "./test-support.ts";
+import {
+  cwd,
+  environment,
+  init,
+  memorySink,
+  readerHooks,
+  roomySnapshots,
+  text,
+} from "./test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -65,13 +72,8 @@ test("an unchanged live OpenCode database is not snapshotted again on the next s
   const f = await liveOpenCode();
   const log = join(f.env.root, "snapshots.log");
   await writeFile(log, "");
-  const spawn = (url: URL, workerOptions: WorkerOptions) =>
-    new Worker(url, {
-      ...workerOptions,
-      execArgv: ["--import", new URL("./snapshot-trace.ts", import.meta.url).href],
-      env: { ...process.env, ACE_TEST_SNAPSHOT_LOG: log },
-    });
-  const service = await openHistory(f.options, spawn);
+  // ace-history's test hooks log each private snapshot it stages.
+  const service = await openHistory(f.options, readerHooks({ snapshotLog: log }));
   cleanup.unshift(() => service.close());
   expect((await service.scan()).unsupported).toEqual([]);
   const first = (await readFile(log, "utf8")).split("\n").filter(Boolean);
