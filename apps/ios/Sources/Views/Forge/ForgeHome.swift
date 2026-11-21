@@ -97,9 +97,10 @@ struct ForgeHome: View {
                          hasMenu: inbox.showsMachineNames || projects.count > 1) { titleMenu }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
             .task(id: loadKey) { await load(fresh: false) }
-            // Keyed on the project and the forge's changes, never the filter: a new filter
-            // re-reading these would hide New pull request and read the list again twice.
-            .task(id: "\(session?.hostId ?? "")|\(chosen ?? "")|\(session?.client.familyGeneration("forge") ?? 0)") {
+            // Keyed on the project, the connection and the forge's changes, never the filter: a
+            // new filter re-reading these would hide New pull request and read the list again
+            // twice. A read that failed while the machine was out runs again once it is back.
+            .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")|\(chosen ?? "")|\(session?.client.familyGeneration("forge") ?? 0)") {
                 features = nil
                 guard let client = session?.client, let chosen else { return }
                 features = try? await client.read(["type": "forge.features", "project": chosen], as: ForgeFeatures.self)
