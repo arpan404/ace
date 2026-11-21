@@ -43,15 +43,13 @@ pub fn decode(bytes: &[u8], max_pixels: u32) -> Result<Raster> {
     let size = decoder
         .output_buffer_size()
         .ok_or_else(|| Failed::too_large("The WebP is too large to decode."))?;
-    let mut buffer = vec![0; size];
-    decoder.read_image(&mut buffer).map_err(failed)?;
-    let data = if decoder.has_alpha() {
-        buffer
-    } else {
-        buffer
-            .chunks_exact(3)
-            .flat_map(|p| [p[0], p[1], p[2], 255])
-            .collect()
-    };
+    let pixels = width as usize * height as usize;
+    let mut buffer = vec![0; size.max(pixels * 4)];
+    decoder.read_image(&mut buffer[..size]).map_err(failed)?;
+    if !decoder.has_alpha() {
+        crate::png::widen_rgb(&mut buffer, pixels);
+    }
+    buffer.truncate(pixels * 4);
+    let data = buffer;
     Raster::new(width, height, data)
 }

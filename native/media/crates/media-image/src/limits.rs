@@ -4,8 +4,11 @@ use crate::error::{Failed, Result};
 
 /// Longest side an input may have.
 pub const MAX_SIDE: u32 = 16_384;
-/// Most pixels an input may have.
-pub const MAX_PIXELS: u64 = 64 * 1024 * 1024;
+/// Most pixels an input may have: a 48-megapixel phone photo (8064 × 6048), the largest
+/// picture a caller sends (attachments); screenshots and frames are a few megapixels.
+pub const MAX_PIXELS: u64 = 50_000_000;
+/// What one decoder may allocate for one picture: its pixels as RGBA, with room to spare.
+pub const MAX_DECODE_BYTES: usize = 256 * 1024 * 1024;
 /// Largest SVG text, and the longest side one is drawn at.
 pub const SVG_MAX_BYTES: usize = 4 * 1024 * 1024;
 pub const SVG_MAX_SIDE: u32 = 4096;
@@ -22,7 +25,7 @@ pub fn check_input(width: u32, height: u32, max_pixels: u32) -> Result<()> {
     let pixels = u64::from(width) * u64::from(height);
     if width > MAX_SIDE || height > MAX_SIDE || pixels > MAX_PIXELS {
         return Err(Failed::too_large(format!(
-            "The image is {width} × {height}, past ace's {MAX_SIDE} px a side or 64 Mi pixels."
+            "The image is {width} × {height}, past ace's {MAX_SIDE} px a side or {MAX_PIXELS} pixels."
         )));
     }
     if pixels > u64::from(max_pixels) {

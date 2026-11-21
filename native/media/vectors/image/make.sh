@@ -35,6 +35,28 @@ magick -size 20x40 xc:none -fill white -draw 'roundrectangle 0,0 19,39 6,6' png3
 magick -size 28x48 xc:'#303030' -alpha set -channel A -fx '(i>=4&&i<24&&j>=4&&j<44)?0:1' +channel png32:chrome-28x48.png
 # chrome-3x5.svg and outside.svg are written by hand (outside.svg: a script, text and two
 # images outside the document, none of which may be drawn or read).
+# Cut after the first frame (no second frame, no trailer), and a PNG cut after its IHDR.
+python3 - <<'PY'
+gif = open("two-frames-10x10.gif", "rb").read()
+at = 13 + (3 << ((gif[10] & 7) + 1) if gif[10] & 0x80 else 0)
+def blocks(at):
+    while gif[at]:
+        at += 1 + gif[at]
+    return at + 1
+while gif[at] != 0x2C:
+    at = blocks(at + 2)
+local = 3 << ((gif[at + 9] & 7) + 1) if gif[at + 9] & 0x80 else 0
+open("first-frame-only.gif", "wb").write(gif[: blocks(at + 10 + local + 1)])
+open("ihdr-only.png", "wb").write(open("palette-8x8.png", "rb").read()[:33])
+# A JPEG whose first frame header claims 8000 x 8000 and whose last says 64 x 48.
+import struct
+jpeg = open("red-64x48.jpg", "rb").read()
+sof = jpeg.index(b"\xff\xc0")
+length = struct.unpack(">H", jpeg[sof + 2 : sof + 4])[0]
+fake = bytearray(jpeg[sof : sof + 2 + length])
+fake[5:9] = struct.pack(">HH", 8000, 8000)
+open("two-frame-headers.jpg", "wb").write(jpeg[:sof] + bytes(fake) + jpeg[sof:])
+PY
 printf 'not an image\n' > text.txt
 # A 2 x 2 RGBA picture: red, green, blue, transparent.
 printf '\377\000\000\377\000\377\000\377\000\000\377\377\000\000\000\000' > square-2x2.rgba

@@ -76,18 +76,18 @@ impl Raster {
     }
 
     /// Resampled to exactly `width` × `height`. Colour is weighted by alpha while it is
-    /// filtered, so transparent pixels never bleed their colour into an edge.
-    pub fn resize(&self, width: u32, height: u32) -> Result<Self> {
+    /// filtered, so transparent pixels never bleed their colour into an edge. The source's own
+    /// buffer is premultiplied in place: only the (smaller) output is allocated.
+    pub fn resize(mut self, width: u32, height: u32) -> Result<Self> {
         if (width, height) == (self.width, self.height) {
-            return Ok(self.clone());
+            return Ok(self);
         }
         let opaque = self.opaque();
-        let mut source = self.data.clone();
         if !opaque {
-            premultiply(&mut source);
+            premultiply(&mut self.data);
         }
         let mut data = media_codec::resample_rgba(
-            &source,
+            &self.data,
             Size {
                 width: self.width,
                 height: self.height,
@@ -95,6 +95,7 @@ impl Raster {
             Size { width, height },
         )
         .map_err(|e| Failed::invalid(format!("The image could not be scaled: {e}")))?;
+        drop(self);
         if !opaque {
             unpremultiply(&mut data);
         }

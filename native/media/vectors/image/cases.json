@@ -5,7 +5,7 @@
       "inputs": ["red-64x48.jpg"],
       "op": {
         "op": "probe",
-        "maxPixels": 67108864
+        "maxPixels": 50000000
       },
       "done": {
         "width": 64,
@@ -24,7 +24,7 @@
       "inputs": ["exif-6.jpg"],
       "op": {
         "op": "probe",
-        "maxPixels": 67108864
+        "maxPixels": 50000000
       },
       "done": {
         "width": 30,
@@ -43,7 +43,7 @@
       "inputs": ["exif-6.jpg"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 100,
         "height": 100,
         "autoOrient": true,
@@ -72,7 +72,7 @@
       "inputs": ["exif-6.jpg"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 100,
         "height": 100,
         "autoOrient": false,
@@ -95,7 +95,7 @@
       "inputs": ["red-64x48.jpg"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 32,
         "height": 32,
         "autoOrient": false,
@@ -122,7 +122,7 @@
       "inputs": ["progressive-40x30.jpg"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 20,
         "height": 20,
         "autoOrient": false,
@@ -147,7 +147,7 @@
       "inputs": ["truncated.jpg"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 32,
         "height": 32,
         "autoOrient": false,
@@ -163,7 +163,7 @@
       "inputs": ["truncated.jpg"],
       "op": {
         "op": "probe",
-        "maxPixels": 67108864
+        "maxPixels": 50000000
       },
       "failed": "truncated"
     },
@@ -188,7 +188,7 @@
       "inputs": ["red-64x48.jpg"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 32,
         "height": 32,
         "autoOrient": false,
@@ -229,7 +229,7 @@
       "inputs": ["alpha-32x32.png"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 16,
         "height": 16,
         "autoOrient": false,
@@ -252,7 +252,7 @@
       "inputs": ["gray16-16x16.png"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 16,
         "height": 16,
         "autoOrient": false,
@@ -281,7 +281,7 @@
       "inputs": ["palette-8x8.png"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 8,
         "height": 8,
         "autoOrient": false,
@@ -301,7 +301,7 @@
       "inputs": ["truncated.png"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 16,
         "height": 16,
         "autoOrient": false,
@@ -316,7 +316,7 @@
       "inputs": ["lossless-24x24.webp"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 24,
         "height": 24,
         "autoOrient": false,
@@ -341,7 +341,7 @@
       "inputs": ["alpha-24x24.webp"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 24,
         "height": 24,
         "autoOrient": false,
@@ -361,7 +361,7 @@
       "inputs": ["truncated.webp"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 24,
         "height": 24,
         "autoOrient": false,
@@ -376,7 +376,7 @@
       "inputs": ["two-frames-10x10.gif"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 10,
         "height": 10,
         "autoOrient": false,
@@ -402,7 +402,7 @@
       "inputs": ["truncated.gif"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 10,
         "height": 10,
         "autoOrient": false,
@@ -417,7 +417,7 @@
       "inputs": ["icon.ico"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 32,
         "height": 32,
         "autoOrient": false,
@@ -443,7 +443,7 @@
       "inputs": ["chrome-3x5.svg"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 2400,
         "height": 2400,
         "autoOrient": false,
@@ -473,7 +473,7 @@
       "inputs": ["outside.svg"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 8,
         "height": 8,
         "autoOrient": false,
@@ -502,7 +502,7 @@
       "inputs": ["text.txt"],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 8,
         "height": 8,
         "autoOrient": false,
@@ -523,7 +523,7 @@
       ],
       "op": {
         "op": "fit",
-        "maxPixels": 67108864,
+        "maxPixels": 50000000,
         "width": 2,
         "height": 2,
         "autoOrient": false,
@@ -678,6 +678,63 @@
         }
       },
       "failed": "too-large"
+    },
+    {
+      "name": "a GIF cut after its first frame is refused, though that frame is whole",
+      "inputs": ["first-frame-only.gif"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 50000000,
+        "width": 32,
+        "height": 32,
+        "autoOrient": false,
+        "output": {
+          "format": "png"
+        }
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "probe refuses a GIF cut after its first frame",
+      "inputs": ["first-frame-only.gif"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 50000000
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "probe refuses a PNG that ends after its IHDR",
+      "inputs": ["ihdr-only.png"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 50000000
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "a JPEG with two frame headers is refused, whichever is larger",
+      "inputs": ["two-frame-headers.jpg"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 50000000,
+        "width": 32,
+        "height": 32,
+        "autoOrient": false,
+        "output": {
+          "format": "png"
+        }
+      },
+      "failed": "decode-failed"
+    },
+    {
+      "name": "probe refuses a JPEG with two frame headers",
+      "inputs": ["two-frame-headers.jpg"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 50000000
+      },
+      "failed": "decode-failed"
     }
   ]
 }

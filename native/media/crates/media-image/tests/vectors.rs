@@ -133,15 +133,27 @@ fn every_image_vector_answers_as_recorded() -> Result<(), Error> {
 }
 
 #[test]
-fn a_job_past_its_deadline_stops_with_deadline() -> Result<(), Error> {
-    let jpeg = std::fs::read(root().join("inputs/progressive-40x30.jpg"))?;
-    let op: ImageOp = serde_json::from_value(serde_json::json!({
-        "op": "fit", "maxPixels": 4096, "width": 8, "height": 8, "autoOrient": false,
-        "output": { "format": "png" }
-    }))?;
-    let failed = run(&[Input::Encoded(&jpeg)], &op, &|| true)
+fn every_op_past_its_deadline_stops_with_deadline_before_any_work() -> Result<(), Error> {
+    let jpeg = std::fs::read(root().join("inputs/red-64x48.jpg"))?;
+    // Probe, the planar JPEG fit, the general fit and alpha each check the clock first.
+    for op in [
+        serde_json::json!({ "op": "probe", "maxPixels": 4096 }),
+        serde_json::json!({ "op": "fit", "maxPixels": 4096, "width": 8, "height": 8,
+            "autoOrient": false, "output": { "format": "jpeg", "quality": 80 } }),
+        serde_json::json!({ "op": "fit", "maxPixels": 4096, "width": 8, "height": 8,
+            "autoOrient": false, "output": { "format": "png" } }),
+        serde_json::json!({ "op": "alpha", "maxPixels": 4096 }),
+    ] {
+        let op: ImageOp = serde_json::from_value(op)?;
+        let asked = std::cell::Cell::new(0);
+        let failed = run(&[Input::Encoded(&jpeg)], &op, &|| {
+            asked.set(asked.get() + 1);
+            true
+        })
         .err()
         .ok_or("ran")?;
-    assert_eq!(failed.reason, media_image::ImageFailure::Deadline);
+        assert_eq!(failed.reason, media_image::ImageFailure::Deadline);
+        assert_eq!(asked.get(), 1, "{op:?} asked the clock after starting work");
+    }
     Ok(())
 }

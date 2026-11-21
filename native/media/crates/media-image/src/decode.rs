@@ -120,7 +120,7 @@ pub fn decode(input: &Input, target: Target, max_pixels: u32) -> Result<Decoded>
         SourceFormat::Jpeg => {
             let h = jpeg::scan(bytes)?;
             check_input(h.width, h.height, max_pixels)?;
-            (jpeg::decode(bytes)?, h.orientation)
+            (jpeg::decode(bytes, h)?, h.orientation)
         }
         SourceFormat::Png => (crate::png::decode(bytes, max_pixels)?, 1),
         SourceFormat::Webp => (crate::webp::decode(bytes, max_pixels)?, 1),

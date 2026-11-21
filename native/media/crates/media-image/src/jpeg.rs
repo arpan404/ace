@@ -61,6 +61,11 @@ pub fn scan(bytes: &[u8]) -> Result<Header> {
                 if segment.len() < 5 {
                     return Err(Failed::decode("JPEG", "its frame header is short"));
                 }
+                // One frame per image (T.81 B.2): a second header could size what the decoder
+                // allocates differently from what was checked.
+                if size.is_some() {
+                    return Err(Failed::decode("JPEG", "it has more than one frame header"));
+                }
                 let height = u32::from(u16::from_be_bytes([segment[1], segment[2]]));
                 let width = u32::from(u16::from_be_bytes([segment[3], segment[4]]));
                 size = Some((width, height));
@@ -99,14 +104,27 @@ fn entropy_end(bytes: &[u8], mut at: usize) -> Option<usize> {
     None
 }
 
-/// The whole picture as RGBA, after [`scan`] accepted it.
-pub fn decode(bytes: &[u8]) -> Result<Raster> {
+/// The whole picture as RGBA, after [`scan`] accepted it as `checked`. The decoder's own reading
+/// of the header must agree before it allocates anything for the pixels.
+pub fn decode(bytes: &[u8], checked: Header) -> Result<Raster> {
     let options = DecoderOptions::default()
         .set_strict_mode(true)
         .set_max_width(MAX_SIDE as usize)
         .set_max_height(MAX_SIDE as usize)
         .jpeg_set_out_colorspace(ColorSpace::RGBA);
     let mut decoder = JpegDecoder::new_with_options(ZCursor::new(bytes), options);
+    decoder
+        .decode_headers()
+        .map_err(|e| Failed::decode("JPEG", e))?;
+    let read = decoder
+        .info()
+        .map(|i| (u32::from(i.width), u32::from(i.height)));
+    if read != Some((checked.width, checked.height)) {
+        return Err(Failed::decode(
+            "JPEG",
+            "its decoder reads a different size from its header",
+        ));
+    }
     let data = decoder.decode().map_err(|e| Failed::decode("JPEG", e))?;
     let info = decoder
         .info()

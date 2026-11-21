@@ -14,6 +14,7 @@ mod gif;
 mod ico;
 mod jpeg;
 mod limits;
+mod memory;
 mod png;
 mod raster;
 mod sniff;
@@ -22,6 +23,7 @@ mod webp;
 
 pub use error::{Failed, ImageFailure, Result};
 pub use limits::{MAX_OUTPUT_BYTES, MAX_PIXELS, MAX_SIDE};
+pub use memory::peak_bytes;
 pub use raster::Raster;
 
 use decode::Target;
@@ -88,6 +90,8 @@ pub fn run(inputs: &[Input], op: &ImageOp, expired: &dyn Fn() -> bool) -> Result
             .first()
             .ok_or_else(|| Failed::invalid("The job has no input."))
     };
+    // A job that waited past its deadline (or was cancelled) does no work at all.
+    step()?;
     match op {
         ImageOp::Probe { max_pixels } => {
             let source = decode::header(first()?, *max_pixels)?;
@@ -133,7 +137,7 @@ pub fn run(inputs: &[Input], op: &ImageOp, expired: &dyn Fn() -> bool) -> Result
                 height: *height,
                 auto_orient: *auto_orient,
             };
-            if let Some(done) = planar_jpeg(input, &fitting, output)? {
+            if let Some(done) = planar_jpeg(input, &fitting, output, &step)? {
                 return Ok(done);
             }
             let target = Target::Fit {
@@ -206,7 +210,12 @@ struct Fitting {
 /// A JPEG to JPEG fit that needs no turn stays in YCbCr through M5's planar transcode.
 /// `None` when the job isn't one, or the planar path doesn't take the stream (the general
 /// path then answers, with its own reasons).
-fn planar_jpeg(input: &Input, fitting: &Fitting, output: &ImageOutput) -> Result<Option<Done>> {
+fn planar_jpeg(
+    input: &Input,
+    fitting: &Fitting,
+    output: &ImageOutput,
+    step: &dyn Fn() -> Result<()>,
+) -> Result<Option<Done>> {
     let (Input::Encoded(bytes), ImageOutput::Jpeg { quality, .. }) = (input, output) else {
         return Ok(None);
     };
@@ -219,6 +228,7 @@ fn planar_jpeg(input: &Input, fitting: &Fitting, output: &ImageOutput) -> Result
         return Ok(None);
     }
     let quality = encode::quality(*quality)?;
+    step()?;
     let (w, h) = fit::inside(
         header.width,
         header.height,
