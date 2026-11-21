@@ -50,6 +50,7 @@ import os
         case .question(let card): "question-\(card.standing.rawValue)"
         case .member: "member"
         case .note: "note"
+        case .workers: "workers"
         }
     }
 }

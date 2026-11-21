@@ -63,6 +63,9 @@ struct SpadeBubbleView: View {
                                   drafts: drafts(card.callId), fold: { fold(card.callId, $0) }, reply: { await reply(card.callId, $0) })
         case let .member(name, text, face, first, last):
             SpadeMemberBubble(name: name, text: text, face: face, first: first, last: last)
+        // Drawn by the chat, which has the client its requests answer through (`SpadeWorkersCard`).
+        case .workers:
+            EmptyView()
         case let .note(text):
             Text(text)
                 .aceFont(AceDesign.TextRole.meta)

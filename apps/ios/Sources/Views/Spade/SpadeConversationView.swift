@@ -97,7 +97,10 @@ struct SpadeConversationView: View {
             VStack(spacing: AceTheme.Spacing.none) {
                 TranscriptRowsStack(stack: stack, spacing: AceDesign.Space.related) {
                     ForEach(spade.order, id: \.self) { key in
-                        if let bubble = spade.bubbles[key] {
+                        if case let .workers(workers) = spade.bubbles[key] {
+                            SpadeWorkersCard(workers: workers, client: client) { open(SpadeRoute(conversation: $0, group: nil)) }
+                                .id(key)
+                        } else if let bubble = spade.bubbles[key] {
                             SpadeBubbleView(bubble: bubble, answer: { callId, allowed, always in
                                 await answer(callId, allowed: allowed, always: always)
                             }, unfolded: unfolded, fold: { callId, open in

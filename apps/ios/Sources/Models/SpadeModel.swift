@@ -100,6 +100,24 @@ import Observation
         let text: String
         let alert: Bool
     }
+    /// The workers one call started (ADR 0161), each as it stands now.
+    struct Workers: Decodable, Equatable, Sendable {
+        struct Worker: Decodable, Equatable, Sendable, Identifiable {
+            let id: String
+            let name: String
+            /// `ace` (a thread) or `bot`.
+            let kind: String
+            /// An ace agent's thread: a tap opens it, and its requests show under it.
+            let thread: String?
+            /// A bot's conversation, which a tap opens.
+            let conversation: String?
+            /// `needs-you`, `working`, `failed` or `rest`.
+            let tone: String
+            let line: String
+        }
+        let title: String
+        let workers: [Worker]
+    }
     /// One bubble of the conversation.
     enum Bubble: Decodable, Equatable, Sendable {
         case person(text: String, sending: Bool, attached: String?)
@@ -108,6 +126,7 @@ import Observation
         case question(SpadeQuestionCard)
         /// A member's message in a group: its name above the first of a run, its face by the last.
         case member(name: String, text: String, face: Face, first: Bool, last: Bool)
+        case workers(Workers)
         case note(text: String)
 
         private enum Keys: String, CodingKey {
@@ -130,6 +149,8 @@ import Observation
                             always: try box.decodeIfPresent(Bool.self, forKey: .always) ?? false)
             case "question":
                 self = .question(try SpadeQuestionCard(from: decoder))
+            case "workers":
+                self = .workers(try Workers(from: decoder))
             case "member":
                 self = .member(name: try box.decode(String.self, forKey: .name), text: text,
                                face: try box.decode(Face.self, forKey: .face),
