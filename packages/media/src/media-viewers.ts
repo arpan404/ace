@@ -33,10 +33,11 @@ export type ViewIntent = {
   /** Whether a producer's pictures are this view's. */
   shows: (producer: IngestProducer) => boolean;
   /**
-   * The view's grant in ace-media changed: true once a producer streams its source there and the
-   * view is granted under it, false when that ends (a route flip, a refusal, the source gone).
+   * Whether the view delivers changed: true once ace-media plays it (`viewer.playing`) under a
+   * producer streaming its source there, false when that ends (a route flip, the source gone),
+   * or when ace-media refuses the view (`refused`: its reason, such as `limit`).
    */
-  onGrant?: (granted: boolean) => void;
+  onGrant?: (granted: boolean, refused?: string) => void;
 };
 
 export type MediaPosterBytes = { width: number; height: number; jpeg: Uint8Array };
@@ -65,6 +66,8 @@ type Held = {
   path: string | undefined;
   /** The producer streaming the source at `path`: it vouches for which epochs were clear. */
   producer: IngestProducer | undefined;
+  /** ace-media plays the view under `path` (`viewer.playing`): only then does it deliver. */
+  admitted: boolean;
 };
 type Waiting = { done: (answer: MediaPosterBytes | "wait" | "gone") => void; cancel: () => void };
 /** Still failures that mean the source has no picture yet: worth asking again. */
@@ -87,16 +90,20 @@ export class MediaViewers {
   bind(request: Omit<ViewIntent, "viewer">): string | undefined {
     if (!this.#options.connections.owned(request.requester, request.connection)) return undefined;
     const intent: ViewIntent = { ...request, viewer: `view-${this.#options.id()}` };
-    const held: Held = { intent, path: undefined, producer: undefined };
+    const held: Held = { intent, path: undefined, producer: undefined, admitted: false };
     this.#held.set(intent.viewer, held);
     const live = this.#options.live().find((entry) => intent.shows(entry.producer));
     if (live) this.#grant(held, live.path, live.producer);
     return intent.viewer;
   }
 
-  /** Whether the view is granted under a producer streaming into ace-media now. */
+  /**
+   * Whether the view delivers now: granted under a producer streaming into ace-media, and played
+   * there. A written `viewer.open` alone isn't enough: ace-media may refuse it.
+   */
   granted(viewer: string): boolean {
-    return this.#held.get(viewer)?.path !== undefined;
+    const held = this.#held.get(viewer);
+    return held?.path !== undefined && held.admitted;
   }
 
   #grant(held: Held, path: string, producer: IngestProducer): void {
@@ -115,11 +122,17 @@ export class MediaViewers {
     this.#path(held, granted ? path : undefined);
   }
 
-  /** Moves a view's grant, telling its subscriber when whether it is granted changes. */
+  /** Moves a view's grant: a new one delivers only once ace-media plays it again. */
   #path(held: Held, path: string | undefined): void {
-    const was = held.path !== undefined;
     held.path = path;
-    if (was !== (path !== undefined)) held.intent.onGrant?.(path !== undefined);
+    this.#admit(held, false);
+  }
+
+  /** Whether the view delivers, telling its subscriber on a change, or on a refusal. */
+  #admit(held: Held, admitted: boolean, refused?: string): void {
+    const was = held.admitted;
+    held.admitted = admitted;
+    if (was !== admitted || refused !== undefined) held.intent.onGrant?.(admitted, refused);
   }
 
   configure(viewer: string, viewport: ViewViewport, audio: boolean): void {
@@ -219,6 +232,16 @@ export class MediaViewers {
             ? "wait"
             : "gone",
       );
+    } else if (message.type === "viewer.playing" || message.type === "viewer.stats") {
+      // Played: by ace-media's word, or by the pictures its stats count going out.
+      const held = this.#held.get(message.viewer);
+      const plays = message.type === "viewer.playing" ? message.playing : message.fps > 0;
+      if (held?.path !== undefined && plays) this.#admit(held, true);
+    } else if (message.type === "grant.refused" && message.kind === "viewer.open") {
+      const held = this.#held.get(message.id);
+      if (!held) return;
+      held.path = undefined;
+      this.#admit(held, false, message.reason);
     } else if (message.type === "connection.closed") {
       for (const [viewer, held] of this.#held)
         if (held.intent.connection === message.connection) this.#held.delete(viewer);
@@ -371,8 +394,18 @@ export function mediaUndelivered(
 export function pendingUndelivered(
   state: "live" | "pending" | "failed",
   unserved: string | undefined,
+  refused?: string,
 ): MediaUndelivered | undefined {
-  if (state === "live") return undefined;
+  if (refused)
+    return {
+      code: "refused",
+      reason:
+        refused === "limit"
+          ? "Too many live views are open on this computer. Close one to see this one."
+          : "ace's media process refused this live view.",
+    };
+  if (state === "live")
+    return { code: "starting", reason: "Live video is starting. It shows in a moment." };
   if (unserved) return { code: "unavailable", reason: unserved };
   return state === "failed"
     ? {

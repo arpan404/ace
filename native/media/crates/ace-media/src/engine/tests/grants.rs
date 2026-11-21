@@ -439,3 +439,32 @@ fn an_all_zero_ticket_is_never_stored_and_never_opens_a_connection() {
         "not the ticket granted"
     );
 }
+
+#[test]
+fn a_viewer_past_the_limit_is_refused_with_why_so_its_subscriber_can_say_so() {
+    let mut engine = engine();
+    ticket(&mut engine, "c1", owner("d1", pairing(1)), 4, 1);
+    // A view per thread: one connection holds one view per target.
+    let open = |engine: &mut Engine, id: &str| {
+        send(
+            engine,
+            json!({ "type": "viewer.open", "viewer": id, "connection": "c1",
+                    "owner": owner("d1", pairing(1)), "issued": 6, "source": "s1",
+                    "target": { "kind": "browser", "threadId": format!("t-{id}") },
+                    "codecs": ["avc1.640028"],
+                    "viewport": { "width": 800, "height": 600, "dpr": 2, "scale": 1 },
+                    "local": true, "audio": false }),
+            &[],
+            NOW,
+        )
+    };
+    for n in 0..super::super::grants::MAX_VIEWERS {
+        assert!(refusals(&open(&mut engine, &format!("v{n}"))).is_empty());
+    }
+    assert_eq!(
+        refusals(&open(&mut engine, "one-too-many")),
+        vec![("viewer.open".to_owned(), Refusal::Limit)]
+    );
+    // A viewer it already holds is opened again, never refused at the limit.
+    assert!(refusals(&open(&mut engine, "v0")).is_empty());
+}

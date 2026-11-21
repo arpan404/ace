@@ -445,7 +445,7 @@ test("a view's grant is closed when its producer leaves ace-media, and again on 
   expect(closes()).toBe(1);
 });
 
-test("a view's subscriber hears each change of its grant: none while nothing streams, then on, then off", async () => {
+test("a view counts as delivering only once ace-media plays it, and a refusal says why", async () => {
   const h = harness();
   const viewers = new MediaViewers({
     connections: h.connections,
@@ -456,26 +456,46 @@ test("a view's subscriber hears each change of its grant: none while nothing str
     now: () => 0,
   });
   const grant = granted(await h.connections.connect(phone("a")));
-  const grants: boolean[] = [];
-  const viewer =
+  const grants: [boolean, string | undefined][] = [];
+  const bind = (threadId: string) =>
     viewers.bind({
       requester: phone("a"),
       connection: grant.connection,
-      target: { kind: "browser", threadId: "t1" },
+      target: { kind: "browser", threadId },
       codecs: ["avc1.42E033"],
       viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
       local: true,
       audio: false,
-      shows: (p) => p.threadId === "t1",
-      onGrant: (on) => grants.push(on),
+      shows: (p) => p.threadId === threadId,
+      onGrant: (on, refused) => grants.push([on, refused]),
     }) ?? "";
+  const viewer = bind("t1");
   // Bound, but nothing streams the tab into ace-media: a held id is no delivery.
   expect(viewers.granted(viewer)).toBe(false);
-  expect(grants).toEqual([]);
+  // The producer streams and viewer.open is written: still not delivering until ace-media plays
+  // it (an ace-media that never says so leaves it waiting, never silently fine).
   viewers.live(producer("t1"), "source-1");
-  // A new id for the same source moves the grant without turning it off.
+  expect(viewers.granted(viewer)).toBe(false);
+  expect(grants).toEqual([]);
+  viewers.received({ type: "viewer.playing", viewer, playing: true }, new Uint8Array(0));
+  expect(viewers.granted(viewer)).toBe(true);
+  // A new id for the same source: delivering again only once it plays there.
   viewers.live(producer("t1"), "source-2");
+  viewers.received({ type: "viewer.playing", viewer, playing: true }, new Uint8Array(0));
   // The producer left ace-media (its ingest refused, say): the subscriber hears it.
   viewers.live(producer("t1"), undefined);
-  expect(grants).toEqual([true, false]);
+  // ace-media holds as many viewers as it may: it refuses the open, and the subscriber is told.
+  viewers.live(producer("t1"), "source-3");
+  viewers.received(
+    { type: "grant.refused", kind: "viewer.open", id: viewer, reason: "limit" },
+    new Uint8Array(0),
+  );
+  expect(viewers.granted(viewer)).toBe(false);
+  expect(grants).toEqual([
+    [true, undefined],
+    [false, undefined],
+    [true, undefined],
+    [false, undefined],
+    [false, "limit"],
+  ]);
 });

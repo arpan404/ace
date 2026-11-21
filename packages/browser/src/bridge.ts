@@ -201,7 +201,7 @@ export function connectBrowser(
       audio: viewport?.audio === true,
       ...(link ? { link } : {}),
       shows: showsThread(threadId),
-      onGrant: (granted) => delivered(threadId, granted),
+      onGrant: (granted, refused) => delivered(threadId, granted, refused),
     });
     if (bound === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
@@ -211,7 +211,7 @@ export function connectBrowser(
    * Tells this connection whether its bound view of the thread gets pictures now: on every
    * change of the view's grant in ace-media, with the reason while it doesn't.
    */
-  const delivered = (threadId: string, granted: boolean) => {
+  const delivered = (threadId: string, granted: boolean, refused?: string) => {
     // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
     if (closed || !subscriptions.get(threadId)?.status.size) return;
     const port = options.media?.delivery();
@@ -221,6 +221,7 @@ export function connectBrowser(
       : pendingUndelivered(
           port?.sourceState(showsThread(threadId)) ?? "pending",
           kind ? port?.unserved(kind) : undefined,
+          refused,
         );
     options.send({
       type: "browser.delivery",

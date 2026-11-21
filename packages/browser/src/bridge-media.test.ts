@@ -260,6 +260,11 @@ test("a bound view whose tab isn't streaming yet is told so, and told again when
   // It stops again (its ingest refused): told why once more.
   intent?.onGrant?.(false);
   expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
+  // ace-media refuses the view (it holds as many as it may): the subscriber is told that.
+  intent?.onGrant?.(false, "limit");
+  expect(deliveries().at(-1)).toMatchObject({
+    undelivered: { code: "refused", reason: expect.stringMatching(/^Too many live views/) },
+  });
   client.close();
 });
 

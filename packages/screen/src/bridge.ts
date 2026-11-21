@@ -118,7 +118,7 @@ export function screenConnection(
       audio: false,
       ...(link ? { link } : {}),
       shows: showsSession(sessionId),
-      onGrant: (granted) => delivered(sessionId, granted),
+      onGrant: (granted, refused) => delivered(sessionId, granted, refused),
     });
     if (viewer === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
@@ -128,7 +128,7 @@ export function screenConnection(
    * Tells this connection whether its bound view of the session gets pictures now: on every
    * change of the view's grant in ace-media, with the reason while it doesn't.
    */
-  const delivered = (sessionId: string, granted: boolean) => {
+  const delivered = (sessionId: string, granted: boolean, refused?: string) => {
     // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
     if (closed || !status.has(sessionId)) return;
     const port = peer.delivery?.port();
@@ -137,6 +137,7 @@ export function screenConnection(
       : pendingUndelivered(
           port?.sourceState(showsSession(sessionId)) ?? "pending",
           port?.unserved("screen"),
+          refused,
         );
     peer.send({ type: "screen.delivery", sessionId, ...(undelivered ? { undelivered } : {}) });
   };

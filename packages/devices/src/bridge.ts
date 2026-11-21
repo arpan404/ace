@@ -115,7 +115,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
       audio: false,
       ...(link ? { link } : {}),
       shows: showsDevice(deviceId),
-      onGrant: (granted) => tellDelivery(deviceId, granted),
+      onGrant: (granted, refused) => tellDelivery(deviceId, granted, refused),
     });
     if (viewer === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
@@ -125,7 +125,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
    * Tells this connection whether its bound view of the device gets pictures now: on every
    * change of the view's grant in ace-media, with the reason while it doesn't.
    */
-  const tellDelivery = (deviceId: string, granted: boolean) => {
+  const tellDelivery = (deviceId: string, granted: boolean, refused?: string) => {
     // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
     if (closed || !status.has(deviceId)) return;
     const port = peer.delivery?.port();
@@ -135,6 +135,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
       : pendingUndelivered(
           port?.sourceState(showsDevice(deviceId)) ?? "pending",
           kinds.map((kind) => port?.unserved(kind)).find((reason) => reason !== undefined),
+          refused,
         );
     void send({
       type: "devices.delivery",
