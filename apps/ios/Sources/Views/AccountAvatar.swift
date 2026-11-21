@@ -86,12 +86,18 @@ struct AccountMenuButton: View {
     }
 }
 
-/// The avatar's place in a home list's bar: a system bar button at the bar's leading edge, its
-/// glass drawn by iOS at the system's size, the same round button as Back beside it.
+/// The avatar's place in a home list's bar: a bar button at the bar's leading edge, the size of
+/// the round button Back draws beside it. The photo is the button, so iOS 26 draws no glass
+/// around it: the picture fills the circle with no inset.
 struct AccountToolbarItem: ToolbarContent {
     let open: (SettingsRoute) -> Void
     let settings: () -> Void
     var body: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) { AccountMenuButton(open: open, settings: settings) }
+        if #available(iOS 26, *) {
+            ToolbarItem(placement: .topBarLeading) { AccountMenuButton(open: open, settings: settings) }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) { AccountMenuButton(open: open, settings: settings) }
+        }
     }
 }
