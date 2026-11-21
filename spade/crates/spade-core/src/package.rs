@@ -2,6 +2,7 @@
 //! completely, read the one way Spade reads it. A version 2 recipe reads as version 3 with its
 //! routines as schedule triggers. Pure: the server brings the build's version and limits.
 //!
+//! - [`code`] reads the WebAssembly components a package ships and what their binaries import.
 //! - [`manifest`] reads `bot.json` and refuses what a package may never carry.
 //! - [`contract`] reads its contracts: typed calls other agents of the person make to its bot.
 //! - [`link`] is what a bot installed from a version 3 package keeps of it, and its ceiling.
@@ -10,6 +11,7 @@
 //! - [`update`] plans an update or a rollback: what the package replaces, what stays because
 //!   the person or the bot changed it, and what the new version asks for that starts off.
 
+pub mod code;
 pub mod contract;
 pub mod contract_files;
 pub mod link;
@@ -20,6 +22,8 @@ pub mod update;
 
 pub use manifest::{Declared, Limits, Manifest, PackageTrigger, read};
 
+#[cfg(test)]
+mod code_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

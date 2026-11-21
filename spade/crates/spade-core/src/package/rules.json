@@ -1775,6 +1775,334 @@
         ]
       },
       "refused": "confirm is true or false"
+    },
+    {
+      "name": "a component that calls Spade's tools and reads the clock",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      }
+    },
+    {
+      "name": "a component with http, which the package's network hosts allow",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": [
+              "spade:package/http",
+              "spade:package/log",
+              "spade:package/kv",
+              "wasi:random/random@0.2",
+              "wasi:clocks/monotonic-clock@0.2"
+            ],
+            "why": "Parses fare tables and picks the cheapest.",
+            "timeout_s": 300,
+            "memory_mb": 512
+          }
+        ]
+      }
+    },
+    {
+      "name": "a component that imports wasi:filesystem",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["wasi:filesystem/types@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "no file system or sockets"
+    },
+    {
+      "name": "a component that imports wasi:sockets",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["wasi:sockets/tcp@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "no file system or sockets"
+    },
+    {
+      "name": "a component that imports anything else",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["example:thing/other"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "outside Spade's world"
+    },
+    {
+      "name": "a component with http and no network hosts",
+      "with": {
+        "effects": [],
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/http"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "needs a declared network effect"
+    },
+    {
+      "name": "precompiled code",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.cwasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": ".cwasm"
+    },
+    {
+      "name": "a file outside code/",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "assets/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "code/fares.wasm"
+    },
+    {
+      "name": "a world this Spade doesn't run yet",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-contracts@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "Needs a newer Spade"
+    },
+    {
+      "name": "a world that isn't Spade's",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "wasi:cli/command@0.2.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "world is spade:package/bot-tools@1.0.0"
+    },
+    {
+      "name": "five components",
+      "with": {
+        "code": [
+          {
+            "name": "a",
+            "file": "code/a.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          },
+          {
+            "name": "b",
+            "file": "code/b.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          },
+          {
+            "name": "c",
+            "file": "code/c.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          },
+          {
+            "name": "d",
+            "file": "code/d.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          },
+          {
+            "name": "e",
+            "file": "code/e.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "at most 4"
+    },
+    {
+      "name": "two components of one name",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          },
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "a name of its own"
+    },
+    {
+      "name": "a component name that isn't a word",
+      "with": {
+        "code": [
+          {
+            "name": "fare_finder",
+            "file": "code/fare_finder.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "name is 1 to 24"
+    },
+    {
+      "name": "an import listed twice",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "spade:package/tools"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "twice"
+    },
+    {
+      "name": "a component without imports listed",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        ]
+      },
+      "refused": "imports lists"
+    },
+    {
+      "name": "a component without a why",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": " "
+          }
+        ]
+      },
+      "refused": "why says"
+    },
+    {
+      "name": "a deadline past five minutes",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest.",
+            "timeout_s": 301
+          }
+        ]
+      },
+      "refused": "timeout_s is a whole number from 1 to 300"
+    },
+    {
+      "name": "more memory than 512 MiB",
+      "with": {
+        "code": [
+          {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest.",
+            "memory_mb": 1024
+          }
+        ]
+      },
+      "refused": "memory_mb is a whole number from 1 to 512"
+    },
+    {
+      "name": "code that isn't a list",
+      "with": {
+        "code": {
+          "fares": {
+            "name": "fares",
+            "file": "code/fares.wasm",
+            "world": "spade:package/bot-tools@1.0.0",
+            "imports": ["spade:package/tools", "wasi:clocks/wall-clock@0.2"],
+            "why": "Parses fare tables and picks the cheapest."
+          }
+        }
+      },
+      "refused": "code is a list"
     }
   ]
 }

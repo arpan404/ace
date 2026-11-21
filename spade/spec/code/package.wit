@@ -1,0 +1,163 @@
+/// Spade's world for a package's own code (ADR 0203 §2), the spec's part `code`.
+///
+/// A component built for one of the worlds below may import only the interfaces its world
+/// lists and its `bot.json` entry names, plus these WASI 0.2 interfaces: `wasi:clocks/wall-clock`,
+/// `wasi:clocks/monotonic-clock` (with the `wasi:io/poll` it uses) and `wasi:random/random`.
+/// There is no `wasi:filesystem`, `wasi:sockets`, `wasi:cli` or `wasi:http`: files, the network
+/// and every other effect come through `tools` and `http`, which Spade carries out after its
+/// gate. Values cross as JSON text where a tool's would.
+///
+/// Version 1.0.0 targets WASI 0.2. A later 1.1.0 accepts the same exports built against WASI 0.3's
+/// async once Spade's pinned runtime enables it.
+package spade:package@1.0.0;
+
+/// Types the other interfaces share.
+interface types {
+    /// JSON text: a tool's input or output, a contract's, a card's data.
+    type json = string;
+
+    /// Why a call didn't give an answer, in a sentence the bot reads.
+    record failure {
+        message: string,
+    }
+}
+
+/// Calls one of the bot's `spade.v1` tools as the bot. Every call goes through Spade's gate, its
+/// ceiling first; the effect is the called tool's.
+interface tools {
+    use types.{json, failure};
+
+    call: func(name: string, input: json) -> result<json, failure>;
+}
+
+/// One outgoing https request, sent by Spade through the bot's egress proxy to a host the
+/// package declares under `network` and the person left on. No sockets, no other schemes.
+interface http {
+    use types.{failure};
+
+    record header {
+        name: string,
+        value: string,
+    }
+
+    record request {
+        method: string,
+        url: string,
+        headers: list<header>,
+        body: list<u8>,
+    }
+
+    record response {
+        status: u16,
+        headers: list<header>,
+        body: list<u8>,
+    }
+
+    send: func(req: request) -> result<response, failure>;
+}
+
+/// Lines for the package's developer, kept with the call: at most 64 KiB a call.
+interface log {
+    enum level {
+        debug,
+        info,
+        warn,
+        error,
+    }
+
+    write: func(level: level, line: string);
+}
+
+/// A small store the package owns on this bot (at most 16 MiB in all), moved with the bot.
+interface kv {
+    use types.{failure};
+
+    get: func(key: string) -> result<option<list<u8>>, failure>;
+    set: func(key: string, value: list<u8>) -> result<_, failure>;
+    delete: func(key: string) -> result<_, failure>;
+    keys: func(prefix: string) -> result<list<string>, failure>;
+}
+
+/// The tools a component gives its bot: each becomes `code_<component>_<name>` in the `code`
+/// module of `spade.v1`.
+interface toolbox {
+    use types.{json, failure};
+
+    record tool {
+        /// Lower-case letters, digits and `_`, starting with a letter.
+        name: string,
+        /// What it does, for the model.
+        summary: string,
+        /// JSON schemas of its input and its output.
+        input-schema: json,
+        output-schema: json,
+    }
+
+    /// Every tool it has. Called once when the component is loaded.
+    tools: func() -> list<tool>;
+    /// Runs one of them.
+    call: func(name: string, input: json) -> result<json, failure>;
+}
+
+/// Answers contracts without a model turn, when a contract says
+/// `"handler": "code/<component>#<contract>"` (phase 2).
+interface contract-handler {
+    use types.{json, failure};
+
+    handle: func(contract: string, input: json) -> result<json, failure>;
+}
+
+/// Verification steps (ADR 0204, phase 3): an outcome, judged.
+interface check {
+    use types.{json};
+
+    record verdict {
+        pass: bool,
+        reasons: list<string>,
+    }
+
+    check: func(name: string, outcome: json) -> verdict;
+}
+
+/// Shapes a card's data when a card says `"shape": "code/<component>#<name>"` (phase 3).
+interface card-data {
+    use types.{json, failure};
+
+    shape: func(name: string, data: json) -> result<json, failure>;
+}
+
+/// Code tools: the world this version of Spade runs.
+world bot-tools {
+    import tools;
+    import http;
+    import log;
+    import kv;
+
+    export toolbox;
+}
+
+/// A contract handler (phase 2).
+world bot-contracts {
+    import tools;
+    import http;
+    import log;
+    import kv;
+
+    export contract-handler;
+}
+
+/// Verification steps (phase 3).
+world bot-checks {
+    import tools;
+    import log;
+
+    export check;
+}
+
+/// Card shapers (phase 3).
+world bot-cards {
+    import tools;
+    import log;
+
+    export card-data;
+}

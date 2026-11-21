@@ -56,7 +56,7 @@ const EXECUTIONS: [&str; 8] = [
     "commands",
     "command",
 ];
-const KNOWN_V3: [&str; 22] = [
+const KNOWN_V3: [&str; 23] = [
     "format",
     "version",
     "requires",
@@ -79,6 +79,7 @@ const KNOWN_V3: [&str; 22] = [
     "pricing",
     "surfaces",
     "contracts",
+    "code",
 ];
 const KNOWN_V2: [&str; 14] = [
     "personality",
@@ -256,6 +257,9 @@ pub struct Manifest {
     /// The cards and panels it ships (ADR 0200 §5).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surfaces: Vec<Surface>,
+    /// The WebAssembly components it ships (ADR 0203).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub code: Vec<super::code::Code>,
     /// Fields this build doesn't use, by name, for the review's "Not used by this Spade".
     pub unused: Vec<String>,
 }
@@ -407,6 +411,11 @@ impl Reader<'_> {
         } else {
             Vec::new()
         };
+        let code = if version == 3 {
+            super::code::read(self.fields.get("code"), &effects, &mut self.problems)
+        } else {
+            Vec::new()
+        };
         let manifest = Manifest {
             version,
             name,
@@ -440,6 +449,7 @@ impl Reader<'_> {
             } else {
                 Vec::new()
             },
+            code,
             unused,
         };
         if version == 3 {
