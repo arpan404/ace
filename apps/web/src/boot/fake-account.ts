@@ -6,14 +6,21 @@
 import type { AccessOptions } from "@ace/client";
 import { machineCodeGate } from "@ace/client";
 import { aceAccountClient } from "@ace/client/ace-account";
+import { aceOrgClient } from "@ace/client/ace-org";
 import type { AccountMachineState } from "@ace/client-worker/machines";
 import { FakeMachineAccount } from "@ace/fake-daemon";
 import { AceAccountHandover, type MachineCodeRefusal } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { z } from "zod";
+import { fakeOrgRoutes, fakeOrgs } from "./fake-orgs.ts";
 
 /** The person the fake ace account belongs to. */
-export const fakePerson = { id: "user_fake", email: "arpan@example.com", name: "Arpan Bhandari" };
+export const fakePerson = {
+  id: "user_fake",
+  email: "arpan@example.com",
+  name: "Arpan Bhandari",
+  emailVerified: true,
+};
 const person = fakePerson;
 export const fakeOrigin = "https://account.example.com";
 
@@ -81,9 +88,14 @@ export function fakeAccountBackend(storage: KeyValueStorage, now: () => number) 
   const token = "f".repeat(43);
   const session = { token, expiresAt: now() + 30 * 86_400_000, account: person };
   storage.setItem(`ace.account.session:${fakeOrigin}`, JSON.stringify(session));
-  // `?fakeWorld=just-this-mac` keeps the account's list empty.
-  const solo =
-    new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld") === "just-this-mac";
+  // `?fakeWorld=just-this-mac` keeps the account's list empty; `?fakeWorld=org` adds organizations.
+  const params = new URLSearchParams(globalThis.location?.search ?? "");
+  const world = params.get("fakeWorld");
+  const solo = world === "just-this-mac";
+  // The window's space (ADR 0206 §1.5): `?space=` picks one; the org world opens in Acme's.
+  const spaceKey = `ace.space:${fakeOrigin}:${person.id}`;
+  const space = params.get("space") ?? (world === "org" ? fakeOrgs.acme : undefined);
+  if (space && !storage.getItem(spaceKey)) storage.setItem(spaceKey, space);
   let machines = solo
     ? []
     : [
@@ -100,27 +112,29 @@ export function fakeAccountBackend(storage: KeyValueStorage, now: () => number) 
           lastSeenAt: now() - 3 * 86_400_000,
         },
       ];
-  const client = aceAccountClient({
-    origin: fakeOrigin,
-    fetch: async (input, init) => {
-      const path = new URL(String(input)).pathname;
-      const method = init?.method ?? "GET";
-      if (path === "/v1/account/session" && method === "GET")
-        return Response.json({ account: person, expiresAt: session.expiresAt });
-      if (path === "/v1/account/session" && method === "DELETE") return Response.json({ ok: true });
-      if (path === "/v1/machines" && method === "GET") return Response.json({ machines });
-      // A single-use ticket that signs one machine in, for the app to hand its daemon.
-      if (path === "/v1/machine-enrollments" && method === "POST")
-        return Response.json({ ticket: "e".repeat(43), expiresAt: now() + 600_000 });
-      const forget = path.match(/^\/v1\/machines\/([A-Z2-7]{52})$/)?.[1];
-      if (forget && method === "DELETE") {
-        machines = machines.filter((machine) => machine.hostId !== forget);
-        return Response.json({ ok: true });
-      }
-      return Response.json({ error: "unavailable" }, { status: 503 });
-    },
-  });
-  return { origin: fakeOrigin, client, storage };
+  const orgRoutes = fakeOrgRoutes({ person, now, personal: () => machines, world });
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    const path = url.pathname;
+    const method = init?.method ?? "GET";
+    const org = await orgRoutes(url, init);
+    if (org) return org;
+    if (path === "/v1/account/session" && method === "GET")
+      return Response.json({ account: person, expiresAt: session.expiresAt });
+    if (path === "/v1/account/session" && method === "DELETE") return Response.json({ ok: true });
+    if (path === "/v1/machines" && method === "GET") return Response.json({ machines });
+    // A single-use ticket that signs one machine in, for the app to hand its daemon.
+    if (path === "/v1/machine-enrollments" && method === "POST")
+      return Response.json({ ticket: "e".repeat(43), expiresAt: now() + 600_000 });
+    const forget = path.match(/^\/v1\/machines\/([A-Z2-7]{52})$/)?.[1];
+    if (forget && method === "DELETE") {
+      machines = machines.filter((machine) => machine.hostId !== forget);
+      return Response.json({ ok: true });
+    }
+    return Response.json({ error: "unavailable" }, { status: 503 });
+  };
+  const client = aceAccountClient({ origin: fakeOrigin, fetch });
+  return { origin: fakeOrigin, client, orgs: aceOrgClient({ origin: fakeOrigin, fetch }), storage };
 }
 
 /**

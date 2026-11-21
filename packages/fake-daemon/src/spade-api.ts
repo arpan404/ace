@@ -20,6 +20,7 @@ import { FakeSpadeWakes } from "./spade-wakes.ts";
 import { FakeSpadeCases } from "./spade-cases.ts";
 import { FakeSpadeRunning } from "./spade-running.ts";
 import { FakeSpadeWork } from "./spade-work.ts";
+import { FakeSpadeOrg } from "./spade-org.ts";
 import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
 
 /*
@@ -47,6 +48,8 @@ const problem = (status: number, error: string) => reply({ error }, status);
 
 export class FakeSpadeApi implements FakeSpadeServer {
   agents: FakeSpadeAgent[] = [];
+  /** The organization this Spade's host belongs to, its shared bots and its log (ADR 0206). */
+  readonly org = new FakeSpadeOrg();
   endpoints: Json[] = [];
   presets: Json[] = [];
   fastModel: string | null = null;
@@ -537,6 +540,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
+    if (root === "org") return this.org.route(request.method, id, sub);
+    if (root === "agents" && id && sub === "access")
+      return this.org.accessRoute(request.method, id);
     if (root === "running" && !id) return this.running.route(request.method, undefined, undefined);
     if (root === "panels" && id === "pages" && sub) return this.panels.page(sub);
     if (

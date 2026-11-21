@@ -407,7 +407,7 @@
     }
   }
   @media (max-width: 720px) {
-    .mk-modal {
+    .mk-modal:not([data-page]) {
       inset: 8px 0 0;
       border-radius: var(--radius-xl) var(--radius-xl) 0 0;
       border-bottom: 0;

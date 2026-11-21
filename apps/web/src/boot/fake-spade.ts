@@ -3,6 +3,7 @@ import { seedFakeCards } from "./fake-spade-cards.ts";
 import { seedFakeAgentCards } from "./fake-spade-agent-cards.ts";
 import { seedFakeAgentPanels } from "./fake-spade-agent-panels.ts";
 import { seedFakeSuggest } from "./fake-spade-suggest.ts";
+import { seedFakeApps } from "./fake-spade-apps.ts";
 import { seedFakeCreate } from "./fake-spade-create.ts";
 import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeLibrary } from "./fake-spade-library.ts";
@@ -22,7 +23,12 @@ import { seedFakeModelAccess } from "./fake-spade-models.ts";
  * build server, so the Spade place shows every state the person meets: Spade at work, a bot
  * waiting on an approval, an idle bot, a message from another bot, and the working line.
  */
-export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpadeApi {
+export function seedFakeSpade(
+  daemon: FakeDaemon,
+  server: FakeDaemon,
+  /** The build server's Spade, for a world that seeds more on it (`?fakeWorld=org`). */
+  onRemote?: (remote: FakeSpadeApi) => void,
+): FakeSpadeApi {
   const now = Date.now();
   const minutes = (count: number) => now - count * 60_000;
   const here = running(daemon);
@@ -532,6 +538,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
   seedFakeAgentCards(here);
   seedFakeAgentPanels(here);
   seedFakeSuggest(here);
+  seedFakeApps(here);
   seedFakeLibrary(here, now);
   seedFakeWork(daemon, here, minutes);
   seedFakeDelegation(daemon, here, minutes);
@@ -590,13 +597,14 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
     },
   });
   remote.endpoints.push({ ...endpoint });
+  onRemote?.(remote);
   return here;
 }
 
 /** How far back the fake's clock reads for what is seeded next, in ms (the transcript's days). */
 let rewound = 0;
 
-function running(daemon: FakeDaemon) {
+export function running(daemon: FakeDaemon) {
   daemon.spade.status = { state: "ready", version: "0.6.0" };
   daemon.services.settings.write("spade.enabled", true);
   return new FakeSpadeApi(daemon.spade, () => Date.now() - rewound);
@@ -762,7 +770,12 @@ function seedConnectors(spade: FakeSpadeApi) {
 }
 
 /** A template with its own face, as Spade ships them. */
-const template = (id: string, name: string, blurb: string, face: Record<string, string>) => ({
+export const template = (
+  id: string,
+  name: string,
+  blurb: string,
+  face: Record<string, string>,
+) => ({
   id,
   name,
   blurb,

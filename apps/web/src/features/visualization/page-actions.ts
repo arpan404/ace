@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HtmlMode, HtmlStyleKit } from "@ace/protocol";
-import { visualizationUrl, visualizationWindow, type HtmlTheme } from "@ace/html";
+import { visualizationFrame, visualizationWindow, type HtmlTheme } from "@ace/html";
 import { useToast } from "@/components/ui/toast.tsx";
 import { desktopVisualizations } from "@/boot/desktop-visualizations.ts";
 
@@ -35,7 +35,7 @@ export function usePageActions(page: {
       const desktop = desktopVisualizations();
       if (desktop) {
         void desktop
-          .open({ title, url: visualizationUrl(html, theme, mode, kit) })
+          .open({ title, ...visualizationFrame(html, theme, mode, kit) })
           .catch(() => toast.error({ title: "Couldn't open the visualization" }));
         return;
       }

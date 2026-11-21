@@ -13,6 +13,11 @@ export {
   panelUrl,
   mcpAppPanelUrl,
   visualizationWindow,
+  visualizationFrame,
+  inlineVisualizationFrame,
+  panelFrame,
+  mcpAppPanelFrame,
+  type FramedPage,
   styleKitVersion,
   themeMessage,
   htmlCsp,
@@ -24,6 +29,7 @@ export {
 } from "./document.ts";
 export {
   heightFromTitle,
+  pageMessage,
   panelMessageBytes,
   panelMessageFromTitle,
   panelText,

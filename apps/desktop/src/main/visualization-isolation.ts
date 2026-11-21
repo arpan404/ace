@@ -6,7 +6,7 @@ import {
   type WebContents,
   type WebPreferences,
 } from "electron";
-import { visualizationPartition } from "@ace/html/scripts";
+import { pageMessage, visualizationPartition } from "@ace/html/scripts";
 
 /**
  * Chat visualizations run agent-written scripts. They live in their own in-memory session
@@ -97,8 +97,15 @@ export function guardVisualizationContents(contents: WebContents): void {
   });
 }
 
-/** "Open in window": a plain window in the same locked session, no preload or bridge. */
-export function openVisualizationWindow(request: { title: string; url: string }): BrowserWindow {
+/**
+ * "Open in window": a plain window in the same locked session, no preload or bridge. The outer
+ * document loads first and is then handed its page, as a `<webview>`'s is.
+ */
+export function openVisualizationWindow(request: {
+  title: string;
+  url: string;
+  page: string;
+}): BrowserWindow {
   const window = new BrowserWindow({
     width: 960,
     height: 720,
@@ -108,6 +115,10 @@ export function openVisualizationWindow(request: { title: string; url: string })
   guardVisualizationContents(window.webContents);
   // The outer document reports its height through its title; keep the visualization's name.
   window.on("page-title-updated", (event) => event.preventDefault());
-  void window.loadURL(request.url).catch(() => {});
+  const message = JSON.stringify(pageMessage(request.page));
+  void window
+    .loadURL(request.url)
+    .then(() => window.webContents.executeJavaScript(`postMessage(${message}, "*")`))
+    .catch(() => {});
   return window;
 }

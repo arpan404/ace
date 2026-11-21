@@ -8,6 +8,7 @@ import { settingRow } from "../settings-index.ts";
 import { SettingsBody } from "../settings-body.tsx";
 import { PersonSection, useProfileAccount } from "./account.tsx";
 import { ActivitySection, InsightsSection, ProvidersSection } from "./activity.tsx";
+import { OrganizationsSection } from "./organizations.tsx";
 import { Legal, NameSetting } from "./you.tsx";
 import { useProfileActivity } from "./use-stats.ts";
 
@@ -23,6 +24,7 @@ export function ProfilePage() {
   return (
     <SettingsBody page="Profile">
       <PersonSection account={account} />
+      {account.session && <OrganizationsSection />}
       <ActivitySection activity={activity} />
       <ProvidersSection shares={activity.providers} />
       <InsightsSection activity={activity} />

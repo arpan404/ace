@@ -1,4 +1,5 @@
 import { AceAccountError, type aceAccountClient } from "@ace/client/ace-account";
+import type { AceOrgClient } from "@ace/client/ace-org";
 import { AceAccountGrant, type AceLogin } from "@ace/protocol/ace-account";
 import { writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { accountSessionKey, windowAccountSession } from "@/boot/account-config.ts";
@@ -21,6 +22,8 @@ function unsavedSession(cause: unknown): string {
 export interface AceAccountBackend {
   origin: string;
   client: AceAccountClient;
+  /** Organizations on the same backend (ADR 0206); absent where a backend has none to offer. */
+  orgs?: AceOrgClient | undefined;
   /** This window's copy (session storage), so a reload doesn't ask the backend first. */
   storage: KeyValueStorage;
   /** Where the browser goes when sign-in ends (`signInReturnTo`); absent keeps it there. */
@@ -82,6 +85,9 @@ export function aceAccountStore(backend: AceAccountBackend) {
   return {
     origin,
     client,
+    orgs: backend.orgs,
+    /** This window's own storage, for what else the window keeps (its space, ADR 0206 §1.5). */
+    storage,
     returnTo: backend.returnTo,
     get: () => state,
     subscribe(listener: () => void) {
@@ -166,6 +172,15 @@ export function aceAccountStore(backend: AceAccountBackend) {
       if (signingIn) return Promise.resolve(false);
       return browser(open).then((kind) => kind === "signed-in");
     },
+    /**
+     * A fresh browser sign-in into `org` after the backend answered `org_sign_in_required`
+     * (ADR 0206 §1.4): WorkOS applies that organization's sign-in policy, and the new session,
+     * the same account's, replaces the old one. Resolves whether it did.
+     */
+    signInToOrg(org: string, open: (address: Promise<string>) => Promise<void>): Promise<boolean> {
+      if (signingIn) return Promise.resolve(false);
+      return browser(open, org).then((kind) => kind === "signed-in");
+    },
     /** Stops the sign-in in progress; its link stops working. */
     cancelSignIn(): void {
       if (!signingIn) return;
@@ -177,6 +192,7 @@ export function aceAccountStore(backend: AceAccountBackend) {
   /** One browser sign-in for this window; resolves how it ended once its session is kept. */
   function browser(
     open: (address: Promise<string>) => Promise<void>,
+    org?: string,
   ): Promise<SignInOutcome["kind"] | "replaced"> {
     const controller = new AbortController();
     signingIn = controller;
@@ -188,6 +204,7 @@ export function aceAccountStore(backend: AceAccountBackend) {
     return browserSignIn({
       client,
       returnTo: backend.returnTo,
+      org,
       signal: controller.signal,
       open: (address) =>
         void open(address).catch(() => {

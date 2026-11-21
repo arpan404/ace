@@ -1,8 +1,7 @@
 import type { MarketplaceSeed } from "@ace/fake-daemon";
 import type { MarketEntrySummary, MarketReview, MarketReviewItem } from "@ace/protocol/marketplace";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { screen, waitFor } from "@testing-library/react";
-import { expect } from "vitest";
+import { screen } from "@testing-library/react";
 import { harness } from "@/test/harness.tsx";
 import type { SuitTransport } from "@/theme/suits/suit-transport.ts";
 
@@ -112,12 +111,11 @@ export async function openApp(
   return { daemon: app.daemon, history };
 }
 
-/** The Marketplace modal, once it has opened. */
-export const findMarket = () => screen.findByRole("dialog", { name: "Marketplace" });
-
-/** Esc closes the modal. */
-export async function expectClosesOnEscape(press: (keys: string) => Promise<unknown>) {
-  await findMarket();
-  await press("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Marketplace" })).toBeNull());
+/**
+ * The Marketplace's page, once it shows: the whole window, since its panel (search, the places,
+ * Installed) and its page are both the Marketplace's.
+ */
+export async function findMarket(): Promise<HTMLElement> {
+  await screen.findByRole("region", { name: "Marketplace" });
+  return document.body;
 }

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { FirstBotStart } from "./spade-first-bot.tsx";
 import { SpadeListSearch, SpadeListTop } from "./spade-list-top.tsx";
 import { BotListRow, GroupListRow, ListSkeletonRows } from "./spade-list-parts.tsx";
 import { SpadePinStrip } from "./spade-pin-strip.tsx";
@@ -150,6 +151,13 @@ export function SpadeSidebar() {
               )}
             </ul>
           )}
+          {/* Only Spade itself, no bot or club yet: the start, under its row. */}
+          {!searched &&
+            groups.length === 0 &&
+            roster.bots.length > 0 &&
+            roster.bots.every((bot) => bot.kind === "main") && (
+              <FirstBotStart host={roster.hosts[0]} onNewBot={newBot} />
+            )}
         </div>
       </nav>
     </>
