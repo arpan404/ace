@@ -37,7 +37,7 @@ struct ProjectDefaultsSheet: View {
             .toolbar {
                 if project == nil {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(action: done) { Image(systemName: "xmark") }.accessibilityLabel("Close")
+                        Button(action: done) { Image(ace: .x) }.accessibilityLabel("Close")
                     }
                 }
             }

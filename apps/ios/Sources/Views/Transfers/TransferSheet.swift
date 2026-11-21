@@ -21,12 +21,12 @@ struct TransferSheet: View {
                 .toolbar {
                     if case .options = sheet.step {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button { model.transfer(["kind": "back"]) } label: { Image(systemName: "chevron.backward") }
+                            Button { model.transfer(["kind": "back"]) } label: { Image(ace: .caretLeft) }
                                 .accessibilityLabel("Machines").accessibilityIdentifier("transfer.back")
                         }
                     }
                     ToolbarItem(placement: .cancellationAction) {
-                        Button { model.transfer(["kind": "close"]) } label: { Image(systemName: "xmark") }
+                        Button { model.transfer(["kind": "close"]) } label: { Image(ace: .x) }
                             .accessibilityLabel("Close").accessibilityIdentifier("transfer.close")
                     }
                 }

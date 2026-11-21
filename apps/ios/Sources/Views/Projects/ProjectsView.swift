@@ -100,7 +100,7 @@ struct ProjectsView: View {
         .toolbar {
             if model.canOperate {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { adding = true } label: { Image(systemName: "plus") }.accessibilityLabel("Add project")
+                    Button { adding = true } label: { Image(ace: .plus) }.accessibilityLabel("Add project")
                 }
             }
         }
@@ -111,7 +111,7 @@ struct ProjectsView: View {
                 AddProjectView(client: model) { _ in adding = false; Task { await read() } }
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button { adding = false } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
+                            Button { adding = false } label: { Image(ace: .x) }.accessibilityLabel("Close")
                         }
                     }
             }

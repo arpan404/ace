@@ -50,8 +50,7 @@ struct ForgeMergePickButton: View {
 
     var body: some View {
         Button(action: toggle) {
-            Image(systemName: picked ? "checkmark.circle.fill" : "circle")
-                .font(AceDesign.Typeface.body)
+            AceIcon(picked ? .checkCircle : .circle, size: AceDesign.Size.icon, weight: picked ? .fill : .regular, relativeTo: .body)
                 .foregroundStyle(picked ? AceDesign.Ink.primary : AceDesign.Ink.faint)
                 .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())

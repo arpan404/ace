@@ -127,7 +127,7 @@ struct ForgeMenuValue: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xxs) {
             Text(text).lineLimit(1).contentTransition(.opacity)
-            Image(systemName: "chevron.up.chevron.down").font(AceDesign.Typeface.meta)
+            AceIcon(.caretUpDown, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
         }
         .font(AceDesign.Typeface.body)
         .foregroundStyle(AceDesign.Ink.muted)

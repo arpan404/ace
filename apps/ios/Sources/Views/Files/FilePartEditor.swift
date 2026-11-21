@@ -33,7 +33,7 @@ struct FilePartEditor: View {
                             .accessibilityIdentifier("file.part.cancel")
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Find", systemImage: "magnifyingglass") { handle.find() }
+                        Button("Find", ace: .magnifyingGlass) { handle.find() }
                             .accessibilityIdentifier("file.part.find")
                     }
                     ToolbarItem(placement: .confirmationAction) {

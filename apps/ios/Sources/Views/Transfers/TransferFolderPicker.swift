@@ -55,7 +55,7 @@ struct TransferFolderPicker: View {
                         .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: AceTheme.Spacing.none)
-                if chosen == path { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
+                if chosen == path { AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground) }
             }
             .padding(.vertical, AceTheme.Spacing.xs).contentShape(Rectangle())
         }
