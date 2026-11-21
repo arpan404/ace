@@ -1,6 +1,6 @@
 // oxlint-disable react/no-array-index-key -- a row's key is its line and position; there is no other identity.
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the hidden textarea takes the keyboard; the scroller handles mouse selection.
-import type { Selection } from "@ace/editor";
+import type { Range, Selection } from "@ace/editor";
 import { fileLanguage, pathParts } from "@ace/ui-core";
 import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -55,6 +55,7 @@ const markZone = 6;
 /** Rulers are off unless the caller asks for them. */
 const noRulers: readonly number[] = [];
 const noLines: readonly number[] = [];
+const noRanges: readonly Range[] = [];
 
 /** How long the first paint waits for colours before it shows plain text. */
 const firstPaintHold = 250;
@@ -497,7 +498,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     >
       <div
         data-editor-frame
-        className="group/editor relative min-h-0 flex-1 font-mono text-ui focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]"
+        className="group/editor relative min-h-0 flex-1 font-mono text-ui"
         style={{
           ...(fontSize === undefined ? {} : { fontSize }),
           ...(fontFamily === undefined ? {} : { fontFamily }),
@@ -541,8 +542,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 indentGuides={props.indentGuides ?? true}
                 guides={decorations.guides}
                 indentSize={indentSize}
-                brackets={decorations.brackets}
-                occurrences={decorations.occurrences}
+                brackets={focused ? decorations.brackets : undefined}
+                occurrences={focused ? decorations.occurrences : noRanges}
                 whitespace={whitespace}
                 rulers={props.rulers ?? noRulers}
               />

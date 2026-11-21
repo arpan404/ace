@@ -88,7 +88,7 @@ export function Decorations(props: DecorationProps) {
             top: index * lineHeight,
             width: level * step,
             height: lineHeight,
-            backgroundImage: `repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px ${step}px)`,
+            backgroundImage: `repeating-linear-gradient(to right, color-mix(in oklab, var(--faint-foreground) 60%, transparent) 0 1px, transparent 1px ${step}px)`,
           }}
         />,
       );
