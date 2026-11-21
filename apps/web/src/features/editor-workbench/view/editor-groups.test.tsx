@@ -1,7 +1,16 @@
 import { groupsOf } from "@ace/ui-core/editor-workbench";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
-import { allowDragEvents, editorArea, one, region, strip, tabNames, transfer, two } from "./editor-test-dom.ts";
+import {
+  allowDragEvents,
+  editorArea,
+  one,
+  region,
+  strip,
+  tabNames,
+  transfer,
+  two,
+} from "./editor-test-dom.ts";
 import { mountEditor, tab } from "./editor-test-support.tsx";
 
 /*

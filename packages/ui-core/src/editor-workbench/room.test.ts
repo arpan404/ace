@@ -17,9 +17,19 @@ describe("room for groups", () => {
 
   it.each([
     ["one group in any room", one, { width: 200, height: 100 }, true],
-    ["two groups in 1044px (full view with the explorer docked)", two, { width: 1044, height: 700 }, true],
+    [
+      "two groups in 1044px (full view with the explorer docked)",
+      two,
+      { width: 1044, height: 700 },
+      true,
+    ],
     ["two groups in exactly 640px", two, { width: 640, height: 700 }, true],
-    ["two groups in 620px (a panel at 860 with the explorer docked)", two, { width: 620, height: 700 }, false],
+    [
+      "two groups in 620px (a panel at 860 with the explorer docked)",
+      two,
+      { width: 620, height: 700 },
+      false,
+    ],
     ["a stack in too short a box", three, { width: 900, height: 300 }, false],
     ["a box not measured yet", two, { width: 0, height: 0 }, true],
   ] as const)("%s fits: %s", (_name, node, box, fits) => {

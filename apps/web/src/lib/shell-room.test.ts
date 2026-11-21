@@ -84,7 +84,7 @@ test("docked at the bottom, the panel stays a split under the column at every wi
   expect(room(1024, { panel: bottom })).toMatchObject({ sidebar: "shown", main: 684 });
 });
 
-test("full view gives the panel the canvas, still yielding the sidebar on a crowded window", () => {
+test("full view gives the panel the whole canvas, the sidebar stepping aside on any window", () => {
   expect(room(1024, { panel: { ...panel, expanded: true } })).toMatchObject({
     mode: "full",
     sidebar: "yielded",
@@ -92,7 +92,9 @@ test("full view gives the panel the canvas, still yielding the sidebar on a crow
     main: 0,
   });
   expect(room(1440, { panel: { ...panel, expanded: true } })).toMatchObject({
-    sidebar: "shown",
-    panel: 1100,
+    sidebar: "yielded",
+    panel: 1440,
   });
+  // Leaving full view brings the sidebar back: yielding is never remembered.
+  expect(room(1440)).toMatchObject({ mode: "beside", sidebar: "shown" });
 });

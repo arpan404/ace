@@ -73,6 +73,8 @@ import {
   type SaveProblem,
 } from "./editor-actions.ts";
 import { useCompactExplorer } from "./compact-explorer.ts";
+import { explorerPlace, roomAsk, showsExplorerToggle } from "./editor-room.ts";
+import { CheckoutGone, useCheckoutGone } from "./checkout-gone.tsx";
 import { EditorExplorer, type ExplorerOpen } from "./editor-explorer.tsx";
 import { EditorTabMenuItems } from "./editor-tab-menu.tsx";
 import { editorKeys, type EditorPanelCommand } from "./editor-keys.ts";
@@ -212,7 +214,27 @@ export function EditorPanel(props: TabViewProps) {
     width,
     openPaths(layout).length === 0,
   );
-  const explorerShown = compact ? overlay : layout.explorer.open;
+  // A split without room asks the docked panel to widen once per shape (spec 5).
+  const onNeedRoom = useCallback(
+    (needed: number) => {
+      const workspace = store.get(threadId);
+      const ask = roomAsk({
+        needed,
+        panel: {
+          size: workspace.size ?? store.preferred,
+          dock: workspace.dock === "bottom" ? "bottom" : "side",
+          expanded: workspace.expanded,
+        },
+        explorer: latest.current.explorer,
+      });
+      if (ask !== undefined) actions.setSize(ask, true);
+    },
+    [store, threadId, actions],
+  );
+  const gone = useCheckoutGone(threadId);
+  const empty = openPaths(layout).length === 0;
+  const place = explorerPlace({ width, open: layout.explorer.open, overlay, empty });
+  const explorerShown = place !== "aside";
   const setExplorer = (patch: Partial<ExplorerState>) =>
     change({ ...latest.current, explorer: { ...latest.current.explorer, ...patch } });
   const [focusSearch, setFocusSearch] = useState(0);
@@ -386,61 +408,75 @@ export function EditorPanel(props: TabViewProps) {
       onKeyDown={onKeyDown}
       onKeyUp={onKeyUp}
     >
-      {explorerShown && (
-        <aside
-          role="complementary"
-          aria-label="Explorer"
-          style={{ width: compact ? Math.min(layout.explorer.width, 320) : layout.explorer.width }}
-          className={cn(
-            "relative flex min-h-0 shrink-0 flex-col border-r border-border bg-sidebar",
-            compact &&
-              "fx-panel-in absolute inset-y-0 left-0 z-[4] max-w-[85%] shadow-[12px_0_32px_rgb(0_0_0/0.22)]",
+      {gone !== undefined ? (
+        <CheckoutGone path={gone} />
+      ) : (
+        <>
+          {explorerShown && (
+            <aside
+              role="complementary"
+              aria-label="Explorer"
+              style={{
+                width: compact ? Math.min(layout.explorer.width, 320) : layout.explorer.width,
+              }}
+              className={cn(
+                "relative flex min-h-0 shrink-0 flex-col border-r border-border bg-sidebar",
+                place === "overlay" &&
+                  "fx-panel-in absolute inset-y-0 left-0 z-[4] max-w-[85%] shadow-[12px_0_32px_rgb(0_0_0/0.22)]",
+              )}
+            >
+              {!compact && (
+                <ResizeHandle
+                  label="Resize the explorer"
+                  edge="right"
+                  size={layout.explorer.width}
+                  min={200}
+                  max={360}
+                  onResize={(next) => setExplorer({ width: next })}
+                  onReset={() => setExplorer({ width: 236 })}
+                />
+              )}
+              {explorer}
+            </aside>
           )}
-        >
-          {!compact && (
-            <ResizeHandle
-              label="Resize the explorer"
-              edge="right"
-              size={layout.explorer.width}
-              min={200}
-              max={360}
-              onResize={(next) => setExplorer({ width: next })}
-              onReset={() => setExplorer({ width: 236 })}
-            />
-          )}
-          {explorer}
-        </aside>
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            <EditorPanelContext value={saving}>
+              <Editor
+                layout={layout}
+                onLayoutChange={change}
+                newGroupId={groupIds(layout)}
+                buffers={buffers}
+                statusNotice={notice}
+                onConfirmClose={(refs) => void confirmClose(host, refs)}
+                renderCompare={renderCompare}
+                onQuickOpen={() => quickOpen.set(() => threadId)}
+                renderEditor={editorFor(threadId)}
+                renderViewer={viewerFor(threadId)}
+                tabMenuItems={menuFor(threadId)}
+                threadId={threadId}
+                onNeedRoom={onNeedRoom}
+                explorerToggle={
+                  showsExplorerToggle(place) && (
+                    <button
+                      type="button"
+                      aria-expanded={place === "overlay"}
+                      onClick={() =>
+                        compact ? setOverlay((shown) => !shown) : setExplorer({ open: true })
+                      }
+                      className="mr-1 h-6 shrink-0 rounded-sm px-2 text-xs font-medium text-muted-foreground focus-ring-inset hover:bg-hover hover:text-foreground"
+                    >
+                      {place === "overlay" ? "Hide files" : "Show files"}
+                    </button>
+                  )
+                }
+              />
+            </EditorPanelContext>
+            {recent !== undefined && recentTabs.length > 0 && (
+              <RecentEditors tabs={recentTabs} index={recent} onPick={pickRecent} />
+            )}
+          </div>
+        </>
       )}
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        <EditorPanelContext value={saving}>
-          <Editor
-            layout={layout}
-            onLayoutChange={change}
-            newGroupId={groupIds(layout)}
-            buffers={buffers}
-            statusNotice={notice}
-            onConfirmClose={(refs) => void confirmClose(host, refs)}
-            renderCompare={renderCompare}
-            onQuickOpen={() => quickOpen.set(() => threadId)}
-            renderEditor={editorFor(threadId)}
-            renderViewer={viewerFor(threadId)}
-            tabMenuItems={menuFor(threadId)}
-            explorerToggle={
-              <button
-                type="button"
-                aria-expanded={overlay}
-                onClick={() => setOverlay((shown) => !shown)}
-                className="mr-1 h-6 shrink-0 rounded-sm px-2 text-xs font-medium text-muted-foreground focus-ring-inset hover:bg-hover hover:text-foreground"
-              >
-                {overlay ? "Hide files" : "Show files"}
-              </button>
-            }
-          />
-        </EditorPanelContext>
-        {recent !== undefined && recentTabs.length > 0 && (
-          <RecentEditors tabs={recentTabs} index={recent} onPick={pickRecent} />
-        )}
-      </div>
     </div>
   );
 }
