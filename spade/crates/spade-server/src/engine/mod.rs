@@ -4,6 +4,7 @@
 
 mod adopt;
 mod agents;
+mod app_forms;
 mod apps;
 mod archive;
 mod autonomy;
@@ -18,6 +19,7 @@ mod compact;
 mod computer;
 mod continuation;
 mod contracts;
+mod contracts_outside;
 mod contracts_remote;
 mod control;
 mod digests;
@@ -38,6 +40,7 @@ mod learned;
 mod ledger;
 mod local;
 mod replays;
+pub(crate) use app_forms::Given;
 pub(crate) use ledger::Admission;
 mod made;
 mod maintenance;
@@ -69,6 +72,7 @@ mod services;
 mod speech;
 mod style;
 mod suggest;
+mod terms;
 mod thread_asks;
 mod trim;
 mod try_again;
@@ -86,6 +90,10 @@ pub use brain::BrainSource;
 pub use cards::CardError;
 pub use cases::{CaseError, KeepInput};
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
+pub use contracts_outside::{
+    CallState as OutsideCallState, FROM_OUTSIDE, LONGEST_WAIT as OUTSIDE_LONGEST_WAIT,
+    Offered as OutsideOffered, OutsideCaller, Refused as OutsideRefused, Via as OutsideVia,
+};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
 pub use episodes::episode_json;
@@ -199,15 +207,23 @@ pub struct Engine {
     /// What a test runs right before a call is screened.
     screening_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     live: Mutex<HashMap<String, Arc<Live>>>,
+    /// The outside MCP requests making a call now, by grant and request id, to their call
+    /// (ADR 0202 §3): a legacy client's cancel names its request.
+    outside_requests: Mutex<HashMap<String, String>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
     record_lock: Mutex<()>,
+    /// Apps' forms waiting on the person mid-call (ADR 0202 §2).
+    app_forms: app_forms::Open,
     /// Bots whose package link is being changed (an install, an update or rollback, a switch, a
     /// withdrawal): one change to a bot's package at a time (`packages::Busy`).
     pub(crate) package_busy: crate::packages::Changing,
     /// The market keys a package's signed manifest must verify with (ADR 0200 §3.2): the ones
     /// this build ships, unless a test trusts its own.
     market_keys: std::sync::RwLock<Vec<crate::packages::envelope::MarketKey>>,
+    /// What each coding CLI's maker allows (ADR 0205 §4): the shipped record unless a test sets
+    /// its own.
+    cli_terms: std::sync::RwLock<Arc<spade_models::CliTerms>>,
     /// Each conversation's activity, so listing conversations folds only those that changed.
     /// Every stored event goes through `append_events`, which drops the entry.
     activity: Mutex<HashMap<String, Activity>>,
@@ -396,9 +412,12 @@ impl Engine {
                 u64::try_from(calls::CLASSIFY_TIME.as_millis()).unwrap_or(u64::MAX),
             ),
             live: Mutex::default(),
+            outside_requests: Mutex::default(),
             record_lock: Mutex::default(),
+            app_forms: app_forms::Open::default(),
             package_busy: crate::packages::Changing::default(),
             market_keys: std::sync::RwLock::new(crate::packages::envelope::shipped()),
+            cli_terms: std::sync::RwLock::new(Arc::new(spade_models::CliTerms::shipped())),
             activity: Mutex::default(),
             // Closed until `open_for_work`, so nothing runs before ace's tools are back.
             admission: AtomicBool::new(false),

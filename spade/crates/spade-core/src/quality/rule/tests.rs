@@ -10,12 +10,12 @@ fn both_readers_agree_on_every_rule_case() {
     assert!(cases.len() >= 10, "the cases are read");
     for case in cases {
         let name = case["id"].as_str().unwrap_or_default();
-        let read = read(&case["rule"], "rule");
-        if let Some(word) = case["refused"].as_str() {
+        let read = read(&case["check"], "rule");
+        if let Some(id) = case["rule"].as_str() {
             let problems = read.err().unwrap_or_default();
             assert!(
-                problems.iter().any(|p| p.contains(word)),
-                "{name}: refused for {word:?}, got {problems:?}"
+                problems.iter().any(|p| p.rule == id),
+                "{name}: refused by {id}, got {problems:?}"
             );
             continue;
         }

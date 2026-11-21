@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgInvitation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "email": {
+      "maxLength": 320,
+      "type": "string"
+    },
+    "expiresAt": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "role": {
+      "$ref": "https://ace.local/protocol/v1/AceOrgRole.json"
+    },
+    "state": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/AceOrgInvitationState.json"
+        },
+        {
+          "maxLength": 64,
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "email",
+    "state",
+    "expiresAt"
+  ],
+  "type": "object"
+}

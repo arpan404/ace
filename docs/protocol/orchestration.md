@@ -573,7 +573,8 @@ Example:
   "attempt": 4,
   "laneId": "JBBPht",
   "status": {
-    "state": "done"
+    "agents": 5,
+    "state": "working"
   },
   "type": "thread"
 }

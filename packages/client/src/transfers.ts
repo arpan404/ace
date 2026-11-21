@@ -43,12 +43,20 @@ export interface TransfersApi {
   /** Running transfers and those finished in the last 24 hours, newest first. */
   list(options?: RequestOptions): Promise<Transfer[]>;
   cancel(transferId: string, options?: RequestOptions): Promise<Transfer>;
+  /**
+   * A moving thread whose machine isn't linked now runs here again, as the person chose;
+   * only ever after they were told both may run if that machine already took it.
+   */
+  carryOnHere(transferId: string, options?: RequestOptions): Promise<Transfer>;
   onProgress(listener: (transfer: Transfer) => void): () => void;
 }
 
 export function transfersApi(client: ProjectsClient): TransfersApi {
   const request = async (
-    operation: { op: "list" } | { op: "cancel"; transferId: string },
+    operation:
+      | { op: "list" }
+      | { op: "cancel"; transferId: string }
+      | { op: "carryOnHere"; transferId: string },
     options?: RequestOptions,
   ) => {
     const reply = await client.request({ type: "transfers.request", operation }, options);
@@ -76,6 +84,11 @@ export function transfersApi(client: ProjectsClient): TransfersApi {
     cancel: async (transferId, options) => {
       const result = await request({ op: "cancel", transferId }, options);
       if (result.kind !== "cancelled") throw new ClientError("protocol", "Unexpected reply");
+      return result.transfer;
+    },
+    carryOnHere: async (transferId, options) => {
+      const result = await request({ op: "carryOnHere", transferId }, options);
+      if (result.kind !== "carriedOnHere") throw new ClientError("protocol", "Unexpected reply");
       return result.transfer;
     },
     onProgress: (listener) =>

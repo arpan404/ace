@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
   "part": "package",
-  "about": "The package part's cases for `checks` (ADR 0204 §3) and `verify` on triggers. Each case is the base manifest with `with` merged over it at the top level. A case without `refused` is accepted; with it, a reader refuses the manifest and one of its problems contains those words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
+  "about": "The package part's cases for `checks` (ADR 0204 §3) and `verify` on triggers. Each case is the base manifest with `with` merged over it at the top level. A case without `rule` is accepted; with it, a reader refuses the manifest with a problem naming that rule (`rules.json`), whatever its words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
   "base": {
     "format": "spade-bot",
     "version": 3,
@@ -102,6 +102,7 @@
     {
       "id": "package/checks-not-a-list",
       "name": "checks that aren't a list",
+      "rule": "checks.list",
       "with": {
         "checks": {
           "fare-has-link": {
@@ -118,12 +119,12 @@
             }
           }
         }
-      },
-      "refused": "checks is a list of at most 32"
+      }
     },
     {
       "id": "package/checks-name-twice",
       "name": "two checks with one name",
+      "rule": "checks.name-unique",
       "with": {
         "checks": [
           {
@@ -153,12 +154,12 @@
             }
           }
         ]
-      },
-      "refused": "each check has a name of its own"
+      }
     },
     {
       "id": "package/checks-bad-name",
       "name": "a check named with capitals",
+      "rule": "checks.name",
       "with": {
         "checks": [
           {
@@ -175,12 +176,12 @@
             }
           }
         ]
-      },
-      "refused": "name is a short name"
+      }
     },
     {
       "id": "package/checks-unknown-contract",
       "name": "a check on a contract the package doesn't publish",
+      "rule": "checks.on",
       "with": {
         "checks": [
           {
@@ -197,12 +198,12 @@
             }
           }
         ]
-      },
-      "refused": "isn't one of the package's contracts"
+      }
     },
     {
       "id": "package/checks-unknown-card",
       "name": "a check on a card the package doesn't ship",
+      "rule": "checks.on",
       "with": {
         "checks": [
           {
@@ -219,12 +220,12 @@
             }
           }
         ]
-      },
-      "refused": "isn't one of the package's cards"
+      }
     },
     {
       "id": "package/checks-no-places",
       "name": "a check on nothing",
+      "rule": "checks.on",
       "with": {
         "checks": [
           {
@@ -241,12 +242,12 @@
             }
           }
         ]
-      },
-      "refused": "on names 1 to 8 places"
+      }
     },
     {
       "id": "package/checks-unknown-place",
       "name": "a check on a place that isn't a contract, card or goal",
+      "rule": "checks.on",
       "with": {
         "checks": [
           {
@@ -263,12 +264,12 @@
             }
           }
         ]
-      },
-      "refused": "is contract:<name>, card:<id> or goal"
+      }
     },
     {
       "id": "package/checks-schema-on-goal",
       "name": "a schema check on the goal",
+      "rule": "checks.schema-place",
       "with": {
         "checks": [
           {
@@ -285,12 +286,12 @@
             }
           }
         ]
-      },
-      "refused": "a schema check is on contracts and cards"
+      }
     },
     {
       "id": "package/checks-criterion-on-contract",
       "name": "a criterion check on a contract",
+      "rule": "checks.criterion",
       "with": {
         "checks": [
           {
@@ -300,12 +301,12 @@
             "text": "Each fare it reports names the route, the date seen and the link."
           }
         ]
-      },
-      "refused": "a criterion check is on the goal only"
+      }
     },
     {
       "id": "package/checks-criterion-without-text",
       "name": "a criterion check that says nothing",
+      "rule": "checks.criterion",
       "with": {
         "checks": [
           {
@@ -315,12 +316,12 @@
             "text": " "
           }
         ]
-      },
-      "refused": "text says in 1 to 500 characters"
+      }
     },
     {
       "id": "package/checks-code",
       "name": "a code check, which this build can't run",
+      "rule": "checks.code-later",
       "with": {
         "checks": [
           {
@@ -330,12 +331,12 @@
             "code": "code/fares#fare-is-current"
           }
         ]
-      },
-      "refused": "Needs a newer Spade: code checks"
+      }
     },
     {
       "id": "package/checks-unknown-kind",
       "name": "a check of a kind that doesn't exist",
+      "rule": "checks.kind",
       "with": {
         "checks": [
           {
@@ -352,12 +353,12 @@
             }
           }
         ]
-      },
-      "refused": "kind is schema, code or criterion"
+      }
     },
     {
       "id": "package/checks-unknown-field",
       "name": "a check with a field checks don't have",
+      "rule": "checks.field",
       "with": {
         "checks": [
           {
@@ -375,12 +376,12 @@
             "severity": "high"
           }
         ]
-      },
-      "refused": "isn't a field of a check"
+      }
     },
     {
       "id": "package/checks-schema-without-rule",
       "name": "a schema check with no rule",
+      "rule": "checks.schema-place",
       "with": {
         "checks": [
           {
@@ -389,12 +390,12 @@
             "kind": "schema"
           }
         ]
-      },
-      "refused": "rule is the rule the result must hold"
+      }
     },
     {
       "id": "package/checks-rule-outside-subset",
       "name": "a rule with a keyword outside the subset",
+      "rule": "check-rule.keyword",
       "with": {
         "checks": [
           {
@@ -410,12 +411,12 @@
             }
           }
         ]
-      },
-      "refused": "isn't in the rule subset checks use"
+      }
     },
     {
       "id": "package/checks-too-many-criteria",
       "name": "nine criterion checks",
+      "rule": "checks.criteria",
       "with": {
         "checks": [
           {
@@ -473,8 +474,7 @@
             "text": "Each fare it reports names the route, the date seen and the link."
           }
         ]
-      },
-      "refused": "at most 8 criterion checks"
+      }
     },
     {
       "id": "package/triggers-verify",
@@ -497,6 +497,7 @@
     {
       "id": "package/triggers-verify-not-a-flag",
       "name": "verify that isn't true or false",
+      "rule": "package.trigger",
       "with": {
         "triggers": [
           {
@@ -510,12 +511,12 @@
             "verify": "yes"
           }
         ]
-      },
-      "refused": "verify is true or false"
+      }
     },
     {
       "id": "package/triggers-verify-on-message",
       "name": "verify on a message trigger",
+      "rule": "package.trigger",
       "with": {
         "triggers": [
           {
@@ -523,8 +524,7 @@
             "verify": true
           }
         ]
-      },
-      "refused": "verify is for a schedule, event or webhook trigger"
+      }
     }
   ]
 }

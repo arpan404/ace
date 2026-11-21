@@ -195,6 +195,45 @@ A bot that takes no calls isn't listed by `contracts_find`, and a call to it is 
 bot's package view (`GET /v1/agents/{id}/package`) lists its contracts' names, summaries and
 effects for its profile.
 
+## Contracts out: the person's own agents (ADR 0202 §3, §6)
+
+The person's own agents outside Spade (Claude Code, a script, another A2A agent) can call the
+same contracts, through ace's outside listener (ADR 0122), with an ace grant that holds the
+`spade-contracts` scope. Other people's agents can't.
+
+| Where (below the listener's base) | What                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| `/spade/mcp`                      | MCP, stateless at 2026-07-28 or after `initialize` (2025-11-25 and older) |
+| `/spade/a2a`                      | A2A 1.0, JSON-RPC binding: `SendMessage`, `GetTask`, `CancelTask`         |
+| `/.well-known/agent-card.json`    | The Agent Card, signed by this machine's card key                         |
+| `/spade/jwks.json`                | That key, public                                                          |
+
+- **Who.** The daemon takes a live grant issued for that base with `spade-contracts`; without
+  a token it answers 401 naming the resource's metadata, without the scope 403
+  `insufficient_scope`. It forwards to Spade's `/v1/outside/{mcp,a2a,card}` stamped
+  `ace:outside:<grant>` with the client's name, signed with ace's local token; Spade takes no
+  request without that stamp (`api/outside.rs`).
+- **What is offered.** Each contract of each bot that takes calls, as `<bot slug>__<contract>`
+  (the switch above turns a bot's off for outside callers too). MCP tools carry the contract's
+  schemas as `inputSchema` and `outputSchema`, `readOnlyHint` only when the contract holds no
+  effects, `openWorldHint` when it holds `network`, and the effects in
+  `_meta["dev.acehq.spade/effects"]`. Card skills carry the same facts in the extension
+  `https://spec.acehq.dev/a2a/spade/1`, with the package's source, name, version and hash.
+- **A call** runs as a bot's call does, from the client: the callee reads
+  `<contract_call from="Claude Code" id="outside:<grant>" outside="mcp" …>`, never the person's
+  words. Its key is the caller's (`_meta["dev.acehq.spade/key"]` in MCP, the message id in A2A),
+  so a retry finds the same call; one grant can't read or stop another's.
+- **The answer.** MCP answers `structuredContent` (and its JSON as text), with
+  `_meta["dev.acehq.spade/untrusted"]`. A2A completes the task with one `application/json` data
+  artifact whose extension metadata says `untrusted`. A failed call is a tool error (MCP) or
+  `TASK_STATE_FAILED` (A2A).
+- **Waiting on the person.** The MCP call stays open. A2A answers `TASK_STATE_INPUT_REQUIRED`
+  with a message saying the person is deciding in ace; nothing is asked of the client, and the
+  task goes on when the person answers.
+- **Stop.** A modern MCP client closing its call's stream, a legacy one's
+  `notifications/cancelled`, or A2A `CancelTask` stops the callee's turn for the call; the task
+  reads `TASK_STATE_CANCELED`.
+
 ## Developer kit
 
 - The market's signer refuses for good to sign a version whose contracts break the latest signed

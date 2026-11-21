@@ -44,11 +44,17 @@ export function grantRefreshOutcome(input: {
   account: string;
   /** When the socket's grant runs out now. */
   heldUntil: number;
+  /** A member's socket (ADR 0206 §2.2): the organization and role it was admitted with. */
+  member?: { org: string; role: string } | undefined;
 }): GrantRefreshOutcome {
   const { admission } = input;
   if (!admission.admitted)
     return { kind: "refused", code: admission.code, message: admission.message };
   if (admission.account !== input.account)
     return { kind: "refused", code: "unauthorized", message: "That grant is for another account." };
+  // A member's role changed, or a member grant came where none was (or the reverse): what the
+  // socket may do was set at admission, so the client reconnects with the new one.
+  if (admission.member?.org !== input.member?.org || admission.member?.role !== input.member?.role)
+    return { kind: "refused", code: "unauthorized", message: "Your role here changed." };
   return { kind: "extended", expiresAt: Math.max(input.heldUntil, admission.expiresAt) };
 }

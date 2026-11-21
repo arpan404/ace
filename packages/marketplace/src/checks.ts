@@ -1,4 +1,5 @@
 import { readCheckRule } from "./check-rule.ts";
+import { refusal, type Refusal } from "./rules.ts";
 
 /*
  * A package's `checks` (ADR 0204 §3), read the way Spade reads them (`spade_core::package::checks`),
@@ -43,7 +44,7 @@ export function declaredContracts(contracts: unknown): string[] {
   );
 }
 
-function placeProblems(at: string, raw: unknown, places: CheckPlaces, out: string[]): string[] {
+function placeProblems(at: string, raw: unknown, places: CheckPlaces, out: Refusal[]): string[] {
   const words =
     Array.isArray(raw) &&
     raw.length >= 1 &&
@@ -52,7 +53,12 @@ function placeProblems(at: string, raw: unknown, places: CheckPlaces, out: strin
       ? raw.filter((w): w is string => typeof w === "string")
       : undefined;
   if (!words) {
-    out.push(`${at}.on names 1 to ${checkLimits.on} places: contract:<name>, card:<id> or goal`);
+    out.push(
+      refusal(
+        "checks.on",
+        `${at}.on names 1 to ${checkLimits.on} places: contract:<name>, card:<id> or goal`,
+      ),
+    );
     return [];
   }
   const on: string[] = [];
@@ -60,84 +66,127 @@ function placeProblems(at: string, raw: unknown, places: CheckPlaces, out: strin
     const colon = word.indexOf(":");
     const [kind, name] = colon < 0 ? [word, ""] : [word.slice(0, colon), word.slice(colon + 1)];
     const known = word === "goal" || ((kind === "contract" || kind === "card") && name !== "");
-    if (!known) out.push(`${at}.on: ${JSON.stringify(word)} is contract:<name>, card:<id> or goal`);
+    if (!known)
+      out.push(
+        refusal(
+          "checks.on",
+          `${at}.on: ${JSON.stringify(word)} is contract:<name>, card:<id> or goal`,
+        ),
+      );
     else if (kind === "contract" && !places.contracts.includes(name))
-      out.push(`${at}.on: ${JSON.stringify(word)} isn't one of the package's contracts`);
+      out.push(
+        refusal(
+          "checks.on",
+          `${at}.on: ${JSON.stringify(word)} isn't one of the package's contracts`,
+        ),
+      );
     else if (kind === "card" && !places.cards.includes(name))
-      out.push(`${at}.on: ${JSON.stringify(word)} isn't one of the package's cards`);
-    else if (on.includes(word)) out.push(`${at}.on names ${JSON.stringify(word)} twice`);
+      out.push(
+        refusal("checks.on", `${at}.on: ${JSON.stringify(word)} isn't one of the package's cards`),
+      );
+    else if (on.includes(word))
+      out.push(refusal("checks.on", `${at}.on names ${JSON.stringify(word)} twice`));
     else on.push(word);
   }
   return on;
 }
 
 /** Every problem with `checks`; none when they read. */
-export function checkProblems(value: unknown, places: CheckPlaces): string[] {
+export function checkProblems(value: unknown, places: CheckPlaces): Refusal[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > checkLimits.checks)
-    return [`checks is a list of at most ${checkLimits.checks}`];
-  const problems: string[] = [];
+    return [refusal("checks.list", `checks is a list of at most ${checkLimits.checks}`)];
+  const problems: Refusal[] = [];
   const names = new Set<string>();
   let criteria = 0;
   value.forEach((item: unknown, i) => {
     const at = `checks[${i}]`;
     if (!isFields(item)) {
-      problems.push(`${at} is an object`);
+      problems.push(refusal("checks.field", `${at} is an object`));
       return;
     }
     for (const key of Object.keys(item))
-      if (!fields.has(key)) problems.push(`${at}: ${JSON.stringify(key)} isn't a field of a check`);
+      if (!fields.has(key))
+        problems.push(
+          refusal("checks.field", `${at}: ${JSON.stringify(key)} isn't a field of a check`),
+        );
     const name = item["name"];
     if (!checkName(name))
-      problems.push(`${at}.name is a short name: lower-case letters, digits and dashes`);
+      problems.push(
+        refusal("checks.name", `${at}.name is a short name: lower-case letters, digits and dashes`),
+      );
     const on = placeProblems(at, item["on"], places, problems);
     switch (item["kind"]) {
       case "schema":
         if (on.includes("goal"))
-          problems.push(`${at}: a schema check is on contracts and cards, not the goal`);
+          problems.push(
+            refusal(
+              "checks.schema-place",
+              `${at}: a schema check is on contracts and cards, not the goal`,
+            ),
+          );
         if (item["rule"] === undefined)
-          problems.push(`${at}.rule is the rule the result must hold`);
+          problems.push(
+            refusal("checks.schema-place", `${at}.rule is the rule the result must hold`),
+          );
         else problems.push(...readCheckRule(item["rule"], `${at}.rule`).problems);
         break;
       case "criterion": {
         criteria += 1;
         if (on.length !== 1 || on[0] !== "goal")
-          problems.push(`${at}: a criterion check is on the goal only`);
+          problems.push(
+            refusal("checks.criterion", `${at}: a criterion check is on the goal only`),
+          );
         const text = item["text"];
         const trimmed = typeof text === "string" ? text.trim() : "";
         if (trimmed === "" || [...trimmed].length > checkLimits.textChars)
           problems.push(
-            `${at}.text says in 1 to ${checkLimits.textChars} characters what must hold`,
+            refusal(
+              "checks.criterion",
+              `${at}.text says in 1 to ${checkLimits.textChars} characters what must hold`,
+            ),
           );
         break;
       }
       case "code":
         problems.push(
-          `${at}: Needs a newer Spade: code checks run once Spade runs a package's code`,
+          refusal(
+            "checks.code-later",
+            `${at}: Needs a newer Spade: code checks run once Spade runs a package's code`,
+          ),
         );
         break;
       default:
-        problems.push(`${at}.kind is schema, code or criterion`);
+        problems.push(refusal("checks.kind", `${at}.kind is schema, code or criterion`));
     }
     if (checkName(name)) {
-      if (names.has(name)) problems.push("each check has a name of its own");
+      if (names.has(name))
+        problems.push(refusal("checks.name-unique", "each check has a name of its own"));
       names.add(name);
     }
   });
   if (criteria > checkLimits.criteria)
-    problems.push(`a package has at most ${checkLimits.criteria} criterion checks`);
+    problems.push(
+      refusal("checks.criteria", `a package has at most ${checkLimits.criteria} criterion checks`),
+    );
   return problems;
 }
 
 /** Every problem with `verify` on `triggers`; none when each is true or false on a routine. */
-export function verifyProblems(triggers: unknown): string[] {
+export function verifyProblems(triggers: unknown): Refusal[] {
   if (!Array.isArray(triggers)) return [];
   return triggers.flatMap((trigger: unknown, i) => {
     if (!isFields(trigger) || trigger["verify"] === undefined || trigger["verify"] === false)
       return [];
-    if (trigger["verify"] !== true) return [`triggers[${i}].verify is true or false`];
+    if (trigger["verify"] !== true)
+      return [refusal("package.trigger", `triggers[${i}].verify is true or false`)];
     return ["schedule", "event", "webhook"].includes(String(trigger["kind"]))
       ? []
-      : [`triggers[${i}].verify is for a schedule, event or webhook trigger`];
+      : [
+          refusal(
+            "package.trigger",
+            `triggers[${i}].verify is for a schedule, event or webhook trigger`,
+          ),
+        ];
   });
 }

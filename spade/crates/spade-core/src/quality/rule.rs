@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use regex::Regex;
 use serde_json::{Map, Value};
 
+use crate::rule::{self as rules, Problem};
 use crate::schema::{
     DESCRIPTION_CHARS, ENUM_CHARS, LONGEST_STRING, MOST_DEPTH, MOST_ENUM, MOST_FIELDS, MOST_ITEMS,
     MOST_SCHEMA_BYTES, Misfit,
@@ -69,11 +70,11 @@ enum Narrows {
 }
 
 /// Reads `value` as a rule; every problem at its place (`at` names the rule, `checks[0].rule`).
-pub fn read(value: &Value, at: &str) -> Result<Rule, Vec<String>> {
+pub fn read(value: &Value, at: &str) -> Result<Rule, Vec<Problem>> {
     if value.to_string().len() > MOST_SCHEMA_BYTES {
-        return Err(vec![format!(
-            "{at} is longer than {} KiB",
-            MOST_SCHEMA_BYTES / 1024
+        return Err(vec![Problem::new(
+            rules::RULE_SIZE,
+            format!("{at} is longer than {} KiB", MOST_SCHEMA_BYTES / 1024),
         )]);
     }
     let mut problems = Vec::new();
@@ -99,13 +100,13 @@ fn kind_of(keyword: &str) -> Option<&'static str> {
     }
 }
 
-fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<Rule> {
+fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<Problem>) -> Option<Rule> {
     if depth > MOST_DEPTH {
-        out.push(format!("{at}: a rule nests at most {MOST_DEPTH} levels"));
+        out.push(Problem::new(rules::RULE_DEPTH, format!("{at}: a rule nests at most {MOST_DEPTH} levels")));
         return None;
     }
     let Some(fields) = value.as_object() else {
-        out.push(format!("{at} is a rule object"));
+        out.push(Problem::new(rules::RULE_OBJECT, format!("{at} is a rule object")));
         return None;
     };
     let before = out.len();
@@ -115,9 +116,9 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
             continue;
         }
         match kind_of(key) {
-            None => out.push(format!("{at}: {key:?} isn't in the rule subset checks use")),
+            None => out.push(Problem::new(rules::RULE_KEYWORD, format!("{at}: {key:?} isn't in the rule subset checks use"))),
             Some(kind) if narrowed.is_some_and(|k| k != kind) => {
-                out.push(format!("{at} mixes keywords of different types"));
+                out.push(Problem::new(rules::RULE_MIXED, format!("{at} mixes keywords of different types")));
             }
             Some(kind) => narrowed = Some(kind),
         }
@@ -128,27 +129,27 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
                 .is_some_and(|t| t.chars().count() <= DESCRIPTION_CHARS)
         };
         if fields.get(key).is_some_and(|v| !fits(v)) {
-            out.push(format!(
+            out.push(Problem::new(rules::RULE_TEXT, format!(
                 "{at}.{key} is text of at most {DESCRIPTION_CHARS} characters"
-            ));
+            )));
         }
     }
     let kind = match fields.get("type") {
         None => None,
         Some(Value::String(kind)) if TYPES.contains(&kind.as_str()) => Some(kind.clone()),
         Some(_) => {
-            out.push(format!(
+            out.push(Problem::new(rules::RULE_TYPE, format!(
                 "{at}.type is object, string, number, integer, boolean or array"
-            ));
+            )));
             None
         }
     };
     if let (Some(kind), Some(narrowed)) = (&kind, narrowed) {
         let same = kind == narrowed || (kind == "integer" && narrowed == "number");
         if !same {
-            out.push(format!(
+            out.push(Problem::new(rules::RULE_TYPE, format!(
                 "{at}: a {kind} takes none of the {narrowed} keywords"
-            ));
+            )));
         }
     }
     if out.len() > before {
@@ -166,7 +167,7 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
             if let (Some(min), Some(max)) = (min, max)
                 && min > max
             {
-                out.push(format!("{at}: minimum is more than maximum"));
+                out.push(Problem::new(rules::RULE_BOUND, format!("{at}: minimum is more than maximum")));
             }
             Narrows::Number { min, max }
         }
@@ -176,7 +177,7 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
             if let (Some(min), Some(max)) = (min, max)
                 && min > max
             {
-                out.push(format!("{at}: minItems is more than maxItems"));
+                out.push(Problem::new(rules::RULE_BOUND, format!("{at}: minItems is more than maxItems")));
             }
             let items = match fields.get("items") {
                 None => None,
@@ -193,12 +194,12 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
     (out.len() == before).then_some(Rule { kind, narrows })
 }
 
-fn number(fields: &Map<String, Value>, key: &str, at: &str, out: &mut Vec<String>) -> Option<f64> {
+fn number(fields: &Map<String, Value>, key: &str, at: &str, out: &mut Vec<Problem>) -> Option<f64> {
     match fields.get(key) {
         None => None,
         Some(n) if n.is_number() => n.as_f64(),
         Some(_) => {
-            out.push(format!("{at}.{key} is a number"));
+            out.push(Problem::new(rules::RULE_BOUND, format!("{at}.{key} is a number")));
             None
         }
     }
@@ -209,13 +210,13 @@ fn count(
     key: &str,
     most: u64,
     at: &str,
-    out: &mut Vec<String>,
+    out: &mut Vec<Problem>,
 ) -> Option<u64> {
     let value = fields.get(key)?;
     match value.as_u64() {
         Some(n) if n <= most => Some(n),
         _ => {
-            out.push(format!("{at}.{key} is a whole number up to {most}"));
+            out.push(Problem::new(rules::RULE_BOUND, format!("{at}.{key} is a whole number up to {most}")));
             None
         }
     }
@@ -229,7 +230,7 @@ fn object(
     fields: &Map<String, Value>,
     at: &str,
     depth: usize,
-    out: &mut Vec<String>,
+    out: &mut Vec<Problem>,
 ) -> Option<Narrows> {
     let mut read = BTreeMap::new();
     match fields.get("properties") {
@@ -237,9 +238,9 @@ fn object(
         Some(Value::Object(properties)) if properties.len() <= MOST_FIELDS => {
             for (name, value) in properties {
                 if !field_name(name) {
-                    out.push(format!(
+                    out.push(Problem::new(rules::RULE_FIELDS, format!(
                         "{at}.properties: {name:?} is a field name of 1 to 64 letters, digits and _"
-                    ));
+                    )));
                     continue;
                 }
                 if let Some(rule) = node(value, &format!("{at}.{name}"), depth + 1, out) {
@@ -247,9 +248,9 @@ fn object(
                 }
             }
         }
-        Some(_) => out.push(format!(
+        Some(_) => out.push(Problem::new(rules::RULE_FIELDS, format!(
             "{at}.properties names at most {MOST_FIELDS} fields"
-        )),
+        ))),
     }
     let required = match fields.get("required") {
         None => Vec::new(),
@@ -264,7 +265,7 @@ fn object(
                 .collect()
         }
         Some(_) => {
-            out.push(format!("{at}.required is a list of field names"));
+            out.push(Problem::new(rules::RULE_REQUIRED, format!("{at}.required is a list of field names")));
             Vec::new()
         }
     };
@@ -274,13 +275,13 @@ fn object(
     })
 }
 
-fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<String>) -> Option<Narrows> {
+fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<Problem>) -> Option<Narrows> {
     let min = count(fields, "minLength", LONGEST_STRING, at, out);
     let max = count(fields, "maxLength", LONGEST_STRING, at, out);
     if let (Some(min), Some(max)) = (min, max)
         && min > max
     {
-        out.push(format!("{at}: minLength is more than maxLength"));
+        out.push(Problem::new(rules::RULE_BOUND, format!("{at}: minLength is more than maxLength")));
     }
     let one_of = match fields.get("enum") {
         None => None,
@@ -294,14 +295,14 @@ fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<String>) -> Optio
                 })
                 .collect();
             if words.is_none() {
-                out.push(format!(
+                out.push(Problem::new(rules::RULE_ENUM, format!(
                     "{at}.enum lists words of at most {ENUM_CHARS} characters"
-                ));
+                )));
             }
             words
         }
         Some(_) => {
-            out.push(format!("{at}.enum lists 1 to {MOST_ENUM} words"));
+            out.push(Problem::new(rules::RULE_ENUM, format!("{at}.enum lists 1 to {MOST_ENUM} words")));
             None
         }
     };
@@ -309,20 +310,20 @@ fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<String>) -> Optio
         None => None,
         Some(Value::String(text)) => match pattern_problem(text) {
             Some(why) => {
-                out.push(format!("{at}.pattern {why}"));
+                out.push(Problem::new(rules::RULE_PATTERN, format!("{at}.pattern {why}")));
                 None
             }
             // `(?s)`: `.` takes any character, as JavaScript's `s` flag reads it.
             None => match Regex::new(&format!("(?s){text}")) {
                 Ok(regex) => Some((text.clone(), regex)),
                 Err(_) => {
-                    out.push(format!("{at}.pattern isn't a pattern this subset reads"));
+                    out.push(Problem::new(rules::RULE_PATTERN, format!("{at}.pattern isn't a pattern this subset reads")));
                     None
                 }
             },
         },
         Some(_) => {
-            out.push(format!("{at}.pattern is text"));
+            out.push(Problem::new(rules::RULE_PATTERN, format!("{at}.pattern is text")));
             None
         }
     };

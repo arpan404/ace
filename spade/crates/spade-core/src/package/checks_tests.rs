@@ -9,7 +9,7 @@ const BUILD: Build<'static> = Build {
 };
 
 fn manifest(checks: Value) -> crate::package::Manifest {
-    let suite = crate::spec::conformance::MANIFESTS[4].json();
+    let suite = crate::spec::conformance::MANIFESTS[5].json();
     let mut bot = suite["base"].clone();
     bot["checks"] = checks;
     crate::package::read(&bot, BUILD).unwrap_or_else(|p| panic!("{p:?}"))
@@ -68,7 +68,7 @@ fn criterion_checks_are_the_packages_criteria_for_a_goal() {
 
 #[test]
 fn a_verified_trigger_is_known_by_its_name() {
-    let suite = crate::spec::conformance::MANIFESTS[4].json();
+    let suite = crate::spec::conformance::MANIFESTS[5].json();
     let mut bot = suite["base"].clone();
     bot["triggers"][1]["verify"] = json!(true);
     let read = crate::package::read(&bot, BUILD).unwrap_or_else(|p| panic!("{p:?}"));

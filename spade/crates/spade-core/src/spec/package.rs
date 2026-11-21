@@ -1,7 +1,7 @@
 //! The `package` part's regions, from `spade_core::package::manifest`'s own lists and bounds.
 
 use super::conformance;
-use super::markdown::{cases, code_list, number, table};
+use super::markdown::{cases, code_list, number, rules, table};
 use crate::effect::runtime::Module;
 use crate::package::manifest as m;
 use crate::routine;
@@ -9,11 +9,19 @@ use crate::routine;
 /// What each field of a version 3 `bot.json` is. Every field the reader knows has a line here,
 /// and only those: the writer refuses otherwise, so a field can't be added to the reader and
 /// left out of the spec.
-const FIELDS: [(&str, &str); 23] = [
+const FIELDS: [(&str, &str); 26] = [
+    (
+        "$schema",
+        "The address of the format's JSON Schema, for editors; it changes nothing a runtime does.",
+    ),
     ("format", "MUST be `\"spade-bot\"`."),
     (
         "version",
         "The format's number, `3`. A string is refused: a package's own version is the signed version manifest's.",
+    ),
+    (
+        "spec",
+        "The Spade Agent Format version it was written for, like `\"1.0\"`; missing reads as `1.0`. A reader MUST read every minor version of its major and refuse another major.",
     ),
     (
         "requires",
@@ -72,6 +80,10 @@ const FIELDS: [(&str, &str); 23] = [
         "Typed calls other bots of the person may make to it ([contracts](contracts.md)).",
     ),
     (
+        "code",
+        "WebAssembly components it ships under `code/`, each built for Spade's world ([code](code.md)).",
+    ),
+    (
         "checks",
         "What a result is held to before it counts as done: `schema` rules on contract outputs and cards, `criterion` lines on the goal (below).",
     ),
@@ -82,12 +94,13 @@ pub fn regions() -> Result<Vec<(&'static str, String)>, Vec<String>> {
         ("fields", fields()?),
         ("v2", format!("{}.\n", code_list(m::KNOWN_V2))),
         ("refused", refused()),
+        ("rules", rules("package")),
         ("bounds", bounds()),
         ("modules", modules()),
         ("triggers", triggers()),
         ("cases", cases(&conformance::MANIFESTS[0])),
         ("checks", checks()),
-        ("check-cases", cases(&conformance::MANIFESTS[4])),
+        ("check-cases", cases(&conformance::MANIFESTS[5])),
         ("rule-cases", cases(&conformance::RULES)),
     ])
 }

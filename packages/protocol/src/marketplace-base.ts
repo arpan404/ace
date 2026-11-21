@@ -83,6 +83,8 @@ export const MarketProblem = z.strictObject({
   path: z.string().max(512).optional(),
   line: z.number().int().positive().optional(),
   message: z.string().max(500),
+  /** The Spade Agent Format rule a package breaks (`spade/spec/conformance/rules.json`). */
+  rule: z.string().max(80).optional(),
 });
 export type MarketProblem = z.infer<typeof MarketProblem>;
 

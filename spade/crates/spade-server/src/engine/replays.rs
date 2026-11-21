@@ -77,7 +77,7 @@ impl Engine {
     fn replay_version(&self, agent: &str, input: &ReplayInput) -> Result<Version, ReplayError> {
         if let Some(recipe) = &input.recipe {
             let recipe = contract_files::inline(recipe, |path| input.files.get(path).cloned())
-                .map_err(|problems| ReplayError::Invalid(problems.join("; ")))?;
+                .map_err(|problems| ReplayError::Invalid(spade_core::rule::joined(&problems, "; ")))?;
             let manifest = crate::packages::manifest(&recipe)
                 .map_err(|error| ReplayError::Invalid(error.to_string()))?;
             let pages = input

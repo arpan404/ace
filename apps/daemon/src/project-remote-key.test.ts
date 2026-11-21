@@ -204,3 +204,27 @@ test("remotes on this machine's own disk never group checkouts on two machines",
   expect(home.catalog.get(roots.id).remoteKey).toBeUndefined();
   expect(home.catalog.get(mixed.id).remoteKey).toEqual({ remotes: [ace], subpath: "" });
 });
+
+test("a key an older build stored groups nothing and is read again, however recently", async () => {
+  const home = await daemon();
+  const app = await home.add("app", { remotes: ["forge/~git/team/app"], subpath: "" });
+  // As a build before the home rule left it: read just now, in the bare-array form whose key
+  // `forge/team/app` an absolute `ssh://git@forge/team/app` shares.
+  home.store.atomic((db) =>
+    db
+      .prepare(
+        "INSERT INTO workspace_remote_key(workspace_id,remotes,subpath,read_at) VALUES (?,?,?,?)",
+      )
+      .run(app.id, JSON.stringify(["forge/team/app"]), "", 1_000),
+  );
+  expect(home.catalog.get(app.id).remoteKey).toBeUndefined();
+  await home.reader.poke();
+  expect(home.reads).toEqual([home.catalog.get(app.id).path]);
+  expect(home.catalog.get(app.id).remoteKey).toEqual({
+    remotes: ["forge/~git/team/app"],
+    subpath: "",
+  });
+  // Rewritten in this build's form, it is fresh again.
+  await home.reader.poke();
+  expect(home.reads).toHaveLength(1);
+});

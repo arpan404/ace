@@ -1,3 +1,4 @@
+import { refusal, type Refusal } from "./rules.ts";
 import { schemaLimits, type Misfit } from "./schema.ts";
 
 /*
@@ -51,21 +52,21 @@ function count(
   key: string,
   most: number,
   at: string,
-  out: string[],
+  out: Refusal[],
 ): number | undefined {
   const value = fields[key];
   if (value === undefined) return undefined;
   if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= most)
     return value;
-  out.push(`${at}.${key} is a whole number up to ${most}`);
+  out.push(refusal("check-rule.bound", `${at}.${key} is a whole number up to ${most}`));
   return undefined;
 }
 
-function bound(fields: Fields, key: string, at: string, out: string[]): number | undefined {
+function bound(fields: Fields, key: string, at: string, out: Refusal[]): number | undefined {
   const value = fields[key];
   if (value === undefined) return undefined;
   if (typeof value === "number") return value;
-  out.push(`${at}.${key} is a number`);
+  out.push(refusal("check-rule.bound", `${at}.${key} is a number`));
   return undefined;
 }
 
@@ -130,13 +131,15 @@ export function checkPatternProblem(pattern: string): string | undefined {
   return inClass ? "closes every class it opens" : undefined;
 }
 
-function node(value: unknown, at: string, depth: number, out: string[]): CheckRule | undefined {
+function node(value: unknown, at: string, depth: number, out: Refusal[]): CheckRule | undefined {
   if (depth > schemaLimits.depth) {
-    out.push(`${at}: a rule nests at most ${schemaLimits.depth} levels`);
+    out.push(
+      refusal("check-rule.depth", `${at}: a rule nests at most ${schemaLimits.depth} levels`),
+    );
     return undefined;
   }
   if (!isFields(value)) {
-    out.push(`${at} is a rule object`);
+    out.push(refusal("check-rule.object", `${at} is a rule object`));
     return undefined;
   }
   const before = out.length;
@@ -145,9 +148,14 @@ function node(value: unknown, at: string, depth: number, out: string[]): CheckRu
     if (common.has(key)) continue;
     const kind = kindOf(key);
     if (kind === undefined)
-      out.push(`${at}: ${JSON.stringify(key)} isn't in the rule subset checks use`);
+      out.push(
+        refusal(
+          "check-rule.keyword",
+          `${at}: ${JSON.stringify(key)} isn't in the rule subset checks use`,
+        ),
+      );
     else if (narrowed !== undefined && narrowed !== kind)
-      out.push(`${at} mixes keywords of different types`);
+      out.push(refusal("check-rule.mixed", `${at} mixes keywords of different types`));
     else narrowed = kind;
   }
   for (const key of ["description", "title"]) {
@@ -156,17 +164,31 @@ function node(value: unknown, at: string, depth: number, out: string[]): CheckRu
       text !== undefined &&
       (typeof text !== "string" || [...text].length > schemaLimits.descriptionChars)
     )
-      out.push(`${at}.${key} is text of at most ${schemaLimits.descriptionChars} characters`);
+      out.push(
+        refusal(
+          "check-rule.text",
+          `${at}.${key} is text of at most ${schemaLimits.descriptionChars} characters`,
+        ),
+      );
   }
   const type = value["type"];
   let kind: string | undefined;
   if (type !== undefined) {
     if (typeof type === "string" && types.has(type)) kind = type;
-    else out.push(`${at}.type is object, string, number, integer, boolean or array`);
+    else
+      out.push(
+        refusal(
+          "check-rule.type",
+          `${at}.type is object, string, number, integer, boolean or array`,
+        ),
+      );
   }
   if (kind !== undefined && narrowed !== undefined) {
     const same = kind === narrowed || (kind === "integer" && narrowed === "number");
-    if (!same) out.push(`${at}: a ${kind} takes none of the ${narrowed} keywords`);
+    if (!same)
+      out.push(
+        refusal("check-rule.type", `${at}: a ${kind} takes none of the ${narrowed} keywords`),
+      );
   }
   if (out.length > before) return undefined;
   let narrows: CheckRule["narrows"] = { kind: "nothing" };
@@ -175,12 +197,20 @@ function node(value: unknown, at: string, depth: number, out: string[]): CheckRu
     const properties = value["properties"];
     if (properties !== undefined) {
       if (!isFields(properties) || Object.keys(properties).length > schemaLimits.fields)
-        out.push(`${at}.properties names at most ${schemaLimits.fields} fields`);
+        out.push(
+          refusal(
+            "check-rule.fields",
+            `${at}.properties names at most ${schemaLimits.fields} fields`,
+          ),
+        );
       else
         for (const [name, item] of Object.entries(properties)) {
           if (!fieldName(name)) {
             out.push(
-              `${at}.properties: ${JSON.stringify(name)} is a field name of 1 to 64 letters, digits and _`,
+              refusal(
+                "check-rule.fields",
+                `${at}.properties: ${JSON.stringify(name)} is a field name of 1 to 64 letters, digits and _`,
+              ),
             );
             continue;
           }
@@ -200,40 +230,48 @@ function node(value: unknown, at: string, depth: number, out: string[]): CheckRu
         listed.length === required.length
       )
         names = listed;
-      else out.push(`${at}.required is a list of field names`);
+      else out.push(refusal("check-rule.required", `${at}.required is a list of field names`));
     }
     narrows = { kind: "object", fields, required: names };
   } else if (narrowed === "string") {
     const min = count(value, "minLength", schemaLimits.longestString, at, out);
     const max = count(value, "maxLength", schemaLimits.longestString, at, out);
     if (min !== undefined && max !== undefined && min > max)
-      out.push(`${at}: minLength is more than maxLength`);
+      out.push(refusal("check-rule.bound", `${at}: minLength is more than maxLength`));
     let oneOf: string[] | undefined;
     const words = value["enum"];
     if (words !== undefined) {
       if (!Array.isArray(words) || words.length < 1 || words.length > schemaLimits.enum)
-        out.push(`${at}.enum lists 1 to ${schemaLimits.enum} words`);
+        out.push(refusal("check-rule.enum", `${at}.enum lists 1 to ${schemaLimits.enum} words`));
       else {
         const listed = words.filter(
           (w): w is string => typeof w === "string" && [...w].length <= schemaLimits.enumChars,
         );
         if (listed.length !== words.length)
-          out.push(`${at}.enum lists words of at most ${schemaLimits.enumChars} characters`);
+          out.push(
+            refusal(
+              "check-rule.enum",
+              `${at}.enum lists words of at most ${schemaLimits.enumChars} characters`,
+            ),
+          );
         else oneOf = listed;
       }
     }
     let pattern: [string, RegExp] | undefined;
     const text = value["pattern"];
     if (text !== undefined) {
-      if (typeof text !== "string") out.push(`${at}.pattern is text`);
+      if (typeof text !== "string")
+        out.push(refusal("check-rule.pattern", `${at}.pattern is text`));
       else {
         const why = checkPatternProblem(text);
-        if (why) out.push(`${at}.pattern ${why}`);
+        if (why) out.push(refusal("check-rule.pattern", `${at}.pattern ${why}`));
         else
           try {
             pattern = [text, new RegExp(text, "su")];
           } catch {
-            out.push(`${at}.pattern isn't a pattern this subset reads`);
+            out.push(
+              refusal("check-rule.pattern", `${at}.pattern isn't a pattern this subset reads`),
+            );
           }
       }
     }
@@ -247,7 +285,7 @@ function node(value: unknown, at: string, depth: number, out: string[]): CheckRu
   } else if (narrowed === "number") {
     const [min, max] = [bound(value, "minimum", at, out), bound(value, "maximum", at, out)];
     if (min !== undefined && max !== undefined && min > max)
-      out.push(`${at}: minimum is more than maximum`);
+      out.push(refusal("check-rule.bound", `${at}: minimum is more than maximum`));
     narrows = {
       kind: "number",
       ...(min !== undefined ? { min } : {}),
@@ -257,7 +295,7 @@ function node(value: unknown, at: string, depth: number, out: string[]): CheckRu
     const min = count(value, "minItems", schemaLimits.items, at, out);
     const max = count(value, "maxItems", schemaLimits.items, at, out);
     if (min !== undefined && max !== undefined && min > max)
-      out.push(`${at}: minItems is more than maxItems`);
+      out.push(refusal("check-rule.bound", `${at}: minItems is more than maxItems`));
     let items: CheckRule | undefined;
     if (value["items"] !== undefined) {
       items = node(value["items"], `${at}.items`, depth + 1, out);
@@ -278,13 +316,15 @@ function node(value: unknown, at: string, depth: number, out: string[]): CheckRu
 export function readCheckRule(
   value: unknown,
   at: string,
-): { rule: CheckRule | undefined; problems: string[] } {
+): { rule: CheckRule | undefined; problems: Refusal[] } {
   if ((JSON.stringify(value) ?? "").length > schemaLimits.schemaBytes)
     return {
       rule: undefined,
-      problems: [`${at} is longer than ${schemaLimits.schemaBytes / 1024} KiB`],
+      problems: [
+        refusal("check-rule.size", `${at} is longer than ${schemaLimits.schemaBytes / 1024} KiB`),
+      ],
     };
-  const problems: string[] = [];
+  const problems: Refusal[] = [];
   const rule = node(value, at, 1, problems);
   return { rule: problems.length ? undefined : rule, problems };
 }

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::quality::rule;
+use crate::rule::{self as rules, Problem};
 use crate::schema::Misfit;
 
 use super::contract::Contract;
@@ -86,13 +87,13 @@ pub fn read(
     value: Option<&Value>,
     contracts: &[Contract],
     surfaces: &[Surface],
-    problems: &mut Vec<String>,
+    problems: &mut Vec<Problem>,
 ) -> Vec<Check> {
     let Some(value) = value else {
         return Vec::new();
     };
     let Some(items) = value.as_array().filter(|items| items.len() <= MOST_CHECKS) else {
-        problems.push(format!("checks is a list of at most {MOST_CHECKS}"));
+        problems.push(Problem::new(rules::CHECKS, format!("checks is a list of at most {MOST_CHECKS}")));
         return Vec::new();
     };
     let cards: Vec<&str> = surfaces
@@ -107,12 +108,12 @@ pub fn read(
     for (i, item) in items.iter().enumerate() {
         let at = format!("checks[{i}]");
         let Some(fields) = item.as_object() else {
-            problems.push(format!("{at} is an object"));
+            problems.push(Problem::new(rules::CHECK_FIELD, format!("{at} is an object")));
             continue;
         };
         if let Some(check) = one(&at, fields, contracts, &cards, problems) {
             if !names.insert(check.name.clone()) {
-                problems.push("each check has a name of its own".to_owned());
+                problems.push(Problem::new(rules::CHECK_NAME_UNIQUE, "each check has a name of its own".to_owned()));
             }
             checks.push(check);
         }
@@ -122,9 +123,9 @@ pub fn read(
         .filter(|c| matches!(c.kind, Kind::Criterion { .. }))
         .count();
     if criteria > MOST_CRITERIA {
-        problems.push(format!(
+        problems.push(Problem::new(rules::CHECK_CRITERIA, format!(
             "a package has at most {MOST_CRITERIA} criterion checks"
-        ));
+        )));
     }
     checks
 }
@@ -134,20 +135,20 @@ fn one(
     fields: &Map<String, Value>,
     contracts: &[Contract],
     cards: &[&str],
-    problems: &mut Vec<String>,
+    problems: &mut Vec<Problem>,
 ) -> Option<Check> {
     let before = problems.len();
     for key in fields.keys() {
         if !FIELDS.contains(&key.as_str()) {
-            problems.push(format!("{at}: {key:?} isn't a field of a check"));
+            problems.push(Problem::new(rules::CHECK_FIELD, format!("{at}: {key:?} isn't a field of a check")));
         }
     }
     let name = match fields.get("name").and_then(Value::as_str) {
         Some(name) if check_name(name) => name.to_owned(),
         _ => {
-            problems.push(format!(
+            problems.push(Problem::new(rules::CHECK_NAME, format!(
                 "{at}.name is a short name: lower-case letters, digits and dashes"
-            ));
+            )));
             String::new()
         }
     };
@@ -155,9 +156,9 @@ fn one(
     let kind = match fields.get("kind").and_then(Value::as_str) {
         Some("schema") => {
             if on.contains(&Target::Goal) {
-                problems.push(format!(
+                problems.push(Problem::new(rules::CHECK_SCHEMA_PLACE, format!(
                     "{at}: a schema check is on contracts and cards, not the goal"
-                ));
+                )));
             }
             match fields.get("rule") {
                 Some(value) => {
@@ -169,14 +170,14 @@ fn one(
                     })
                 }
                 None => {
-                    problems.push(format!("{at}.rule is the rule the result must hold"));
+                    problems.push(Problem::new(rules::CHECK_SCHEMA_PLACE, format!("{at}.rule is the rule the result must hold")));
                     None
                 }
             }
         }
         Some("criterion") => {
             if on != [Target::Goal] {
-                problems.push(format!("{at}: a criterion check is on the goal only"));
+                problems.push(Problem::new(rules::CHECK_CRITERION, format!("{at}: a criterion check is on the goal only")));
             }
             match fields.get("text").and_then(Value::as_str).map(str::trim) {
                 Some(text) if !text.is_empty() && text.chars().count() <= TEXT_CHARS => {
@@ -185,21 +186,21 @@ fn one(
                     })
                 }
                 _ => {
-                    problems.push(format!(
+                    problems.push(Problem::new(rules::CHECK_CRITERION, format!(
                         "{at}.text says in 1 to {TEXT_CHARS} characters what must hold"
-                    ));
+                    )));
                     None
                 }
             }
         }
         Some("code") => {
-            problems.push(format!(
+            problems.push(Problem::new(rules::CHECK_CODE_LATER, format!(
                 "{at}: Needs a newer Spade: code checks run once Spade runs a package's code"
-            ));
+            )));
             None
         }
         _ => {
-            problems.push(format!("{at}.kind is schema, code or criterion"));
+            problems.push(Problem::new(rules::CHECK_KIND, format!("{at}.kind is schema, code or criterion")));
             None
         }
     };
@@ -212,37 +213,38 @@ fn targets(
     value: Option<&Value>,
     contracts: &[Contract],
     cards: &[&str],
-    problems: &mut Vec<String>,
+    problems: &mut Vec<Problem>,
 ) -> Vec<Target> {
     let words: Option<Vec<&str>> = value
         .and_then(Value::as_array)
         .filter(|items| (1..=MOST_ON).contains(&items.len()))
         .and_then(|items| items.iter().map(Value::as_str).collect());
     let Some(words) = words else {
-        problems.push(format!(
+        problems.push(Problem::new(rules::CHECK_ON, format!(
             "{at}.on names 1 to {MOST_ON} places: contract:<name>, card:<id> or goal"
-        ));
+        )));
         return Vec::new();
     };
     let mut on = Vec::new();
     for word in words {
         match Target::parse(word) {
             Some(Target::Contract(name)) if !contracts.iter().any(|c| c.name == name) => problems
-                .push(format!(
-                    "{at}.on: {word:?} isn't one of the package's contracts"
+                .push(Problem::new(
+                    rules::CHECK_ON,
+                    format!("{at}.on: {word:?} isn't one of the package's contracts"),
                 )),
             Some(Target::Card(id)) if !cards.contains(&id.as_str()) => {
-                problems.push(format!(
+                problems.push(Problem::new(rules::CHECK_ON, format!(
                     "{at}.on: {word:?} isn't one of the package's cards"
-                ));
+                )));
             }
             Some(target) if on.contains(&target) => {
-                problems.push(format!("{at}.on names {word:?} twice"));
+                problems.push(Problem::new(rules::CHECK_ON, format!("{at}.on names {word:?} twice")));
             }
             Some(target) => on.push(target),
-            None => problems.push(format!(
+            None => problems.push(Problem::new(rules::CHECK_ON, format!(
                 "{at}.on: {word:?} is contract:<name>, card:<id> or goal"
-            )),
+            ))),
         }
     }
     on

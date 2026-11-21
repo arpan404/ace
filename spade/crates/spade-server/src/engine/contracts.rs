@@ -332,6 +332,7 @@ impl Engine {
             contract: contract.name.clone(),
             input,
             effects: contract.effects.clone(),
+            outside: None,
         };
         let from = FromAgent {
             id: me.id.clone(),

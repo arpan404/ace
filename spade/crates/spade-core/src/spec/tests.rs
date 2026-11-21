@@ -27,6 +27,54 @@ fn spec_doc_files_are_written_from_the_data() {
     );
 }
 
+/// Every file the data writes whole (the rule table, the JSON Schemas) is what it writes.
+#[test]
+fn spec_doc_whole_files_are_written_from_the_data() {
+    let write = std::env::var_os("SPADE_WRITE_SPEC").is_some();
+    let mut stale = Vec::new();
+    for file in wholes() {
+        let path = format!("{ROOT}/{}", file.path);
+        if write {
+            if let Some(folder) = std::path::Path::new(&path).parent() {
+                std::fs::create_dir_all(folder).unwrap_or_else(|e| panic!("{path}: {e}"));
+            }
+            std::fs::write(&path, &file.text).unwrap_or_else(|e| panic!("{path}: {e}"));
+        } else if std::fs::read_to_string(&path).ok().as_deref() != Some(file.text.as_str()) {
+            stale.push(file.path);
+        }
+    }
+    assert!(
+        stale.is_empty(),
+        "spade/spec/{} isn't what the data writes; run \
+         SPADE_WRITE_SPEC=1 cargo test -p spade-core spec_doc",
+        stale.join(", spade/spec/")
+    );
+}
+
+/// Every refusal of the suite names a rule of the table, and the table's ids are unique.
+#[test]
+fn every_case_names_a_rule_of_the_table() {
+    let mut ids: Vec<&str> = crate::rule::RULES.iter().map(|r| r.id).collect();
+    ids.sort_unstable();
+    let before = ids.len();
+    ids.dedup();
+    assert_eq!(ids.len(), before, "each rule id once");
+    let suites = conformance::MANIFESTS
+        .iter()
+        .chain([&conformance::SCHEMAS, &conformance::RULES]);
+    for suite in suites {
+        for case in suite.cases() {
+            if let Some(rule) = case["rule"].as_str() {
+                assert!(
+                    crate::rule::of(rule).is_some(),
+                    "{}: no rule {rule}",
+                    case["id"]
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn a_region_is_written_between_its_marks_and_the_prose_around_it_is_kept() {
     let text = "Prose.\n<!-- spec:begin words -->\nold\n<!-- spec:end words -->\nMore prose.\n";

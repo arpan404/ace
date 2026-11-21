@@ -1,3 +1,4 @@
+import { orgRole } from "@ace/account-grant/org-roles";
 import { mediaAdmission } from "./services/media-connect.ts";
 import {
   connectHostToRelay,
@@ -219,10 +220,22 @@ export async function startFilesRelay(
           return;
         }
         const device = admitted.device;
+        // A member who reaches only Spade has the main channel and nothing else (ADR 0206).
+        if (
+          admitted.member &&
+          hello.channel !== undefined &&
+          orgRole(admitted.member.role) !== "owner"
+        ) {
+          await channel
+            .send({ type: "error", code: "unauthorized", message: "Valid hello required" })
+            .catch(() => {});
+          channel.close();
+          return;
+        }
         // Credit fragments go only to a client that asked; its first one precedes the welcome.
         if (hello.flowControl?.includes("credit")) channel.flowControl?.();
         if (hello.channel === undefined) {
-          const actor = mainActor(device, admitted.stillAdmitted, options);
+          const actor = mainActor(device, admitted.stillAdmitted, options, admitted.member);
           if (!actor || !options.relayMain) {
             await channel
               .send({ type: "error", code: "unauthorized", message: "Valid hello required" })

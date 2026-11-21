@@ -24,7 +24,15 @@
       "$ref": "https://ace.local/protocol/v1/SearchSnippet.json"
     },
     "status": {
-      "$ref": "https://ace.local/protocol/v1/SearchState.json"
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/SearchState.json"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/SearchState.json",
+          "x-ace-constraint": "A state this client doesn't know is read as `unknown`."
+        }
+      ]
     },
     "statusSeq": {
       "maximum": 9007199254740991,

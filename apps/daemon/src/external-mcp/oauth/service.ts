@@ -10,10 +10,11 @@ import { Authorizations } from "./authorize.ts";
 import { ClientMetadata, metadataUrl, type MetadataFetch } from "./cimd.ts";
 import { AuthorizationCodes } from "./codes.ts";
 import { ClientRegistrations } from "./registrations.ts";
-import { outsideSurface } from "./surface.ts";
+import { outsideSurface, type SurfaceDeps } from "./surface.ts";
 
 export function outsideOAuth(deps: {
   outside: OutsideAccess;
+  spade: SurfaceDeps["spade"];
   sql: GrantSql;
   now: () => number;
   random: RandomBytes;
@@ -48,6 +49,7 @@ export function outsideOAuth(deps: {
   });
   return outsideSurface({
     authorizations,
+    spade: deps.spade,
     registrations,
     token: {
       grants: outside.grants,

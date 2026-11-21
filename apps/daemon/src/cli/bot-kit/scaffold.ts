@@ -1,3 +1,4 @@
+import { botSchemaAddress, formatSpec } from "@ace/marketplace";
 import type { CliBotStarter } from "@ace/protocol/cli-outputs";
 
 /*
@@ -241,8 +242,11 @@ export function scaffold(name: string, kind: CliBotStarter): ScaffoldFile[] {
   const more = it.more?.(name) ?? [];
   const tests = ["tests/first-message.json", ...more.map((file) => file.path)];
   const bot = {
+    // An editor validates the file against the format's published schema, without Spade.
+    $schema: botSchemaAddress,
     format: "spade-bot",
     version: 3,
+    spec: formatSpec,
     requires: { runtime: "1" },
     name,
     blurb: it.blurb,

@@ -17,6 +17,7 @@ pub fn written(manifest: &Manifest) -> Value {
     };
     put("format", json!(FORMAT));
     put("version", json!(3));
+    put("spec", json!(manifest.spec));
     put("requires", json!({ "runtime": RUNTIME }));
     put("name", json!(manifest.name));
     put("blurb", json!(manifest.blurb));
@@ -101,6 +102,12 @@ pub fn written(manifest: &Manifest) -> Value {
         put(
             "surfaces",
             Value::Array(manifest.surfaces.iter().map(surface).collect()),
+        );
+    }
+    if !manifest.code.is_empty() {
+        put(
+            "code",
+            serde_json::to_value(&manifest.code).unwrap_or(Value::Null),
         );
     }
     if !manifest.checks.is_empty() {

@@ -149,3 +149,32 @@ test("from another machine's thread, Allow projects widens that machine's link, 
   expect(laptop.access.get("fleet-build-on-laptop")?.scopes).toContain("projects");
   expect(linkOnLaptop(fixture)?.scopes).not.toContain("projects");
 }, 30_000);
+
+test("Projects allowed after the person went back to another machine leave that machine's step", async () => {
+  const fixture = linkedMachines();
+  const { app } = fixture;
+  const laptop = fixture.machine("laptop");
+  await app.open("/t/thread-forecast");
+  const dialog = await continueOn();
+  await userEvent.click(await within(dialog).findByRole("option", { name: "Old laptop" }));
+  const allow = await within(dialog).findByRole<HTMLButtonElement>("button", {
+    name: "Allow projects on Old laptop",
+  });
+  await waitFor(() => expect(allow.disabled).toBe(false));
+
+  // The laptop answers slowly; meanwhile the person goes back and picks the build server.
+  const answer = laptop.deferRequests("fleet.request");
+  await userEvent.click(allow);
+  await userEvent.click(within(dialog).getByRole("button", { name: "Back" }));
+  await userEvent.click(await within(dialog).findByRole("option", { name: "Build server" }));
+  expect(
+    await within(dialog).findByRole("button", { name: "Continue on Build server" }),
+  ).toBeTruthy();
+
+  await act(async () => answer());
+  await waitFor(() => expect(linkOnLaptop(fixture)?.scopes).toContain("projects"));
+  // The reads the late answer refreshes settle before the step would change.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+  expect(within(dialog).getByRole("button", { name: "Continue on Build server" })).toBeTruthy();
+  expect(within(dialog).queryAllByText(/Old laptop/)).toEqual([]);
+}, 30_000);

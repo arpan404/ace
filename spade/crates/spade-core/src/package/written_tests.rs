@@ -14,7 +14,7 @@ fn every_accepted_manifest_written_back_reads_as_the_same_manifest() {
     for suite in crate::spec::conformance::MANIFESTS {
         let all = suite.json();
         for case in suite.cases() {
-            if case["refused"].is_string() {
+            if case["rule"].is_string() {
                 continue;
             }
             let id = case["id"].as_str().unwrap_or_default();

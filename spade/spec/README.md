@@ -29,6 +29,7 @@ with a note.
 | [`runtime`](runtime.md) | 1.0 | `spade.v1`: its modules, tool names, the effect of each tool, `since`, aliases and the major and minor rule. |
 | [`surfaces`](surfaces.md) | 1.0 | Card layout parts and actions, panels, their state and actions, the panel message protocol and `confirm` actions. |
 | [`contracts`](contracts.md) | 1.0 | Contract declaration, call and return, the bounded schema subset, input and output bounds, held effects, taint at entry, exactly-once keys, compatible changes. |
+| [`code`](code.md) | 1.0 | WebAssembly components a package ships: Spade's world `spade:package@1.0.0`, what a component may import, its manifest entry, the checks its binary passes and the bounds of a call. |
 | [`distribution`](distribution.md) | 1.0 | The content hash, the signed version manifest, withdrawal and scenario test files. |
 <!-- spec:end parts -->
 
@@ -61,7 +62,8 @@ the module's name, never half installed.
 ## The conformance suite
 
 [`conformance/`](conformance/) holds the cases every reader MUST agree with: each an input and
-the expected result, `accept`, or a refusal whose problem says the case's words. Each case has
+the expected result, `accept`, or a refusal naming a rule of
+[`conformance/rules.json`](conformance/rules.json) by its id, never by its words. Each case has
 an `id` that never changes. Spade's two readers, `spade_core::package::read` and `readRecipe` in
 `@ace/marketplace`, both run every case from these files, so a case removed here is removed from
 both.
@@ -69,14 +71,29 @@ both.
 <!-- spec:begin suite -->
 | File | Part | Cases |
 | --- | --- | --- |
-| [`conformance/package/manifests.json`](conformance/package/manifests.json) | [`package`](package.md) | 9 |
+| [`conformance/package/manifests.json`](conformance/package/manifests.json) | [`package`](package.md) | 14 |
 | [`conformance/effects/manifests.json`](conformance/effects/manifests.json) | [`effects`](effects.md) | 15 |
 | [`conformance/contracts/manifests.json`](conformance/contracts/manifests.json) | [`contracts`](contracts.md) | 18 |
 | [`conformance/surfaces/manifests.json`](conformance/surfaces/manifests.json) | [`surfaces`](surfaces.md) | 16 |
+| [`conformance/code/manifests.json`](conformance/code/manifests.json) | [`code`](code.md) | 19 |
 | [`conformance/package/checks.json`](conformance/package/checks.json) | [`package`](package.md) | 20 |
 | [`conformance/contracts/schemas.json`](conformance/contracts/schemas.json) | [`contracts`](contracts.md) | 11 |
 | [`conformance/package/check-rules.json`](conformance/package/check-rules.json) | [`package`](package.md) | 21 |
+| [`conformance/runtime/packages.json`](conformance/runtime/packages.json) | [`runtime`](runtime.md) | 10 |
+| [`conformance/runtime/scenarios.json`](conformance/runtime/scenarios.json) | [`runtime`](runtime.md) | 3 |
+| [`conformance/surfaces/panels.json`](conformance/surfaces/panels.json) | [`surfaces`](surfaces.md) | 6 |
+| [`conformance/surfaces/cards.json`](conformance/surfaces/cards.json) | [`surfaces`](surfaces.md) | 1 |
 <!-- spec:end suite -->
+
+`spade-conform` (`spade/crates/spade-conform`) runs the suite against any implementation, at each
+level, through its doors; [`conformance/README.md`](conformance/README.md) says how.
+
+## Published
+
+The spec is published at `https://spec.acehq.dev`, generated from these files and never edited
+by hand (`bun run spec:site` writes it to `spade/spec/dist/`). The JSON Schemas are at stable
+addresses, `https://spec.acehq.dev/1.0/<name>.schema.json`: `bot`, `contract`, `surface`, `card`
+and `scenario`. `ace bot init` writes `"$schema"` pointing at the first.
 
 ## Changes
 

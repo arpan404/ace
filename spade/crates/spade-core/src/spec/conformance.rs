@@ -14,7 +14,7 @@ pub struct Suite {
 }
 
 /// The manifest cases, by part: each a base manifest with a case's fields merged over it.
-pub const MANIFESTS: [Suite; 5] = [
+pub const MANIFESTS: [Suite; 6] = [
     Suite {
         part: "package",
         file: "package/manifests.json",
@@ -36,6 +36,11 @@ pub const MANIFESTS: [Suite; 5] = [
         text: include_str!("../../../../spec/conformance/surfaces/manifests.json"),
     },
     Suite {
+        part: "code",
+        file: "code/manifests.json",
+        text: include_str!("../../../../spec/conformance/code/manifests.json"),
+    },
+    Suite {
         part: "package",
         file: "package/checks.json",
         text: include_str!("../../../../spec/conformance/package/checks.json"),
@@ -55,6 +60,31 @@ pub const SCHEMAS: Suite = Suite {
     file: "contracts/schemas.json",
     text: include_str!("../../../../spec/conformance/contracts/schemas.json"),
 };
+
+/// The Runtime and Surfaces levels' cases, which `spade-conform` drives a runtime through: over
+/// its HTTP API, and through its scenario door.
+pub const LEVELS: [Suite; 4] = [
+    Suite {
+        part: "runtime",
+        file: "runtime/packages.json",
+        text: include_str!("../../../../spec/conformance/runtime/packages.json"),
+    },
+    Suite {
+        part: "runtime",
+        file: "runtime/scenarios.json",
+        text: include_str!("../../../../spec/conformance/runtime/scenarios.json"),
+    },
+    Suite {
+        part: "surfaces",
+        file: "surfaces/panels.json",
+        text: include_str!("../../../../spec/conformance/surfaces/panels.json"),
+    },
+    Suite {
+        part: "surfaces",
+        file: "surfaces/cards.json",
+        text: include_str!("../../../../spec/conformance/surfaces/cards.json"),
+    },
+];
 
 impl Suite {
     /// The file, parsed; `Null` when it isn't JSON, which every reader of it then fails on.

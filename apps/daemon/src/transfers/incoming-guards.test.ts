@@ -17,7 +17,7 @@ import { incomingPath } from "./incoming-files.ts";
  * One file system call can be held, the next time it runs, so a test can land something in the
  * window where a transfer call waits on the disk.
  */
-type Held = "removeQuietly" | "fileDigest" | "fileBytes" | "removeStray";
+type Held = "removeQuietly" | "fileDigest" | "fileBytes" | "removeStray" | "pathExists";
 const holds = vi.hoisted(() => {
   const next = new Map<string, { reached: () => void; until: Promise<void> }>();
   /** `run`, first waiting at a hold set for `name`, if there is one. */
@@ -42,6 +42,7 @@ vi.mock("./files.ts", async (original) => {
     fileDigest: holds.holding("fileDigest", real.fileDigest),
     fileBytes: holds.holding("fileBytes", real.fileBytes),
     removeStray: holds.holding("removeStray", real.removeStray),
+    pathExists: holds.holding("pathExists", real.pathExists),
   };
 });
 
@@ -155,6 +156,7 @@ async function target(
     get incoming() {
       return incoming;
     },
+    store,
     release,
     state,
     directory,
@@ -405,4 +407,36 @@ it("a transfer whose upload has only an old name is cancelled at recovery, and n
       offset,
     });
   expect(await readFile(fixture.part("t-hashed"))).toEqual(bytes);
+});
+
+it("a commit that comes while recovery rolls back waits for it, and its import keeps its folder", async () => {
+  const fixture = await target({ projects: cloneFails });
+  await fixture.incoming.call(device, begin("t-race"));
+  await fixture.incoming.chunk(device, "t-race", 0, bytes);
+  // Recovery after a restart, held where it reads the live rows' files, before it undoes the
+  // imports a restart left.
+  const reading = hold("pathExists");
+  const { incoming, recovering } = await fixture.reopen();
+  // Its imports wait on Git until the test ends; released before that copy closes.
+  cleanup.push(async () => fixture.release());
+  await reading.reached;
+  // Accepted now, its import's folder would be among what recovery undoes: it is refused as
+  // retryable, and the transfer still waits for it.
+  await expect(
+    incoming.call(device, { op: "commit", transferId: "t-race", file }),
+  ).rejects.toMatchObject({ code: "unavailable" });
+  expect(fixture.state("t-race")).toBe("receiving");
+  reading.release();
+  await recovering;
+  // The sender sends it again: the import starts, makes its folder, and nothing removes it.
+  await expect(
+    incoming.call(device, { op: "commit", transferId: "t-race", file }),
+  ).resolves.toMatchObject({ state: "importing" });
+  const createdPath = () =>
+    fixture.store
+      .statement("SELECT created_path FROM transfer_incoming WHERE transfer_id=?")
+      .get("t-race")?.["created_path"];
+  await vi.waitFor(() => expect(createdPath()).toBeTruthy());
+  await settle();
+  await expect(stat(String(createdPath()))).resolves.toBeTruthy();
 });

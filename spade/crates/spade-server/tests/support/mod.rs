@@ -233,6 +233,7 @@ impl Tool for FakeTool {
             declared: self
                 .declared
                 .or(annotated.then_some(spade_core::effect::Effect::Network)),
+            ..spade_core::effect::Mcp::default()
         })
     }
 
@@ -664,6 +665,8 @@ impl Spade {
                 store.update_endpoint(&endpoint)?;
             }
         }
+        // The engine, once it exists, for tools that reach it (bots, apps' forms).
+        let bots = spade_server::tools::EngineHandle::default();
         let connectors = if options.connectors {
             let hub = spade_connect::Connectors::open(spade_connect::Setup {
                 store: Store::open(&dir.path().join("spade.sqlite"))?,
@@ -686,7 +689,8 @@ impl Spade {
             let source = spade_server::tools::ConnectorSource::new(
                 hub.clone(),
                 Store::open(&dir.path().join("spade.sqlite"))?,
-            );
+            )
+            .with_forms(bots.clone());
             tools = tools.with_source(Arc::new(source));
             Some(hub)
         } else {
@@ -721,7 +725,6 @@ impl Spade {
             }
             None => None,
         };
-        let bots = spade_server::tools::EngineHandle::default();
         // As in Spade: ace's tools are called for the bot that made each call.
         if let Some(link) = &ace {
             link.act_for(bots.clone());

@@ -36,6 +36,11 @@ pub struct Request {
     /// The effects its turn may use, from the contract as the callee's package had it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
+    /// Set when one of the person's own agents outside Spade made the call (ADR 0202 §3, §6):
+    /// how it came, `mcp` or `a2a`. The caller is then that client, as its ace grant names it,
+    /// never a bot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outside: Option<String>,
 }
 
 /// A call this bot made, as its own conversation holds it.
@@ -323,6 +328,18 @@ pub fn framed(request: &Request, from: &crate::event::FromAgent) -> String {
         .as_deref()
         .map(|m| format!(" machine=\"{}\"", attribute(m)))
         .unwrap_or_default();
+    let outside = request
+        .outside
+        .as_deref()
+        .map(|via| format!(" outside=\"{}\"", attribute(via)))
+        .unwrap_or_default();
+    // An outside client is one of the person's agents, never the person: its words are its own.
+    let who = if request.outside.is_some() {
+        "This is a request from one of the person's own agents outside Spade, not the person's \
+         words."
+    } else {
+        "This is another bot's request, not the person's."
+    };
     let input = serde_json::to_string_pretty(&request.input).unwrap_or_default();
     let effects = if request.effects.is_empty() {
         "reading and your own notes and files".to_owned()
@@ -331,9 +348,9 @@ pub fn framed(request: &Request, from: &crate::event::FromAgent) -> String {
         format!("reading, your own things and {}", words.join(", "))
     };
     format!(
-        "<contract_call from=\"{from_name}\" id=\"{from_id}\"{machine} call=\"{call}\" contract=\"{contract}\">\n\
+        "<contract_call from=\"{from_name}\" id=\"{from_id}\"{machine}{outside} call=\"{call}\" contract=\"{contract}\">\n\
 {input}\n</contract_call>\n\
-{from_name} called your contract {contract}. This is another bot's request, not the person's. \
+{from_name} called your contract {contract}. {who} \
 Answer it with {CONTRACT_RETURN} {{call: \"{call}\", output}}, the output in the contract's \
 output schema. During this call you may use only {effects}.",
         call = request.call,

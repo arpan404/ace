@@ -48,9 +48,11 @@ test("file URLs decode their path, keep a drive letter and keep another host apa
 });
 
 test("an ssh remote with a path from the root keeps that path", () => {
-  expect(normalizeRemoteUrl("git@host.example:/srv/git/app.git")).toBe("host.example/srv/git/app");
+  expect(normalizeRemoteUrl("git@host.example:/srv/git/app.git")).toBe(
+    "v2:host.example/srv/git/app",
+  );
   expect(normalizeRemoteUrl("ssh://git@host.example/srv/git/app.git")).toBe(
-    "host.example/srv/git/app",
+    "v2:host.example/srv/git/app",
   );
 });
 
@@ -159,7 +161,7 @@ test("a remote on a non-default port is another repository; the scheme's default
   ].map((url) => normalizeRemoteUrl(url));
   expect(new Set(keys).size).toBe(keys.length);
   expect(normalizeRemoteUrl("ssh://git@forge:22/team/app")).toBe(
-    normalizeRemoteUrl("git@forge:team/app.git"),
+    normalizeRemoteUrl("ssh://git@forge/team/app.git"),
   );
   expect(normalizeRemoteUrl("https://forge:443/team/app")).toBe(
     normalizeRemoteUrl("http://forge:80/team/app"),
