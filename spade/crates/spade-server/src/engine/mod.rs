@@ -38,6 +38,7 @@ mod knowledge_api;
 mod learned;
 mod ledger;
 mod local;
+mod local_probes;
 pub(crate) use app_forms::Given;
 pub(crate) use ledger::Admission;
 mod made;
@@ -290,6 +291,8 @@ pub struct Engine {
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
     /// The local model servers Spade looks for; Ollama's and LM Studio's defaults when unset.
     local_servers: Mutex<Option<Vec<crate::local_models::LocalServer>>>,
+    /// Local models whose checks run now (ADR 0205 §3, `local_probes`).
+    probing: local_probes::Probing,
     /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
@@ -438,6 +441,7 @@ impl Engine {
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
             local_servers: Mutex::new(None),
+            probing: local_probes::Probing::default(),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
             reach: reach::Shared::default(),

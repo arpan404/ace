@@ -116,6 +116,7 @@ pub fn router(state: AppState) -> Router {
         .route("/endpoints", post(endpoints::create))
         .route("/endpoints/local", get(endpoints::local))
         .route("/endpoints/local/{server}", post(endpoints::use_local))
+        .route("/endpoints/{id}/probe", post(endpoints::probe))
         .route(
             "/endpoints/{id}",
             axum::routing::patch(endpoints::update).delete(endpoints::delete),

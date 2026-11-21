@@ -45,6 +45,11 @@ impl Models for Person {
         let price = self.model(reference)?.price?;
         Some(price.input + price.output)
     }
+
+    fn calls_tools(&self, reference: &str) -> bool {
+        self.model(reference)
+            .is_some_and(|m| m.can(spade_models::Capability::Tools))
+    }
 }
 
 /// A change to overrides: `Some(None)` clears a value, `None` keeps it. A role takes a route: a

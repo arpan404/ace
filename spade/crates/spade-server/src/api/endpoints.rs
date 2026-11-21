@@ -107,16 +107,27 @@ fn key_source(in_keychain: Option<bool>, env: Option<&str>) -> (Value, Value) {
     }
 }
 
-fn endpoint_json(view: &EndpointView, in_keychain: Option<bool>) -> Value {
+fn endpoint_json(state: &AppState, view: &EndpointView, in_keychain: Option<bool>) -> Value {
     let e = &view.stored;
     let (key_set, source) = key_source(in_keychain, e.key_env.as_deref());
+    let local = spade_models::base_url::is_loopback(&e.base_url);
+    let engine = &state.engine;
+    // On this computer, what Spade's own checks found and whether ace measured its family
+    // (ADR 0205 §3); `null` for any other endpoint.
+    let checks = |id: &str| local.then(|| engine.probe_view(&format!("{}/{id}", e.id)));
+    let known = |id: &str| {
+        local
+            .then(|| engine.known_good(id))
+            .flatten()
+            .map(|f| json!({ "name": f.name, "passed": f.passed, "cases": f.cases, "checked": f.checked }))
+    };
     json!({
         "id": e.id,
         "name": e.name,
         "format": e.format,
         "base_url": e.base_url,
         // On this computer: offered before any other (ADR 0205 §1).
-        "local": spade_models::base_url::is_loopback(&e.base_url),
+        "local": local,
         "session_header": e.session_header,
         "header_names": e.headers.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>(),
         "needs_key": e.needs_key,
@@ -130,6 +141,8 @@ fn endpoint_json(view: &EndpointView, in_keychain: Option<bool>) -> Value {
             "capabilities": shown.capabilities.as_ref()
                 .map(|all| all.iter().map(|c| c.name()).collect::<Vec<_>>()),
             "source": shown.source,
+            "probes": checks(&shown.model.id),
+            "known_good": known(&shown.model.id),
         })).collect::<Vec<_>>(),
     })
 }
@@ -137,7 +150,7 @@ fn endpoint_json(view: &EndpointView, in_keychain: Option<bool>) -> Value {
 /// One endpoint, as `/v1/models` lists it.
 fn one_endpoint(state: &AppState, view: &EndpointView) -> Value {
     let known = in_keychain(state, std::slice::from_ref(view));
-    endpoint_json(view, known.first().copied().flatten())
+    endpoint_json(state, view, known.first().copied().flatten())
 }
 
 fn endpoint_problem(error: &EndpointError) -> Response {
@@ -189,7 +202,7 @@ fn models_now(state: &AppState) -> Response {
         .collect();
     let known = in_keychain(state, &views);
     Json(json!({
-        "endpoints": views.iter().zip(&known).map(|(v, k)| endpoint_json(v, *k)).collect::<Vec<_>>(),
+        "endpoints": views.iter().zip(&known).map(|(v, k)| endpoint_json(state, v, *k)).collect::<Vec<_>>(),
         // Some keys' keychain reads are still waiting (a prompt): asked again, they may be known.
         "character_avatars": true,
         "keys_pending": known.iter().any(Option::is_none),
@@ -364,13 +377,49 @@ pub(super) async fn use_local(
 ) -> Response {
     off_thread(
         move || match state.engine.use_local_model(&server, &body.model) {
-            Ok((view, value)) => Json(json!({
-                "endpoint": one_endpoint(&state, &view),
-                "value": value,
-            }))
-            .into_response(),
+            Ok((_, value)) => {
+                // Its three checks start now; the answer shows them running.
+                state.engine.start_probe(&value);
+                let endpoint = value.split_once('/').map_or("", |(e, _)| e);
+                let views = state.engine.endpoint_views().unwrap_or_default();
+                let Some(view) = views.iter().find(|v| v.stored.id == endpoint) else {
+                    return problem(StatusCode::NOT_FOUND, "the endpoint is gone");
+                };
+                Json(json!({
+                    "endpoint": one_endpoint(&state, view),
+                    "value": value,
+                }))
+                .into_response()
+            }
             Err(error) => endpoint_problem(&error),
         },
     )
     .await
+}
+
+/// Runs a local model's three checks again (ADR 0205 §3): `202` once they start, `409` while
+/// they already run, `400` for a model not on this computer, whose checks would cost money.
+pub(super) async fn probe(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<ModelId>,
+) -> Response {
+    let reference = format!("{id}/{}", body.id.trim());
+    if state.engine.models_endpoint(&id).is_none() {
+        return problem(StatusCode::NOT_FOUND, "no such endpoint");
+    }
+    if !state.engine.is_local(&reference) {
+        return problem(
+            StatusCode::BAD_REQUEST,
+            "only a model on this computer is checked; its checks cost nothing there",
+        );
+    }
+    if !state.engine.start_probe(&reference) {
+        return problem(StatusCode::CONFLICT, "its checks are already running");
+    }
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({ "probes": state.engine.probe_view(&reference) })),
+    )
+        .into_response()
 }

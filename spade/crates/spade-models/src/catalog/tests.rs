@@ -190,3 +190,21 @@ fn presets_need_no_roles_and_know_a_models_facts_by_id() -> Result<(), CatalogEr
     );
     Ok(())
 }
+
+#[test]
+fn a_measured_local_family_marks_its_models_and_a_bad_entry_stops_the_file() {
+    let measured = r#"{ "local": [ { "family": "qwen3", "name": "Qwen3", "passed": 0.92,
+        "cases": 25, "checked": "2026-11-20" } ], "endpoints": [] }"#;
+    let catalog = Catalog::from_json(measured);
+    let found = catalog
+        .as_ref()
+        .ok()
+        .and_then(|c| c.known_good("qwen3:8b"))
+        .map(|f| (f.name.clone(), f.cases));
+    assert_eq!(found, Some(("Qwen3".to_owned(), 25)));
+    assert!(catalog.ok().is_some_and(|c| c.known_good("llama4").is_none()));
+
+    let unmeasured = r#"{ "local": [ { "family": "qwen3", "name": "Qwen3", "passed": 0.92,
+        "cases": 0, "checked": "2026-11-20" } ], "endpoints": [] }"#;
+    assert_eq!(problems(unmeasured).len(), 1, "{:?}", problems(unmeasured));
+}
