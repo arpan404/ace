@@ -146,7 +146,8 @@ export function TabStrip(props: {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(undefined);
         }}
         onDrop={onDrop}
-        className="relative flex min-w-0 items-center gap-0.5 overflow-x-auto px-0.5 py-1 [scrollbar-width:none] [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden"
+        // Snapped to tab starts, so a scrolled strip never shows a tab cut mid-word at its left.
+        className="relative flex min-w-0 snap-x snap-mandatory scroll-px-0.5 items-center gap-0.5 overflow-x-auto px-0.5 py-1 [scrollbar-width:none] [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden [&>*]:snap-start"
       >
         {state.tabs.map((tab, index) => (
           <TabItem
