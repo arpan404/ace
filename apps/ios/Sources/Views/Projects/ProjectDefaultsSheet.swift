@@ -27,7 +27,7 @@ struct ProjectDefaultsSheet: View {
                 if let project {
                     EditProjectView(model: model, project: project) { _ in done() }
                 } else if let problem {
-                    EmptyState(systemImage: "folder", title: "Couldn't open the project.", line: problem, failed: true) {
+                    EmptyState(icon: .folder, title: "Couldn't open the project.", line: problem, failed: true) {
                         Button("Try again") { Task { await load() } }
                     }
                 } else {
@@ -37,7 +37,7 @@ struct ProjectDefaultsSheet: View {
             .toolbar {
                 if project == nil {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(action: done) { Image(systemName: "xmark") }.accessibilityLabel("Close")
+                        Button(action: done) { Image(ace: .x) }.accessibilityLabel("Close")
                     }
                 }
             }

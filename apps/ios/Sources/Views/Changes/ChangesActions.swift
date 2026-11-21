@@ -115,7 +115,7 @@ private struct ChangesActions<Header: View>: ViewModifier {
         Menu {
             if let step, step.kind != "none", model.canOperate {
                 Section(step.blocked ?? step.detail) {
-                    Button { start(step) } label: { Label(label(step), systemImage: icon(step)) }
+                    Button { start(step) } label: { Label(label(step), ace: icon(step)) }
                         .disabled(step.blocked != nil || running)
                     if step.kind == "merge" {
                         Picker("Merge method", selection: Binding(get: { method?.method ?? "" }, set: { savedMethod = $0 })) {
@@ -135,15 +135,15 @@ private struct ChangesActions<Header: View>: ViewModifier {
                     Picker(selection: Binding(get: { summary?.layout ?? "unified" }, set: { model.sheet(["kind": "changes.layout", "layout": $0]) })) {
                         Text("Unified").tag("unified")
                         Text("Split").tag("split")
-                    } label: { Label("Layout", systemImage: "rectangle.split.2x1") }
+                    } label: { Label("Layout", ace: .squareSplitHorizontal) }
                     .pickerStyle(.menu)
                     .accessibilityIdentifier("diff.layout")
                 }
-                Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") }
+                Toggle(isOn: $wrap) { Label("Wrap lines", ace: .textAlignLeft) }
                     .accessibilityIdentifier("diff.wrap")
-                Button("Refresh", systemImage: "arrow.clockwise") { model.sheet(["kind": "changes.refresh"]) }
+                Button("Refresh", ace: .arrowClockwise) { model.sheet(["kind": "changes.refresh"]) }
             }
-        } label: { Image(systemName: "ellipsis") }
+        } label: { Image(ace: .dotsThree) }
         .accessibilityLabel("Change actions").accessibilityIdentifier("changes.menu")
     }
 
@@ -168,12 +168,12 @@ private struct ChangesActions<Header: View>: ViewModifier {
             .accessibilityIdentifier(outcome != nil ? "changes.outcome" : model.canOperate ? "changes.running" : "changes.readOnly")
         }
     }
-    private func icon(_ step: ChangesSummary.Step) -> String {
+    private func icon(_ step: ChangesSummary.Step) -> AceIcon.Name {
         switch step.kind {
-        case "commit": "checkmark.circle"
-        case "push": "arrow.up.circle"
-        case "merge": "arrow.triangle.merge"
-        default: "arrow.triangle.branch"
+        case "commit": .checkCircle
+        case "push": .arrowCircleUp
+        case "merge": .gitMerge
+        default: .gitBranch
         }
     }
     private func start(_ step: ChangesSummary.Step) {

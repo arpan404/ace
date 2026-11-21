@@ -76,7 +76,7 @@ struct AcpAgentView: View {
                 Text(agent.description).foregroundStyle(AceDesign.Ink.primary)
             }
             .padding(.vertical, AceDesign.Space.tight)
-            if let standing = agent.standing { InsetRow("On this machine", systemImage: nil, value: standing) }
+            if let standing = agent.standing { InsetRow("On this machine", icon: nil, value: standing) }
             if let install { progress(install) }
             if let message = installProblem ?? pollProblem {
                 ServiceProblem(message: message)
@@ -116,7 +116,7 @@ struct AcpAgentView: View {
         if agent.homepage != nil || agent.license != nil {
             Section {
                 if let raw = agent.homepage, let url = URL(string: raw), url.scheme == "https" { Link("Website", destination: url) }
-                if let license = agent.license { InsetRow("Licence", systemImage: nil, value: license) }
+                if let license = agent.license { InsetRow("Licence", icon: nil, value: license) }
             }
         }
     }
@@ -134,7 +134,7 @@ struct AcpAgentView: View {
                     .buttonStyle(.borderless).contentTransition(.opacity)
                 }
                 .frame(minHeight: AceDesign.Size.tap)
-                if let prompt = agent.setup.prompt { InsetRow("Then type", systemImage: nil, value: prompt) }
+                if let prompt = agent.setup.prompt { InsetRow("Then type", icon: nil, value: prompt) }
             }
             if let note = agent.setup.note { Text(note).foregroundStyle(AceDesign.Ink.muted) }
         } header: { InsetHeader("Set up") } footer: {

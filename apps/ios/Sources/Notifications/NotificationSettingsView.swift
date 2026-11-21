@@ -40,7 +40,7 @@ struct NotificationSettingsView: View {
                         MachineNotificationSettings(notifications: notifications, hostId: session.hostId,
                                                     name: inbox.name(session.hostId), model: session.client)
                     } label: {
-                        InsetRow(inbox.name(session.hostId), systemImage: nil,
+                        InsetRow(inbox.name(session.hostId), icon: nil,
                                  value: notifications.muted.contains(session.hostId) ? "Off" : "On")
                     }
                     .accessibilityIdentifier("notifications.machine.\(session.hostId)")
@@ -77,7 +77,7 @@ struct MachineNotificationSettings: View {
             Section {
                 NavigationLink {
                     SettingsPageView(model: model, page: "notifications", title: "Notifications")
-                } label: { InsetRow("Push when the app is closed", systemImage: nil) }
+                } label: { InsetRow("Push when the app is closed", icon: nil) }
                 .accessibilityIdentifier("notifications.machine.push")
             }
             .insetRowBackground()

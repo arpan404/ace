@@ -10,7 +10,7 @@ struct TaskProfilesView: View {
             if !profiles.isEmpty {
                 Section {
                     ForEach(profiles) { profile in
-                        NavigationLink { TaskProfileEditor(store: store, profile: profile, isNew: false) } label: { InsetRow(profile.name, systemImage: nil) }
+                        NavigationLink { TaskProfileEditor(store: store, profile: profile, isNew: false) } label: { InsetRow(profile.name, icon: nil) }
                     }.onDelete { indices in
                         do { for index in indices { try store.remove(profiles[index].id) }; profiles = store.load() }
                         catch { problem = error.localizedDescription }

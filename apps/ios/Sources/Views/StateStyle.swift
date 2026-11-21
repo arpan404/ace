@@ -16,7 +16,7 @@ struct StateLabel: View {
         let tone = AceTone(status.token)
         StatusLabel(word: status.label, tone: tone,
                     glyph: tone == .idle || tone == .waiting ? nil : GlyphState(tone: tone),
-                    loud: StatusSymbol.isLoud(status.token))
+                    loud: StatusWord.isLoud(status.token))
     }
 }
 extension View {

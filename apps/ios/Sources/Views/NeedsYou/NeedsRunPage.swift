@@ -193,8 +193,7 @@ struct NeedsRunPage: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     Spacer(minLength: AceDesign.Space.related)
-                    Image(systemName: "chevron.right")
-                        .font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
+                    AceIcon(.caretRight, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
                 .frame(minHeight: AceDesign.Size.tap)

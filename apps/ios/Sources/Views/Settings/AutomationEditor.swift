@@ -87,7 +87,7 @@ struct AutomationEditor: View {
         .navigationTitle(editing == nil ? "New automation" : "Edit automation").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button { if dirty { discarding = true } else { dismiss() } } label: { Image(systemName: "xmark") }
+                Button { if dirty { discarding = true } else { dismiss() } } label: { Image(ace: .x) }
                     .accessibilityLabel("Close").accessibilityIdentifier("automation.cancel")
             }
             ToolbarItem(placement: .confirmationAction) {
@@ -164,7 +164,7 @@ struct AutomationEditor: View {
                     Spacer()
                     if let pick { ProviderMark(provider: pick.provider, size: AceDesign.Size.icon, quiet: true) }
                     Text(modelLabel).foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
-                    Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
+                    AceIcon(.caretRight, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                         .foregroundStyle(AceDesign.Ink.muted)
                 }
                 .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())

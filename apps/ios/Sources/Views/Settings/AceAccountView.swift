@@ -225,7 +225,7 @@ struct AceAccountView: View {
                     .accessibilityIdentifier("account.machines.empty")
             }
             ForEach(listed) { machine in
-                InsetRow(systemImage: Self.symbol(machine.platform), title: Self.name(machine), subtitle: subtitle(machine)) { EmptyView() }
+                InsetRow(icon: Self.icon(machine.platform), title: Self.name(machine), subtitle: subtitle(machine)) { EmptyView() }
                     .swipeActions(edge: .trailing) { forget(machine) }
                     .contextMenu { forget(machine) }
                     // One element per machine ("studio, Seen 3 days ago"), not one per glyph and line.
@@ -266,11 +266,11 @@ struct AceAccountView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    static func symbol(_ platform: String) -> String {
+    static func icon(_ platform: String) -> AceIcon.Name {
         switch platform {
-        case "darwin", "macos": "laptopcomputer"
-        case "win32", "windows": "pc"
-        default: "desktopcomputer"
+        case "darwin", "macos": .laptop
+        case "win32", "windows": .desktopTower
+        default: .desktop
         }
     }
 }

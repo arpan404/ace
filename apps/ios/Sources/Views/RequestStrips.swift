@@ -115,7 +115,7 @@ struct RequestSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(action: close) { Image(systemName: "xmark") }
+                        Button(action: close) { Image(ace: .x) }
                             .accessibilityLabel("Close").accessibilityIdentifier("request.close")
                     }
                 }

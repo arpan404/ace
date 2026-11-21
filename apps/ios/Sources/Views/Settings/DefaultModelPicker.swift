@@ -21,7 +21,7 @@ struct DefaultModelPicker: View {
                             Text(choice.label).foregroundStyle(AceDesign.Ink.primary)
                             Spacer(minLength: AceDesign.Space.related)
                             if choice.current {
-                                Image(systemName: "checkmark").foregroundStyle(AceDesign.Ink.primary)
+                                AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceDesign.Ink.primary)
                             }
                         }.frame(minHeight: AceDesign.Size.tap)
                     }

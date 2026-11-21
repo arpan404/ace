@@ -69,7 +69,7 @@ struct AutomationRunNote: View {
             .navigationTitle("Run with a note").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
+                    Button { dismiss() } label: { Image(ace: .x) }.accessibilityLabel("Close")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Run") { run(note.trimmingCharacters(in: .whitespacesAndNewlines)); dismiss() }

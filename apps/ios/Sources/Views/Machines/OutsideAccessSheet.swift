@@ -67,7 +67,7 @@ struct OutsideAccessSheet: View {
                         .font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
                         .foregroundStyle(AceDesign.Ink.primary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Label(request.domain, systemImage: request.verified ? "checkmark.seal" : "questionmark.circle")
+                    Label(request.domain, ace: request.verified ? .sealCheck : .question)
                         .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                         .accessibilityIdentifier("outside.domain")
                     if let redirect = request.redirect {

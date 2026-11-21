@@ -161,7 +161,7 @@ struct TerminalView: View {
             }
         }
         Divider()
-        Button("New terminal", systemImage: "plus") { Task { await create() } }.disabled(!model.canOperate || busy)
+        Button("New terminal", ace: .plus) { Task { await create() } }.disabled(!model.canOperate || busy)
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
@@ -173,7 +173,7 @@ struct TerminalView: View {
             } label: {
                 HStack(spacing: AceTheme.Spacing.xs) {
                     Text(selected == nil ? "Terminal" : currentName).fontWeight(.semibold).lineLimit(1)
-                    Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    AceIcon(.caretDown, size: AceDesign.Size.glyphSmall, weight: .bold, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
                 .foregroundStyle(AceTheme.Colours.foreground)
             }
@@ -181,25 +181,25 @@ struct TerminalView: View {
         }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
-            Button { finding ? closeFind() : (finding = true) } label: { Image(systemName: "magnifyingglass") }
+            Button { finding ? closeFind() : (finding = true) } label: { Image(ace: .magnifyingGlass) }
                 .accessibilityLabel("Find").accessibilityIdentifier("terminal.find").disabled(selected == nil)
             Menu {
                 if threadPage {
                     Section(currentName) { sessions }
                 }
-                Button("Rename…", systemImage: "pencil") { newName = TerminalNames.name(thread: threadId, terminal: selected ?? "") ?? ""; renaming = true }
-                Button("Clear terminal", systemImage: "eraser") { output.clear(); UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-                Button("Copy all output", systemImage: "doc.on.doc") { UIPasteboard.general.string = output.text }
-                Button("Select text", systemImage: "text.cursor") { selecting = true }
-                Button("Share raw log", systemImage: "square.and.arrow.up") { shareRawLog() }
+                Button("Rename…", ace: .pencilSimple) { newName = TerminalNames.name(thread: threadId, terminal: selected ?? "") ?? ""; renaming = true }
+                Button("Clear terminal", ace: .broom) { output.clear(); UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+                Button("Copy all output", ace: .copy) { UIPasteboard.general.string = output.text }
+                Button("Select text", ace: .selection) { selecting = true }
+                Button("Share raw log", ace: .export) { shareRawLog() }
                     .accessibilityIdentifier("terminal.shareLog")
                 Divider()
-                Button("Larger text", systemImage: "textformat.size.larger") { fontSize = min(20, fontSize + 1) }.disabled(fontSize >= 20)
-                Button("Smaller text", systemImage: "textformat.size.smaller") { fontSize = max(9, fontSize - 1) }.disabled(fontSize <= 9)
+                Button("Larger text", ace: .magnifyingGlassPlus) { fontSize = min(20, fontSize + 1) }.disabled(fontSize >= 20)
+                Button("Smaller text", ace: .magnifyingGlassMinus) { fontSize = max(9, fontSize - 1) }.disabled(fontSize <= 9)
                 Divider()
-                Button("New terminal", systemImage: "plus") { Task { await create() } }.disabled(!model.canOperate || busy)
-                Button("End session", systemImage: "power", role: .destructive) { ending = true }.disabled(!model.canOperate)
-            } label: { Image(systemName: "ellipsis") }
+                Button("New terminal", ace: .plus) { Task { await create() } }.disabled(!model.canOperate || busy)
+                Button("End session", ace: .power, role: .destructive) { ending = true }.disabled(!model.canOperate)
+            } label: { Image(ace: .dotsThree) }
                 .accessibilityLabel("Terminal actions").accessibilityIdentifier("terminal.more")
                 .disabled(selected == nil)
         }
