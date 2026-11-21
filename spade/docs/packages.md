@@ -21,6 +21,7 @@ must agree). Version 3 adds, beside version 2's fields:
 | `contracts` | Typed calls the person's other bots may make to it: `{name, summary, input, output, effects, examples}`, or `file: contracts/<name>.json` in place of the schemas ([contracts.md](contracts.md)) |
 | `tests`     | `tests/<name>.json` scenario files in the package                                                                                                                                                |
 | `surfaces`  | Cards (`cards/<name>.json`) and panels (`panels/<id>/index.html` with a title, a state schema and declared actions), [surfaces.md](surfaces.md)                                                  |
+| `code`      | WebAssembly components under `code/<name>.wasm`, each with its world, its imports (held to the binary's) and why ([code.md](code.md))                                                            |
 
 Version 2's `routines` read as schedule triggers. Refused whole: anything named or shaped like a
 secret; `publisher`, `signature`, `hash`, `package` or a string `version` (identity is the signed
