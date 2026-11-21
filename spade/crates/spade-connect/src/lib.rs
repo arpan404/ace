@@ -18,6 +18,7 @@ mod live;
 pub mod oauth;
 pub mod records;
 mod secrets;
+pub mod setups;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, RwLock};
@@ -40,6 +41,7 @@ pub use oauth::cimd::CLIENT_METADATA_URL;
 pub use oauth::pkce::{OsRandom, Random};
 pub use records::Access;
 use records::Record;
+pub use setups::{AppSetup, Setups};
 
 /// The path of Spade's sign-in callbacks, under its own address. A client Spade registered, or
 /// one the person gave, comes back to its connector's own, `<CALLBACK_PATH>/<connector id>`, so
@@ -88,6 +90,8 @@ pub struct Setup {
     /// Spade Cloud, for catalogue entries marked `via: "cloud"` (ADR 0140). `None`: those entries
     /// take the person's own client ID only.
     pub cloud: Option<Cloud>,
+    /// Setup steps for apps that take the person's own client ID ([`setups::shipped`] in Spade).
+    pub setups: Setups,
 }
 
 /// What Spade Cloud last said about the apps it can sign in to.
@@ -159,6 +163,7 @@ pub struct Connectors {
     relist: Duration,
     client_metadata: Option<String>,
     apps: Vec<App>,
+    setups: Setups,
     tick: Duration,
     /// Spade Cloud's client, when Spade signs in through it.
     cloud: Option<cloud::CloudClient>,
@@ -221,6 +226,7 @@ impl Connectors {
             relist: setup.relist,
             client_metadata: setup.client_metadata,
             apps: setup.apps,
+            setups: setup.setups,
             tick: setup.tick,
             failures: Mutex::default(),
             devices: Mutex::default(),
@@ -249,6 +255,18 @@ impl Connectors {
         };
         let base = format!("http://{host}:{}{CALLBACK_PATH}", address.port());
         *self.redirect.write().unwrap_or_else(|p| p.into_inner()) = Some(base);
+    }
+
+    /// The callback a sign-in to `connector` with a client the person made comes back to, once
+    /// Spade listens: what the person pastes at the maker.
+    pub fn callback(&self, connector: &str) -> Option<String> {
+        let base = self.redirect.read().unwrap_or_else(|p| p.into_inner());
+        base.as_ref().map(|base| format!("{base}/{connector}"))
+    }
+
+    /// The setup steps for catalogue entry `connector`, if it ships them (ADR 0197).
+    pub fn setup(&self, connector: &str) -> Option<&AppSetup> {
+        self.setups.get(connector)
     }
 
     /// Opens a session to every stored connector, in the background.

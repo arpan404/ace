@@ -692,6 +692,7 @@ impl Spade {
                 addresses: spade_connect::Addresses::system(),
                 client_metadata: options.client_metadata.clone(),
                 apps: options.apps.clone(),
+                setups: spade_connect::setups::shipped(),
                 // A device sign-in's seconds pass in milliseconds here.
                 tick: Duration::from_millis(1),
                 cloud: options.cloud.clone(),
