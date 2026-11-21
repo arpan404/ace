@@ -8,6 +8,8 @@ import { SignatureError } from "@ace/marketplace";
 import {
   RegistryChainError,
   chainStanding,
+  registryKeyFingerprint,
+  registryUploadDigest,
   verifyRegistryChain,
   verifyRegistryManifest,
   type RegistryPin,
@@ -48,7 +50,7 @@ export interface Membership {
 export interface RegistryRequest {
   org: string;
   grant: string;
-  /** The first key the person trusts, answering `registry_trust`. */
+  /** The first key's upload digest the person trusts, answering `registry_trust`. */
   trustKey?: string | undefined;
 }
 
@@ -149,23 +151,31 @@ export async function trustedChain(
       `${request.org}'s registry key chain doesn't follow the one this machine trusts. Nothing was installed.`,
     );
   const first = chain.statements[0];
-  if (!first) throw new Refused("The registry has no key");
-  if ((standing === "new" || standing === "reset") && request.trustKey !== first.key)
+  const firstUpload = chain.uploads[0];
+  if (!first || firstUpload === undefined) throw new Refused("The registry has no key");
+  // The person's answer names this exact key, by its upload's digest: a key that reuses the
+  // id of one they trusted is another key, and asked about again.
+  const upload = registryUploadDigest(firstUpload);
+  if ((standing === "new" || standing === "reset") && request.trustKey !== upload) {
+    const fingerprint = registryKeyFingerprint(first.publicKey);
     throw new Refused(
       standing === "reset"
-        ? `${request.org}'s registry key was reset by ${first.addedBy}. Trust the new key ${first.key} for installs on this machine?`
-        : `${request.org}'s registry, key ${first.key}, added by ${first.addedBy}. Trust it for installs on this machine?`,
+        ? `${request.org}'s registry key was reset by ${first.addedBy}. Trust the new key ${fingerprint} for installs on this machine?`
+        : `${request.org}'s registry, key ${fingerprint}, added by ${first.addedBy}. Trust it for installs on this machine?`,
       {
         code: "registry_trust",
         registryKey: {
           org: request.org,
           key: first.key,
+          upload,
+          fingerprint,
           addedBy: first.addedBy,
           at: first.at,
           reset: standing === "reset",
         },
       },
     );
+  }
   if (standing !== "trusted" || chain.uploads.length > (pin?.uploads.length ?? 0))
     store.setMeta(pinKey(request.org), JSON.stringify({ uploads: chain.uploads }));
   return chain;
@@ -194,8 +204,11 @@ export async function confirmRegistryInstall(
   review: RegistryReview,
   request: RegistryRequest,
   membership: Membership,
+  /** Checks membership again against this machine as it is now, after the chain's fetch. */
+  recheck: () => void,
 ): Promise<void> {
   const chain = await trustedChain(reads, store, request, membership);
+  recheck();
   let manifest;
   try {
     manifest = verifyRegistryManifest(review.signedManifest, chain);

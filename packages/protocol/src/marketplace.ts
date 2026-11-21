@@ -28,6 +28,9 @@ import {
 import { MarketScanReport } from "./marketplace-scan.ts";
 import { MarketKeyId, MarketOrgId } from "./marketplace-signed.ts";
 
+/** A SHA-256 digest, base64url: of a registry key's exact upload. */
+const MarketUploadDigest = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
 export * from "./marketplace-base.ts";
 export * from "./marketplace-publish-pick.ts";
 export * from "./marketplace-catalog.ts";
@@ -82,8 +85,11 @@ export const MarketInstalled = z.strictObject({
     .strictObject({
       version: z.string().max(64),
       hash: MarketHash,
-      /** That version came from this organization's registry (ADR 0206 §5.4). */
-      registry: MarketOrgId.optional(),
+      /**
+       * Where that version came from (ADR 0206 §5.4): this organization's registry, or `null`
+       * for the public market. Absent on records from before it was kept.
+       */
+      registry: MarketOrgId.nullable().optional(),
     })
     .optional(),
   /**
@@ -401,10 +407,12 @@ export const MarketOperation = z.discriminatedUnion("op", [
      */
     registry: MarketOrgId.optional(),
     /**
-     * The person trusts the registry's key chain starting at this key on this machine (ADR 0206
-     * §5.3): their answer to `registry_trust`. Needed once per chain.
+     * The person trusts the registry's key chain starting at this exact first key on this
+     * machine (ADR 0206 §5.3): their answer to `registry_trust`, the SHA-256 (base64url) of that
+     * key's upload as `registryKey.upload` named it, so another key reusing its id is never
+     * trusted with it. Needed once per chain.
      */
-    trustKey: MarketKeyId.optional(),
+    trustKey: MarketUploadDigest.optional(),
   }),
   /**
    * Reads which installed entries of an organization's registry have newer versions, with the
@@ -588,6 +596,10 @@ export const MarketResult = z.discriminatedUnion("op", [
       .strictObject({
         org: MarketOrgId,
         key: MarketKeyId,
+        /** What `trustKey` answers with: the SHA-256 of this first key's exact upload. */
+        upload: MarketUploadDigest,
+        /** The key's public-key fingerprint, as the person compares it with the owner's. */
+        fingerprint: z.string().min(1).max(64),
         addedBy: z.string().max(128),
         at: z.number().int().nonnegative(),
         /** A device that trusted another first key before: the chain was reset. */

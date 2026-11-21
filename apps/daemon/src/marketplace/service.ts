@@ -1,5 +1,11 @@
 import { join } from "node:path";
-import type { MarketInstalled, MarketOperation, MarketResult } from "@ace/protocol/marketplace";
+import {
+  Signed,
+  VersionManifest,
+  type MarketInstalled,
+  type MarketOperation,
+  type MarketResult,
+} from "@ace/protocol/marketplace";
 import { privacySpans, withSentences } from "@ace/marketplace";
 import { homeOf, publicInstall, readListed, searchListings } from "./browse.ts";
 import { applyBlocklist, turnOnUnlessBlocked } from "./blocklist.ts";
@@ -20,7 +26,7 @@ import { publishRequest } from "./publish-request.ts";
 import { saveGitSource, sourcesOf } from "./sources.ts";
 import { spadeBot } from "./spade-bot.ts";
 import { spadeSkillFiles, spadeSkills } from "./spade-skills.ts";
-import { MarketStore } from "./store.ts";
+import { MarketStore, type StoredInstall } from "./store.ts";
 import { badgesOf, Trust } from "./trust.ts";
 import { TurnedOff } from "./turned-off.ts";
 import { markUpdates, turnOffWithdrawn } from "./upkeep.ts";
@@ -46,11 +52,26 @@ export type { MarketPluginPort, MarketplaceOptions, MarketRequestPorts } from ".
 const staleMs = 60 * 60_000;
 const dayMs = 24 * 60 * 60_000;
 
+/**
+ * Where the version before an install came from: as its record says (`null`, the public
+ * market), or for a record from before that was kept, as the earlier version's own signed
+ * manifest says, never the current version's source.
+ */
+function previousRegistry(install: StoredInstall): string | undefined {
+  const previous = install.previous;
+  if (!previous) return undefined;
+  if (previous.registry !== undefined) return previous.registry ?? undefined;
+  const signed = Signed.safeParse(install.previousSignedManifest);
+  return signed.success ? VersionManifest.safeParse(signed.data.body).data?.registry : undefined;
+}
+
 /** A registry's reads with the member's grant that proved membership, and what checked it. */
 interface MemberRead {
   reads: MemberReads;
   grant: string;
   membership: Membership;
+  /** Proves membership again against this machine as it is at that moment. */
+  recheck: () => void;
 }
 
 export class MarketplaceService {
@@ -301,6 +322,7 @@ export class MarketplaceService {
               reviewed,
               { org: reviewed.org, grant: read.grant },
               read.membership,
+              read.recheck,
             );
           }
           return this.#reviews.install(
@@ -352,7 +374,7 @@ export class MarketplaceService {
       case "registryRefresh":
         return this.#serial(async () => {
           const org = operation.registry;
-          requireMember(ports.orgGrant, org, ports.membership, this.#options.now());
+          requireMember(ports.orgGrant, org, ports.membership?.(), this.#options.now());
           const http = this.#http();
           if (!http || !ports.orgGrant)
             return error("unavailable", "market.acehq.dev is turned off");
@@ -370,7 +392,7 @@ export class MarketplaceService {
         if ("op" in install) return install;
         // The earlier version is checked as where it came from: a registry's needs membership
         // now and its signature against the chain trusted now, as an install from it does.
-        const org = install.previous?.registry ?? (install.previous ? install.registry : undefined);
+        const org = previousRegistry(install);
         return this.#serial(async () => {
           if (org !== undefined) {
             const read = await this.#registryRead({ org }, ports);
@@ -388,6 +410,7 @@ export class MarketplaceService {
                 },
                 { org, grant: read.grant },
                 read.membership,
+                read.recheck,
               );
           }
           return this.#reviews.prepareRollback(install, org);
@@ -490,20 +513,24 @@ export class MarketplaceService {
       { org: request.org, grant: read.grant, trustKey: request.trustKey },
       read.membership,
     );
+    // Fetching the chain took time: the machine must still be the member's, now.
+    read.recheck();
     return { ...read, org: request.org, chain };
   }
 
-  /** A registry's reads as a member, once the grant proves membership on this machine now. */
+  /**
+   * A registry's reads as a member, once the grant proves membership on this machine as it is
+   * now: its account and enrollment are read live, here and again on every `recheck`.
+   */
   async #memberReads(org: string, ports: MarketRequestPorts): Promise<MemberRead> {
-    requireMember(ports.orgGrant, org, ports.membership, this.#options.now());
+    const recheck = () =>
+      requireMember(ports.orgGrant, org, ports.membership?.(), this.#options.now());
+    recheck();
     const http = this.#http();
-    if (!http || !ports.orgGrant || !ports.membership)
+    const membership = ports.membership?.();
+    if (!http || !ports.orgGrant || !membership)
       throw new Refused("market.acehq.dev is turned off", { code: "unavailable" });
-    return {
-      reads: http.member(org, ports.orgGrant),
-      grant: ports.orgGrant,
-      membership: ports.membership,
-    };
+    return { reads: http.member(org, ports.orgGrant), grant: ports.orgGrant, membership, recheck };
   }
 
   /**

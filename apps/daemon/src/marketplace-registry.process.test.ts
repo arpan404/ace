@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   GRANT_LIFETIME_MS,
@@ -14,6 +16,7 @@ import { marketKey, signerToken, startMarketWorker, type MarketWorker } from "@a
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 import type { MarketRequestPorts } from "./marketplace/options.ts";
 import { fakeSpade, marketplaceHarness } from "./marketplace/test-support.ts";
+import type { Membership } from "./marketplace/org-registry.ts";
 import { memoryKeychain } from "./org-registry/keychain.ts";
 import { registrySignerLoop } from "./org-registry/loop.ts";
 import { freshSeed, makeRegistryKey, signRegistry } from "./org-registry/signer.ts";
@@ -141,7 +144,10 @@ const answer = (body: unknown) =>
   Promise.resolve(
     new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } }),
   );
-const onOrgHost = { keys: backendKeys, machine: { kind: "org-host" as const, org, hostId: host } };
+/** This machine as it is at each moment: the daemon reads it live, never a snapshot. */
+const asOrgHost = { keys: backendKeys, machine: { kind: "org-host" as const, org, hostId: host } };
+let machineNow: Membership = asOrgHost;
+const onOrgHost = () => machineNow;
 const request = (operation: MarketOperation, ports: MarketRequestPorts = {}) =>
   harness.service.request(operation, ports);
 const memberGrant = (subject = host) => grant("user_member", { ...member, iat: start, subject });
@@ -167,6 +173,9 @@ const installed = async (name: string) => {
 };
 const chainPath = `/v1/orgs/${org}/keys`;
 let firstKey = "";
+/** The person's answer to the first trust question: the first key's upload digest. */
+let trusted = "";
+let fingerprint = "";
 
 beforeAll(async () => {
   market = await startMarketWorker({ grantKeys: [grantPublicKey(backend)] });
@@ -206,13 +215,22 @@ afterAll(async () => {
   await market?.close();
 });
 
+/** A person's machine whose account isn't a member. */
+const elsewhere = () => ({
+  keys: backendKeys,
+  machine: { kind: "personal" as const, account: "user_out", hostId: host },
+});
+
 describe("a package from an organization's registry", () => {
   it("installs on a member's org host once the person trusts the registry's key", async () => {
     expect(errorOf(await request(prepare, { membership: onOrgHost }))?.code).toBe("not_member");
     const asked = errorOf(await asMember(prepare));
     expect(asked?.code).toBe("registry_trust");
     expect(asked?.registryKey).toMatchObject({ org, key: firstKey, addedBy: owner, reset: false });
-    const review = await asMember({ ...prepare, trustKey: firstKey });
+    trusted = asked?.registryKey?.upload ?? "";
+    fingerprint = asked?.registryKey?.fingerprint ?? "";
+    expect(asked?.message).toContain(fingerprint);
+    const review = await asMember({ ...prepare, trustKey: trusted });
     if (review.op !== "review") throw new Error(JSON.stringify(review));
     // The install needs membership at that moment too, not only at the review.
     const install = installOf(review.review.id, review.review.hash);
@@ -226,10 +244,6 @@ describe("a package from an organization's registry", () => {
   });
 
   it("is refused on a machine whose account isn't a member, even with a member's grant copied to it", async () => {
-    const elsewhere = {
-      keys: backendKeys,
-      machine: { kind: "personal" as const, account: "user_out", hostId: host },
-    };
     for (const orgGrant of [
       memberGrant(),
       grant("user_out", { orgRole: "owner", inOrg: "org_01OTHER", iat: start }),
@@ -237,7 +251,7 @@ describe("a package from an organization's registry", () => {
     ]) {
       const refused = errorOf(
         await request(
-          { ...prepare, trustKey: firstKey },
+          { ...prepare, trustKey: trusted },
           { ...(orgGrant ? { orgGrant } : {}), membership: elsewhere },
         ),
       );
@@ -272,6 +286,50 @@ describe("a package from an organization's registry", () => {
     expect(errorOf(await asMember(install))?.code).toBe("registry_trust");
     harness.hooks.respond = undefined;
     await request({ op: "cancel", id: review.review.id });
+  });
+
+  it("is checked against this machine as it is when it installs, not when the request came", async () => {
+    const review = await asMember(prepare);
+    if (review.op !== "review") throw new Error(JSON.stringify(review));
+    // While the chain is fetched, the host is released and becomes another organization's.
+    harness.hooks.respond = (url) => {
+      if (url.endsWith(chainPath))
+        machineNow = { ...asOrgHost, machine: { ...asOrgHost.machine, org: "org_01OTHER" } };
+      return undefined;
+    };
+    const refused = errorOf(await asMember(installOf(review.review.id, review.review.hash)));
+    harness.hooks.respond = undefined;
+    machineNow = asOrgHost;
+    expect(refused?.code).toBe("not_member");
+    await request({ op: "cancel", id: review.review.id });
+  });
+
+  it("asks again for a reset first key that reuses the trusted key's id, showing its fingerprint", async () => {
+    const served = (await (
+      await market.fetch(chainPath, {
+        headers: { authorization: `Bearer ${grant("user_member", member)}` },
+      })
+    ).json()) as { keys: unknown[] };
+    // Another key under the very id the person trusted.
+    const lookalike = registryLink({
+      org,
+      position: 0,
+      key: testKey(firstKey, 77),
+      owner,
+      at: Date.now(),
+      grantKey: backend,
+    });
+    harness.hooks.respond = (url) =>
+      url.endsWith(chainPath) ? answer({ ...served, keys: [lookalike] }) : undefined;
+    for (const answerWith of [firstKey, trusted]) {
+      const asked = errorOf(await asMember({ ...prepare, trustKey: answerWith }));
+      expect(asked?.code).toBe("registry_trust");
+      expect(asked?.registryKey).toMatchObject({ key: firstKey, reset: true });
+      expect(asked?.registryKey?.upload).not.toBe(trusted);
+      expect(asked?.registryKey?.fingerprint).not.toBe(fingerprint);
+      expect(asked?.message).toContain(asked?.registryKey?.fingerprint ?? "-");
+    }
+    harness.hooks.respond = undefined;
   });
 
   it("is refused from a key chain that doesn't verify, and a reset first key is asked about again", async () => {
@@ -354,7 +412,38 @@ describe("a package from an organization's registry", () => {
         ?.code,
     ).toBe("not_member");
     expect((await asMember(installOf(back.review.id, back.review.hash))).op).toBe("done");
-    expect(await installed("flight-watcher")).toMatchObject({ version: "1.0.0", registry: org });
+    expect(await installed("flight-watcher")).toMatchObject({
+      version: "1.0.0",
+      registry: org,
+      previous: { version: "2.0.0", registry: org },
+    });
+  });
+
+  it("rolls back a record from before provenance was kept as its earlier version's manifest says", async () => {
+    // A record an earlier build wrote: no `previous.registry`, and an earlier version that came
+    // from the public market (its manifest names no registry).
+    const db = new DatabaseSync(join(harness.root, "marketplace", "registry.sqlite"));
+    const row = db
+      .prepare("SELECT bot, data FROM bot_installs WHERE name = 'flight-watcher'")
+      .get();
+    const record = JSON.parse(String(row?.["data"])) as {
+      previous: { registry?: string };
+      previousSignedManifest: { body: { registry?: string } };
+    };
+    delete record.previous.registry;
+    delete record.previousSignedManifest.body.registry;
+    db.prepare("UPDATE bot_installs SET data = ? WHERE bot = ?").run(
+      JSON.stringify(record),
+      String(row?.["bot"]),
+    );
+    db.close();
+    // A public version rolls back as the public market's: no organization's membership asked.
+    const back = await request(
+      { op: "prepareRollback", type: "spade-bot", name: "flight-watcher" },
+      { membership: onOrgHost },
+    );
+    expect(back.op).toBe("review");
+    if (back.op === "review") await request({ op: "cancel", id: back.review.id });
   });
 
   it("stops updating when the member leaves, keeps what was installed, and resumes for a member again", async () => {

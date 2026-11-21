@@ -195,7 +195,7 @@ function serviceAlone(
         : {
             withoutPerson,
             ...(orgGrant ? { orgGrant } : {}),
-            ...(account ? { membership: membershipOf(account) } : {}),
+            ...(account ? { membership: () => membershipOf(account) } : {}),
           },
     ) ??
     Promise.resolve({

@@ -181,6 +181,17 @@ export function verifyRegistryChain(
   return { org: chain.org, keys, current, statements, uploads: chain.keys.map((l) => l.upload) };
 }
 
+/** The SHA-256 of a key's exact upload, base64url: what a person's trust names. */
+export const registryUploadDigest = (upload: string) => sha256Url(encoder.encode(upload));
+
+/** A public key's fingerprint as people compare it: its SHA-256's first 10 bytes, in hex groups. */
+export function registryKeyFingerprint(publicKey: string): string {
+  const hex = Array.from(sha256(decodeBase64url(publicKey)).slice(0, 10), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return hex.match(/.{4}/g)?.join(" ") ?? hex;
+}
+
 /** What a device pinned of a registry's chain: its uploads, first first. */
 export interface RegistryPin {
   uploads: string[];

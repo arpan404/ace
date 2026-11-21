@@ -209,17 +209,20 @@ describe("a registry's names", () => {
   });
 });
 
+const intentPath = (version: string) =>
+  `/v1/publish/spade-skill/intent-skill/versions?version=${version}`;
+
+const stamp = async () => ((await (await read("/v1/index")).json()) as { stamp: number }).stamp;
+
 describe("publishing to the registry", () => {
   it("with a person's grant publishes only the version that grant names", async () => {
     const archive = writeArchive(sampleSkill("intent-skill"));
-    const path = (version: string) =>
-      `/v1/publish/spade-skill/intent-skill/versions?version=${version}`;
     const sent = async (version: string, named: string) =>
-      market.fetch(path(version), {
+      market.fetch(intentPath(version), {
         method: "POST",
         headers: {
           authorization: `Bearer ${grantFor("user_admin", {
-            action: await intentOf("POST", path(named), archive),
+            action: await intentOf("POST", intentPath(named), archive),
             org: acme,
             orgRole: "admin",
           })}`,
@@ -232,7 +235,6 @@ describe("publishing to the registry", () => {
   });
 
   it("moves nothing on the public index's cursor", async () => {
-    const stamp = async () => ((await (await read("/v1/index")).json()) as { stamp: number }).stamp;
     const before = await stamp();
     await publishToRegistry("quiet-skill");
     expect(await stamp()).toBe(before);
@@ -299,6 +301,17 @@ describe("publishing to the registry", () => {
   });
 });
 
+const proved = (path: string) =>
+  market.fetch(path, {
+    headers: {
+      [registryProofHeader]: signRegistryRequest(acmeKey, {
+        method: "GET",
+        path,
+        at: Date.now(),
+      }),
+    },
+  });
+
 const names = (body: unknown) =>
   MarketScanContextBody.parse(body).entries.map((entry) => entry.name);
 
@@ -323,16 +336,6 @@ describe("what signers see", () => {
   });
 
   it("a signer's proof opens no member route; the signer reads under its own", async () => {
-    const proved = (path: string) =>
-      market.fetch(path, {
-        headers: {
-          [registryProofHeader]: signRegistryRequest(acmeKey, {
-            method: "GET",
-            path,
-            at: Date.now(),
-          }),
-        },
-      });
     for (const path of [
       `/v1/orgs/${acme}/entries/spade-skill/acme-triage`,
       `/v1/orgs/${acme}/entries/spade-skill/acme-triage/1.0.0`,

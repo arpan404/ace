@@ -55,6 +55,9 @@ export interface MarketRequestPorts {
    * only with it.
    */
   orgGrant?: string | undefined;
-  /** What checking `orgGrant` needs: the backend's keys and who this machine answers to. */
-  membership?: Membership | undefined;
+  /**
+   * What checking `orgGrant` needs, read live each time: the backend's keys and who this machine
+   * answers to now (its account, its enrollment), never a snapshot from when the request came.
+   */
+  membership?: (() => Membership | undefined) | undefined;
 }

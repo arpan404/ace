@@ -454,7 +454,7 @@ async function installIn(
             previous: {
               version: before.version,
               hash: before.hash,
-              ...(before.registry ? { registry: before.registry } : {}),
+              registry: before.registry ?? null,
             },
           }
         : {}),

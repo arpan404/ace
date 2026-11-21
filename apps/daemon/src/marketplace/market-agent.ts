@@ -113,7 +113,7 @@ export class MarketAgent {
             names,
             withoutPerson: by === "without-person",
             ...(orgGrant ? { orgGrant } : {}),
-            ...(bound ? { membership: membershipOf(bound.account) } : {}),
+            ...(bound ? { membership: () => membershipOf(bound.account) } : {}),
           },
     );
   }
