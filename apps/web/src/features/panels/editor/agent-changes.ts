@@ -89,7 +89,7 @@ export function editCallsOf(
       const at = Math.min(edit.createdAt, firstSeen(edit.id));
       for (const change of fileChanges(edit))
         for (const path of change.movePath ? [change.path, change.movePath] : [change.path])
-          calls.push({ ...thread, path, at });
+          calls.push({ ...thread, path, at, turn: turn.number });
     }
   return calls;
 }

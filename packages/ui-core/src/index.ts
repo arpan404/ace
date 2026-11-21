@@ -85,6 +85,7 @@ export {
 export { PatchFileReader } from "./git-patch-reader.ts";
 export * from "./line-marks.ts";
 export * from "./change-hunks.ts";
+export * from "./live-hunks.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./file-tree.ts";

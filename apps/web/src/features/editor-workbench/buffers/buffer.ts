@@ -507,7 +507,8 @@ export class Buffer implements TextBuffer {
     const doc = this.#doc;
     if (!doc) return false;
     const at = doc.version();
-    const changes = await this.#ctx.merge.lineChanges(doc.text(), next);
+    const before = doc.text();
+    const changes = await this.#ctx.merge.lineChanges(before, next);
     if (this.#doc !== doc || doc.version() !== at) return false;
     this.#landing = true;
     try {
@@ -517,7 +518,7 @@ export class Buffer implements TextBuffer {
       this.#landing = false;
     }
     this.bytes = utf8Length(next);
-    this.#emit({ type: "replaced", reason });
+    this.#emit({ type: "replaced", reason, before, changes });
     return true;
   }
 

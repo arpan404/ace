@@ -115,7 +115,13 @@ export type BufferEvent =
    * The registry replaced text in the document (a reload, a merge or a resolved conflict): a view
    * re-reads its rows and colours. Never sent for the view's own edits.
    */
-  | { type: "replaced"; reason: "reload" | "merge" }
+  | {
+      type: "replaced";
+      reason: "reload" | "merge";
+      /** The document's text just before, and the whole-line changes that turned it into now. */
+      before: string;
+      changes: readonly LineChange[];
+    }
   /** The document was created or freed. */
   | { type: "document" };
 
