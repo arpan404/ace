@@ -139,15 +139,83 @@ function outerDocument(
   root: string,
   channel: Channel = "visualization",
 ): string {
+  const page = pageDocument(html, theme, mode, kit, channel);
+  return outerShell(theme, root, channel, `srcdoc="${attribute(page)}"`);
+}
+
+/** The page as its frame loads it: themed, guarded and under its own CSP. */
+function pageDocument(
+  html: string,
+  theme: HtmlTheme,
+  mode: HtmlMode,
+  kit: HtmlStyleKit | undefined,
+  channel: Channel,
+): string {
   if (!validateHtml(html).valid) throw new Error("Invalid visualization document");
-  const page = themedDocument(html, theme, mode, kit, channel);
+  return themedDocument(html, theme, mode, kit, channel);
+}
+
+/** The trusted outer document around the page frame; `page` sets the frame's `srcdoc`, if given. */
+function outerShell(theme: HtmlTheme, root: string, channel: Channel, page: string): string {
   const bridge = frameBridges[channel];
-  return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${root}iframe{width:100%;border:0;display:block}</style></head><body><template id="ace-page"><iframe title="Visualization content" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(page)}"></iframe></template><script>${bridge}</script></body></html>`;
+  return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${root}iframe{width:100%;border:0;display:block}</style></head><body><template id="ace-page"><iframe title="Visualization content" sandbox="allow-scripts" referrerpolicy="no-referrer" ${page}></iframe></template><script>${bridge}</script></body></html>`;
 }
 
 /** A data URL starts with an opaque origin. */
 const dataUrl = (document: string) =>
   `data:text/html;charset=utf-8,${encodeURIComponent(document.toWellFormed())}`;
+
+/**
+ * A page for a frame that loads a URL: the outer document, small whatever the page's size, and
+ * the page, which the app hands it once that document has loaded (`pageMessage`). Put inside the
+ * URL, a page of a couple of MiB would pass the 2 MiB URL Chromium loads, and the frame would
+ * stay blank.
+ */
+export interface FramedPage {
+  url: string;
+  page: string;
+}
+
+function framed(
+  html: string,
+  theme: HtmlTheme,
+  mode: HtmlMode,
+  kit: HtmlStyleKit | undefined,
+  root: string,
+  channel: Channel,
+): FramedPage {
+  return {
+    url: dataUrl(outerShell(theme, root, channel, "")),
+    page: pageDocument(html, theme, mode, kit, channel),
+  };
+}
+
+/** A visualization that scrolls itself, for a frame: full screen and its own window. */
+export function visualizationFrame(
+  html: string,
+  theme: HtmlTheme,
+  mode: HtmlMode,
+  kit: HtmlStyleKit | undefined,
+): FramedPage {
+  return framed(html, theme, mode, kit, scrolling, "visualization");
+}
+/** A visualization the app sizes to its page, for a frame inline in a transcript. */
+export function inlineVisualizationFrame(
+  html: string,
+  theme: HtmlTheme,
+  mode: HtmlMode,
+  kit: HtmlStyleKit | undefined,
+): FramedPage {
+  return framed(html, theme, mode, kit, fitted, "visualization");
+}
+/** A package panel's page (`panelUrl`), for a frame. */
+export function panelFrame(html: string, theme: HtmlTheme): FramedPage {
+  return framed(html, theme, "interactive", styleKitVersion, filling, "panel");
+}
+/** An MCP app's page (`mcpAppPanelUrl`), for a frame. */
+export function mcpAppPanelFrame(html: string, theme: HtmlTheme): FramedPage {
+  return framed(html, theme, "interactive", styleKitVersion, filling, "mcp-app");
+}
 
 /**
  * A trusted outer document owns frame-src, so even script-driven child navigation is blocked.
@@ -210,6 +278,7 @@ export function visualizationWindow(
   mode: HtmlMode,
   kit: HtmlStyleKit | undefined,
 ): string {
-  const policy = htmlCsp.replace("frame-src 'none'", "frame-src data:");
-  return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><title>ace visualization</title>${schemeMeta(theme)}<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style></head><body><iframe title="Visualization" sandbox="allow-scripts" referrerpolicy="no-referrer" src="${attribute(visualizationUrl(html, theme, mode, kit))}"></iframe></body></html>`;
+  // The outer document as `srcdoc`, not a `data:` URL, which a page of a couple of MiB outgrows.
+  const outer = visualizationDocument(html, theme, mode, kit);
+  return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><title>ace visualization</title>${schemeMeta(theme)}<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style></head><body><iframe title="Visualization" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(outer)}"></iframe></body></html>`;
 }
