@@ -13,6 +13,11 @@ export type RegistryFetch = (
   init: { method: string; headers: Record<string, string>; body?: string },
 ) => Promise<Response>;
 
+async function ok(response: Response, path: string): Promise<Response> {
+  if (!response.ok) throw new Error(`The market answered ${response.status} for ${path}`);
+  return response;
+}
+
 export function registrySignerIo(input: {
   org: string;
   key: MarketSigningKey;
@@ -35,10 +40,6 @@ export function registrySignerIo(input: {
     const headers: Record<string, string> = { [registryProofHeader]: proof };
     if (body !== undefined) headers["content-type"] = "application/json";
     return input.fetch(target, { method, headers, ...(body === undefined ? {} : { body }) });
-  };
-  const ok = async (response: Response, path: string) => {
-    if (!response.ok) throw new Error(`The market answered ${response.status} for ${path}`);
-    return response;
   };
   return {
     get: async (path) => (await ok(await send("GET", path), path)).json(),

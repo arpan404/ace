@@ -192,11 +192,10 @@ export async function registryEntries(dbs: Databases, org: string): Promise<Regi
       )
       .bind(orgAudience(org))
       .all<{ name: string; title: string; latest: string | null }>();
-    return results.map((row) => ({
-      type,
-      name: row.name,
-      title: row.title.slice(0, 120),
-      ...(row.latest ? { latest: row.latest } : {}),
-    }));
+    return results.map((row) => {
+      const entry: RegistryEntry = { type, name: row.name, title: row.title.slice(0, 120) };
+      if (row.latest) entry.latest = row.latest;
+      return entry;
+    });
   });
 }

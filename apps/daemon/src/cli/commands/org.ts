@@ -57,7 +57,11 @@ export const orgCommands: readonly CommandSpec[] = [
       { name: "org", value: "ORG", summary: "The organization's id (org_…)" },
       { name: "owner", value: "ACCOUNT", summary: "The owner's account id who will publish it" },
       { name: "rotate", summary: "Make the next key, signed by the current one" },
-      { name: "dev-market", value: "URL", summary: "A development market instead of market.acehq.dev" },
+      {
+        name: "dev-market",
+        value: "URL",
+        summary: "A development market instead of market.acehq.dev",
+      },
     ],
     examples: [
       {
@@ -78,7 +82,11 @@ export const orgCommands: readonly CommandSpec[] = [
     group: "spade-market",
     flags: [
       { name: "org", value: "ORG", summary: "The organization's id (org_…)" },
-      { name: "dev-market", value: "URL", summary: "A development market instead of market.acehq.dev" },
+      {
+        name: "dev-market",
+        value: "URL",
+        summary: "A development market instead of market.acehq.dev",
+      },
     ],
     examples: [{ command: "ace org registry sign --org org_01ACME", summary: "Sign what waits" }],
     exits: [{ code: 1, when: "the market refused a signature" }],

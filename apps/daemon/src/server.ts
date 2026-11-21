@@ -1211,7 +1211,7 @@ export async function startServer(options: ServerOptions): Promise<{
         stopReplaced();
         stopAccountChange?.();
         void orgHost?.close();
-    registrySigner?.stop();
+        registrySigner?.stop();
         tunnel.close();
         machineUpdates?.close();
         for (const cleanup of cleanups.values()) cleanup();

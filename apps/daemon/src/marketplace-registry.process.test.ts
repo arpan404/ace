@@ -94,15 +94,15 @@ const loop = () =>
   });
 
 async function publishVersion(version: string, files: ArchiveFile[]) {
-  const answer = await market.fetch(`/v1/publish/suit/acme-slate/versions?version=${version}`, {
+  const published = await market.fetch(`/v1/publish/suit/acme-slate/versions?version=${version}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${grant("user_admin", { orgRole: "admin" })}`,
       "content-type": "application/x-tar",
     },
-    body: writeArchive(files),
+    body: new Uint8Array(writeArchive(files)),
   });
-  expect(answer.status).toBe(201);
+  expect(published.status).toBe(201);
   // ace's maintainers release a hold the scan made; nothing to release is fine too.
   await market.fetch(`/v1/signer/holds/suit/acme-slate/${version}`, {
     method: "PUT",
@@ -114,6 +114,11 @@ async function publishVersion(version: string, files: ArchiveFile[]) {
 }
 
 const member = { orgRole: "member" };
+/** An answer in the market's place. */
+const answer = (body: unknown) =>
+  Promise.resolve(
+    new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } }),
+  );
 const onOrgHost = { keys: backendKeys, machine: { kind: "org-host" as const, org } };
 const request = (operation: MarketOperation, ports: MarketRequestPorts = {}) =>
   harness.service.request(operation, ports);
@@ -182,7 +187,12 @@ describe("a package from an organization's registry", () => {
     const review = await asMember({ ...prepare, trustKey: firstKey });
     if (review.op !== "review") throw new Error(JSON.stringify(review));
     // The install needs membership at that moment too, not only at the review.
-    const install = { op: "install", id: review.review.id, hash: review.review.hash } as const;
+    const install: MarketOperation = {
+      op: "install",
+      id: review.review.id,
+      hash: review.review.hash,
+      choices: { bots: [], needs: {}, startRoutines: false },
+    };
     expect(errorOf(await request(install, { membership: onOrgHost }))?.code).toBe("not_member");
     expect((await asMember(install)).op).toBe("done");
     const installed = await request({ op: "installed" });
@@ -218,10 +228,6 @@ describe("a package from an organization's registry", () => {
         headers: { authorization: `Bearer ${grant("user_member", member)}` },
       })
     ).json()) as { org: string; publisher: unknown; keys: { upload: string; grant: string }[] };
-    const answer = (body: unknown) =>
-      Promise.resolve(
-        new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } }),
-      );
     // A first key countersigned for an admin, not an owner: the chain is broken.
     const forged = registryLink({
       org,

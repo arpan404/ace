@@ -43,13 +43,14 @@ const pack = (keys: RegistryKeys) =>
     ),
   );
 
+const keyOf = (entry: { id: string; seed: string }) =>
+  marketSigningKey(entry.id, decodeBase64url(entry.seed));
+
 function unpack(text: string): RegistryKeys {
   const stored = Stored.parse(JSON.parse(new TextDecoder().decode(decodeBase64url(text.trim()))));
-  const key = (entry: { id: string; seed: string }) =>
-    marketSigningKey(entry.id, decodeBase64url(entry.seed));
   return {
-    current: key(stored.current),
-    ...(stored.previous ? { previous: key(stored.previous) } : {}),
+    current: keyOf(stored.current),
+    ...(stored.previous ? { previous: keyOf(stored.previous) } : {}),
   };
 }
 
@@ -69,15 +70,16 @@ const runTool: Tool = (command, args, input) =>
     child.stdin?.end(input);
   });
 
+const unavailable = () =>
+  new KeychainError(
+    "This machine has no keychain ace can keep a registry key in yet (macOS and Linux with a Secret Service only).",
+  );
+
 /** This machine's keychain, or a refusal saying the platform has none ace can use yet. */
 export function osKeychain(
   platform: NodeJS.Platform = process.platform,
   tool: Tool = runTool,
 ): RegistryKeychain {
-  const unavailable = () =>
-    new KeychainError(
-      "This machine has no keychain ace can keep a registry key in yet (macOS and Linux with a Secret Service only).",
-    );
   return {
     async read(org) {
       const found =
