@@ -70,16 +70,16 @@ call's effect; only Spade's own reading or a signed source Spade already trusts 
 **Import.** Any folder whose `SKILL.md` meets the Agent Skills specification imports as a
 `spade-skill`, from a file, a git address or the market.
 
-| `SKILL.md` field         | In Spade                                                                                                                                                                                                                |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`                   | The skill's name. The spec's rules are checked (1–64 characters, lower-case letters, digits and single hyphens, not at the ends, the folder's name)                                                                     |
-| `description`            | The index line the model sees (at most 1,024 characters)                                                                                                                                                                |
-| `license`                | Shown on the review and the entry page                                                                                                                                                                                  |
-| `compatibility`          | Shown. Never a reason to refuse                                                                                                                                                                                         |
-| `metadata`               | Kept. Keys under `spade.` are read as Spade's own (below); others are kept and unused                                                                                                                                   |
+| `SKILL.md` field         | In Spade                                                                                                                                                                                                             |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                   | The skill's name. The spec's rules are checked (1–64 characters, lower-case letters, digits and single hyphens, not at the ends, the folder's name)                                                                  |
+| `description`            | The index line the model sees (at most 1,024 characters)                                                                                                                                                             |
+| `license`                | Shown on the review and the entry page                                                                                                                                                                               |
+| `compatibility`          | Shown. Never a reason to refuse                                                                                                                                                                                      |
+| `metadata`               | Kept. Keys under `spade.` are read as Spade's own (below); others are kept and unused                                                                                                                                |
 | `allowed-tools`          | Shown as "It asks to run Bash and Read without asking. Spade still decides each call." It grants nothing: no tool is pre-approved, the gate reads every call as for any skill. The field is experimental in the spec |
-| `scripts/`               | Run only through `shell` in the bot's sandbox, under the gate, as skill scripts are today (0151 point 5). Scanned as runnable: held for a maintainer before listing (0174 §8)                                           |
-| `references/`, `assets/` | Read with the skill's other files when loaded (0151 point 5). Scanned as instructional or inert data                                                                                                                    |
+| `scripts/`               | Run only through `shell` in the bot's sandbox, under the gate, as skill scripts are today (0151 point 5). Scanned as runnable: held for a maintainer before listing (0174 §8)                                        |
+| `references/`, `assets/` | Read with the skill's other files when loaded (0151 point 5). Scanned as instructional or inert data                                                                                                                 |
 
 Other front matter fields are kept and listed as "Not used by this Spade". A folder that fails
 the spec's name or description rules is refused with the rule. Everything the market's scanner
@@ -95,12 +95,12 @@ Spade's rules. A package's bundled skills export one folder each.
 Spade already connects MCP servers as the person's apps and as plugin servers. The effect of an
 imported tool is read like this, in order. The first row that applies wins:
 
-| Source of the reading                                                                                                     | Effect                                                                 |
-| ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| An effect for the tool in a signed source Spade trusts: the shipped catalogue entry, or a plugin's signed execution entry | That effect, per tool or for the whole server (0171 decision 3)        |
-| The server is one Spade trusts (a catalogue entry marked `trusted_annotations`) and the tool says `readOnlyHint: true`    | `read`                                                                 |
-| The server is one Spade trusts and the tool says `destructiveHint: true`                                                  | `network`, always asked (0131's destructive rule)                      |
-| The server is one Spade trusts, any other annotation                                                                      | `network`                                                              |
+| Source of the reading                                                                                                     | Effect                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| An effect for the tool in a signed source Spade trusts: the shipped catalogue entry, or a plugin's signed execution entry | That effect, per tool or for the whole server (0171 decision 3)                                          |
+| The server is one Spade trusts (a catalogue entry marked `trusted_annotations`) and the tool says `readOnlyHint: true`    | `read`                                                                                                   |
+| The server is one Spade trusts and the tool says `destructiveHint: true`                                                  | `network`, always asked (0131's destructive rule)                                                        |
+| The server is one Spade trusts, any other annotation                                                                      | `network`                                                                                                |
 | Any other server, whatever its annotations say                                                                            | Unresolved: asks the person every call, and the ceiling refuses it unless the package declares `network` |
 
 - An untrusted server's `readOnlyHint` is shown on the call ("It says it only reads") and does not
@@ -140,18 +140,18 @@ The person's other agents can call a packaged bot's contracts as MCP tools.
 
 An app or plugin tool that links a `ui://` resource can show its page in Spade, as a panel.
 
-| MCP Apps                                                     | In Spade                                                                                                                                                                                                      |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ui://` resource, `text/html;profile=mcp-app`                | Read once with `resources/read`, kept by content hash, shown as a panel of that app beside the bot's conversation, under ADR 0077's isolation and ADR 0200 §5.2's bounds                                     |
-| No `ui.csp`, or one with no `connectDomains`                 | Drawn. `resourceDomains` are refused: a page's images and fonts must be inline or `data:`                                                                                                                    |
-| `ui.csp.connectDomains` or `frameDomains` not empty          | Not drawn in v1. The tool's text answer shows, with "This app's page needs the network. Spade doesn't open those yet." The MCP Apps spec asks servers to keep a text fallback                              |
-| `tools/call` from the page                                    | Only for tools whose `visibility` includes `app`. It reaches the bot as a `panel_action` with `by: page`: untrusted input, tainting the turn, through the gate (0200 amendment 1). Never the person's       |
-| `ui/message`                                                  | The page's message, in the bot's conversation as untrusted input from that app, never as the person's words                                                                                                 |
-| `ui/update-model-context`                                     | Untrusted context for the bot's next turn, labelled with the app's name, tainting it                                                                                                                         |
-| `ui/open-link`                                                | ace shows the host first, as a card's `open` does. https only                                                                                                                                                  |
-| `ui/request-display-mode`                                     | Honoured within panel bounds (inline or beside the chat); full screen is refused                                                                                                                              |
-| Camera, microphone, location, clipboard permissions           | Refused                                                                                                                                                                                                         |
-| Visibility `app` only                                         | Kept out of the bot's tool index, as the spec asks                                                                                                                                                             |
+| MCP Apps                                            | In Spade                                                                                                                                                                                              |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ui://` resource, `text/html;profile=mcp-app`       | Read once with `resources/read`, kept by content hash, shown as a panel of that app beside the bot's conversation, under ADR 0077's isolation and ADR 0200 §5.2's bounds                              |
+| No `ui.csp`, or one with no `connectDomains`        | Drawn. `resourceDomains` are refused: a page's images and fonts must be inline or `data:`                                                                                                             |
+| `ui.csp.connectDomains` or `frameDomains` not empty | Not drawn in v1. The tool's text answer shows, with "This app's page needs the network. Spade doesn't open those yet." The MCP Apps spec asks servers to keep a text fallback                         |
+| `tools/call` from the page                          | Only for tools whose `visibility` includes `app`. It reaches the bot as a `panel_action` with `by: page`: untrusted input, tainting the turn, through the gate (0200 amendment 1). Never the person's |
+| `ui/message`                                        | The page's message, in the bot's conversation as untrusted input from that app, never as the person's words                                                                                           |
+| `ui/update-model-context`                           | Untrusted context for the bot's next turn, labelled with the app's name, tainting it                                                                                                                  |
+| `ui/open-link`                                      | ace shows the host first, as a card's `open` does. https only                                                                                                                                         |
+| `ui/request-display-mode`                           | Honoured within panel bounds (inline or beside the chat); full screen is refused                                                                                                                      |
+| Camera, microphone, location, clipboard permissions | Refused                                                                                                                                                                                               |
+| Visibility `app` only                               | Kept out of the bot's tool index, as the spec asks                                                                                                                                                    |
 
 Spade's own panels do not export as MCP Apps in this ADR. A card is data, and the MCP form for it
 is the contract's `structuredContent`.
@@ -177,19 +177,19 @@ The person may connect an A2A agent the way they connect an app.
   any skill left at that effect.
 - **Mapping.**
 
-| A2A                                                       | In Spade                                                                                                    |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Send a message, new task                                  | A background job of the calling bot, like `contract_call`: it answers at once with a call id               |
-| Message id                                                | The call's idempotency key, so a restart sends it again with the same id and never twice as new            |
-| `TASK_STATE_WORKING`, submitted                           | The caller reads `working`                                                                                  |
-| `TASK_STATE_INPUT_REQUIRED`                               | A question card from the calling bot, quoting the agent's words as untrusted text; the person answers or not |
-| `TASK_STATE_AUTH_REQUIRED`                                | A Reconnect card for that agent                                                                             |
-| Completed, with artifacts                                 | One `<agent_result>`, always untrusted, data parts checked as JSON and capped at 256 KiB, files kept in the workspace by hash and never opened by themselves |
-| Failed, rejected, canceled                                | The job fails with the agent's reason, quoted                                                              |
-| Stop on the caller                                        | The spec's cancel operation for that task, sent until it is answered                                       |
-| Streaming updates                                         | Folded into the job's status line; only the final result enters the conversation                          |
-| Push notifications to a webhook                           | Refused in v1: Spade has no address outside the machine. Spade polls the task instead, with backoff        |
-| A file part by URI                                        | Not fetched by itself. The bot may fetch it with `web_fetch`, under the gate                                |
+| A2A                             | In Spade                                                                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Send a message, new task        | A background job of the calling bot, like `contract_call`: it answers at once with a call id                                                                 |
+| Message id                      | The call's idempotency key, so a restart sends it again with the same id and never twice as new                                                              |
+| `TASK_STATE_WORKING`, submitted | The caller reads `working`                                                                                                                                   |
+| `TASK_STATE_INPUT_REQUIRED`     | A question card from the calling bot, quoting the agent's words as untrusted text; the person answers or not                                                 |
+| `TASK_STATE_AUTH_REQUIRED`      | A Reconnect card for that agent                                                                                                                              |
+| Completed, with artifacts       | One `<agent_result>`, always untrusted, data parts checked as JSON and capped at 256 KiB, files kept in the workspace by hash and never opened by themselves |
+| Failed, rejected, canceled      | The job fails with the agent's reason, quoted                                                                                                                |
+| Stop on the caller              | The spec's cancel operation for that task, sent until it is answered                                                                                         |
+| Streaming updates               | Folded into the job's status line; only the final result enters the conversation                                                                             |
+| Push notifications to a webhook | Refused in v1: Spade has no address outside the machine. Spade polls the task instead, with backoff                                                          |
+| A file part by URI              | Not fetched by itself. The bot may fetch it with `web_fetch`, under the gate                                                                                 |
 
 ### 6. A2A: the person's own agents calling Spade
 

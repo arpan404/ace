@@ -46,14 +46,14 @@ The format already lives in tables both readers share: `spade_core::package`, `r
 
 The **Spade Agent Format**, version 1.0. One spec, in five parts, each with its own version:
 
-| Part           | What it fixes                                                                                                                        | Comes from                    | Version |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | ------- |
-| `package`      | The folder, its limits, `bot.json` v3: every field, what is refused, how unknown fields are kept and grant nothing                   | 0200 §3, `packages.md`        | 1.0     |
-| `effects`      | The effect words, their order, the ceiling rule, install switches, the person-only effects, workers inheriting the ceiling           | 0171 decision 3, 0200 §3.4    | 1.0     |
-| `runtime`      | `spade.v1`: modules, tool names, arguments, answers, effect per tool, `since`, aliases and the major/minor rule                      | 0200 §4, `runtime.md`         | 1.0     |
-| `surfaces`     | The bounded schema subset, card layout parts and actions, the panel message protocol, `confirm` actions                             | 0200 §5, amendment 1          | 1.0     |
-| `contracts`    | Contract declaration, call and return, input and output bounds, held effects, taint at entry, exactly-once keys, compatible changes | 0200 §7, amendment 2          | 1.0     |
-| `distribution` | Content hash, the signed version manifest, withdrawal lists, scenario test files                                                     | 0014, 0168 §6, 0200 §9        | 1.0     |
+| Part           | What it fixes                                                                                                                       | Comes from                 | Version |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ------- |
+| `package`      | The folder, its limits, `bot.json` v3: every field, what is refused, how unknown fields are kept and grant nothing                  | 0200 §3, `packages.md`     | 1.0     |
+| `effects`      | The effect words, their order, the ceiling rule, install switches, the person-only effects, workers inheriting the ceiling          | 0171 decision 3, 0200 §3.4 | 1.0     |
+| `runtime`      | `spade.v1`: modules, tool names, arguments, answers, effect per tool, `since`, aliases and the major/minor rule                     | 0200 §4, `runtime.md`      | 1.0     |
+| `surfaces`     | The bounded schema subset, card layout parts and actions, the panel message protocol, `confirm` actions                             | 0200 §5, amendment 1       | 1.0     |
+| `contracts`    | Contract declaration, call and return, input and output bounds, held effects, taint at entry, exactly-once keys, compatible changes | 0200 §7, amendment 2       | 1.0     |
+| `distribution` | Content hash, the signed version manifest, withdrawal lists, scenario test files                                                    | 0014, 0168 §6, 0200 §9     | 1.0     |
 
 `requires.runtime` keeps naming the `runtime` part's major version. A package names the spec
 version it was written for with a new optional field, `"spec": "1.0"`. A missing `spec` reads as

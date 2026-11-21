@@ -49,7 +49,7 @@ Three things are missing:
   The Running page offers "Keep the last 20 runs as tests" per bot. Nothing is kept by itself.
 - **What a case holds**, in `spade_core::quality::case`:
   `{id, bot, package {name, version, hash}, trigger, given, tool_results, outcome, mark, why,
-  made_at}`. `given` is the message, trigger or contract input. `tool_results` is every outside
+made_at}`. `given` is the message, trigger or contract input. `tool_results` is every outside
   answer in the order the run got it, keyed by tool and arguments. `outcome` is the reply's text,
   cards, contract output, the effects asked for, and ADR 0159's verdict if there was one.
 - **Redacted at the moment it is kept**, before it is written: secrets by 0168's key and token
@@ -112,11 +112,11 @@ A package can declare checks that Spade runs on a result before it counts as don
 ]
 ```
 
-| `kind`      | Runs                                                                                                   | Costs           |
-| ----------- | ------------------------------------------------------------------------------------------------------ | --------------- |
-| `schema`    | A bounded JSON Schema on the result, beyond the contract's or card's own                               | nothing         |
-| `code`      | A component's `check` export (ADR 0203) with the result; answers pass or fail with reasons            | compute only    |
-| `criterion` | Added to the goal's criteria when the bot opens a goal, judged by ADR 0159's verifier                  | one verifier call, as today |
+| `kind`      | Runs                                                                                       | Costs                       |
+| ----------- | ------------------------------------------------------------------------------------------ | --------------------------- |
+| `schema`    | A bounded JSON Schema on the result, beyond the contract's or card's own                   | nothing                     |
+| `code`      | A component's `check` export (ADR 0203) with the result; answers pass or fail with reasons | compute only                |
+| `criterion` | Added to the goal's criteria when the bot opens a goal, judged by ADR 0159's verifier      | one verifier call, as today |
 
 - **Where they run.** On a contract's output before `contract_return` reaches the caller; on a
   card's data before it is shown; on a goal when the bot claims `done`. A schema or code check that

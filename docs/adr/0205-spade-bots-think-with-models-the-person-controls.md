@@ -13,7 +13,7 @@ A bot can think with three kinds of model today:
 
 - **An endpoint**: any server speaking the `openai-chat` or `anthropic` format, with its key in
   the OS keychain or an environment variable (0119). Presets ship in `spade/config/models.json`.
-- **A local server**: Spade finds an OpenAI-compatible server on this computer
+- **A local server**: Spade finds a server on this computer that speaks the `openai-chat` format
   (`GET /v1/endpoints/local`) and adds it as a keyless endpoint.
 - **A subscription through a CLI** (`cli:<provider>/<model>`, 0133): ace's daemon runs the turn in
   the person's own signed-in coding CLI, read-only, and the bot's tools come through ace's MCP
@@ -61,7 +61,12 @@ included, and saying plainly what each one costs and risks.
 ADR 0162 gives each role one model. A role becomes a **route**: up to four models in order.
 
 ```json
-{ "roles": { "main": ["local/model-l", "work-endpoint/model-a"], "fast": ["local/model-s", "work-endpoint/model-b"] } }
+{
+  "roles": {
+    "main": ["local/model-l", "work-endpoint/model-a"],
+    "fast": ["local/model-s", "work-endpoint/model-b"]
+  }
+}
 ```
 
 - **The first model that can serve the call serves it.** A model can serve a call when it has
@@ -83,7 +88,7 @@ ADR 0162 gives each role one model. A role becomes a **route**: up to four model
 
 ### 3. Local models as a first-class path
 
-- **Found and added in one step**, as today, from any OpenAI-compatible server on loopback.
+- **Found and added in one step**, as today, from any server on loopback that speaks the `openai-chat` format.
 - **Capabilities are measured, not guessed.** When a local model is added, Spade sends three
   fixed probes: a plain answer, one tool call against a fake tool, and a structured answer
   against a small JSON Schema. The results set its `capabilities`. A model that can't call tools

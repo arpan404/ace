@@ -77,23 +77,23 @@ clock), and bounds memory per store with `StoreLimits` and the `ResourceLimiter`
 A versioned WIT package, `spade:package@1.0.0`, published with the spec (ADR 0201) as part
 `code`. A component may export:
 
-| Export                                             | What Spade does with it                                                                                        |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `tools`: functions with a JSON-schema'd input and output | Each becomes a tool of the bot, `code_<name>_<function>`, in a new `code` module of `spade.v1`               |
-| `contract-handler`: one function per contract       | The contract is answered by code with no model turn, when `bot.json`'s contract says `"handler": "code/fares#cheapest-fare"` |
-| `check`: functions that take a result and answer pass or fail with reasons | Verification steps (ADR 0204)                                                      |
-| `card-data`: functions that shape a card's data     | Called by `card_show` when the card says `"shape": "code/fares#fare-card"`                                     |
+| Export                                                                     | What Spade does with it                                                                                                      |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `tools`: functions with a JSON-schema'd input and output                   | Each becomes a tool of the bot, `code_<name>_<function>`, in a new `code` module of `spade.v1`                               |
+| `contract-handler`: one function per contract                              | The contract is answered by code with no model turn, when `bot.json`'s contract says `"handler": "code/fares#cheapest-fare"` |
+| `check`: functions that take a result and answer pass or fail with reasons | Verification steps (ADR 0204)                                                                                                |
+| `card-data`: functions that shape a card's data                            | Called by `card_show` when the card says `"shape": "code/fares#fare-card"`                                                   |
 
 It may import only these, and only those its manifest lists:
 
-| Import                                   | What it reaches                                                                                                                                         | Effect read by the gate                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `spade:package/tools`                    | Calls a `spade.v1` tool as the bot: `call(name, json) -> result<json, error>`. Every call goes through the gate, the ceiling first                     | The called tool's                                          |
-| `spade:package/http`                     | One outgoing https request, sent through the bot's egress proxy, to hosts the package declares under `network` and the person left on. No sockets, no other schemes | `network`                                     |
-| `spade:package/log`                      | Lines for the developer, kept with the call, at most 64 KiB a call                                                                                      | none                                                       |
-| `spade:package/kv`                       | A small store owned by the package on this bot: get, set, delete, list, at most 16 MiB in all, moved with the bot (0187)                               | `write_local`                                              |
-| `wasi:clocks/wall-clock`, `monotonic-clock` | Time                                                                                                                                                 | none                                                       |
-| `wasi:random/random`                     | Random bytes                                                                                                                                            | none                                                       |
+| Import                                      | What it reaches                                                                                                                                                     | Effect read by the gate |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `spade:package/tools`                       | Calls a `spade.v1` tool as the bot: `call(name, json) -> result<json, error>`. Every call goes through the gate, the ceiling first                                  | The called tool's       |
+| `spade:package/http`                        | One outgoing https request, sent through the bot's egress proxy, to hosts the package declares under `network` and the person left on. No sockets, no other schemes | `network`               |
+| `spade:package/log`                         | Lines for the developer, kept with the call, at most 64 KiB a call                                                                                                  | none                    |
+| `spade:package/kv`                          | A small store owned by the package on this bot: get, set, delete, list, at most 16 MiB in all, moved with the bot (0187)                                            | `write_local`           |
+| `wasi:clocks/wall-clock`, `monotonic-clock` | Time                                                                                                                                                                | none                    |
+| `wasi:random/random`                        | Random bytes                                                                                                                                                        | none                    |
 
 No `wasi:filesystem`, `wasi:sockets`, `wasi:cli` environment or arguments, `wasi:http` incoming
 handler, or threads. A component that imports anything else is refused at check.
