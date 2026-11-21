@@ -100,6 +100,7 @@ enum SettingsSearch {
         case .automations: ["schedule", "cron", "recurring"]
         case .usage: ["limits", "quota", "cost", "tokens"]
         case .skills: ["plugins", "skills", "extensions"]
+        case .market: ["marketplace", "store", "bots", "suits", "install", "updates"]
         case .providers: ["claude", "codex", "cli", "models", "accounts"]
         case .spade: ["assistant", "bot"]
         case .sourceControl: ["git", "github", "forge", "branches"]

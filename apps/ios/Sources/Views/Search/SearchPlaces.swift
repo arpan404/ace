@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// The places outside the thread lists, as the web's rail lists them: Pull requests, Issues,
-/// Automations, Skills, Usage, History, Archived, Machines and Settings. Search shows them before a query; the iPad
+/// Automations, Skills, Marketplace, Usage, History, Archived, Machines and Settings. Search shows them before a query; the iPad
 /// sidebar's rail shows the same places as glyphs. Spade isn't one of them: it is a
 /// tab while a machine shows it (`HomeTabs`).
 enum SearchPlace: String, CaseIterable, Identifiable {
-    case pulls, issues, automations, skills, usage, history, archived, machines, settings
+    case pulls, issues, automations, skills, market, usage, history, archived, machines, settings
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum SearchPlace: String, CaseIterable, Identifiable {
         case .issues: "Issues"
         case .automations: "Automations"
         case .skills: "Skills"
+        case .market: SettingsTool.market.title
         case .usage: "Usage"
         case .history: "History"
         case .archived: "Archived"
@@ -29,6 +30,7 @@ enum SearchPlace: String, CaseIterable, Identifiable {
         case .issues: .target
         case .automations: SettingsTool.automations.icon
         case .skills: SettingsTool.skills.icon
+        case .market: SettingsTool.market.icon
         case .usage: SettingsTool.usage.icon
         case .history: .clockCounterClockwise
         case .archived: .archive
@@ -42,6 +44,7 @@ enum SearchPlace: String, CaseIterable, Identifiable {
         switch self {
         case .automations: .automations
         case .skills: .skills
+        case .market: .market
         case .usage: .usage
         default: nil
         }
@@ -63,6 +66,8 @@ struct SearchPlaceGrid: View {
     let places: [SearchPlace]
     /// Open pull requests in the project Pull requests opens on; nil until read.
     let openPulls: Int?
+    /// "2 updates" waiting in the Marketplace, as this phone last read them; nil with none.
+    var marketUpdates: String? = nil
     let open: (SearchPlace) -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -88,8 +93,8 @@ struct SearchPlaceGrid: View {
                 AceIcon(place.icon, size: AceDesign.Size.barIcon, relativeTo: .body)
                     .foregroundStyle(AceDesign.Ink.primary)
                 Spacer(minLength: AceDesign.Space.tight)
-                if let count = count(place) {
-                    Text(count.formatted()).monospacedDigit()
+                if let count = badge(place) {
+                    Text(count).monospacedDigit()
                         .aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.subtle)
                 }
@@ -106,15 +111,22 @@ struct SearchPlaceGrid: View {
         .contentShape(AceShape.group)
     }
 
-    /// Only Pull requests carries a count, and only once there is one to show.
-    private func count(_ place: SearchPlace) -> Int? {
-        guard place == .pulls, let openPulls, openPulls > 0 else { return nil }
-        return openPulls
+    /// Pull requests carries its open count and the Marketplace its waiting updates, each only
+    /// once there is one to show.
+    private func badge(_ place: SearchPlace) -> String? {
+        switch place {
+        case .pulls:
+            guard let openPulls, openPulls > 0 else { return nil }
+            return openPulls.formatted()
+        case .market: return marketUpdates
+        default: return nil
+        }
     }
 
     private func label(_ place: SearchPlace) -> String {
         switch place {
         case .pulls: openPulls.map { "Pull requests, \($0) open" } ?? place.title
+        case .market: marketUpdates.map { "\(place.title), \($0)" } ?? place.title
         default: place.title
         }
     }
