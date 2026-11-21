@@ -72,6 +72,19 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
     await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 15_000 });
   });
 
+  it.runIf(process.platform === "darwin")(
+    "starts without loading the menu-bar renderer",
+    async () => {
+      await expect
+        .poll(() => app.windows().some((window) => /^app:\/\/ace\/(?!tray$)/.test(window.url())))
+        .toBe(true);
+      const routes = await app.evaluate(({ webContents }) =>
+        webContents.getAllWebContents().map((contents) => contents.getURL()),
+      );
+      expect(routes).not.toContain("app://ace/tray");
+    },
+  );
+
   it("keeps its logs inside its own data folder, never the installed app's", async () => {
     // Electron reports the folder's real path (macOS: /var is /private/var).
     const logs = join(realpathSync(userData), "logs");

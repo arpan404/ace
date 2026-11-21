@@ -1,3 +1,6 @@
+import { onDeviceSetting } from "@/lib/device-setting.ts";
+import { railMeasureKey } from "@/lib/rail-measure.ts";
+import { railPinsKey } from "@/lib/rail-pins.ts";
 import {
   createContext,
   useCallback,
@@ -10,7 +13,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import type { ReactNode } from "react";
-import { writeJson, type KeyValueStorage } from "@ace/ui-core";
+import { readJson, writeJson, RailMeasure, RailPins, type KeyValueStorage } from "@ace/ui-core";
 import {
   bootAppearanceKey,
   changesAppearance,
@@ -20,7 +23,6 @@ import {
   transcriptSizes,
   type Appearance,
   type BootAppearance,
-  type Mode,
   type ResolvedAppearance,
   type SystemPreferences,
 } from "./appearance.ts";
@@ -32,8 +34,8 @@ import { useAppliedSuit, type SuitReport } from "./suits/use-applied-suit.ts";
 import { suitLayoutStylesheet } from "./suits/suit-layout.ts";
 import type { GlassEngine } from "./glass.ts";
 import { startLiquidGlass } from "./liquid-glass.ts";
-import { themes } from "@ace/themes";
-import { glassVariables } from "./translucency.ts";
+import { themedPalette, themes } from "@ace/themes";
+import { glassAmount, glassVariables } from "./translucency.ts";
 import { withViewTransition } from "@/lib/motion.ts";
 
 /** The longest a cross-fade to a Suit waits for it to show before it fades anyway. */
@@ -51,7 +53,7 @@ export interface Environment {
    * The desktop window's colour behind the page: the theme's page colour in each scheme and the
    * mode that picks between them, so its next launch (and every resize) starts in this theme.
    */
-  windowBackground?: ((value: { mode: Mode; light: string; dark: string }) => void) | undefined;
+  windowBackground?: ((value: ReturnType<typeof windowColours>) => void) | undefined;
   /** `?suit=off` this session (`suitsOffForSession`): the chosen theme shows, never a Suit. */
   suitsOff?: boolean | undefined;
   /**
@@ -245,8 +247,20 @@ export function ThemeProvider(props: { environment: Environment; children: React
 
   const { windowBackground } = props.environment;
   useEffect(() => {
-    windowBackground?.(windowColours(appearance, suit));
-  }, [windowBackground, appearance, suit]);
+    if (!windowBackground) return;
+    const sync = () => windowBackground(windowColours(appearance, suit, storage));
+    sync();
+    const unwatchPins = onDeviceSetting(storage, railPinsKey, sync);
+    const unwatchMeasure = onDeviceSetting(storage, railMeasureKey, sync);
+    const unwatchOtherWindows = onStorage?.((key) => {
+      if (key === null || key === railMeasureKey || key === railPinsKey) sync();
+    });
+    return () => {
+      unwatchPins();
+      unwatchMeasure();
+      unwatchOtherWindows?.();
+    };
+  }, [windowBackground, appearance, suit, storage, onStorage]);
 
   const update = useCallback(
     (next: Partial<Appearance>) => {
@@ -335,16 +349,42 @@ function bootAppearance(
 }
 
 /** The desktop window's colour behind the page, per scheme, in the theme or Suit on screen. */
-function windowColours(appearance: Appearance, suit: SuitDetail | null) {
-  if (!suit) {
-    const palette = themes[appearance.theme];
-    return { mode: appearance.mode, light: palette.light.s0, dark: palette.dark.s0 };
-  }
-  const only = suitSchemes(suit.manifest);
+function windowColours(appearance: Appearance, suit: SuitDetail | null, storage?: KeyValueStorage) {
+  const light = suit ? suitPalette(suit.manifest, "light") : themes[appearance.theme].light;
+  const dark = suit ? suitPalette(suit.manifest, "dark") : themes[appearance.theme].dark;
+  const only = suit ? suitSchemes(suit.manifest) : [];
+  const uiFont = suit?.manifest.fonts?.ui;
+  const tray = (palette: typeof light, scheme: "light" | "dark") => ({
+    surface: palette.s2,
+    text: palette.t1,
+    muted: palette.t2,
+    accent:
+      appearance.accent === "theme" || suit
+        ? palette.accent
+        : themedPalette(appearance.theme, scheme, appearance).accent,
+    needs: palette.needsText,
+    opacity: palette.material.glass
+      ? 1 - glassAmount(appearance.translucency) * (1 - palette.glassTint)
+      : 1,
+  });
   return {
     mode: only.length === 1 && only[0] ? only[0] : appearance.mode,
-    light: suitPalette(suit.manifest, "light").s0,
-    dark: suitPalette(suit.manifest, "dark").s0,
+    light: light.s0,
+    dark: dark.s0,
+    tray: {
+      light: tray(light, "light"),
+      dark: tray(dark, "dark"),
+      radius: suit?.manifest.shape?.radius,
+      border: suit?.manifest.shape?.border,
+      font: uiFont && "system" in uiFont ? uiFont.system : undefined,
+      compact:
+        (suit ? (suitDensity(suit.manifest) ?? appearance.density) : appearance.density) ===
+        "compact",
+    },
+    trayUsage: {
+      measure: readJson(storage, railMeasureKey, RailMeasure, "week"),
+      pins: readJson(storage, railPinsKey, RailPins, []),
+    },
   };
 }
 

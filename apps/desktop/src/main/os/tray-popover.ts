@@ -1,135 +1,183 @@
-import { BrowserWindow, screen, shell, type Rectangle, type WebContents } from "electron";
-import { isExternalUrl } from "../csp.ts";
-import { popoverBounds, popoverWidth, reopensOnClick } from "./tray-popover-place.ts";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { accessSync, constants, readFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { createInterface } from "node:readline";
+import type { Readable, Writable } from "node:stream";
+import { screen, type Rectangle } from "electron";
+import type { DeepLink, NativeTrayAppearance } from "../../shared/contract.ts";
+import type { DesktopLink } from "../link/desktop-link.ts";
+import { TrayAction, TrayTab } from "./native-tray-action.ts";
+import type { TrayUsagePreferences } from "./native-tray-model.ts";
+import { popoverBounds, reopensOnClick } from "./tray-popover-place.ts";
 
-export interface TrayPopoverOptions {
-  /** The app's page; the popover loads its `/tray` route. */
-  rendererUrl: string;
-  preload: string;
-  /** `AppInfo` as JSON, as the app window gets it. */
-  info: string;
+interface TrayPopoverOptions {
+  executable: string;
   now(): number;
+  link(): DesktopLink | undefined;
+  appearance(): NativeTrayAppearance | undefined;
+  open(link?: DeepLink): void;
+  quit(completely: boolean): void;
+  tabFile: string;
+  usagePreferences(): TrayUsagePreferences | undefined;
+  log(message: string): void;
 }
 
-/** The height the popover opens at before its page has measured itself. */
-const firstHeight = 420;
+type Process = ChildProcessByStdio<Writable, Readable, null>;
 
-/**
- * The menu-bar popover (macOS): a small panel under ace's icon showing what needs the person,
- * which apps agents are using, and usage, drawn by the web app's `/tray` route. It loads once,
- * ahead of the first click, and hides when it loses focus. The page sizes it (`tray.fit`).
- */
+/** The Swift panel runs only while it is open. The pipes carry presentation data and actions. */
 export class TrayPopover {
-  private window: BrowserWindow | undefined;
-  private anchor: Rectangle | undefined;
-  private height = firstHeight;
-  private hiddenAt: number | undefined;
+  private child: Process | undefined;
+  private closedAt: number | undefined;
+  private tab: TrayTab = "agents";
   private options: TrayPopoverOptions;
 
   constructor(options: TrayPopoverOptions) {
     this.options = options;
+    try {
+      this.tab = TrayTab.parse(readFileSync(options.tabFile, "utf8"));
+    } catch {
+      // First use starts on Agents.
+    }
   }
 
-  /** Whether `contents` is the popover's page. */
-  owns(contents: WebContents | undefined): boolean {
-    const window = this.window;
-    return Boolean(contents && window && !window.isDestroyed() && window.webContents === contents);
-  }
-
-  /** Load the page now, so the first click opens it with its data. */
-  prepare(): void {
-    this.ensure();
-  }
-
-  /** The icon was clicked: open under it, or close if open. */
-  toggle(anchor: Rectangle): void {
-    const window = this.ensure();
-    if (window.isVisible()) return this.hide();
-    if (!reopensOnClick(this.hiddenAt, this.options.now())) return;
-    this.anchor = anchor;
-    this.place();
-    window.show();
-    window.focus();
+  toggle(anchor: Rectangle): boolean {
+    if (this.child) {
+      this.hide();
+      return true;
+    }
+    if (!reopensOnClick(this.closedAt, this.options.now())) return true;
+    try {
+      accessSync(this.options.executable, constants.X_OK);
+    } catch {
+      return false;
+    }
+    const area = screen.getDisplayMatching(anchor).workArea;
+    const { x, y, width, height } = popoverBounds(anchor, area, 510);
+    const child = spawn(
+      this.options.executable,
+      [String(x), String(y), String(width), String(height), this.tab],
+      {
+        stdio: ["pipe", "pipe", "ignore"],
+      },
+    );
+    this.child = child;
+    const abort = new AbortController();
+    const reader = createInterface({ input: child.stdout });
+    let busy = false;
+    let pending = false;
+    let revision = 0;
+    let previous: string | undefined;
+    let problem: string | undefined;
+    const refresh = async () => {
+      if (abort.signal.aborted || busy || pending || child.stdin.writableNeedDrain) return;
+      busy = true;
+      const asked = revision;
+      const tab = this.tab;
+      try {
+        const link = this.options.link();
+        const snapshot = await link?.traySnapshot(
+          tab,
+          this.options.now(),
+          AbortSignal.any([abort.signal, AbortSignal.timeout(3_000)]),
+          this.options.usagePreferences(),
+        );
+        if (abort.signal.aborted || asked !== revision || link !== this.options.link()) return;
+        const message = JSON.stringify({
+          ...snapshot,
+          tab,
+          appearance: this.options.appearance(),
+          problem,
+        });
+        if (message !== previous) {
+          previous = message;
+          child.stdin.write(message + "\n");
+        }
+      } catch (error) {
+        if (!abort.signal.aborted) this.options.log(`Native tray: ${String(error)}`);
+      } finally {
+        busy = false;
+      }
+    };
+    const handle = async (action: Exclude<TrayAction, { action: "tab" }>) => {
+      switch (action.action) {
+        case "thread":
+          this.options.open({ kind: "thread", threadId: action.id });
+          break;
+        case "open":
+          this.options.open();
+          break;
+        case "usage":
+          this.options.open({ kind: "usage" });
+          break;
+        case "settings":
+          this.options.open({ kind: "settings", page: "computer-use" });
+          break;
+        case "quit":
+        case "quitCompletely":
+          this.options.quit(action.action === "quitCompletely");
+          return;
+        default: {
+          const link = this.options.link();
+          if (!link) throw new Error("The daemon is offline");
+          await link.trayAction(action, abort.signal);
+          return;
+        }
+      }
+      this.hide();
+    };
+    const timer = setInterval(() => void refresh(), 1_000);
+    const close = () => {
+      abort.abort();
+      clearInterval(timer);
+      reader.close();
+      if (this.child === child) {
+        this.child = undefined;
+        this.closedAt = this.options.now();
+      }
+    };
+    child.on("error", (error) => {
+      this.options.log(`Native tray: ${error.message}`);
+      close();
+    });
+    child.stdin.on("error", () => child.kill());
+    child.once("close", close);
+    reader.on("line", (line) => {
+      if (abort.signal.aborted || line.length > 1024) return;
+      let action: TrayAction;
+      try {
+        action = TrayAction.parse(JSON.parse(line));
+      } catch {
+        return;
+      }
+      if (pending && action.action !== "tab") return;
+      revision++;
+      problem = undefined;
+      if (action.action === "tab") {
+        this.tab = action.tab;
+        void writeFile(this.options.tabFile, action.tab).catch(() => {});
+        void refresh();
+        return;
+      }
+      pending = true;
+      void handle(action)
+        .catch((error: unknown) => {
+          problem = error instanceof Error ? error.message : "Couldn’t complete the action";
+        })
+        .finally(() => {
+          pending = false;
+          void refresh();
+        });
+    });
+    void refresh();
+    return true;
   }
 
   hide(): void {
-    const window = this.window;
-    if (!window || window.isDestroyed() || !window.isVisible()) return;
-    this.hiddenAt = this.options.now();
-    window.hide();
-  }
-
-  /** The page's own height; it moves the popover only while it shows. */
-  fit(height: number): void {
-    this.height = height;
-    if (this.window?.isVisible()) this.place();
-  }
-
-  destroy(): void {
-    if (this.window && !this.window.isDestroyed()) this.window.destroy();
-    this.window = undefined;
-  }
-
-  private place(): void {
-    const window = this.window;
-    const anchor = this.anchor;
-    if (!window || window.isDestroyed() || !anchor) return;
-    const area = screen.getDisplayMatching(anchor).workArea;
-    window.setBounds(popoverBounds(anchor, area, this.height));
-  }
-
-  private ensure(): BrowserWindow {
-    if (this.window && !this.window.isDestroyed()) return this.window;
-    const mac = process.platform === "darwin";
-    const window = new BrowserWindow({
-      width: popoverWidth,
-      height: firstHeight,
-      show: false,
-      frame: false,
-      resizable: false,
-      movable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      hasShadow: true,
-      roundedCorners: true,
-      // The system's own popover material behind the page; the page lays the theme's glass
-      // tint over it (solid where the person or the OS turned transparency down).
-      ...(mac ? { type: "panel", vibrancy: "popover", visualEffectState: "active" } : {}),
-      backgroundColor: "#00000000",
-      webPreferences: {
-        preload: this.options.preload,
-        contextIsolation: true,
-        sandbox: true,
-        nodeIntegration: false,
-        nodeIntegrationInWorker: false,
-        webSecurity: true,
-        allowRunningInsecureContent: false,
-        spellcheck: false,
-        additionalArguments: [`--ace-info=${this.options.info}`],
-      },
-    });
-    if (mac) window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    window.setAlwaysOnTop(true, "pop-up-menu");
-    window.on("blur", () => this.hide());
-    const contents = window.webContents;
-    const url = new URL("tray", this.options.rendererUrl).toString();
-    // The popover stays on its one page; links to other sites open in the browser.
-    contents.setWindowOpenHandler(({ url: target }) => {
-      if (isExternalUrl(target)) void shell.openExternal(target).catch(() => {});
-      return { action: "deny" };
-    });
-    contents.on("will-navigate", (event, target) => {
-      if (target !== url) event.preventDefault();
-    });
-    contents.on("render-process-gone", () => this.destroy());
-    window.once("closed", () => {
-      if (this.window === window) this.window = undefined;
-    });
-    void window.loadURL(url).catch(() => {});
-    this.window = window;
-    return window;
+    const child = this.child;
+    if (!child) return;
+    this.child = undefined;
+    this.closedAt = this.options.now();
+    child.stdin.end();
+    child.kill();
   }
 }

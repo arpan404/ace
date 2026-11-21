@@ -19,6 +19,7 @@ export async function verifyNatives(
     join(dist, folder, platform === "win32" ? `${name}.exe` : name);
   // The daemon runs these directly, so a lost mode bit would show only on a user's machine.
   const executables = [
+    ...(platform === "darwin" ? [executable("bin", "ace-tray")] : []),
     executable("media", "ace-media"),
     executable("files", "ace-files"),
     join(dist, "bin", platform === "win32" ? "rg.exe" : "rg"),
