@@ -25,6 +25,10 @@ console.dir({ dir: "line" });
 console.table([{ table: 1 }]);
 console.error("error line");
 console.warn("warn line");
+// Bun-only writers that also print straight to fd 1.
+const bun = console as unknown as { write?(text: string): number; takeHeapSnapshot?(): void };
+bun.write?.("write line\\n");
+bun.takeHeapSnapshot?.();
 process.stdout.write(JSON.stringify({ reply: true }) + "\\n");
 `,
   );
@@ -45,6 +49,7 @@ it("console output in a guarded child goes to stderr, never into its stdout prot
   for (const line of ["log line", "info line", "debug line", "dir", "table", "error line"])
     expect(stderr).toContain(line);
   expect(stderr).toContain("warn line");
+  if ("Bun" in globalThis) expect(stderr).toContain("write line");
 });
 
 it("a silenced child's console output reaches neither stdout nor stderr", async () => {
