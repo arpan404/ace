@@ -15,7 +15,7 @@ use super::copy::copy_snapshot;
 use super::scratch::{SnapshotScratch, Stage};
 use crate::cancel::Cancel;
 use crate::error::{Error, Result, io_at};
-use crate::fsread::stat::fingerprint;
+use crate::fsread::stat::fingerprint_at;
 use crate::options::Home;
 
 fn sibling(path: &Path, suffix: &str) -> PathBuf {
@@ -32,17 +32,12 @@ fn size(path: &Path) -> Result<Option<u64>> {
 
 /// `databaseFingerprint`: the database, its WAL and its rollback journal.
 pub fn database_fingerprint(path: &Path) -> Result<String> {
-    let mut parts = vec![fingerprint(
-        &std::fs::symlink_metadata(path).map_err(|e| io_at(e, path))?,
-    )];
+    let mut parts = vec![fingerprint_at(path)?];
     for suffix in ["-wal", "-journal"] {
-        let other = sibling(path, suffix);
-        match std::fs::symlink_metadata(&other) {
-            Ok(info) => parts.push(fingerprint(&info)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                parts.push("absent".to_owned())
-            }
-            Err(error) => return Err(io_at(error, &other)),
+        match fingerprint_at(&sibling(path, suffix)) {
+            Ok(print) => parts.push(print),
+            Err(crate::error::Error::Missing(_)) => parts.push("absent".to_owned()),
+            Err(error) => return Err(error),
         }
     }
     Ok(parts.join("|"))

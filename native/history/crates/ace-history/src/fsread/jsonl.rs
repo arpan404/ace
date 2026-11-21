@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::stat::fingerprint;
+use super::stat::fingerprint_of;
 use super::{read_at, safe_open};
 use crate::cancel::Cancel;
 use crate::error::{CHANGED_DURING, Error, Result};
@@ -67,7 +67,7 @@ impl JsonLines {
         let meta = file.metadata()?;
         Ok(JsonLines {
             size: meta.len(),
-            before: fingerprint(&meta),
+            before: fingerprint_of(&file)?,
             file,
             limit,
             cancel: cancel.clone(),
@@ -114,7 +114,7 @@ impl JsonLines {
                         return Ok(Some(last));
                     }
                     self.done = true;
-                    let after = fingerprint(&self.file.metadata()?);
+                    let after = fingerprint_of(&self.file)?;
                     if after != self.before {
                         return Err(Error::message(CHANGED_DURING));
                     }

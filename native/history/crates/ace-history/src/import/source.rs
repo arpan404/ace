@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::cancel::Cancel;
 use crate::error::{CHANGED_DURING, Error, Result};
 use crate::fsread::{
-    JsonLines, RECORD_LIMIT, RecordKind, read_range, safe_open, stat::fingerprint,
+    JsonLines, RECORD_LIMIT, RecordKind, read_range, safe_open, stat::fingerprint_at,
 };
 use crate::opencode;
 use crate::options::Home;
@@ -22,9 +22,9 @@ use crate::snapshot::{SnapshotScratch, database_fingerprint};
 pub enum Raw {
     /// A range of the open file the record was decoded from.
     Handle { file: Arc<File>, offset: u64 },
-    /// A whole file inside the home, read again by path: refused unless it is still the file
-    /// (by its fingerprint) the record was decoded from.
-    File { path: PathBuf, fingerprint: String },
+    /// A whole file inside the home, read again by path: refused unless its bytes are the ones
+    /// the record was decoded from, by their SHA-256.
+    File { path: PathBuf, digest: String },
     /// A database row, read whole (rows over the decode limit are refused, never read).
     Bytes(Vec<u8>),
 }
@@ -47,15 +47,21 @@ impl Native {
     ) -> Result<()> {
         match &self.raw {
             Raw::Handle { file, offset } => read_range(file, *offset, self.bytes, cancel, chunk),
-            Raw::File {
-                path,
-                fingerprint: then,
-            } => {
+            Raw::File { path, digest } => {
+                // A whole message file, at most an exact sample's size: read, proven, then sent.
                 let file = safe_open(&home.home_dir, path)?;
-                if fingerprint(&file.metadata()?) != *then {
+                let mut bytes = Vec::with_capacity(usize::try_from(self.bytes).unwrap_or(0));
+                read_range(&file, 0, self.bytes, cancel, &mut |part| {
+                    bytes.extend_from_slice(part);
+                    Ok(())
+                })?;
+                if sha256(&bytes) != *digest {
                     return Err(Error::message(CHANGED_DURING));
                 }
-                read_range(&file, 0, self.bytes, cancel, chunk)
+                for part in bytes.chunks(64 * 1024) {
+                    chunk(part)?;
+                }
+                Ok(())
             }
             Raw::Bytes(bytes) => {
                 for part in bytes.chunks(64 * 1024) {
@@ -66,6 +72,12 @@ impl Native {
             }
         }
     }
+}
+
+/// The SHA-256 of `bytes`, in hex.
+pub fn sha256(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    format!("{:x}", sha2::Sha256::digest(bytes))
 }
 
 pub type Records<'a> = Box<dyn Iterator<Item = Result<Native>> + 'a>;
@@ -119,9 +131,7 @@ pub fn current_fingerprint(home: &Home, source: &Source, cancel: &Cancel) -> Res
     let path = Path::new(&source.path);
     match source.kind {
         Kind::Database => database_fingerprint(path),
-        Kind::Jsonl => Ok(fingerprint(
-            &std::fs::symlink_metadata(path).map_err(|e| crate::error::io_at(e, path))?,
-        )),
+        Kind::Jsonl => fingerprint_at(path),
         Kind::Storage => opencode::storage::fingerprint(home, path, cancel),
     }
 }

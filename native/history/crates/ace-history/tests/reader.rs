@@ -348,3 +348,92 @@ fn a_database_whose_tables_are_views_over_an_endless_query_is_refused_and_the_re
     drop(reader);
     drop(watchdog);
 }
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn an_opencode_message_rewritten_after_it_was_sorted_never_lends_its_new_bytes_to_the_import() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("opencode");
+    let session = home.join("storage/session/p");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(
+        session.join("ses.json"),
+        json!({ "id": "ses", "directory": "/w", "title": "Spilled", "time": { "created": 1, "updated": 2 } })
+            .to_string(),
+    )
+    .unwrap();
+    // Enough large message files that the sort spills to disk, each over the inline raw limit.
+    let messages = home.join("storage/message/ses");
+    std::fs::create_dir_all(&messages).unwrap();
+    let message = |n: usize, fill: char| {
+        json!({ "id": format!("m{n:02}"), "role": "user", "time": { "created": n },
+            "pad": fill.to_string().repeat(70 * 1024) })
+        .to_string()
+    };
+    for n in 0..20 {
+        std::fs::write(messages.join(format!("m{n:02}.json")), message(n, 'o')).unwrap();
+        let parts = home.join(format!("storage/part/m{n:02}"));
+        std::fs::create_dir_all(&parts).unwrap();
+        std::fs::write(
+            parts.join("p.json"),
+            json!({ "type": "text", "text": "hi" }).to_string(),
+        )
+        .unwrap();
+    }
+    let opts = options(
+        root.path(),
+        vec![json!({ "id": "oc", "provider": "opencode", "homeDir": home })],
+    );
+    let mut reader = Reader::start(opts.clone());
+    reader.next();
+    reader.call(1, json!({ "op": "scan" }));
+    let listed = reader.call(
+        2,
+        json!({ "op": "list", "request": { "type": "history.list", "cwd": "/w" } }),
+    );
+    let source = listed.value["value"]["sessions"][0]["id"].clone();
+    drop(reader);
+    let pause = root.path().join("pause");
+    std::fs::create_dir(&pause).unwrap();
+    let hooks = json!({ "pause": { "at": "storage-sorted", "dir": pause } });
+    let mut reader = Reader::start_with(opts, &hooks);
+    reader.next();
+    let init =
+        json!({ "sourceId": source, "threadId": "t", "agentId": "a", "workspaceId": "w", "at": 1 });
+    reader.call(3, json!({ "op": "import", "init": init }));
+    reader.send(&json!({ "id": 4, "request": { "op": "next" } }));
+    while !pause.join("paused").exists() {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // Rewritten in place after the sort: the same size, its modification time put back.
+    let target = messages.join("m05.json");
+    let modified = std::fs::metadata(&target).unwrap().modified().unwrap();
+    std::fs::write(&target, message(5, 'X')).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    std::fs::write(pause.join("continue"), "").unwrap();
+    let mut bodies = Vec::new();
+    let mut id = 4;
+    let ended = loop {
+        let message = reader.next();
+        if message.value.get("id") != Some(&json!(id)) {
+            continue;
+        }
+        bodies.extend(message.bodies);
+        if message.value.get("error").is_some() || message.value["value"]["done"] == json!(true) {
+            break message.value;
+        }
+        id += 1;
+        reader.send(&json!({ "id": id, "request": { "op": "next" } }));
+    };
+    let raw = String::from_utf8_lossy(&bodies.concat()).into_owned();
+    assert!(
+        !raw.contains("XXXX"),
+        "an import blob holds the rewritten file's bytes"
+    );
+    assert_eq!(ended["error"], "Session changed during import", "{ended}");
+}

@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use super::scratch::SnapshotScratch;
 use crate::cancel::Cancel;
 use crate::error::{Error, Result, io_at};
-use crate::fsread::stat::fingerprint;
+use crate::fsread::stat::{fingerprint_at, fingerprint_of};
 use crate::fsread::{read_at, safe_open};
 
 const CHUNK: usize = 64 * 1024;
@@ -86,7 +86,7 @@ pub fn copy_snapshot(
     // Everything from here reads the checked handle, whatever the path names next.
     crate::hooks::at_path("snapshot-source-opened", &source.to_string_lossy());
     let info = base.metadata()?;
-    let before = fingerprint(&info);
+    let before = fingerprint_of(&base)?;
     let wal_bytes = match wal {
         Some(wal) => std::fs::symlink_metadata(wal)
             .map_err(|e| io_at(e, wal))?
@@ -115,8 +115,8 @@ pub fn copy_snapshot(
             return Err(Error::message(super::CHANGED));
         }
     }
-    let after_open = fingerprint(&base.metadata()?);
-    let after_path = fingerprint(&std::fs::symlink_metadata(source).map_err(|e| io_at(e, source))?);
+    let after_open = fingerprint_of(&base)?;
+    let after_path = fingerprint_at(source)?;
     if before != after_open || before != after_path {
         return Err(Error::message(super::CHANGED));
     }

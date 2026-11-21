@@ -115,9 +115,19 @@ took 157 ms. Mapping is about three quarters of an import's CPU and most of its 
   blocks never holds them all; each mapped call carries its own native id.
 - The index's freshness check, schema and format marker are one transaction, so a crash between
   them leaves a fresh file.
-- On Windows, std has no stable file index, so fingerprints carry no device or inode there and
-  an index the TypeScript reader wrote is read once more after the move. The Windows paths (file
-  identity, liveness, scratch sweeping, the pinned in-place open) compile and pass clippy for
-  `x86_64-pc-windows-msvc` but have not run on Windows yet.
+- On Windows a fingerprint carries the volume serial and file index for device and inode, and
+  the handle's `ChangeTime` for `ctimeMs`, read from the file's handle
+  (`files_safe::handle_facts`, shared with ace-files), as libuv reads them, so an index the
+  TypeScript reader wrote there is still current. These paths, and Windows liveness, scratch
+  sweeping and snapshots, compile and pass clippy for `x86_64-pc-windows-msvc` but have not run
+  on Windows yet.
+- An OpenCode message header held in memory keeps the bytes read from its sampled handle; one
+  spilled to disk is reread by path only when the bytes match the SHA-256 taken from that handle.
+- Each imported member is checked and marked with its own fingerprint as it is read. The crash
+  ledger is a SQLite file of its own beside the index (`<index>-crashes.sqlite`), so a mark made
+  during an import's archive transaction is durable at once and outlives that transaction's
+  rollback.
+- Provider inputs must be real tables, and each step of a provider-database read is interrupted
+  past 60 s without a row, or on cancel.
 - Releases build and sign one more native binary per platform, staged in `history/` beside
   `media/` and `files/`.

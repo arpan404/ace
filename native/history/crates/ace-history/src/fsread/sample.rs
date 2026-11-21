@@ -7,7 +7,7 @@ use std::path::Path;
 use history_text::js;
 use serde_json::Value;
 
-use super::stat::{fingerprint, mtime_ms};
+use super::stat::{fingerprint_of, mtime_ms};
 use super::{read_at, safe_open};
 use crate::cancel::Cancel;
 use crate::error::{CHANGED_WHILE, Error, Result};
@@ -26,6 +26,8 @@ pub struct Sample {
     pub fingerprint: String,
     /// `Math.floor(mtimeMs)`.
     pub mtime: i64,
+    /// The file the windows were read from.
+    pub file: std::sync::Arc<std::fs::File>,
 }
 
 fn lines(bytes: &[u8], records: &mut Vec<Value>) -> bool {
@@ -48,6 +50,7 @@ pub fn read_head_tail(home: &Path, path: &Path, cancel: &Cancel) -> Result<Sampl
     let file = safe_open(home, path)?;
     cancel.check()?;
     let before = file.metadata()?;
+    let print_before = fingerprint_of(&file)?;
     let size = before.len();
     let mut head = vec![0u8; size.min(WINDOW) as usize];
     let tail_start = (head.len() as u64).max(size.saturating_sub(WINDOW));
@@ -57,7 +60,7 @@ pub fn read_head_tail(home: &Path, path: &Path, cancel: &Cancel) -> Result<Sampl
     if !tail.is_empty() {
         read_at(&file, &mut tail, tail_start)?;
     }
-    if fingerprint(&before) != fingerprint(&file.metadata()?) {
+    if fingerprint_of(&file)? != print_before {
         return Err(Error::message(CHANGED_WHILE));
     }
     cancel.check()?;
@@ -89,7 +92,8 @@ pub fn read_head_tail(home: &Path, path: &Path, cancel: &Cancel) -> Result<Sampl
         head_count,
         exact: size <= EXACT && !failed,
         bytes: head.len() as u64 + tail.len() as u64,
-        fingerprint: fingerprint(&before),
+        fingerprint: print_before,
         mtime: mtime_ms(&before).floor() as i64,
+        file: std::sync::Arc::new(file),
     })
 }

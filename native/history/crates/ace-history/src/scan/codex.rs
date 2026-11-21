@@ -10,7 +10,7 @@ use crate::error::{Error, Result, io_at};
 use crate::fsread::JsonLines;
 use crate::fsread::RECORD_LIMIT;
 use crate::fsread::RecordKind;
-use crate::fsread::stat::{fingerprint, mtime_ms};
+use crate::fsread::stat::{fingerprint_at, mtime_ms};
 use crate::json::{object, string};
 use crate::options::Home;
 use crate::paths::text;
@@ -91,7 +91,7 @@ pub fn titles(scan: &mut Scan<'_>, home: &Home, epoch: i64) -> Result<()> {
         Err(error) => return Err(io_at(error, &path)),
     };
     let name = text(&path);
-    let fp = fingerprint(&info);
+    let fp = fingerprint_at(&path)?;
     if scan.catalog.touch(&home.id, &name, &fp, epoch)? {
         return Ok(());
     }
@@ -121,7 +121,7 @@ pub fn titles(scan: &mut Scan<'_>, home: &Home, epoch: i64) -> Result<()> {
             )?;
         }
     }
-    if fingerprint(&std::fs::symlink_metadata(&path).map_err(|e| io_at(e, &path))?) != fp {
+    if fingerprint_at(&path)? != fp {
         return Err(Error::message(
             "session_index.jsonl changed while reading titles",
         ));

@@ -264,7 +264,7 @@ fn facts(handle: Option<&File>, metadata: &Metadata) -> Result<Facts, Error> {
             "a Windows version needs the entry's handle",
         ))
     })?;
-    let (dev, ino, change) = windows::handle_facts(handle)?;
+    let (dev, ino, change) = files_safe::handle_facts(handle)?;
     Ok(Facts {
         dev,
         ino,
@@ -283,58 +283,6 @@ fn entry_handle(dir: &Dir, name: &str, metadata: &Metadata) -> Result<Option<Fil
         )?));
     }
     Ok(Some(crate::handle::attribute_handle(dir, name)?))
-}
-
-/// The two calls that read a handle's identity and change time.
-///
-/// Stable Rust exposes neither `volume_serial_number`/`file_index` on `Metadata` (still
-/// unstable as `windows_by_handle`) nor the change time (`windows_change_time`), and no safe
-/// wrapper is available for `GetFileInformationByHandleEx`. This is the one place in the crate
-/// that calls Windows directly.
-#[cfg(windows)]
-#[allow(unsafe_code)]
-mod windows {
-    use std::ffi::c_void;
-
-    use cap_std::fs::File;
-    use std::mem::{size_of, zeroed};
-    use std::os::windows::io::AsRawHandle;
-
-    use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandle,
-        GetFileInformationByHandleEx,
-    };
-
-    /// The volume serial, the file index and the change time, in 100 ns ticks since 1601.
-    pub(super) fn handle_facts(file: &File) -> std::io::Result<(u64, u64, i64)> {
-        let handle = file.as_raw_handle() as HANDLE;
-        // SAFETY: both calls only write into zeroed structures of the size they are given, and
-        // the handle stays open for the calls because `file` is borrowed for their duration.
-        unsafe {
-            let mut information: BY_HANDLE_FILE_INFORMATION = zeroed();
-            if GetFileInformationByHandle(handle, &mut information) == 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            let mut basic: FILE_BASIC_INFO = zeroed();
-            if GetFileInformationByHandleEx(
-                handle,
-                FileBasicInfo,
-                std::ptr::from_mut(&mut basic).cast::<c_void>(),
-                size_of::<FILE_BASIC_INFO>() as u32,
-            ) == 0
-            {
-                return Err(std::io::Error::last_os_error());
-            }
-            let index = (u64::from(information.nFileIndexHigh) << 32)
-                | u64::from(information.nFileIndexLow);
-            Ok((
-                u64::from(information.dwVolumeSerialNumber),
-                index,
-                basic.ChangeTime,
-            ))
-        }
-    }
 }
 
 /// Milliseconds since the Unix epoch, as the double Node computes from a timespec.

@@ -20,7 +20,7 @@ pub use tally::Tally;
 use crate::cancel::Cancel;
 use crate::catalog::{Catalog, Mark, Verdict};
 use crate::error::{Error, Result, io_at};
-use crate::fsread::stat::{fingerprint, mtime_ms};
+use crate::fsread::stat::{fingerprint_at, mtime_ms};
 use crate::fsread::{Budget, walk_files};
 use crate::options::{Home, Options, Provider};
 use crate::paths::text;
@@ -187,7 +187,7 @@ impl Scan<'_> {
         let fp = if stored {
             crate::opencode::storage::fingerprint(home, path, self.cancel)?
         } else {
-            fingerprint(&info)
+            fingerprint_at(path)?
         };
         if self.catalog.matches(&home.id, &name, &fp)? {
             self.tally.skipped += 1;

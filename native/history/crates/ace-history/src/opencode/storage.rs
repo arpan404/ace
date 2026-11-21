@@ -5,6 +5,7 @@
 //! is not transcript order, so messages are sorted on disk, never in a history-sized array.
 
 use std::collections::VecDeque;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, params};
@@ -13,10 +14,10 @@ use sha2::{Digest, Sha256};
 
 use super::{Threaded, assign, threaded};
 use crate::cancel::Cancel;
-use crate::error::{Error, Result, io_at};
-use crate::fsread::stat::fingerprint as file_fingerprint;
-use crate::fsread::{Budget, JsonLines, RecordKind, read_head_tail, walk_files};
-use crate::import::source::{Native, Raw, Records};
+use crate::error::{Error, Result};
+use crate::fsread::stat::fingerprint_at;
+use crate::fsread::{Budget, JsonLines, RecordKind, read_head_tail, read_range, walk_files};
+use crate::import::source::{Native, Raw, Records, sha256};
 use crate::json::{field, object, string, timestamp};
 use crate::options::Home;
 use crate::paths::{basename, text};
@@ -38,9 +39,7 @@ fn files(root: &Path, cancel: &Cancel) -> Result<Vec<PathBuf>> {
 }
 
 fn stat(path: &Path) -> Result<String> {
-    Ok(file_fingerprint(
-        &std::fs::symlink_metadata(path).map_err(|e| io_at(e, path))?,
-    ))
+    fingerprint_at(path)
 }
 
 /// `storageFingerprint`: the session file, then every message file and its parts, in walk order.
@@ -91,8 +90,24 @@ struct Header {
     path: PathBuf,
     value: Value,
     bytes: u64,
-    /// The file's fingerprint when it was sampled: its raw bytes are read only from that file.
-    fingerprint: String,
+    /// Its raw bytes: those read from the sampled file while it is held in memory; once spilled
+    /// to disk, their SHA-256, which a reread by path must match.
+    raw: HeaderRaw,
+}
+
+enum HeaderRaw {
+    Bytes(Vec<u8>),
+    Digest(String),
+}
+
+/// The whole message file, read from the handle it was sampled through.
+fn sampled_bytes(file: &File, bytes: u64, cancel: &Cancel) -> Result<Vec<u8>> {
+    let mut all = Vec::with_capacity(usize::try_from(bytes).unwrap_or(0));
+    read_range(file, 0, bytes, cancel, &mut |part| {
+        all.extend_from_slice(part);
+        Ok(())
+    })?;
+    Ok(all)
 }
 
 /// Messages held in memory before they spill to a private SQLite file: most sessions have a few,
@@ -114,7 +129,7 @@ fn spill(
     let stage = scratch.work_dir("storage-order")?;
     let db = Connection::open(stage.path().join("order.sqlite"))?;
     db.execute_batch(
-        "PRAGMA cache_size=-2048;CREATE TABLE entries(at INTEGER NOT NULL,id TEXT NOT NULL,path TEXT PRIMARY KEY,value TEXT NOT NULL,bytes INTEGER NOT NULL,fingerprint TEXT NOT NULL);BEGIN",
+        "PRAGMA cache_size=-2048;CREATE TABLE entries(at INTEGER NOT NULL,id TEXT NOT NULL,path TEXT PRIMARY KEY,value TEXT NOT NULL,bytes INTEGER NOT NULL,digest TEXT NOT NULL);BEGIN",
     )?;
     for (at, name, header) in held {
         insert(&db, at, &name, &header)?;
@@ -123,6 +138,10 @@ fn spill(
 }
 
 fn insert(db: &Connection, at: i64, name: &str, header: &Header) -> Result<()> {
+    let digest = match &header.raw {
+        HeaderRaw::Bytes(bytes) => sha256(bytes),
+        HeaderRaw::Digest(digest) => digest.clone(),
+    };
     db.prepare_cached("INSERT INTO entries VALUES(?1,?2,?3,?4,?5,?6)")?
         .execute(params![
             at,
@@ -130,7 +149,7 @@ fn insert(db: &Connection, at: i64, name: &str, header: &Header) -> Result<()> {
             text(&header.path),
             header.value.to_string(),
             header.bytes as i64,
-            header.fingerprint
+            digest
         ])?;
     Ok(())
 }
@@ -163,7 +182,7 @@ fn sort_messages(
             path: path.to_owned(),
             value,
             bytes: sample.bytes,
-            fingerprint: sample.fingerprint,
+            raw: HeaderRaw::Bytes(sampled_bytes(&sample.file, sample.bytes, cancel)?),
         };
         let name = basename(path, "");
         match &disk {
@@ -211,7 +230,7 @@ fn each_message(
         }
         Sorted::Disk(db, stage) => (db, stage),
     };
-    let mut rows = db.prepare("SELECT path,value,bytes,fingerprint FROM entries ORDER BY at,id")?;
+    let mut rows = db.prepare("SELECT path,value,bytes,digest FROM entries ORDER BY at,id")?;
     let mut rows = rows.query([])?;
     while let Some(row) = rows.next()? {
         cancel.check()?;
@@ -220,7 +239,7 @@ fn each_message(
             path: PathBuf::from(row.get::<_, String>(0)?),
             value: crate::json::stored(&value)?,
             bytes: row.get::<_, i64>(2)? as u64,
-            fingerprint: row.get(3)?,
+            raw: HeaderRaw::Digest(row.get(3)?),
         };
         if !each(header) {
             break;
@@ -290,14 +309,18 @@ pub fn records<'a>(
     let produced: Threaded = threaded(move |emit| {
         let mut run = || -> Result<()> {
             let sorted = sort_messages(&home, &root, &scratch, &cancel)?;
+            crate::hooks::at_path("storage-sorted", &root.to_string_lossy());
             let mut failed = None;
             each_message(sorted, &cancel, &mut |header| {
                 let native = Native {
                     bytes: header.bytes,
                     kind: RecordKind::Value(header.value.clone()),
-                    raw: Raw::File {
-                        path: header.path.clone(),
-                        fingerprint: header.fingerprint.clone(),
+                    raw: match &header.raw {
+                        HeaderRaw::Bytes(bytes) => Raw::Bytes(bytes.clone()),
+                        HeaderRaw::Digest(digest) => Raw::File {
+                            path: header.path.clone(),
+                            digest: digest.clone(),
+                        },
                     },
                 };
                 if !emit(Ok(native)) {
