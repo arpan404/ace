@@ -1,5 +1,5 @@
 /**
- * Short named leases in D1 (`org_locks`, migration 0006) that serialize work across isolates:
+ * Short named leases in D1 (`org_locks`, migration 0007) that serialize work across isolates:
  * an organization's membership changes, an admin's Admin Portal links against their revocation.
  * A lease runs out after `ms`, so one a crashed request held never blocks for long, and only its
  * holder gives it back.

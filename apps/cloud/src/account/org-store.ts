@@ -271,7 +271,7 @@ export function orgStore(db: D1Database) {
     /**
      * The organization a machine credential speaks for: its host's, only while the credential is
      * bound to the host's current enrollment (ADR 0206 §2.1). One from an earlier enrollment, or
-     * issued before it to anyone but the person who enrolled it, speaks for none.
+     * for another account than the one the machine is signed in to, speaks for none.
      */
     async credentialOrg(credential: string): Promise<string | undefined> {
       const raw = await db
@@ -286,8 +286,9 @@ export function orgStore(db: D1Database) {
     },
     /**
      * Gives a machine to an organization as enrollment `enrollment`, in one batch: its directory
-     * row names the org, and the enrolling account's own credentials for it are bound to this
-     * enrollment. Only a machine on `account`'s own list, not yet any org's, moves.
+     * row names the org, and its credentials for the account it is signed in to (the directory
+     * row's) are bound to this enrollment; any other account's are bound to none. Only a machine
+     * on `account`'s own list, not yet any org's, moves.
      */
     async enrollHost(
       host: {
@@ -313,9 +314,11 @@ export function orgStore(db: D1Database) {
           .bind(host.hostId, host.org, host.enrollment),
         db
           .prepare(
-            "UPDATE machine_credentials SET org_id = ?2, enrollment = ?3 WHERE host_id = ?1 AND account_id = ?4 AND EXISTS (SELECT 1 FROM org_hosts WHERE host_id = ?1 AND org_id = ?2 AND enrollment = ?3)",
+            `UPDATE machine_credentials SET org_id = ?2, enrollment = ?3
+             WHERE host_id = ?1 AND account_id = (SELECT account_id FROM machines WHERE host_id = ?1)
+               AND EXISTS (SELECT 1 FROM org_hosts WHERE host_id = ?1 AND org_id = ?2 AND enrollment = ?3)`,
           )
-          .bind(host.hostId, host.org, host.enrollment, host.account),
+          .bind(host.hostId, host.org, host.enrollment),
       ]);
       return (inserted?.meta.changes ?? 0) > 0;
     },

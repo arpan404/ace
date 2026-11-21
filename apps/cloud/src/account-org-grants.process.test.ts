@@ -187,7 +187,7 @@ it("a host's credential speaks only for the enrollment it is bound to, and relea
   const policy = (credential: string, of: string) =>
     api.call(credential, "GET", `/v1/orgs/${of}/policy`);
 
-  // Another account's credential for the same machine isn't part of Olivia's enrollment.
+  // A credential for another account than the one the machine is signed in to is never bound.
   const others = await box.exchange(await signIn(mia, "machine"));
   expect((await policy(box.credential, org)).status).toBe(200);
   expect((await forward(others, org, "c")).body).toEqual({ error: "not_org_host" });
@@ -207,7 +207,7 @@ it("a host's credential speaks only for the enrollment it is bound to, and relea
     expect((await forward(earlier, next, "d")).body).toEqual({ error: "not_org_host" });
     expect((await policy(earlier, next)).status).toBe(earlier === others ? 403 : 401);
   }
-  // The machine signed in again as the person who enrolled it does, for this organization only.
+  // A credential the machine gets for its own account now does, for this organization only.
   const fresh = await box.exchange(await signIn(owner, "machine"));
   expect((await forward(fresh, next, "e")).status).toBe(200);
   expect((await policy(fresh, next)).body).toMatchObject({ org: next, version: 0 });
