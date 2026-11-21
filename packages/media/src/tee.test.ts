@@ -6,13 +6,17 @@ import type { ToMedia } from "./wire.ts";
 function tee() {
   const sent: ToMedia[] = [];
   const written: Uint8Array[] = [];
-  const state = { now: 0, queued: 0, keyframes: 0, connected: 0 };
+  const state = { now: 0, queued: 0, keyframes: 0, connected: 0, destroyed: 0 };
+  const lost: string[] = [];
+  const closes: (() => void)[] = [];
   const socket: IngestSocket = {
     write: (bytes) => (written.push(bytes), true),
     get queued() {
       return state.queued;
     },
-    destroy: () => {},
+    destroy: () => void state.destroyed++,
+    ready: Promise.resolve(),
+    onClose: (listener) => void closes.push(listener),
   };
   const media = new MediaTee(
     {
@@ -25,11 +29,16 @@ function tee() {
       now: () => state.now,
       randomBytes: (n) => new Uint8Array(n).fill(9),
       keyframe: () => void state.keyframes++,
+      lost: (reason) => void lost.push(reason),
     },
     1,
   );
   const frames = () => written.map((bytes) => decodeMediaFrame(bytes));
-  return { media, sent, state, frames };
+  /** The socket ended on its own (ace-media closed it, or it failed). */
+  const drop = () => {
+    for (const close of closes.splice(0)) close();
+  };
+  return { media, sent, state, frames, lost, drop };
 }
 
 const unit = (keyframe: boolean): TeeUnit => ({
@@ -66,6 +75,40 @@ it("asks the producer for a keyframe as soon as it connects, at start and after 
   media.open();
   media.message({ type: "source.status", source: "s1", status: "starting" });
   expect(state.keyframes).toBe(2);
+});
+
+it("an ingest connection that ends on its own is reported lost, and later units go nowhere", async () => {
+  const { media, frames, lost, drop } = tee();
+  media.open();
+  const accepted = media.accepted();
+  media.message({ type: "source.status", source: "s1", status: "starting" });
+  await expect(accepted).resolves.toBe(true);
+  media.push(unit(true));
+  drop();
+  expect(lost).toEqual(["ingest-closed"]);
+  const before = frames().length;
+  media.push(unit(true));
+  expect(frames()).toHaveLength(before);
+});
+
+it("ace-media closing the producer is reported lost with its reason; the tee's own close isn't", () => {
+  const { media, lost, drop } = tee();
+  media.open();
+  media.message({ type: "source.status", source: "s1", status: "starting" });
+  media.message({
+    type: "source.status",
+    source: "s1",
+    status: "retrying",
+    reason: "producer-closed",
+    attempts: 1,
+  });
+  expect(lost).toEqual(["producer-closed"]);
+  // Reopened, then closed by the tee itself: nothing is lost.
+  media.open();
+  media.message({ type: "source.status", source: "s1", status: "starting" });
+  media.close();
+  drop();
+  expect(lost).toEqual(["producer-closed"]);
 });
 
 it("stamps what it reads with the private epoch for 100 ms after a resume", () => {

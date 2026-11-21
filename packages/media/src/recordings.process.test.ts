@@ -98,36 +98,59 @@ async function until(condition: () => boolean, ms = 10_000): Promise<void> {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function makeRuntime(exits: MediaExit[] = []) {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-rec-"));
+  let next = 0;
+  const media = new MediaRuntime({
+    version: execFileSync(binary ?? "", ["--version"])
+      .toString()
+      .trim(),
+    binary: binary ?? "",
+    runtimeDir,
+    dataDir: runtimeDir,
+    settings: () => defaultMediaSettings,
+    host: nodeMediaHost(process.env),
+    clock: systemMediaClock,
+    random: Math.random,
+    randomBytes: (n) => new Uint8Array(randomBytes(n)),
+    listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
+    id: () => `r${++next}`,
+    onExit: (exit) => void exits.push(exit),
+    log: () => {},
+  });
+  cleanups.push(() => {
+    media.dispose();
+    rmSync(runtimeDir, { recursive: true, force: true });
+  });
+  return { media, directory: join(runtimeDir, "recording") };
+}
+
+const unit = (id: number, keyframe: boolean) =>
+  ({
+    kind: "video",
+    keyframe,
+    codec: 2,
+    width: 64,
+    height: 64,
+    ...(keyframe ? { description: avcc } : {}),
+    payload: tagged(id),
+  }) as const;
+
+/** Every sample once, in the order read: strictly increasing, so no unit was written twice. */
+function strictlyIncreasing(written: number[]): void {
+  for (let at = 1; at < written.length; at++)
+    expect(written[at], `sample ${at} after ${written[at - 1]}`).toBeGreaterThan(
+      written[at - 1] ?? -1,
+    );
+}
+
 it.runIf(binary)(
   "records a tee'd source through the daemon's runtime: nothing private written, and a kill -9 continues in a new part",
   async () => {
-    const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-rec-"));
-    const directory = join(runtimeDir, "recording");
     const exits: MediaExit[] = [];
-    let secret = false;
-    let next = 0;
-    const runtime = new MediaRuntime({
-      version: execFileSync(binary ?? "", ["--version"])
-        .toString()
-        .trim(),
-      binary: binary ?? "",
-      runtimeDir,
-      dataDir: runtimeDir,
-      settings: () => defaultMediaSettings,
-      host: nodeMediaHost(process.env),
-      clock: systemMediaClock,
-      random: Math.random,
-      randomBytes: (n) => new Uint8Array(randomBytes(n)),
-      listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
-      id: () => `r${++next}`,
-      onExit: (exit) => void exits.push(exit),
-      log: () => {},
-    });
-    cleanups.push(() => {
-      runtime.dispose();
-      rmSync(runtimeDir, { recursive: true, force: true });
-    });
+    const { media: runtime, directory } = makeRuntime(exits);
     const supervisor = runtime.supervisor;
+    let secret = false;
 
     // Nothing else needs ace-media: the recording starts it and waits for it.
     const start = await runtime.recordings.start({
@@ -145,15 +168,7 @@ it.runIf(binary)(
     const play = async (frames: number) => {
       for (let n = 0; n < frames; n++, id++) {
         if (secret) privateIds.add(id);
-        recording.push({
-          kind: "video",
-          keyframe: n % 5 === 0,
-          codec: 2,
-          width: 64,
-          height: 64,
-          ...(n % 5 === 0 ? { description: avcc } : {}),
-          payload: tagged(id),
-        });
+        recording.push(unit(id, n % 5 === 0));
         await sleep(20);
       }
     };
@@ -162,8 +177,6 @@ it.runIf(binary)(
       recording.privacy();
     };
 
-    // The source opens before frames go in: the tee connects once ace-media reports it starting.
-    await sleep(200);
     await play(30);
     transition(true);
     await play(15);
@@ -188,7 +201,8 @@ it.runIf(binary)(
     const end = await recording.stop();
     expect(end.ok, JSON.stringify(end)).toBe(true);
     expect(end.parts.map((p) => p.index)).toEqual([0, 1]);
-    const written = end.parts.flatMap((p) => ids(p.path));
+    const [before = [], after = []] = end.parts.map((p) => ids(p.path));
+    const written = [...before, ...after];
     expect(
       written.filter((n) => privateIds.has(n)),
       "frames read while private",
@@ -196,8 +210,64 @@ it.runIf(binary)(
     // Most public frames survive: only the open group at the kill and frames read within
     // 100 ms of a resume (or before the first keyframe after one) may be missing.
     expect(written.length).toBeGreaterThan(80);
-    expect(written).toEqual(written.toSorted((a, b) => a - b));
+    // Part 1 starts after part 0 ends, and no sample appears twice, within or across parts.
+    expect(before.length && after.length).toBeGreaterThan(0);
+    strictlyIncreasing(written);
     expect(runtime.recordings.active).toBe(0);
+  },
+  60_000,
+);
+
+it.runIf(binary)(
+  "a clip stopped before the first 100 ms epoch still holds its video",
+  async () => {
+    const { media: runtime, directory } = makeRuntime();
+    const start = await runtime.recordings.start({
+      origin: { kind: "screen", platform: "macos" },
+      directory,
+      maxBytes: 1 << 20,
+      private: () => false,
+      keyframe: () => {},
+    });
+    if (!start.ok) throw new Error(start.reason);
+    for (let id = 0; id < 3; id++) start.recording.push(unit(id, id === 0));
+    const end = await start.recording.stop();
+    expect(end.ok, JSON.stringify(end)).toBe(true);
+    expect(end.parts.flatMap((p) => ids(p.path))).toEqual([0, 1, 2]);
+  },
+  30_000,
+);
+
+it.runIf(binary)(
+  "a recording stopped while ace-media restarts after a crash keeps the part the crash cut",
+  async () => {
+    const exits: MediaExit[] = [];
+    const { media: runtime, directory } = makeRuntime(exits);
+    const start = await runtime.recordings.start({
+      origin: { kind: "screen", platform: "macos" },
+      directory,
+      maxBytes: 1 << 20,
+      private: () => false,
+      keyframe: () => {},
+    });
+    if (!start.ok) throw new Error(start.reason);
+    const recording = start.recording;
+    for (let id = 0; id < 40; id++) {
+      recording.push(unit(id, id % 5 === 0));
+      await sleep(20);
+    }
+    // Part 0 is still open: the crash cuts it, and the person stops during the restart.
+    expect(recording.parts).toEqual([]);
+    const pid = runtime.supervisor.snapshot().pid ?? 0;
+    process.kill(pid, "SIGKILL");
+    await until(() => exits.length === 1);
+    const end = await recording.stop();
+    expect(end.ok, JSON.stringify(end)).toBe(true);
+    expect(end.parts.map((p) => p.index)).toEqual([0]);
+    const written = end.parts.flatMap((p) => ids(p.path));
+    // Everything up to the last whole fragment before the kill.
+    expect(written.length).toBeGreaterThan(20);
+    strictlyIncreasing(written);
   },
   60_000,
 );

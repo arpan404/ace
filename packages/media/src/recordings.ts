@@ -38,7 +38,18 @@ export type MediaRecordingOptions = {
   ended?: (end: RecordingEnd) => void;
   /** A part closed (its size counts toward the caller's own budget). */
   part?: (part: RecordedPart) => void;
+  /**
+   * Resolves once every unit the producer read before the stop has reached ace-media, so the
+   * last epoch's frames are there when the recorder finishes. Immediate when absent.
+   */
+  drain?: () => Promise<void>;
 };
+
+/**
+ * How long a stop waits for ace-media to come back after it went away mid-recording: the new
+ * process makes the part the crash cut playable, and reports it, before the recording ends.
+ */
+export const recoveryMs = 30_000;
 
 export type RecordingEnd =
   | { ok: true; parts: RecordedPart[] }
@@ -52,6 +63,10 @@ export class MediaRecording {
   readonly #parts = new Map<number, RecordedPart>();
   #beat: (() => void) | undefined;
   #stopping = false;
+  /** `record.stop` reached the running ace-media. */
+  #stopSent = false;
+  /** Waiting for a new ace-media to recover the recording; cancels that wait. */
+  #recovering: (() => void) | undefined;
   #ended: RecordingEnd | undefined;
   #waiters: ((end: RecordingEnd) => void)[] = [];
 
@@ -84,9 +99,17 @@ export class MediaRecording {
 
   /** ace-media started again and the source was reopened: record into a new part. */
   replay(): void {
-    if (this.#ended || this.#stopping) return;
+    if (this.#ended) return;
     this.#ledger.restart();
-    this.#sendStart();
+    if (!this.#stopping) {
+      this.#sendStart();
+      return;
+    }
+    // Stopped while ace-media was away: the new process recovers the part the crash cut at
+    // `record.start` and reports it; nothing new is recorded before the stop.
+    if (this.#stopSent) return;
+    // A stop still draining sends `record.stop` itself once it has.
+    if (this.#sendStart() && this.#recovering) this.#sendStop();
   }
 
   /** A privacy transition: a new epoch at once, so no epoch spans it. */
@@ -132,23 +155,53 @@ export class MediaRecording {
     });
   }
 
-  /** Stops, and resolves with the parts once ace-media closed the last one. */
+  /**
+   * Stops, and resolves with the parts once ace-media closed the last one. The epoch the
+   * producer is in is decided first (by the same privacy rule as every other) and its frames
+   * drained into ace-media, so a clip stopped before the first 100 ms beat still has its video.
+   * Stopped while ace-media is away, it waits up to `recoveryMs` for the new process to recover
+   * the part the crash cut.
+   */
   stop(): Promise<RecordingEnd> {
     if (this.#ended) return Promise.resolve(this.#ended);
-    this.#stopping = true;
-    this.#beat?.();
-    if (!this.#options.send({ type: "record.stop", recording: this.#options.recording })) {
-      this.#end({ ok: false, reason: "media-unavailable", parts: this.parts });
-    }
-    return new Promise((resolve) => {
+    const ended = new Promise<RecordingEnd>((resolve) => {
       if (this.#ended) resolve(this.#ended);
       else this.#waiters.push(resolve);
     });
+    if (this.#stopping) return ended;
+    this.#stopping = true;
+    this.#beat?.();
+    // A last epoch: the producer acknowledges it at once, which decides every one before it.
+    this.#next();
+    void (this.#options.drain?.() ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => {
+        if (!this.#ended && !this.#sendStop()) this.#awaitRecovery("media-unavailable");
+      });
+    return ended;
   }
 
-  /** ace-media went away while stopping: what was reported is what there is. */
+  /** ace-media went away. A stopping recording waits for the next process to recover it. */
   lost(reason: string): void {
-    if (this.#stopping) this.#end({ ok: false, reason, parts: this.parts });
+    if (!this.#stopping || this.#ended) return;
+    this.#stopSent = false;
+    this.#awaitRecovery(reason);
+  }
+
+  #sendStop(): boolean {
+    this.#stopSent = this.#options.send({
+      type: "record.stop",
+      recording: this.#options.recording,
+    });
+    return this.#stopSent;
+  }
+
+  #awaitRecovery(reason: string): void {
+    if (this.#recovering) return;
+    this.#recovering = this.#options.clock.setTimeout(
+      () => this.#end({ ok: false, reason, parts: this.parts }),
+      recoveryMs,
+    );
   }
 
   #sendStart(): boolean {
@@ -186,6 +239,7 @@ export class MediaRecording {
     if (this.#ended) return;
     this.#ended = end;
     this.#beat?.();
+    this.#recovering?.();
     for (const waiter of this.#waiters.splice(0)) waiter(end);
     this.#options.ended?.(end);
   }

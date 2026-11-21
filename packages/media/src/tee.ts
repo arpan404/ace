@@ -32,6 +32,10 @@ export interface IngestSocket {
   write(bytes: Uint8Array): boolean;
   readonly queued: number;
   destroy(): void;
+  /** Resolves once connected; rejects if it never connects. */
+  readonly ready: Promise<void>;
+  /** Called once when the connection ends or fails, unless `destroy` ended it. */
+  onClose(listener: () => void): void;
 }
 
 export type MediaTeeOptions = {
@@ -48,6 +52,12 @@ export type MediaTeeOptions = {
   /** The tee connected, or dropped deltas while ace-media fell behind: ask the producer for a
    * keyframe. */
   keyframe: () => void;
+  /**
+   * The established ingest connection was lost while ace-media runs: its socket closed or
+   * failed, or ace-media closed the producer (`source.status` `retrying` or `ended`). Units
+   * read from now on reach nobody, so the owner must not go on as if they were recorded.
+   */
+  lost?: (reason: string) => void;
 };
 
 /** Past this many queued bytes, deltas are dropped until the next keyframe. */
@@ -61,6 +71,7 @@ export class MediaTee {
   #stamper: ReadStamper;
   #epoch: number;
   #skipping = false;
+  readonly #accepting: ((ok: boolean) => void)[] = [];
 
   constructor(options: MediaTeeOptions, epoch: number) {
     this.#options = options;
@@ -96,6 +107,10 @@ export class MediaTee {
   /** ace-media's messages; the tee needs `source.status` for its own source. */
   message(message: FromMedia): void {
     if (message.type !== "source.status" || message.source !== this.#options.source) return;
+    if (message.status === "retrying" || message.status === "ended") {
+      if (this.#socket) this.#lose(message.reason ?? `source-${message.status}`);
+      return;
+    }
     const token = this.#token;
     const path = this.#options.ingest();
     if (message.status !== "starting" || !token || !path) return;
@@ -104,6 +119,17 @@ export class MediaTee {
     socket.write(encodeMediaFrame(frame(5, 0, 0, token)));
     token.fill(0);
     this.#socket = socket;
+    socket.ready.then(
+      () => {
+        if (this.#socket === socket) this.#settle(true);
+      },
+      () => {
+        if (this.#socket === socket) this.#lose("ingest-refused");
+      },
+    );
+    socket.onClose(() => {
+      if (this.#socket === socket) this.#lose("ingest-closed");
+    });
     // ace-media's recorder starts at a keyframe; nothing before one is any use, so ask for one
     // rather than wait out the producer's group.
     this.#skipping = true;
@@ -146,6 +172,30 @@ export class MediaTee {
     );
   }
 
+  /**
+   * Resolves true once the ingest connection `open` asked for is up (after ace-media reported
+   * the source `starting`), false once it failed or was lost first.
+   */
+  accepted(): Promise<boolean> {
+    return new Promise((resolve) => this.#accepting.push(resolve));
+  }
+
+  #settle(ok: boolean): void {
+    for (const resolve of this.#accepting.splice(0)) resolve(ok);
+  }
+
+  /** Resolves once every unit written so far has left the daemon (bounded by `ms`). */
+  async flushed(sleep: (ms: number) => Promise<void>, ms: number): Promise<void> {
+    for (let waited = 0; (this.#socket?.queued ?? 0) > 0 && waited < ms; waited += 10)
+      await sleep(10);
+  }
+
+  #lose(reason: string): void {
+    this.#disconnect();
+    this.#settle(false);
+    this.#options.lost?.(reason);
+  }
+
   #disconnect(): void {
     this.#socket?.destroy();
     this.#socket = undefined;
@@ -183,12 +233,28 @@ function frame(kind: number, flags: number, epoch: number, payload: Uint8Array):
 /** The real ingest connection over `node:net`. */
 export function nodeIngestConnect(path: string): IngestSocket {
   const socket = createConnection(path);
+  let destroyed = false;
+  const listeners: (() => void)[] = [];
+  const ready = new Promise<void>((resolve, reject) => {
+    socket.once("connect", () => resolve());
+    socket.once("error", reject);
+  });
+  ready.catch(() => {});
+  // An error is followed by `close`, which reports it.
   socket.on("error", () => {});
+  socket.once("close", () => {
+    if (!destroyed) for (const listener of listeners.splice(0)) listener();
+  });
   return {
     write: (bytes) => socket.write(bytes),
     get queued() {
       return socket.writableLength;
     },
-    destroy: () => socket.destroy(),
+    destroy: () => {
+      destroyed = true;
+      socket.destroy();
+    },
+    ready,
+    onClose: (listener) => void listeners.push(listener),
   };
 }

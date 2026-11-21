@@ -1,4 +1,5 @@
 import type { Origin } from "./ingest-sources.ts";
+import { epochIntervalMs } from "./epochs.ts";
 import { MediaRecording, type RecordedPart, type RecordingEnd } from "./recordings.ts";
 import type { MediaClock } from "./supervisor-host.ts";
 import type { MediaHealth } from "./supervision-policy.ts";
@@ -102,11 +103,17 @@ export class TeeRecordings {
       return { ok: false, reason: refused };
     }
     const recording = new TeeRecording(port, spec, release, (it) => this.#live.delete(it));
+    const accepted = recording.accepted();
     if (!recording.begin()) {
       recording.abandon();
       return { ok: false, reason: unavailable(port.reason() ?? "it didn't take the recording") };
     }
     this.#live.add(recording);
+    // Started only once ace-media took the ingest connection: frames go somewhere from now on.
+    if (!(await deadline(accepted, port.clock, recordingStartMs))) {
+      recording.abandon();
+      return { ok: false, reason: unavailable("it didn't accept the recording's video") };
+    }
     return { ok: true, recording };
   }
 
@@ -153,6 +160,23 @@ export class TeeRecordings {
   }
 }
 
+/** `work`'s result, or false once `ms` pass first. */
+function deadline(work: Promise<boolean>, clock: MediaClock, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const cancel = clock.setTimeout(() => resolve(false), ms);
+    void work.then((ok) => {
+      cancel();
+      resolve(ok);
+    });
+  });
+}
+
+/**
+ * How long a lost ingest connection waits before it fails the recording: an ace-media crash
+ * closes it too, and the restart's replay continues the recording in a new part instead.
+ */
+export const ingestLossGraceMs = 1_000;
+
 function unavailable(why: string): string {
   return `ace-media isn't available to record: ${why}`;
 }
@@ -165,6 +189,8 @@ export class TeeRecording implements ActiveRecording {
   readonly #forget: (recording: TeeRecording) => void;
   #stopping = false;
   #done = false;
+  /** Bumped by every reopen and exit: a loss noticed before one of them is no longer news. */
+  #generation = 0;
 
   constructor(
     port: TeeRecordingsPort,
@@ -187,6 +213,7 @@ export class TeeRecording implements ActiveRecording {
         now: () => port.clock.now(),
         randomBytes: (length) => port.randomBytes(length),
         keyframe: () => spec.keyframe(),
+        lost: (reason) => this.#lost(reason, port.clock, spec),
       },
       1,
     );
@@ -204,6 +231,13 @@ export class TeeRecording implements ActiveRecording {
       issue: (issued) => this.#media.acknowledged(this.#tee.epoch(issued)),
       keyframe: () => spec.keyframe(),
       part: (part) => spec.part?.(part),
+      drain: async () => {
+        const sleep = (ms: number) =>
+          new Promise<void>((resolve) => void port.clock.setTimeout(resolve, ms));
+        await this.#tee.flushed(sleep, 1_000);
+        // The last units have left the daemon; give ace-media a beat to read them.
+        await sleep(epochIntervalMs);
+      },
       ended: (end) => {
         const stopping = this.#stopping;
         this.#finish();
@@ -212,19 +246,30 @@ export class TeeRecording implements ActiveRecording {
     });
   }
 
+  /** @internal Resolves once ace-media took the next ingest connection, false if it didn't. */
+  accepted(): Promise<boolean> {
+    return this.#tee.accepted();
+  }
+
   /** @internal Opens the source and starts the recording; false when ace-media refused. */
   begin(): boolean {
     return this.#tee.open() && this.#media.start();
   }
 
-  /** @internal A recording that never started. */
+  /** @internal A recording that never got going: whatever ace-media began is stopped. */
   abandon(): void {
+    this.#stopping = true;
+    void this.#media.stop();
     this.#finish();
   }
 
-  /** @internal */
+  /**
+   * @internal ace-media is up again. A running recording continues in a new part; a stopping
+   * one reopens its source only so the new process can recover the part the crash cut.
+   */
   replay(): void {
-    if (this.#done || this.#stopping) return;
+    if (this.#done) return;
+    this.#generation++;
     this.#tee.open();
     this.#media.replay();
   }
@@ -237,7 +282,19 @@ export class TeeRecording implements ActiveRecording {
 
   /** @internal */
   exited(): void {
+    this.#generation++;
     this.#media.lost("media-exited");
+  }
+
+  /** The ingest connection went away. Unless a restart explains it, the recording fails. */
+  #lost(reason: string, clock: MediaClock, spec: TeeRecordingSpec): void {
+    const generation = this.#generation;
+    clock.setTimeout(() => {
+      if (this.#done || this.#stopping || generation !== this.#generation) return;
+      this.#stopping = true;
+      // The video read from here on reaches nobody: end with what ace-media wrote, and say so.
+      void this.#media.stop().then((end) => spec.failed?.({ ok: false, reason, parts: end.parts }));
+    }, ingestLossGraceMs);
   }
 
   get parts(): RecordedPart[] {
