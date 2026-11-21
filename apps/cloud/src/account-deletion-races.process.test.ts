@@ -163,9 +163,10 @@ it("while WorkOS deletes the user, the asking session can only retry: no grants,
     });
     await exchange.body?.cancel();
     expect(exchange.status).toBe(401);
-    expect(
-      (await fetch(`${worker.http}/v1/account/session`, { headers: auth(phone.token) })).status,
-    ).toBe(401);
+    // Reading the session opens nothing, but says the deletion is pending.
+    const read = await fetch(`${worker.http}/v1/account/session`, { headers: auth(phone.token) });
+    expect(read.status).toBe(409);
+    expect(await read.json()).toEqual({ error: "deletion_pending" });
   } finally {
     held.release();
   }
