@@ -4,6 +4,7 @@
 
 mod adopt;
 mod agents;
+mod app_forms;
 mod apps;
 mod archive;
 mod autonomy;
@@ -36,6 +37,7 @@ mod knowledge_api;
 mod learned;
 mod ledger;
 mod local;
+pub(crate) use app_forms::Given;
 pub(crate) use ledger::Admission;
 mod made;
 mod maintenance;
@@ -198,6 +200,8 @@ pub struct Engine {
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
     record_lock: Mutex<()>,
+    /// Apps' forms waiting on the person mid-call (ADR 0202 §2).
+    app_forms: app_forms::Open,
     /// Bots whose package link is being changed (an install, an update or rollback, a switch, a
     /// withdrawal): one change to a bot's package at a time (`packages::Busy`).
     pub(crate) package_busy: crate::packages::Changing,
@@ -393,6 +397,7 @@ impl Engine {
             ),
             live: Mutex::default(),
             record_lock: Mutex::default(),
+            app_forms: app_forms::Open::default(),
             package_busy: crate::packages::Changing::default(),
             market_keys: std::sync::RwLock::new(crate::packages::envelope::shipped()),
             activity: Mutex::default(),

@@ -205,7 +205,7 @@ fn finished(call_id: &str) -> Event {
 #[test]
 fn a_typed_message_never_answers_an_apps_form() {
     let form_card = card_id("c1", 1);
-    let events = vec![asked(&form_card, "r1"), Event::user_message("Ada")];
+    let events = [asked(&form_card, "r1"), Event::user_message("Ada")];
     let standing = views(events.iter())
         .into_iter()
         .find(|c| c.call_id == form_card)
@@ -213,7 +213,7 @@ fn a_typed_message_never_answers_an_apps_form() {
     assert_eq!(standing, Some(Standing::Waiting));
     assert_eq!(typed_answer(&events[..1], &events[1]), None);
     // A bot's own question still is answered by it.
-    let events = vec![asked("c2", "r1"), Event::user_message("Ada")];
+    let events = [asked("c2", "r1"), Event::user_message("Ada")];
     assert!(typed_answer(&events[..1], &events[1]).is_some());
 }
 
