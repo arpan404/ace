@@ -822,9 +822,14 @@ impl Engine {
             .ingest(conn, frame, now, self.egress.as_mut(), &mut self.out);
     }
 
-    /// A unit a JPEG source's encoder thread finished.
-    pub fn encoded(&mut self, source: &str, token: u64, frame: MediaFrame, now: Now) {
+    /// A unit a JPEG source's encoder thread finished, or one a Simulator's reader read.
+    pub fn encoded(&mut self, source: &str, token: u64, mut frame: MediaFrame, now: Now) {
         if self.sources.encoder_is(source, token) {
+            // A source ace-media reads itself has no ingest: its reader's units, stamped with the
+            // source's epoch, are the pictures agents' stills are made of.
+            if self.sources.stamp_read(source, &mut frame, now.mono_ms) {
+                self.stills.frame(source, &frame, &mut self.out);
+            }
             self.delivery
                 .unit(source, &frame, now.mono_ms, now.wall_ms, &mut self.out);
         }

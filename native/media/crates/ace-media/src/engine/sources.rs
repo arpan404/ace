@@ -584,6 +584,21 @@ impl Sources {
         }
     }
 
+    /// Stamps a unit `id`'s reader read (a Simulator ace-media reads itself) with the source's
+    /// epoch, as `encoded` does; false, leaving it alone, when `id` isn't such a source.
+    pub fn stamp_read(&self, id: &str, frame: &mut MediaFrame, now_ms: u64) -> bool {
+        let Some(stamper) = self
+            .by_id
+            .get(id)
+            .filter(|s| !s.pictures)
+            .and_then(|s| s.stamper.as_ref())
+        else {
+            return false;
+        };
+        frame.epoch = stamper.stamp(now_ms);
+        true
+    }
+
     /// A unit the source's encoder finished: it goes where an ingested unit goes.
     #[allow(clippy::too_many_arguments)]
     pub fn encoded(

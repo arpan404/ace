@@ -909,3 +909,68 @@ fn a_fresh_still_with_no_new_picture_by_its_deadline_fails_for_the_source_to_ans
         [Answer::Failed { .. }]
     ));
 }
+
+/// A Simulator ace-media reads itself (E3b): its reader's units come in through `encoded`.
+fn reading_simulator(engine: &mut Engine) -> u64 {
+    let opened = send(
+        engine,
+        json!({ "type": "source.open", "source": "s1", "handle": 4, "epoch": 6,
+                "origin": { "kind": "simulator",
+                            "streamUrl": "http://127.0.0.1:3100/stream.avcc",
+                            "stillUrl": "http://127.0.0.1:3100/frame.jpeg" } }),
+        &[2; 32],
+        NOW,
+    );
+    match opened.iter().find_map(|e| match e {
+        Effect::Encode(EncodeEffect::Read { token, .. }) => Some(*token),
+        _ => None,
+    }) {
+        Some(token) => token,
+        None => panic!("the reader starts with the source"),
+    }
+}
+
+fn read(engine: &mut Engine, token: u64, frame: MediaFrame) -> Vec<Effect> {
+    engine.encoded("s1", token, frame, NOW);
+    engine.effects().collect()
+}
+
+#[test]
+fn a_simulator_ace_media_reads_itself_gives_an_agent_a_fresh_still_fenced_on_its_epoch() {
+    let (mut engine, maker) = with_maker();
+    let token = reading_simulator(&mut engine);
+    read(&mut engine, token, key(1));
+    // The daemon fences an agent's still on the source's newest public epoch, and wants it fresh.
+    let mut effects = send(
+        &mut engine,
+        json!({ "type": "still.take", "request": "q1", "source": "s1", "maxWidth": 320,
+                "maxHeight": 320, "maxPixels": 10_000_000, "quality": 80, "deadlineMs": 500,
+                "minEpoch": 6, "fresh": true }),
+        &[],
+        NOW,
+    );
+    effects.extend(arrive(&mut engine, &maker));
+    assert_eq!(
+        answers(&effects),
+        [],
+        "the picture read before it was asked"
+    );
+    let mut effects = read(&mut engine, token, delta(2));
+    effects.extend(arrive(&mut engine, &maker));
+    assert_eq!(answers(&effects), [still("q1", 2, (320, 240))]);
+}
+
+#[test]
+fn a_fresh_still_of_a_group_too_long_to_hold_asks_for_a_keyframe_and_is_made_from_it() {
+    let (mut engine, maker) = with_maker();
+    producing(&mut engine);
+    // A long group, as an encoder that makes keyframes only when asked sends: dropped.
+    let mut frames = vec![key(1)];
+    frames.extend((0..=super::super::stills::MAX_UNITS).map(|_| delta(2)));
+    feed(&mut engine, frames);
+    let effects = take_fresh(&mut engine, "q1", 500, NOW);
+    assert_eq!(keyframe_requests(&effects), 1, "the still needs a keyframe");
+    let mut effects = feed(&mut engine, [key(3)]);
+    effects.extend(arrive(&mut engine, &maker));
+    assert_eq!(answers(&effects), [still("q1", 3, (320, 240))]);
+}

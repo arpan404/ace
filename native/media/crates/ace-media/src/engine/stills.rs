@@ -447,8 +447,23 @@ impl Stills {
         };
         // A fresh still waits for the source's next picture, at most until its deadline.
         if fresh {
-            if !self.current.contains_key(&request.source) {
+            let Some(entry) = self.current.get(&request.source) else {
                 return failed(out, request.request, "no-source");
+            };
+            // A group too long to hold was dropped: no picture can be made until a keyframe,
+            // which an encoder making keyframes only when asked (a re-encoded Simulator) never
+            // sends unasked. One request per wait, as `start` does; the keyframe dispatches it.
+            if matches!(entry.current, Current::Lost)
+                && !self.waiting.iter().any(|r| r.source == request.source)
+            {
+                normal(
+                    out,
+                    FromMedia::SourceKeyframe {
+                        source: id(&request.source),
+                        encode: entry.encode,
+                        reason: KeyReason::Drop,
+                    },
+                );
             }
             return self.waiting.push(request);
         }
