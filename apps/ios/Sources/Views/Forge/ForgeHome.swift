@@ -96,8 +96,11 @@ struct ForgeHome: View {
             .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,
                          hasMenu: inbox.showsMachineNames || projects.count > 1) { titleMenu }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
-            .task(id: "\(listKey)|\(listGeneration)|\(features?.issues == true)|\(features?.inbox == true)") { await load(fresh: false) }
-            .task(id: "\(session?.hostId ?? "")|\(chosen ?? "")|\(listGeneration)") {
+            .task(id: loadKey) { await load(fresh: false) }
+            // Keyed on the project, the connection and the forge's changes, never the filter: a
+            // new filter re-reading these would hide New pull request and read the list again
+            // twice. A read that failed while the machine was out runs again once it is back.
+            .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")|\(chosen ?? "")|\(session?.client.familyGeneration("forge") ?? 0)") {
                 features = nil
                 guard let client = session?.client, let chosen else { return }
                 features = try? await client.read(["type": "forge.features", "project": chosen], as: ForgeFeatures.self)
@@ -134,12 +137,19 @@ struct ForgeHome: View {
     private static func listKey(_ machine: String, _ project: String, _ kind: ForgeKind, _ filter: String, _ query: String) -> String {
         [machine, project, kind.rawValue, filter, query].joined(separator: "|")
     }
-    /// Moves when the daemon says pull requests changed; the list on screen is read again.
-    private var listGeneration: Int {
-        guard let client = session?.client, let chosen else { return 0 }
-        return client.readGeneration(kind == .pulls
+    /// The read on screen: the daemon saying it changed, or an answer kept after the screen
+    /// stopped waiting for it, reads it again. Issues and Inbox wait on the features read too.
+    private var loadKey: String {
+        guard let client = session?.client, let chosen else { return listKey }
+        let read = kind == .pulls
             ? ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query)
-            : ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query))
+            : ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query)
+        let ready = switch kind {
+        case .pulls: true
+        case .issues: features?.issues == true
+        case .inbox: features?.inbox == true
+        }
+        return "\(listKey)|\(client.connection)|\(client.readGeneration(read))|\(client.hasKept(read))|\(ready)"
     }
 
     @ViewBuilder private var content: some View {
@@ -183,8 +193,22 @@ struct ForgeHome: View {
                 ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
             }
         }
+        projectPicker
+    }
+
+    private var projectPicker: some View {
         Picker("Project", selection: Binding(get: { chosen ?? "" }, set: { choose($0) })) {
             ForEach(projects) { Text($0.name).tag($0.id) }
+        }
+    }
+
+    /// The project the lists read, on a chip beside Filters as the web's toolbar shows it, so
+    /// the choice is in sight on every iOS (the title's subtitle shows only on iOS 26).
+    @ViewBuilder private var projectChip: some View {
+        if projects.count > 1, let name = projects.first(where: { $0.id == chosen })?.name {
+            Menu { projectPicker } label: { InboxChip(title: name) }
+                .accessibilityIdentifier("forge.project")
+                .accessibilityLabel("Project, \(name)")
         }
     }
 
@@ -252,7 +276,8 @@ struct ForgeHome: View {
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 
-    /// New pull request or New issue, where the person can make one, then the list's filter.
+    /// New pull request or New issue, where the person can make one, then the project and the
+    /// list's filter.
     @ViewBuilder private var chipActions: some View {
         if kind == .pulls, session?.client.canOperate == true, chosen != nil, features?.create == true {
             Button("New pull request") { creating = true }
@@ -265,6 +290,7 @@ struct ForgeHome: View {
                 .buttonStyle(.secondaryAction).controlSize(.small)
                 .accessibilityIdentifier("forge.newissue")
         }
+        projectChip
         if kind == .inbox {
             ForgeNotificationsFilterMenu(filter: $filters.notifications, reasons: notificationReasons)
         } else {
@@ -295,18 +321,25 @@ struct ForgeHome: View {
     }
 
     private func load(fresh: Bool) async {
-        guard let client = session?.client, let chosen, client.connection == "ready" else { return }
-        if kind == .issues && features?.issues != true || kind == .inbox && features?.inbox != true { return }
+        guard let client = session?.client, let chosen else { return }
         let (pullsFilter, issuesFilter, query) = (pullsFilter, issuesFilter, query)
         let scope = ForgeListScope(machineId: session?.hostId ?? "", project: chosen)
+        // The choice takes the list at once, read or not: a machine that is out says so rather
+        // than leaving the last choice's rows under the new one.
+        let ready = client.connection == "ready"
         switch kind {
         case .pulls:
             let kept = client.kept(ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query), as: ForgePullList.self)
+            pulls.select(listKey, scope: scope, kept: kept)
+            guard ready else { pulls.unreachable(); return }
             await pulls.load(listKey, scope: scope, fresh: fresh, kept: kept) { screens, fresh in
                 try await client.forgePulls(project: chosen, filter: pullsFilter, query: query, screens: screens, fresh: fresh)
             }
         case .issues:
             let kept = client.kept(ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query), as: ForgeIssueList.self)
+            issues.select(listKey, scope: scope, kept: kept)
+            guard ready else { issues.unreachable(); return }
+            guard features?.issues == true else { return }
             await issues.load(listKey, scope: scope, fresh: fresh, kept: kept) { screens, fresh in
                 try await client.forgeIssues(project: chosen, filter: issuesFilter, query: query, screens: screens, fresh: fresh)
             }
