@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAgentLabel } from "@/components/agent-picker.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { cn } from "@/lib/cn.ts";
 import type { BrowserView, PreviewSource } from "../sources.ts";
 
 /**
@@ -40,5 +41,16 @@ export function RecordingIndicator(props: {
         Stop recording
       </Button>
     </div>
+  );
+}
+
+/** The daemon's sentence for a recording that ended on its own or may be incomplete. */
+export function RecordingNotice(props: { view: BrowserView | undefined; className?: string }) {
+  const notice = props.view?.recordingNotice;
+  if (!notice) return null;
+  return (
+    <p role="status" className={cn("text-xs text-muted-foreground", props.className)}>
+      {notice}
+    </p>
   );
 }
