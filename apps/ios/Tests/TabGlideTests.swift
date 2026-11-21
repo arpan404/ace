@@ -57,18 +57,31 @@ struct TabGlideTests {
         #expect(abs(settled - phone.offset(following: x)) <= phone.slot / 2)
     }
 
+    private func point(_ x: CGFloat, _ y: CGFloat = 20) -> CGPoint { CGPoint(x: x, y: y) }
+
     @Test func aSlideEndingOnAnotherPlacePicksIt() {
-        #expect(phone.release(from: 40, at: 200, chosen: 0) == 2)
+        #expect(phone.release(from: point(40), at: point(200), held: 1, chosen: 0) == 2)
     }
 
     @Test func aTapPicksItsPlaceEvenWhenItIsAlreadyChosen() {
-        #expect(phone.release(from: 120, at: 120, chosen: 1) == 1)
-        #expect(phone.release(from: 120, at: 124, chosen: 1) == 1)
+        #expect(phone.release(from: point(120), at: point(120), held: 0.1, chosen: 1) == 1)
+        #expect(phone.release(from: point(120), at: point(124, 24), held: 0.1, chosen: 1) == 1)
     }
 
     @Test func aSlideThatComesBackToTheChosenPlacePicksNothing() {
-        #expect(phone.release(from: 100, at: 130, chosen: 1) == nil)
-        #expect(phone.release(from: 100, at: 260, chosen: 1) == 3)
+        #expect(phone.release(from: point(100), at: point(130), held: 0.3, chosen: 1) == nil)
+        #expect(phone.release(from: point(100), at: point(260), held: 0.3, chosen: 1) == 3)
+    }
+
+    @Test func aVerticalSwipeFromTheChosenPlaceIsNotARetap() {
+        #expect(phone.release(from: point(120), at: point(122, -40), held: 0.2, chosen: 1) == nil)
+        #expect(phone.release(from: point(120), at: point(120, 32), held: 0.2, chosen: 1) == nil)
+    }
+
+    @Test func aLongPressOnTheChosenPlaceIsNotARetap() {
+        #expect(phone.release(from: point(120), at: point(120), held: 0.8, chosen: 1) == nil)
+        // On another place a long press still picks it.
+        #expect(phone.release(from: point(200), at: point(200), held: 0.8, chosen: 1) == 2)
     }
 
     @Test func anUnmeasuredBarKeepsTheFillOnTheFirstPlace() {

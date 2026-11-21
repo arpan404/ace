@@ -25,6 +25,8 @@ struct GlidingPlaces<Place: View>: View {
     @GestureState(resetTransaction: Transaction(animation: AceDesign.Motion.tabSettle))
     private var finger: CGFloat?
     @State private var width: CGFloat = 0
+    /// When the finger now down touched down, for telling a tap from a press (`TabGlide.release`).
+    @State private var touchedDown: Date?
     @Environment(\.aceReduceMotion) private var reduceMotion
 
     init(places: [InboxTab], chosen: InboxTab, spacing: CGFloat,
@@ -87,9 +89,17 @@ struct GlidingPlaces<Place: View>: View {
                 transaction.animation = AceDesign.Motion.tabFollow
                 finger = value.location.x - Self.inset
             }
+            // Once per touch, not per frame: a touch's first change is where it touched down, and
+            // it also replaces the time a touch the system took away (never ended) left behind.
+            .onChanged { value in
+                if touchedDown == nil || value.translation == .zero { touchedDown = value.time }
+            }
             .onEnded { value in
-                let start = value.startLocation.x - Self.inset
-                guard let picked = glide.release(from: start, at: value.location.x - Self.inset, chosen: chosen),
+                let held = touchedDown.map { value.time.timeIntervalSince($0) } ?? 0
+                touchedDown = nil
+                let start = CGPoint(x: value.startLocation.x - Self.inset, y: value.startLocation.y)
+                let end = CGPoint(x: value.location.x - Self.inset, y: value.location.y)
+                guard let picked = glide.release(from: start, at: end, held: held, chosen: chosen),
                       places.indices.contains(picked) else { return }
                 withAnimation(reduceMotion ? .default : AceDesign.Motion.tabSettle) { select(places[picked]) }
             }

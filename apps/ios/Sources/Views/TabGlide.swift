@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Where the chosen fill sits in a row of equal places (`GlidingPlaces`), as the system's tab bar
 /// moves it: under the finger while it slides along the bar, then on the place nearest it.
@@ -31,15 +32,19 @@ struct TabGlide: Equatable {
         return clamped(Int(((x + spacing / 2) / step).rounded(.down)))
     }
 
-    /// How far a finger may move along the bar and still count as a tap.
+    /// How far a finger may move, in any direction, and still count as a tap.
     static let tapSlop: CGFloat = 10
+    /// How long a finger may stay down and still count as a tap.
+    static let tapTime: TimeInterval = 0.5
 
-    /// What a finger lifted at `end`, having touched down at `start`, picks: the place under it;
-    /// nothing when a slide comes back to the place already chosen (`chosen`). A tap on that
-    /// place still picks it, which takes its list back to the top.
-    func release(from start: CGFloat, at end: CGFloat, chosen: Int) -> Int? {
-        let picked = index(at: end)
-        return picked != chosen || abs(end - start) < Self.tapSlop ? picked : nil
+    /// What a finger lifted at `end`, having touched down at `start` `held` seconds before, picks:
+    /// the place under it; nothing when a slide or a swipe off the bar ends over the place already
+    /// chosen (`chosen`). A short tap on that place still picks it, which takes its list back to
+    /// the top.
+    func release(from start: CGPoint, at end: CGPoint, held: TimeInterval, chosen: Int) -> Int? {
+        let picked = index(at: end.x)
+        let tap = hypot(end.x - start.x, end.y - start.y) < Self.tapSlop && held < Self.tapTime
+        return picked != chosen || tap ? picked : nil
     }
 
     private var step: CGFloat { slot + spacing }
