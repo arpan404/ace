@@ -81,29 +81,68 @@ test("a withdrawn entry reads off with its publisher's reason and offers Turn ba
   ]);
 });
 
-test("each state says whether it can be turned back on", () => {
-  const cases: [Partial<MarketInstalled>, string | null, string[]][] = [
-    [{ state: "on" }, null, []],
-    [{ state: "off" }, "Turn back on", ["Off · You turned it off."]],
+test("each state says whether it can be turned back on, and only a turned-off one in one step", () => {
+  const cases: [Partial<MarketInstalled>, string | null, boolean, string[]][] = [
+    [{ state: "on" }, null, false, []],
+    [{ state: "off" }, "Turn back on", true, ["Off · You turned it off."]],
     [
       { state: "blocked", reason: "Matches a known stealer." },
       null,
+      false,
       ["Off · ace blocked it: Matches a known stealer. Remove it."],
     ],
+    [{ state: "withdrawn" }, "Turn back on", false, ["Off · Withdrawn by its publisher."]],
     [
       { state: "withdrawn", type: "spade-bot", target: "b", linked: true },
       "Resume",
+      false,
       ["Off · Withdrawn by its publisher."],
     ],
   ];
-  for (const [extra, word, notes] of cases)
-    expect(only(install("x", extra))).toMatchObject({ turnOnWord: word, notes });
+  for (const [extra, word, quick, notes] of cases)
+    expect(only(install("x", extra))).toMatchObject({
+      turnOnWord: word,
+      turnOnQuick: quick,
+      notes,
+    });
+});
+
+test("turning a withdrawn entry back on asks first, with its publisher's reason and the risk", () => {
+  expect(
+    only(
+      install("digest", { title: "Digest", state: "withdrawn", reason: "It leaked mail headers" }),
+    )?.turnOnAsk,
+  ).toEqual({
+    question: "Turn Digest back on?",
+    detail:
+      "Its publisher withdrew it: It leaked mail headers. It runs again at your own risk, until ace turns it off the next time it reads the market.",
+    confirm: "Turn back on anyway",
+  });
+  expect(
+    only(
+      install("inbox", {
+        title: "Inbox",
+        type: "spade-bot",
+        target: "b",
+        linked: true,
+        state: "withdrawn",
+      }),
+    )?.turnOnAsk,
+  ).toEqual({
+    question: "Resume Inbox?",
+    detail:
+      "Its publisher withdrew it without saying why. It runs again at your own risk, until ace turns it off the next time it reads the market.",
+    confirm: "Resume anyway",
+  });
+  expect(only(install("notes", { state: "off" }))?.turnOnAsk).toBeNull();
+  expect(only(install("bad", { state: "blocked" }))?.turnOnAsk).toBeNull();
 });
 
 test("Remove asks first, naming what goes", () => {
   expect(only(install("inbox", { type: "spade-bot", title: "Inbox", target: "b" }))).toMatchObject({
-    removeQuestion: "Remove Inbox's skills and plugins?",
-    removeDetail: "The bot stays yours.",
+    removeQuestion: "Remove Inbox from Installed?",
+    removeDetail:
+      "Inbox and the skills and plugins it brought stay yours. It stops getting updates from the marketplace.",
   });
   expect(only(install("harbour", { type: "suit", title: "Harbour dusk" }))).toMatchObject({
     removeQuestion: "Remove Harbour dusk?",

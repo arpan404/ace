@@ -1,5 +1,5 @@
 import type { MarketInstalled, MarketResult } from "@ace/protocol/marketplace";
-import { count, offeredUpdate } from "@ace/ui-core/market";
+import { count, offeredUpdate, sentence } from "@ace/ui-core/market";
 import { installedRow, updatesText } from "./market-rows.ts";
 
 /*
@@ -51,14 +51,35 @@ function installedItem(item: MarketInstalled) {
     /** The version a linked bot can go back to, from the copy kept on the machine. */
     rollBackTo: item.linked && item.previous ? item.previous.version : null,
     /** A blocked entry is off until removed; a withdrawn or turned-off one can come back. */
-    turnOnWord:
-      item.state === "withdrawn" || item.state === "off"
-        ? item.linked
-          ? "Resume"
-          : "Turn back on"
-        : null,
-    removeQuestion: bot ? `Remove ${item.title}'s skills and plugins?` : `Remove ${item.title}?`,
+    turnOnWord: turnOnWord(item),
+    /** Only what the person turned off comes back in one step, as a swipe. */
+    turnOnQuick: item.state === "off",
+    /** A withdrawn entry comes back only through this question (destructive). */
+    turnOnAsk: turnOnAsk(item),
+    removeQuestion: bot ? `Remove ${item.title} from Installed?` : `Remove ${item.title}?`,
     removeDetail: removeDetail(item),
+  };
+}
+
+function turnOnWord(item: MarketInstalled): string | null {
+  if (item.state !== "withdrawn" && item.state !== "off") return null;
+  return item.linked ? "Resume" : "Turn back on";
+}
+
+/**
+ * The question before a withdrawn entry runs again: its publisher's reason, and that it is the
+ * person's own risk. The daemon turns it off again on its next read of the market while the
+ * withdrawal stands, so the words say so rather than promise it stays on.
+ */
+function turnOnAsk(item: MarketInstalled) {
+  if (item.state !== "withdrawn") return null;
+  const why = item.reason
+    ? `Its publisher withdrew it: ${sentence(item.reason)}`
+    : "Its publisher withdrew it without saying why.";
+  return {
+    question: item.linked ? `Resume ${item.title}?` : `Turn ${item.title} back on?`,
+    detail: `${why} It runs again at your own risk, until ace turns it off the next time it reads the market.`,
+    confirm: item.linked ? "Resume anyway" : "Turn back on anyway",
   };
 }
 
@@ -76,8 +97,9 @@ function notes(item: MarketInstalled): string[] {
 
 function removeDetail(item: MarketInstalled): string {
   switch (item.type) {
+    // Only the marketplace's record goes (the daemon's `removeInstall`): the bot keeps what it has.
     case "spade-bot":
-      return "The bot stays yours.";
+      return `${item.title} and the skills and plugins it brought stay yours. It stops getting updates from the marketplace.`;
     case "suit":
       return "The Suit comes off this machine.";
     case "spade-skill":
