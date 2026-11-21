@@ -9,7 +9,7 @@ import {
   type MarketEffectRow,
   type MarketProblem,
 } from "@ace/protocol/marketplace";
-import { refusal, type Refusal, type RuleId } from "./rules.ts";
+import type { Refusal, RuleId } from "./rules.ts";
 import { surfaceProblems } from "./surfaces.ts";
 
 /*

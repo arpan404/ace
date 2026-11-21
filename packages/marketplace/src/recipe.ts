@@ -133,9 +133,8 @@ export function readRecipe(
       message: `${field} is named like a secret; a recipe never carries one`,
       rule: "package.secret",
     });
-  problems.push(
-    ...secretValueProblems(text, path).map((found) => ({ ...found, rule: "package.secret" })),
-  );
+  for (const found of secretValueProblems(text, path))
+    problems.push(Object.assign(found, { rule: "package.secret" }));
   const version = Versioned.safeParse(json);
   let recipe: Recipe | undefined;
   if (version.success && version.data.version === 1) {

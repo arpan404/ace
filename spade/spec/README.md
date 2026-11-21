@@ -81,6 +81,16 @@ both.
 | [`conformance/surfaces/cards.json`](conformance/surfaces/cards.json) | [`surfaces`](surfaces.md) | 1 |
 <!-- spec:end suite -->
 
+`spade-conform` (`spade/crates/spade-conform`) runs the suite against any implementation, at each
+level, through its doors; [`conformance/README.md`](conformance/README.md) says how.
+
+## Published
+
+The spec is published at `https://spec.acehq.dev`, generated from these files and never edited
+by hand (`bun run spec:site` writes it to `spade/spec/dist/`). The JSON Schemas are at stable
+addresses, `https://spec.acehq.dev/1.0/<name>.schema.json`: `bot`, `contract`, `surface`, `card`
+and `scenario`. `ace bot init` writes `"$schema"` pointing at the first.
+
 ## Changes
 
 Proposals are issues in this repository labelled `spec`, with a written change and its
