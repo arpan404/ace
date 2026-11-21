@@ -85,9 +85,10 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
      `busy`, never queued without bound.
    - **Files.** The root the daemon names is opened once, at start, and its handle kept. Every
      file input is walked from that handle one name at a time without following a link
-     (`openat` with `O_NOFOLLOW`; on Windows each name opened without following a reparse point
-     and held against renames while the walk goes on), opened without blocking, and read only
-     if it is a regular file: at most 32 MiB a file and 64 MiB a job. Hard links are not
+     (`openat` with `O_NOFOLLOW`; on Windows `NtCreateFile` relative to the parent's handle,
+     never following a reparse point), opened without blocking, and read only if it is a
+     regular file. Each name must be plain: no `/`, `\`, `:` (a drive or an alternate data
+     stream) or NUL, and not `.` or `..`: at most 32 MiB a file and 64 MiB a job. Hard links are not
      refused: inputs are files ace itself wrote under its data directory, and only ace writes
      there, so that is the accepted limit.
    - **Containers.** A JPEG with more than one frame header is refused, and its decoder must read

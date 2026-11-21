@@ -70,32 +70,40 @@ pub fn decode(bytes: &[u8], max_pixels: u32) -> Result<Raster> {
     let mut decoder = options().read_info(bytes).map_err(failed)?;
     let (width, height) = (u32::from(decoder.width()), u32::from(decoder.height()));
     check_input(width, height, max_pixels)?;
-    let frame = decoder
-        .read_next_frame()
-        .map_err(failed)?
-        .ok_or_else(|| Failed::truncated("GIF"))?;
-    let mut canvas = Raster::filled(width, height, [0; 4]);
-    let (fw, fh) = (usize::from(frame.width), usize::from(frame.height));
-    if frame.buffer.len() != fw * fh * 4 {
+    let (left, top, fw, fh) = {
+        let frame = decoder
+            .next_frame_info()
+            .map_err(failed)?
+            .ok_or_else(|| Failed::truncated("GIF"))?;
+        (
+            usize::from(frame.left),
+            usize::from(frame.top),
+            usize::from(frame.width),
+            usize::from(frame.height),
+        )
+    };
+    let (w, h) = (width as usize, height as usize);
+    if decoder.buffer_size() != fw * fh * 4 {
         return Err(Failed::decode(
             "GIF",
             "its first frame doesn't match its size",
         ));
     }
-    for y in 0..fh {
-        let cy = usize::from(frame.top) + y;
-        if cy >= height as usize {
-            break;
-        }
-        for x in 0..fw {
-            let cx = usize::from(frame.left) + x;
-            if cx >= width as usize {
-                break;
-            }
-            let from = (y * fw + x) * 4;
-            let to = (cy * width as usize + cx) * 4;
-            canvas.data[to..to + 4].copy_from_slice(&frame.buffer[from..from + 4]);
-        }
+    // A first frame covering the whole screen decodes straight into the picture: one buffer.
+    if (left, top, fw, fh) == (0, 0, w, h) {
+        let mut data = vec![0; w * h * 4];
+        decoder.read_into_buffer(&mut data).map_err(failed)?;
+        return Raster::new(width, height, data);
+    }
+    // A smaller one has a buffer of its own, drawn at its place on the transparent screen.
+    let mut frame = vec![0; fw * fh * 4];
+    decoder.read_into_buffer(&mut frame).map_err(failed)?;
+    let mut canvas = Raster::filled(width, height, [0; 4]);
+    for y in 0..fh.min(h.saturating_sub(top)) {
+        let row = (fw).min(w.saturating_sub(left)) * 4;
+        let from = y * fw * 4;
+        let to = ((top + y) * w + left) * 4;
+        canvas.data[to..to + row].copy_from_slice(&frame[from..from + row]);
     }
     Ok(canvas)
 }

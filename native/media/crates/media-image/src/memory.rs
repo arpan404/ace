@@ -2,9 +2,10 @@
 //! What a job will hold at its peak, from its inputs' headers alone, so the image threads can
 //! reserve it from their shared budget before any pixel is decoded.
 use crate::Input;
-use crate::decode::header;
+use crate::decode::{Target, header, svg_size};
 use crate::error::{Failed, Result};
-use crate::limits::SVG_MAX_SIDE;
+use crate::limits::check_input;
+use crate::svg::Svg;
 use media_wire::image::{ImageOp, Layer, SourceFormat};
 
 /// Room for codec state, tables and the encoded output beside the pixels.
@@ -31,32 +32,38 @@ impl Decoded {
     }
 }
 
-/// An input's decoded RGBA: its stored size, or for a vector what it may be drawn at. An icon is
-/// charged for its largest entry: a decode may fall through to any of them.
-fn decoded(input: &Input, max_pixels: u32, drawn: (u32, u32)) -> Result<Decoded> {
-    let (w, h) = if let Input::Encoded(bytes) = input
-        && crate::sniff::sniff(bytes) == Some(SourceFormat::Ico)
-    {
-        crate::ico::entries(bytes, 0)?
+/// An input's decoded RGBA: its stored size, or for a vector the size it is drawn at for
+/// `target` (the decode's own rule). An icon is charged for its largest entry, since a decode
+/// may fall through to any of them; a GIF for its screen twice, since a first frame smaller than
+/// the screen is decoded into a buffer of its own before it is drawn onto the screen.
+fn decoded(input: &Input, max_pixels: u32, target: Target) -> Result<Decoded> {
+    let format = match input {
+        Input::Encoded(bytes) => crate::sniff::sniff(bytes),
+        Input::Rgba { .. } => Some(SourceFormat::Rgba),
+    };
+    let (w, h) = match (input, format) {
+        (Input::Encoded(bytes), Some(SourceFormat::Ico)) => crate::ico::entries(bytes, 0)?
             .iter()
             .map(|e| (u64::from(e.width), u64::from(e.height)))
             .max_by_key(|(w, h)| w * h)
-            .unwrap_or((0, 0))
-    } else {
-        let source = header(input, max_pixels)?;
-        let stored = (u64::from(source.width), u64::from(source.height));
-        if source.format == SourceFormat::Svg {
-            let most = u64::from(SVG_MAX_SIDE);
-            (
-                u64::from(drawn.0).clamp(stored.0, most),
-                u64::from(drawn.1).clamp(stored.1, most),
-            )
-        } else {
-            stored
+            .unwrap_or((0, 0)),
+        (Input::Encoded(bytes), Some(SourceFormat::Svg)) => {
+            let (w, h) = svg_size(&Svg::parse(bytes)?, target)?;
+            check_input(w, h, max_pixels)?;
+            (u64::from(w), u64::from(h))
+        }
+        _ => {
+            let source = header(input, max_pixels)?;
+            (u64::from(source.width), u64::from(source.height))
         }
     };
+    let copies = if format == Some(SourceFormat::Gif) {
+        2
+    } else {
+        1
+    };
     Ok(Decoded {
-        bytes: rgba(w * h),
+        bytes: rgba(w * h) * copies,
         width: w,
         height: h,
         side: w.max(h),
@@ -88,14 +95,22 @@ pub fn peak_bytes(inputs: &[Input], op: &ImageOp) -> Result<u64> {
     let pixels = |w: u32, h: u32| u64::from(w) * u64::from(h);
     let peak = match op {
         ImageOp::Probe { .. } => 0,
-        ImageOp::Alpha { max_pixels } => decoded(first()?, *max_pixels, (0, 0))?.bytes * 5 / 4,
+        ImageOp::Alpha { max_pixels } => {
+            decoded(first()?, *max_pixels, Target::Natural)?.bytes * 5 / 4
+        }
         ImageOp::Fit {
             max_pixels,
             width,
             height,
+            vector_scale,
             ..
         } => {
-            let input = decoded(first()?, *max_pixels, (*width, *height))?;
+            let target = Target::Fit {
+                width: *width,
+                height: *height,
+                scale: vector_scale.unwrap_or(1.0),
+            };
+            let input = decoded(first()?, *max_pixels, target)?;
             let out = input.fitted((*width, *height));
             // The decoded input, the scaler's rows and output, then the turned copy of that
             // output and what the encoder makes of it.
@@ -119,10 +134,15 @@ pub fn peak_bytes(inputs: &[Input], op: &ImageOp) -> Result<u64> {
                 } = layer
                 {
                     let drawn = (*width, *height);
-                    let layer = decoded(nth(inputs, *input)?, *max_pixels, drawn)?;
+                    // Drawn at most at its box (`contain` draws inside it).
+                    let exact = Target::Exact {
+                        width: *width,
+                        height: *height,
+                    };
+                    let layer = decoded(nth(inputs, *input)?, *max_pixels, exact)?;
                     let mut held = layer.bytes + scaled(layer.side, drawn);
                     if let Some(mask) = mask {
-                        let mask = decoded(nth(inputs, *mask)?, *max_pixels, drawn)?;
+                        let mask = decoded(nth(inputs, *mask)?, *max_pixels, exact)?;
                         held += mask.bytes + scaled(mask.side, drawn);
                     }
                     layer_peak = layer_peak.max(held);
@@ -140,6 +160,27 @@ mod tests {
     use super::*;
     use crate::ico::tests::{ico, png_header};
     use media_wire::image::ImageOutput;
+
+    #[test]
+    fn an_svg_drawn_past_what_may_be_drawn_is_refused_before_any_reservation_or_render() {
+        // 100 units at 64 px a unit: 6,400 px a side, past the 4,096 an SVG may be drawn at.
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"/>"#;
+        let op = ImageOp::Fit {
+            max_pixels: 1 << 28,
+            width: 8192,
+            height: 8192,
+            auto_orient: false,
+            vector_scale: Some(64.0),
+            output: ImageOutput::Png,
+        };
+        let input = [Input::Encoded(svg)];
+        let too_large = Some(media_wire::image::ImageFailure::TooLarge);
+        assert_eq!(peak_bytes(&input, &op).err().map(|f| f.reason), too_large);
+        assert_eq!(
+            crate::run(&input, &op, &|| false).err().map(|f| f.reason),
+            too_large
+        );
+    }
 
     #[test]
     fn an_icon_is_reserved_for_its_largest_entry_whatever_the_box()

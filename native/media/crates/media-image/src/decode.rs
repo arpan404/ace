@@ -2,7 +2,7 @@
 //! One input to pixels: sniffed, bounded, decoded. Raster formats decode at their own size;
 //! an SVG is drawn at the size the job's target asks for.
 use crate::error::{Failed, Result};
-use crate::limits::check_input;
+use crate::limits::{SVG_MAX_SIDE, check_input};
 use crate::raster::Raster;
 use crate::svg::Svg;
 use crate::{Input, ico, jpeg, sniff};
@@ -130,19 +130,7 @@ pub fn decode(input: &Input, target: Target, max_pixels: u32) -> Result<Decoded>
         SourceFormat::Ico => (icon(bytes, target, max_pixels)?, 1),
         SourceFormat::Svg => {
             let svg = Svg::parse(bytes)?;
-            let (width, height) = match target {
-                Target::Exact { width, height } => (width, height),
-                Target::Natural => svg.pixels(1.0),
-                Target::Fit {
-                    width,
-                    height,
-                    scale,
-                } => {
-                    let (w, h) = svg.size();
-                    let ratio = (f64::from(width) / w).min(f64::from(height) / h).min(scale);
-                    svg.pixels(ratio)
-                }
-            };
+            let (width, height) = svg_size(&svg, target)?;
             check_input(width, height, max_pixels)?;
             let (w, h) = svg.pixels(1.0);
             return Ok(Decoded {
@@ -154,6 +142,30 @@ pub fn decode(input: &Input, target: Target, max_pixels: u32) -> Result<Decoded>
     };
     let source = source(format, raster.width, raster.height, orientation);
     Ok(Decoded { raster, source })
+}
+
+/// The size an SVG is drawn at for `target`, refused past what may be drawn: the one rule both
+/// the decode and its memory reservation use.
+pub(crate) fn svg_size(svg: &Svg, target: Target) -> Result<(u32, u32)> {
+    let (width, height) = match target {
+        Target::Exact { width, height } => (width, height),
+        Target::Natural => svg.pixels(1.0),
+        Target::Fit {
+            width,
+            height,
+            scale,
+        } => {
+            let (w, h) = svg.size();
+            let ratio = (f64::from(width) / w).min(f64::from(height) / h).min(scale);
+            svg.pixels(ratio)
+        }
+    };
+    if width > SVG_MAX_SIDE || height > SVG_MAX_SIDE {
+        return Err(Failed::too_large(format!(
+            "An SVG drawn at {width} × {height} is past {SVG_MAX_SIDE} px a side."
+        )));
+    }
+    Ok((width, height))
 }
 
 /// The icon entry closest to the target's width, as pixels.

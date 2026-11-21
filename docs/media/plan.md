@@ -2504,7 +2504,8 @@ color}` (the built-in 5 × 7 bitmap font, scaled to `size` px high).
   entry, the scaler's rows, the encoder's copies; checked against a counting allocator in
   `media-image/tests/memory.rs`) from 768 MiB before decoding; `files` reads file inputs only
   inside `--root`, whose handle is opened at start and kept, walking each from it with
-  `O_NOFOLLOW` (a per-name walk holding each folder on Windows), opening `O_NONBLOCK`, regular
+  `O_NOFOLLOW` (`NtCreateFile` relative to the parent's handle on Windows; names with `/`,
+  `\`, `:` or NUL, and `.`/`..`, refused everywhere), opening `O_NONBLOCK`, regular
   files only, 32 MiB a file and 64 MiB a job;
   `output` writes answers behind a 48 MiB queue, past which an answer becomes `busy`. Linux caps
   its data at 1.5 GiB (`RLIMIT_DATA`). A job still in a step 10 s past its deadline exits the

@@ -198,3 +198,52 @@ fn a_large_jpeg_leaves_no_codec_state_behind_on_its_thread() -> Result<(), Error
     );
     Ok(())
 }
+
+/// A one-colour `width` × `height` GIF, written with the `gif` crate.
+fn gif(width: u16, height: u16) -> Result<Vec<u8>, Error> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = gif::Encoder::new(&mut out, width, height, &[])?;
+        let frame = gif::Frame {
+            width,
+            height,
+            buffer: std::borrow::Cow::Owned(vec![0; usize::from(width) * usize::from(height)]),
+            palette: Some(vec![200, 40, 40]),
+            ..gif::Frame::default()
+        };
+        encoder.write_frame(&frame)?;
+    }
+    Ok(out)
+}
+
+#[test]
+fn a_large_gif_fitted_small_stays_within_its_reservation() -> Result<(), Error> {
+    let _one = ONE.lock();
+    let picture = gif(4096, 2048)?;
+    let (peak, reserved) = measured(&picture, &fit(64, 64, ImageOutput::Png))?;
+    assert!(
+        peak as u64 <= reserved,
+        "gif: held {peak}, reserved {reserved}"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_svg_drawn_large_by_its_vector_scale_stays_within_its_reservation() -> Result<(), Error> {
+    let _one = ONE.lock();
+    let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#246"/></svg>"##;
+    let op = ImageOp::Fit {
+        max_pixels: 50_000_000,
+        width: 4096,
+        height: 4096,
+        auto_orient: false,
+        vector_scale: Some(64.0),
+        output: ImageOutput::Png,
+    };
+    let (peak, reserved) = measured(svg, &op)?;
+    assert!(
+        peak as u64 <= reserved,
+        "svg: held {peak}, reserved {reserved}"
+    );
+    Ok(())
+}

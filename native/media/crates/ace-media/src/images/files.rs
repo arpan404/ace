@@ -55,7 +55,7 @@ impl FileRoot {
         let names: Option<Vec<_>> = inside
             .components()
             .map(|c| match c {
-                Component::Normal(name) => Some(name),
+                Component::Normal(name) if plain_name(name) => Some(name),
                 _ => None,
             })
             .collect();
@@ -122,6 +122,18 @@ impl FileRoot {
         }
         Ok(bytes)
     }
+}
+
+/// One name to open inside a directory: not empty, not `.` or `..`, and with no `/`, `\`, `:`
+/// (a drive prefix, or an NTFS alternate data stream) or NUL in it, on every OS. A name like
+/// `D:photo.png` is a single component to the path parser, but on Windows it names another
+/// drive; refused here, it never reaches an open.
+pub(crate) fn plain_name(name: &std::ffi::OsStr) -> bool {
+    let bytes = name.as_encoded_bytes();
+    !bytes.is_empty()
+        && bytes != b"."
+        && bytes != b".."
+        && !bytes.iter().any(|b| matches!(b, b'/' | b'\\' | b':' | 0))
 }
 
 /// The root directory's handle, held for the process's life.
@@ -204,35 +216,142 @@ impl Root {
     }
 }
 
-/// Windows: the root and every directory on an input's path are opened as handles that don't
-/// follow a reparse point (`FILE_FLAG_OPEN_REPARSE_POINT`) and refuse to be renamed or deleted
-/// while held (no `FILE_SHARE_DELETE`), and each opened handle is checked not to be a reparse
-/// point. With every ancestor held, the path walked can't change under the walk.
+/// Windows: every name is opened relative to its parent directory's handle (`NtCreateFile` with
+/// `RootDirectory`), starting from the root's handle pinned at start, never by a path built from
+/// strings. Each open neither follows a reparse point (`FILE_OPEN_REPARSE_POINT`) nor lets the
+/// entry be renamed or deleted while it is held (no delete sharing), and each opened handle is
+/// checked not to be a reparse point and to be the kind of entry expected. Names reach this only
+/// through [`plain_name`].
 #[cfg(windows)]
-struct Root(std::fs::File);
+struct Root(std::os::windows::io::OwnedHandle);
 
 #[cfg(windows)]
+#[allow(unsafe_code)]
+mod nt {
+    use std::ffi::c_void;
+    use std::os::windows::io::RawHandle;
+
+    #[repr(C)]
+    pub struct UnicodeString {
+        pub length: u16,
+        pub maximum_length: u16,
+        pub buffer: *const u16,
+    }
+
+    #[repr(C)]
+    pub struct ObjectAttributes {
+        pub length: u32,
+        pub root_directory: RawHandle,
+        pub object_name: *const UnicodeString,
+        pub attributes: u32,
+        pub security_descriptor: *const c_void,
+        pub security_quality_of_service: *const c_void,
+    }
+
+    #[repr(C)]
+    pub struct IoStatusBlock {
+        pub status: isize,
+        pub information: usize,
+    }
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        pub fn NtCreateFile(
+            handle: *mut RawHandle,
+            desired_access: u32,
+            object_attributes: *const ObjectAttributes,
+            io_status: *mut IoStatusBlock,
+            allocation_size: *const i64,
+            file_attributes: u32,
+            share_access: u32,
+            create_disposition: u32,
+            create_options: u32,
+            ea_buffer: *const c_void,
+            ea_length: u32,
+        ) -> i32;
+    }
+
+    pub const OBJ_CASE_INSENSITIVE: u32 = 0x40;
+    pub const FILE_LIST_DIRECTORY: u32 = 0x1;
+    pub const FILE_READ_DATA: u32 = 0x1;
+    pub const FILE_TRAVERSE: u32 = 0x20;
+    pub const FILE_READ_ATTRIBUTES: u32 = 0x80;
+    pub const SYNCHRONIZE: u32 = 0x0010_0000;
+    pub const FILE_SHARE_READ: u32 = 0x1;
+    pub const FILE_SHARE_WRITE: u32 = 0x2;
+    pub const FILE_OPEN: u32 = 0x1;
+    pub const FILE_DIRECTORY_FILE: u32 = 0x1;
+    pub const FILE_SYNCHRONOUS_IO_NONALERT: u32 = 0x20;
+    pub const FILE_NON_DIRECTORY_FILE: u32 = 0x40;
+    pub const FILE_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    pub const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
 impl Root {
-    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
-    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    const FILE_SHARE_READ: u32 = 1;
-    const FILE_SHARE_WRITE: u32 = 2;
-    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-
-    /// One name, opened without following it and held against renames.
-    fn held(path: &Path, directory: bool) -> std::io::Result<std::fs::File> {
-        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
-        let mut flags = Self::FILE_FLAG_OPEN_REPARSE_POINT;
-        if directory {
-            flags |= Self::FILE_FLAG_BACKUP_SEMANTICS;
+    /// `name` (one plain name) inside the directory `parent`, as a directory or a file.
+    fn child(
+        parent: std::os::windows::io::BorrowedHandle<'_>,
+        name: &std::ffi::OsStr,
+        directory: bool,
+    ) -> std::io::Result<std::fs::File> {
+        use std::os::windows::ffi::OsStrExt;
+        use std::os::windows::fs::MetadataExt;
+        use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+        let wide: Vec<u16> = name.encode_wide().collect();
+        let bytes =
+            u16::try_from(wide.len() * 2).map_err(|_| std::io::Error::other("long name"))?;
+        let object_name = nt::UnicodeString {
+            length: bytes,
+            maximum_length: bytes,
+            buffer: wide.as_ptr(),
+        };
+        let attributes = nt::ObjectAttributes {
+            length: std::mem::size_of::<nt::ObjectAttributes>() as u32,
+            root_directory: parent.as_raw_handle(),
+            object_name: &object_name,
+            attributes: nt::OBJ_CASE_INSENSITIVE,
+            security_descriptor: std::ptr::null(),
+            security_quality_of_service: std::ptr::null(),
+        };
+        let (access, kind) = if directory {
+            (
+                nt::FILE_LIST_DIRECTORY | nt::FILE_TRAVERSE,
+                nt::FILE_DIRECTORY_FILE,
+            )
+        } else {
+            (nt::FILE_READ_DATA, nt::FILE_NON_DIRECTORY_FILE)
+        };
+        let mut handle: std::os::windows::io::RawHandle = std::ptr::null_mut();
+        let mut io = nt::IoStatusBlock {
+            status: 0,
+            information: 0,
+        };
+        // SAFETY: every pointer is to a live, correctly laid out local; `wide` outlives the
+        // call; the handle written is checked before it is owned.
+        let status = unsafe {
+            nt::NtCreateFile(
+                &mut handle,
+                access | nt::FILE_READ_ATTRIBUTES | nt::SYNCHRONIZE,
+                &attributes,
+                &mut io,
+                std::ptr::null(),
+                0,
+                nt::FILE_SHARE_READ | nt::FILE_SHARE_WRITE,
+                nt::FILE_OPEN,
+                kind | nt::FILE_SYNCHRONOUS_IO_NONALERT | nt::FILE_OPEN_REPARSE_POINT,
+                std::ptr::null(),
+                0,
+            )
+        };
+        if status < 0 || handle.is_null() {
+            return Err(std::io::Error::other(format!("NTSTATUS {status:#x}")));
         }
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .share_mode(Self::FILE_SHARE_READ | Self::FILE_SHARE_WRITE)
-            .custom_flags(flags)
-            .open(path)?;
+        // SAFETY: NtCreateFile succeeded and gave this handle to nothing else.
+        let file = std::fs::File::from(unsafe { OwnedHandle::from_raw_handle(handle) });
         let meta = file.metadata()?;
-        if meta.file_attributes() & Self::FILE_ATTRIBUTE_REPARSE_POINT != 0
+        if meta.file_attributes() & nt::FILE_ATTRIBUTE_REPARSE_POINT != 0
             || meta.is_dir() != directory
         {
             return Err(std::io::Error::other("a link or the wrong kind of entry"));
@@ -240,27 +359,45 @@ impl Root {
         Ok(file)
     }
 
+    /// The root, opened by its path once, at start: held without delete sharing and checked
+    /// not to be a reparse point.
     fn pin(path: &Path) -> std::io::Result<Self> {
-        Self::held(path, true).map(Self)
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        let root = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(nt::FILE_SHARE_READ | nt::FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        let meta = root.metadata()?;
+        if meta.file_attributes() & nt::FILE_ATTRIBUTE_REPARSE_POINT != 0 || !meta.is_dir() {
+            return Err(std::io::Error::other("the root is a link or not a folder"));
+        }
+        Ok(Self(root.into()))
     }
 
-    fn open(&self, resolved: &Path, names: &[&std::ffi::OsStr]) -> Result<std::fs::File, Failed> {
+    fn open(&self, _resolved: &Path, names: &[&std::ffi::OsStr]) -> Result<std::fs::File, Failed> {
+        use std::os::windows::io::AsHandle;
         let (last, dirs) = names
             .split_last()
             .ok_or_else(|| unreadable("The image path names no file."))?;
-        let mut path = resolved.to_path_buf();
-        let mut ancestors = Vec::with_capacity(dirs.len());
+        // Each folder is held until the next is open beneath it.
+        let mut parent: Option<std::fs::File> = None;
         for name in dirs {
-            path.push(name);
-            ancestors.push(Self::held(&path, true).map_err(|e| {
+            let handle = parent
+                .as_ref()
+                .map_or(self.0.as_handle(), |p| p.as_handle());
+            let next = Self::child(handle, name, true).map_err(|e| {
                 unreadable(format!("A folder on the image path can't be used: {e}."))
-            })?);
+            })?;
+            parent = Some(next);
         }
-        path.push(last);
-        let file = Self::held(&path, false)
-            .map_err(|e| unreadable(format!("The image file can't be used: {e}.")))?;
-        drop(ancestors);
-        Ok(file)
+        let handle = parent
+            .as_ref()
+            .map_or(self.0.as_handle(), |p| p.as_handle());
+        Self::child(handle, last, false)
+            .map_err(|e| unreadable(format!("The image file can't be used: {e}.")))
     }
 }
 
@@ -361,5 +498,34 @@ mod tests {
             Some(vec![b"first".to_vec()])
         );
         std::fs::remove_dir_all(&base)
+    }
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::plain_name;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn only_a_plain_single_name_may_be_walked() {
+        for bad in [
+            "D:photo.png",
+            "x:$DATA",
+            "blob:stream",
+            "a\\b",
+            "a/b",
+            "..",
+            ".",
+            "",
+            "nul\0byte",
+        ] {
+            assert!(
+                !plain_name(OsStr::new(bad)),
+                "{bad:?} was taken as a plain name"
+            );
+        }
+        for good in ["blob", "ab12.png", "attachment-3f.jpg", ".hidden", "a..b"] {
+            assert!(plain_name(OsStr::new(good)), "{good:?} was refused");
+        }
     }
 }
