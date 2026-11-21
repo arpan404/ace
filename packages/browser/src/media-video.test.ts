@@ -375,6 +375,30 @@ describe("live video routed through ace-media", () => {
     },
   );
 
+  it("closing a tab's JPEG capture sends its last picture and its ingest end before the source closes", async () => {
+    const { media, added } = fakeMedia({ routed: true });
+    const ingest = await ingestServer();
+    onTestFinished(ingest.close);
+    const handle = await mediaVideoHost(
+      fakeHost("tab-pictures", false).host,
+      media,
+      () => ({}),
+    ).open(page, 640, 400, events().sink);
+    await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+    await until(ingest.connected);
+    ingest.pause();
+    for (let n = 1; n <= 12; n++)
+      handle.pictures?.push(Buffer.alloc(512 * 1024, n).toString("base64"), 0);
+    handle.close();
+    expect(added[0]?.closed).toBe(true);
+    ingest.resume();
+    // The newest picture, which was waiting for room, goes; then the ingest's end frame.
+    await until(() => ingest.received.some((f) => f.kind === 4));
+    const last = ingest.received.filter((f) => f.kind === 3).at(-1);
+    expect(last?.payload[0]).toBe(12);
+    expect(ingest.received.at(-1)?.kind).toBe(4);
+  });
+
   it("a tab picture too large for ace-media is dropped and counted, and the next one still goes", async () => {
     const { media, added } = fakeMedia({ routed: true });
     const ingest = await ingestServer();

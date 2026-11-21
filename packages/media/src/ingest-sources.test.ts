@@ -423,6 +423,29 @@ describe("IngestSources", () => {
     ]);
   });
 
+  it("closing a JPEG source keeps its handle until the marker after its encoder's last units, or the drain limit", () => {
+    for (const marker of [true, false]) {
+      const w = world();
+      const l = producer("tab-pictures");
+      const source = w.sources.add(l.p);
+      w.status("s1", "starting");
+      source.close();
+      // The capture finishes its writer; ace-media's encoder still holds the last pictures.
+      expect(w.closed()).toEqual([]);
+      w.router.push(encodeEgress(1, 0, unitFrame(1)));
+      expect(l.units).toHaveLength(1);
+      if (marker) {
+        w.router.push(encodeEgressEnd(1, 1, false));
+        expect(l.ended.at(-1)).toEqual(["s1", false]);
+      } else {
+        w.advance(drainMs);
+        expect(l.ended.at(-1)).toEqual(["s1", true]);
+      }
+      expect(w.closed()).toEqual(["s1"]);
+      expect(w.state.needs).toBe(0);
+    }
+  });
+
   it("asks the producer for a keyframe when ace-media does, and closing ends everything", () => {
     const w = world();
     const l = producer();

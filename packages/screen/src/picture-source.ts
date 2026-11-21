@@ -204,7 +204,9 @@ export class ScreenPictureSource {
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
-    this.#writer?.close();
+    // Gracefully: the waiting picture, then the ingest's end, after which ace-media drains its
+    // encoder and sends the marker; the source's handle waits for it (or the drain limit).
+    this.#writer?.finish();
     this.#writer = undefined;
     this.#source.close();
   }

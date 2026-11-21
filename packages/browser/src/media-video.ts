@@ -526,7 +526,10 @@ function pictureCapture(options: {
     close: () => {
       if (!open) return;
       open = false;
-      writer?.close();
+      // Gracefully: the waiting picture, then the ingest's end, after which ace-media drains
+      // its encoder and sends the marker; the source's handle waits for it (or the drain limit).
+      writer?.finish();
+      writer = undefined;
       opened.close();
     },
   };

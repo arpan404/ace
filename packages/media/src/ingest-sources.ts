@@ -643,8 +643,12 @@ export class IngestSources {
     const live = entry.live;
     this.#live(entry, undefined);
     entry.state = "off";
-    // The capture is gone: nothing is left to deliver to.
-    if (live) this.#finish(live, true, true);
+    // A JPEG source's producer finishes its pictures as it closes, and ace-media's encoder
+    // still holds the last of them: its path is retired, its handle kept until the marker
+    // after that encoder's last unit (or the drain limit). Any other capture is gone, and
+    // nothing is left to deliver to.
+    if (live && pictureKinds.has(entry.producer.kind)) this.#retire(live);
+    else if (live) this.#finish(live, true, true);
     entry.release?.();
     entry.release = undefined;
   }

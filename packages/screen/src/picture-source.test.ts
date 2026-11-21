@@ -180,6 +180,21 @@ it("while ace-media reads slowly only the newest picture waits: the queue never 
   expect(pictures.at(-1)?.payload[0]).toBe(40);
 });
 
+it("closing the session sends its last picture and its ingest end, rather than cutting them", async () => {
+  const s = session();
+  const server = await ingest();
+  await s.source.configure(viewer);
+  await point(s, server.path);
+  await until(server.connected);
+  server.pause();
+  for (let n = 1; n <= 12; n++) s.source.daemonFrame(still(n, 512 * 1024));
+  s.source.close();
+  server.resume();
+  await until(() => server.received.some((f) => f.kind === 4));
+  expect(server.received.filter((f) => f.kind === 3).at(-1)?.payload[0]).toBe(12);
+  expect(server.received.at(-1)?.kind).toBe(4);
+});
+
 it("ace-media's plan for the views it delivers runs as its own encodes and sets the helper's pictures", async () => {
   const s = session();
   s.producer().want?.([
