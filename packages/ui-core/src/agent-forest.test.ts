@@ -536,3 +536,54 @@ test("the thread budget goes to delegates that still work, then the newest, neve
   const forest = agentForest("t1", works, { depth: 6, threads: 2 });
   expect(forest.reach).toEqual(["c0", "c3"]);
 });
+
+const asking: AgentStatus = { state: "blocked", on: "human", refs: [] };
+
+test("an older delegate waiting on the person loads before sixteen newer ones at work", () => {
+  const asker = agent("t1", "asker", asking, "root", "c-ask");
+  const busy = Array.from({ length: 16 }, (_, index) =>
+    agent("t1", `busy${index}`, working, "root", `c${index}`),
+  );
+  const works = new Map<string, ThreadWork>([
+    ["t1", thread([agent("t1", "root", working), asker, ...busy], { state: "working", agents: 1 })],
+    ["c-ask", thread([agent("c-ask", "root", asking)], { state: "needs_you", interactions: 1 })],
+  ]);
+  for (let index = 0; index < 16; index++)
+    works.set(
+      `c${index}`,
+      thread([agent(`c${index}`, "root", working)], { state: "working", agents: 1 }),
+    );
+  const forest = agentForest("t1", works);
+  expect(forest.reach).toContain("c-ask");
+  // Its thread loaded under its row, so the Summary reads the question it asks.
+  const found = forestAsker(forest.roots);
+  expect(found?.agent.id).toBe("asker");
+  expect(found?.childThread).toBe("c-ask");
+});
+
+test("an older parent's asking child loads before a newer parent's finished children take the room", () => {
+  const works = new Map<string, ThreadWork>([
+    [
+      "t1",
+      thread([
+        agent("t1", "root", idle),
+        // Its row was last told its thread settled, before the child there asked.
+        agent("t1", "old-parent", idle, "root", "t-old"),
+        agent("t1", "new-parent", idle, "root", "t-new"),
+      ]),
+    ],
+    [
+      "t-old",
+      thread([agent("t-old", "root", idle), agent("t-old", "asker", asking, "root", "c-ask")]),
+    ],
+    [
+      "t-new",
+      thread([
+        agent("t-new", "root", idle),
+        ...[0, 1, 2].map((index) => agent("t-new", `n${index}`, idle, "root", `n-c${index}`)),
+      ]),
+    ],
+  ]);
+  const forest = agentForest("t1", works, { depth: 6, threads: 4 });
+  expect(forest.reach).toEqual(["t-new", "t-old", "c-ask", "n-c2"]);
+});
