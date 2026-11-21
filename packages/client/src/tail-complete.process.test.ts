@@ -15,7 +15,7 @@ import {
 import type { Client } from "./client.ts";
 import { memory } from "./read-snapshots.fixture.ts";
 import { Faults, setup, ready, type Harness } from "./test-support.ts";
-import { screenTail } from "./types.ts";
+import { screenTail, tailShownMs } from "./types.ts";
 
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -23,6 +23,7 @@ afterEach(async () => {
   cleanup = undefined;
 });
 
+const nothing = () => {};
 const root = AgentId.parse("complete-root");
 const child = AgentId.parse("complete-child");
 const reply = (id: string, text: string, agentId: string = root, complete = true): Item => ({
@@ -419,4 +420,47 @@ test("a first open sent with the hello gets a tail and completes; a reconnect's 
   expect(again[0]?.early).toBe(true);
   for (const sent of again) expect(sent.message).not.toHaveProperty("tail");
   expect(again[0]?.message.afterSeq).toEqual(expect.any(Number));
+});
+
+test("a tail is completed only once the app has shown it, and at the latest after tailShownMs", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  oversized(h);
+  // The app says when it has drawn the tail; until then the full snapshot isn't asked for.
+  let showTail = nothing;
+  const asked: string[] = [];
+  const tail = gated(h, {
+    openTail: {
+      ...screenTail,
+      shown: (threadId) => {
+        asked.push(threadId);
+        return new Promise<void>((resolve) => (showTail = resolve));
+      },
+    },
+  });
+  await ready(tail.client);
+  tail.client.thread(h.thread.id);
+  await vi.waitFor(() => expect(asked).toEqual([h.thread.id]));
+  expect(tail.client.cachedThread(h.thread.id)?.filling).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(tail.held()).toBe(0);
+  showTail();
+  await vi.waitFor(() => expect(tail.held()).toBe(1));
+  tail.release();
+  await endsAsFullSnapshot(h, tail.client);
+
+  // An app that never says so still gets the whole thread, once the wait runs out.
+  const silent = gated(h, {
+    openTail: { ...screenTail, shown: () => new Promise<void>(() => {}) },
+  });
+  await ready(silent.client);
+  silent.client.thread(h.thread.id);
+  await vi.waitFor(() => expect(silent.client.cachedThread(h.thread.id)?.filling).toBe(true));
+  silent.scheduler.advance(tailShownMs - 1);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(silent.held()).toBe(0);
+  silent.scheduler.advance(1);
+  await vi.waitFor(() => expect(silent.held()).toBe(1));
+  silent.release();
+  await endsAsFullSnapshot(h, silent.client);
 });

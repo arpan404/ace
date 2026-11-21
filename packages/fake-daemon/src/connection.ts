@@ -47,7 +47,11 @@ export interface Host {
    */
   placeInput?(): PlaceInput | undefined;
   accepts(credential: { token?: string | undefined; ticket?: string | undefined }): boolean;
-  snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined;
+  /** `tail`: a thread subscribe's small first snapshot, when the host cuts one. */
+  snapshot(
+    scope: SubscriptionScope,
+    tail?: { items: number; bytes: number },
+  ): ThreadView | ThreadListView | undefined;
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
   page(threadId: string, before: number, limit: number): ItemsPage | undefined;
   /** One thread's agents, runs, interactions or background tasks: one page before `before`. */
@@ -225,7 +229,13 @@ export class Connection {
         this.send({ type: "pong" });
         return;
       case "subscribe":
-        this.subscribe(message.subscriptionId, message.scope, message.afterSeq, message.paced);
+        this.subscribe(
+          message.subscriptionId,
+          message.scope,
+          message.afterSeq,
+          message.paced,
+          message.tail,
+        );
         return;
       case "threads.page": {
         const subscription = this.subscriptions.get(message.subscriptionId);
@@ -371,6 +381,7 @@ export class Connection {
     scope: SubscriptionScope,
     afterSeq: number | undefined,
     paced = false,
+    tail?: { items: number; bytes: number },
   ): void {
     const head = this.host.head;
     if (scope.kind === "threads" && scope.window) {
@@ -412,7 +423,7 @@ export class Connection {
       this.subscriptions.set(id, { scope, cursor: head });
       this.deliver(id, afterSeq, head, replay);
     } else {
-      const view = this.host.snapshot(scope);
+      const view = this.host.snapshot(scope, tail);
       if (!view) {
         this.error("not_found", { subscriptionId: id });
         return;

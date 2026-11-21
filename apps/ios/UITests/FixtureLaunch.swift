@@ -8,9 +8,17 @@ extension XCUIApplication {
     /// `--chat-render-fixture`) reports the arguments it got, as a JSON array, in the hidden
     /// `launch.arguments` element. A copy without them shows no such element. Either mismatch
     /// launches again. Any other launch is a plain `launch()`.
+    /// A `--perf-probe` launch gets a fresh `--perf-probe-run`, so `probe` reads this launch's
+    /// numbers and never an earlier one's.
     @MainActor func launchWithArguments() {
         guard launchArguments.contains("--spike") || launchArguments.contains("--chat-render-fixture") else {
             launch(); return
+        }
+        if launchArguments.contains("--perf-probe") {
+            if let at = launchArguments.firstIndex(of: "--perf-probe-run") {
+                launchArguments.removeSubrange(at..<min(at + 2, launchArguments.count))
+            }
+            launchArguments += ["--perf-probe-run", UUID().uuidString]
         }
         let probe = descendants(matching: .any)["launch.arguments"]
         var got = "nothing"
