@@ -45,9 +45,21 @@ const record = (transferId: string, change: Partial<IncomingRecord> = {}): Incom
 });
 
 /** A target with a real store and folder; its projects, threads and Git are the edges faked. */
-async function target(options: { setUp?: () => void; threadStatus?: () => never } = {}) {
+async function target(
+  options: {
+    setUp?: () => void;
+    threadStatus?: () => never;
+    senderWaitMs?: number;
+    recoveryStepMs?: number;
+    /** How unregistering a project goes; at once by default. */
+    unregister?: () => Promise<void>;
+  } = {},
+) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-incoming-recovery-")));
   const unregistered: string[] = [];
+  /** What the moved thread there was sent (its first turn) and the notes it shows. */
+  const sent: string[] = [];
+  const notes: string[] = [];
   const directory = join(root, "incoming");
   await mkdir(directory, { recursive: true });
   const store = new Store(join(root, "store.sqlite"));
@@ -66,10 +78,10 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
     adoptSession: () => {},
     dropSession: () => {},
     adoptHandoff: () => {},
-    send: () => {},
+    send: (_thread, _key, text) => void sent.push(text),
     retryHeld: () => {},
     atomic: (run) => store.atomic(run),
-    notice: () => {},
+    notice: (_thread, text) => void notes.push(text),
     now: () => 0,
     newSessionId: () => "9d1e2f3a-4b5c-4d6e-8f70-81a2b3c4d5e6",
     sleep: async () => {},
@@ -87,6 +99,7 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
         return { path: requested ?? root, handle, close: async () => handle.close() };
       },
       unregister: async (workspaceId: string) => {
+        await options.unregister?.();
         unregistered.push(workspaceId);
       },
     },
@@ -100,6 +113,8 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
       },
     },
     live: new LiveTarget(ports),
+    ...(options.senderWaitMs === undefined ? {} : { senderWaitMs: options.senderWaitMs }),
+    ...(options.recoveryStepMs === undefined ? {} : { recoveryStepMs: options.recoveryStepMs }),
     now: () => 0,
     // A turn of the event loop, as a real timer gives, so retries never starve the rest.
     sleep: () => new Promise<void>((resolve) => setImmediate(resolve)),
@@ -111,7 +126,16 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
     store.close();
     await rm(root, { recursive: true, force: true });
   });
-  return { incoming, store, root, directory, unregistered, rows: new IncomingRows(store) };
+  return {
+    incoming,
+    store,
+    root,
+    directory,
+    unregistered,
+    sent,
+    notes,
+    rows: new IncomingRows(store),
+  };
 }
 
 const thread = {
@@ -219,27 +243,102 @@ describe("a target's recovery after a restart", () => {
     expect(t.unregistered).toEqual([]);
   });
 
-  it("never removes the checkout of an import past its cutoff that an earlier build cancelled", async () => {
-    const t = await target();
-    const checkout = join(t.root, "app-there");
-    await mkdir(checkout);
-    await writeFile(join(checkout, "work.ts"), "the moved thread's work");
-    // As the build before this fix left it: cancelled at recovery though its thread was made.
+  /** A folder this target made for `transferId`, with the record of having made it. */
+  async function made(t: Awaited<ReturnType<typeof target>>, name: string) {
+    const path = join(t.root, name);
+    await mkdir(path);
+    await writeFile(join(path, "work.ts"), "work");
+    return { path, id: folderIdentity(await stat(path)) };
+  }
+
+  /**
+   * As the build before the fix left it: a move cancelled at recovery though its thread was made
+   * here, and, beside it, an import that failed before its cutoff, whose folder is still to undo.
+   */
+  async function wronglyCancelled(t: Awaited<ReturnType<typeof target>>) {
+    const checkout = await made(t, "app-there");
     t.rows.insert(record("move.2", { state: "cancelled" }), 0);
     t.rows.update(
       "move.2",
       {
         commit: { op: "commit", transferId: "move.2", live, thread },
-        result: { ...result, path: checkout },
-        createdPath: checkout,
-        createdId: folderIdentity(await stat(checkout)),
+        result: { ...result, path: checkout.path },
+        createdPath: checkout.path,
+        createdId: checkout.id,
         registeredId: "w",
+        error: { code: "transfer_cancelled", message: "Start the transfer again." },
       },
       0,
     );
+    const failed = await made(t, "app-failed");
+    t.rows.insert(record("failed.1", { state: "failed" }), 0);
+    t.rows.update(
+      "failed.1",
+      { createdPath: failed.path, createdId: failed.id, registeredId: "w-failed" },
+      0,
+    );
+    return { checkout: checkout.path, failed: failed.path };
+  }
+
+  it("keeps the checkout of a move an earlier build cancelled past its cutoff, and still undoes one that failed before it", async () => {
+    const t = await target();
+    const { checkout, failed } = await wronglyCancelled(t);
     await t.incoming.recover();
-    expect(await readFile(join(checkout, "work.ts"), "utf8")).toBe("the moved thread's work");
-    expect(t.unregistered).toEqual([]);
+    expect(await readFile(join(checkout, "work.ts"), "utf8")).toBe("work");
+    expect(t.unregistered).toEqual(["w-failed"]);
+    await expect(stat(failed)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("answers a sender still waiting on such a move that the thread moved here, and starts its first turn", async () => {
+    const t = await target();
+    await wronglyCancelled(t);
+    await t.incoming.recover();
+    // The sender asks again: it is still waiting, so it never resumed the thread there.
+    const asked = await t.incoming.call(device, { op: "status", transferId: "move.2" });
+    expect(asked.state).not.toBe("cancelled");
+    await expect
+      .poll(() => t.incoming.call(device, { op: "status", transferId: "move.2" }))
+      .toMatchObject({ state: "completed", result: { threadId: "n" }, live: { running: true } });
+    expect(t.sent.length).toBe(1);
+  });
+
+  it("never starts a second runner for such a move whose sender already carried on with it", async () => {
+    const t = await target({ senderWaitMs: 30 });
+    await wronglyCancelled(t);
+    await t.incoming.recover();
+    // The sender took the earlier build's cancel and resumed the thread there: it never asks
+    // again. The thread here isn't started, and says why in plain words.
+    await expect
+      .poll(() => t.notes.some((note) => note.includes("may have carried on")))
+      .toBe(true);
+    expect(t.sent).toEqual([]);
+    // Asked later, the truth: the thread is here, not running.
+    await expect(
+      t.incoming.call(device, { op: "status", transferId: "move.2" }),
+    ).resolves.toMatchObject({ state: "completed", live: { running: false } });
+    expect(t.sent).toEqual([]);
+  });
+
+  it("opens commits again when undoing one import a restart left never settles, and fails only that one", async () => {
+    // Unregistering the project the import made never answers.
+    const t = await target({ unregister: () => new Promise(() => {}), recoveryStepMs: 30 });
+    t.rows.insert(record("stuck", { begin: { ...record("stuck").begin, live: undefined } }), 0);
+    t.rows.update("stuck", { registeredId: "w-stuck" }, 0);
+    t.rows.insert(
+      record("next", { state: "receiving", begin: { ...record("next").begin, live: undefined } }),
+      0,
+    );
+    void t.incoming.recover();
+    // A commit is refused while recovery undoes imports, then taken once that step gave up.
+    await expect
+      .poll(() =>
+        t.incoming.call(device, { op: "commit", transferId: "next" }).then(
+          (view) => view.state,
+          (error: { code?: string }) => error.code,
+        ),
+      )
+      .not.toBe("unavailable");
+    expect(t.rows.get("stuck")?.state).toBe("failed");
   });
 
   it("finishes every import a restart left, past one batch", async () => {

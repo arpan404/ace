@@ -38,6 +38,7 @@ import type { TransferIdentities } from "./identity.ts";
 import type { LiveTarget } from "./live/target.ts";
 import { incomingParts, incomingPath, legacyIncomingName } from "./incoming-files.ts";
 import { persist } from "./retry.ts";
+import { UnconfirmedMoves } from "./incoming-unconfirmed.ts";
 
 export interface IncomingDeps {
   store: Store;
@@ -53,6 +54,16 @@ export interface IncomingDeps {
   /** Threads moved while working (ADR 0191); without it, this target takes none. */
   live?: LiveTarget | undefined;
   now(): number;
+  /**
+   * The longest recovery waits on one row's undo or setup with commits refused (`admitImport`);
+   * one that overruns goes on in the background. 60 seconds by default.
+   */
+  recoveryStepMs?: number;
+  /**
+   * How long a moved thread an earlier build wrongly cancelled waits for its sender to ask
+   * again before it is recorded as not started here (`incoming-unconfirmed.ts`); 5 minutes.
+   */
+  senderWaitMs?: number;
   /** Waits between retries of a setup or a start that failed; real time by default. */
   sleep?(ms: number): Promise<void>;
   log(message: string, fields: Record<string, unknown>): void;
@@ -158,8 +169,13 @@ export class IncomingTransfers {
   private strays: Promise<void> | undefined;
   /** Origins and remotes read for begins, kept briefly so repeated begins don't ask Git again. */
   private origins: OriginCache;
+  /** Moves an earlier build wrongly cancelled, waiting for their sender to ask again. */
+  private unconfirmed: UnconfirmedMoves;
+  /** Work started from a call or a timer, so closing waits for it. */
+  private background = new Set<Promise<void>>();
   constructor(deps: IncomingDeps) {
     this.deps = deps;
+    this.unconfirmed = new UnconfirmedMoves(deps.senderWaitMs ?? 5 * 60_000);
     this.rows = new IncomingRows(deps.store);
     this.origins = new OriginCache(deps.git, () => deps.now());
   }
@@ -180,9 +196,69 @@ export class IncomingTransfers {
       (after) => this.rows.leftovers(after),
       (record) => this.rollback(record),
     );
+    // Moves an earlier build cancelled past their cutoff: this machine owns each one.
+    await batches(
+      (after) => this.rows.landedCancelled(after),
+      (record) => this.putRight(record),
+    );
     // Files a crash left behind, and the old-named files of transfers cancelled above.
     await this.holdingBegins(() => this.removeStrays());
     await this.sweep();
+  }
+  /**
+   * A transfer an earlier build marked cancelled though its thread was made here: the sender is
+   * told the truth and the setup finishes. A moved thread's first turn waits for its sender to
+   * ask again (it may have resumed the thread there on that cancel; `UnconfirmedMoves`).
+   */
+  private async putRight(record: IncomingRecord): Promise<void> {
+    if (record.commit?.live && this.deps.live && record.result?.threadId) {
+      this.unconfirmed.wait(record.transferId, () =>
+        this.track(this.senderGone(record.transferId)),
+      );
+      return;
+    }
+    await this.reclaim(record.transferId);
+  }
+  /**
+   * Back to importing, claimed before anything is awaited, then set up as recovery finishes an
+   * import past its cutoff.
+   */
+  private async reclaim(transferId: string): Promise<void> {
+    const claimed = this.rows.claim(
+      transferId,
+      ["cancelled"],
+      { state: "importing", error: undefined },
+      this.deps.now(),
+    );
+    const record = claimed ? this.rows.get(transferId) : undefined;
+    if (record?.result) await this.complete(record, record.result);
+  }
+  /**
+   * The sender never asked again: it took the cancel and the thread runs there. Recorded as not
+   * started here, with why, before the setup finishes, so its first turn never goes.
+   */
+  private async senderGone(transferId: string): Promise<void> {
+    const record = this.rows.get(transferId);
+    const live = this.deps.live;
+    const threadId = record?.result?.threadId;
+    if (!record?.result || !threadId || !live || record.state !== "cancelled") return;
+    const from = record.begin.origin.hostName;
+    live.giveUp({
+      transferId,
+      deviceId: record.deviceId,
+      method: record.method,
+      threadId,
+      result: record.result,
+      from,
+      reason: `an update here once reported the move cancelled, so ${from} may have carried on with it there. It wasn't started here, so it never runs on both`,
+    });
+    await this.reclaim(transferId);
+  }
+  private track(work: Promise<void>): void {
+    const tracked: Promise<void> = work
+      .catch((error: unknown) => this.deps.log("Transfer not put right", { error: String(error) }))
+      .finally(() => this.background.delete(tracked));
+    this.background.add(tracked);
   }
   /** Undoes and starts again each import a restart left; past its cutoff, finishes it. */
   private async rollBackLeft(): Promise<void> {
@@ -196,15 +272,57 @@ export class IncomingTransfers {
     await batches(
       (after) => this.rows.unsettled(after),
       async (record) => {
-        // Past the cutoff the result stands: finish setting it up instead of undoing it.
+        // Past the cutoff the result stands: finish setting it up instead of undoing it. A setup
+        // that overruns goes on in the background and the row stays importing, never failed.
         if (record.result) {
-          await this.complete(record, record.result);
+          await this.bounded(record, this.complete(record, record.result));
           return;
         }
-        await this.rollback(record);
-        this.import(this.rows.get(record.transferId) ?? record);
+        let late = false;
+        const undo = this.rollback(record).then(() => {
+          if (!late) this.import(this.rows.get(record.transferId) ?? record);
+        });
+        if (await this.bounded(record, undo)) return;
+        // Its undo never settled: that one transfer fails, before its cutoff, and the commit gate
+        // opens for the rest. Its sender can start it again.
+        late = true;
+        this.rows.claim(
+          record.transferId,
+          ["importing", "cloning"],
+          {
+            state: "failed",
+            error: {
+              code: "import_failed",
+              message:
+                "This machine couldn't undo an earlier attempt at the transfer. Start it again.",
+            },
+          },
+          this.deps.now(),
+        );
       },
     );
+  }
+  /** Whether `step` for `record` settled within `recoveryStepMs`; it is logged when it didn't. */
+  private async bounded(record: IncomingRecord, step: Promise<void>): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settled = await Promise.race([
+      step.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), this.deps.recoveryStepMs ?? 60_000);
+        timer.unref?.();
+      }),
+    ]).finally(() => clearTimeout(timer));
+    if (!settled) {
+      // Left to finish on its own: neither recovery nor closing waits on a step that may never.
+      step.catch((error: unknown) =>
+        this.deps.log("Transfer recovery step failed late", {
+          transferId: record.transferId,
+          error: String(error),
+        }),
+      );
+      this.deps.log("Transfer recovery step overran", { transferId: record.transferId });
+    }
+    return settled;
   }
   /**
    * Refuses, as retryable, a commit while recovery rolls back: an import it started would be
@@ -293,14 +411,20 @@ export class IncomingTransfers {
    */
   private async removeStrays(): Promise<void> {
     const kept = await this.liveNames();
+    // A move waiting for its sender keeps what its setup and first turn still need.
+    for (const transferId of this.unconfirmed.ids())
+      for (const part of incomingParts)
+        kept.add(basename(incomingPath(this.deps.directory, transferId, part)));
     await removeStray(this.deps.directory, (name) => kept.has(name));
   }
   /** Stops importing; a restart rolls back what an import made and runs it again. */
   async close(): Promise<void> {
     this.closed = true;
     this.deps.live?.close();
+    this.unconfirmed.close();
     for (const controller of this.running.values()) controller.abort();
     await Promise.allSettled([
+      ...this.background,
       ...this.imports.values(),
       ...this.writes.values(),
       ...this.cancels.values(),
@@ -383,6 +507,13 @@ export class IncomingTransfers {
       ? undefined
       : this.deps.live?.receipt(call.transferId, device.id);
     if (receipt) return receipt;
+    // A sender asking about a move an earlier build wrongly cancelled is still waiting for it,
+    // so never resumed it there: it is told the truth, and the thread's first turn goes here.
+    if (
+      this.rows.get(call.transferId)?.deviceId === device.id &&
+      this.unconfirmed.confirm(call.transferId)
+    )
+      this.track(this.reclaim(call.transferId));
     switch (call.op) {
       case "begin":
         return this.begin(device, call, check);
@@ -1080,7 +1211,7 @@ export class IncomingTransfers {
     for (const record of this.rows.expired(this.deps.now() - retentionMs)) {
       if (this.closed) return;
       const { transferId } = record;
-      if (this.sweeping.has(transferId)) continue;
+      if (this.sweeping.has(transferId) || this.unconfirmed.has(transferId)) continue;
       // Claimed before its files go: a row a commit or cancel moved on meanwhile stays. Until
       // they are gone the id is held (`sweeping`): a begin of it waits instead of making a row
       // whose files this would remove.
