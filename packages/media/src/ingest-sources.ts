@@ -305,9 +305,12 @@ export class IngestSources {
       epoch: (epoch, followsPrivate) => {
         // Held until the open is acknowledged: on the priority lane it could overtake the
         // open, and ace-media ignores an epoch for a source it doesn't have yet.
-        entry.held.push({ epoch, followsPrivate });
+        // With no open in flight there is nothing to hold for: the next open carries the
+        // state the producer is in then.
         const live = entry.live;
-        if (live?.acknowledged) this.#announce(entry, live);
+        if (!live) return;
+        entry.held.push({ epoch, followsPrivate });
+        if (live.acknowledged) this.#announce(entry, live);
       },
       close: () => this.#close(entry),
     };

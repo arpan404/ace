@@ -318,6 +318,23 @@ describe("IngestSources", () => {
     );
   });
 
+  it("epochs announced while a JPEG source has no open in ace-media are never kept for one", () => {
+    const w = world();
+    // An ace-media too old for pictures: the source never opens there.
+    w.state.features = ["source.ingest", "source.sync"];
+    let epoch = 0;
+    const source = w.sources.add({ ...producer("tab-pictures").p, epoch: () => epoch });
+    for (epoch = 1; epoch <= 3; epoch++) source.epoch?.(epoch, epoch % 2 === 0);
+    // A newer one starts: the open carries the current epoch, and nothing older follows it.
+    epoch = 3;
+    w.state.features = ["source.ingest", "source.sync", "picture-ingest", "privacy-open"];
+    w.sources.exited();
+    w.sources.replay();
+    w.status("s1", "starting");
+    expect(w.opened()).toMatchObject([{ epoch: 3 }]);
+    expect(w.sent.some(({ message }) => message.type === "source.epoch")).toBe(false);
+  });
+
   it("epochs announced before ace-media answers a JPEG source's open go after it in order, none merged", () => {
     const w = world();
     const l = producer("tab-pictures");
