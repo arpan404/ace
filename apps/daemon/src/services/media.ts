@@ -81,6 +81,13 @@ export type DaemonMedia = BrowserMedia & {
   pid(): number | undefined;
 };
 
+/** A long-lived producer waiting for the runtime, and what it told its source meanwhile. */
+type Waiting = {
+  source: IngestSource | undefined;
+  codecs?: string[] | undefined;
+  encodes?: Parameters<IngestSource["encodes"]>[0] | undefined;
+};
+
 /** One per daemon: the browser and the screen share it. */
 const started = new WeakMap<object, DaemonMedia | undefined>();
 
@@ -103,11 +110,10 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   let starting: Promise<void> | undefined;
   let closed = false;
   let runtimeDir: string | undefined;
+  /** Why the runtime could not be made (its binary didn't answer); none while it can be. */
+  let failed: string | undefined;
   /** Long-lived producers waiting for the runtime, with the source they get then. */
-  const waiting = new Map<
-    IngestProducer,
-    { source: IngestSource | undefined; codecs?: string[] | undefined }
-  >();
+  const waiting = new Map<IngestProducer, Waiting>();
   /** The runtime's relay port (D2): one for the runtime's life. */
   let relayPort: RuntimeRelayPort | undefined;
   const acceleration = new MediaAccelerationStore();
@@ -141,11 +147,15 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
       for (const [producer, slot] of waiting) {
         slot.source = runtime.sources.add(producer);
         if (slot.codecs) slot.source.codecs(slot.codecs);
+        if (slot.encodes) slot.source.encodes(slot.encodes);
       }
       runtime.settingsChanged();
     })().catch((error: unknown) => {
       starting = undefined;
-      context.log.log("warn", `ace-media is not available: ${String(error)}`);
+      failed = `ace-media is not available: ${error instanceof Error ? error.message : String(error)}`;
+      context.log.log("warn", failed);
+      // Producers waiting for the runtime will never get one: their views say why.
+      for (const producer of waiting.keys()) producer.stopped?.(failed);
     }));
 
   const read = async () => {
@@ -171,34 +181,40 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
       runtime && relayPort ? daemonDelivery(runtime, relayPort, () => settings) : undefined,
     acceleration,
     pid: () => runtime?.supervisor.snapshot().pid,
-    add: (producer) => runtime?.sources.add(producer),
+    // A producer that comes while the runtime is still being made waits for it, as a screen does.
+    add: (producer) => (runtime || !failed ? attach(producer) : undefined),
     routed: (kind) => runtime?.sources.routed(kind) ?? false,
     wanted: (kind) => runtime?.sources.wanted(kind) ?? false,
     pictureCodecs: () => runtime?.pictureCodecs() ?? [],
     endpoint: () => runtime?.sources.endpoint(),
-    attach: (producer) => {
-      if (runtime) return runtime.sources.add(producer);
-      const slot: { source: IngestSource | undefined; codecs?: string[] | undefined } = {
-        source: undefined,
-      };
-      waiting.set(producer, slot);
-      return {
-        streaming: () => slot.source?.streaming() ?? false,
-        reconnect: () => slot.source?.reconnect(),
-        codecs: (codecs) => {
-          slot.codecs = [...codecs];
-          slot.source?.codecs(codecs);
-        },
-        encodes: (encodes) => slot.source?.encodes(encodes),
-        key: (encode) => slot.source?.key(encode),
-        picture: (base64, ageMs) => slot.source?.picture(base64, ageMs) ?? false,
-        close: () => {
-          waiting.delete(producer);
-          slot.source?.close();
-        },
-      };
-    },
+    attach: (producer) => attach(producer),
   };
+
+  function attach(producer: IngestProducer): IngestSource {
+    if (runtime) return runtime.sources.add(producer);
+    const slot: Waiting = { source: undefined };
+    waiting.set(producer, slot);
+    if (failed) producer.stopped?.(failed);
+    return {
+      streaming: () => slot.source?.streaming() ?? false,
+      reconnect: () => slot.source?.reconnect(),
+      codecs: (codecs) => {
+        slot.codecs = [...codecs];
+        slot.source?.codecs(codecs);
+      },
+      // Kept for the source the runtime will open: a JPEG source's encodes are asked once.
+      encodes: (encodes) => {
+        slot.encodes = encodes;
+        slot.source?.encodes(encodes);
+      },
+      key: (encode) => slot.source?.key(encode),
+      picture: (base64, ageMs) => slot.source?.picture(base64, ageMs) ?? false,
+      close: () => {
+        waiting.delete(producer);
+        slot.source?.close();
+      },
+    };
+  }
 }
 
 /**
