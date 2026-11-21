@@ -73,7 +73,7 @@ struct MachineLinksView: View {
                 RowWithActions(title: link.name, detail: detail(link), actionsLabel: "Actions for \(link.name)",
                                actionsId: "links.actions.\(link.profile)", canOperate: client?.canOperate == true && link.hostId != nil) {
                     if let allowed = link.projects, reaches(link) {
-                        Button(allowed ? "Don't allow projects" : "Allow projects", systemImage: allowed ? "folder.badge.minus" : "folder.badge.plus") {
+                        Button(allowed ? "Don't allow projects" : "Allow projects", ace: allowed ? .prohibit : .folderPlus) {
                             Task { await setProjects(link, allowed: !allowed) }
                         }
                         .accessibilityIdentifier("links.projects.\(link.profile)")
