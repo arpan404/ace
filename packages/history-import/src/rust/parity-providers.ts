@@ -241,7 +241,7 @@ async function edgeHome(home: string) {
     ...extra,
   });
   const lines = [
-    user("Huge numbers", { timestamp: 9007199254740993 }),
+    user("Huge numbers", { timestamp: 2 ** 53 }),
     user("Fraction", { timestamp: "2026-01-04T00:00:00.123456Z" }),
     user("Deep", { deep: nested(150) }),
   ].map((r) => JSON.stringify(r));

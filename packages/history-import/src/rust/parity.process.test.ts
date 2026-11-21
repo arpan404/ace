@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, expect, test } from "vitest";
@@ -194,6 +193,6 @@ test("ace-history stores, lists and imports the parity homes as the TypeScript r
   const kept = expected as Observation & Record<string, unknown>;
   for (const key of ["scan", "stored", "pages", "openable", "searched", "reads", "counts"])
     expect(rust[key], key).toEqual(kept[key]);
-  for (const [index, imported] of expected.imports.entries())
-    expect(rust.imports[index], imported.session).toEqual(imported);
+  for (const [index, kept] of expected.imports.entries())
+    expect(rust.imports[index], kept.session).toEqual(kept);
 });

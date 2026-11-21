@@ -155,7 +155,7 @@ async function piHome(root: string) {
         const lines = [
           { type: "session", version: 3, id, timestamp: "2026-01-01T00:00:00Z", cwd: "/workspace" },
           { type: "session_info", id: "i", parentId: null, name: "Pi bench session" },
-          ...Array.from({ length: 20 }, (_, n) => ({
+          ...Array.from({ length: 20 }, (_unused, n) => ({
             type: "message",
             id: `m${n}`,
             parentId: n ? `m${n - 1}` : null,

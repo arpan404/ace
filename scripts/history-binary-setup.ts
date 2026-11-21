@@ -44,6 +44,7 @@ export default function setup(project: TestProject) {
   } catch (error) {
     throw new Error(
       `The history process tests need ace-history, and it did not build (${String(error)}). Install rustup and the toolchain native/history pins.`,
+      { cause: error },
     );
   }
   const binary = `${target}/debug/${process.platform === "win32" ? "ace-history.exe" : "ace-history"}`;
