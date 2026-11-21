@@ -25,3 +25,53 @@ export function originalStandsIn(file: { mimeType: string; name: string; bytes: 
   const heic = heicTypes.has(file.mimeType.toLowerCase()) || pictureNames.test(file.name);
   return heic && file.bytes <= heicOriginalLimit;
 }
+
+/** The most of a picture the phone draws inline; a larger one is a file the person opens. */
+export const pictureInlineLimit = 8 * 1024 * 1024;
+
+/**
+ * How a message's file shows: its `kind` for the icon (`image` for any picture), and whether it
+ * is `drawn` as a picture, from the daemon's preview or a small HEIC's original. A picture past
+ * `pictureInlineLimit` is never drawn, since its viewer would read it whole.
+ */
+export function pictureLine(file: {
+  mimeType: string;
+  name: string;
+  bytes: number;
+  kind?: string | undefined;
+  thumbnailAvailable?: boolean | undefined;
+}): { kind: string; drawn: boolean } {
+  if (!drawnAsPicture(file)) return { kind: file.kind ?? "binary", drawn: false };
+  const readable = file.thumbnailAvailable === true || originalStandsIn(file);
+  return { kind: "image", drawn: readable && file.bytes <= pictureInlineLimit };
+}
+
+const ascii = (bytes: Uint8Array, from: number, to: number) =>
+  String.fromCharCode(...bytes.subarray(from, to));
+const heifBrands = new Set([
+  "heic",
+  "heix",
+  "hevc",
+  "hevx",
+  "heim",
+  "heis",
+  "mif1",
+  "msf1",
+  "heif",
+]);
+
+/**
+ * Whether `bytes` begin as a picture the phone decodes: PNG, JPEG, GIF, WebP, HEIC or HEIF,
+ * TIFF or BMP. Anything else (an SVG named `.heic`, a video) is never handed to the decoder,
+ * whatever its type or name says.
+ */
+export function pictureBytes(bytes: Uint8Array): boolean {
+  const starts = (...head: number[]) => head.every((byte, at) => bytes[at] === byte);
+  if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return true;
+  if (starts(0xff, 0xd8, 0xff)) return true;
+  if (/^GIF8[79]a$/.test(ascii(bytes, 0, 6))) return true;
+  if (ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP") return true;
+  if (ascii(bytes, 4, 8) === "ftyp" && heifBrands.has(ascii(bytes, 8, 12))) return true;
+  if (starts(0x49, 0x49, 0x2a, 0x00) || starts(0x4d, 0x4d, 0x00, 0x2a)) return true;
+  return bytes.length >= 14 && starts(0x42, 0x4d);
+}

@@ -199,7 +199,8 @@ test("a file from the thread's Attachments list opens without naming a message; 
 });
 
 test("a HEIC stored without a preview is drawn as a picture, read from its original", async () => {
-  const bytes = "heic bytes";
+  // A HEIC's own first bytes (an ISO box naming the brand), then the rest of the file.
+  const bytes = "\0\0\0\x18ftypheic\0\0\0\0mif1heic the rest";
   const sha = createHash("sha256").update(bytes).digest("hex");
   const heic: Attachment = {
     sha256: sha,
@@ -223,4 +224,35 @@ test("a HEIC stored without a preview is drawn as a picture, read from its origi
   const thumbnail = await read(owner, { threadId: "heic", itemId, ref: sha, variant: "thumbnail" });
   expect(thumbnail).toMatchObject({ kind: "image", mimeType: "image/heic" });
   expect(Buffer.from(thumbnail.data, "base64").toString()).toBe(bytes);
+});
+
+test("a HEIC whose bytes aren't a picture is never sent to be drawn", async () => {
+  const bytes = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  const heic: Attachment = {
+    sha256: sha,
+    bytes: Buffer.byteLength(bytes),
+    mimeType: "image/heic",
+    name: "drawing.heic",
+    kind: "binary",
+    thumbnailAvailable: false,
+  };
+  const fake = sentFromWeb("fake-heic", [{ type: "text", text: "Look" }], [heic]);
+  fake.seedServices({
+    attachmentTexts: [
+      { threadId: "fake-heic", sha256: sha, text: bytes, name: heic.name, mimeType: "image/heic" },
+    ],
+  });
+  const { owner, itemId } = await personsRow(fake, "fake-heic");
+
+  await expect(
+    read(owner, { threadId: "fake-heic", itemId, ref: sha, variant: "thumbnail" }),
+  ).rejects.toThrow("Not a picture");
+  const opened = await read(owner, {
+    threadId: "fake-heic",
+    itemId,
+    ref: sha,
+    variant: "original",
+  });
+  expect(opened.kind).toBe("file");
 });

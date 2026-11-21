@@ -4,7 +4,7 @@ import { formatBytes } from "@ace/ui-core/byte-size";
 import { oneLine, sanitizeUserText } from "@ace/ui-core";
 import { z } from "zod";
 import { preview } from "./presentation.ts";
-import { drawnAsPicture, originalStandsIn } from "./attachment-picture.ts";
+import { pictureLine } from "./attachment-picture.ts";
 
 /*
  * Two of the thread menu's lists, read on demand: the thread's turns (ADR 0062's turn index,
@@ -71,10 +71,10 @@ export function threadFileRow(file: Attachment) {
     name: preview(file.name, 255),
     size: formatBytes(file.bytes),
     mimeType: preview(file.mimeType, 128),
-    kind: drawnAsPicture(file) ? "image" : (file.kind ?? "binary"),
+    kind: pictureLine(file).kind,
     width: file.width ?? 0,
     height: file.height ?? 0,
-    thumbnail: drawnAsPicture(file) && (file.thumbnailAvailable === true || originalStandsIn(file)),
+    thumbnail: pictureLine(file).drawn,
   };
 }
 

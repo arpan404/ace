@@ -13,7 +13,7 @@ import {
 import { preview } from "./presentation.ts";
 import { stepDetail } from "./step-detail.ts";
 import { bubbleOf } from "./thread-messages.ts";
-import { drawnAsPicture, originalStandsIn } from "./attachment-picture.ts";
+import { pictureLine } from "./attachment-picture.ts";
 
 /*
  * What a transcript row shows beyond its text: a step's one-line wording (shared with the web's
@@ -132,17 +132,16 @@ function attachmentsOf(item: Item) {
         opens: false,
       });
   for (const attachment of item.attachments ?? []) {
-    const picture = drawnAsPicture(attachment);
+    const line = pictureLine(attachment);
     shown.push({
-      kind: picture ? "image" : (attachment.kind ?? "binary"),
+      kind: line.kind,
       name: preview(attachment.name, 128),
       ref: attachment.sha256,
       mimeType: preview(attachment.mimeType, 128),
       bytes: attachment.bytes,
       width: attachment.width ?? 0,
       height: attachment.height ?? 0,
-      thumbnail:
-        picture && (attachment.thumbnailAvailable === true || originalStandsIn(attachment)),
+      thumbnail: line.drawn,
       opens: true,
     });
   }

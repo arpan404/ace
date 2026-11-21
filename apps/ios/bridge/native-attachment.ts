@@ -2,7 +2,12 @@ import { attachmentBytes, listThreadAttachments, type ClientCore } from "@ace/cl
 import { BlobHash, ItemId, ThreadId, type Attachment } from "@ace/protocol";
 import { z } from "zod";
 
-import { drawnAsPicture, heicOriginalLimit, originalStandsIn } from "./attachment-picture.ts";
+import {
+  drawnAsPicture,
+  heicOriginalLimit,
+  originalStandsIn,
+  pictureBytes,
+} from "./attachment-picture.ts";
 import { base64 } from "./bytes.ts";
 import type { ImageBudget } from "./image-budget.ts";
 import { readNativeItem } from "./native-item.ts";
@@ -124,8 +129,13 @@ async function readStored(
     ((thumbnail && !standIn ? previewBytes : Math.max(attachment.bytes, previewBytes)) * 4) / 3,
   );
   const result = images ? await images.run(most, fetch) : await fetch();
+  // Only bytes that begin as a picture are ever handed to the phone's decoder.
+  const picture =
+    drawnAsPicture({ mimeType: result.mimeType, name: attachment.name }) &&
+    pictureBytes(result.bytes);
+  if (thumbnail && !picture) throw new Error("Not a picture");
   return {
-    kind: drawnAsPicture({ mimeType: result.mimeType, name: attachment.name }) ? "image" : "file",
+    kind: picture ? "image" : "file",
     name: attachment.name,
     mimeType: result.mimeType,
     data: base64(result.bytes),
