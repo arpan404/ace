@@ -34,6 +34,7 @@ fn tool(name: &str) -> Target {
 async fn bot(dir: &Path) -> (BotCode, String) {
     let place = Place {
         program: Path::new(PROGRAM).to_path_buf(),
+        args: Vec::new(),
         folder: dir.join("data/code/bot1"),
         home: dir.join("home"),
         spade_data: dir.join("data"),

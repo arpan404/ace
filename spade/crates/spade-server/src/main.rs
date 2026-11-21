@@ -107,6 +107,15 @@ fn main() -> std::process::ExitCode {
             pipe, port, ready,
         ));
     }
+    // A bot's code worker (ADR 0203 §3): started by Spade inside the bot's sandbox, offline, it
+    // serves Spade's frames on stdin and stdout until Spade closes the pipe. Nothing else writes
+    // to stdout first.
+    if let Some(flag) = args.first()
+        && flag == spade_wasm::launch::WORKER_ARG
+    {
+        let code = spade_wasm::serve::serve(std::io::stdin().lock(), std::io::stdout());
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
     {
