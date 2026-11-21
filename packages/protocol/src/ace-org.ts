@@ -175,14 +175,35 @@ export const AceOrgPolicyVersion = z.object({
 export type AceOrgPolicyVersion = z.infer<typeof AceOrgPolicyVersion>;
 
 /** `POST /v1/orgs/{org}/hosts`: the person gives a machine they own to the organization. */
+/**
+ * A machine's consent to become one organization's host (ADR 0206 §2.1,
+ * `@ace/account-grant/machine-proof` `orgEnrollProof`): its daemon gives it only to a socket that
+ * proved the machine owner's standing, for one organization, once, for five minutes. `account` is
+ * that owner, whose session must be the one enrolling; `hostKey` is the relay host key the host id
+ * names; `proof` is the MAC under the secret that key shares with the backend's exchange key.
+ */
+export const AceOrgEnrollConsent = z.object({
+  hostId: z.string().regex(/^[A-Z2-7]{52}$/),
+  hostKey: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  org: AceOrgId,
+  account: z.string().min(1).max(256),
+  nonce: z.string().regex(/^[A-Za-z0-9_-]{22,64}$/),
+  expiresAt: z.number().int().positive(),
+  proof: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+export type AceOrgEnrollConsent = z.infer<typeof AceOrgEnrollConsent>;
+
 export const AceOrgHostEnrollRequest = z.object({
   hostId: z.string().regex(/^[A-Z2-7]{52}$/),
+  /** The machine's own consent, for this host and organization; spent by enrolling. */
+  consent: AceOrgEnrollConsent,
   /** The host's Ed25519 audit key, base64url, that signs its log's checkpoints. */
   auditKey: z
     .string()
     .regex(/^[A-Za-z0-9_-]{43}$/)
     .optional(),
 });
+export type AceOrgHostEnrollRequest = z.infer<typeof AceOrgHostEnrollRequest>;
 
 const AuditRef = z.object({
   type: z.string().regex(/^[a-z_]{1,32}$/),

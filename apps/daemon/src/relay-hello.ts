@@ -2,6 +2,7 @@ import type { ClientMessage, DeviceId, ServerMessage } from "@ace/protocol";
 import type { MachineAccount } from "./account-access/machine-account.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import type { Devices, SessionActor } from "./devices.ts";
+import { orgRole } from "@ace/account-grant/org-roles";
 
 type Hello = Extract<ClientMessage, { type: "hello" }>;
 export type RelayAdmission =
@@ -14,6 +15,8 @@ export type RelayAdmission =
       account?: string;
       /** For an account device: when its grant runs out, unless the socket refreshes it. */
       grantExpiresAt?: number;
+      /** For a member on an organization's host (ADR 0206 §2.2): who, and their role. */
+      member?: { org: string; role: string; account: string };
       refusal?: undefined;
     }
   | { device?: undefined; refusal?: Extract<ServerMessage, { type: "error" }> };
@@ -79,12 +82,13 @@ export async function accountHello(
       },
     };
   }
-  const { account, expiresAt } = admission;
+  const { account, expiresAt, member } = admission;
   return {
     device: { id: hello.deviceId },
     account,
     grantExpiresAt: expiresAt,
-    stillAdmitted: () => machine?.stillAdmitted(hello.deviceId, account) === true,
+    stillAdmitted: () => machine?.stillAdmitted(hello.deviceId, account, member) === true,
+    ...(member ? { member: { org: member.org, role: member.role, account: member.account } } : {}),
   };
 }
 
@@ -93,8 +97,12 @@ export async function accountHello(
  * never the person by its admission; a socket proves that on its own (`account.standing`, ADR
  * 0190).
  */
-export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
-  return {
+export function accountDeviceActor(
+  id: DeviceId,
+  now: number,
+  member?: { org: string; role: string; account: string } | undefined,
+): SessionActor {
+  const actor: SessionActor = {
     id,
     name: "ace account device",
     scopes: ["admin"],
@@ -102,6 +110,17 @@ export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
     lastSeenAt: now,
     revokedAt: null,
     revocable: false,
+  };
+  if (!member) return actor;
+  // A member of the organization that owns this host (ADR 0206 §2.2): its owners hold the host
+  // as an account device does (its shell still needs their proven standing); everyone else
+  // reaches Spade, where shared bots live, and nothing else.
+  const owner = orgRole(member.role) === "owner";
+  return {
+    ...actor,
+    name: "ace organization member",
+    member,
+    ...(owner ? {} : { scopes: ["read", "operate"], spadeOnly: true }),
   };
 }
 
@@ -114,8 +133,9 @@ export function mainActor(
   admitted: { id: DeviceId; generation?: string | undefined },
   stillAdmitted: (() => boolean) | undefined,
   options: { auth: RemoteAuth; devices: Devices },
+  member?: { org: string; role: string; account: string } | undefined,
 ): SessionActor | undefined {
-  if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now());
+  if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now(), member);
   const device = options.devices.current(admitted.id, admitted.generation, options.auth.now());
   if (!device) return undefined;
   if (device.scopes.includes("desktop") || device.scopes.includes("user-browser")) return undefined;

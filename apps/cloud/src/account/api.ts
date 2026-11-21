@@ -116,6 +116,7 @@ export function accountApi(
     orgs,
     audit,
     signingKey: config.grantKey,
+    exchangeKey,
     now,
   });
   const events = orgEvents({ orgs, workos: workosOrg, now });
