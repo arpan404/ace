@@ -3,7 +3,8 @@ import type { SuitTransport } from "@/theme/suits/suit-transport.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { type ClientApi } from "@ace/client";
 import { ClientHost, RemoteClient } from "@ace/client-worker";
-import { FakeDaemon, ScenarioPlayer, type Scenario } from "@ace/fake-daemon";
+import { FakeDaemon, ScenarioPlayer, fakeMediaInstance, type Scenario } from "@ace/fake-daemon";
+import { useFakeMediaSockets } from "@/lib/video/media.ts";
 import { fakeClient } from "./fake-client.ts";
 export { fakeClient } from "./fake-client.ts";
 import { createMemoryHistory, type RouterHistory } from "@tanstack/react-router";
@@ -17,6 +18,7 @@ import { fakeMachinePool, type FakeMachines } from "@/boot/fake-machines.ts";
 type ClientStorage = ReturnType<typeof memoryStorage>;
 import { type DaemonConnection, DaemonConnectionContext } from "@/boot/connection.tsx";
 import { fakeConnection } from "@/boot/fake.ts";
+import { AceAccountBackendContext, type AceAccountBackend } from "@/features/ace-account/index.ts";
 import { threadWorkspace } from "@/features/panels/index.ts";
 import { preloadProjectDialogs } from "@/features/projects/index.ts";
 import { preloadDeferred } from "@/features/thread/index.ts";
@@ -118,6 +120,8 @@ export function harness(
     suits?: SuitTransport;
     /** `?suit=off` this session. */
     suitsOff?: boolean;
+    /** The window's ace account backend (ADR 0100); none by default, as a build without one. */
+    account?: () => AceAccountBackend | undefined;
   } = {},
 ) {
   const time = createTimeSource(options.uiClock ?? (() => Date.now()));
@@ -153,6 +157,13 @@ export function harness(
     { id: "zed", name: "Zed", command: "zed" },
   ]);
   if (options.onboarding !== "pending") daemon.services.providerLogin.dismiss("test-device");
+  // Live views get pictures only from ace-media (X3): these daemons' media connections open here.
+  const byInstance = new Map([daemon, ...others].map((one) => [one.media.instance, one]));
+  useFakeMediaSockets((url, events) => {
+    const owner = byInstance.get(fakeMediaInstance(url) ?? "");
+    if (!owner) throw new Error(`No fake daemon for ${url}`);
+    return owner.media.socket(url, events);
+  });
   const client = options.client
     ? options.client(daemon)
     : options.throughWorker
@@ -197,15 +208,17 @@ export function harness(
             }}
           >
             <DaemonConnectionContext.Provider value={connection}>
-              <App
-                client={client}
-                queryClient={options.queryClient ?? createQueryClient()}
-                storage={storage}
-                windowStorage={options.windowStorage}
-                history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
-                machines={machines}
-                suits={options.suits}
-              />
+              <AceAccountBackendContext value={options.account}>
+                <App
+                  client={client}
+                  queryClient={options.queryClient ?? createQueryClient()}
+                  storage={storage}
+                  windowStorage={options.windowStorage}
+                  history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
+                  machines={machines}
+                  suits={options.suits}
+                />
+              </AceAccountBackendContext>
             </DaemonConnectionContext.Provider>
           </AppFrame>
         </TimeContext.Provider>,

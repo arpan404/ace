@@ -44,7 +44,8 @@ struct ThreadSummaryPage: View {
         if !summary.catchUp.isEmpty { catchUp(summary.catchUp) }
         if let agents = summary.agents {
             SummaryAgentsSection(agents: agents, open: open, openTree: openAgents,
-                                 foldDone: { model.sheet(["kind": "summary.done", "shown": $0]) })
+                                 foldDone: { model.sheet(["kind": "summary.done", "shown": $0]) },
+                                 foldUnsure: { model.sheet(["kind": "summary.unsure", "shown": $0]) })
         }
         if summary.hasResults { results(summary) }
         if let plan = summary.plan { SummaryPlanSection(plan: plan) }
@@ -244,8 +245,7 @@ private struct SummaryPlanSection: View {
                 .accessibilityValue(plan.count)
             ForEach(plan.todos) { todo in
                 QuietSectionRow {
-                    Image(systemName: todo.status == "completed" ? "checkmark.square" : "square")
-                        .font(AceDesign.Typeface.meta)
+                    AceIcon(todo.status == "completed" ? .checkSquare : .square, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                         .foregroundStyle(AceDesign.Ink.subtle)
                         .accessibilityHidden(true)
                     Text(todo.text)

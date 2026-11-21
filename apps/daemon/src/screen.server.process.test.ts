@@ -1,14 +1,9 @@
 import { once } from "node:events";
 import { WebSocket } from "ws";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { ScreenState, ServerMessage } from "@ace/protocol";
 import { ScreenManager } from "@ace/screen";
-import {
-  decodeStreamMessage,
-  isStreamPiece,
-  StreamAssembler,
-  type StreamMessage,
-} from "@ace/browser/stream";
+import { fakeScreenMedia } from "@ace/screen/testing/support";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,10 +12,13 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
-it("authenticated devices receive visible screen state and stream pictures and disconnect relinquishes control", async () => {
+it("authenticated devices receive visible screen state, no pictures on their socket, and disconnect relinquishes control", async () => {
   const directory = await mkdtemp(join(tmpdir(), "daemon-screen-"));
   let id = 0;
+  // The session's video comes only from ace-media's egress, handed back here.
+  const ace = fakeScreenMedia();
   const screen = new ScreenManager({
+    media: ace.media,
     command: process.execPath,
     args: [
       new URL("../../../packages/screen/src/testing/fake-helper.ts", import.meta.url).pathname,
@@ -40,31 +38,14 @@ it("authenticated devices receive visible screen state and stream pictures and d
   const socket = new WebSocket(f.server.url);
   await once(socket, "open");
   const messages: ServerMessage[] = [];
-  type Picture = Extract<StreamMessage, { kind: "screen.frame" }>;
-  const frames: Picture[] = [];
   const waiting = new Map<string, (message: ServerMessage) => void>();
-  let frameResolve: (value: Picture) => void = ignore;
-  const frameReady = new Promise<Picture>((resolve) => {
-    frameResolve = resolve;
-  });
-  const assembler = new StreamAssembler();
-  let foreign = 0;
+  // Pictures come only from ace-media on a media connection (X3): none on this socket.
+  let binaries = 0;
   socket.on("message", (data, binary) => {
-    if (binary) {
-      if (!Buffer.isBuffer(data)) throw new Error("Expected binary Buffer");
-      // Every binary message is a stream piece: nothing else reaches a viewer.
-      if (!isStreamPiece(data)) return void foreign++;
-      const envelope = assembler.push(data);
-      const message = envelope && decodeStreamMessage(envelope);
-      if (message?.kind === "screen.frame") {
-        frames.push(message);
-        frameResolve(message);
-      }
-    } else {
-      const message = ServerMessage.parse(JSON.parse(data.toString()));
-      messages.push(message);
-      if (message.type === "screen.result") waiting.get(message.requestId)?.(message);
-    }
+    if (binary) return void binaries++;
+    const message = ServerMessage.parse(JSON.parse(data.toString()));
+    messages.push(message);
+    if (message.type === "screen.result") waiting.get(message.requestId)?.(message);
   });
   socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, token, deviceId: "device" }));
   let requestId = 0;
@@ -84,7 +65,11 @@ it("authenticated devices receive visible screen state and stream pictures and d
   if (started.type !== "screen.result") throw new Error("Expected screen result");
   expect(started, JSON.stringify(started)).toMatchObject({ ok: true });
   const state = ScreenState.parse(started.data);
-  await request({ op: "subscribe", sessionId: state.sessionId });
+  // A subscribe without a media connection is told to update, never left blank.
+  expect(await request({ op: "subscribe", sessionId: state.sessionId })).toMatchObject({
+    ok: true,
+    undelivered: { code: "update" },
+  });
   expect(
     await request({
       op: "stream.configure",
@@ -100,27 +85,17 @@ it("authenticated devices receive visible screen state and stream pictures and d
       action: { kind: "type", text: "hello" },
     }),
   ).toMatchObject({ ok: true });
-  expect((await frameReady).sourceId).toBe(state.sessionId);
-  // The session's stills never reached the viewer: only its video did.
-  expect(frames.every((frame) => frame.frame.codec !== "jpeg")).toBe(true);
-  expect(foreign).toBe(0);
-  // The viewer's ack is taken without a reply.
-  socket.send(
-    JSON.stringify({
-      type: "screen.ack",
-      sessionId: state.sessionId,
-      streamId: frames[0]?.frame.streamId,
-      sequence: frames[0]?.frame.sequence,
-    }),
+  expect(binaries).toBe(0);
+  await vi.waitFor(() =>
+    expect(
+      messages.some(
+        (message) =>
+          message.type === "screen.state" &&
+          message.state.indicator &&
+          message.state.controller === "human",
+      ),
+    ).toBe(true),
   );
-  expect(
-    messages.some(
-      (message) =>
-        message.type === "screen.state" &&
-        message.state.indicator &&
-        message.state.controller === "human",
-    ),
-  ).toBe(true);
   const released = new Promise<void>((resolve) => {
     screen.watch((value) => {
       if (value.controller === "none") resolve();
@@ -212,5 +187,3 @@ it("unauthenticated clients cannot enable screen access", async () => {
   expect(await client.next()).toMatchObject({ type: "error", code: "unauthorized" });
   expect((await closed)[0]).toBe(4001);
 });
-
-function ignore() {}

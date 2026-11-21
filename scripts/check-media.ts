@@ -60,6 +60,8 @@ if (process.platform === "win32") {
     "src/recordings.process.test.ts",
     // D1: a tab, a screen and a device on one media connection, revocation and restart.
     "src/media-delivery.process.test.ts",
+    // X4 (ADR 0208): every image vector through the binary and the lanes, lazy start, a kill.
+    "src/images.process.test.ts",
   ];
   execFileSync("bun", ["--bun", "x", "vitest", "run", ...tests], {
     cwd: new URL("../packages/media/", import.meta.url),
@@ -81,6 +83,23 @@ if (process.platform === "win32") {
     ],
     {
       cwd: new URL("../apps/daemon/", import.meta.url),
+      env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+      stdio: "inherit",
+    },
+  );
+  // X4 (ADR 0208): attachment previews and an oversized model image through the binary.
+  execFileSync(
+    "bun",
+    [
+      "--bun",
+      "x",
+      "vitest",
+      "run",
+      "src/attachment-thumbnail.test.ts",
+      "src/model-image.process.test.ts",
+    ],
+    {
+      cwd: new URL("../packages/context/", import.meta.url),
       env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
       stdio: "inherit",
     },
@@ -112,6 +131,25 @@ if (process.platform === "win32") {
     ],
     {
       cwd: new URL("../packages/devices/", import.meta.url),
+      env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+      stdio: "inherit",
+    },
+  );
+  // X2: a JPEG-only screen's video back from a killed ace-media through the real restart, its
+  // pictures encoded by the new process (p95 under 2 s); and a still one's view starting from a
+  // picture on a fresh subscribe and on a subscribe again.
+  execFileSync(
+    "bun",
+    [
+      "--bun",
+      "x",
+      "vitest",
+      "run",
+      "src/picture-restart.process.test.ts",
+      "src/picture-view.process.test.ts",
+    ],
+    {
+      cwd: new URL("../packages/screen/", import.meta.url),
       env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
       stdio: "inherit",
     },

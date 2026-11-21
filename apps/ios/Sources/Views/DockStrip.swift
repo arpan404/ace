@@ -127,13 +127,13 @@ struct DockStrip: View {
 
     private func pagerView(_ pager: DockPager) -> some View {
         HStack(spacing: AceTheme.Spacing.none) {
-            Button { pager.move(-1) } label: { pagerGlyph("chevron.left") }
+            Button { pager.move(-1) } label: { pagerGlyph(.caretLeft) }
                 .disabled(pager.index == 0)
                 .accessibilityLabel("Previous request")
             Text("\(pager.index + 1) of \(pager.total)")
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
                 .accessibilityIdentifier("strip.pager")
-            Button { pager.move(1) } label: { pagerGlyph("chevron.right") }
+            Button { pager.move(1) } label: { pagerGlyph(.caretRight) }
                 .disabled(pager.index >= pager.total - 1)
                 .accessibilityLabel("Next request")
         }
@@ -143,8 +143,8 @@ struct DockStrip: View {
     }
 
     /// A pager arrow: a caption glyph in a full tap.
-    private func pagerGlyph(_ symbol: String) -> some View {
-        Image(systemName: symbol).font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
+    private func pagerGlyph(_ icon: AceIcon.Name) -> some View {
+        AceIcon(icon, size: AceDesign.Size.glyphSmall, weight: .bold, relativeTo: .caption2)
             .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
             .contentShape(Rectangle())
     }
@@ -168,7 +168,7 @@ struct StripLeadMark: View {
             if let provider = lead.provider, !provider.isEmpty {
                 ProviderMark(provider: provider, size: AceDesign.Size.rowMark)
             } else if let icon = lead.icon {
-                RowStatusIcon(kind: icon, tone: lead.tone ?? "idle", size: AceDesign.Size.rowStatusSymbol)
+                RowStatusIcon(kind: icon, tone: lead.tone ?? "idle", size: AceDesign.Size.rowStatus)
             }
         }
         .frame(width: Self.width)

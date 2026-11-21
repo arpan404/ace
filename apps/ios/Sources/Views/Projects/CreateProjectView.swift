@@ -36,7 +36,7 @@ struct CreateProjectView: View {
                             drafts.edit { $0.url = row.cloneUrl; $0.name = row.name }
                             problem = nil
                         }
-                    } label: { InsetRow("Choose from GitHub", systemImage: nil, subtitle: "Your repositories, through gh on the computer") }
+                    } label: { InsetRow("Choose from GitHub", icon: nil, subtitle: "Your repositories, through gh on the computer") }
                     .accessibilityIdentifier("project.clone.github")
                 }
                 .insetRowBackground()

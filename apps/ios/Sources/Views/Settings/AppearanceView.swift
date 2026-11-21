@@ -78,13 +78,13 @@ struct AppearanceView: View {
             } header: { InsetHeader("Transcript size") }
             .insetRowBackground()
             Section {
-                InsetRow(systemImage: nil, title: "Reduce motion") {
+                InsetRow(icon: nil, title: "Reduce motion") {
                     Toggle("Reduce motion", isOn: Binding(get: { reduceMotion || systemReduceMotion }, set: { reduceMotion = $0 }))
                         .labelsHidden().disabled(systemReduceMotion)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("appearance.reduceMotion")
-                InsetRow(systemImage: nil, title: "Translucency") {
+                InsetRow(icon: nil, title: "Translucency") {
                     Toggle("Translucency", isOn: Binding(get: { !solid && !systemReduceTransparency }, set: { solid = !$0 }))
                         .labelsHidden().disabled(systemReduceTransparency)
                 }
@@ -183,11 +183,11 @@ private extension View {
 
 /// The phone's light or dark choice and saved palette, applied at the app root.
 struct PhoneAppearance: ViewModifier {
-    struct Mode { let id: String; let label: String; let symbol: String }
+    struct Mode { let id: String; let label: String }
     static let modes = [
-        Mode(id: "system", label: "System", symbol: "circle.lefthalf.filled"),
-        Mode(id: "light", label: "Light", symbol: "sun.max"),
-        Mode(id: "dark", label: "Dark", symbol: "moon"),
+        Mode(id: "system", label: "System"),
+        Mode(id: "light", label: "Light"),
+        Mode(id: "dark", label: "Dark"),
     ]
     static func label(_ id: String) -> String { modes.first { $0.id == id }?.label ?? "System" }
     static func style(_ id: String) -> UIUserInterfaceStyle { id == "dark" ? .dark : id == "light" ? .light : .unspecified }

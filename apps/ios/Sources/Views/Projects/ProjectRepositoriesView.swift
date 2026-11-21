@@ -122,10 +122,10 @@ struct ProjectRepositoriesView: View {
     }
 
     @ViewBuilder private func actions(_ row: RepositoriesReply.Row) -> some View {
-        if row.canMakePrimary { Button("Make primary", systemImage: "star") { change("primary", row) } }
-        if row.canHide { Button("Hide", systemImage: "eye.slash") { change("hide", row) } }
-        if row.canShow { Button("Show", systemImage: "eye") { change("show", row) } }
-        if row.canRemove { Button("Remove", systemImage: "trash", role: .destructive) { change("remove", row) } }
+        if row.canMakePrimary { Button("Make primary", ace: .star) { change("primary", row) } }
+        if row.canHide { Button("Hide", ace: .eyeSlash) { change("hide", row) } }
+        if row.canShow { Button("Show", ace: .eye) { change("show", row) } }
+        if row.canRemove { Button("Remove", ace: .trash, role: .destructive) { change("remove", row) } }
     }
 
     private func read() async {

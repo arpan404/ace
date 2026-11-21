@@ -4,20 +4,14 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { MediaRecording, recordingRoute } from "./recordings.ts";
-import {
-  legacyMediaSettings,
-  MediaSupervisor,
-  nodeMediaHost,
-  systemMediaClock,
-  type MediaExit,
-} from "./supervisor.ts";
-import { MediaTee, nodeIngestConnect } from "./tee.ts";
+import { MediaRuntime } from "./runtime.ts";
+import { nodeMediaHost, systemMediaClock, type MediaExit } from "./supervisor.ts";
 
-// The daemon's recording route against the real ace-media (`bun run check:media` builds it and
-// sets ACE_MEDIA_TEST_BINARY): the supervisor, a tee'd H.264 source stamped at read time, the
-// 100 ms epochs and their decisions, the source going private and public, and ace-media killed
-// mid-recording. Unit tests can't show the parts that come out the other end.
+// The daemon's recordings against the real ace-media (`bun run check:media` builds it and sets
+// ACE_MEDIA_TEST_BINARY), through `MediaRuntime.recordings`, the path every recorder takes since
+// X1: a tee'd H.264 source stamped at read time, the 100 ms epochs and their decisions, the
+// source going private and public, and ace-media killed mid-recording. Unit tests can't show the
+// parts that come out the other end.
 const binary = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
 
 const fixture = readFileSync(
@@ -99,103 +93,84 @@ async function until(condition: () => boolean, ms = 10_000): Promise<void> {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-it.runIf(binary)(
-  "records a tee'd source through ace-media: nothing private written, and a kill -9 continues in a new part",
-  async () => {
-    const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-rec-"));
-    const directory = join(runtimeDir, "recording");
-    const settings = { ...legacyMediaSettings, recordings: "auto" } as const;
-    const exits: MediaExit[] = [];
-    let secret = false;
-    let handle = 0;
-    let recording: MediaRecording | undefined;
-    let tee: MediaTee | undefined;
-    const supervisor: MediaSupervisor = new MediaSupervisor({
-      version: execFileSync(binary ?? "", ["--version"])
-        .toString()
-        .trim(),
-      binary: binary ?? "",
-      runtimeDir,
-      dataDir: runtimeDir,
-      settings: () => settings,
-      host: nodeMediaHost(process.env),
-      clock: systemMediaClock,
-      random: Math.random,
-      listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
-      // The daemon's state is the truth: reopen the source at its current epoch, then the
-      // recording, which continues in a new part.
-      replay: () => {
-        if (!tee || !recording) return;
-        tee.open();
-        recording.replay();
-      },
-      onMessage: (message) => {
-        tee?.message(message);
-        recording?.message(message);
-      },
-      onEgress: () => {},
-      onExit: (exit) => void exits.push(exit),
-      log: () => {},
-    });
-    cleanups.push(() => {
-      supervisor.dispose();
-      rmSync(runtimeDir, { recursive: true, force: true });
-    });
-    const release = supervisor.need();
-    await until(() => supervisor.health() === "healthy");
-    expect(recordingRoute(settings, supervisor.health())).toBe("ace-media");
+function makeRuntime(exits: MediaExit[] = []) {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-rec-"));
+  let next = 0;
+  const media = new MediaRuntime({
+    version: execFileSync(binary ?? "", ["--version"])
+      .toString()
+      .trim(),
+    binary: binary ?? "",
+    runtimeDir,
+    dataDir: runtimeDir,
+    host: nodeMediaHost(process.env),
+    // As the daemon does: which hardware encoders ace-media builds here (VideoToolbox on a Mac).
+    platform: process.platform,
+    clock: systemMediaClock,
+    random: Math.random,
+    randomBytes: (n) => new Uint8Array(randomBytes(n)),
+    listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
+    id: () => `r${++next}`,
+    onExit: (exit) => void exits.push(exit),
+    log: () => {},
+  });
+  cleanups.push(() => {
+    media.dispose();
+    rmSync(runtimeDir, { recursive: true, force: true });
+  });
+  return { media, directory: join(runtimeDir, "recording") };
+}
 
-    tee = new MediaTee(
-      {
-        source: "s1",
-        handle: () => ++handle,
-        origin: { kind: "tab" },
-        send: (message, payload) => supervisor.send(message, payload),
-        ingest: () => supervisor.ingest()?.socket,
-        connect: nodeIngestConnect,
-        now: () => performance.now(),
-        randomBytes: (n) => new Uint8Array(randomBytes(n)),
-        keyframe: () => {},
-      },
-      1,
+const unit = (id: number, keyframe: boolean) =>
+  ({
+    kind: "video",
+    keyframe,
+    codec: 2,
+    width: 64,
+    height: 64,
+    ...(keyframe ? { description: avcc } : {}),
+    payload: tagged(id),
+  }) as const;
+
+/** Every sample once, in the order read: strictly increasing, so no unit was written twice. */
+function strictlyIncreasing(written: number[]): void {
+  for (let at = 1; at < written.length; at++)
+    expect(written[at], `sample ${at} after ${written[at - 1]}`).toBeGreaterThan(
+      written[at - 1] ?? -1,
     );
-    recording = new MediaRecording({
-      recording: "r1",
-      source: "s1",
+}
+
+it.runIf(binary)(
+  "records a tee'd source through the daemon's runtime: nothing private written, and a kill -9 continues in a new part",
+  async () => {
+    const exits: MediaExit[] = [];
+    const { media: runtime, directory } = makeRuntime(exits);
+    const supervisor = runtime.supervisor;
+    let secret = false;
+
+    // Nothing else needs ace-media: the recording starts it and waits for it.
+    const start = await runtime.recordings.start({
+      origin: { kind: "screen", platform: "macos" },
       directory,
       maxBytes: 1 << 20,
-      pointerTrack: false,
-      send: (message) => supervisor.send(message),
-      clock: systemMediaClock,
       private: () => secret,
-      epoch: 1,
-      // The tee applies each epoch as it gets it, so it acknowledges at once.
-      issue: (issued) => recording?.acknowledged(tee?.epoch(issued) ?? issued.epoch),
       keyframe: () => {},
     });
-    expect(tee.open()).toBe(true);
-    expect(recording.start()).toBe(true);
+    if (!start.ok) throw new Error(start.reason);
+    const recording = start.recording;
 
     const privateIds = new Set<number>();
     let id = 0;
     const play = async (frames: number) => {
       for (let n = 0; n < frames; n++, id++) {
         if (secret) privateIds.add(id);
-        tee?.push({
-          kind: "video",
-          keyframe: n % 5 === 0,
-          codec: 2,
-          width: 64,
-          height: 64,
-          ...(n % 5 === 0 ? { description: avcc } : {}),
-          payload: tagged(id),
-        });
+        recording.push(unit(id, n % 5 === 0));
         await sleep(20);
       }
     };
     const transition = (to: boolean) => {
       secret = to;
-      recording?.privacy();
+      recording.privacy();
     };
 
     await play(30);
@@ -204,13 +179,15 @@ it.runIf(binary)(
     transition(false);
     await play(30);
 
-    // Kill ace-media mid-recording; the supervisor restarts it and replays.
+    // Kill ace-media mid-recording; the supervisor restarts it and the runtime replays.
     const pid = supervisor.snapshot().pid ?? 0;
     process.kill(pid, "SIGKILL");
     await until(() => exits.length === 1);
-    expect(exits[0]).toMatchObject({ failure: true, recordings: ["r1"] });
+    expect(exits[0]?.failure).toBe(true);
+    expect(exits[0]?.recordings).toHaveLength(1);
     await until(() => supervisor.health() === "healthy" && supervisor.snapshot().pid !== pid);
-    await until(() => recording?.parts.some((p) => p.index === 0) ?? false);
+    await until(() => recording.parts.some((p) => p.index === 0));
+    await sleep(200);
     await play(30);
     transition(true);
     await play(10);
@@ -218,10 +195,10 @@ it.runIf(binary)(
     await play(30);
 
     const end = await recording.stop();
-    release();
     expect(end.ok, JSON.stringify(end)).toBe(true);
     expect(end.parts.map((p) => p.index)).toEqual([0, 1]);
-    const written = end.parts.flatMap((p) => ids(p.path));
+    const [before = [], after = []] = end.parts.map((p) => ids(p.path));
+    const written = [...before, ...after];
     expect(
       written.filter((n) => privateIds.has(n)),
       "frames read while private",
@@ -229,7 +206,186 @@ it.runIf(binary)(
     // Most public frames survive: only the open group at the kill and frames read within
     // 100 ms of a resume (or before the first keyframe after one) may be missing.
     expect(written.length).toBeGreaterThan(80);
-    expect(written).toEqual(written.toSorted((a, b) => a - b));
+    // Part 1 starts after part 0 ends, and no sample appears twice, within or across parts.
+    expect(before.length && after.length).toBeGreaterThan(0);
+    strictlyIncreasing(written);
+    expect(runtime.recordings.active).toBe(0);
+  },
+  60_000,
+);
+
+it.runIf(binary)(
+  "a clip stopped before the first 100 ms epoch still holds its video",
+  async () => {
+    const { media: runtime, directory } = makeRuntime();
+    const start = await runtime.recordings.start({
+      origin: { kind: "screen", platform: "macos" },
+      directory,
+      maxBytes: 1 << 20,
+      private: () => false,
+      keyframe: () => {},
+    });
+    if (!start.ok) throw new Error(start.reason);
+    for (let id = 0; id < 3; id++) start.recording.push(unit(id, id === 0));
+    const end = await start.recording.stop();
+    expect(end.ok, JSON.stringify(end)).toBe(true);
+    expect(end.parts.flatMap((p) => ids(p.path))).toEqual([0, 1, 2]);
+    // ace-media confirmed the barrier: nothing was left out.
+    expect(end.ok && end.truncated).toBeUndefined();
+  },
+  30_000,
+);
+
+it.runIf(binary)(
+  "a recording stopped while ace-media restarts after a crash keeps the part the crash cut",
+  async () => {
+    const exits: MediaExit[] = [];
+    const { media: runtime, directory } = makeRuntime(exits);
+    const start = await runtime.recordings.start({
+      origin: { kind: "screen", platform: "macos" },
+      directory,
+      maxBytes: 1 << 20,
+      private: () => false,
+      keyframe: () => {},
+    });
+    if (!start.ok) throw new Error(start.reason);
+    const recording = start.recording;
+    for (let id = 0; id < 40; id++) {
+      recording.push(unit(id, id % 5 === 0));
+      await sleep(20);
+    }
+    // Part 0 is still open: the crash cuts it, and the person stops during the restart.
+    expect(recording.parts).toEqual([]);
+    const pid = runtime.supervisor.snapshot().pid ?? 0;
+    process.kill(pid, "SIGKILL");
+    await until(() => exits.length === 1);
+    const end = await recording.stop();
+    expect(end.ok, JSON.stringify(end)).toBe(true);
+    expect(end.parts.map((p) => p.index)).toEqual([0]);
+    // The crash took what followed the part's last whole fragment, and the end says so.
+    expect(end.ok && end.truncated).toBe("final-epoch");
+    const written = end.parts.flatMap((p) => ids(p.path));
+    // Everything up to the last whole fragment before the kill.
+    expect(written.length).toBeGreaterThan(20);
+    strictlyIncreasing(written);
+  },
+  60_000,
+);
+
+const large = readFileSync(
+  new URL(
+    "../../../native/media/crates/media-codec/bench/data/still-1206x2622.jpg",
+    import.meta.url,
+  ),
+);
+const still = readFileSync(
+  new URL("../../../packages/screen/src/testing/phone-screen.jpg", import.meta.url),
+);
+
+/** The video samples each part holds, from its moof/trun boxes (ISO/IEC 14496-12). */
+function samples(path: string): number {
+  const file = readFileSync(path);
+  expect(file.toString("latin1", 4, 8)).toBe("ftyp");
+  let count = 0;
+  for (let at = 0; at + 8 <= file.length;) {
+    const size = file.readUInt32BE(at);
+    if (size < 8) break;
+    if (file.toString("latin1", at + 4, at + 8) === "moof") {
+      const trun = file.indexOf("trun", at, "latin1");
+      if (trun > 0 && trun < at + size) count += file.readUInt32BE(trun + 8);
+    }
+    at += size;
+  }
+  return count;
+}
+
+it.runIf(binary)(
+  "records JPEG pictures through ace-media's own encode with nobody watching, never while private",
+  async () => {
+    const exits: MediaExit[] = [];
+    const { media: runtime, directory } = makeRuntime(exits);
+    let secret = true;
+    const start = await runtime.recordings.start({
+      origin: { kind: "tab-pictures" },
+      encode: { codec: "avc1.42E033", width: 390, height: 844, fps: 15, bitrate: 1_000_000 },
+      directory,
+      maxBytes: 1 << 20,
+      private: () => secret,
+    });
+    if (!start.ok) throw new Error(start.reason);
+    const recording = start.recording;
+    const picture = {
+      kind: "picture",
+      keyframe: true,
+      codec: 7,
+      width: 390,
+      height: 844,
+      payload: still,
+    } as const;
+    const play = async (count: number) => {
+      for (let n = 0; n < count; n++) {
+        recording.push(picture);
+        await sleep(60);
+      }
+    };
+    // Private from the start: nothing of it may be written.
+    await play(10);
+    secret = false;
+    recording.privacy();
+    await play(60);
+    // ace-media killed mid-recording: the recording continues in a new part.
+    const pid = runtime.supervisor.snapshot().pid ?? 0;
+    process.kill(pid, "SIGKILL");
+    await until(() => exits.length === 1);
+    await until(
+      () => runtime.supervisor.health() === "healthy" && runtime.supervisor.snapshot().pid !== pid,
+    );
+    await sleep(300);
+    await play(60);
+    const end = await recording.stop();
+    expect(end.ok, JSON.stringify(end)).toBe(true);
+    expect(end.parts.length).toBeGreaterThanOrEqual(2);
+    const written = end.parts.map((part) => samples(part.path));
+    expect(
+      written.every((count) => count > 0),
+      JSON.stringify(written),
+    ).toBe(true);
+    // Each process saw 60 public pictures, the first ten private ones before them: at most the
+    // public ones were written.
+    expect(Math.max(...written)).toBeLessThanOrEqual(60);
+  },
+  90_000,
+);
+
+/** A JPEG picture unit for a recording's tee. */
+const picture = (payload: Buffer, width: number, height: number) =>
+  ({ kind: "picture", keyframe: true, codec: 7, width, height, payload }) as const;
+
+it.runIf(binary)(
+  "a picture recording stopped right after its last picture still holds every picture its encoder took",
+  async () => {
+    const { media: runtime, directory } = makeRuntime();
+    const start = await runtime.recordings.start({
+      origin: { kind: "tab-pictures" },
+      encode: { codec: "avc1.42E033", width: 390, height: 844, fps: 15, bitrate: 1_000_000 },
+      directory,
+      maxBytes: 1 << 20,
+      private: () => false,
+    });
+    if (!start.ok) throw new Error(start.reason);
+    for (let n = 0; n < 8; n++) {
+      start.recording.push(picture(still, 390, 844));
+      await sleep(150);
+    }
+    // The last picture is a large one, slow to decode and scale: still in the encoder when the
+    // stop's barrier arrives.
+    start.recording.push(picture(large, 1206, 2622));
+    const pushed = 9;
+    // No pause after the last one: the stop must wait for what the encoder still holds.
+    const end = await start.recording.stop();
+    expect(end.ok, JSON.stringify(end)).toBe(true);
+    expect(end.ok && end.truncated).toBeUndefined();
+    expect(end.parts.reduce((sum, part) => sum + samples(part.path), 0)).toBe(pushed);
   },
   60_000,
 );

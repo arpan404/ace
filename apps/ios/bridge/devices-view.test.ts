@@ -369,3 +369,13 @@ test("a missing Android SDK is a setup note, never the open Simulator's problem"
   expect(shown.device?.problem).toBeNull();
   expect(shown.notes).toEqual([{ message: issue.message, hint: issue.hint }]);
 });
+
+test("a device whose live video can't play says why in one sentence, and nothing once it plays", () => {
+  const stopped = view([
+    live({
+      video: { status: "unavailable", reason: "ace-media isn't available on this computer" },
+    }),
+  ]);
+  expect(stopped.device?.stopped).toBe("ace-media isn't available on this computer.");
+  expect(view([live()]).device?.stopped).toBe("");
+});

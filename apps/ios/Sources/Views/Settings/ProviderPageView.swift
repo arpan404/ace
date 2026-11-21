@@ -45,7 +45,7 @@ struct ProviderPageView<Extra: View>: View {
                 if page.mcp {
                     Section {
                         NavigationLink { ProviderMcpView(model: model, provider: provider, name: page.name) } label: {
-                            InsetRow("MCP servers", systemImage: nil)
+                            InsetRow("MCP servers", icon: nil)
                         }
                         .accessibilityIdentifier("provider.mcp")
                     }
@@ -162,12 +162,12 @@ struct ProviderPageView<Extra: View>: View {
         Section {
             if page.accounts {
                 NavigationLink { ProviderAccountsView(model: model, provider: provider, name: page.name) } label: {
-                    InsetRow("Accounts", systemImage: nil)
+                    InsetRow("Accounts", icon: nil)
                 }
             }
             if page.fix?.action != "sign_in", !page.off {
                 NavigationLink { ProviderSignInView(model: model, provider: provider, name: page.name) } label: {
-                    InsetRow("Sign in", systemImage: nil)
+                    InsetRow("Sign in", icon: nil)
                 }
             }
             if let terminal = page.terminal {
@@ -201,8 +201,8 @@ struct ProviderPageView<Extra: View>: View {
     /// Rows held in place while the first read arrives, so nothing jumps when it lands.
     private var placeholder: some View {
         Group {
-            Section { InsetRow(name, systemImage: nil, value: "Checking…") }
-            Section { ForEach(0..<3, id: \.self) { _ in InsetRow("Loading", systemImage: nil) } }
+            Section { InsetRow(name, icon: nil, value: "Checking…") }
+            Section { ForEach(0..<3, id: \.self) { _ in InsetRow("Loading", icon: nil) } }
         }
         .insetRowBackground()
         .redacted(reason: .placeholder)

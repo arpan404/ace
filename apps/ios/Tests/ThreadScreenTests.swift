@@ -86,6 +86,45 @@ import Foundation
         answers.pick("b", in: scope)
         #expect(answers.resolution(for: [scope, checks]) == ["scope": ["b"], "checks": ["test"]])
     }
+    @Test func summarizedApprovalLoadsItsFullRequestAndUnlocksApprovalOptions() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        let options: [[String: Any]] = [
+            ["id": "allow-once", "label": "Allow once", "kind": "allow_once"],
+            ["id": "deny", "label": "Deny", "kind": "deny"],
+        ]
+        model.receive(try frame([
+            ["type": "thread.reset", "threadId": "a", "epoch": 1],
+            ["type": "thread.interaction", "threadId": "a", "epoch": 1, "id": "req-1", "row": [
+                "id": "req-1", "kind": "approval", "state": "pending", "title": "Migrate schema",
+                "description": "", "command": "bun run db:migrate", "options": options,
+                "decisions": [["verb": "deny", "option": 1, "label": "Deny", "scope": "", "emphasis": "quiet"]],
+                "truncated": true, "summarized": "Loading the full request…",
+                "wholeState": "loading", "wholeRetryable": false,
+            ]],
+        ]))
+        let loading = try #require(model.thread?.approvals.first)
+        #expect(loading.tooLargeToApprove == true)
+        #expect(loading.wholeState == "loading")
+        #expect(loading.verbs.map(\.option.id) == ["deny"])
+        model.receive(try frame([
+            ["type": "thread.interaction", "threadId": "a", "epoch": 1, "id": "req-1", "row": [
+                "id": "req-1", "kind": "approval", "state": "pending", "title": "Migrate schema",
+                "description": "", "command": "bun run db:migrate --full", "options": options,
+                "decisions": [
+                    ["verb": "allow_once", "option": 0, "label": "Allow once", "scope": "", "emphasis": "primary"],
+                    ["verb": "deny", "option": 1, "label": "Deny", "scope": "", "emphasis": "quiet"],
+                ],
+                "truncated": false, "summarized": "",
+                "wholeState": "loaded", "wholeRetryable": false,
+            ]],
+        ]))
+        let loaded = try #require(model.thread?.approvals.first)
+        #expect(loaded.tooLargeToApprove == false)
+        #expect(loaded.wholeState == "loaded")
+        #expect(loaded.command == "bun run db:migrate --full")
+        #expect(loaded.verbs.map(\.option.id) == ["deny", "allow-once"])
+    }
     private func item(_ id: String, role: String = "assistant", text: String, index: Int) -> [String: Any] {
         ["type": "thread.item", "threadId": "a", "epoch": 1, "id": id,
          "row": ["id": id, "index": index, "type": "message", "role": role, "text": text, "complete": false, "createdAt": 0, "agentId": "root", "truncated": false]]

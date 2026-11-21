@@ -51,7 +51,7 @@ struct UsageView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { Task { await refresh() } } label: {
-                    if refreshing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                    if refreshing { ProgressView() } else { Image(ace: .arrowClockwise) }
                 }
                 .disabled(refreshing)
                 .accessibilityLabel(refreshing ? "Refreshing" : "Refresh")
@@ -179,9 +179,9 @@ struct UsageView: View {
             let view = tab == .cost ? report.cost : report.tokens
             if !view.hasUsage {
                 if report.coverage.complete || reportLoading {
-                    empty("No usage in this range", systemImage: "chart.xyaxis.line")
+                    empty("No usage in this range", icon: .chartBar)
                 } else {
-                    empty("No usage could be read", systemImage: "chart.xyaxis.line", detail: report.coverage.line)
+                    empty("No usage could be read", icon: .chartBar, detail: report.coverage.line)
                 }
             } else {
                 UsageSpendView(view: view, ledger: report.from.isEmpty ? nil : UsageLedgerContext(
@@ -201,9 +201,9 @@ struct UsageView: View {
         if let limits {
             if limits.providers.isEmpty, limits.quiet.isEmpty {
                 if limits.coverage.complete || limitsLoading {
-                    empty("No accounts yet", systemImage: "chart.bar", detail: "Add an account to see its limits.")
+                    empty("No accounts yet", icon: .chartBar, detail: "Add an account to see its limits.")
                 } else {
-                    empty("No limits could be read", systemImage: "chart.bar", detail: limits.coverage.line)
+                    empty("No limits could be read", icon: .chartBar, detail: limits.coverage.line)
                 }
             } else {
                 UsageLimitsView(limits: limits, redeem: redeem)
@@ -213,8 +213,8 @@ struct UsageView: View {
         }
     }
 
-    private func empty(_ title: String, systemImage: String, detail: String? = nil) -> some View {
-        EmptyState(systemImage: systemImage, title: title, line: detail)
+    private func empty(_ title: String, icon: AceIcon.Name, detail: String? = nil) -> some View {
+        EmptyState(icon: icon, title: title, line: detail)
             .frame(maxWidth: .infinity).padding(.top, AceDesign.Space.section)
     }
 

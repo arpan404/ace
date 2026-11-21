@@ -95,6 +95,23 @@ test("a plan is approved as is, or sent back only with what should change", asyn
   ]);
 });
 
+test("a plan sent whole shows in full on its card, so it can be approved", async () => {
+  const markdown = `## Steps\n\n${"1. Swap the partition pointer once it verifies.\n".repeat(400)}`;
+  const thread = open(
+    connect(asking("plan-long", { kind: "plan_review", title: "Swap shards", markdown })),
+    "plan-long",
+  );
+  const row = await card("plan_review");
+  expect(row.plan).toMatchObject({ markdown, truncated: false });
+  thread.handle({
+    type: "resolve",
+    interactionId: String(row.id),
+    answer: { kind: "plan", decision: "approve" },
+    requestId: "long",
+  });
+  await until(() => commands("interaction.resolve").length === 1, "the approval");
+});
+
 test("approving a plan sends approve", async () => {
   const thread = open(
     connect(asking("plan-ok", { kind: "plan_review", markdown: "Do it" })),

@@ -90,7 +90,7 @@ struct SettingsTools: View {
         if !inbox.sessions.isEmpty {
             Section {
                 if inbox.sessions.count > 1 {
-                    InsetRow(systemImage: "desktopcomputer", title: "Machine") {
+                    InsetRow(icon: .desktop, title: "Machine") {
                         Picker("Machine", selection: Binding(get: { hostId }, set: { machine = $0 })) {
                             ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
                         }

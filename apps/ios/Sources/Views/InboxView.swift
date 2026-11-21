@@ -54,6 +54,8 @@ struct InboxView: View {
     /// A row brought back by Undo or Unsettle, scrolled into view once it is in the list again:
     /// unsettling makes it the newest activity, so it returns far from where the person acted.
     @State private var reveal: InboxKey?
+    /// Another machine's thread Open asked for before that machine listed it.
+    @State private var awaitedOpen: AwaitedOpen?
     @State private var settles = 0
     /// Search's field, kept while the person moves between tabs.
     @State private var searchQuery = ""
@@ -191,6 +193,10 @@ struct InboxView: View {
             if threadsPath.isEmpty && chatsPath.isEmpty { openThread(key) }
         }
         .environment(\.otherMachines, otherMachines)
+        // The machine's list caught up with the thread Open waited for: it opens now.
+        .onChange(of: awaitedListed) { _, listed in
+            if listed, let awaited = awaitedOpen { openThread(awaited.key); awaited.opened() }
+        }
         .sensoryFeedback(.success, trigger: settles)
         // Bulk actions, deletes, moves and Mark unread confirm with the same tap.
         .sensoryFeedback(.success, trigger: organize.feedback)
@@ -271,7 +277,7 @@ struct InboxView: View {
                         PairingView(machines: machines) { pairing = false }
                             .toolbar {
                                 ToolbarItem(placement: .cancellationAction) {
-                                    Button { pairing = false } label: { Image(systemName: "xmark") }
+                                    Button { pairing = false } label: { Image(ace: .x) }
                                         .accessibilityLabel("Close").accessibilityIdentifier("pairing.close")
                                 }
                             }
@@ -324,13 +330,23 @@ struct InboxView: View {
         }
     }
 
-    /// Open from a transfer's line goes to that machine's thread.
+    /// Open from a transfer's line or a moved row goes to that machine's thread. One its list
+    /// doesn't hold yet waits, and opens when the list catches up.
     private var otherMachines: OtherMachines {
-        OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }, open: { key in
-            guard inbox.client(key.machineId)?.inbox[key.id] != nil else { return false }
+        OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }, open: { key, opened in
+            guard let client = inbox.client(key.machineId) else { return .unpaired }
+            guard client.inbox[key.id] != nil else { awaitedOpen = AwaitedOpen(key: key, opened: opened); return .waiting }
             openThread(key)
-            return true
+            opened()
+            return .opened
         })
+    }
+    /// Another machine's thread Open asked for before that machine listed it, and what runs once
+    /// it shows (a transfer's sheet closes).
+    private struct AwaitedOpen { let key: InboxKey; let opened: @MainActor @Sendable () -> Void }
+    /// Whether the thread Open waits for has reached its machine's list.
+    private var awaitedListed: Bool {
+        awaitedOpen.map { inbox.client($0.key.machineId)?.inbox[$0.key.id] != nil } ?? false
     }
 
     /// The thread to reopen is known to its machine. A machine that never lists it again (the
@@ -595,6 +611,8 @@ struct InboxView: View {
     /// the other tab is closed first. `listed` false opens a thread its machine's list doesn't
     /// hold (an archived search hit).
     private func openThread(_ key: InboxKey, listed: Bool = true) {
+        // Opening anything drops an Open still waiting for its list: the person has moved on.
+        awaitedOpen = nil
         guard let client = inbox.client(key.machineId), !listed || client.inbox[key.id] != nil else { return }
         // Shown from anywhere (a notification, a transfer, a row), the thread shows with its
         // drawer in. Already showing, it is not opened again: that would restart its session.

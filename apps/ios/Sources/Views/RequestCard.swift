@@ -12,23 +12,30 @@ struct RequestCard: View {
     let openBrowser: (() -> Void)?
     var body: some View {
         let submission = model.approvalSubmissions[request.id]
-        switch request.kind {
-        case "question":
-            QuestionCard(interaction: request, submission: submission, canAct: model.canOperate, maxHeight: maxHeight, draft: $questionDraft) {
-                model.answer(request, answers: $0, dismissed: $1)
-            }.id(request.id)
-        case "plan_review":
-            PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-        case "elicitation":
-            FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-        case "browser_help":
-            // The browser's Done and Skip answer this request, not the first one open.
-            BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
-                            openBrowser: openBrowser.map { open in { model.thread?.chosenHelp = request.id; open() } }) {
-                model.resolve(request, answer: $0)
-            }.id(request.id)
-        default:
-            ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
+        let retry = { model.readRequest(request.id, retry: true) }
+        Group {
+            switch request.kind {
+            case "question":
+                QuestionCard(interaction: request, submission: submission, canAct: model.canOperate, maxHeight: maxHeight, draft: $questionDraft, retry: retry) {
+                    model.answer(request, answers: $0, dismissed: $1)
+                }.id(request.id)
+            case "plan_review":
+                PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate,
+                               onRead: { model.readRequest(request.id) }, retry: retry) { model.resolve(request, answer: $0) }.id(request.id)
+            case "elicitation":
+                FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate, retry: retry) { model.resolve(request, answer: $0) }.id(request.id)
+            case "browser_help":
+                // The browser's Done and Skip answer this request, not the first one open.
+                BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
+                                openBrowser: openBrowser.map { open in { model.thread?.chosenHelp = request.id; open() } }) {
+                    model.resolve(request, answer: $0)
+                }.id(request.id)
+            default:
+                ApprovalCard(approval: request, submission: submission, canAct: model.canOperate, retry: retry) { model.approve(request, option: $0) }.id(request.id)
+            }
+        }
+        .task(id: request.id) {
+            if request.tooLargeToApprove { model.readRequest(request.id) }
         }
     }
 }

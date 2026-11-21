@@ -1,0 +1,11 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "image.done",
+    "request": "image-1",
+    "width": 993,
+    "height": 2160,
+    "format": "jpeg",
+    "source": { "format": "png", "width": 1206, "height": 2622, "orientation": 1 }
+  }
+}

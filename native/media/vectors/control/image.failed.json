@@ -1,0 +1,9 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "image.failed",
+    "request": "image-1",
+    "reason": "truncated",
+    "message": "The JPEG ends before its last scan: the image is incomplete."
+  }
+}

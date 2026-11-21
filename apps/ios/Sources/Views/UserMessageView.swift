@@ -12,7 +12,7 @@ struct UserMessageRow: View {
         VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
             if let origin = row.bubble?.origin, !origin.isEmpty { MessageEyebrow(origin: origin) }
             if let attachments = row.attachments, !attachments.isEmpty {
-                MessageAttachments(row: row, attachments: attachments, more: row.moreAttachments ?? 0)
+                MessageAttachments(itemId: row.id, attachments: attachments, more: row.moreAttachments ?? 0)
                     .padding(.leading, UserBubble.inset)
             }
             if readable || quoted {

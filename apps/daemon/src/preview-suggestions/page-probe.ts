@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { faviconPng } from "../icons/favicon-image.ts";
+import { noIconImages, type IconImages } from "../icons/icon-image.ts";
 import { fetchFavicon } from "../icons/favicon-fetch.ts";
 import { publicGet, type PublicFetchOptions } from "../icons/public-fetch.ts";
 import { reachOf } from "@ace/preview/detection";
@@ -61,7 +62,11 @@ export function loopbackFetch(port: number, timeoutMs: number): PublicFetchOptio
 }
 
 /** GET `/` and the favicon of a loopback port. */
-export async function probePage(port: number, timeoutMs = 1500): Promise<PageFacts> {
+export async function probePage(
+  port: number,
+  timeoutMs = 1500,
+  icons: IconImages = noIconImages,
+): Promise<PageFacts> {
   const options = loopbackFetch(port, timeoutMs);
   const origin = `http://localhost:${port}`;
   const page = await publicGet(`${origin}/`, {
@@ -76,7 +81,7 @@ export async function probePage(port: number, timeoutMs = 1500): Promise<PageFac
       ? pageTitle(page.body.toString("utf8"))
       : undefined;
   const bytes = await fetchFavicon(origin, options).catch(() => undefined);
-  const png = bytes ? await faviconPng(bytes).catch(() => undefined) : undefined;
+  const png = bytes ? await faviconPng(bytes, icons).catch(() => undefined) : undefined;
   return {
     http: true,
     ...(title ? { title } : {}),

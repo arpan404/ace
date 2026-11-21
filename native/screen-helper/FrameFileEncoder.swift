@@ -77,11 +77,9 @@ enum FrameFileEncoder {
         var pool: (pool: CVPixelBufferPool, width: Int, height: Int)?
         var state: FrameFileState!
         // The route owns its ingest writers: a replaced one drains before it closes, and only
-        // the current one's failure moves units back to stdout.
+        // the current one's failure stops units. Units go only to ace-media's ingest.
         weak var routingEncoder: VideoEncoder?
-        let route = IngestRoute(legacy: { unit in
-            if let packet = legacyFramePacket(unit, sessionId: "emulator", version: 2) { output.write(packet) }
-        }, now: { DispatchTime.now().uptimeNanoseconds }, beforeSwitch: {
+        let route = IngestRoute(now: { DispatchTime.now().uptimeNanoseconds }, beforeSwitch: {
             routingEncoder?.drain(); routingEncoder?.requestKeyframe()
         }, recover: { work in queue.async(execute: work) })
         let encoder = VideoEncoder(units: { unit in route.publish(unit) },

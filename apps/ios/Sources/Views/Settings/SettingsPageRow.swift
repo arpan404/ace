@@ -79,7 +79,7 @@ struct SettingsPageRowView: View {
                     Spacer(minLength: AceDesign.Space.related)
                     if let provider { ProviderMark(provider: provider, size: AceDesign.Size.icon) }
                     InsetValue(text: [label, account].compactMap { $0 }.joined(separator: " · ")).contentTransition(.opacity)
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceDesign.Ink.subtle)
+                    AceIcon(.caretRight, size: AceDesign.Size.glyphMeta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.subtle)
                 }
                 .contentShape(Rectangle())
             }
@@ -141,7 +141,7 @@ struct SettingsPageRowView: View {
                 Spacer(minLength: AceDesign.Space.related)
                 HStack(spacing: AceTheme.Spacing.xxs) {
                     Text(shown).multilineTextAlignment(.trailing).lineLimit(2).contentTransition(.opacity)
-                    Image(systemName: "chevron.up.chevron.down").font(AceDesign.Typeface.meta)
+                    AceIcon(.caretUpDown, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                 }
                 .font(AceDesign.Typeface.body)
                 .foregroundStyle(AceDesign.Ink.muted)
@@ -184,7 +184,7 @@ struct SettingsPageRowView: View {
                     TextField(placeholder, text: Binding(get: { entries.indices.contains(index) ? entries[index] : "" },
                                                          set: { if entries.indices.contains(index) { entries[index] = $0 } }))
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Button { entries.remove(at: index) } label: { Image(systemName: "minus.circle") }
+                    Button { entries.remove(at: index) } label: { Image(ace: .minusCircle) }
                         .buttonStyle(.borderless).accessibilityLabel("Remove")
                         .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
                 }

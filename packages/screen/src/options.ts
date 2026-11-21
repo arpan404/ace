@@ -8,6 +8,9 @@ export type ScreenOptions = Omit<HelperOptions, "onFrame" | "onFailure"> & {
   recordingDirectory: string;
   recordingLimitBytes?: number;
   publishArtifact: (artifact: RecordingArtifact) => Promise<void>;
+  /** ace-media's recorder, which every screen recording goes through (X1); absent, recordings
+   * refuse, saying why. */
+  recorder?: import("@ace/media/tee-recordings").MediaRecorder;
   /**
    * Cowork (ADR 0143): the person's input reaches a session an agent holds without taking its
    * controls, and extends their lease on its app; agents' input there waits for it. Absent: the
@@ -15,8 +18,10 @@ export type ScreenOptions = Omit<HelperOptions, "onFrame" | "onFailure"> & {
    */
   cowork?: ScreenCowork;
   /**
-   * ace-media (ADR 0147, phase 2): a Mac session's video goes to ace-media's ingest while the
-   * route says so, and comes back on egress. Absent: every frame takes the helper socket.
+   * ace-media (ADR 0147, X2): every session's live video goes through it and comes back on
+   * egress. Absent: no live video, and a view that asks says so; stills still work.
    */
   media?: ScreenMedia;
+  /** Unix ms, for frames ace-media encodes from a JPEG-only helper's pictures. */
+  wallClock?: () => number;
 };

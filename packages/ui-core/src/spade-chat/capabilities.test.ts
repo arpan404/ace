@@ -142,8 +142,20 @@ describe("quiet lines", () => {
 
   test("a worker started here reports on its card, not in a line; one started elsewhere keeps its line", () => {
     const c = conversation();
-    c.stored({ type: "worker_started", worker: "w1", kind: "bot", name: "Linux repro", call: "k1" });
-    c.stored({ type: "worker_started", worker: "t1", kind: "ace", name: "Fix the timer", call: "k2" });
+    c.stored({
+      type: "worker_started",
+      worker: "w1",
+      kind: "bot",
+      name: "Linux repro",
+      call: "k1",
+    });
+    c.stored({
+      type: "worker_started",
+      worker: "t1",
+      kind: "ace",
+      name: "Fix the timer",
+      call: "k2",
+    });
     c.stored({ type: "worker_started", worker: "h1", kind: "helper", name: "helper", call: "k3" });
     c.stored({
       type: "worker_reported",

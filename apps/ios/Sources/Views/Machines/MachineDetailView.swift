@@ -99,17 +99,17 @@ struct MachineDetailView: View {
     private func fleetSection(_ client: ClientModel, facts: MachineFacts) -> some View {
         Section {
             NavigationLink { MachineDevicesView(model: client, machine: facts.name) } label: {
-                InsetRow("Devices", systemImage: "iphone.and.arrow.forward", subtitle: "Pair, review and revoke devices")
+                InsetRow("Devices", icon: .devices, subtitle: "Pair, review and revoke devices")
             }
             .accessibilityIdentifier("machine.devices")
             if client.canAdmin != false {
                 NavigationLink { ConnectedAppsView(model: client, machine: facts.name) } label: {
-                    InsetRow("Connected apps", systemImage: "app.connected.to.app.below.fill", subtitle: "Apps outside ace, such as claude.ai")
+                    InsetRow("Connected apps", icon: .squaresLinked, subtitle: "Apps outside ace, such as claude.ai")
                 }
                 .accessibilityIdentifier("machine.connectedApps")
             }
             NavigationLink { MachineLinksView(inbox: inbox, hostId: hostId) } label: {
-                InsetRow("Linked machines", systemImage: "point.3.connected.trianglepath.dotted", subtitle: "Machines its agents can reach")
+                InsetRow("Linked machines", icon: .graph, subtitle: "Machines its agents can reach")
             }
             .accessibilityIdentifier("machine.links")
         } header: { InsetHeader("Fleet") }
@@ -118,13 +118,13 @@ struct MachineDetailView: View {
 
     private func hostSection(_ client: ClientModel) -> some View {
         Section {
-            NavigationLink { StorageView(model: client) } label: { InsetRow("Storage", systemImage: "internaldrive") }
+            NavigationLink { StorageView(model: client) } label: { InsetRow("Storage", icon: .database) }
                 .accessibilityIdentifier("machine.storage")
-            NavigationLink { HostDiagnosticsView(model: client) } label: { InsetRow("Diagnostics", systemImage: "stethoscope") }
+            NavigationLink { HostDiagnosticsView(model: client) } label: { InsetRow("Diagnostics", icon: .gauge) }
                 .accessibilityIdentifier("machine.diagnostics")
             ForEach(RemoteSettingsCategory.all + (client.transfers.linked ? [.fleet] : [])) { category in
                 NavigationLink { RemoteSettingsView(model: client, category: category) } label: {
-                    InsetRow(category.title, systemImage: category.symbol)
+                    InsetRow(category.title, icon: category.icon)
                 }
                 .accessibilityIdentifier("machine.settings.\(category.title)")
             }

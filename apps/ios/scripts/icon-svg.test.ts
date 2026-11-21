@@ -1,13 +1,14 @@
 import {
   ArrowUpIcon,
   BellSlashIcon,
+  CheckCircleIcon,
   CheckIcon,
   FolderPlusIcon,
   FolderSimpleIcon,
   NotePencilIcon,
 } from "@ace/icons";
 import { expect, test } from "vitest";
-import { assetSvg, clippedSvg } from "./icon-svg.ts";
+import { assetSvg, clippedSvg, filledAssetSvg } from "./icon-svg.ts";
 
 /** Every `clip-path` an element points at, and the clip each one names. */
 function clipsOf(svg: string) {
@@ -213,4 +214,14 @@ test("a mask cut the iPhone can't clip stops the generator instead of drawing it
       ),
     ),
   ).toThrow(/exactly one cut/);
+});
+
+test("a filled status mark keeps its check cut out of the solid circle, where a clip can't", () => {
+  expect(() => assetSvg(CheckCircleIcon, "fill")).toThrow();
+  const svg = filledAssetSvg(CheckCircleIcon);
+  const id = /<mask id="([^"]+)"/.exec(svg)?.[1];
+  expect(id).toBeDefined();
+  expect(svg).toContain(`mask="url(#${id})"`);
+  expect(svg).toMatch(/<mask[^>]*>.*stroke="black".*<\/mask>/);
+  expect(svg).toContain('width="20" height="20"');
 });

@@ -83,27 +83,6 @@ extension View {
     }
 }
 
-/// A round glass icon button: the inbox's Settings and the floating jump-to-latest control.
-struct GlassIconButton: View {
-    let systemImage: String
-    let label: String
-    var size: CGFloat = AceDesign.Size.tap
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: AceDesign.Size.barIcon))
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: size, height: size)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .aceGlass(in: Circle(), interactive: true)
-        .accessibilityLabel(label)
-    }
-}
-
 /// The three verbs a request offers, as full-width pills: the one action the card exists for,
 /// a quiet alternative, and a pale-red refusal. Never more than one primary per surface.
 struct PillButtonStyle: ButtonStyle {
@@ -146,20 +125,9 @@ extension ButtonStyle where Self == PillButtonStyle {
     static var pillRefuse: PillButtonStyle { PillButtonStyle(kind: .refuse) }
 }
 
-/// The SF Symbol that stands beside each shared status word. Colour comes from `StateStyle`;
-/// the token itself is decided by the bridge, never here.
-enum StatusSymbol {
-    static func name(_ token: String) -> String? {
-        switch token {
-        case "needsYou": "exclamationmark.circle"
-        case "working": "circle.dashed"
-        case "waiting": "hourglass"
-        case "failed": "xmark.circle"
-        case "done": "checkmark.circle"
-        case "unresponsive": "exclamationmark.triangle"
-        default: nil
-        }
-    }
+/// How loud each shared status word is. Colour comes from `StateStyle`; the token itself is
+/// decided by the bridge, never here.
+enum StatusWord {
     /// Words that ask for the person are loud; work in progress recedes.
     static func isLoud(_ token: String) -> Bool { token == "needsYou" || token == "failed" }
 }

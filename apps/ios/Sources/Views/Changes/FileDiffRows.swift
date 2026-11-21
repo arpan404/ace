@@ -85,8 +85,8 @@ struct ChangesLineRow: View {
             }
             .buttonStyle(.plain)
             .contextMenu {
-                Button(commentable ? "Comment on this line" : "Comment on Uncommitted", systemImage: "text.bubble", action: tap)
-                Button("Copy line", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
+                Button(commentable ? "Comment on this line" : "Comment on Uncommitted", ace: .chatText, action: tap)
+                Button("Copy line", ace: .copy) { UIPasteboard.general.string = row.text }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(row.kind == "add" ? "Added" : row.kind == "del" ? "Removed" : "Unchanged") line \(number): \(row.text)")

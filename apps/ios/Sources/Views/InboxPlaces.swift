@@ -14,7 +14,6 @@ struct SidebarPlaces: View {
     /// Each switchable place's dot: something there needs the person while it isn't showing.
     var needsYou: (InboxTab) -> Bool = { _ in false }
     @Environment(\.showsSpade) private var showsSpade
-    @Namespace private var fill
 
     /// The machine tools, then the rail's quieter places, in one menu before Settings.
     private static let tools: [SearchPlace] = [.automations, .skills]
@@ -22,12 +21,13 @@ struct SidebarPlaces: View {
 
     var body: some View {
         HStack(spacing: AceDesign.Space.related) {
-            HStack(spacing: AceDesign.Space.tight) {
-                ForEach(HomeTabs.footPlaces(spade: showsSpade), id: \.self) { place in switchItem(place) }
+            // The chosen fill glides under a finger as the phone's bar does; the tab it opens
+            // shows at once.
+            GlidingPlaces(places: HomeTabs.footPlaces(spade: showsSpade), chosen: tab, spacing: AceDesign.Space.tight) { place, lit in
+                switchItem(place, lit: lit)
+            } select: { place in
+                tab = place
             }
-            // Only the chosen fill slides; the tab it opens shows at once, as the tab bar's do.
-            .animation(.default, value: tab)
-            .padding(AceDesign.Size.tabInset)
             .barGlass(in: AceShape.capsule)
             .floatingShadow()
             Spacer(minLength: AceTheme.Spacing.none)
@@ -69,35 +69,21 @@ struct SidebarPlaces: View {
             .tapBand(drawn: AceDesign.Size.navButton, width: AceDesign.Size.navButton)
     }
 
-    private func switchItem(_ place: InboxTab) -> some View {
-        let chosen = tab == place
-        let dot = !chosen && needsYou(place)
-        return Button {
-            tab = place
-        } label: {
-            HomePlaceGlyph(place: place, chosen: chosen)
-                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.navButton)
-                .overlay(alignment: .topTrailing) {
-                    if dot {
-                        Circle().fill(AceTheme.RowStatus.needsYou)
-                            .frame(width: AceDesign.Size.dotSmall, height: AceDesign.Size.dotSmall)
-                            .padding(AceDesign.Space.tight)
-                    }
+    private func switchItem(_ place: InboxTab, lit: Bool) -> some View {
+        let dot = tab != place && needsYou(place)
+        return HomePlaceGlyph(place: place, chosen: lit)
+            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.navButton)
+            .overlay(alignment: .topTrailing) {
+                if dot {
+                    Circle().fill(AceTheme.RowStatus.needsYou)
+                        .frame(width: AceDesign.Size.dotSmall, height: AceDesign.Size.dotSmall)
+                        .padding(AceDesign.Space.tight)
                 }
-                .background {
-                    if chosen {
-                        AceShape.capsule.fill(AceDesign.Surface.fill).matchedGeometryEffect(id: "chosen", in: fill)
-                    }
-                }
-                .contentShape(AceShape.capsule)
-                .tapBand(drawn: AceDesign.Size.navButton, width: AceDesign.Size.tap)
-        }
-        .buttonStyle(.plain)
-        .sensoryFeedback(AceDesign.Haptic.tab, trigger: chosen)
-        .accessibilityLabel(HomeTabs.title(place))
-        .accessibilityValue(dot ? "Needs you" : "")
-        .accessibilityAddTraits(chosen ? [.isSelected, .isButton] : .isButton)
-        .accessibilityIdentifier("sidebar.\(HomeTabs.identifier(place))")
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(HomeTabs.title(place))
+            .accessibilityValue(dot ? "Needs you" : "")
+            .accessibilityIdentifier("sidebar.\(HomeTabs.identifier(place))")
     }
 }
 

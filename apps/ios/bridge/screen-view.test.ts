@@ -95,3 +95,17 @@ test("a window on a desktop that shares without input is watch only, with the de
   expect(watched).toMatchObject({ viewOnly: true, watchOnlyReason: reason, personOnly: false });
   expect(controlled).toMatchObject({ viewOnly: false, watchOnlyReason: "", personOnly: true });
 });
+
+test("an app whose live video can't play says why in one sentence, and nothing once it plays", () => {
+  const [stopped] = phoneScreenSessions(
+    [
+      state("com.apple.Safari", {
+        video: { status: "retrying", reason: "ace-media stopped and is starting again" },
+      }),
+    ],
+    () => undefined,
+  );
+  expect(stopped?.stopped).toBe("ace-media stopped and is starting again.");
+  const [playing] = phoneScreenSessions([state("com.apple.Safari")], () => undefined);
+  expect(playing?.stopped).toBe("");
+});

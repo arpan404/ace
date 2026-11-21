@@ -69,7 +69,7 @@ struct AcpRegistryView: View {
                 }
                 Section {
                     NavigationLink { ManualAcpAgentView(model: model) } label: {
-                        InsetRow("Add by command", systemImage: "terminal", subtitle: "For an agent the registry doesn't list")
+                        InsetRow("Add by command", icon: .terminal, subtitle: "For an agent the registry doesn't list")
                     }
                 }
                 if let screen {

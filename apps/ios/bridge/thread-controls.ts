@@ -127,6 +127,7 @@ export function answerResolution(
   interaction: Interaction | undefined,
   answers: Readonly<Record<string, readonly string[]>>,
   dismissed: boolean,
+  readWhole = false,
 ): Extract<CommandPayload, { type: "interaction.resolve" }>["resolution"] | undefined {
   if (interaction?.state !== "pending" || interaction.request.kind !== "question") return undefined;
   if (dismissed) return { kind: "question", answers: {}, dismissed: true };
@@ -142,5 +143,5 @@ export function answerResolution(
     resolved[question.id] = values;
   }
   for (const id of Object.keys(answers)) if (!(id in resolved)) return undefined;
-  return phoneAnswer(interaction, { kind: "question", answers: resolved });
+  return phoneAnswer(interaction, { kind: "question", answers: resolved }, readWhole);
 }

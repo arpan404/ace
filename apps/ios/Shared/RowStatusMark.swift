@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// A thread's status mark, the desktop row's set (`rowStatusLook`, `status-icons.tsx`) as SF
-/// Symbols, shared by the app's rows (`RowStatusIcon`) and the widgets and Live Activity, so the
-/// lock screen draws exactly what the inbox draws. Needs a model sliders, approval a raised hand,
+/// A thread's status mark, the desktop row's set (`rowStatusLook`, `status-icons.tsx`) in ace's
+/// own icons and the web's weights (filled, the working ring bold), shared by the app's rows
+/// (`RowStatusIcon`) and the widgets and Live Activity, so the lock screen draws exactly what the
+/// inbox draws. Needs a model a sparkle, approval a raised hand,
 /// question a question mark, failed a warning circle, working a dashed circle, waiting on agents
 /// the dashed circle holding the count, any other wait a countdown clock, a usage limit a gauge
 /// (muted, no timer), background work a terminal, finished and unseen a check circle. Still,
@@ -17,17 +18,16 @@ struct RowStatusMark: View {
     /// glyph's drawing, as fractions of its size.
     private static let countScale: CGFloat = 0.56
     private static let moreDot: CGFloat = 0.22
-    /// SF Symbols draw a hair past their point size; the frame leaves them that room.
+    /// The frame's room around the drawing, as the row's other marks leave.
     private static let overhang: CGFloat = 2
-    /// The two weights (`AceDesign.Typeface`).
-    private static let regular = Font.Weight.regular
+    /// The count's weight (`AceDesign.Typeface.strong`).
     private static let strong = Font.Weight.semibold
 
     var body: some View {
         Group {
             if kind == "agents" {
                 ZStack {
-                    Image(systemName: "circle.dashed").font(.system(size: size, weight: Self.strong))
+                    Self.drawn(.circleDashed, weight: .bold, size: size)
                     // 1–9 in the ring; above nine, a small dot.
                     if let count, count > 0, count <= 9 {
                         Text(count.formatted()).font(.system(size: size * Self.countScale, weight: Self.strong)).monospacedDigit()
@@ -35,8 +35,8 @@ struct RowStatusMark: View {
                         Circle().frame(width: size * Self.moreDot, height: size * Self.moreDot)
                     }
                 }
-            } else if let symbol = Self.symbol(kind) {
-                Image(systemName: symbol).font(.system(size: size, weight: kind == "working" ? Self.strong : Self.regular))
+            } else if let mark = Self.icon(kind) {
+                Self.drawn(mark.name, weight: mark.weight, size: size)
             }
         }
         .foregroundStyle(Self.colour(tone))
@@ -44,23 +44,29 @@ struct RowStatusMark: View {
         .accessibilityHidden(true)
     }
 
-    static func symbol(_ kind: String) -> String? {
+    /// The icon and weight for a status, as `status-icons.tsx` draws it.
+    static func icon(_ kind: String) -> (name: AceIcon.Name, weight: AceIcon.Weight)? {
         switch kind {
-        case "model": "slider.horizontal.3"
-        case "approve": "hand.raised.fill"
-        case "question": "questionmark.circle.fill"
-        case "failed": "exclamationmark.circle.fill"
-        case "working": "circle.dashed"
-        case "waiting": "timer"
-        case "limited": "gauge.with.dots.needle.33percent"
-        case "background": "apple.terminal.fill"
-        case "done": "checkmark.circle.fill"
+        case "model": (.sparkle, .fill)
+        case "approve": (.handPalm, .fill)
+        case "question": (.question, .fill)
+        case "failed": (.warningCircle, .fill)
+        case "working": (.circleDashed, .bold)
+        case "waiting": (.clockCountdown, .fill)
+        case "limited": (.gauge, .fill)
+        case "background": (.terminalWindow, .fill)
+        case "done": (.checkCircle, .fill)
         // Back from a snooze that ended by itself, until read.
-        case "woke": "alarm.fill"
+        case "woke": (.alarm, .fill)
         // The lock screen's needs-you count: the sparkle the desktop's attention mark uses.
-        case "sparkle": "sparkle"
+        case "sparkle": (.sparkle, .fill)
         default: nil
         }
+    }
+
+    /// The icon at `size`, which the caller has already scaled.
+    static func drawn(_ icon: AceIcon.Name, weight: AceIcon.Weight, size: CGFloat) -> some View {
+        Image(ace: icon, weight: weight).resizable().scaledToFit().frame(width: size, height: size)
     }
 
     @MainActor static func colour(_ tone: String) -> Color {

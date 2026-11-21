@@ -22,6 +22,14 @@ struct SpadeConversationView: View {
     @State private var unfolded: Set<String> = []
     @FocusState private var typing: Bool
     @State private var profileShown = false
+    /// Whether the chat keeps its end on screen (`ChatEndFollow`): only while the person is there.
+    @State private var follow = ChatEndFollow(slack: Double(AceDesign.Space.group))
+    /// Where the scroll is and which stack holds the rows, kept where writing them redraws nothing.
+    @State private var scroll = SpadeScroll()
+    /// Bumped when the rows move to the other stack, to lay them out again in it.
+    @State private var stackSwitches = 0
+    /// The end of the chat: scrolling it to the bottom shows the last bubble over the composer.
+    private static let endID = "spade.end"
 
     private var spade: SpadeModel { client.spade }
     private var head: SpadeModel.Conversation? {
@@ -35,7 +43,7 @@ struct SpadeConversationView: View {
 
     var body: some View {
         ScrollViewReader { reader in
-            transcript
+            transcript(reader)
                 .toolbar {
                     ToolbarItem(placement: .principal) { titleButton }
                     if let later = head?.later {
@@ -73,49 +81,84 @@ struct SpadeConversationView: View {
     /// The top bar's "questions for later" goes to the oldest such card, open.
     private func reach(_ callId: String, with reader: ScrollViewProxy) {
         unfolded.insert(callId)
+        follow.jumped()
         let key = spade.order.first { key in
             if case let .question(card) = spade.bubbles[key] { card.callId == callId } else { false }
         }
         if let key { withAnimation { reader.scrollTo(key, anchor: .center) } }
     }
 
-    private var transcript: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: AceDesign.Space.related) {
-                ForEach(spade.order, id: \.self) { key in
-                    if let bubble = spade.bubbles[key] {
-                        SpadeBubbleView(bubble: bubble, answer: { callId, allowed, always in
-                            await answer(callId, allowed: allowed, always: always)
-                        }, unfolded: unfolded, fold: { callId, open in
-                            if open { unfolded.insert(callId) } else { unfolded.remove(callId) }
-                        }, reply: { callId, body in
-                            await spade.cards.send(conversation, callId: callId, readBack: {
-                                await client.spadeQuestionRead(conversation, callId: callId)
-                            }) {
-                                await client.spadeQuestion(conversation, callId: callId, reply: body)
-                            }
-                        }, sending: { spade.cards.isSending(conversation, callId: $0) }, drafts: { callId in
-                            Binding(get: { spade.cards.drafts(conversation, callId: callId) ?? [] },
-                                    set: { spade.cards.keep($0, conversation: conversation, callId: callId) })
-                        })
-                        .id(key)
+    private func transcript(_ reader: ScrollViewProxy) -> some View {
+        // A plain stack for a short chat, so no row's height is a guess that corrects itself on
+        // screen; a lazy one past `TranscriptStackChoice`'s limit, as the thread's transcript.
+        let _ = stackSwitches
+        let stack: TranscriptStackChoice.Stack = spade.order.isEmpty ? .lazy : scroll.stack.opened(rows: spade.order.count)
+        return ScrollView {
+            VStack(spacing: AceTheme.Spacing.none) {
+                TranscriptRowsStack(stack: stack, spacing: AceDesign.Space.related) {
+                    ForEach(spade.order, id: \.self) { key in
+                        if case let .workers(workers) = spade.bubbles[key] {
+                            SpadeWorkersCard(workers: workers, client: client) { open(SpadeRoute(conversation: $0, group: nil)) }
+                                .id(key)
+                        } else if let bubble = spade.bubbles[key] {
+                            SpadeBubbleView(bubble: bubble, answer: { callId, allowed, always in
+                                await answer(callId, allowed: allowed, always: always)
+                            }, unfolded: unfolded, fold: { callId, open in
+                                if open { unfolded.insert(callId) } else { unfolded.remove(callId) }
+                            }, reply: { callId, body in
+                                await spade.cards.send(conversation, callId: callId, readBack: {
+                                    await client.spadeQuestionRead(conversation, callId: callId)
+                                }) {
+                                    await client.spadeQuestion(conversation, callId: callId, reply: body)
+                                }
+                            }, sending: { spade.cards.isSending(conversation, callId: $0) }, drafts: { callId in
+                                Binding(get: { spade.cards.drafts(conversation, callId: callId) ?? [] },
+                                        set: { spade.cards.keep($0, conversation: conversation, callId: callId) })
+                            })
+                            .id(key)
+                        }
                     }
+                    if let working = head?.working {
+                        SpadeWorkingLine(working: working, waiting: head?.waiting) { open(SpadeRoute(conversation: $0, group: nil)) }
+                    }
+                    if let gone = head?.problem { problemLine(gone) }
                 }
-                if let working = head?.working {
-                    SpadeWorkingLine(working: working, waiting: head?.waiting) { open(SpadeRoute(conversation: $0, group: nil)) }
-                }
-                if let gone = head?.problem { problemLine(gone) }
+                .padding(.horizontal, AceDesign.Space.margin)
+                .padding(.vertical, AceDesign.Space.row)
+                Color.clear.frame(height: AceTheme.Spacing.none).id(Self.endID).accessibilityHidden(true)
             }
-            .padding(.horizontal, AceDesign.Space.margin)
-            .padding(.vertical, AceDesign.Space.row)
         }
         // On the transcript only: set below the composer's inset, it would replace the
         // composer's and Stop's own identifiers.
         .accessibilityIdentifier("spade.conversation")
-        .defaultScrollAnchor(.bottom)
+        // The person's pictures open full size, read from Spade by hash.
+        .modifier(MessageAttachmentRoutes(model: client, source: .spade))
+        // Opens at the end, and a short chat sits on the composer. Size changes (a streaming
+        // reply, rows measuring, the keyboard, the composer growing) keep the bottom still only
+        // while the chat follows its end; reading back, the rows on screen stay where they are.
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .defaultScrollAnchor(follow.following ? .bottom : nil, for: .sizeChanges)
+        .defaultScrollAnchor(.bottom, for: .alignment)
+        .onScrollGeometryChange(for: SpadeScroll.Place.self) { geometry in
+            let insets = geometry.contentInsets
+            return SpadeScroll.Place(y: geometry.contentOffset.y,
+                fromEnd: ScrollEnd.fromEnd(contentHeight: geometry.contentSize.height, offsetY: geometry.contentOffset.y,
+                                           containerHeight: geometry.containerSize.height, topInset: insets.top),
+                viewport: geometry.containerSize.height + insets.top + insets.bottom,
+                contentHeight: geometry.contentSize.height)
+        } action: { old, new in
+            scroll.place = new
+            if Int(new.contentHeight) != Int(old.contentHeight) {
+                SpadeFeedTrace.laidOut(contentHeight: new.contentHeight, viewport: new.viewport, rows: spade.order.count)
+            }
+            // Measured from the newest place the drag reached, so a slow drag counts too.
+            if scroll.travel.moved(to: new.y) { change { $0.scrolled(towardOlder: true) } }
+        }
+        .onScrollPhaseChange { _, phase in scrollPhase(phase) }
+        .onChange(of: spade.order.count) { restack() }
         .scrollDismissesKeyboard(.interactively)
         .overlay { if head?.loaded != true && spade.order.isEmpty { SkeletonRows(count: 3) } }
-        .safeAreaInset(edge: .bottom) { composer }
+        .safeAreaInset(edge: .bottom) { composer(reader) }
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $profileShown) {
@@ -128,6 +171,38 @@ struct SpadeConversationView: View {
         .onDisappear { if client.spade.opened == conversation { client.spadeOpen(nil) } }
     }
 
+    /// The person's scroll starts, moves on its own after the finger, or comes to rest.
+    private func scrollPhase(_ phase: ScrollPhase) {
+        switch phase {
+        case .tracking, .interacting:
+            if !scroll.moving { scroll.travel.began(at: scroll.place.y) }
+            scroll.moving = true
+            change { $0.touched() }
+        case .decelerating, .animating:
+            scroll.moving = true
+        case .idle:
+            scroll.moving = false
+            change { $0.rested(fromEnd: scroll.place.fromEnd, viewport: scroll.place.viewport) }
+            restack()
+        @unknown default:
+            break
+        }
+    }
+
+    /// Writes the follow state only when it changes, so a scroll's frames redraw nothing.
+    private func change(_ step: (inout ChatEndFollow) -> Void) {
+        var next = follow
+        step(&next)
+        if next != follow { follow = next }
+    }
+
+    /// Moves the rows to the other stack when the chat outgrew a plain one, never mid-scroll and
+    /// never while the person reads back: it waits for them at the end.
+    private func restack() {
+        let held = scroll.moving || !follow.mayRestack
+        if scroll.stack.update(rows: spade.order.count, moving: held) != nil { stackSwitches += 1 }
+    }
+
     private func problemLine(_ text: String) -> some View {
         // ProblemRow keeps a list's margin; the transcript already has it.
         ProblemRow(text, id: "spade.conversationProblem") { client.spadeRetry() }
@@ -137,7 +212,7 @@ struct SpadeConversationView: View {
 
     private var typed: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    private var composer: some View {
+    private func composer(_ reader: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             if let problem {
                 Text(problem)
@@ -154,7 +229,7 @@ struct SpadeConversationView: View {
                     .padding(.horizontal, AceDesign.Space.margin)
                     .padding(.vertical, AceDesign.Space.related)
                     .accessibilityIdentifier("spade.composer")
-                trailing
+                trailing(reader)
             }
             .padding(AceDesign.Space.tight)
             .aceGlass(in: AceDesign.Shape.field, interactive: true)
@@ -164,7 +239,7 @@ struct SpadeConversationView: View {
     }
 
     /// Send once something is typed (a message steers an open reply); Stop while one is open.
-    @ViewBuilder private var trailing: some View {
+    @ViewBuilder private func trailing(_ reader: ScrollViewProxy) -> some View {
         if !typed && head?.answering == true {
             Button { stop() } label: {
                 RoundedRectangle(cornerRadius: AceDesign.Corner.glyphStop)
@@ -176,9 +251,8 @@ struct SpadeConversationView: View {
             .accessibilityLabel("Stop")
             .accessibilityIdentifier("spade.stop")
         } else {
-            Button { send() } label: {
-                Image(systemName: "arrow.up")
-                    .font(AceDesign.Typeface.body.weight(AceDesign.Typeface.strong))
+            Button { send(reader) } label: {
+                AceIcon(.arrowUp, size: AceDesign.Size.icon, relativeTo: .body)
                     .foregroundStyle(AceDesign.Surface.background)
                     .frame(width: AceDesign.Size.navButton, height: AceDesign.Size.navButton)
                     .background(typed ? AceDesign.Ink.accent : AceDesign.Ink.faint, in: Circle())
@@ -189,12 +263,16 @@ struct SpadeConversationView: View {
         }
     }
 
-    private func send() {
+    private func send(_ reader: ScrollViewProxy) {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
         problem = nil
         sends += 1
+        // What the person sent shows at the end, wherever they were reading.
+        follow.sent()
+        restack()
+        withAnimation { reader.scrollTo(Self.endID, anchor: .bottom) }
         Task {
             let outcome: SpadeOutcome
             if let group { outcome = await client.spadeGroupSend(group, conversation: conversation, text: text) }
@@ -252,4 +330,23 @@ private struct SpadeWorkingLine: View {
         }
         .padding(.top, AceDesign.Space.related)
     }
+}
+
+/// Spade's scroll as last reported, and the stack its rows are in. A class nothing observes, so
+/// writing it on each scroll frame never redraws the chat.
+@MainActor private final class SpadeScroll {
+    struct Place: Equatable {
+        var y: Double = 0
+        /// How far the end is below the bottom edge (`ScrollEnd`).
+        var fromEnd: Double = 0
+        var viewport: Double = 0
+        /// The rows' laid-out height, for `SpadeFeedTrace`.
+        var contentHeight: Double = 0
+    }
+    var place = Place()
+    /// A finger, its fling or an animated scroll is moving the chat.
+    var moving = false
+    var stack = TranscriptStackChoice()
+    /// How far the person's drag has moved back toward older messages.
+    var travel = DragTravel()
 }

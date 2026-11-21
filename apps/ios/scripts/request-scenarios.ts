@@ -17,6 +17,7 @@ export const RequestScenario = z.enum([
   "form",
   "stop",
   "browserHelp",
+  "summarized",
 ]);
 export type RequestScenario = z.infer<typeof RequestScenario>;
 
@@ -43,7 +44,74 @@ const signIn = (key: string, tabId: string, url: string) => ({
   }),
 });
 
+const shardManifest = [
+  "Rebuilds the v14 workspace shard index across 64 local partitions and verifies row checksums before swapping the active pointer.",
+  "",
+  ...Array.from({ length: 900 }, (_, index) => {
+    const shard = String(index + 1).padStart(3, "0");
+    return `Partition ${shard} · workspace_events_${shard} · 14,820 rows · checksum sha256:9f86d081884c7d659a2feaa0c55ad015`;
+  }),
+].join("\n");
+
 const seeds: Record<RequestScenario, (daemon: FakeDaemon, id: string, details: Details) => void> = {
+  summarized(daemon, id, details) {
+    daemon.createThread({
+      hasSentMessage: true,
+      id,
+      workspaceId: "ace",
+      title: "Migrate workspace schema to v14",
+      provider: "claude",
+      details: details("feat/schema-v14"),
+      access: "ask",
+    });
+    daemon.apply(id, [
+      facts.rootAgent("claude"),
+      facts.turn("root"),
+      facts.message(
+        "root",
+        "ask",
+        "user",
+        "Run the v14 workspace migration and verify every partition checksum.",
+      ),
+      facts.message(
+        "root",
+        "answer",
+        "assistant",
+        "The migration script is ready. It rebuilds the shard index and verifies all local workspace partitions before swapping the active pointer.",
+      ),
+      facts.tool("root", "migrate", {
+        kind: "shell",
+        title: "Claude Code wants to run a command",
+        status: "awaiting_approval",
+        detail: {
+          kind: "shell",
+          command: "bun scripts/migrate-v14.ts --verify-shards --apply",
+        },
+      }),
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "migrate",
+        item: "migrate",
+        blocking: true,
+        request: {
+          kind: "approval",
+          title: "Claude Code wants to run a command",
+          description: shardManifest,
+          target: {
+            tool: "Bash",
+            command: "bun scripts/migrate-v14.ts --verify-shards --apply",
+            access: "execute",
+          },
+          options: [
+            { id: "deny", label: "Deny", kind: "deny" },
+            { id: "always", label: "Always allow", kind: "allow_always" },
+            { id: "allow", label: "Allow once", kind: "allow_once" },
+          ],
+        },
+      },
+    ]);
+  },
   approval(daemon, id, details) {
     daemon.createThread({
       hasSentMessage: true,

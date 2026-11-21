@@ -302,12 +302,13 @@ export class ChildLedger {
     );
   }
   /**
-   * Settled children whose machine was unpaired before a check after their 24 h mark: the
-   * person is asked about each, and none is re-checked until its machine is paired again.
+   * Settled children whose machine was unpaired before a check after their 24 h mark, or while
+   * their stop was unconfirmed: the person is asked about each, and none is re-checked or sent
+   * the cancel until its machine is paired again.
    */
   settledLost(): ChildRow[] {
     return this.all(
-      "SELECT * FROM machine_children WHERE settled=1 AND lost_at IS NOT NULL AND settled_at IS NOT NULL",
+      "SELECT * FROM machine_children WHERE settled=1 AND lost_at IS NOT NULL AND (settled_at IS NOT NULL OR stopped_unconfirmed=1)",
     );
   }
   /** The person stopped watching a settled lost child: it stays as it ended, for good. */
@@ -415,10 +416,13 @@ export class ChildLedger {
         ) > 0,
     );
   }
-  /** Children stopped here whose machine hasn't confirmed it yet: their cancel is still sent. */
+  /**
+   * Children stopped here whose machine hasn't confirmed it yet: their cancel is still sent. One
+   * whose machine was unpaired waits, asking the person, until it is paired again.
+   */
   unconfirmedStops(limit: number): ChildRow[] {
     return this.all(
-      "SELECT * FROM machine_children WHERE settled=1 AND stopped_unconfirmed=1 ORDER BY stop_last_at LIMIT ?",
+      "SELECT * FROM machine_children WHERE settled=1 AND stopped_unconfirmed=1 AND lost_at IS NULL ORDER BY stop_last_at LIMIT ?",
       limit,
     );
   }

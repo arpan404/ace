@@ -1,4 +1,4 @@
-import type { VideoEncode } from "./video-policy.ts";
+import type { VideoEncode } from "./backend.ts";
 
 /*
  * Encode ids in one capture's ace-media frames. Two plans run side by side in a capture, each

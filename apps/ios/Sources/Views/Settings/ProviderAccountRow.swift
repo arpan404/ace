@@ -76,15 +76,15 @@ struct ProviderAccountRow: View {
         if canOperate {
             Menu {
                 if !account.needsSignIn {
-                    signInAgain { Label("Sign in again", systemImage: "person.badge.key") }
+                    signInAgain { Label("Sign in again", ace: .key) }
                 }
                 if account.canMakeDefault {
-                    Button("Use by default", systemImage: "checkmark.circle", action: makeDefault)
+                    Button("Use by default", ace: .checkCircle, action: makeDefault)
                 }
-                Button("Edit name and badge", systemImage: "pencil", action: edit)
+                Button("Edit name and badge", ace: .pencilSimple, action: edit)
                 if account.removable {
                     Divider()
-                    Button("Remove account", systemImage: "trash", role: .destructive, action: remove)
+                    Button("Remove account", ace: .trash, role: .destructive, action: remove)
                 }
             } label: { RowActionsMark() }
             .buttonStyle(.borderless)

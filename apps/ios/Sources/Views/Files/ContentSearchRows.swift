@@ -20,7 +20,7 @@ struct ContentSearchRows: View {
     var body: some View {
         switches
         if query.pattern.isEmpty {
-            EmptyState(systemImage: "text.magnifyingglass", title: "Search in files",
+            EmptyState(icon: .magnifyingGlass, title: "Search in files",
                        line: "Find text in every file of this thread's checkout.")
                 .listRowSeparator(.hidden)
                 .listRowBackground(AceDesign.Surface.background)

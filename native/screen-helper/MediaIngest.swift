@@ -226,19 +226,17 @@ final class IngestWriter {
     deinit { close() }
 }
 
-/// Where a producer's video units go: the daemon's socket (`legacy`) or ace-media's ingest. The
-/// route is read and each unit written under one lock, so a switch has an exact boundary: the
-/// sequence of the last video unit the previous path took (stills never count). The route owns its writers.
+/// Where a producer's video units go: ace-media's ingest, the only place video goes. With no
+/// ingest a unit is dropped (stills still take the daemon's socket). The route is read and each
+/// unit written under one lock, so a switch has an exact boundary: the sequence of the last video
+/// unit the previous ingest took (stills never count). The route owns its writers.
 final class IngestRoute {
     private let lock = NSLock()
-    /// Writes one unit to the daemon's socket.
-    private let legacy: (EncodedVideo) -> Void
     private let now: () -> UInt64
     private var writer: IngestWriter?
     private var address: (socket: String, token: Data)?
-    private var lastLegacy: UInt64?
     private var lastIngest: UInt64?
-    /// The current writer failed: video is on the daemon's socket again. Its argument is the
+    /// The current writer failed: video goes nowhere until a new ingest is given. Its argument is the
     /// last sequence the writer took. Called on the encoder owner's queue via `recover`.
     var onClosed: (UInt64?) -> Void = { _ in }
     /// ace-media's ingest fell behind: the next unit should be a keyframe.
@@ -275,10 +273,10 @@ final class IngestRoute {
     }
 
     /// `drainLimit` bounds how long a replaced writer may drain before it is closed, its path cut.
-    init(legacy: @escaping (EncodedVideo) -> Void, now: @escaping () -> UInt64, drainLimit: TimeInterval = 2,
+    init(now: @escaping () -> UInt64, drainLimit: TimeInterval = 2,
          beforeSwitch: @escaping () -> Void = {}, recover: @escaping (@escaping () -> Void) -> Void = { $0() },
          connect: @escaping Connect = IngestRoute.connectSocket, schedule: @escaping Schedule = IngestRoute.dispatchSchedule) {
-        self.legacy = legacy; self.now = now; self.drainLimit = drainLimit
+        self.now = now; self.drainLimit = drainLimit
         self.beforeSwitch = beforeSwitch; self.recover = recover
         self.connect = connect; self.schedule = schedule
     }
@@ -289,26 +287,20 @@ final class IngestRoute {
 
     func publish(_ unit: EncodedVideo) {
         lock.lock(); defer { lock.unlock() }
-        if let writer {
-            guard let frame = ingestFrame(unit, now: now()), writer.write(frame, keyframe: unit.keyframe) else { return }
-            lastIngest = unit.sequence
-        } else {
-            // An HEVC unit never reaches the daemon's socket, so it is no boundary there either.
-            guard unit.format == .h264 else { return }
-            legacy(unit); lastLegacy = unit.sequence
-        }
+        guard let writer, let frame = ingestFrame(unit, now: now()), writer.write(frame, keyframe: unit.keyframe) else { return }
+        lastIngest = unit.sequence
     }
 
     /// Runs `write` (a still on the daemon's socket) under the route's lock, so it is ordered
     /// with the switches around it. It never moves the boundary: the daemon compares a boundary
     /// with video sequences only, so the boundary is the last video unit the path took.
-    func legacyStill(_ write: () -> Void) {
+    func still(_ write: () -> Void) {
         lock.lock(); defer { lock.unlock() }
         write()
     }
 
-    /// Sends to ace-media at `socket` with `token` from now on (or the daemon's socket for nil).
-    /// Returns whether video moved and, if so, the last sequence the previous path took. An
+    /// Sends to ace-media at `socket` with `token` from now on (or nowhere for nil). Returns
+    /// whether video moved and, if so, the last sequence the previous ingest took. An
     /// address already in use changes nothing. Call on the encoder owner's queue so no new
     /// picture submits between `beforeSwitch` and the route change.
     func route(to target: (socket: String, token: Data)?) throws -> (switched: Bool, boundary: UInt64?) {
@@ -330,7 +322,7 @@ final class IngestRoute {
         beforeSwitch()
         lock.lock()
         let previous = writer
-        let boundary = previous == nil ? lastLegacy : lastIngest
+        let boundary = previous == nil ? nil : lastIngest
         writer = next; address = target
         if next != nil { lastIngest = nil }
         // ace-media may have closed the connection before it was installed here, when its one

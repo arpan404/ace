@@ -9,6 +9,8 @@ import type { BackendOpen, BrowserBackendSession } from "./backend.ts";
  */
 export class TabbedHeadless extends FakeHeadless {
   readonly loads: string[] = [];
+  /** What every tab's own screenshot returns; unset, the fake's placeholder bytes. */
+  screenshots: (() => Buffer) | undefined;
   #failing: string | undefined;
   #ids = 0;
   failOpen(reason: string): void {
@@ -26,6 +28,7 @@ export class TabbedHeadless extends FakeHeadless {
       if (url !== "about:blank") this.loads.push(url);
       tabs.set(tabId, {
         ...page,
+        screenshot: async (format) => this.screenshots?.() ?? page.screenshot(format),
         navigate: async (address: string, timeout: number, signal?: AbortSignal) => {
           this.loads.push(address);
           await page.navigate(address, timeout, signal);

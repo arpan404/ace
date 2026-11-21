@@ -185,7 +185,16 @@ import UIKit
 
     /// Motion is the system's: views animate with `.default` (its spring) or not at all. These are
     /// the few places the system has no motion of its own to lend.
-    enum Motion {}
+    enum Motion {
+        /// The tab bar's chosen fill settling on a place after a tap or a slide, as the system's
+        /// tab bar springs its selection.
+        static let tabSettle = Animation.spring(response: 0.35, dampingFraction: 0.8)
+        /// The fill tracking a finger along the bar: quick enough to stay under it, soft enough
+        /// that a press on a far place reads as a glide rather than a jump.
+        static let tabFollow = Animation.interactiveSpring(response: 0.18, dampingFraction: 0.86)
+        /// How much the fill swells while a finger holds it, as the system's bar lifts its lens.
+        static let tabLift: CGFloat = 1.08
+    }
 
     /// Haptics confirm what the person did: send, stop, approve, tab change, pull to refresh.
     enum Haptic {
@@ -286,8 +295,6 @@ extension AceDesign.Size {
     static let rowLastLineGap: CGFloat = 3
     /// A row's status icon (line 1), pin and pull request glyphs, and the provider mark.
     static let rowStatus: CGFloat = 14
-    /// The same status icon as SF Symbols draw it: they fill more of their size than ace's icons.
-    static let rowStatusSymbol: CGFloat = 12
     static let rowPin: CGFloat = 11
     static let rowGlyph11: CGFloat = 11
     /// The mockup's 13pt mark frame draws its glyph inset; ours fill their box, so 11 matches.

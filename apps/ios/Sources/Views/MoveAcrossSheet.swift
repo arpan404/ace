@@ -44,7 +44,7 @@ struct MoveAcrossSheet: View {
             .escapeCloses { dismiss() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { Image(ace: .x) }
                         .accessibilityLabel("Close").accessibilityIdentifier("move.close")
                 }
                 ToolbarItem(placement: .confirmationAction) {

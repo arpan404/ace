@@ -6950,12 +6950,15 @@ Example:
 | viewport | no | [BrowserCaptureViewport.json](schema/BrowserCaptureViewport.json) |  |
 | video | no | [BrowserVideoRequest.json](schema/BrowserVideoRequest.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 
 Example:
 
 ```json
 {
   "binaryFrames": true,
+  "deliveryStatus": true,
   "requestId": "example",
   "threadId": "example",
   "type": "browser.subscribe",
@@ -9001,6 +9004,7 @@ Example:
 | error | no | string | {"maxLength":2048} |
 | blocked | no | [BrowserOriginBlock.json](schema/BrowserOriginBlock.json) |  |
 | media | no | [MediaSubscribed.json](schema/MediaSubscribed.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
 
 Example:
 
@@ -9029,6 +9033,7 @@ Example:
       "owner": "example"
     },
     "closed": false,
+    "features": [],
     "pending_dialog": {
       "dialogId": "example",
       "message": "example",
@@ -9039,14 +9044,26 @@ Example:
     "status": "ready",
     "tabs": [],
     "threadId": "example",
-    "url": "example",
-    "video": {
-      "attempts": 7,
-      "reason": "example",
-      "status": "retrying"
-    }
+    "url": "example"
   },
   "type": "browser.state"
+}
+```
+
+### browser.delivery
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.delivery"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "type": "browser.delivery"
 }
 ```
 
@@ -9064,10 +9081,10 @@ Example:
 {
   "frame": {
     "data": "example",
-    "height": 107,
-    "sequence": 8,
-    "timestamp": 1,
-    "width": 107
+    "height": 102,
+    "sequence": 0,
+    "timestamp": 3,
+    "width": 102
   },
   "threadId": "example",
   "type": "browser.frame"
@@ -9108,33 +9125,11 @@ Example:
 ```json
 {
   "page": {
-    "focus": {
-      "inputMode": "example",
-      "rect": {
-        "height": 3,
-        "width": 7,
-        "x": 5,
-        "y": 7
-      },
-      "type": "example"
-    },
-    "picker": {
-      "kind": "datetime-local",
-      "min": "example",
-      "options": [],
-      "pickerId": "example",
-      "rect": {
-        "height": 4,
-        "width": 3,
-        "x": 4,
-        "y": 3
-      },
-      "value": "example"
-    },
+    "cursor": "example",
     "tooltip": {
       "text": "example",
-      "x": 4,
-      "y": 8
+      "x": 3,
+      "y": 0
     }
   },
   "tabId": "example",
@@ -9191,6 +9186,7 @@ Example:
 | pending_dialog | no | [BrowserDialog.json](schema/BrowserDialog.json) |  |
 | annotation | no | object | {"properties":{"owner":{"type":"string","minLength":1,"maxLength":256}},"required":["owner"]} |
 | recording | no | object | {"properties":{"by":{"$ref":"https://ace.local/protocol/v1/BrowserTabActor.json"}},"required":["by"]} |
+| recordingNotice | no | string | {"maxLength":256} |
 | features | no | array | {"maxItems":32,"items":{"type":"string","maxLength":64}} |
 | video | no | [BrowserVideoStatus.json](schema/BrowserVideoStatus.json) |  |
 | acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
@@ -9199,10 +9195,6 @@ Example:
 
 ```json
 {
-  "acceleration": {
-    "degraded": true,
-    "steps": []
-  },
   "closed": true,
   "pageStateLost": true,
   "permissionDenied": {
@@ -9210,7 +9202,12 @@ Example:
     "permission": "example"
   },
   "threadId": "example",
-  "url": "example"
+  "url": "example",
+  "video": {
+    "attempts": 5,
+    "reason": "example",
+    "status": "retrying"
+  }
 }
 ```
 
@@ -10646,6 +10643,7 @@ Example:
     "botsApproved": false,
     "hash": "d65df09357dff91cd8f8ec919d266b715ba81d22bfde40f2d864a654cbc875ae",
     "name": "dk7",
+    "registry": "org_VzSyrnC3",
     "source": "market",
     "state": "off",
     "target": "example",
@@ -14981,19 +14979,20 @@ Example:
 | deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
 | link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 | codecs | no | [MediaCodecs.json](schema/MediaCodecs.json) |  |
 
 Example:
 
 ```json
 {
-  "codecs": [
-    "wl"
-  ],
+  "deliveryStatus": true,
   "deviceId": "ios:847934C2AAd66-3Ad42C43dA78B2b1E71f14",
   "media": {
     "connection": "mc_8jVj2aFIOlmo0nRRlGfFS"
   },
+  "mediaClient": true,
   "op": "subscribe"
 }
 ```
@@ -15378,6 +15377,7 @@ Example:
 | data | no | any JSON value |  |
 | error | no | [DeviceFailure.json](schema/DeviceFailure.json) |  |
 | media | no | [MediaSubscribed.json](schema/MediaSubscribed.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
 
 Example:
 
@@ -15414,6 +15414,12 @@ Example:
       "reason": "example",
       "steps": []
     },
+    "agentPointer": {
+      "at": 1,
+      "kind": "click",
+      "x": 4,
+      "y": 0
+    },
     "controller": "agent",
     "device": {
       "id": "android:9iLafiaTUCNwkb-PsUabVJF0D.vx7_YIBPrhpyw3vAyfj_Ru4gvsIh1gDKrWWT16NXV4.j0oNWJq",
@@ -15424,11 +15430,31 @@ Example:
     },
     "enabled": false,
     "lifecycle": "starting",
-    "personActive": true,
     "posture": "open",
     "sharing": "cowork"
   },
   "type": "devices.state"
+}
+```
+
+### devices.delivery
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"devices.delivery"` |  |
+| deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
+
+Example:
+
+```json
+{
+  "deviceId": "android:ENIdmETPYhrYmh.RD7i0F1U6Cd8o.aJdQLwNncUQJ6peQWGBT8XWjSnjIaWGwtS2dW08r3FjRLcW8hEheijE6ajtlHuyi6xggrzWR1VFsq8KJEI.IsKxQ-n",
+  "type": "devices.delivery",
+  "undelivered": {
+    "code": "example",
+    "reason": "example"
+  }
 }
 ```
 
@@ -15443,7 +15469,7 @@ Example:
 
 ```json
 {
-  "enabled": false,
+  "enabled": true,
   "type": "devices.enabled"
 }
 ```
@@ -15461,7 +15487,6 @@ Example:
 ```json
 {
   "devices": [],
-  "issues": [],
   "type": "devices.inventory"
 }
 ```
@@ -15480,10 +15505,10 @@ Example:
 
 ```json
 {
-  "deviceId": "android:wT2XLCKbBfsm.L3DFYAd_ktyHNs.J692u.-RA_E1o.aiOmDYR-i7Br45ey4_ZRG",
-  "dropped": 4,
+  "deviceId": "android:4mZ0SYq9FX9ObQ4FP-I2WCIEGS63N7UyI6bkyR3PDD5ii-t5HZKzd2q8j1wWyrxk21CQXwjMzDOq3DxzATUetVbgodXc.rvtaPixMUw2s",
+  "dropped": 3,
   "lines": [],
-  "sequence": 2,
+  "sequence": 4,
   "type": "devices.logs"
 }
 ```
@@ -15536,6 +15561,7 @@ Example:
 | posture | no | [DevicePosture.json](schema/DevicePosture.json) |  |
 | sharing | no | [CoworkSharing.json](schema/CoworkSharing.json) |  |
 | acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
+| video | no | [LiveVideoStatus.json](schema/LiveVideoStatus.json) |  |
 | agentPointer | no | [AgentPointer.json](schema/AgentPointer.json) |  |
 | personActive | no | boolean |  |
 
@@ -20742,6 +20768,24 @@ Example:
 }
 ```
 
+## LiveVideoStatus
+
+[JSON Schema](schema/LiveVideoStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | ["retrying","unavailable"] |  |
+| reason | yes | string | {"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "reason": "example",
+  "status": "unavailable"
+}
+```
+
 ## LockedUseChanged
 
 [JSON Schema](schema/LockedUseChanged.json), input validation.
@@ -23390,17 +23434,20 @@ Example:
 | operation | yes | [MarketOperation.json](schema/MarketOperation.json) |  |
 | thread | no | [ThreadId.json](schema/ThreadId.json) |  |
 | personGrant | no | string | {"minLength":1,"maxLength":4096} |
+| orgGrant | no | string | {"minLength":1,"maxLength":4096} |
 
 Example:
 
 ```json
 {
   "operation": {
-    "name": "c",
-    "op": "spadeSkillFiles",
-    "path": "example"
+    "op": "privacyCheck",
+    "texts": []
   },
+  "orgGrant": "example",
+  "personGrant": "example",
   "requestId": "example",
+  "thread": "example",
   "type": "marketplace.request"
 }
 ```
@@ -24062,12 +24109,12 @@ Example:
 
 [JSON Schema](schema/MarketErrorCode.json), input validation.
 
-Type: ["signed_out","reauth","blocked","suspended","quota","not_found","invalid","refused","forbidden","unavailable","conflict","expired","busy","failed","person_only","person_grant"]. See JSON Schema for constraints.
+Type: ["signed_out","reauth","blocked","suspended","quota","not_found","invalid","refused","forbidden","unavailable","conflict","expired","busy","failed","person_only","person_grant","not_member","registry_trust"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"person_grant"
+"registry_trust"
 ```
 
 ## MarketFeedEntryWire
@@ -24237,8 +24284,10 @@ Example:
 | target | no | string | {"maxLength":200} |
 | botsApproved | no | boolean |  |
 | linked | no | boolean |  |
-| previous | no | object | {"properties":{"version":{"type":"string","maxLength":64},"hash":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"}},"required":["version","hash"],"additionalProperties":false} |
+| previous | no | object | {"properties":{"version":{"type":"string","maxLength":64},"hash":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"},"registry":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/MarketOrgId.json"},{"type":"null"}]}},"required":["version","hash"],"additionalProperties":false} |
 | held | no | object | {"properties":{"version":{"type":"string","maxLength":64}},"required":["version"],"additionalProperties":false} |
+| registry | no | [MarketOrgId.json](schema/MarketOrgId.json) |  |
+| updatesStopped | no | string | {"maxLength":300} |
 
 Example:
 
@@ -24289,7 +24338,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| keys | yes | array | {"maxItems":2,"items":{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/MarketKeyId.json"},"publicKey":{"type":"string","pattern":"^[A-Za-z0-9_-]{43}$"}},"required":["id","publicKey"]}} |
+| keys | yes | array | {"maxItems":2,"items":{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/MarketKeyId.json"},"publicKey":{"$ref":"https://ace.local/protocol/v1/MarketPublicKey.json"}},"required":["id","publicKey"]}} |
 
 Example:
 
@@ -24680,6 +24729,8 @@ Example:
 | type | yes | string | {"minLength":1,"maxLength":40} |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | version | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| registry | no | [MarketOrgId.json](schema/MarketOrgId.json) |  |
+| trustKey | no | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
 
 Example:
 
@@ -24688,12 +24739,45 @@ Example:
   "name": "pts51",
   "op": "prepare",
   "source": "git:8vgv9aq77xpko",
+  "trustKey": "fWED4XP0NgPNa-5ZHeviOzr4o4d9uZeYbnF1XaqT1U4",
   "type": "example",
   "version": "32.901993.880"
 }
 ```
 
 ### Variant 10
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"registryRefresh"` |  |
+| registry | yes | [MarketOrgId.json](schema/MarketOrgId.json) |  |
+
+Example:
+
+```json
+{
+  "op": "registryRefresh",
+  "registry": "org_KaGOi2pw918v1VUiQVTr7g5FMk2dO17muo3AjfUEqIjL31"
+}
+```
+
+### Variant 11
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"registryLeft"` |  |
+| registry | yes | [MarketOrgId.json](schema/MarketOrgId.json) |  |
+
+Example:
+
+```json
+{
+  "op": "registryLeft",
+  "registry": "org_YjSh483xOxXd5cCyhcSwlQlvpFutMXmw80L9cML"
+}
+```
+
+### Variant 12
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24705,13 +24789,12 @@ Example:
 
 ```json
 {
-  "id": "kBgpI3PW-29W1wvJrvtS8H6fnL2Dp28MVP4aKFueRiKl42E9gQAW7xuaey",
-  "offset": 0,
+  "id": "MfXF9eoEk2ciwFi0KMF4ya3aVeZveCOIGehc8k2rudRbgbFQijyAnpazfkHGPeRqL",
   "op": "readReview"
 }
 ```
 
-### Variant 11
+### Variant 13
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24727,13 +24810,13 @@ Example:
   "choices": {
     "bots": []
   },
-  "hash": "e29530aabba81b04a1959c6e24e2ae26be9bd9de66c9a423c04edc24a7043ef7",
-  "id": "zJsI594YoYxD6DcYICtXLqLWQfVUmyNX91l-Dml5H1mjhGU0",
+  "hash": "1c82a6ae1b321d3d80f71e7c80d0c2dc648b60ed99db0e746c263f5011af2305",
+  "id": "9HuOZWnAwRcjey2",
   "op": "install"
 }
 ```
 
-### Variant 12
+### Variant 14
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24744,12 +24827,12 @@ Example:
 
 ```json
 {
-  "id": "MfXF9eoEk2ciwFi0KMF4ya3aVeZveCOIGehc8k2rudRbgbFQijyAnpazfkHGPeRqL",
+  "id": "ldZL22IhsUSZFB8XGshPYGuHKfQiutMa",
   "op": "cancel"
 }
 ```
 
-### Variant 13
+### Variant 15
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24763,7 +24846,7 @@ Example:
 }
 ```
 
-### Variant 14
+### Variant 16
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24776,13 +24859,13 @@ Example:
 
 ```json
 {
-  "name": "g",
+  "name": "1",
   "op": "prepareUpdate",
-  "type": "spade-skill"
+  "type": "ace-plugin"
 }
 ```
 
-### Variant 15
+### Variant 17
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24795,13 +24878,13 @@ Example:
 
 ```json
 {
-  "name": "t",
+  "name": "e",
   "op": "prepareRollback",
-  "type": "spade-bot"
+  "type": "spade-skill"
 }
 ```
 
-### Variant 16
+### Variant 18
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24814,13 +24897,14 @@ Example:
 
 ```json
 {
-  "name": "1",
+  "bot": "example",
+  "name": "l4zrhnutaf2",
   "op": "remove",
-  "type": "ace-plugin"
+  "type": "spade-plugin"
 }
 ```
 
-### Variant 17
+### Variant 19
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24833,13 +24917,13 @@ Example:
 
 ```json
 {
-  "name": "e",
+  "name": "dfl",
   "op": "turnOn",
   "type": "spade-skill"
 }
 ```
 
-### Variant 18
+### Variant 20
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24851,13 +24935,13 @@ Example:
 
 ```json
 {
-  "hash": "8641df22ac6e35f4fc42d3dc057a29e524af6a1566c9941b06f23b7584c2ab97",
-  "name": "u",
+  "hash": "4bf8894f01667a78a85ab8090dba64673278ee673aab3097999d3206af472dba",
+  "name": "q",
   "op": "turnOnForBots"
 }
 ```
 
-### Variant 19
+### Variant 21
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24871,7 +24955,7 @@ Example:
 }
 ```
 
-### Variant 20
+### Variant 22
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24882,12 +24966,12 @@ Example:
 
 ```json
 {
-  "name": "q",
+  "name": "f.bb6.ukxi",
   "op": "spadeBot"
 }
 ```
 
-### Variant 21
+### Variant 23
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24901,7 +24985,7 @@ Example:
 }
 ```
 
-### Variant 22
+### Variant 24
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24912,12 +24996,12 @@ Example:
 
 ```json
 {
-  "handle": "f-bb5-tkwiplsfqod9s1fus6g",
+  "handle": "0",
   "op": "publisher"
 }
 ```
 
-### Variant 23
+### Variant 25
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24929,13 +25013,13 @@ Example:
 
 ```json
 {
-  "hash": "d2b9647f23681a0f86f90ee6dd24d6d0f95e073d966ff905e7aad0af9c27cfbc",
-  "kind": "avatar",
+  "hash": "f06e05998351432388b5894eb4c8486342bdd77ae5adf21fe6579704061f59e6",
+  "kind": "preview",
   "op": "picture"
 }
 ```
 
-### Variant 24
+### Variant 26
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24948,15 +25032,17 @@ Example:
 {
   "op": "publish",
   "request": {
-    "action": "archive",
-    "archived": true,
-    "name": "0",
-    "type": "spade-plugin"
+    "action": "appeal",
+    "name": "4jknkb68dax",
+    "note": "example",
+    "replacement": "2.28.6249233",
+    "type": "spade-bot",
+    "version": "55779.164216505.00460621"
   }
 }
 ```
 
-### Variant 25
+### Variant 27
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24971,15 +25057,15 @@ Example:
 
 ```json
 {
-  "name": "6",
+  "name": "q",
   "note": "example",
   "op": "report",
-  "reason": "copyright",
-  "type": "suit"
+  "reason": "other",
+  "type": "spade-bot"
 }
 ```
 
-### Variant 26
+### Variant 28
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -24991,11 +25077,11 @@ Example:
 ```json
 {
   "op": "publishables",
-  "type": "spade-plugin"
+  "type": "spade-skill"
 }
 ```
 
-### Variant 27
+### Variant 29
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -25006,12 +25092,12 @@ Example:
 
 ```json
 {
-  "id": "eUc5MLAmG",
+  "id": "w",
   "op": "botRecipe"
 }
 ```
 
-### Variant 28
+### Variant 30
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -25027,7 +25113,7 @@ Example:
 }
 ```
 
-### Variant 29
+### Variant 31
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -25039,9 +25125,21 @@ Example:
 
 ```json
 {
-  "name": "amws3b",
+  "name": "v",
   "op": "spadeSkillFiles"
 }
+```
+
+## MarketOrgId
+
+[JSON Schema](schema/MarketOrgId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"org_GFaiAnSoqGbIu2K9TcYlLw0EGQ0D"
 ```
 
 ## MarketOwnEntry
@@ -25358,6 +25456,18 @@ Example:
 
 ```json
 {}
+```
+
+## MarketPublicKey
+
+[JSON Schema](schema/MarketPublicKey.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"gFrE9E38oA83RHTanxCB7Gia8Bme8edByXMbFkGKc4J"
 ```
 
 ## MarketPublishable
@@ -26334,7 +26444,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| held | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"version":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"hash":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"},"publisher":{"$ref":"https://ace.local/protocol/v1/MarketPublisher.json"},"newPublisher":{"type":"boolean"},"published":{"type":"integer","minimum":0,"maximum":9007199254740991},"scan":{"$ref":"https://ace.local/protocol/v1/MarketScanReport.json"}},"required":["type","name","version","hash","publisher","newPublisher","published"]}} |
+| held | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"version":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"hash":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"},"publisher":{"$ref":"https://ace.local/protocol/v1/MarketPublisher.json"},"newPublisher":{"type":"boolean"},"published":{"type":"integer","minimum":0,"maximum":9007199254740991},"scan":{"$ref":"https://ace.local/protocol/v1/MarketScanReport.json"},"registry":{"$ref":"https://ace.local/protocol/v1/MarketOrgId.json"}},"required":["type","name","version","hash","publisher","newPublisher","published"]}} |
 | listings | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"publisher":{"$ref":"https://ace.local/protocol/v1/MarketPublisher.json"},"listing":{"$ref":"https://ace.local/protocol/v1/MarketListingEdit.json"},"scan":{"$ref":"https://ace.local/protocol/v1/MarketScanReport.json"},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["type","name","publisher","listing","scan","at"]}} |
 | verifications | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"publisher":{"$ref":"https://ace.local/protocol/v1/MarketPublisher.json"},"proofs":{"maxItems":8,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/MarketVerificationProof.json"}},"at":{"type":"integer","minimum":0,"maximum":9007199254740991},"flagged":{"type":"string","maxLength":500}},"required":["publisher","proofs","at"]}} |
 | appeals | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^apl_[a-z0-9]{8,40}$"},"note":{"type":"string","maxLength":2000},"replacement":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"at":{"type":"integer","minimum":0,"maximum":9007199254740991},"state":{"$ref":"https://ace.local/protocol/v1/MarketAppealState.json"},"answer":{"type":"string","maxLength":2000},"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"version":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"publisher":{"$ref":"https://ace.local/protocol/v1/MarketPublisher.json"},"status":{"type":"string","enum":["blocked","held"]},"reason":{"type":"string","maxLength":500}},"required":["id","note","at","state","type","name","version","publisher","status"],"additionalProperties":false}} |
@@ -26690,6 +26800,7 @@ Example:
       "hash": "d44fb96225f4cd1055f4fa4c26fe0d38f02702e77ae53386fcb48bf66db29d94",
       "name": "9",
       "reason": "example",
+      "registry": "org_92WmpLMCcFKwr4iGIZfaC9OGofeNrfE4IqEStenKyU6vP9gp191Vb8U4Pfi",
       "source": "git:wh0a8",
       "state": "off",
       "title": "example",
@@ -26849,12 +26960,10 @@ Example:
   "installed": {
     "acceptedAt": 9,
     "hash": "7e388707324ee9dc9181d2bc4ca91d9e2855e5de5ffb272d6465dbf2d7aa36f1",
-    "held": {
-      "version": "example"
-    },
     "name": "s",
     "previous": {
       "hash": "150a138a05844ad1ede909280e0dd59382e0bf8c3ad40d415becd4596c6041a6",
+      "registry": null,
       "version": "example"
     },
     "reason": "example",
@@ -26932,12 +27041,13 @@ Example:
 | scan | no | [MarketScanReport.json](schema/MarketScanReport.json) |  |
 | request | no | string | {"maxLength":200} |
 | action | no | string | {"minLength":1,"maxLength":512} |
+| registryKey | no | object | {"properties":{"org":{"$ref":"https://ace.local/protocol/v1/MarketOrgId.json"},"key":{"$ref":"https://ace.local/protocol/v1/MarketKeyId.json"},"upload":{"type":"string","pattern":"^[A-Za-z0-9_-]{43}$"},"fingerprint":{"type":"string","minLength":1,"maxLength":64},"addedBy":{"type":"string","maxLength":128},"at":{"type":"integer","minimum":0,"maximum":9007199254740991},"reset":{"type":"boolean"}},"required":["org","key","upload","fingerprint","addedBy","at","reset"],"additionalProperties":false} |
 
 Example:
 
 ```json
 {
-  "code": "busy",
+  "code": "person_only",
   "message": "example",
   "op": "error",
   "scan": {
@@ -27546,6 +27656,18 @@ Example:
   "reports": [],
   "versions": []
 }
+```
+
+## MarketSignature
+
+[JSON Schema](schema/MarketSignature.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"xA2BvgjfcQdtVGT5Uh0JRBXWu8HtZrPGm2rxtmIQ-uoUz4wcx-PKf90Gx-KwvTgOE_bcELjuxJWcBgUZB2GNMw"
 ```
 
 ## MarketSource
@@ -29191,6 +29313,24 @@ Example:
 
 ```json
 "b6XOiqbBUGmrD3BFdqAqU_9Fbx42EJDjUMDdwrBwXJB"
+```
+
+## MediaUndelivered
+
+[JSON Schema](schema/MediaUndelivered.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | string | {"minLength":1,"maxLength":64} |
+| reason | yes | string | {"minLength":1,"maxLength":512} |
+
+Example:
+
+```json
+{
+  "code": "example",
+  "reason": "example"
+}
 ```
 
 ## Mention
@@ -36663,6 +36803,66 @@ Example:
 }
 ```
 
+## RegistryCreate
+
+[JSON Schema](schema/RegistryCreate.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| handle | yes | [MarketHandle.json](schema/MarketHandle.json) |  |
+
+Example:
+
+```json
+{
+  "handle": "wwzaa-e5bgnl"
+}
+```
+
+## RegistryEntries
+
+[JSON Schema](schema/RegistryEntries.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| org | yes | [MarketOrgId.json](schema/MarketOrgId.json) |  |
+| publisher | yes | [MarketPublisher.json](schema/MarketPublisher.json) |  |
+| entries | yes | array | {"maxItems":5000,"items":{"$ref":"https://ace.local/protocol/v1/RegistryEntry.json"}} |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "org": "org_K6yAPpxHSD4HIyrqozyhmBQHIGCeXsYjDyrW1Uulce7J",
+  "publisher": {
+    "id": "example",
+    "name": "a"
+  }
+}
+```
+
+## RegistryEntry
+
+[JSON Schema](schema/RegistryEntry.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| title | yes | string | {"maxLength":120} |
+| latest | no | string | {"maxLength":64} |
+
+Example:
+
+```json
+{
+  "name": "o8fbkuy8i-pl",
+  "title": "example",
+  "type": "ace-plugin"
+}
+```
+
 ## RegistryInstallation
 
 [JSON Schema](schema/RegistryInstallation.json), input validation.
@@ -36748,6 +36948,110 @@ Example:
   "intentId": "example",
   "phase": "preparing",
   "receivedBytes": 6
+}
+```
+
+## RegistryKeyChain
+
+[JSON Schema](schema/RegistryKeyChain.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| org | yes | [MarketOrgId.json](schema/MarketOrgId.json) |  |
+| publisher | yes | [MarketPublisher.json](schema/MarketPublisher.json) |  |
+| keys | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/RegistryKeyLink.json"}} |
+
+Example:
+
+```json
+{
+  "keys": [
+    {
+      "attestation": "example",
+      "upload": "example"
+    }
+  ],
+  "org": "org_XadnmvdmorAgF2u7lMBsE2v7lgOHd7R19bfV4o6ipY",
+  "publisher": {
+    "id": "example",
+    "name": "7abs670k9y3d60wjnwlg97ziv"
+  }
+}
+```
+
+## RegistryKeyLink
+
+[JSON Schema](schema/RegistryKeyLink.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| upload | yes | string | {"minLength":1,"maxLength":4096} |
+| attestation | yes | string | {"minLength":1,"maxLength":4096} |
+
+Example:
+
+```json
+{
+  "attestation": "example",
+  "upload": "example"
+}
+```
+
+## RegistryKeyStatement
+
+[JSON Schema](schema/RegistryKeyStatement.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"ace-registry-key"` |  |
+| org | yes | [MarketOrgId.json](schema/MarketOrgId.json) |  |
+| position | yes | integer | {"minimum":0,"maximum":63} |
+| key | yes | [MarketKeyId.json](schema/MarketKeyId.json) |  |
+| publicKey | yes | [MarketPublicKey.json](schema/MarketPublicKey.json) |  |
+| previous | no | [MarketKeyId.json](schema/MarketKeyId.json) |  |
+| addedBy | yes | string | {"minLength":1,"maxLength":128} |
+| at | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "addedBy": "example",
+  "at": 0,
+  "format": "ace-registry-key",
+  "key": "Zo7jej4cEFzxafkkyx5190s5Hlew68I6OfEsiml",
+  "org": "org_0bpuC2oU9KTMwdZTxnMWMitOEbvLs6O9ujwis",
+  "position": 9,
+  "previous": "uVGzTqK9M0Qq",
+  "publicKey": "OgI-NGubmxfwYnarMmjF3nd9PqXvVReG8NhgS7SAOUy"
+}
+```
+
+## RegistryKeyUpload
+
+[JSON Schema](schema/RegistryKeyUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| statement | yes | [RegistryKeyStatement.json](schema/RegistryKeyStatement.json) |  |
+| proof | yes | [MarketSignature.json](schema/MarketSignature.json) |  |
+| rotation | no | [MarketSignature.json](schema/MarketSignature.json) |  |
+
+Example:
+
+```json
+{
+  "proof": "HJy3w5VWFlybIgXps5o5mt6RFrn8vdNQy_bEeT_LF89NsHvYpd0CdMHyj3tvQGyJixmXz3ZAm2yw-DIG-xnCR7",
+  "rotation": "TOGsMvR1K1dHdCMB_XN1FCQeK0YODFwhjsPzLHfTSPFIPOKG20pKmVhTdReU74S63fA9Ye7sY1ijE4UsLy6Txt",
+  "statement": {
+    "addedBy": "example",
+    "at": 4,
+    "format": "ace-registry-key",
+    "key": "G1KcEOZ85Cym5BQFxSbe7ux_i5Yg-BPFmDBFFo0X26VEN",
+    "org": "org_9NsbyZfwzHZfmxItsWLYnE6",
+    "position": 7,
+    "publicKey": "WxE5gyrY8Vj0Elkweu-SF9p-we0AAVf9opwUYR_-3Nq"
+  }
 }
 ```
 
@@ -37350,6 +37654,18 @@ Example:
 
 ```json
 2
+```
+
+## RetiredSettingsKey
+
+[JSON Schema](schema/RetiredSettingsKey.json), input validation.
+
+Type: ["media.encode","media.delivery","media.recordings","media.stills"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"media.delivery"
 ```
 
 ## ReviewAnchor
@@ -40959,12 +41275,18 @@ Example:
 | sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
 | link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 | codecs | no | [MediaCodecs.json](schema/MediaCodecs.json) |  |
 
 Example:
 
 ```json
 {
+  "codecs": [
+    "Ri0.M.TtvS"
+  ],
+  "deliveryStatus": true,
   "media": {
     "connection": "mc_2otTIQbL4ydth2_lWmeZlAWc-pCdPxIK9vQr36"
   },
@@ -41286,9 +41608,30 @@ Example:
       ],
       "displayId": 2,
       "kind": "display"
+    },
+    "video": {
+      "reason": "example",
+      "status": "retrying"
     }
   },
   "type": "screen.state"
+}
+```
+
+### screen.delivery
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"screen.delivery"` |  |
+| sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
+
+Example:
+
+```json
+{
+  "sessionId": "K8Mudup77vg22rN_tvXsVLNhONA7bVd6HhXGOpl-7RvkG0tMRtwo",
+  "type": "screen.delivery"
 }
 ```
 
@@ -41304,14 +41647,17 @@ Example:
 | errorCode | no | ["forbidden","permission_denied","screen_disabled","denied","target_gone","not_supported","bounds","busy","timeout","internal","target_busy","foreground_required","focus_changed","window_minimized","window_offscreen","secure_input_required","clipboard_changed","window_ambiguous","key_unsupported","modifier_unsupported","no_key_window","delivery_unconfirmed"] |  |
 | holder | no | object | {"properties":{"sessionId":{"$ref":"https://ace.local/protocol/v1/ScreenId.json"},"owner":{"type":"string","maxLength":1024}},"required":["sessionId","owner"]} |
 | media | no | [MediaSubscribed.json](schema/MediaSubscribed.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
 
 Example:
 
 ```json
 {
   "data": null,
-  "ok": false,
-  "requestId": "K8Mudup77vg22rN_tvXsVLNhONA7bVd6HhXGOpl-7RvkG0tMRtwo",
+  "error": "example",
+  "errorCode": "internal",
+  "ok": true,
+  "requestId": "Y",
   "type": "screen.result"
 }
 ```
@@ -41338,6 +41684,7 @@ Example:
 | agentPointer | no | [AgentPointer.json](schema/AgentPointer.json) |  |
 | personActive | no | boolean |  |
 | acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
+| video | no | [LiveVideoStatus.json](schema/LiveVideoStatus.json) |  |
 
 Example:
 
@@ -41357,6 +41704,10 @@ Example:
     ],
     "displayId": 6,
     "kind": "display"
+  },
+  "video": {
+    "reason": "example",
+    "status": "retrying"
   }
 }
 ```
@@ -42334,19 +42685,17 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
-| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"beta.spade":{"type":"boolean"},"beta.marketplace":{"type":"boolean"},"market.askBeforeAgentPublish":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"media.encode":{"type":"string","enum":["auto","legacy"]},"media.delivery":{"type":"string","enum":["auto","legacy"]},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.machineLocalhost":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.relayWebhooks":{"type":"boolean"},"remote.tailscaleWebhooks":{"type":"boolean"},"remote.publicUrlWebhooks":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
+| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"beta.spade":{"type":"boolean"},"beta.marketplace":{"type":"boolean"},"market.askBeforeAgentPublish":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.machineLocalhost":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.relayWebhooks":{"type":"boolean"},"remote.tailscaleWebhooks":{"type":"boolean"},"remote.publicUrlWebhooks":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
 
 Example:
 
 ```json
 {
   "settings": {
-    "access.nativeModes": {},
     "browser.backendLoss": "headless",
     "browser.profileScope": "thread",
-    "clients.keybindings": true,
-    "clients.theme": null,
-    "media.encode": "auto",
+    "clients.keybindings": null,
+    "devices.enabled": true,
     "providers.coder.model": "example",
     "providers.coder.reasoningEffort": "high",
     "providers.configuration": [],
@@ -42354,11 +42703,12 @@ Example:
     "providers.planner.tier": "priority",
     "providers.verifier.provider": "cursor",
     "providers.verifier.reasoningEffort": "default",
-    "remote.relayWebhooks": false,
+    "remote.tailscaleWebhooks": false,
     "storage.backupWorktrees": true,
     "threads.forkOnSwitch": true,
-    "threads.settleOnClose": false,
-    "threads.settleOnMerge": true
+    "threads.settleOnClose": true,
+    "threads.sortBy": "manual",
+    "worktree.preparationTimeoutMs": 60008
   },
   "version": 2
 }
@@ -42393,16 +42743,18 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"settings.get"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| key | yes | [SettingsKey.json](schema/SettingsKey.json) |  |
+| key | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"},{"$ref":"https://ace.local/protocol/v1/RetiredSettingsKey.json"}]} |
 | scope | yes | [SettingsScope.json](schema/SettingsScope.json) |  |
 
 Example:
 
 ```json
 {
-  "key": "remote.machineLocalhost",
+  "key": "media.recordings",
   "requestId": "example",
-  "scope": {},
+  "scope": {
+    "threadId": "example"
+  },
   "type": "settings.get"
 }
 ```
@@ -42411,7 +42763,7 @@ Example:
 
 [JSON Schema](schema/SettingsKey.json), input validation.
 
-Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","beta.spade","beta.marketplace","market.askBeforeAgentPublish","devices.emulatorWindow","media.encode","media.delivery","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.machineLocalhost","remote.relayMcp","remote.relayWebhooks","remote.tailscaleWebhooks","remote.publicUrlWebhooks","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
+Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","beta.spade","beta.marketplace","market.askBeforeAgentPublish","devices.emulatorWindow","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.machineLocalhost","remote.relayMcp","remote.relayWebhooks","remote.tailscaleWebhooks","remote.publicUrlWebhooks","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
 
 Example:
 
@@ -42503,14 +42855,14 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"settings.get"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| key | yes | [SettingsKey.json](schema/SettingsKey.json) |  |
+| key | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"},{"$ref":"https://ace.local/protocol/v1/RetiredSettingsKey.json"}]} |
 | scope | yes | [SettingsScope.json](schema/SettingsScope.json) |  |
 
 Example:
 
 ```json
 {
-  "key": "threads.settleOnClose",
+  "key": "media.stills",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -42592,7 +42944,7 @@ Example:
 | type | yes | `"settings.subscribe"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | subscriptionId | yes | string | {"minLength":1,"maxLength":128} |
-| keys | yes | array | {"minItems":1,"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"}} |
+| keys | yes | array | {"minItems":1,"maxItems":32,"items":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"},{"$ref":"https://ace.local/protocol/v1/RetiredSettingsKey.json"}]}} |
 | scope | yes | [SettingsScope.json](schema/SettingsScope.json) |  |
 
 Example:
@@ -42600,12 +42952,10 @@ Example:
 ```json
 {
   "keys": [
-    "remote.tailscaleWebhooks"
+    "media.encode"
   ],
   "requestId": "example",
-  "scope": {
-    "workspaceId": "example"
-  },
+  "scope": {},
   "subscriptionId": "example",
   "type": "settings.subscribe"
 }
@@ -42752,7 +43102,7 @@ Example:
 | type | yes | `"settings.subscribe"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | subscriptionId | yes | string | {"minLength":1,"maxLength":128} |
-| keys | yes | array | {"minItems":1,"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"}} |
+| keys | yes | array | {"minItems":1,"maxItems":32,"items":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"},{"$ref":"https://ace.local/protocol/v1/RetiredSettingsKey.json"}]}} |
 | scope | yes | [SettingsScope.json](schema/SettingsScope.json) |  |
 
 Example:
@@ -42760,12 +43110,10 @@ Example:
 ```json
 {
   "keys": [
-    "threads.limitPolicy"
+    "storage.backupWorktrees"
   ],
   "requestId": "example",
-  "scope": {
-    "workspaceId": "example"
-  },
+  "scope": {},
   "subscriptionId": "example",
   "type": "settings.subscribe"
 }
@@ -42844,8 +43192,6 @@ Example:
 | beta.marketplace | yes | boolean |  |
 | market.askBeforeAgentPublish | yes | boolean |  |
 | devices.emulatorWindow | yes | boolean |  |
-| media.encode | yes | ["auto","legacy"] |  |
-| media.delivery | yes | ["auto","legacy"] |  |
 | devices.enabled | yes | boolean |  |
 | access.defaultMode | yes | [AccessMode.json](schema/AccessMode.json) |  |
 | access.nativeModes | yes | object | {"propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}} |
@@ -42887,9 +43233,9 @@ Example:
 
 ```json
 {
-  "access.defaultMode": "auto-review",
+  "access.defaultMode": "read-only",
   "access.nativeModes": {},
-  "agents.maxRunningChildren": null,
+  "agents.maxRunningChildren": 2,
   "automations.enabled": true,
   "beta.marketplace": true,
   "beta.spade": true,
@@ -42900,37 +43246,31 @@ Example:
   "browser.profile": "ephemeral",
   "browser.profileScope": "thread",
   "browser.userChrome.storageReads": true,
-  "clients.keybindings": null,
-  "clients.theme": "example",
+  "clients.keybindings": [],
+  "clients.theme": [],
   "computer.blockedApps": [],
   "computer.lockedUse": true,
   "devices.emulatorWindow": true,
-  "devices.enabled": false,
+  "devices.enabled": true,
   "generation.autoDraftCommits": true,
-  "generation.model": {
-    "effort": "example",
-    "model": "example",
-    "provider": "acp"
-  },
+  "generation.model": null,
   "host.displayName": "example",
   "host.icon": {
-    "kind": "cpu"
+    "kind": "cloud"
   },
-  "logs.maxBytes": 1048584,
+  "logs.maxBytes": 1048582,
   "market.askBeforeAgentPublish": false,
-  "media.delivery": "auto",
-  "media.encode": "auto",
   "notifications.pushGatewayUrl": "https://push.acehq.dev",
-  "notifications.remotePush": true,
+  "notifications.remotePush": false,
   "projects.roots": [],
   "providers.claude.chrome": "on",
   "providers.coder.model": "example",
-  "providers.coder.provider": null,
+  "providers.coder.provider": "antigravity",
   "providers.coder.reasoningEffort": "default",
   "providers.coder.tier": "fast",
   "providers.codex.toolSource": null,
   "providers.configuration": [],
-  "providers.default": "opencode",
+  "providers.default": "antigravity",
   "providers.planner.model": "example",
   "providers.planner.provider": "codex",
   "providers.planner.reasoningEffort": "minimal",
@@ -42943,23 +43283,23 @@ Example:
   "providers.verifier.provider": "cursor",
   "providers.verifier.reasoningEffort": "minimal",
   "providers.verifier.tier": "default",
-  "remote.agentAccess": "operate",
+  "remote.agentAccess": "read",
   "remote.agentTransfers": false,
-  "remote.enabled": true,
+  "remote.enabled": false,
   "remote.hostedPairingLink": false,
-  "remote.lan": false,
-  "remote.machineLocalhost": true,
-  "remote.mcpPublicUrl": "https://ace.example.com",
-  "remote.publicUrlWebhooks": true,
+  "remote.lan": true,
+  "remote.machineLocalhost": false,
+  "remote.mcpPublicUrl": null,
+  "remote.publicUrlWebhooks": false,
   "remote.relay": false,
-  "remote.relayMcp": true,
-  "remote.relayUrl": "wss://relay.example.invalid/",
-  "remote.relayWebhooks": false,
-  "remote.tailscale": false,
+  "remote.relayMcp": false,
+  "remote.relayUrl": "",
+  "remote.relayWebhooks": true,
+  "remote.tailscale": true,
   "remote.tailscaleMcp": true,
   "remote.tailscaleWebhooks": true,
   "remote.transferIgnoredFiles": false,
-  "remote.transport": "local",
+  "remote.transport": "tailscale",
   "sourceControl.preferences": {
     "host": "github.com",
     "hosts": [
@@ -42970,24 +43310,26 @@ Example:
     "remote": "origin"
   },
   "spade.enabled": false,
-  "storage.backupWorktrees": true,
+  "storage.backupWorktrees": false,
   "storage.retention": {
-    "logs": 7
+    "attachments": null,
+    "threads": 2,
+    "worktrees": 7
   },
-  "storage.retentionDays": 7,
-  "storage.scheduledCleanup": true,
-  "storage.worktreeRetentionDays": 6,
-  "threads.autoSettleAfter": "1w",
+  "storage.retentionDays": 5,
+  "storage.scheduledCleanup": false,
+  "storage.worktreeRetentionDays": 4,
+  "threads.autoSettleAfter": "1d",
   "threads.followUpBehavior": "queue",
   "threads.forkOnSwitch": false,
-  "threads.keepSettledFor": "3d",
-  "threads.limitPolicy": "snooze_until_reset",
-  "threads.settleOnClose": true,
+  "threads.keepSettledFor": "0d",
+  "threads.limitPolicy": "migrate_now",
+  "threads.settleOnClose": false,
   "threads.settleOnMerge": false,
   "threads.sortBy": "manual",
   "threads.unresponsiveAfter": "15m",
-  "threads.useWorktree": true,
-  "worktree.preparationTimeoutMs": 60008
+  "threads.useWorktree": false,
+  "worktree.preparationTimeoutMs": 60005
 }
 ```
 
@@ -43060,7 +43402,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | body | yes | any JSON value |  |
-| signature | yes | string | {"pattern":"^[A-Za-z0-9_-]{86}$"} |
+| signature | yes | [MarketSignature.json](schema/MarketSignature.json) |  |
 
 Example:
 
@@ -52072,6 +52414,7 @@ Example:
 | size | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | published | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | key | yes | [MarketKeyId.json](schema/MarketKeyId.json) |  |
+| registry | no | [MarketOrgId.json](schema/MarketOrgId.json) |  |
 
 Example:
 
@@ -52087,6 +52430,7 @@ Example:
     "id": "example",
     "name": "5"
   },
+  "registry": "org_tIynJOsi2QQosyWrtZcJK3RQxr4weUgijr5ECUoqfUT76tQkKyEvrINov",
   "size": 5,
   "type": "spade-plugin",
   "version": "15343.370737096.068153"

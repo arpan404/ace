@@ -1,3 +1,4 @@
+import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,7 +51,7 @@ export async function browserFixture(
       logLevel: "silent",
     },
     options: {
-      browser: { headlessBackend: headless, ffmpeg: "/nonexistent/ffmpeg" },
+      browser: { headlessBackend: headless, recorder: new FakeMediaRecorder() },
     },
     store,
     now: () => 1000,

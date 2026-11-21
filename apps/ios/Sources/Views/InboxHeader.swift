@@ -97,7 +97,7 @@ struct InboxChip: View {
     var body: some View {
         HStack(spacing: AceDesign.Space.tight) {
             Text(title).lineLimit(1)
-            Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
+            AceIcon(.caretDown, size: AceDesign.Size.glyphSmall, weight: .bold, relativeTo: .caption)
         }
         .aceFont(AceDesign.TextRole.segment)
         .foregroundStyle(AceTheme.Colours.mutedForeground)

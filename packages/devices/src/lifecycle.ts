@@ -1,4 +1,5 @@
-import { type RecordingArtifact, type ScreenManager } from "@ace/screen";
+import type { MediaRecorder } from "@ace/media/tee-recordings";
+import { type ScreenManager } from "@ace/screen";
 import { startCapture } from "./capture.ts";
 import { DeviceError } from "./sdk.ts";
 import type { DeviceSession } from "./session.ts";
@@ -7,8 +8,14 @@ import type { DeviceRuntime } from "./runtime.ts";
 import type { AppDevice as Device, DeviceFailure } from "@ace/protocol/devices";
 import type { Actor } from "./lease.ts";
 import { mirrorDeviceController } from "./screen-controller.ts";
-import { withMediaWant, type DeviceMedia } from "./media-paths.ts";
+import {
+  withMediaWant,
+  withVideoStatus,
+  type DeviceMedia,
+  type DeviceVideoStatus,
+} from "./media-paths.ts";
 import type { ScreenStreamSettings } from "@ace/protocol";
+import type { DeviceRecordingArtifact, PublishedRecording } from "./recording.ts";
 
 export interface LifecycleOptions {
   platform: DevicePlatform;
@@ -16,11 +23,14 @@ export interface LifecycleOptions {
   screen?: ScreenManager;
   env: NodeJS.ProcessEnv;
   recordingDirectory: string;
+  /** Publishes a finished recording's parts to its thread. */
   publishArtifact(
-    artifact: RecordingArtifact,
+    artifact: DeviceRecordingArtifact,
     threadId: string,
-  ): Promise<{ id: string; bytes: number; mimeType: string } | void>;
+  ): Promise<PublishedRecording | void>;
   recordingAvailable?(): boolean;
+  /** Where every recording is made (ace-media, X1); without it a recording refuses to start. */
+  recorder?: MediaRecorder;
   recordingLimitBytes?: number;
   capture?: typeof startCapture;
   /** ace-media (ADR 0147, phase 2): device video streams into it while routed. */
@@ -40,6 +50,8 @@ export interface LifecycleOwner {
    * undefined once it no longer holds.
    */
   mediaWant?(session: DeviceSession, settings: ScreenStreamSettings | undefined): void;
+  /** Why the device's live video can't play now; undefined once it plays again. */
+  videoStatus?(session: DeviceSession, video: DeviceVideoStatus): void;
 }
 function noop() {}
 
@@ -103,7 +115,16 @@ export async function startDevice(
       ...(options.screen ? { screen: options.screen } : {}),
       ...(options.media
         ? {
-            media: withMediaWant(options.media, (settings) => owner.mediaWant?.(session, settings)),
+            media: withVideoStatus(
+              withMediaWant(options.media, (settings) => owner.mediaWant?.(session, settings)),
+              (video) => {
+                if (session.generation !== generation) return;
+                owner.videoStatus?.(session, video);
+                // The capture holds the device whatever its video does: a view whose video
+                // can't reach ace-media yet opens with the device's control, saying why.
+                if (video) firstResolve?.();
+              },
+            ),
           }
         : {}),
       runtime: options.runtime,
@@ -112,9 +133,15 @@ export async function startDevice(
         if (session.generation !== generation || !["starting", "live"].includes(session.lifecycle))
           return;
         session.latest = frame;
+        // The current capture's picture is back: whatever stopped its video no longer holds.
+        if (session.video) owner.videoStatus?.(session, undefined);
         firstResolve?.();
         session.hub.publish(frame);
-        session.recordingFeed?.push(frame);
+        session.recording?.push(frame);
+      },
+      held() {
+        // No still of the picture fits a frame, but the capture has the device: it opens.
+        if (session.generation === generation) firstResolve?.();
       },
       failure(error) {
         if (session.generation !== generation) return;
@@ -159,7 +186,7 @@ export async function startDevice(
           "The live view didn't send its first frame",
           session.device.platform === "ios"
             ? "Restart the Simulator live view. If using the screen helper, check Screen Recording permission."
-            : "Restart the emulator live view and check that ffmpeg and Android screenrecord are installed.",
+            : "Restart the emulator live view; if it persists, check that scrcpy-server can run on this image.",
         ),
       );
     });
@@ -182,7 +209,9 @@ export async function startDevice(
     // as failed when its first-frame promise is cancelled.
     if (session.generation === generation) {
       session.error = owner.failure(error);
-      await stopDevice(session, owner);
+      // A live view that can't stream on an Android image leaves the device to its controller.
+      if (liveVideoUnavailable(session, error)) await endCapture(session, owner);
+      else await stopDevice(session, owner);
     }
     throw error;
   } finally {
@@ -191,14 +220,33 @@ export async function startDevice(
     if (session.cancelStart === cancelStart) delete session.cancelStart;
   }
 }
+/** Stops the device's live view and hands back control of it. */
 export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promise<void> {
+  // Control goes back first, even while a capture-only cleanup is still running.
+  session.leaseExpiry?.();
+  delete session.leaseExpiry;
+  session.lease.release();
+  return session.stopping ?? endCapture(session, owner);
+}
+
+/**
+ * An Android device whose capture can't stream video (scrcpy-server can't run on its image):
+ * adb still drives its input and stills, so whoever controls it keeps it.
+ */
+export function liveVideoUnavailable(session: DeviceSession, error: unknown): boolean {
+  return (
+    error instanceof DeviceError &&
+    error.code === "not_supported" &&
+    session.device.platform === "android"
+  );
+}
+
+/** Ends the live view and everything hanging off it; control of the device stays as it is. */
+export function endCapture(session: DeviceSession, owner: LifecycleOwner): Promise<void> {
   if (session.stopping) return session.stopping;
   session.generation++;
   session.cancelStart?.();
   delete session.cancelStart;
-  session.leaseExpiry?.();
-  delete session.leaseExpiry;
-  session.lease.release();
   session.hub.clear();
   delete session.latest;
   session.lifecycle = "stopping";
@@ -263,7 +311,9 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
 
 /** Ends any recording the device has open or is opening; the capture keeps running. */
 export async function closeDeviceRecording(session: DeviceSession): Promise<void> {
-  const recording = session.recording ?? (await session.recordingOpening) ?? session.completed;
+  // A startup still waiting on ace-media finds the device moved on, and stops what it opened.
+  await session.recordingStartup;
+  const recording = session.recording ?? session.completed;
   const results = await Promise.allSettled([recording?.stop(), session.recordingClosing]);
   const errors = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
   delete session.recording;

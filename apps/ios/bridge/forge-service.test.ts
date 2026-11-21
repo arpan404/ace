@@ -64,6 +64,44 @@ test("Merged lists the merged pull requests", async () => {
   expect(rows[0]).toMatchObject({ merged: true, state: { word: "Merged", tone: "waiting" } });
 });
 
+test.each([
+  [{}, [222, 224, 226, 227, 229, 231, 233, 245]],
+  [{ state: "closed" }, [219]],
+  [{ state: "all" }, [212, 219, 222, 224, 226, 227, 229, 231, 233, 245]],
+  [{ who: "authored" }, [222, 227, 231, 245]],
+  [{ who: "reviewing" }, [226, 229]],
+  [{ draft: "only" }, [227]],
+  [{ draft: "hide" }, [222, 224, 226, 229, 231, 233, 245]],
+  [{ review: "approved" }, [222, 224, 233]],
+  [{ review: "changes" }, [229]],
+  [{ review: "required" }, [226, 231, 245]],
+  [{ checks: "failing" }, [229]],
+  [{ checks: "passing" }, [222, 224, 226, 233, 245]],
+  [{ author: "sam" }, [229]],
+  [{ labels: ["bug"] }, [229]],
+  [{ review: "approved", checks: "passing", who: "authored" }, [222]],
+] as const)(
+  "the phone's Filters choice %j lists only the pull requests it names",
+  async (search, expected) => {
+    const { ask } = await connected();
+    const pulls = (await ask({ type: "forge.pulls", project: "ace", search })) as PullsReply;
+    const rows = pulls.groups.flatMap((group) => group.rows.map((row) => row.number));
+    expect(rows.toSorted((a, b) => a - b)).toEqual(expected);
+  },
+);
+
+test("a choice the person made stays offered in the Filters menu while it narrows the rows", async () => {
+  const { ask } = await connected();
+  const pulls = (await ask({
+    type: "forge.pulls",
+    project: "ace",
+    search: { author: "octocat", labels: ["web"] },
+  })) as PullsReply;
+  expect(pulls.groups).toEqual([]);
+  expect(pulls.authors).toContain("octocat");
+  expect(pulls.labels).toContain("web");
+});
+
 test("issues group as assigned to you, opened by you, and the rest, and the Filters menu offers their authors and labels", async () => {
   const { ask } = await connected();
   const issues = (await ask({ type: "forge.issues", project: "ace", search: {} })) as IssuesReply;

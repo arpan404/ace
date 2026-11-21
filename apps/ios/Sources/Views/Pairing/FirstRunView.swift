@@ -90,7 +90,7 @@ struct FirstRunView: View {
             } else {
                 Section { intro }.listRowBackground(Color.clear)
                 if problem == nil {
-                    Section { ForEach(0..<3, id: \.self) { _ in InsetRow("Loading", systemImage: nil) } }
+                    Section { ForEach(0..<3, id: \.self) { _ in InsetRow("Loading", icon: nil) } }
                         .insetRowBackground()
                         .redacted(reason: .placeholder)
                         .accessibilityLabel("Checking this computer's agents")

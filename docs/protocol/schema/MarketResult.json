@@ -480,6 +480,48 @@
           "maxItems": 200,
           "type": "array"
         },
+        "registryKey": {
+          "additionalProperties": false,
+          "properties": {
+            "addedBy": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "at": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "fingerprint": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "key": {
+              "$ref": "https://ace.local/protocol/v1/MarketKeyId.json"
+            },
+            "org": {
+              "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+            },
+            "reset": {
+              "type": "boolean"
+            },
+            "upload": {
+              "pattern": "^[A-Za-z0-9_-]{43}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "org",
+            "key",
+            "upload",
+            "fingerprint",
+            "addedBy",
+            "at",
+            "reset"
+          ],
+          "type": "object"
+        },
         "request": {
           "maxLength": 200,
           "type": "string"

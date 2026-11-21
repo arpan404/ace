@@ -54,7 +54,7 @@ struct PluginsSection: View {
                 NavigationLink {
                     PluginPageView(model: model, plugin: plugin, components: components.filter { $0.plugin == plugin.name })
                 } label: {
-                    InsetRow(systemImage: nil, title: plugin.name, subtitle: plugin.summary) {
+                    InsetRow(icon: nil, title: plugin.name, subtitle: plugin.summary) {
                         Text(plugin.version).aceFont(AceDesign.TextRole.action)
                             .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
                     }

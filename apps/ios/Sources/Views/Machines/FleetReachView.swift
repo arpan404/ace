@@ -40,7 +40,7 @@ struct FleetReachView: View {
                     Section { ServiceProblem(message: problem) }.insetRowBackground()
                 }
                 Section {
-                    NavigationLink(value: SettingsRoute.machine(row.id)) { InsetRow("Machine page", systemImage: "info.circle") }
+                    NavigationLink(value: SettingsRoute.machine(row.id)) { InsetRow("Machine page", icon: .info) }
                         .accessibilityIdentifier("fleetReach.page")
                 }
                 .insetRowBackground()

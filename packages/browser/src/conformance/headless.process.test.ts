@@ -14,6 +14,5 @@ defineBrowserConformance({
       ...(executablePath ? { executablePath } : {}),
       backendPreference: () => "headless",
       tabLifecycle: false,
-      ffmpeg: "",
     }),
 });

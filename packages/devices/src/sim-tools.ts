@@ -49,6 +49,11 @@ function summary(raw: unknown) {
   };
 }
 
+/** The live-view refusal the device service keeps the agent's control through. */
+function androidWithoutVideo(error: DeviceError, simId: string): boolean {
+  return error.code === "not_supported" && simId.startsWith("android:");
+}
+
 async function run(
   service: DevicesService,
   name: SimToolName,
@@ -76,7 +81,21 @@ async function run(
         if (listed.devices.find((device) => device.id === simId)?.state !== "booted")
           await request({ op: "boot", deviceId: simId });
       }
-      const started = summary(await request({ op: "start", deviceId: simId }));
+      let started: unknown;
+      try {
+        started = summary(await request({ op: "start", deviceId: simId }));
+      } catch (error) {
+        if (!(error instanceof DeviceError) || !androidWithoutVideo(error, simId)) throw error;
+        // No live video on this image (scrcpy-server can't run): the agent kept the device all
+        // along and drives it through adb, input and screencap stills; it hears why.
+        started = {
+          simId,
+          liveView: "unavailable",
+          reason: error.message,
+          hint: error.hint,
+          stillWorks: ["sim_act input", "sim_screenshot", "sim_ui"],
+        };
+      }
       return json(
         service.agents.firstStart(actor.owner, simId) && typeof started === "object"
           ? { ...started, guide: simGuidance(simId, actor.threadId) }
@@ -114,7 +133,7 @@ async function run(
       const image = await modelImage(
         { payload: frame.payload, ...frame.header },
         signal,
-        imageRuntime,
+        imageRuntime ?? service.modelImages(),
       );
       signal.throwIfAborted();
       return {

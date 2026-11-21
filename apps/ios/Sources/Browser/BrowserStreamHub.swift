@@ -1,11 +1,11 @@
 import CoreGraphics
 import Foundation
 
-/// Where one runtime's sockets hand decoded browser video chunks, off the JavaScriptCore
-/// thread: the live view attaches while it is shown, and nothing is kept while it isn't (the
-/// daemon then has no subscriber for this connection and sends none).
+/// Where one runtime's media sockets hand decoded live pictures, off the JavaScriptCore thread:
+/// the live view attaches while it is shown, and nothing is kept while it isn't (the daemon then
+/// has no subscriber for this connection and sends none).
 final class BrowserStreamHub: @unchecked Sendable {
-    /// A picture and the way it came: `MediaDelivery.channel`, or the media socket's id.
+    /// A picture and the media socket it came by.
     typealias Sink<Picture> = @Sendable (Picture, String) -> Void
     private let lock = NSLock()
     private var sink: Sink<BrowserVideoChunk>?
@@ -21,11 +21,11 @@ final class BrowserStreamHub: @unchecked Sendable {
 
     func attach(_ sink: Sink<BrowserVideoChunk>?) { lock.withLock { self.sink = sink } }
     func attachScreen(_ sink: Sink<DeviceFrameChunk>?) { lock.withLock { screenSink = sink } }
-    func deliverScreen(_ chunk: DeviceFrameChunk, path: String = MediaDelivery.channel) { lock.withLock { screenSink }?(chunk, path) }
+    func deliverScreen(_ chunk: DeviceFrameChunk, path: String) { lock.withLock { screenSink }?(chunk, path) }
     func attachDevice(_ sink: Sink<DeviceFrameChunk>?) { lock.withLock { deviceSink = sink } }
-    func deliver(_ chunk: DeviceFrameChunk, path: String = MediaDelivery.channel) { lock.withLock { deviceSink }?(chunk, path) }
+    func deliver(_ chunk: DeviceFrameChunk, path: String) { lock.withLock { deviceSink }?(chunk, path) }
     /// Called on the delivering socket's queue.
-    func deliver(_ chunk: BrowserVideoChunk, path: String = MediaDelivery.channel) { lock.withLock { sink }?(chunk, path) }
+    func deliver(_ chunk: BrowserVideoChunk, path: String) { lock.withLock { sink }?(chunk, path) }
 
     /// `view`'s open renderer follows its sources' deliveries from now on; nil when it closes.
     func attachDelivery(_ view: String, _ sink: (@Sendable (String, MediaDelivery) -> Void)?) {

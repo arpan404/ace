@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// One choice in a `GlassChoice`: words, and a provider mark or symbol before them.
+/// One choice in a `GlassChoice`: words, and a provider mark or one of ace's icons before them.
 struct GlassChoiceItem: Identifiable, Equatable {
-    enum Glyph: Equatable { case provider(String, quiet: Bool), symbol(String) }
+    enum Glyph: Equatable { case provider(String, quiet: Bool), icon(AceIcon.Name) }
     let id: String
     let label: String
     var glyph: Glyph? = nil
@@ -59,7 +59,7 @@ struct GlassChoice: View {
             HStack(spacing: AceDesign.Space.tight) {
                 switch item.glyph {
                 case .provider(let provider, let quiet)?: ProviderMark(provider: provider, size: AceDesign.Size.icon, quiet: quiet)
-                case .symbol(let name)?: Image(systemName: name).font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
+                case .icon(let name)?: AceIcon(name, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                 case nil: EmptyView()
                 }
                 Text(item.label).lineLimit(1)

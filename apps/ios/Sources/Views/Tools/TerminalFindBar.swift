@@ -27,9 +27,9 @@ struct TerminalFindBar: View {
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .lineLimit(1).fixedSize()
                 .accessibilityIdentifier("terminal.find.count")
-            Button(action: previous) { Image(systemName: "chevron.up").frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap) }
+            Button(action: previous) { Image(ace: .caretUp).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap) }
                 .accessibilityLabel("Previous match").disabled(count == 0)
-            Button(action: next) { Image(systemName: "chevron.down").frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap) }
+            Button(action: next) { Image(ace: .caretDown).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap) }
                 .accessibilityLabel("Next match").disabled(count == 0)
                 .accessibilityIdentifier("terminal.find.next")
             Button("Done", action: done)

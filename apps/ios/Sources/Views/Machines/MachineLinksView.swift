@@ -78,7 +78,7 @@ struct MachineLinksView: View {
                         }
                         .accessibilityIdentifier("links.projects.\(link.profile)")
                     }
-                    Button("Unlink…", systemImage: "link", role: .destructive) { unlinking = link }
+                    Button("Unlink…", ace: .link, role: .destructive) { unlinking = link }
                         .accessibilityIdentifier("links.unlink.\(link.profile)")
                 }
             }

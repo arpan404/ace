@@ -11,6 +11,7 @@ import {
   treeWorking,
   type LiveFact,
   type RootStand,
+  subagentsAtWork,
 } from "./live-status.ts";
 import { providerNames } from "./providers.ts";
 import { limitHoldShown } from "./queue.ts";
@@ -234,13 +235,7 @@ export function readTurnActivity(
     ? waitingOnYou(reader, rootId, pending)
     : readActivity(reader, rootId, options, watch);
   const status = reader.agent(rootId)?.status;
-  const waitingCount =
-    status?.state === "blocked" && status.on === "subagents" ? status.refs.length : 0;
-  const subagents = Math.max(
-    tree.subagents,
-    reader.thread?.live?.runningSubagentCount ?? 0,
-    waitingCount,
-  );
+  const subagents = subagentsAtWork(tree.subagents, reader.thread?.live, status);
   const backgroundCommands = tree.backgroundCommands;
   const stretch = ledgerOf(reader).currentStretch(reader);
   for (const id of stretch.watch) watch.push(`item:${id}`);

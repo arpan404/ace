@@ -197,11 +197,20 @@ export class PatchPump {
     // before that fence can describe native. Status leads each frame only up to
     // its share, so a full inbox would otherwise let the fence pass the thread's
     // own status and native would commit the snapshot without it.
+    // A patch native turned down for good is parked and never acknowledged: waiting on it would
+    // hold the fence back forever. The fence goes without it, so native finds it doesn't describe
+    // what it holds and reads the thread again.
     if (task.key === "thread:ready" || task.key === "reading:settled") {
       const prefix = task.key.startsWith("thread:") ? "thread:" : "reading:";
       for (const queue of [this.#queues[1], this.#queues[2]])
         for (const sibling of queue.values())
-          if (sibling !== task && !sibling.settled && sibling.key.startsWith(prefix)) return true;
+          if (
+            sibling !== task &&
+            !sibling.settled &&
+            !sibling.parked &&
+            sibling.key.startsWith(prefix)
+          )
+            return true;
     }
     // A delayed reset must not erase already-confirmed rows from its own scope.
     // A warm begin likewise precedes its rows.

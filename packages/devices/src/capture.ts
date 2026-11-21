@@ -1,10 +1,10 @@
+import type { DeviceShot } from "./one-off-screenshot.ts";
 import { simulatorCapture } from "./simulator-capture.ts";
 import type { DeviceInput } from "@ace/protocol/devices";
 import { deviceWindowBundles, type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import { DeviceError } from "./sdk.ts";
-import { screenrecordCapture } from "./android-screenrecord.ts";
 import { scrcpyCapture } from "./scrcpy-capture.ts";
 import { installedScrcpyJar } from "./scrcpy-jar.ts";
 import type { DevicePlatform } from "./platform.ts";
@@ -30,6 +30,12 @@ export interface DeviceCapture extends Capture {
    * stream of them (`deviceStillStream`).
    */
   still?(): Promise<void>;
+  /**
+   * An agent's still from ace-media, while the capture streams there (a live view): fenced on
+   * the newest public epoch (`still.take` `minEpoch`) and fitted by ace-media inside the frame's
+   * 1920×2160 bound. Undefined when ace-media can't make it; the device's own screenshot then.
+   */
+  mediaStill?(): Promise<DeviceShot | undefined>;
   /** Pointer input may carry fingers other than the first. */
   readonly multiTouch?: boolean;
   /** Accessibility served by the capture's own transport rather than the screen helper. */
@@ -49,6 +55,12 @@ export async function startCapture(options: {
   env: NodeJS.ProcessEnv;
   publish(frame: Frame): void;
   failure(error: unknown): void;
+  /**
+   * The device's picture came, but no still of it fits a frame (a Simulator taller than 2160
+   * pixels): the capture holds the device all the same. Stills then come from ace-media while a
+   * view watches, else the device's own screenshot.
+   */
+  held?(): void;
   signal?: AbortSignal;
   /** ace-media (ADR 0147, phase 2): device video streams into it while routed. */
   media?: DeviceMedia;
@@ -87,15 +99,14 @@ export async function startCapture(options: {
           runtime: options.runtime,
         });
       checkAbort();
-      const transcoder = options.platform.frameEncoder;
+      const digitizer = options.platform.frameEncoder;
       return simulatorCapture({
         ...options,
         device,
         command,
         commandArgs: status.args,
-        // The screen helper also re-encodes for small viewers and touches through Xcode's own
-        // input service.
-        ...(transcoder ? { transcoder, digitizer: transcoder } : {}),
+        // The screen helper touches through Xcode's own input service.
+        ...(digitizer ? { digitizer } : {}),
         screens: () => options.platform.simulatorScreens(device),
       });
     }
@@ -252,16 +263,14 @@ export async function startCapture(options: {
         checkAbort();
         return await scrcpyCapture({ ...options, jar, ...(host ? { host } : {}) });
       } catch (error) {
-        // scrcpy could not start on this image: agents still get stills from screenrecord.
+        // scrcpy could not start on this image: agents still get stills from the device itself
+        // (`adb exec-out screencap`, through the one-off screenshot).
         checkAbort();
         why = error instanceof Error ? error.message : "scrcpy-server didn't start";
       }
     }
   }
-  return screenrecordCapture(
-    { ...options, liveViewUnavailable: androidLiveViewError(why) },
-    checkAbort,
-  );
+  throw androidLiveViewError(why);
 }
 /** Why an Android capture without scrcpy refuses a live view, which is video only. */
 function androidLiveViewError(why: string): DeviceError {

@@ -12,11 +12,13 @@ import {
   probeOutput,
   spawnSupervised,
   spawnRawSupervised,
+  spawnRawSupervisedExactEnv,
   spawnTextSupervised,
   type SupervisedProcess,
 } from "./process.ts";
 
 const owned: SupervisedProcess[] = [];
+const raw: { stop(options: { graceMs: number }): Promise<unknown> }[] = [];
 /** Nice 5, or this runner's own when it already runs lower: a child is never raised. */
 const childNice = () => Math.max(5, getPriority());
 const noop = () => {};
@@ -72,9 +74,46 @@ function child(script: string, env: NodeJS.ProcessEnv = {}) {
 }
 afterEach(async () => {
   await Promise.all(owned.splice(0).map((proc) => proc.stop({ graceMs: 0 })));
+  await Promise.all(raw.splice(0).map((proc) => proc.stop({ graceMs: 0 })));
 });
 
+/** Everything a raw child prints, once it has exited, as the JSON it is. */
+async function printed(proc: { stdout: NodeJS.ReadableStream; exited: Promise<unknown> }) {
+  let out = "";
+  proc.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
+  await proc.exited;
+  return JSON.parse(out) as string[];
+}
+
 describe("supervised processes", () => {
+  it("an exact environment reaches the child as given, with nothing of the daemon's own", async () => {
+    process.env.ACE_TEST_DAEMON_ONLY = "secret";
+    try {
+      const script = "process.stdout.write(JSON.stringify(Object.keys(process.env).sort()))";
+      const isolated = spawnRawSupervisedExactEnv({
+        command: process.execPath,
+        args: ["-e", script],
+        env: { ONLY_THIS: "1" },
+        name: "exact-env",
+      });
+      raw.push(isolated);
+      const exact = await printed(isolated);
+      expect(exact.filter((key) => !key.startsWith("ACE_PROCESS_OWNER"))).toEqual(["ONLY_THIS"]);
+      // Without it the daemon's environment is still the base, as every other caller has it.
+      const merged = spawnRawSupervised({
+        command: process.execPath,
+        args: ["-e", script],
+        env: { ALSO: "1" },
+        name: "merged-env",
+      });
+      raw.push(merged);
+      expect(await printed(merged)).toEqual(
+        expect.arrayContaining(["ACE_TEST_DAEMON_ONLY", "ALSO"]),
+      );
+    } finally {
+      delete process.env.ACE_TEST_DAEMON_ONLY;
+    }
+  });
   it("reports a clean exit and ends the lifetime signal after draining final output", async () => {
     const proc = child(`console.log('final'); process.exitCode = 0`);
     const lines: string[] = [];

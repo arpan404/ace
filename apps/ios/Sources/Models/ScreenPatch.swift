@@ -7,6 +7,8 @@ struct PlanRequest: Codable, Sendable, Equatable {
     let summary: String
     let markdown: String
     let truncated: Bool
+    /// Why it can't be approved here: part of it is cut on the card. "" or nil when whole.
+    var incomplete: String? = nil
     let todos: [Todo]
     /// The strip's one line, "Plan ready · Kill-all filters · 3 steps"; nil from older bridges.
     var line: String? = nil

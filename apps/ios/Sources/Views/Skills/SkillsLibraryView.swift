@@ -80,7 +80,7 @@ struct SkillsLibraryView: View {
                            loadMore: { Task { await readCatalog(more: true) } },
                            retryCatalog: { Task { await readCatalog(more: catalogMoreFailed) } })
             Section {
-                NavigationLink { SkillDiscoveryView(model: model) } label: { InsetRow("Available CLI skills", systemImage: nil) }
+                NavigationLink { SkillDiscoveryView(model: model) } label: { InsetRow("Available CLI skills", icon: nil) }
                     .accessibilityIdentifier("skills.discovery")
             }
             .insetRowBackground()

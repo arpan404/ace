@@ -4,12 +4,13 @@ import * as aceIcons from "@ace/icons";
 import type { Icon } from "@ace/icons";
 import { machineIconGlyphs, projectGlyphIcons } from "@ace/ui-core";
 import { aceGlyphSvgs } from "./generate-glyphs.ts";
-import { assetSvg } from "./icon-svg.ts";
+import { assetSvg, filledAssetSvg, type AssetWeight } from "./icon-svg.ts";
 import {
   barIconSize,
   barIcons,
   drawnAs,
   extra,
+  filledIcons,
   fromSymbols,
   tabIconSize,
   tabIcons,
@@ -22,7 +23,8 @@ import {
  *   bun scripts/generate-icons.ts
  *
  * Every icon is ace's own, from `@ace/icons` (ADR 0156), the set the web draws. Each name is
- * written in regular (`icon-<name>`) and bold (`icon-<name>-bold`). A name is the `@ace/icons`
+ * written in regular (`icon-<name>`) and bold (`icon-<name>-bold`), and those in `filledIcons`
+ * filled (`icon-<name>-fill`). A name is the `@ace/icons`
  * glyph of the same name, else the glyph `drawnAs` gives it. The tab bar's glyphs (`tabIcons`) are
  * also written at its size, outline and filled (`tab-<name>`, `tab-<name>-fill`; Spade's face is
  * drawn by the app, `SpadeMark`), and the navigation bar's button glyphs (`barIcons`) at a bar symbol's size (`bar-<name>`). Add an icon by adding its name to
@@ -56,6 +58,7 @@ const names = [
   ...new Set([
     ...Object.values(fromSymbols),
     ...extra,
+    ...filledIcons,
     ...Object.values(projectGlyphIcons),
     ...Object.values(machineIconGlyphs),
   ]),
@@ -91,8 +94,8 @@ const writeAsset = async (asset: string, svg: string) => {
   };
   await writeFile(join(set, "Contents.json"), `${JSON.stringify(contents, null, 2)}\n`);
 };
-const assetName = (name: string, weight: "regular" | "bold") =>
-  weight === "regular" ? `icon-${name}` : `icon-${name}-bold`;
+const assetName = (name: string, weight: AssetWeight) =>
+  weight === "regular" ? `icon-${name}` : `icon-${name}-${weight}`;
 
 // One drawing for both weights: ace's glyphs carry their own stroke.
 for (const [name, svg] of Object.entries(aceGlyphSvgs)) {
@@ -102,6 +105,11 @@ for (const [name, svg] of Object.entries(aceGlyphSvgs)) {
 for (const { name, icon, turn } of sources) {
   for (const weight of ["regular", "bold"] as const)
     await writeAsset(assetName(name, weight), assetSvg(icon, weight, turn));
+}
+for (const name of filledIcons) {
+  const source = sources.find((entry) => entry.name === name);
+  if (!source) throw new Error(`${name} is a filled icon but not one of the icons.`);
+  await writeAsset(assetName(name, "fill"), filledAssetSvg(source.icon, source.turn));
 }
 // The tab bar's glyphs at its size, outline and filled, each named in `names` above.
 for (const name of tabIcons) {
@@ -124,6 +132,11 @@ const swift = [
   "    /// Every icon in `Icons.xcassets`, drawn as `icon-<raw value>`.",
   "    enum Name: String, CaseIterable, Sendable {",
   ...[...names, ...aceNames].map((name) => `        case ${swiftCase(name)} = "${name}"`),
+  "",
+  "        /// The icons also drawn filled, as `icon-<raw value>-fill`.",
+  "        static let filled: Set<Name> = [",
+  ...filledIcons.map((name) => `            .${swiftCase(name)},`),
+  "        ]",
   "    }",
   "}",
   "",

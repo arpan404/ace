@@ -19,7 +19,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 });
 `,
   );
-  const host = new CursorHost({ env: { HOME: root }, entry, limits: { maxFrameBytes: 4096 } }, () => {});
+  const host = new CursorHost(
+    { env: { HOME: root }, entry, limits: { maxFrameBytes: 4096 } },
+    () => {},
+  );
   try {
     await expect(host.request("models")).resolves.toEqual({ models: [] });
     expect(host.process.signal.aborted).toBe(false);

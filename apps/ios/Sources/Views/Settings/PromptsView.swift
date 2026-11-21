@@ -60,13 +60,13 @@ struct PromptsView: View {
             if loading && files.isEmpty && problem == nil {
                 SkeletonRows(count: 2, label: "Loading prompts").listRowBackground(Color.clear)
             } else if !loading && files.isEmpty && problem == nil {
-                EmptyState(systemImage: "text.page", title: "No prompts yet", line: "Create a prompt to reuse instructions.").listRowBackground(Color.clear)
+                EmptyState(icon: .fileText, title: "No prompts yet", line: "Create a prompt to reuse instructions.").listRowBackground(Color.clear)
             }
             if !files.isEmpty {
                 Section {
                     ForEach(files) { file in
                         NavigationLink { PromptEditor(model: model, file: file) } label: {
-                            InsetRow(systemImage: nil, title: file.title.isEmpty ? file.name : file.title,
+                            InsetRow(icon: nil, title: file.title.isEmpty ? file.name : file.title,
                                      subtitle: file.description.isEmpty ? nil : file.description) { EmptyView() }
                         }
                     }

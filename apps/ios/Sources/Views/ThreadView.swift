@@ -242,7 +242,7 @@ struct ThreadView: View {
             .sheet(isPresented: $showSearch) {
                 NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }).toolbar { SheetClose() } }
             }
-            .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
+            .modifier(MessageAttachmentRoutes(model: model, source: .thread(thread.id)))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle,
                                        showFiles: Binding(get: { pushedTool == .files }, set: { if !$0, pushedTool == .files { pushedTool = nil } }),
                                        mention: model.canOperate ? { mention = $0 } : nil))
@@ -463,7 +463,7 @@ struct ThreadView: View {
         } else if model.canOperate {
             ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
                          send: { text, alternate, references in
-                             let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
+                             let reply = asking.map { QuestionReply(interactionId: $0.id, version: $0.wholeVersion, draft: questionDraft) }
                              let saved = await model.sendMessage(text, alternate: alternate, reply: reply, references: references)
                              if saved { acceptedSend += 1 }
                              return saved

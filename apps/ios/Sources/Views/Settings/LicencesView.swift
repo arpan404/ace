@@ -45,14 +45,14 @@ struct LicencesView: View {
             Section {
                 ForEach(entries) { entry in
                     NavigationLink { LicenceNoticeView(name: entry.name, licence: entry.licence, notice: entry.notice) } label: {
-                        InsetRow(entry.name, systemImage: nil, value: entry.licence)
+                        InsetRow(entry.name, icon: nil, value: entry.licence)
                     }
                     .accessibilityIdentifier("licences.entry.\(entry.name)")
                 }
             } footer: { Text("The interface uses Apple's system fonts.") }
             .insetRowBackground()
             Section {
-                NavigationLink { MarkitNoticesView() } label: { InsetRow("markit's third-party licences", systemImage: nil) }
+                NavigationLink { MarkitNoticesView() } label: { InsetRow("markit's third-party licences", icon: nil) }
                     .accessibilityIdentifier("licences.markit")
             }
             .insetRowBackground()

@@ -1,5 +1,11 @@
-import type { CapturedPicture } from "@ace/browser/picture-channel";
+import type { PictureChunk } from "@ace/browser/stream";
 import type { Frame } from "./frames.ts";
+
+/** A captured frame as a picture message carries it, and whether its codec string was given. */
+export interface CapturedPicture extends Omit<PictureChunk, "bytes" | "still"> {
+  bytes: Uint8Array;
+  codecNamed: boolean;
+}
 
 /** The codec a capture's H.264 is in when it doesn't say (Baseline, level 3.1). */
 const defaultVideoCodec = "avc1.42E01F";
@@ -17,7 +23,7 @@ function streamOf(header: Frame["header"]): string {
 
 const pictures = new WeakMap<Frame, CapturedPicture>();
 
-/** A captured frame as the picture kinds carry it on the shared media stream. */
+/** A captured frame as the picture kinds carry it (a person's screenshot, as a still). */
 export function framePicture(frame: Frame): CapturedPicture {
   const cached = pictures.get(frame);
   if (cached) return cached;

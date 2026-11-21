@@ -229,7 +229,7 @@ struct AutomationZonePicker: View {
                             .foregroundStyle(AceDesign.Ink.muted)
                     }
                     Spacer()
-                    if zone == selection { Image(systemName: "checkmark").foregroundStyle(AceDesign.Ink.primary) }
+                    if zone == selection { AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceDesign.Ink.primary) }
                 }
                 .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
             }

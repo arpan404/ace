@@ -73,7 +73,7 @@ struct ShareView: View {
                 Section(model.catalogue.machines.count > 1 ? machine.name : "") {
                     ForEach(projects) { project in
                         Button { model.project = project } label: {
-                            if project.id == model.project?.id { Label(project.name, systemImage: "checkmark") } else { Text(project.name) }
+                            if project.id == model.project?.id { Label(project.name, ace: .check) } else { Text(project.name) }
                         }
                     }
                 }
@@ -81,7 +81,7 @@ struct ShareView: View {
         } label: {
             HStack(spacing: ShareLayout.tight) {
                 Text(model.project?.name ?? "Project").lineLimit(1)
-                Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(.caretDown, size: ShareLayout.caret, weight: .bold, relativeTo: .caption2).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
             .font(.subheadline)
             .foregroundStyle(AceTheme.Colours.foreground)
@@ -116,4 +116,6 @@ enum ShareLayout {
     static let tap: CGFloat = 44
     static let pill: CGFloat = 36
     static let thumbnail: CGFloat = 56
+    /// The project pill's caret, a caption glyph (`AceDesign.Size.glyphSmall`).
+    static let caret: CGFloat = 12
 }

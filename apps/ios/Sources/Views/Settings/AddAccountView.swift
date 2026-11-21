@@ -81,7 +81,7 @@ struct AddAccountView: View {
                             HStack {
                                 Text(option.label).foregroundStyle(AceDesign.Ink.primary)
                                 Spacer()
-                                if way?.id == option.id { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceDesign.Ink.action) }
+                                if way?.id == option.id { AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceDesign.Ink.action) }
                             }
                             .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
                         }

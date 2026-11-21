@@ -135,7 +135,7 @@ struct FleetMapRowLabel: View {
     var body: some View {
         HStack(spacing: AceDesign.Space.row) {
             FleetDot(token: row.token)
-            Image(systemName: FleetMapReply.symbol(row.art)).font(AceDesign.Typeface.title).foregroundStyle(AceDesign.Ink.primary)
+            AceIcon(FleetMapReply.icon(row.art), size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceDesign.Ink.primary)
                 .frame(width: AceDesign.Size.icon + AceDesign.Space.related).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(row.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)

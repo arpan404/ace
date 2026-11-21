@@ -131,7 +131,7 @@ struct FilesScreen: View {
     @ViewBuilder private var treeRows: some View {
         if let tree {
             if tree.rows.isEmpty {
-                EmptyState(systemImage: "folder", title: "No files").listRowSeparator(.hidden)
+                EmptyState(icon: .folder, title: "No files").listRowSeparator(.hidden)
             }
             ForEach(tree.rows) { row in
                 switch row.kind {
@@ -359,38 +359,38 @@ struct FilesScreen: View {
 
     private var manageMenu: some View {
         Menu {
-            Button("New file", systemImage: "doc.badge.plus") { actions.ask(.create(folder: "")) }
+            Button("New file", ace: .filePlus) { actions.ask(.create(folder: "")) }
                 .accessibilityIdentifier("files.newFile")
-            Button("New folder", systemImage: "folder.badge.plus") { actions.ask(.mkdir(folder: "")) }
+            Button("New folder", ace: .folderPlus) { actions.ask(.mkdir(folder: "")) }
                 .accessibilityIdentifier("files.newFolder")
-            Button("Upload files…", systemImage: "square.and.arrow.up.on.square") { uploadFolder = ""; importing = true }
+            Button("Upload files…", ace: .export) { uploadFolder = ""; importing = true }
                 .accessibilityIdentifier("files.upload")
-            Button("Download folder…", systemImage: "arrow.down.circle") { downloading = "" }
+            Button("Download folder…", ace: .arrowCircleDown) { downloading = "" }
                 .accessibilityIdentifier("files.download")
             Divider()
-            Button("Recently deleted", systemImage: "trash") { showTrash = true }
+            Button("Recently deleted", ace: .trash) { showTrash = true }
                 .accessibilityIdentifier("files.trash")
         } label: {
-            Label("Manage files", systemImage: "ellipsis")
+            Label("Manage files", ace: .dotsThree)
         }
         .accessibilityIdentifier("files.manage")
     }
 
     @ViewBuilder private func rowMenu(path: String, folder: Bool) -> some View {
         if folder, actions.canChange {
-            Button("New file here", systemImage: "doc.badge.plus") { actions.ask(.create(folder: path)) }
-            Button("New folder here", systemImage: "folder.badge.plus") { actions.ask(.mkdir(folder: path)) }
-            Button("Upload files here", systemImage: "square.and.arrow.up.on.square") { uploadFolder = Self.bare(path); importing = true }
-            Button("Download folder", systemImage: "arrow.down.circle") { downloading = Self.bare(path) }
+            Button("New file here", ace: .filePlus) { actions.ask(.create(folder: path)) }
+            Button("New folder here", ace: .folderPlus) { actions.ask(.mkdir(folder: path)) }
+            Button("Upload files here", ace: .export) { uploadFolder = Self.bare(path); importing = true }
+            Button("Download folder", ace: .arrowCircleDown) { downloading = Self.bare(path) }
         }
         if !folder, let mention {
-            Button("Mention in message", systemImage: "at") { mention(ComposerMention(path: path)) }
+            Button("Mention in message", ace: .at) { mention(ComposerMention(path: path)) }
         }
-        Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+        Button("Copy path", ace: .copy) { UIPasteboard.general.string = path }
         if actions.canChange {
-            Button("Rename", systemImage: "pencil") { actions.ask(.rename(path: path)) }
-            Button("Move", systemImage: "folder") { actions.ask(.move(path: path)) }
-            Button("Delete", systemImage: "trash", role: .destructive) { actions.ask(.delete(path: path)) }
+            Button("Rename", ace: .pencilSimple) { actions.ask(.rename(path: path)) }
+            Button("Move", ace: .folder) { actions.ask(.move(path: path)) }
+            Button("Delete", ace: .trash, role: .destructive) { actions.ask(.delete(path: path)) }
         }
     }
 

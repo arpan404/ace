@@ -129,20 +129,6 @@
         "market.askBeforeAgentPublish": {
           "type": "boolean"
         },
-        "media.delivery": {
-          "enum": [
-            "auto",
-            "legacy"
-          ],
-          "type": "string"
-        },
-        "media.encode": {
-          "enum": [
-            "auto",
-            "legacy"
-          ],
-          "type": "string"
-        },
         "notifications.pushGatewayUrl": {
           "examples": [
             "https://push.acehq.dev"

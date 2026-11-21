@@ -21,6 +21,13 @@ export { useSpadeConnectors } from "./spade-connector-api.ts";
 // For the `@` picker and the transcript's bot replies (ADR 0198).
 export { SpadeFace } from "./spade-face.tsx";
 export { ReplayLine } from "./spade-replay-line.tsx";
+export { useEffectLocks, type EffectLockOf } from "./spade-org-locks.ts";
+export {
+  readAuditExport,
+  readSpadeOrg,
+  useSpadeOrgOn,
+  type SpadeOrgView,
+} from "./spade-org-api.ts";
 export { GroupFaces } from "./spade-group-faces.tsx";
 export { readGroups } from "./spade-teams-api.ts";
 export { useAppConnect, type AppToConnect } from "./spade-app-connect.tsx";

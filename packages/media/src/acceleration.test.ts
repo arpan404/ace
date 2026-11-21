@@ -8,23 +8,14 @@ import {
 import { EgressRouter } from "./egress.ts";
 import { IngestSources, type IngestProducer } from "./ingest-sources.ts";
 import { mediaRoutes, type RouteCapabilities } from "./routes.ts";
-import type { MediaSettings } from "./supervision-policy.ts";
 import type { FromMedia } from "./wire.ts";
 
 const built: RouteCapabilities = {
   ingest: ["tab-pictures"],
-  recordings: false,
-  stills: false,
   delivery: false,
 };
-const settings: MediaSettings = {
-  encode: "auto",
-  delivery: "legacy",
-  recordings: "legacy",
-  stills: "legacy",
-};
 
-const routes = () => mediaRoutes(settings, "healthy", built);
+const routes = () => mediaRoutes("healthy", built);
 
 /** The store fed by the daemon's sources, with ace-media faked at its control lane. */
 function world() {
@@ -38,10 +29,10 @@ function world() {
       send: () => true,
       ingest: () => ({ socket: "/tmp/i.sock", websocketPort: 4000 }),
       need: () => () => {},
+      speaks: () => true,
     },
     router: new EgressRouter((kind) => routes()[kind]),
     routes,
-    settings: () => settings,
     capabilities: () => built,
     randomBytes: (length) => new Uint8Array(length),
     id: () => `m${++ids}`,
@@ -57,7 +48,7 @@ function world() {
     kind: "tab-pictures",
     origin: { kind: "tab-pictures" } as IngestProducer["origin"],
     epoch: () => 0,
-    consumers: { deliver: () => {}, record: () => {}, still: () => {} },
+    consumers: { deliver: () => {} },
     point: () => Promise.resolve(),
     keyframe: () => {},
   };
@@ -107,10 +98,13 @@ it("a source's steps are kept under the daemon's name and follow it across a reo
 });
 
 it("a source's report goes once nothing in ace-media runs it, and with ace-media", () => {
-  const { store, sources, producer, status } = world();
+  const { store, sources, producer, status, drained } = world();
   const source = sources.add(producer);
   status("m1", onHardware);
   source.close();
+  // A JPEG source's last pictures are still in ace-media's encoder until its path drains.
+  expect(store.of("capture-1")).toEqual(onHardware);
+  drained();
   expect(store.of("capture-1")).toBeUndefined();
 
   sources.add({ ...producer, source: "capture-2", tabId: "tab-8" });

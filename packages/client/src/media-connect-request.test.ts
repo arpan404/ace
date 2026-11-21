@@ -43,7 +43,7 @@ const answers = {
     ticket: "A".repeat(43),
     expiresAt: 1,
   },
-  refused: { ok: false, code: "unavailable", message: "media.delivery is legacy" },
+  refused: { ok: false, code: "unavailable", message: "ace-media is not running" },
 };
 
 for (const [name, result] of Object.entries(answers)) {

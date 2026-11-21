@@ -104,7 +104,7 @@ struct ForgePickList: View {
                                 .accessibilityHidden(true)
                         }
                         QuietRowText(title: choice.value, detail: choice.detail)
-                        if on { Image(systemName: "checkmark").foregroundStyle(AceDesign.Ink.primary).accessibilityHidden(true) }
+                        if on { AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceDesign.Ink.primary).accessibilityHidden(true) }
                     }
                     .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                     .contentShape(Rectangle())

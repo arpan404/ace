@@ -193,7 +193,8 @@ describe("the phone's Summary", () => {
     expect(agents?.done).toEqual([]);
     expect(agents?.doneWords).toBe("2 done");
     summary.doneRows(true);
-    expect(names(view(sink)?.agents?.done)).toEqual(["Linter", "Docs"]);
+    // Newest first, as the Agents page lists them.
+    expect(names(view(sink)?.agents?.done)).toEqual(["Docs", "Linter"]);
     expect(view(sink)?.now.progress).toEqual({ done: 2, total: 5, words: "2 of 5 done" });
   });
 
@@ -304,12 +305,48 @@ describe("the phone's Summary", () => {
       (agents?.asks.length ?? 0) +
       (agents?.working.length ?? 0) +
       (agents?.failed.length ?? 0) +
-      (agents?.done.length ?? 0);
+      (agents?.done.length ?? 0) +
+      (agents?.unsure.length ?? 0);
     // What doesn't cross is counted, for the agent tree to show.
     expect(shown + (agents?.hidden ?? 0)).toBe(200);
     expect(agents?.doneWords).toBe("80 done");
     const bytes = new TextEncoder().encode(JSON.stringify(sink.read("thread:summary"))).length;
     expect(bytes).toBeLessThan(32_760);
+  });
+
+  test("delegates whose threads couldn't load fold into one line, and Now counts as the progress does", async () => {
+    const kids = ["k1", "k2", "k3"];
+    const { client, sink, follow } = await opened(
+      "fold",
+      [
+        ...working,
+        ...kids.flatMap((kid) => delegate(kid, kid)),
+        facts.subagent("codex", "busy", "Tester", "spawn-busy"),
+        facts.turn("busy", "spawn"),
+      ],
+      {
+        limits: { threads: 3, threadReserve: 1 },
+        before: (fake) => {
+          for (const kid of kids) child(fake, kid, "fold", working);
+          fake.createThread({ id: "x", workspaceId: "ace", title: "x", provider: "codex" });
+        },
+      },
+    );
+    // Another view takes the spare room: no delegated thread can be read.
+    client.thread("x", { optional: true });
+    const summary = follow();
+    await until(() => view(sink)?.agents?.unsureWords === "3 more agents", "unknown folded");
+    const agents = view(sink)?.agents;
+    expect(names(agents?.working)).toEqual(["Tester"]);
+    // Folded: their rows cross only once the person opens the fold.
+    expect(agents?.unsure).toEqual([]);
+    expect(agents?.done).toEqual([]);
+    // One count: the header says what the groups hold, never "syncing".
+    expect(view(sink)?.now.sub).toBe("1 agent working");
+    expect(view(sink)?.now.progress?.words).toBe("0 of 4 done");
+    summary.unsureRows(true);
+    expect(names(view(sink)?.agents?.unsure)?.toSorted()).toEqual(kids);
+    expect(view(sink)?.agents?.unsure[0]?.step).toBe("Not loaded");
   });
 
   test("a delegate stays working while the thread it delegated to still works", async () => {

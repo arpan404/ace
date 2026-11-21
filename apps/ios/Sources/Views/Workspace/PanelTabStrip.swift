@@ -60,7 +60,7 @@ struct PanelTabStrip: View {
         Menu {
             ForEach(view.tools) { tool in
                 Button { act(["op": "open", "kind": tool.kind]) } label: {
-                    if tool.open { Label(tool.label, systemImage: "checkmark") } else { Text(tool.label) }
+                    if tool.open { Label(tool.label, ace: .check) } else { Text(tool.label) }
                 }
             }
         } label: {

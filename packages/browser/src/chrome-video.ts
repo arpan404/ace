@@ -10,10 +10,10 @@ const OpenedStream = z.object({ streamId: z.string().min(1).max(256) });
 const LoadedExtension = z.object({ id: z.string() });
 
 /*
- * ace's Chrome as a video encoder (ADR 0088): loads the video extension, keeps CDP sessions on
- * its service worker and offscreen document, and turns the document's binding calls into
- * encoded chunks (video, and the tab's sound while asked). One per Chrome process. The I/O
- * shell around the pure fanout and policy.
+ * ace's Chrome as a video encoder (ADR 0088): loads the video extension and keeps CDP sessions
+ * on its service worker and offscreen document. The document streams its chunks (video, and the
+ * tab's sound while asked) straight into ace-media's ingest; over CDP come only its events
+ * (`failed`, `ended`). One per Chrome process.
  */
 
 const Targets = z.object({
@@ -51,7 +51,6 @@ export class ChromeVideo implements VideoHost {
   /** Captures told to stop whose stop hasn't finished: their tab is still held until then. */
   private stopping = new Set<Promise<unknown>>();
   private ids = 0;
-  private picturesHost: VideoHost | undefined;
   constructor(options: {
     connection: Connection;
     /** The browser's target router, told to leave the extension's targets attached. */
@@ -96,7 +95,7 @@ export class ChromeVideo implements VideoHost {
       encodes: (specs) => call("aceVideo.encodes", [id, specs]),
       keyframe: (encode) => call("aceVideo.keyframe", [id, encode]),
       audio: (on) => call("aceVideo.audio", [id, on]),
-      // Chunks go straight to ace-media's ingest, binary, instead of base64 over CDP.
+      // Chunks go only to ace-media's ingest, binary.
       ingest: (target) => call("aceVideo.ingest", [id, target ?? null]),
       close: () => {
         if (!this.captures.delete(id)) return;
@@ -157,73 +156,6 @@ export class ChromeVideo implements VideoHost {
       throw error;
     });
     return opened;
-  }
-  /**
-   * Video of a tab the extension can't capture (a private browser context, ADR 0088 amended):
-   * the live capture hands the tab's JPEG screencast frames to `pictures.push`, and the same
-   * offscreen document decodes and encodes them. Viewers still get only video. One picture is
-   * in flight to the document; a newer one replaces a waiting one.
-   */
-  async openPictures(
-    _page: BrowserCdp | undefined,
-    width: number,
-    height: number,
-    events: CaptureEvents,
-  ): Promise<VideoCaptureHandle> {
-    const { document } = await this.extension();
-    const id = `capture-${++this.ids}`;
-    this.captures.set(id, events);
-    let open = true;
-    let sending = false;
-    let waiting: string | undefined;
-    const send = (data: string) => {
-      sending = true;
-      void evaluate(document, "aceVideo.picture", [id, data])
-        .catch(() => {})
-        .finally(() => {
-          sending = false;
-          const next = waiting;
-          waiting = undefined;
-          if (open && next) send(next);
-        });
-    };
-    try {
-      await evaluate(document, "aceVideo.startPictures", [id]);
-    } catch (error) {
-      this.captures.delete(id);
-      throw error;
-    }
-    const call = (name: string, args: unknown[]) =>
-      void evaluate(document, name, args).catch(() => {});
-    return {
-      encodes: (specs) => call("aceVideo.encodes", [id, specs]),
-      keyframe: (encode) => call("aceVideo.keyframe", [id, encode]),
-      pictures: {
-        width,
-        height,
-        push: (data) => {
-          if (!open) return;
-          if (sending) waiting = data;
-          else send(data);
-        },
-      },
-      close: () => {
-        if (!open) return;
-        open = false;
-        this.captures.delete(id);
-        call("aceVideo.stop", [id]);
-      },
-    };
-  }
-  /** `openPictures` as a video host of its own, for the tabs of a private context. One per
-   * encoder, so what is learned about it (ace-media refusing its pictures) is kept. */
-  pictures(): VideoHost {
-    this.picturesHost ??= {
-      mediaKind: "tab-pictures",
-      supported: (codecs, width, height) => this.supported(codecs, width, height),
-      open: (page, width, height, events) => this.openPictures(page, width, height, events),
-    };
-    return this.picturesHost;
   }
   private extension(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     this.ready ??= this.load().catch((error: unknown) => {
@@ -311,19 +243,14 @@ export class ChromeVideo implements VideoHost {
   private receive(raw: unknown): void {
     const binding = Binding.safeParse(raw);
     if (!binding.success || binding.data.name !== "aceVideoEvent") return;
-    const { payload } = binding.data;
-    const split = payload.indexOf("\n");
     let json: unknown;
     try {
-      json = JSON.parse(split === -1 ? payload : payload.slice(0, split));
+      json = JSON.parse(binding.data.payload);
     } catch {
       return;
     }
     const event = VideoEncoderEvent.safeParse(json);
-    if (!event.success) return;
-    const bytes =
-      split === -1 ? undefined : new Uint8Array(Buffer.from(payload.slice(split + 1), "base64"));
-    deliverVideoEvent(this.captures, event.data, bytes);
+    if (event.success) deliverVideoEvent(this.captures, event.data);
   }
 }
 

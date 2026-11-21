@@ -76,7 +76,7 @@ struct SourceTextView: UIViewRepresentable {
         }
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
             guard let mention = parent.mention, !textView.isEditable, let lines = lines(textView) else { return nil }
-            let action = UIAction(title: "Mention in message", image: UIImage(systemName: "at")) { _ in mention(lines) }
+            let action = UIAction(title: "Mention in message", image: UIImage(ace: .at)) { _ in mention(lines) }
             return UIMenu(children: [action] + suggestedActions)
         }
         /// The 1-based lines a non-empty selection touches while reading.

@@ -4,12 +4,15 @@ import { useMemo } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useAceAccount, useAceAccountStore } from "./account-context.tsx";
 import { accountMachineLists, type AccountMachineLists } from "./account-machines.ts";
+import { useSpace } from "./space-context.tsx";
 
 const empty: AccountMachineLists = { only: [], alsoOnAccount: new Set() };
 
 /**
  * The machines on the person's ace account beside the ones this window lists, without
- * duplicates, and forgetting one. Nothing while signed out or without an account backend.
+ * duplicates, and forgetting one. Nothing while signed out or without an account backend. In an
+ * organization's space they are its hosts; in Personal, the person's own machines, never an org
+ * host (ADR 0206 §1.5). The list is kept per space, so switching never shows another's.
  */
 export function useAccountMachines(listed: readonly { id: string }[]) {
   // This window's own machine, when it is one on the account, lists as the window's machine.
@@ -19,20 +22,21 @@ export function useAccountMachines(listed: readonly { id: string }[]) {
   const { session } = useAceAccount();
   const token = session?.token;
   const queryClient = useQueryClient();
-  const key = ["ace-account", "machines", store?.origin, token] as const;
+  const space = useSpace().shown?.id;
+  const key = ["ace-account", "machines", store?.origin, token, space] as const;
   const query = useQuery({
     queryKey: key,
-    enabled: Boolean(store && token),
+    enabled: Boolean(store && token && space),
     staleTime: 30_000,
     retry: (count, error) =>
       !(error instanceof AceAccountError && error.status === 401) && count < 1,
     queryFn: async ({ signal }) => {
-      if (!store || !token) return [];
+      if (!store || !token || !space) return [];
+      const within = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
       try {
-        return await store.client.machines(
-          token,
-          AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-        );
+        return store.orgs
+          ? await store.orgs.machines(token, space, within)
+          : await store.client.machines(token, within);
       } catch (error) {
         if (error instanceof AceAccountError && error.status === 401) await store.ended();
         throw error;

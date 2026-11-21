@@ -31,7 +31,7 @@ struct PluginPageView: View {
                 }
                 .disabled(!model.canOperate)
                 .accessibilityIdentifier("plugin.enabled")
-                InsetRow("Version", systemImage: nil, value: plugin.version)
+                InsetRow("Version", icon: nil, value: plugin.version)
                 if let source = plugin.source { QuietRowText(title: "Source", detail: source) }
             }
             .insetRowBackground()
@@ -56,7 +56,7 @@ struct PluginPageView: View {
                 Section {
                     ForEach(components) { component in
                         NavigationLink { SkillSourceView(model: model, component: component) } label: {
-                            InsetRow(systemImage: nil, title: component.title ?? component.name, subtitle: component.description) {
+                            InsetRow(icon: nil, title: component.title ?? component.name, subtitle: component.description) {
                                 Text(component.enabled && !component.providers.isEmpty ? component.kind.capitalized : "Off")
                                     .aceFont(AceDesign.TextRole.action)
                                     .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)

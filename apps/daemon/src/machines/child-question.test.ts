@@ -13,6 +13,7 @@ const child = (facts: Partial<QuestionFacts>): QuestionFacts => ({
   watching: false,
   stopping: false,
   silent: false,
+  unconfirmed: false,
   ...facts,
 });
 
@@ -30,6 +31,11 @@ const table: [string, "keep" | "close", Partial<QuestionFacts>][] = [
     "settled and watched, its machine unpaired",
     "keep",
     { settled: true, unpaired: true, watching: true },
+  ],
+  [
+    "stopped without confirmation, its machine unpaired after its 24 h mark",
+    "keep",
+    { settled: true, unpaired: true, unconfirmed: true },
   ],
   ["abandoned: the person stopped tracking it", "close", { settled: true, unpaired: true }],
 ];

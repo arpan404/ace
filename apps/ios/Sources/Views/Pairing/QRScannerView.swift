@@ -40,7 +40,7 @@ struct QRScannerView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(action: dismiss) { Image(systemName: "xmark") }
+                    Button(action: dismiss) { Image(ace: .x) }
                         .accessibilityLabel("Close").accessibilityIdentifier("scanner.close")
                 }
             }
@@ -110,7 +110,7 @@ struct QRScannerView: View {
         HStack(spacing: AceDesign.Space.row) {
             if torchAvailable {
                 Button { torch = !torchLit } label: {
-                    Image(systemName: torchLit ? "flashlight.on.fill" : "flashlight.off.fill")
+                    Image(ace: .flashlight, weight: torchLit ? .fill : .regular)
                         .frame(width: AceDesign.Size.tap - AceDesign.Space.row)
                 }
                 .pairingSecondaryButton()
@@ -130,7 +130,11 @@ struct QRScannerView: View {
     @ViewBuilder private func unavailable(_ phase: ScannerPhase) -> some View {
         let words = ScannerWords(phase)
         ContentUnavailableView {
-            Label(words.title, systemImage: words.symbol)
+            Label {
+                Text(words.title)
+            } icon: {
+                AceIcon(words.icon, size: AceDesign.Size.emptyIcon, relativeTo: .largeTitle)
+            }
         } description: {
             Text(words.line)
         } actions: {
@@ -243,9 +247,10 @@ private struct ScannerFrame: View {
             .frame(width: side, height: side)
             .overlay {
                 if found {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: side / 4, weight: AceDesign.Typeface.strong))
-                        .foregroundStyle(.white, AceDesign.Status.finished)
+                    Image(ace: .checkCircle, weight: .fill)
+                        .resizable().scaledToFit()
+                        .frame(width: side / 4, height: side / 4)
+                        .foregroundStyle(AceDesign.Status.finished)
                         .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
                         .accessibilityLabel("Code found")
                         .accessibilityIdentifier("scanner.found")
@@ -259,7 +264,7 @@ private struct ScannerFrame: View {
 private struct ScannerWords {
     let title: String
     let line: String
-    let symbol = "qrcode.viewfinder"
+    let icon = AceIcon.Name.qrCode
     init(_ phase: ScannerPhase) {
         switch phase {
         case .denied:

@@ -21,6 +21,7 @@ import { loadSpadePersonKey } from "../local-files.ts";
 import { spadeHostThread } from "./spade-host.ts";
 import { startSpadeComputers } from "./spade-computers.ts";
 import { spadeSwitch } from "./spade-switch.ts";
+import { daemonImages } from "./media-images.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** Test seams for Spade's service; production uses the defaults. */
@@ -59,6 +60,8 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     ...(options.pollMs ? { pollMs: options.pollMs } : {}),
     report: (error) => log.log("error", "Spade's status check failed", logError(error)),
     personKey: loadSpadePersonKey(config.dataDir),
+    // Pictures' previews go through ace-media's image process (ADR 0208).
+    images: daemonImages(context),
   });
   services.spade = link;
   context.resources.own(() => link.close(), "spade");

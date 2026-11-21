@@ -1,12 +1,22 @@
-import type { MediaHealth, MediaSettings } from "./supervision-policy.ts";
+import type { MediaHealth } from "./supervision-policy.ts";
 import type { ToMedia } from "./wire.ts";
 
 /**
- * Routes and setting combinations (docs/media/plan.md). For each source kind: where its producer
- * sends frames, whether the daemon tees them into ace-media or ace-media sends them back on
- * egress, and whether each consumer (deliverer, recorder, still maker) is the daemon's legacy
- * one or ace-media's. Every combination of settings, health and capabilities is a complete route:
- * each consumer gets frames from somewhere.
+ * Routes and setting combinations (docs/media/plan.md). Every producer streams into ace-media's
+ * ingest (X2 removed the daemon's own path and its tee for live video). For each source kind:
+ * whether its producer streams now, whether ace-media sends its frames back on egress, and
+ * whether ace-media delivers its viewers.
+ *
+ * Viewers are only ever ace-media's (X3): the daemon has no deliverer of its own. While
+ * ace-media isn't healthy, or can't take a kind, that kind's producer streams nowhere, it has
+ * no deliverer (`none`), and its live views say why (`undeliveredReason`).
+ *
+ * Recordings and stills have no legacy consumer since X1. A screen's or device's recording takes
+ * the source's H.264 back from egress and tees it into ace-media's recorder (`tee-recordings.ts`);
+ * a browser tab's or JPEG-only screen's recording tees its pictures in directly. Egress stays on
+ * for every source ace-media ingests: its end marker is what orders a source's moves between
+ * ace-media paths (`IngestSources`). A still is ace-media's for a source it has, else the
+ * source's own capture.
  */
 
 export type SourceKind = Extract<ToMedia, { type: "source.open" }>["origin"]["kind"];
@@ -16,23 +26,21 @@ export const sourceKinds: readonly SourceKind[] = [
   "user-tab",
   "embedded",
   "screen",
+  "screen-pictures",
   "simulator",
   "scrcpy",
   "emulator-frames",
 ];
 
-/** Where a consumer runs: in the daemon (legacy) or in ace-media. */
-export type ConsumerPlace = "legacy" | "ace-media";
+/** Who delivers a source's pictures to viewers: ace-media, or nobody while it can't. */
+export type DelivererPlace = "ace-media" | "none";
 
 export type SourceRoute = {
-  producer: "daemon" | "ace-media";
-  /** The daemon copies the frames it receives into ace-media's ingest. */
-  tee: boolean;
+  /** `none`: ace-media can't take the source now, so nothing streams and its views retry. */
+  producer: "ace-media" | "none";
   /** ace-media sends the source's frames back to the daemon. */
   egress: boolean;
-  deliverer: ConsumerPlace;
-  recorder: ConsumerPlace;
-  stills: ConsumerPlace;
+  deliverer: DelivererPlace;
 };
 
 export type MediaRoutes = Record<SourceKind, SourceRoute>;
@@ -44,22 +52,16 @@ export type MediaRoutes = Record<SourceKind, SourceRoute>;
 export type RouteCapabilities = {
   /** Source kinds whose producers can stream into ace-media's ingest (E1–E4). */
   ingest: readonly SourceKind[];
-  /** ace-media records (F1). */
-  recordings: boolean;
-  /** ace-media makes stills (F2). */
-  stills: boolean;
   /** ace-media serves viewers (D1). */
   delivery: boolean;
 };
 
 /**
  * Today's build: browser producers stream into ace-media (E4), and ace-media serves viewers on
- * clients' media connections (D1); recordings and stills still act as legacy.
+ * clients' media connections (D1).
  */
 export const builtRouteCapabilities: RouteCapabilities = {
   ingest: ["tab", "tab-pictures", "user-tab", "embedded"],
-  recordings: false,
-  stills: false,
   delivery: true,
 };
 
@@ -71,8 +73,9 @@ export const builtRouteCapabilities: RouteCapabilities = {
  * and streams into ace-media's ingest pipe (E1); Linux screens stream in from their helper (E2).
  */
 export function platformRouteCapabilities(platform: string): RouteCapabilities {
-  // The daemon forwards an Android device's scrcpy units itself, on every platform.
-  const ingest = [...builtRouteCapabilities.ingest, "scrcpy"] as const;
+  // The daemon forwards an Android device's scrcpy units itself, on every platform, and a
+  // JPEG-only screen helper's pictures go to ace-media's encoder wherever ace-media runs.
+  const ingest = [...builtRouteCapabilities.ingest, "scrcpy", "screen-pictures"] as const;
   return {
     ...builtRouteCapabilities,
     ingest:
@@ -84,45 +87,49 @@ export function platformRouteCapabilities(platform: string): RouteCapabilities {
   };
 }
 
-function place(setting: "auto" | "legacy", capable: boolean, healthy: boolean): ConsumerPlace {
-  return setting === "auto" && capable && healthy ? "ace-media" : "legacy";
-}
-
-/** The route for one source kind. Anything but a healthy ace-media makes every `auto` legacy. */
+/**
+ * The route for one source kind. Anything but a healthy ace-media stops its producer, and with
+ * it its delivery.
+ */
 export function sourceRoute(
   kind: SourceKind,
-  settings: MediaSettings,
   health: MediaHealth,
   capabilities: RouteCapabilities,
 ): SourceRoute {
   const healthy = health === "healthy";
-  const deliverer = place(settings.delivery, capabilities.delivery, healthy);
-  const recorder = place(settings.recordings, capabilities.recordings, healthy);
-  const stills = place(settings.stills, capabilities.stills, healthy);
-  const producer =
-    settings.encode === "auto" && healthy && capabilities.ingest.includes(kind)
-      ? "ace-media"
-      : "daemon";
-  const anyInMedia =
-    deliverer === "ace-media" || recorder === "ace-media" || stills === "ace-media";
-  const anyLegacy = deliverer === "legacy" || recorder === "legacy" || stills === "legacy";
+  // ace-media is the only media path: every producer that can stream into it does, while it is
+  // healthy.
+  const producer = healthy && capabilities.ingest.includes(kind) ? "ace-media" : "none";
+  // ace-media delivers what its producer streams into it.
+  const deliverer = producer === "ace-media" && capabilities.delivery ? "ace-media" : "none";
   return {
     producer,
-    tee: producer === "daemon" && anyInMedia,
-    egress: producer === "ace-media" && anyLegacy,
+    // Egress carries every ingested source's end marker, and screens' and devices' H.264 for
+    // their recordings (X1).
+    egress: producer === "ace-media",
     deliverer,
-    recorder,
-    stills,
   };
 }
 
-export function mediaRoutes(
-  settings: MediaSettings,
+/**
+ * Why a source's live views get no pictures now, for the person (X3's "Unavailable"), or
+ * undefined while ace-media delivers it. Pure: the route's inputs.
+ */
+export function undeliveredReason(
+  kind: SourceKind,
   health: MediaHealth,
   capabilities: RouteCapabilities,
-): MediaRoutes {
+): string | undefined {
+  if (sourceRoute(kind, health, capabilities).deliverer === "ace-media") return undefined;
+  if (health === "restarting") return "Live video is starting. It shows in a moment.";
+  if (health === "unavailable")
+    return "Live video stopped: ace's media process keeps failing on this computer. Restart ace to try again.";
+  return "This computer can't stream this live view yet.";
+}
+
+export function mediaRoutes(health: MediaHealth, capabilities: RouteCapabilities): MediaRoutes {
   const routes = {} as MediaRoutes;
-  for (const kind of sourceKinds) routes[kind] = sourceRoute(kind, settings, health, capabilities);
+  for (const kind of sourceKinds) routes[kind] = sourceRoute(kind, health, capabilities);
   return routes;
 }
 
@@ -131,13 +138,6 @@ export function changedRoutes(before: MediaRoutes, after: MediaRoutes): SourceKi
   return sourceKinds.filter((kind) => {
     const a = before[kind],
       b = after[kind];
-    return (
-      a.producer !== b.producer ||
-      a.tee !== b.tee ||
-      a.egress !== b.egress ||
-      a.deliverer !== b.deliverer ||
-      a.recorder !== b.recorder ||
-      a.stills !== b.stills
-    );
+    return a.producer !== b.producer || a.egress !== b.egress || a.deliverer !== b.deliverer;
   });
 }

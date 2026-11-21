@@ -1,3 +1,4 @@
+import { FakeMediaConnections } from "./media-connections.ts";
 import type { PlaceInput } from "@ace/ui-core/thread-place";
 import { FakeComputerAccess } from "./computer-access.ts";
 import { FakeSpade } from "./spade.ts";
@@ -177,6 +178,8 @@ export class FakeDaemon implements Host {
   /** iOS Simulators and Android emulators, over a dedicated devices channel. */
   readonly appDevices: FakeAppDevices;
   readonly screen: FakeScreen;
+  /** ace-media's media connections: the only way live views get pictures (X3). */
+  readonly media: FakeMediaConnections;
   readonly commandFlights = new CommandFlights();
   /** Transfers to other fake machines (ADR 0101); `linkTo` makes a machine reachable. */
   readonly transfers: FakeTransfers;
@@ -185,6 +188,7 @@ export class FakeDaemon implements Host {
   /** Spade's status, with its host thread (`spade.ts`). */
   readonly spade = new FakeSpade();
   constructor(options: FakeDaemonOptions) {
+    this.media = new FakeMediaConnections(options.clock, options.hostId ?? "local");
     this.options = options;
     this.worktreeCreations = new FakeWorktreeCreations(
       options.clock,
@@ -234,9 +238,10 @@ export class FakeDaemon implements Host {
         this.access.machineAccount?.status().signedIn === true,
       ),
     );
-    this.appDevices = new FakeAppDevices(options.clock);
+    this.appDevices = new FakeAppDevices(options.clock, this.media);
     let screenSequence = 0;
     this.screen = new FakeScreen({
+      media: this.media,
       permissions: this.appDevices.permissions,
       id: options.screenId ?? (() => `fake-screen-${++screenSequence}`),
       schedule:
@@ -307,6 +312,7 @@ export class FakeDaemon implements Host {
       ...(options.projectScheduler ? { schedule: options.projectScheduler } : {}),
     });
     this.servicesWire = new FakeServicesWire(
+      this.media,
       {
         now: options.clock,
         projectRoots: () =>

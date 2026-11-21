@@ -10,6 +10,7 @@ import { ContextError, attachmentLimits, attachmentSizeProblem, expectContext } 
 import { z } from "zod";
 import { call } from "./host.ts";
 import { preview } from "./presentation.ts";
+import { pictureLine } from "./attachment-picture.ts";
 
 /*
  * Files and photos for a message: the open thread's next one, or New thread's first. Swift keeps
@@ -142,7 +143,8 @@ export class AttachmentTray {
         error: "",
         uploadId: undefined,
         draftId: undefined,
-        carried: { itemId, thumbnail: attachment.thumbnailAvailable === true },
+        // Drawn as its message draws it (`attachment-picture.ts`).
+        carried: { itemId, thumbnail: pictureLine(attachment).drawn },
         abort: new AbortController(),
       });
     }

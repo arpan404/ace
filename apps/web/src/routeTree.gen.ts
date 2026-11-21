@@ -56,6 +56,12 @@ import { Route as SpadeRunningRouteImport } from "./routes/spade.running"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
+import { Route as SettingsOrganizationIndexRouteImport } from "./routes/settings.organization.index"
+import { Route as SettingsOrganizationAuditRouteImport } from "./routes/settings.organization.audit"
+import { Route as SettingsOrganizationHostsRouteImport } from "./routes/settings.organization.hosts"
+import { Route as SettingsOrganizationPolicyRouteImport } from "./routes/settings.organization.policy"
+import { Route as SettingsOrganizationRegistryRouteImport } from "./routes/settings.organization.registry"
+import { Route as SettingsOrganizationSignInRouteImport } from "./routes/settings.organization.sign-in"
 import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.providers.index"
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
 import { Route as SettingsRemoteIndexRouteImport } from "./routes/settings.remote.index"
@@ -313,6 +319,42 @@ const AutomationsAutomationIdEditRoute =
     path: "/$automationId/edit",
     getParentRoute: () => AutomationsRoute,
   } as any)
+const SettingsOrganizationIndexRoute =
+  SettingsOrganizationIndexRouteImport.update({
+    id: "/organization/",
+    path: "/organization/",
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsOrganizationAuditRoute =
+  SettingsOrganizationAuditRouteImport.update({
+    id: "/organization/audit",
+    path: "/organization/audit",
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsOrganizationHostsRoute =
+  SettingsOrganizationHostsRouteImport.update({
+    id: "/organization/hosts",
+    path: "/organization/hosts",
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsOrganizationPolicyRoute =
+  SettingsOrganizationPolicyRouteImport.update({
+    id: "/organization/policy",
+    path: "/organization/policy",
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsOrganizationRegistryRoute =
+  SettingsOrganizationRegistryRouteImport.update({
+    id: "/organization/registry",
+    path: "/organization/registry",
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsOrganizationSignInRoute =
+  SettingsOrganizationSignInRouteImport.update({
+    id: "/organization/sign-in",
+    path: "/organization/sign-in",
+    getParentRoute: () => SettingsRoute,
+  } as any)
 const SettingsProvidersIndexRoute = SettingsProvidersIndexRouteImport.update({
   id: "/providers/",
   path: "/providers/",
@@ -464,6 +506,11 @@ export interface FileRoutesByFullPath {
   "/spade/": typeof SpadeIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/settings/organization/audit": typeof SettingsOrganizationAuditRoute
+  "/settings/organization/hosts": typeof SettingsOrganizationHostsRoute
+  "/settings/organization/policy": typeof SettingsOrganizationPolicyRoute
+  "/settings/organization/registry": typeof SettingsOrganizationRegistryRoute
+  "/settings/organization/sign-in": typeof SettingsOrganizationSignInRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
@@ -475,6 +522,7 @@ export interface FileRoutesByFullPath {
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
+  "/settings/organization/": typeof SettingsOrganizationIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
   "/settings/spade/": typeof SettingsSpadeIndexRoute
@@ -528,6 +576,11 @@ export interface FileRoutesByTo {
   "/spade": typeof SpadeIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/settings/organization/audit": typeof SettingsOrganizationAuditRoute
+  "/settings/organization/hosts": typeof SettingsOrganizationHostsRoute
+  "/settings/organization/policy": typeof SettingsOrganizationPolicyRoute
+  "/settings/organization/registry": typeof SettingsOrganizationRegistryRoute
+  "/settings/organization/sign-in": typeof SettingsOrganizationSignInRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
@@ -539,6 +592,7 @@ export interface FileRoutesByTo {
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
+  "/settings/organization": typeof SettingsOrganizationIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
   "/settings/remote": typeof SettingsRemoteIndexRoute
   "/settings/spade": typeof SettingsSpadeIndexRoute
@@ -598,6 +652,11 @@ export interface FileRoutesById {
   "/spade/": typeof SpadeIndexRoute
   "/_home/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/settings/organization/audit": typeof SettingsOrganizationAuditRoute
+  "/settings/organization/hosts": typeof SettingsOrganizationHostsRoute
+  "/settings/organization/policy": typeof SettingsOrganizationPolicyRoute
+  "/settings/organization/registry": typeof SettingsOrganizationRegistryRoute
+  "/settings/organization/sign-in": typeof SettingsOrganizationSignInRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
@@ -609,6 +668,7 @@ export interface FileRoutesById {
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
+  "/settings/organization/": typeof SettingsOrganizationIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
   "/settings/spade/": typeof SettingsSpadeIndexRoute
@@ -668,6 +728,11 @@ export interface FileRouteTypes {
     | "/spade/"
     | "/t/$threadId"
     | "/automations/$automationId/edit"
+    | "/settings/organization/audit"
+    | "/settings/organization/hosts"
+    | "/settings/organization/policy"
+    | "/settings/organization/registry"
+    | "/settings/organization/sign-in"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
     | "/settings/remote/every-machine"
@@ -679,6 +744,7 @@ export interface FileRouteTypes {
     | "/spade/groups/$groupId"
     | "/spade/groups/new"
     | "/automations/$automationId/"
+    | "/settings/organization/"
     | "/settings/providers/"
     | "/settings/remote/"
     | "/settings/spade/"
@@ -732,6 +798,11 @@ export interface FileRouteTypes {
     | "/spade"
     | "/t/$threadId"
     | "/automations/$automationId/edit"
+    | "/settings/organization/audit"
+    | "/settings/organization/hosts"
+    | "/settings/organization/policy"
+    | "/settings/organization/registry"
+    | "/settings/organization/sign-in"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
     | "/settings/remote/every-machine"
@@ -743,6 +814,7 @@ export interface FileRouteTypes {
     | "/spade/groups/$groupId"
     | "/spade/groups/new"
     | "/automations/$automationId"
+    | "/settings/organization"
     | "/settings/providers"
     | "/settings/remote"
     | "/settings/spade"
@@ -801,6 +873,11 @@ export interface FileRouteTypes {
     | "/spade/"
     | "/_home/t/$threadId"
     | "/automations/$automationId/edit"
+    | "/settings/organization/audit"
+    | "/settings/organization/hosts"
+    | "/settings/organization/policy"
+    | "/settings/organization/registry"
+    | "/settings/organization/sign-in"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
     | "/settings/remote/every-machine"
@@ -812,6 +889,7 @@ export interface FileRouteTypes {
     | "/spade/groups/$groupId"
     | "/spade/groups/new"
     | "/automations/$automationId/"
+    | "/settings/organization/"
     | "/settings/providers/"
     | "/settings/remote/"
     | "/settings/spade/"
@@ -1168,6 +1246,48 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AutomationsAutomationIdEditRouteImport
       parentRoute: typeof AutomationsRoute
     }
+    "/settings/organization/": {
+      id: "/settings/organization/"
+      path: "/organization"
+      fullPath: "/settings/organization/"
+      preLoaderRoute: typeof SettingsOrganizationIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/organization/audit": {
+      id: "/settings/organization/audit"
+      path: "/organization/audit"
+      fullPath: "/settings/organization/audit"
+      preLoaderRoute: typeof SettingsOrganizationAuditRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/organization/hosts": {
+      id: "/settings/organization/hosts"
+      path: "/organization/hosts"
+      fullPath: "/settings/organization/hosts"
+      preLoaderRoute: typeof SettingsOrganizationHostsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/organization/policy": {
+      id: "/settings/organization/policy"
+      path: "/organization/policy"
+      fullPath: "/settings/organization/policy"
+      preLoaderRoute: typeof SettingsOrganizationPolicyRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/organization/registry": {
+      id: "/settings/organization/registry"
+      path: "/organization/registry"
+      fullPath: "/settings/organization/registry"
+      preLoaderRoute: typeof SettingsOrganizationRegistryRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/organization/sign-in": {
+      id: "/settings/organization/sign-in"
+      path: "/organization/sign-in"
+      fullPath: "/settings/organization/sign-in"
+      preLoaderRoute: typeof SettingsOrganizationSignInRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/providers/": {
       id: "/settings/providers/"
       path: "/providers"
@@ -1385,6 +1505,11 @@ interface SettingsRouteChildren {
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
+  SettingsOrganizationAuditRoute: typeof SettingsOrganizationAuditRoute
+  SettingsOrganizationHostsRoute: typeof SettingsOrganizationHostsRoute
+  SettingsOrganizationPolicyRoute: typeof SettingsOrganizationPolicyRoute
+  SettingsOrganizationRegistryRoute: typeof SettingsOrganizationRegistryRoute
+  SettingsOrganizationSignInRoute: typeof SettingsOrganizationSignInRoute
   SettingsProvidersProviderRoute: typeof SettingsProvidersProviderRoute
   SettingsRemoteMachineRoute: typeof SettingsRemoteMachineRoute
   SettingsRemoteEveryMachineRoute: typeof SettingsRemoteEveryMachineRoute
@@ -1393,6 +1518,7 @@ interface SettingsRouteChildren {
   SettingsSpadeModelsRoute: typeof SettingsSpadeModelsRoute
   SettingsSpadeSearchRoute: typeof SettingsSpadeSearchRoute
   SettingsSpadeSecurityRoute: typeof SettingsSpadeSecurityRoute
+  SettingsOrganizationIndexRoute: typeof SettingsOrganizationIndexRoute
   SettingsProvidersIndexRoute: typeof SettingsProvidersIndexRoute
   SettingsRemoteIndexRoute: typeof SettingsRemoteIndexRoute
   SettingsSpadeIndexRoute: typeof SettingsSpadeIndexRoute
@@ -1417,6 +1543,11 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsStorageRoute: SettingsStorageRoute,
   SettingsIndexRoute: SettingsIndexRoute,
+  SettingsOrganizationAuditRoute: SettingsOrganizationAuditRoute,
+  SettingsOrganizationHostsRoute: SettingsOrganizationHostsRoute,
+  SettingsOrganizationPolicyRoute: SettingsOrganizationPolicyRoute,
+  SettingsOrganizationRegistryRoute: SettingsOrganizationRegistryRoute,
+  SettingsOrganizationSignInRoute: SettingsOrganizationSignInRoute,
   SettingsProvidersProviderRoute: SettingsProvidersProviderRoute,
   SettingsRemoteMachineRoute: SettingsRemoteMachineRoute,
   SettingsRemoteEveryMachineRoute: SettingsRemoteEveryMachineRoute,
@@ -1425,6 +1556,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsSpadeModelsRoute: SettingsSpadeModelsRoute,
   SettingsSpadeSearchRoute: SettingsSpadeSearchRoute,
   SettingsSpadeSecurityRoute: SettingsSpadeSecurityRoute,
+  SettingsOrganizationIndexRoute: SettingsOrganizationIndexRoute,
   SettingsProvidersIndexRoute: SettingsProvidersIndexRoute,
   SettingsRemoteIndexRoute: SettingsRemoteIndexRoute,
   SettingsSpadeIndexRoute: SettingsSpadeIndexRoute,

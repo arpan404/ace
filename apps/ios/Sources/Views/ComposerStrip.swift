@@ -66,7 +66,7 @@ struct GroupedValue: View {
     var body: some View {
         HStack(spacing: AceDesign.Space.tight) {
             Text(text).lineLimit(1).foregroundStyle(AceTheme.Colours.mutedForeground)
-            Image(systemName: "chevron.right").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
+            AceIcon(.caretRight, size: AceDesign.Size.glyphMeta, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
                 .accessibilityHidden(true)
         }
     }

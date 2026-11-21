@@ -44,9 +44,13 @@ struct QuestionDraftState: Equatable {
 /// whether they answer it.
 struct QuestionReply {
     let interactionId: String
+    /// The whole-request version the card showed (`ApprovalRow.wholeVersion`).
+    var version: String? = nil
     let draft: QuestionDraftState
     var payload: [String: Any] {
-        ["interactionId": interactionId, "picked": draft.answers.picked, "written": draft.answers.written, "at": draft.page]
+        var reply: [String: Any] = ["interactionId": interactionId, "picked": draft.answers.picked, "written": draft.answers.written, "at": draft.page]
+        if let version { reply["version"] = version }
+        return reply
     }
 }
 
@@ -65,6 +69,7 @@ struct QuestionCard: View {
     /// The picks, words and question on screen, kept by the thread so words typed in the
     /// composer can answer it with them.
     @Binding var draft: QuestionDraftState
+    var retry: (() -> Void)? = nil
     let answer: ([String: [String]], Bool) -> Void
     private var answers: QuestionAnswers { get { draft.answers } nonmutating set { draft.answers = newValue } }
     private var page: Int { get { draft.page } nonmutating set { draft.page = newValue } }
@@ -85,7 +90,14 @@ struct QuestionCard: View {
                 .id(question.id)
             }
             if interaction.unanswerable == true {
-                Text(interaction.tooLargeToApprove ? interaction.summarized ?? "" : "This question has more choices than fit here. Answer it on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                if interaction.tooLargeToApprove {
+                    SummarizedRequestNote(text: interaction.summarized ?? "", failed: interaction.wholeState == "failed",
+                                          retryable: interaction.wholeRetryable == true, retry: retry)
+                } else {
+                    Text("This question has more choices than fit here. Answer it on your machine.")
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
             }
             RequestActions {
                 Button(questions.count > 1 ? "Skip these questions" : "Skip this question") { answer([:], true) }
@@ -149,7 +161,7 @@ struct ChoiceRow<Content: View>: View {
             HStack(alignment: .center, spacing: AceDesign.Space.row) {
                 content()
                 Spacer(minLength: AceTheme.Spacing.none)
-                Image(systemName: "checkmark").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
+                AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .body)
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .opacity(chosen ? 1 : 0)
                     .accessibilityHidden(true)

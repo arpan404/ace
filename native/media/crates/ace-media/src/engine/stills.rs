@@ -131,6 +131,11 @@ struct Entry {
     /// The privacy epochs the current picture's content came from: a JPEG's own, or every unit
     /// of the video group since its keyframe (a delta carries earlier content forward).
     epochs: Option<(u32, u32)>,
+    /// Epochs below this one were private (M8: the source applied it with `followsPrivate`):
+    /// nothing from them is the still, whoever asks.
+    private_before: u32,
+    /// The source opened in a private epoch and has applied none since (`source.open.private`).
+    opened_private: bool,
 }
 
 enum Current {
@@ -169,6 +174,11 @@ struct Request {
     /// A poster's: the epochs the daemon decided clear. None for an agent's still, which is
     /// the daemon's grant (live views and stills aren't filtered by the barrier).
     clear: Option<Vec<(u32, u32)>>,
+    /// A still's fence: the newest public epoch the daemon announced (`still.take.minEpoch`).
+    min_epoch: Option<u32>,
+    /// Waiting for a picture that arrives after the request (`still.take.fresh`): what the
+    /// source had when it was asked may be from before the agent's input.
+    fresh: bool,
 }
 
 struct Held {
@@ -208,6 +218,31 @@ impl Stills {
             made: HashMap::new(),
             discarded: HashMap::new(),
         }
+    }
+
+    /// `source.epoch` (M8): applied with `followsPrivate`, every epoch before `epoch` was
+    /// private. A still made of one is dropped now, and none is kept from one again: a picture
+    /// read in the private epoch's read gap is stamped with it, so it never becomes the still.
+    pub fn epoch(&mut self, source: &str, epoch: u32, follows_private: bool) {
+        let Some(entry) = self.current.get_mut(source) else {
+            return;
+        };
+        if !follows_private || epoch <= entry.private_before {
+            return;
+        }
+        entry.private_before = epoch;
+        if entry.epochs.is_none_or(|(_, high)| high < epoch) {
+            entry.current = Current::Nothing;
+            entry.epochs = None;
+        }
+    }
+
+    /// Whether the source opened private and has applied no epoch since, so the epoch being
+    /// applied now follows a private one. Consumed: it is true for that first epoch only.
+    pub fn take_opened_private(&mut self, source: &str) -> bool {
+        self.current
+            .get_mut(source)
+            .is_some_and(|e| std::mem::take(&mut e.opened_private))
     }
 
     /// `record.epochs`'s discarded ranges for `source`: a poster in the making from one of them
@@ -250,7 +285,7 @@ impl Stills {
         false
     }
 
-    pub fn open(&mut self, source: &str, handle: u32) {
+    pub fn open(&mut self, source: &str, handle: u32, private: bool) {
         self.close(source, &mut Vec::new());
         let entry = Entry {
             handle,
@@ -258,6 +293,8 @@ impl Stills {
             config: None,
             current: Current::Nothing,
             epochs: None,
+            private_before: 0,
+            opened_private: private,
         };
         self.current.insert(source.to_owned(), entry);
     }
@@ -293,6 +330,12 @@ impl Stills {
         let Some(entry) = self.current.get_mut(source) else {
             return;
         };
+        // Content from a private epoch, after the source left it: never the still.
+        if frame.epoch < entry.private_before {
+            entry.current = Current::Nothing;
+            entry.epochs = None;
+            return;
+        }
         let key = frame.flags & FLAG_KEYFRAME != 0;
         let config = Config {
             encode: frame.encode,
@@ -306,6 +349,7 @@ impl Stills {
             (KIND_PICTURE, CODEC_JPEG) => {
                 entry.current = jpeg(&frame.payload, config.size);
                 entry.epochs = Some((frame.epoch, frame.epoch));
+                self.dispatch_fresh(source, out);
             }
             (KIND_VIDEO, 1..=4) if key => {
                 entry.encode = frame.encode;
@@ -356,23 +400,10 @@ impl Stills {
                 if units.len() > MAX_UNITS || *bytes > MAX_BYTES {
                     entry.current = Current::Lost;
                 }
+                self.dispatch_fresh(source, out);
             }
             (KIND_VIDEO | KIND_PICTURE, _) => entry.current = Current::Unsupported,
             _ => {}
-        }
-    }
-
-    /// `source.picture`: a screencast frame the daemon passes on, as the base64 JPEG text
-    /// Chrome sent. Text that doesn't decode leaves the source with no picture.
-    pub fn picture(&mut self, source: &str, text: &[u8], epoch: u32) {
-        if let Some(entry) = self.current.get_mut(source) {
-            entry.epochs = Some((epoch, epoch));
-            let no_size = Size {
-                width: 0,
-                height: 0,
-            };
-            entry.current =
-                super::base64::decode(text).map_or(Current::Nothing, |bytes| jpeg(&bytes, no_size));
         }
     }
 
@@ -386,6 +417,8 @@ impl Stills {
         max_pixels: u32,
         quality: u32,
         deadline_ms: u32,
+        min_epoch: Option<u32>,
+        fresh: bool,
         now_ms: u64,
         out: &mut Vec<Effect>,
     ) {
@@ -409,7 +442,31 @@ impl Stills {
             make: Make::Still { quality },
             deadline_ms: now_ms.saturating_add(u64::from(deadline_ms)),
             clear: None,
+            min_epoch,
+            fresh,
         };
+        // A fresh still waits for the source's next picture, at most until its deadline.
+        if fresh {
+            let Some(entry) = self.current.get(&request.source) else {
+                return failed(out, request.request, "no-source");
+            };
+            // A group too long to hold was dropped: no picture can be made until a keyframe,
+            // which an encoder making keyframes only when asked (a re-encoded Simulator) never
+            // sends unasked. One request per wait, as `start` does; the keyframe dispatches it.
+            if matches!(entry.current, Current::Lost)
+                && !self.waiting.iter().any(|r| r.source == request.source)
+            {
+                normal(
+                    out,
+                    FromMedia::SourceKeyframe {
+                        source: id(&request.source),
+                        encode: entry.encode,
+                        reason: KeyReason::Drop,
+                    },
+                );
+            }
+            return self.waiting.push(request);
+        }
         self.start(request, out);
     }
 
@@ -443,6 +500,8 @@ impl Stills {
             make: Make::Poster,
             deadline_ms: now_ms.saturating_add(u64::from(deadline_ms)),
             clear: Some(clear),
+            min_epoch: None,
+            fresh: false,
         };
         self.start(request, out);
     }
@@ -452,6 +511,14 @@ impl Stills {
         if let (Some(clear), Some(entry)) = (&request.clear, self.current.get(&request.source))
             && matches!(entry.current, Current::Jpeg { .. } | Current::Video { .. })
             && !self.cleared(&request.source, entry.epochs, clear)
+        {
+            return failed(out, request.request, "private");
+        }
+        // Fenced on the daemon's newest public epoch: a picture from before it may be private
+        // content ace-media hasn't heard the end of yet, so it is never this still.
+        if let (Some(min), Some(entry)) = (request.min_epoch, self.current.get(&request.source))
+            && matches!(entry.current, Current::Jpeg { .. } | Current::Video { .. })
+            && entry.epochs.is_none_or(|(low, _)| low < min)
         {
             return failed(out, request.request, "private");
         }
@@ -569,12 +636,29 @@ impl Stills {
         }
     }
 
+    /// A picture of `source` arrived: the fresh stills waiting for one may be made now.
+    fn dispatch_fresh(&mut self, source: &str, out: &mut Vec<Effect>) {
+        if !self.waiting.iter().any(|r| r.fresh && r.source == source) {
+            return;
+        }
+        let (ready, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.waiting)
+            .into_iter()
+            .partition(|r| r.fresh && r.source == source);
+        self.waiting = kept;
+        for mut request in ready {
+            request.fresh = false;
+            self.start(request, out);
+        }
+    }
+
     fn dispatch_waiting(&mut self, source: &str, out: &mut Vec<Effect>) {
         let (ready, kept) = std::mem::take(&mut self.waiting)
             .into_iter()
             .partition(|r| r.source == source);
         self.waiting = kept;
-        for request in ready {
+        for mut request in ready {
+            // A keyframe that arrived after a fresh request is a fresh picture.
+            request.fresh = false;
             self.start(request, out);
         }
     }

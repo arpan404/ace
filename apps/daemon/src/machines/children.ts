@@ -99,10 +99,13 @@ export const UNREACHABLE_RETRY_CAP_MS = 30_000;
 /**
  * The person stopped tracking this lost child: it stays settled for good (ADR 0099). A settled
  * child whose machine was unpaired, still waiting on the person's answer, keeps its re-check
- * window (`settled_at`) and is not abandoned yet.
+ * window (`settled_at`) or its unconfirmed stop, and is not abandoned yet.
  */
 const abandoned = (row: ChildRow) =>
-  row.settled === 1 && row.lost_at !== null && row.settled_at === null;
+  row.settled === 1 &&
+  row.lost_at !== null &&
+  row.settled_at === null &&
+  row.stopped_unconfirmed !== 1;
 
 /**
  * Delegated children that run on other machines. The ledger is durable so a restart keeps
@@ -180,6 +183,7 @@ export class MachineChildren implements RemoteChildren {
       results: this.results,
       cancel: (row) => deps.cancel(row.machine, row.parent_thread, row.id),
       unpaired: (row) => this.lostFrom(row.machine)?.(row) ?? false,
+      unpairedStop: (row) => this.lost.keepSettled(row),
       silent: (row, since) => void this.lost.openSilent(row, since),
       heard: (row) => this.lost.heard(row),
       unanswered: this.unanswered,
@@ -778,7 +782,7 @@ export class MachineChildren implements RemoteChildren {
     for (const row of this.ledger.settledLost()) {
       // No one is left to ask about a child of a parent that is gone.
       if (this.gone(row.parent_thread)) {
-        this.ledger.endWatch(row.id);
+        this.lost.endWatch(row);
         continue;
       }
       const lost = this.lostFrom(row.machine);

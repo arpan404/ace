@@ -121,10 +121,19 @@ struct AceAccountView: View {
                     .accessibilityIdentifier("account.signIn")
             }
         } footer: {
-            Text(Self.agreement)
-                .font(AceDesign.Typeface.meta)
-                .foregroundStyle(AceDesign.Ink.muted)
-                .accessibilityIdentifier("account.signIn.terms")
+            // Development and fixture builds name no account server (`ACE_ACCOUNT_URL`), so the
+            // greyed-out button says why rather than looking broken.
+            if model.configured {
+                Text(Self.agreement)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .accessibilityIdentifier("account.signIn.terms")
+            } else {
+                Text("This build has no account server, so sign-in is off.")
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .accessibilityIdentifier("account.signIn.off")
+            }
         }
         .insetRowBackground()
     }
@@ -225,7 +234,7 @@ struct AceAccountView: View {
                     .accessibilityIdentifier("account.machines.empty")
             }
             ForEach(listed) { machine in
-                InsetRow(systemImage: Self.symbol(machine.platform), title: Self.name(machine), subtitle: subtitle(machine)) { EmptyView() }
+                InsetRow(icon: Self.icon(machine.platform), title: Self.name(machine), subtitle: subtitle(machine)) { EmptyView() }
                     .swipeActions(edge: .trailing) { forget(machine) }
                     .contextMenu { forget(machine) }
                     // One element per machine ("studio, Seen 3 days ago"), not one per glyph and line.
@@ -266,11 +275,11 @@ struct AceAccountView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    static func symbol(_ platform: String) -> String {
+    static func icon(_ platform: String) -> AceIcon.Name {
         switch platform {
-        case "darwin", "macos": "laptopcomputer"
-        case "win32", "windows": "pc"
-        default: "desktopcomputer"
+        case "darwin", "macos": .laptop
+        case "win32", "windows": .desktopTower
+        default: .desktop
         }
     }
 }

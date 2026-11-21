@@ -3,7 +3,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "key": {
-      "$ref": "https://ace.local/protocol/v1/SettingsKey.json"
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/SettingsKey.json"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/RetiredSettingsKey.json"
+        }
+      ]
     },
     "requestId": {
       "maxLength": 128,

@@ -10,7 +10,7 @@ import Observation
     /// newly chosen project whose rows haven't arrived yet.
     private(set) var scope: ForgeListScope?
     private(set) var loading = false
-    /// The last read failed, in the web's words; the previous rows stay.
+    /// The last read failed, in the web's words; rows of the same filter stay under it.
     private(set) var failure: String?
     /// The rows on screen answer an older filter than the one being read.
     private(set) var stale = false
@@ -30,12 +30,23 @@ import Observation
     /// ones; the same key reads again (pull to refresh with `fresh`).
     func load(_ key: String, scope: ForgeListScope, fresh: Bool = false, kept: List? = nil,
               read: @escaping (_ screens: Int, _ fresh: Bool) async throws -> List) async {
-        asking = scope
-        if key != self.key {
-            self.key = key; screens = 1; failure = nil
-            if let kept { list = kept; self.scope = scope; stale = false } else { stale = list != nil }
-        }
+        select(key, scope: scope, kept: kept)
         await run(fresh: fresh, read: read)
+    }
+    /// The person chose `key` (another filter or project), read or not: its `kept` rows show,
+    /// else the old ones dim, and an answer still coming for an older key is dropped.
+    func select(_ key: String, scope: ForgeListScope, kept: List? = nil) {
+        asking = scope
+        guard key != self.key else { return }
+        self.key = key; screens = 1; failure = nil
+        generation += 1; loading = false
+        if let kept { list = kept; self.scope = scope; stale = false } else { stale = list != nil }
+    }
+    /// The machine is out, so the chosen list can't be read: rows of another choice go, and the
+    /// list says the machine is out rather than showing them as this one's.
+    func unreachable() {
+        guard stale else { return }
+        list = nil; scope = nil; stale = false
     }
     /// One more screenful of the same list.
     func more(read: @escaping (_ screens: Int, _ fresh: Bool) async throws -> List) async {
@@ -58,8 +69,12 @@ import Observation
         } catch is CancellationError {
             return
         } catch {
-            guard mine == generation else { return }
+            // A read given up because its screen read again (a changed filter) says nothing.
+            guard mine == generation, !Task.isCancelled else { return }
             failure = error.localizedDescription
+            // Rows from another filter or project don't answer this one: the failure shows on
+            // its own, never over rows that look like this filter's answer.
+            if stale { list = nil; scope = nil }
             stale = false
         }
     }

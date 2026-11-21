@@ -18,6 +18,5 @@ struct RowStatusIcon: View {
 
     var body: some View { RowStatusMark(kind: kind, tone: tone, count: count, size: size) }
 
-    static func symbol(_ kind: String) -> String? { RowStatusMark.symbol(kind) }
     @MainActor static func colour(_ tone: String) -> Color { RowStatusMark.colour(tone) }
 }

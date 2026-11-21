@@ -14,7 +14,7 @@ struct CachedChatsView: View {
                 if inbox.sessions.contains(where: { $0.client.cacheUsage == nil }) {
                     SkeletonRows(count: 1, label: "Reading cached chats")
                 } else if inbox.sessions.allSatisfy({ $0.client.cacheUsage?.measured != false }) {
-                    InsetRow("Kept on this phone", systemImage: nil, value: summary(threads: total.threads, bytes: total.bytes))
+                    InsetRow("Kept on this phone", icon: nil, value: summary(threads: total.threads, bytes: total.bytes))
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("cache.total")
                 }
@@ -41,7 +41,7 @@ struct CachedChatsView: View {
             if inbox.sessions.count > 1 {
                 Section {
                     ForEach(inbox.sessions) { session in
-                        InsetRow(systemImage: nil, title: inbox.name(session.hostId), subtitle: usage(session)) {
+                        InsetRow(icon: nil, title: inbox.name(session.hostId), subtitle: usage(session)) {
                             Button("Clear", role: .destructive) { clearing = session }
                                 .buttonStyle(.secondaryAction).controlSize(.small)
                                 .disabled(session.client.cacheUsage?.bytes == 0)

@@ -1,12 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { performance } from "node:perf_hooks";
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { FrameDecoder, FrameHub, Recording, framePacket, type Frame } from "../src/index.ts";
+import { FrameDecoder, FrameHub, framePacket, type Frame } from "../src/index.ts";
 const mode = process.argv[2];
 if (!mode) {
-  for (const name of ["decode", "fanout", "recording"])
+  for (const name of ["decode", "fanout"])
     process.stdout.write(execFileSync(process.execPath, [new URL(import.meta.url).pathname, name]));
 } else {
   const payload = Buffer.alloc(128 * 1024, 1);
@@ -43,26 +40,6 @@ if (!mode) {
     }
     report("8-subscriber latest-frame fan-out offers", 100_000, start);
     hub.clear();
-  } else if (mode === "recording") {
-    const directory = await mkdtemp(join(tmpdir(), "screen-bench-"));
-    try {
-      const recorder = await Recording.open(directory, "bench", async () => {}, 128 * 1024 * 1024);
-      const recordingStart = performance.now();
-      for (let i = 0; i < 512; i++) {
-        recorder.push(frame);
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      }
-      const artifact = await recorder.stop();
-      report("bounded recording offers", 512, recordingStart);
-      console.log(
-        JSON.stringify({
-          recordingBytes: artifact.bytes,
-          persistedFrames: artifact.bytes / packet.length,
-        }),
-      );
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
   }
 }
 function report(name: string, count: number, start: number) {

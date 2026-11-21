@@ -36,19 +36,19 @@ struct ProjectDetailView: View {
             .insetRowBackground()
 
             Section {
-                NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { InsetRow("Files", systemImage: nil) }
-                NavigationLink { PastSessionsView(model: model, project: project) } label: { InsetRow("Past CLI sessions", systemImage: nil) }
+                NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { InsetRow("Files", icon: nil) }
+                NavigationLink { PastSessionsView(model: model, project: project) } label: { InsetRow("Past CLI sessions", icon: nil) }
                 NavigationLink { ProjectRepositoriesView(model: model, project: project) } label: {
-                    InsetRow("Repositories", systemImage: nil, subtitle: "Where reviews are read and pull requests open")
+                    InsetRow("Repositories", icon: nil, subtitle: "Where reviews are read and pull requests open")
                 }
                 .accessibilityIdentifier("project.repositories")
                 OpenOnHostMenu(model: model, target: HostOpenTarget(workspaceId: project.id)) {
-                    InsetRow(systemImage: nil, title: "Open in…", subtitle: "An editor or the file manager on the computer") { RowCaret() }
+                    InsetRow(icon: nil, title: "Open in…", subtitle: "An editor or the file manager on the computer") { RowCaret() }
                 }
                 .accessibilityIdentifier("project.openIn")
                 if model.canOperate {
                     Button { publishing = true } label: {
-                        InsetRow(systemImage: nil, title: "Publish repository…", subtitle: "A new GitHub repository for this project") { RowCaret() }
+                        InsetRow(icon: nil, title: "Publish repository…", subtitle: "A new GitHub repository for this project") { RowCaret() }
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("project.publish")
@@ -56,7 +56,7 @@ struct ProjectDetailView: View {
                 // Shown only while this machine links to another (ADR 0101).
                 if model.canOperate, model.transfers.linked {
                     Button { model.openOn(workspaceId: project.id, name: project.name) } label: {
-                        InsetRow(systemImage: nil, title: "Open on…") { RowCaret() }
+                        InsetRow(icon: nil, title: "Open on…") { RowCaret() }
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("project.openOn")
@@ -107,7 +107,7 @@ struct ProjectDetailView: View {
         .task(id: [model.connection, String(model.readGeneration(ProjectsView.firstPage))]) { await reread() }
         .overlay {
             if gone {
-                EmptyState(systemImage: "folder", title: "Project removed", line: "It's no longer on this machine.")
+                EmptyState(icon: .folder, title: "Project removed", line: "It's no longer on this machine.")
                     .transition(.opacity)
             }
         }

@@ -212,3 +212,24 @@ test("Now never names a request from a copy that is still catching up after a re
   ]);
   expect(summaryAsker("t1", agentForest("t1", works), works)?.request).toBeUndefined();
 });
+
+test("given the phone's groups, Now counts what they count and leaves agents not known yet out", () => {
+  const tally = { working: 1, done: 28, syncing: 173, commands: 1 };
+  const groups = { working: 1, failed: 8, done: 20 };
+  const base = { tally, live: true, confirmed: false, prs: [], now: 60_000 };
+  const busy = nowLine({ ...base, status: { state: "working", agents: 1 }, groups });
+  expect(busy.sub).toBe("1 agent working · 8 failed · 1 command running");
+  // Without them the web's tree line stays as it was.
+  expect(nowLine({ ...base, status: { state: "working", agents: 1 } }).sub).toBe(
+    "1 agent working · 28 done · 173 syncing · 1 command running",
+  );
+  const settled = nowLine({
+    ...base,
+    tally: { working: 0, done: 7, syncing: 0, commands: 0 },
+    live: false,
+    confirmed: true,
+    status: done,
+    groups: { working: 0, failed: 2, done: 5 },
+  });
+  expect(settled.sub).toBe("5 agents finished · 2 failed");
+});

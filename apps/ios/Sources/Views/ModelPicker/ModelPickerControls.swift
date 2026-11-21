@@ -32,8 +32,7 @@ struct ModelChoiceRow: View {
             .accessibilityAddTraits(row.chosen ? .isSelected : [])
             .accessibilityIdentifier(identifier)
             Button(action: star) {
-                Image(systemName: row.starred ? "star.fill" : "star")
-                    .font(AceDesign.Typeface.title)
+                AceIcon(.star, size: AceDesign.Size.icon, weight: row.starred ? .fill : .regular, relativeTo: .body)
                     .foregroundStyle(row.starred ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
                     .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                     .contentShape(Rectangle())

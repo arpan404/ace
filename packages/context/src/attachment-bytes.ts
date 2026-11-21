@@ -1,7 +1,6 @@
 import { constants } from "node:fs";
 import { link, open } from "node:fs/promises";
 import type { Attachment } from "@ace/protocol";
-import { fitImage } from "@ace/provider-kit/image";
 import { requireContext } from "./errors.ts";
 
 const extensions: Record<string, string> = {
@@ -14,8 +13,28 @@ const extensions: Record<string, string> = {
 export function mediaExtension(mime: string): string {
   return extensions[mime] ?? "";
 }
+/**
+ * Pictures kept as opaque files, which no provider takes natively (ADR 0034), but which the
+ * daemon's decoder reads: the apps still draw them from a preview.
+ */
+const previewOnly = new Set(["image/heic", "image/heif", "image/tiff", "image/bmp"]);
 export function hasThumbnail(mime: string): boolean {
-  return mime.startsWith("image/") && mediaExtension(mime) !== "";
+  return (mime.startsWith("image/") && mediaExtension(mime) !== "") || previewOnly.has(mime);
+}
+/**
+ * Whether an opaque file is a picture the daemon can preview: one of `previewOnly` whose header
+ * ace-media reads as an image within `maxPixels` (`probe`, header only, never the pixels). A
+ * HEIC on an OS without a decoder ace uses is not one (ADR 0208), and without ace-media nothing
+ * is.
+ */
+export async function opaquePreviewable(
+  path: string,
+  mime: string,
+  maxPixels: number,
+  probe: ((path: string, maxPixels: number) => Promise<boolean>) | undefined,
+): Promise<boolean> {
+  if (!previewOnly.has(mime) || !probe) return false;
+  return probe(path, maxPixels);
 }
 /** Hard links keep the verified original bytes, including alpha and colour profiles. */
 export async function providerImagePath(path: string, mime: string): Promise<string> {
@@ -30,21 +49,13 @@ export async function providerImagePath(path: string, mime: string): Promise<str
   return alias;
 }
 export const previewLimit = 512 * 1024;
-/** A PNG preview of at most 512px a side, upright by its EXIF orientation. */
-export async function renderThumbnail(path: string): Promise<Buffer> {
-  const preview = await fitImage(
-    { input: { path }, maxPixels: 40_000_000, autoOrient: true },
-    { width: 512, height: 512 },
-    { format: "png" },
-  );
-  return preview.bytes;
-}
 /** Originals are read in bounded ranges; previews have independent byte and pixel bounds. */
 export class AttachmentBytes {
   private previews = 0;
   private cache = new Map<string, Buffer>();
-  private render: (path: string) => Promise<Buffer>;
-  constructor(render: (path: string) => Promise<Buffer> = renderThumbnail) {
+  /** Makes a preview; absent, no attachment has one (ace-media is the only decoder). */
+  private render: ((path: string) => Promise<Buffer>) | undefined;
+  constructor(render?: (path: string) => Promise<Buffer>) {
     this.render = render;
   }
   async read(
@@ -68,11 +79,13 @@ export class AttachmentBytes {
         "unsupported",
         "Attachment has no thumbnail",
       );
+      const render = this.render;
+      requireContext(render, "unsupported", "Attachment previews need ace-media");
       requireContext(this.previews < 2, "busy", "Thumbnail decoder busy");
       this.previews++;
       try {
         let data = this.cache.get(blob.attachment.sha256);
-        data ??= await this.render(blob.path);
+        data ??= await render(blob.path);
         requireContext(data.length <= previewLimit, "quota", "Thumbnail exceeds byte limit");
         this.cache.delete(blob.attachment.sha256);
         this.cache.set(blob.attachment.sha256, data);

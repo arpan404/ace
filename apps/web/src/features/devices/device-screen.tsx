@@ -105,6 +105,8 @@ export function DeviceScreen(props: {
   const touch = useRef<Touch>("gestures");
   /** Why there is no picture: no H.264 decoder here, or the daemon refused the video. */
   const [unavailable, setUnavailable] = useState<DeviceProblem | undefined>();
+  /** Why ace-media delivers no pictures to this view, when it doesn't (X3). */
+  const [undelivered, setUndelivered] = useState<string>();
   const frame = useRef<FrameSize | undefined>(undefined);
   /** The live touch sequence: its gesture reader, the device's fingers and coalesced moves. */
   const live = useRef<
@@ -252,6 +254,10 @@ export function DeviceScreen(props: {
       await renderer.render(next);
     });
     let poster: ReturnType<typeof session.client.poster>;
+    const stopDeliveries = session.client.watchDeliveries((state) => {
+      if (state.source === deviceId && !disposed) setUndelivered(state.undelivered?.reason);
+    });
+    setUndelivered(session.client.undelivered(deviceId));
     const unwatch = session.client.watch((snapshot) => {
       // The subscribe's still shows until the first live picture (ADR 0149).
       const still = session.client.poster(deviceId);
@@ -332,6 +338,7 @@ export function DeviceScreen(props: {
       live.current = undefined;
       release();
       unwatch();
+      stopDeliveries();
       renderer.close();
       frame.current = undefined;
       press.current = undefined;
@@ -486,6 +493,14 @@ export function DeviceScreen(props: {
         <div className="absolute inset-0 grid place-items-center bg-background p-6 text-center">
           <Problem problem={unavailable} />
         </div>
+      )}
+      {!unavailable && undelivered && (
+        <p
+          role="status"
+          className="absolute inset-0 grid place-items-center p-4 text-center text-xs text-muted-foreground"
+        >
+          {undelivered}
+        </p>
       )}
     </>
   );

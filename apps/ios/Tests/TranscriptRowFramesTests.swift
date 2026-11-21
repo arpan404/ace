@@ -25,6 +25,19 @@ import Testing
         #expect(rows.frame("c") == CGRect(x: 0, y: 50, width: 320, height: 100))
     }
 
+    @Test func aRowPutBackByItsDriftIsNotPutBackAgainBeforeTheScrollReportsIt() {
+        // "c" sits 200 points below the top; the reader's place is 50.
+        var rows = stacked()
+        let drift = TranscriptRowPlacement.drift(top: rows.top("c", inset: 0) ?? 0, target: 50)
+        #expect(drift == 150)
+        rows.shifted(by: 150)
+        // A second restore before SwiftUI reports the new origin finds the row already in place.
+        #expect(TranscriptRowPlacement.drift(top: rows.top("c", inset: 0) ?? 0, target: 50) == nil)
+        // The report then confirms it: not a scroll of the reader's.
+        let moved = rows.scrolled(origin: -150)
+        #expect(!moved)
+    }
+
     @Test func aRowSeenAgainAtTheSamePlaceInTheContentIsUnchangedWhateverTheScroll() {
         var rows = stacked()
         _ = rows.scrolled(origin: -420)

@@ -1,4 +1,5 @@
-import { encodePicture, streamKinds, type PictureKind } from "@ace/browser/stream";
+import { streamKinds, type PictureKind } from "@ace/browser/stream";
+import { encodePicture } from "@ace/browser/stream-encode";
 import { deviceScreens } from "./device-screens.ts";
 import { deviceVideoCodec, deviceVideoScreens } from "./device-video.ts";
 

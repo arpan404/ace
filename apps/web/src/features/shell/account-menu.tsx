@@ -4,7 +4,7 @@ import { UserIcon } from "@ace/icons";
 import { initials } from "@ace/ui-core";
 
 import { useProfileName } from "@/lib/profile.ts";
-import { useAccountPicture, useAceAccount } from "@/features/ace-account/index.ts";
+import { useAccountPicture, useAceAccount, useSpace } from "@/features/ace-account/index.ts";
 import { Icon } from "@/components/icon.tsx";
 import { ProfileAvatar } from "@/components/profile-avatar.tsx";
 import { railPlaceClass } from "@/components/rail-place.ts";
@@ -30,7 +30,9 @@ export function AccountMenu(props: { beta?: string | undefined }) {
   const picture = useAccountPicture();
   const name = session?.account.name || profileName;
   const letters = initials(name);
-  const shown = name.trim() || "You";
+  // The window's organization, when it shows one (ADR 0206 §1.5): named and marked on the disc.
+  const org = useSpace().shown?.org;
+  const shown = org ? `${name.trim() || "You"}, ${org.name}` : name.trim() || "You";
   const connection =
     state === "ready"
       ? `${shown}, account`
@@ -55,6 +57,15 @@ export function AccountMenu(props: { beta?: string | undefined }) {
               <Icon icon={UserIcon} size={14} />
             )}
             {props.beta && <BetaPeel />}
+            {org && (
+              <span
+                aria-hidden
+                data-space-mark=""
+                className="absolute -right-1 -bottom-1 grid size-3.5 place-items-center rounded-[4px] bg-foreground text-[8px] leading-none font-semibold text-background ring-2 ring-sidebar"
+              >
+                {initials(org.name).slice(0, 1) || "O"}
+              </span>
+            )}
             {state !== "ready" && (
               <span
                 aria-hidden

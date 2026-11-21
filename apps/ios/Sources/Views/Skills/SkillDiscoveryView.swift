@@ -42,7 +42,7 @@ struct SkillDiscoveryView: View {
                 Section {
                     ForEach(shown) { entry in
                         NavigationLink { CatalogEntryPage(entry: entry) } label: {
-                            InsetRow(systemImage: nil, title: entry.title ?? entry.name, subtitle: entry.description) {
+                            InsetRow(icon: nil, title: entry.title ?? entry.name, subtitle: entry.description) {
                                 Text(entry.kind.capitalized).aceFont(AceDesign.TextRole.action)
                                     .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
                             }
@@ -54,7 +54,7 @@ struct SkillDiscoveryView: View {
             }
             if loaded && entries.isEmpty && problem == nil {
                 Section {
-                    EmptyState(systemImage: "book", title: "No entries for this agent", line: "Choose another coding agent or project.")
+                    EmptyState(icon: .bookOpen, title: "No entries for this agent", line: "Choose another coding agent or project.")
                         .padding(.vertical, AceDesign.Space.group)
                 }
                 .listRowBackground(Color.clear)

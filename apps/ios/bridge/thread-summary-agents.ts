@@ -3,17 +3,20 @@ import {
   forestAgentWords,
   isActivelyRunning,
   modelLabel,
+  pluralCount,
   summaryAgents,
   type AgentForest,
   type SummaryAgentEntry,
+  type SummaryGroupCounts,
   type ThreadWork,
 } from "@ace/ui-core";
 import type { Preview } from "./agents.ts";
 
 /*
  * The Summary's agents as the phone draws them: who waits on the person, what works, what
- * failed, and what finished folded under one line, sorted by `summaryAgents` and worded by
- * `forestAgentWords`, as the web's Summary tree words its rows. Pure.
+ * failed, what finished folded under one line, and the agents whose facts aren't loaded yet
+ * folded under another, sorted by `summaryAgents` and worded by `forestAgentWords`, as the web's
+ * Summary tree words its rows. Pure.
  */
 
 export interface SummaryAgentsFacts {
@@ -26,11 +29,13 @@ export interface SummaryAgentsFacts {
   item(threadId: string, id: string): Item | undefined;
   /** The person opened the "N done" fold: only then do its rows cross. */
   showDone: boolean;
+  /** The person opened the "N more agents" fold of agents not loaded yet. */
+  showUnsure: boolean;
 }
 
 /**
  * At most this many rows cross, the groups in order (waiting, working, failed, then the open
- * fold): each row is a few hundred bytes, and the whole Summary has to fit one 32 KiB frame.
+ * folds): each row is a few hundred bytes, and the whole Summary has to fit one 32 KiB frame.
  * The rest are counted, and the agent tree shows them.
  */
 export const summaryRowBudget = 30;
@@ -73,10 +78,16 @@ export interface SummaryAgentsView {
   done: SummaryAgentRow[];
   /** "12 done", the fold over the finished rows; null without any. */
   doneWords: string | null;
+  /** Agents whose facts aren't loaded or confirmed yet, while their fold is open. */
+  unsure: SummaryAgentRow[];
+  /** "173 more agents", the fold over them; null without any. */
+  unsureWords: string | null;
   /** Rows past the budget, the folded ones aside: the agent tree has them. */
   hidden: number;
   /** Finished out of every agent listed, for the header's quiet progress line. */
   progress: { done: number; total: number; words: string };
+  /** What Now's line counts, from the same groups as `progress`. */
+  counts: SummaryGroupCounts;
 }
 
 function iconOf(entry: SummaryAgentEntry, unsure: boolean): SummaryAgentRow["icon"] {
@@ -93,6 +104,8 @@ function iconOf(entry: SummaryAgentEntry, unsure: boolean): SummaryAgentRow["ico
       return { kind: "failed", tone: "failed", count: null };
     case "done":
       return { kind: "done", tone: "muted", count: null };
+    case "unsure":
+      return { kind: "waiting", tone: "muted", count: null };
     case "working":
       if (unsure) return { kind: "waiting", tone: "muted", count: null };
       if (!isActivelyRunning(doer) && node.tally.working > 0)
@@ -159,17 +172,23 @@ export function summaryAgentsView(
   const asks = rows(agents.asks);
   const working = rows(agents.working);
   const failed = rows(agents.failed);
+  const done = facts.showDone ? rows(agents.done) : [];
+  const unsure = facts.showUnsure ? rows(agents.unsure) : [];
+  const unknown = agents.unsure.length;
   return {
     asks,
     working,
     failed,
-    done: facts.showDone ? rows(agents.done) : [],
+    done,
     doneWords: agents.done.length ? `${agents.done.length} done` : null,
+    unsure,
+    unsureWords: unknown ? pluralCount(unknown, "more agent") : null,
     hidden,
     progress: {
       done: agents.finished,
       total: agents.total,
       words: `${agents.finished} of ${agents.total} done`,
     },
+    counts: agents.counts,
   };
 }

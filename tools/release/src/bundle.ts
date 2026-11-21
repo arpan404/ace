@@ -181,11 +181,6 @@ export async function bundleDaemon(
                 );
               if (args.path.endsWith("/devices/src/device-tools.ts"))
                 contents = contents.replace('"./tools-entry.ts"', '"./device-tools-process.mjs"');
-              if (args.path.endsWith("/browser/src/recording.ts"))
-                contents = contents.replace(
-                  '"./encoder-process.ts"',
-                  '"./browser-encoder-process.mjs"',
-                );
               if (args.path.endsWith("/models/src/storage.ts"))
                 contents = contents.replace(
                   '"./storage-worker.ts"',
@@ -276,7 +271,6 @@ export async function bundleDaemon(
     ["apps/daemon/src/pi-login-worker.ts", "pi-login-worker.mjs"],
     ["packages/provider-kit/src/discovery/pi-credentials-worker.ts", "pi-credentials-worker.mjs"],
     ["packages/provider-kit/src/probe-worker.ts", "probe-worker.mjs"],
-    ["packages/browser/src/encoder-process.ts", "browser-encoder-process.mjs"],
     ["packages/devices/src/tools-entry.ts", "device-tools-process.mjs"],
     ["packages/browser/src/process-guardian-entry.ts", "browser-process-guardian.mjs"],
     ["packages/notify/src/worker-entry.ts", "notification-worker.mjs"],

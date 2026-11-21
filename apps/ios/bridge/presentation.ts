@@ -152,24 +152,30 @@ export function approvalRow(
   interaction: Interaction,
   reader: Pick<ThreadReader, "item">,
   fallback = "",
+  loadedWhole = false,
 ) {
   const request = interaction.request;
   const item = interaction.toolCallId ? reader.item(interaction.toolCallId) : undefined;
+  const targetCommand =
+    loadedWhole && request.kind === "approval" ? (request.target?.command ?? "") : "";
   const command =
     item?.type === "tool_call" && item.call.detail.kind === "shell"
       ? item.call.detail.command
-      : fallback;
+      : fallback || targetCommand;
+  const descriptionLimit = loadedWhole ? 256 * 1024 : 2048;
+  const commandLimit = loadedWhole ? 256 * 1024 : 8192;
   return {
     id: interaction.id,
     kind: request.kind,
     state: interaction.state,
     title: request.kind === "approval" ? preview(request.title) : "Your answer is needed",
-    description: request.kind === "approval" ? preview(request.description ?? "", 2048) : "",
-    command: preview(command, 8192),
+    description:
+      request.kind === "approval" ? preview(request.description ?? "", descriptionLimit) : "",
+    command: preview(command, commandLimit),
     truncated:
-      command.length > 8192 ||
+      command.length > commandLimit ||
       (request.kind === "approval" &&
-        (request.title.length > 512 || (request.description?.length ?? 0) > 2048)),
+        (request.title.length > 512 || (request.description?.length ?? 0) > descriptionLimit)),
     options:
       request.kind === "approval"
         ? request.options.map((option) => ({

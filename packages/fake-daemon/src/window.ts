@@ -17,10 +17,10 @@ export const previewUnits = 16 * 1024;
  * `previewUnits`, where a live stream's deltas continue, with a source that names the whole, so a
  * client marks it clipped. Without this, a message streamed for hours made one oversized frame.
  */
-function bounded(item: Item): Item {
+function bounded(item: Item, units = previewUnits): Item {
   const clip = (text: string, part: number, source: TextSource | undefined) => {
-    if (text.length <= previewUnits) return { text, source };
-    let start = text.length - previewUnits;
+    if (text.length <= units) return { text, source };
+    let start = text.length - units;
     const first = text.charCodeAt(start);
     if (first >= 0xdc00 && first <= 0xdfff) start++;
     return {
@@ -35,7 +35,7 @@ function bounded(item: Item): Item {
     };
   };
   if (item.type === "message") {
-    if (!item.parts.some((part) => part.type === "text" && part.text.length > previewUnits))
+    if (!item.parts.some((part) => part.type === "text" && part.text.length > units))
       return structuredClone(item);
     const { parts, ...rest } = item;
     return {
@@ -49,7 +49,7 @@ function bounded(item: Item): Item {
       }),
     };
   }
-  if ((item.type === "reasoning" || item.type === "notice") && item.text.length > previewUnits) {
+  if ((item.type === "reasoning" || item.type === "notice") && item.text.length > units) {
     const { text: whole, ...rest } = item;
     const { text, source } = clip(whole, 0, item.source);
     return { ...structuredClone(rest), text, ...(source ? { source } : {}) };
@@ -123,11 +123,16 @@ export function historyPage(
   };
 }
 
+/** UTF-16 units of a text the daemon previews in a tail (`text-preview.ts`). */
+const stepPreviewUnits = 4096;
+const utf8 = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+
 /**
- * A subscribe's `tail`, as the daemon cuts it (`thread-reads.ts`): the newest items of the
- * `limit`-item window, at most `tail.items` of them in at most `tail.bytes` (never fewer than
- * one), with status whole. One holding less than the window says so (`partial`), so the client
- * completes it from the full snapshot.
+ * A subscribe's `tail`, as the daemon cuts it (`item-store.ts` `tail`): the newest items of the
+ * `limit`-item window, at most `tail.items` of them in at most `tail.bytes` UTF-8 bytes (never
+ * fewer than one), with status whole. A newest item larger than the whole budget shows alone as
+ * its preview, named in `partial.previews`. One holding less than the window says so
+ * (`partial`), so the client completes it from the full snapshot.
  */
 export function tailSnapshot(
   view: ThreadView,
@@ -142,19 +147,24 @@ export function tailSnapshot(
   for (let index = full.itemOrder.length - 1; index >= 0 && kept.length < tail.items; index--) {
     const id = full.itemOrder[index];
     if (id === undefined) break;
-    const size = JSON.stringify(full.items[id]).length;
+    const size = utf8(full.items[id]);
     if (kept.length && bytes + size > tail.bytes) break;
     bytes += size;
     kept.unshift(id);
   }
-  if (kept.length === full.itemOrder.length) return full;
+  const newest = kept.length === 1 ? kept[0] : undefined;
+  const whole = newest !== undefined ? view.items[newest] : undefined;
+  const preview = whole && bytes > tail.bytes ? bounded(whole, stepPreviewUnits) : undefined;
+  if (!preview && kept.length === full.itemOrder.length) return full;
   const shown = new Set(kept);
+  const items = Object.fromEntries(Object.entries(full.items).filter(([id]) => shown.has(id)));
+  if (preview) items[preview.id] = preview;
   return {
     ...full,
-    items: Object.fromEntries(Object.entries(full.items).filter(([id]) => shown.has(id))),
+    items,
     itemOrder: kept,
     itemSeqs: seqs(kept, creation),
     itemsBefore: cursor(kept, full.itemOrder.length, creation),
-    partial: { previews: [] },
+    partial: { previews: preview ? [preview.id] : [] },
   };
 }

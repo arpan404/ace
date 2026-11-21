@@ -1,0 +1,18 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "image.job",
+    "request": "image-2",
+    "deadlineMs": 1000,
+    "inputs": [{ "kind": "file", "path": "/data/blobs/ab", "maxBytes": 33554432 }],
+    "op": {
+      "op": "fit",
+      "maxPixels": 1048576,
+      "width": 2400,
+      "height": 2400,
+      "autoOrient": true,
+      "vectorScale": 2.5,
+      "output": { "format": "rgba" }
+    }
+  }
+}

@@ -43,7 +43,7 @@ struct ProviderMcpView: View {
                         }
                     } footer: { if let text = screen.note { Text(text) } }
                 } else if problem == nil {
-                    Section { ForEach(0..<2, id: \.self) { _ in InsetRow("Server name", systemImage: nil, value: "Connected") } }
+                    Section { ForEach(0..<2, id: \.self) { _ in InsetRow("Server name", icon: nil, value: "Connected") } }
                         .redacted(reason: .placeholder)
                 }
                 if let message = problem ?? note {

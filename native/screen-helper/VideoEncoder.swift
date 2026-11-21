@@ -36,23 +36,6 @@ struct EncodedVideo {
     let packet: (Data) -> Data?
 }
 
-/// The daemon socket's framing: length, JSON header, then Annex B.
-func legacyFramePacket(_ unit: EncodedVideo, sessionId: String, version: Int) -> Data? {
-    // The daemon's socket and its viewers are H.264 only.
-    guard unit.format == .h264 else { return nil }
-    var header: [String: Any] = ["version": version, "sessionId": sessionId, "width": unit.width, "height": unit.height,
-        "codec": "h264", "keyframe": unit.keyframe, "bytes": unit.payloadBytes, "scale": unit.scale]
-    if let codec = unit.codec { header["videoCodec"] = codec }
-    header[version == 1 ? "sequence" : "seq"] = unit.sequence
-    header[version == 1 ? "timestamp" : "ts"] = unit.timestamp
-    guard let json = try? JSONSerialization.data(withJSONObject: header), json.count <= 4096 else { return nil }
-    var length = UInt32(json.count).bigEndian
-    var prefix = Data(capacity: 4 + json.count + unit.payloadBytes)
-    withUnsafeBytes(of: &length) { prefix.append(contentsOf: $0) }
-    prefix.append(json)
-    return unit.packet(prefix)
-}
-
 /// Hardware encoder with one outstanding sample. No B frames, lookahead or raw-pixel queue.
 /// H.264 High at a fixed level, so a refine keyframe never changes the decoder configuration;
 /// HEVC Main for ace-media's ingest when the daemon asks for it.
@@ -72,15 +55,10 @@ final class VideoEncoder {
     /// Rate control dropped a frame of this quality (no sample, no error).
     private let dropped: (StreamQuality) -> Void
     /// Longest stretch between keyframes, in seconds. A capture's refine keyframes want 1 s; a
-    /// pass-through stream (an emulator's, a transcoded Simulator's) leaves keyframes to viewers
+    /// pass-through stream (an emulator's) leaves keyframes to viewers
     /// that ask, as a keyframe is many deltas big on the thin links these run on.
     private let keyframeInterval: Double
-    /// Units framed for the daemon socket.
-    convenience init(sessionId: String, version: Int, publish: @escaping (Data) -> Void, completed: @escaping () -> Void, dropped: @escaping (StreamQuality) -> Void = { _ in }, keyframeInterval: Double = 1) {
-        self.init(units: { unit in if let packet = legacyFramePacket(unit, sessionId: sessionId, version: version) { publish(packet) } },
-            completed: completed, dropped: dropped, keyframeInterval: keyframeInterval)
-    }
-    /// Units as they leave the encoder, for a caller that frames them itself.
+    /// Units as they leave the encoder, for the caller to frame (as `MediaFrame`s for ace-media).
     init(units: @escaping (EncodedVideo) -> Void, completed: @escaping () -> Void, dropped: @escaping (StreamQuality) -> Void = { _ in }, keyframeInterval: Double = 1) {
         self.units = units; self.completed = completed; self.dropped = dropped
         self.keyframeInterval = keyframeInterval

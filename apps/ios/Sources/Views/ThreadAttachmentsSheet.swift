@@ -118,7 +118,7 @@ struct ThreadFilesSheet: View {
         }
         .contextMenu {
             if model.canOperate {
-                Button("Remove", systemImage: "trash", role: .destructive) { removing = file }.disabled(busy != nil)
+                Button("Remove", ace: .trash, role: .destructive) { removing = file }.disabled(busy != nil)
                     .accessibilityLabel("Remove \(file.name)")
             }
         }

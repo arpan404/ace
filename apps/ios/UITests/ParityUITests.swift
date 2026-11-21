@@ -41,6 +41,28 @@ import XCTest
         capture("approval-keyboard")
     }
 
+    /// A request too large to send with its thread offers only Deny until it is reviewed; Review
+    /// reads it in full, and only then can it be allowed (ADR 0157).
+    func testASummarizedApprovalIsAllowedOnlyOnceItHasLoadedInFull() throws {
+        let threadId = try freshThread("summarized")
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", port, "--spike-open", threadId]
+        app.launchWithArguments()
+        let review = app.buttons["approval.review"]
+        XCTAssertTrue(review.waitForExistence(timeout: 30), "the strip offers Review")
+        XCTAssertTrue(app.buttons["approval.deny"].exists, "Deny goes without reading it")
+        XCTAssertFalse(app.buttons["approval.allow_once"].exists, "no Allow before it is read whole")
+        capture("summarized-unread")
+        review.tap()
+        let allow = app.buttons["approval.allow_once"].firstMatch
+        XCTAssertTrue(allow.waitForExistence(timeout: 20), "Allow once arrives with the whole request")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Partition 900")).firstMatch.exists,
+                      "the sheet shows the request's last line")
+        capture("summarized-loaded")
+        allow.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["request.approval"].waitForNonExistence(timeout: 15), "Allow once answers it")
+    }
+
     func testDarkInboxAndThread() {
         let app = launch()
         XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 30))
@@ -184,6 +206,23 @@ import XCTest
         capture("machine-settings")
     }
 
+    private var port: String { ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841" }
+    /// A new thread of `scenario` from the fixture, so answering it changes no other test's.
+    private func freshThread(_ scenario: String) throws -> String {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/review/fresh")))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["scenario": scenario])
+        let done = expectation(description: "fresh \(scenario)")
+        let reply = FreshReply()
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            reply.data = data
+            done.fulfill()
+        }.resume()
+        wait(for: [done], timeout: 10)
+        let body = try reply.data.flatMap { try JSONDecoder().decode([String: String].self, from: $0) }
+        return try XCTUnwrap(body?["threadId"], "the fixture made no \(scenario) thread")
+    }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
@@ -197,3 +236,6 @@ import XCTest
         add(shot)
     }
 }
+
+/// The fixture's reply, filled in on URLSession's queue and read after the wait.
+private final class FreshReply: @unchecked Sendable { var data: Data? }

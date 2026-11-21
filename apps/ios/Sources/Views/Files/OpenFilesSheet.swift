@@ -57,7 +57,7 @@ struct OpenFilesSheet: View {
                             .listRowSeparatorTint(AceTheme.Colours.separator)
                             .swipeActions { Button("Close") { model.fileClosed(scope, path) } }
                             .contextMenu {
-                                Button("Close others", systemImage: "xmark.square") {
+                                Button("Close others", ace: .xSquare) {
                                     model.action(["type": "files.closed.others", "scope": scope.wire, "keep": path])
                                 }
                             }
