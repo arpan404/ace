@@ -76,7 +76,8 @@ export async function accessJson(
 
 /**
  * Redeem a pairing code. The code travels only in the POST body, never in a URL. `installId`
- * names this app install (ADR 0115), so the machine names the new device by it.
+ * names this app install (ADR 0115), so the machine names the new device by it. `standingKey` is
+ * the public half of the key the phone proves the person's standing with (ADR 0190 §7).
  */
 export async function redeemPairing(
   http: PinnedHttp,
@@ -84,9 +85,15 @@ export async function redeemPairing(
   name: string,
   trust?: TrustMonitor,
   installId?: InstallId,
+  standingKey?: string,
 ): Promise<DeviceCredential> {
   const body = JSON.stringify(
-    PairingRedemption.parse({ code, name, ...(installId ? { installId } : {}) }),
+    PairingRedemption.parse({
+      code,
+      name,
+      ...(installId ? { installId } : {}),
+      ...(standingKey ? { standingKey } : {}),
+    }),
   );
   return DeviceCredential.parse(
     await accessJson(http, { method: "POST", path: "/v1/pair", body }, trust),

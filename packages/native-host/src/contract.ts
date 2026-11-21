@@ -131,6 +131,14 @@ export interface HostOperations {
    */
   "credential.fresh": { input: null; body: never };
   /**
+   * A paired machine's proof of the person's standing (ADR 0190 §7): the body,
+   * `pairedStandingText` for this runtime's own machine and device, signed with the key the
+   * phone named when it paired (in the Secure Enclave on the iPhone). Answers the signature,
+   * IEEE P1363 base64url. Native code signs nothing else, and fails when it holds no key for the
+   * machine. The private key never crosses into the script.
+   */
+  "standing.sign": { input: null; body: string };
+  /**
    * A live source's delivery as the shared script last set it (ADR 0147 §4): the generation of
    * its latest subscribe, and the way its pictures come, `"channel"` or a media socket's id
    * (`socket(id, "open", {media})`), or null while that subscribe's reply is pending. Native code

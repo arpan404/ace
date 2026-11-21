@@ -154,6 +154,28 @@ describe("pairing a machine", () => {
     expect(helloInstalls).toEqual([installId]);
   });
 
+  test("pairing names the phone's standing key to the machine, and only its public half", async () => {
+    const { deps, requests, saved, secrets } = harness();
+    const standingKey = "B".repeat(87);
+    expect(await performAccess(deps, { ...pair, standingKey })).toMatchObject({ ok: true });
+    const redemption = requests.find((request) => request.path === "/v1/pair");
+    expect(JSON.parse(redemption?.body ?? "{}")).toEqual({
+      code: pair.code,
+      name: "Phone",
+      standingKey,
+    });
+    // The key is the machine's to keep; the phone keeps it in the Secure Enclave, not here.
+    expect(saved()).not.toContain(standingKey);
+    expect([...secrets.values()]).not.toContain(standingKey);
+  });
+
+  test("a standing key that isn't a P-256 point is refused before any request", async () => {
+    const { deps, requests } = harness();
+    const result = await performAccess(deps, { ...pair, standingKey: "short" });
+    expect(result.ok).toBe(false);
+    expect(requests).toHaveLength(0);
+  });
+
   test("a paired machine's own word on its paths is saved with it and listed back", async () => {
     const { deps } = harness();
     await performAccess(deps, pair);

@@ -76,6 +76,7 @@ import { DeviceTabControl, DeviceTabs } from "./device-tabs.ts";
 import { nativeLoopbackHost } from "./device-host.ts";
 import { openPhoneTunnel } from "./machine-tunnel-open.ts";
 import { benchLoopback, startLoopbackBench } from "./tunnel-bench.ts";
+import { keepPairedStanding } from "./paired-standing.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -176,6 +177,8 @@ let workspace: NativeWorkspace | undefined;
 let spade: NativeSpade | undefined;
 /** Pages the person opens in the phone's own web view, and their way to the machine's localhost. */
 let deviceTabs: DeviceTabs | undefined;
+/** A paired machine's socket proving the person's standing (`paired-standing.ts`). */
+let standing: ReturnType<typeof keepPairedStanding> | undefined;
 const pump = new PatchPump();
 const deviceStats = new DeviceStats(pump);
 const trust = new TrustMonitor();
@@ -311,6 +314,16 @@ async function start(json: string): Promise<void> {
       })),
   });
   const connection = client.connectionState();
+  standing?.stop();
+  // A paired machine proves on each socket with the key the phone named when it paired; an
+  // account machine's standing is the account route's (ADR 0190 §3), not this one.
+  standing = paired
+    ? keepPairedStanding(
+        client,
+        (text) => call("standing.sign", null, text),
+        (state) => pump.put("standing", () => ({ type: "standing", state })),
+      )
+    : undefined;
   notifications = new NotificationBridge(
     client,
     (key, read) => pump.put(key, read),

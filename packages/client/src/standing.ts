@@ -90,7 +90,8 @@ export async function proveStanding(input: {
  */
 export async function provePaired(input: {
   challenge: StandingChallenge;
-  key: StandingKey;
+  /** Only its signing: the iPhone signs in the Secure Enclave and never hands the bridge its key. */
+  key: Pick<StandingKey, "sign">;
 }): Promise<string> {
   const { challenge } = input;
   return input.key.sign(

@@ -1,5 +1,11 @@
 import type { MachineDirectory, MachineEntry } from "@ace/client/machines";
-import { InstallId, MachinePath, type DeviceScope, type HostIdentity } from "@ace/protocol";
+import {
+  InstallId,
+  MachinePath,
+  PairingRedemption,
+  type DeviceScope,
+  type HostIdentity,
+} from "@ace/protocol";
 import { z } from "zod";
 import {
   pairingProblem,
@@ -27,6 +33,12 @@ export const AccessRequest = z.discriminatedUnion("op", [
     fingerprint: Fingerprint,
     /** This app install (ADR 0115): pairing it again keeps its one device on that machine. */
     installId: InstallId.optional(),
+    /**
+     * The public half of the Secure Enclave key Swift made for this pairing (ADR 0190 §7): a
+     * person's link gives the device the person's standing, proven with it on each socket.
+     * Absent where the phone can't make one; the device is then paired without standing.
+     */
+    standingKey: PairingRedemption.shape.standingKey,
   }),
   /** What a paired machine said about its paths over its own authenticated connection. */
   z.strictObject({
@@ -86,6 +98,7 @@ export async function performAccess(deps: PairingDeps, raw: unknown): Promise<Ac
       request.name,
       trust,
       request.installId,
+      request.standingKey,
     );
     const identity = await deps.identity(
       credential.device.id,
