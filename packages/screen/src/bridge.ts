@@ -9,6 +9,7 @@ import {
 import {
   mediaSubscribed,
   mediaUndelivered,
+  pendingUndelivered,
   updateReason,
   viewLink,
   viewSwap,
@@ -20,6 +21,11 @@ import type { MediaOwner } from "@ace/media/media-connections";
 import type { MediaAccelerationStore } from "@ace/media/acceleration";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
+
+/** The ace-media sources that show a screen session. */
+const showsSession =
+  (sessionId: string) => (producer: { kind: string; sessionId?: string | undefined }) =>
+    producer.kind === "screen" && producer.sessionId === sessionId;
 
 export type ScreenPeer = {
   send: (message: ScreenServerMessage) => void;
@@ -108,11 +114,27 @@ export function screenConnection(
       local: false,
       audio: false,
       ...(link ? { link } : {}),
-      shows: (producer) => producer.kind === "screen" && producer.sessionId === sessionId,
+      shows: showsSession(sessionId),
+      onGrant: (granted) => delivered(sessionId, granted),
     });
     if (viewer === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
     return viewer;
+  };
+  /**
+   * Tells this connection whether its bound view of the session gets pictures now: on every
+   * change of the view's grant in ace-media, with the reason while it doesn't.
+   */
+  const delivered = (sessionId: string, granted: boolean) => {
+    if (closed) return;
+    const port = peer.delivery?.port();
+    const undelivered = granted
+      ? undefined
+      : pendingUndelivered(
+          port?.sourceState(showsSession(sessionId)) ?? "pending",
+          port?.unserved("screen"),
+        );
+    peer.send({ type: "screen.delivery", sessionId, ...(undelivered ? { undelivered } : {}) });
   };
   return {
     async request(input) {
@@ -262,6 +284,8 @@ export function screenConnection(
             if (viewer && operation.media) {
               const poster = await peer.delivery?.port()?.poster(viewer);
               respond({ ok: true, media: mediaSubscribed(operation.media.connection, poster) });
+              // Bound, but the session isn't streaming into ace-media yet: say why until it does.
+              if (!peer.delivery?.port()?.granted(viewer)) delivered(sessionId, false);
               return;
             }
             // No pictures will come: the view says why instead of staying blank.

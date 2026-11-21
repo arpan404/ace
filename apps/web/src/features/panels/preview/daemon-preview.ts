@@ -684,6 +684,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       changed();
       return;
     }
+    if (message.type === "browser.delivery") {
+      // Whether the thread's bound view gets pictures now, and why not.
+      deliveries.report(message.threadId, message.undelivered);
+      changed(message.threadId);
+      return;
+    }
     if (message.type === "browser.state") {
       const state = message.state;
       const watch = watches.get(state.threadId);

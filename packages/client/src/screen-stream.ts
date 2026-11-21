@@ -405,6 +405,9 @@ export class ScreenStreamClient {
     const frame = decoded.data;
     if (frame.type === "screen.enabled") this.publish({ ...this.snapshot, enabled: frame.enabled });
     else if (frame.type === "screen.state") this.putState(frame.state);
+    // Whether the session's bound view gets pictures now, and why not.
+    else if (frame.type === "screen.delivery")
+      this.media.report(frame.sessionId, frame.undelivered);
     else {
       const request = this.pending.get(frame.requestId);
       const late = request ? undefined : this.late.get(frame.requestId);

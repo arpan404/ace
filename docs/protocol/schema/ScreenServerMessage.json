@@ -36,6 +36,25 @@
     },
     {
       "properties": {
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "type": {
+          "const": "screen.delivery",
+          "type": "string"
+        },
+        "undelivered": {
+          "$ref": "https://ace.local/protocol/v1/MediaUndelivered.json"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "data": {},
         "error": {
           "type": "string"
@@ -95,6 +114,9 @@
         "type": {
           "const": "screen.result",
           "type": "string"
+        },
+        "undelivered": {
+          "$ref": "https://ace.local/protocol/v1/MediaUndelivered.json"
         }
       },
       "required": [

@@ -547,6 +547,9 @@ export class DeviceClient {
         this.acceptInventory(message.devices);
         this.issues = message.issues;
         this.notify();
+      } else if (message.type === "devices.delivery") {
+        // Whether the device's bound view gets pictures now, and why not.
+        this.media.report(message.deviceId, message.undelivered);
       } else if (message.type === "devices.logs") {
         for (const listener of this.logListeners.get(message.deviceId) ?? []) listener(message);
       } else {

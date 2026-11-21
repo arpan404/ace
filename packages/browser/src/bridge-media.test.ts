@@ -218,3 +218,43 @@ test("a subscribe ace-media can't serve now gets no pictures and says why", asyn
   expect(d.views.size).toBe(0);
   client.close();
 });
+
+test("a bound view whose tab isn't streaming yet is told so, and told again when its grant comes", async () => {
+  const t = await idleThread();
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  const client = connectBrowser(t.service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    media: {
+      owner: () => owner,
+      // The view is held, but no producer streams the tab into ace-media yet.
+      delivery: () => ({ ...d.port, granted: () => false, sourceState: () => "pending" }),
+    },
+  });
+  const deliveries = () =>
+    results.filter(
+      (message) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "browser.delivery",
+    );
+  await client.handle({ ...subscribe(a, "mc_aaaaaaaaaaaa"), mediaClient: true });
+  expect(results).toContainEqual(
+    expect.objectContaining({ type: "browser.result", media: { connection: "mc_aaaaaaaaaaaa" } }),
+  );
+  expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
+  // The tab starts streaming and the view is granted: the subscriber hears it, reason gone.
+  const [intent] = d.views.values();
+  intent?.onGrant?.(true);
+  expect(deliveries().at(-1)).toEqual({ type: "browser.delivery", threadId: "thread" });
+  // It stops again (its ingest refused): told why once more.
+  intent?.onGrant?.(false);
+  expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
+  client.close();
+});

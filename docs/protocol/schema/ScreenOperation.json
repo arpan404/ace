@@ -263,6 +263,10 @@
         "media": {
           "$ref": "https://ace.local/protocol/v1/MediaBinding.json"
         },
+        "mediaClient": {
+          "const": true,
+          "type": "boolean"
+        },
         "op": {
           "const": "subscribe",
           "type": "string"

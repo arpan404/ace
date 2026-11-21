@@ -26,6 +26,7 @@ export function fakeDelivery() {
     serves: () => true,
     unserved: () => undefined,
     sourceKinds: () => ["simulator"],
+    sourceState: () => "live",
     bind: (intent) => {
       const viewer = `view-${++ids}`;
       views.set(viewer, intent);

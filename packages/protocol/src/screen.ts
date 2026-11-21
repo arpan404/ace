@@ -215,6 +215,16 @@ export type ScreenAck = z.infer<typeof ScreenAck>;
 export const ScreenServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("screen.enabled"), enabled: z.boolean() }),
   z.object({ type: z.literal("screen.state"), state: ScreenState }),
+  /**
+   * After a subscribe that named a media connection: whether its view is getting pictures now.
+   * `undelivered` while its source isn't streaming into ace-media (starting, or it failed),
+   * absent once it is. Sent only to a client that takes media (`mediaClient`), on every change.
+   */
+  z.object({
+    type: z.literal("screen.delivery"),
+    sessionId: ScreenId,
+    undelivered: MediaUndelivered.optional(),
+  }),
   z.object({
     type: z.literal("screen.result"),
     requestId: ScreenId,

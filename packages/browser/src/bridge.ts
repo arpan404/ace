@@ -16,6 +16,7 @@ import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
 import {
   mediaSubscribed,
   mediaUndelivered,
+  pendingUndelivered,
   updateReason,
   viewLink,
   viewSwap,
@@ -25,6 +26,10 @@ import {
 import type { MediaOwner } from "@ace/media/media-connections";
 
 type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
+
+/** The ace-media sources that show a thread's browser. */
+const showsThread = (threadId: string) => (producer: { threadId?: string | undefined }) =>
+  producer.threadId === threadId;
 
 function requiredAccess(message: BrowserClientMessage): BrowserAccess {
   if (
@@ -193,11 +198,32 @@ export function connectBrowser(
       local: options.local === true,
       audio: viewport?.audio === true,
       ...(link ? { link } : {}),
-      shows: (producer) => producer.threadId === threadId,
+      shows: showsThread(threadId),
+      onGrant: (granted) => delivered(threadId, granted),
     });
     if (bound === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
     return { viewer: bound, created: true };
+  };
+  /**
+   * Tells this connection whether its bound view of the thread gets pictures now: on every
+   * change of the view's grant in ace-media, with the reason while it doesn't.
+   */
+  const delivered = (threadId: string, granted: boolean) => {
+    if (closed) return;
+    const port = options.media?.delivery();
+    const kind = service.videoKind(threadId);
+    const undelivered = granted
+      ? undefined
+      : pendingUndelivered(
+          port?.sourceState(showsThread(threadId)) ?? "pending",
+          kind ? port?.unserved(kind) : undefined,
+        );
+    options.send({
+      type: "browser.delivery",
+      threadId: ThreadId.parse(threadId),
+      ...(undelivered ? { undelivered } : {}),
+    });
   };
   /** Why this thread's view gets no pictures: the reason for its own source's kind. */
   const browserUndelivered = (threadId: string, named: boolean) => {
@@ -542,6 +568,9 @@ export function connectBrowser(
                   result: null,
                   media: mediaSubscribed(message.media.connection, poster),
                 });
+              // Bound, but its tab isn't streaming into ace-media yet: the view says why until
+              // the grant comes (`onGrant`).
+              if (!options.media?.delivery()?.granted(joined.viewer)) delivered(threadId, false);
               break;
             }
             // No pictures will come: the view says why instead of staying blank.

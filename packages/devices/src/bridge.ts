@@ -1,6 +1,7 @@
 import { DeviceQueue } from "./device-queue.ts";
 import { DeviceSubscriptions } from "./subscriptions.ts";
 import {
+  AppDeviceId,
   DeviceAck,
   DeviceClientMessage,
   DeviceState,
@@ -11,6 +12,7 @@ import { framePicture } from "@ace/screen";
 import {
   mediaSubscribed,
   mediaUndelivered,
+  pendingUndelivered,
   updateReason,
   viewLink,
   viewSwap,
@@ -113,10 +115,31 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
       audio: false,
       ...(link ? { link } : {}),
       shows: showsDevice(deviceId),
+      onGrant: (granted) => tellDelivery(deviceId, granted),
     });
     if (viewer === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
     return viewer;
+  };
+  /**
+   * Tells this connection whether its bound view of the device gets pictures now: on every
+   * change of the view's grant in ace-media, with the reason while it doesn't.
+   */
+  const tellDelivery = (deviceId: string, granted: boolean) => {
+    if (closed) return;
+    const port = peer.delivery?.port();
+    const kinds = port?.sourceKinds(showsDevice(deviceId)) ?? [];
+    const undelivered = granted
+      ? undefined
+      : pendingUndelivered(
+          port?.sourceState(showsDevice(deviceId)) ?? "pending",
+          kinds.map((kind) => port?.unserved(kind)).find((reason) => reason !== undefined),
+        );
+    void send({
+      type: "devices.delivery",
+      deviceId: AppDeviceId.parse(deviceId),
+      ...(undelivered ? { undelivered } : {}),
+    }).catch(() => {});
   };
   const streams = new DeviceSubscriptions();
   const logs = new DeviceSubscriptions();
@@ -380,6 +403,11 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
               ...(subscribed.media ? { media: subscribed.media } : {}),
               ...(subscribed.undelivered ? { undelivered: subscribed.undelivered } : {}),
             });
+            // Bound, but the device isn't streaming into ace-media yet: say why until it does.
+            const watched = "deviceId" in operation ? operation.deviceId : undefined;
+            const viewer = subscribed.media && watched && delivered.get(watched)?.viewer;
+            if (watched && viewer && !peer.delivery?.port()?.granted(viewer))
+              tellDelivery(watched, false);
           } else if (operation.op === "screenshot") {
             // The picture goes first as a still on this connection; the result names it.
             const picture = framePicture(await service.screenshot(operation.deviceId, actor));

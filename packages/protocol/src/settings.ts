@@ -161,10 +161,11 @@ export const SettingsValues = z.object({
   /**
    * Who delivers live video to viewers (ADR 0147, docs/media/plan.md "Routes"): always `auto`,
    * ace-media on each client's media connection, which paces, scales and sends every viewer's
-   * pictures itself. The daemon's own fanout is gone (X3), so a stored or written `legacy`, from
-   * an older build, reads as `auto`. While ace-media can't serve, live views say why.
+   * pictures itself. The daemon's own fanout is gone (X3) and nothing reads this key any more: a
+   * stored or written `legacy`, from an older build, means `auto`. While ace-media can't serve,
+   * live views say why.
    */
-  "media.delivery": z.enum(["auto", "legacy"]).transform((): "auto" => "auto"),
+  "media.delivery": z.enum(["auto", "legacy"]),
   /**
    * This machine's iOS Simulators and Android emulators for ace: watching, driving and the
    * sim_* tools. On when unset. Settings › Devices turns it off for every thread; it stays off

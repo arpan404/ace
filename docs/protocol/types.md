@@ -6199,6 +6199,28 @@ Example:
 }
 ```
 
+### browser.engine.move
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.engine.move"` |  |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| engine | yes | ["embedded","headless"] |  |
+
+Example:
+
+```json
+{
+  "engine": "headless",
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.engine.move",
+  "workspaceId": "example"
+}
+```
+
 ### browser.tabs.list
 
 | Field | Required | Type | Constraints |
@@ -6232,8 +6254,7 @@ Example:
 {
   "requestId": "example",
   "threadId": "example",
-  "type": "browser.tabs.open",
-  "url": "example"
+  "type": "browser.tabs.open"
 }
 ```
 
@@ -6331,9 +6352,8 @@ Example:
 
 ```json
 {
-  "accept": false,
+  "accept": true,
   "dialogId": "example",
-  "promptText": "example",
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -6357,10 +6377,6 @@ Example:
 ```json
 {
   "authId": "example",
-  "credentials": {
-    "password": "example",
-    "username": "example"
-  },
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -6404,13 +6420,10 @@ Example:
 ```json
 {
   "command": {
-    "action": "type",
-    "expect": {
-      "tabId": "example",
-      "url": "example"
-    },
-    "ref": "example",
-    "text": "example"
+    "action": "context_target",
+    "tabId": "example",
+    "x": 6,
+    "y": 1
   },
   "requestId": "example",
   "threadId": "example",
@@ -6430,19 +6443,32 @@ Example:
 | viewport | no | [BrowserCaptureViewport.json](schema/BrowserCaptureViewport.json) |  |
 | video | no | [BrowserVideoRequest.json](schema/BrowserVideoRequest.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
 
 Example:
 
 ```json
 {
-  "binaryFrames": false,
+  "binaryFrames": true,
   "requestId": "example",
   "threadId": "example",
   "type": "browser.subscribe",
   "video": {
     "codecs": [
-      "DezEPzmMUB"
+      "rwmpas3BrO"
     ]
+  },
+  "viewport": {
+    "audio": true,
+    "devicePixelRatio": 3,
+    "height": 102,
+    "link": {
+      "downlinkKbps": 4,
+      "saveData": false
+    },
+    "nativeShown": false,
+    "paused": true,
+    "width": 107
   }
 }
 ```
@@ -6464,16 +6490,13 @@ Example:
   "threadId": "example",
   "type": "browser.capture",
   "viewport": {
-    "cursor": {
-      "fill": "#24CF32",
-      "outline": "#33FA6E"
-    },
-    "devicePixelRatio": 3,
-    "height": 107,
+    "devicePixelRatio": 1,
+    "height": 108,
     "link": {
-      "expensive": true
+      "expensive": true,
+      "saveData": true
     },
-    "width": 106
+    "width": 103
   }
 }
 ```
@@ -6492,6 +6515,7 @@ Example:
 ```json
 {
   "requestId": "example",
+  "subscriberId": "example",
   "threadId": "example",
   "type": "browser.unsubscribe"
 }
@@ -6512,9 +6536,8 @@ Example:
 
 ```json
 {
-  "keyframe": true,
   "requestId": "example",
-  "sequence": 3,
+  "sequence": 1,
   "threadId": "example",
   "type": "browser.ack"
 }
@@ -6564,16 +6587,15 @@ Example:
   "files": [
     {
       "name": "example",
-      "sha256": "4260091eac3f5220203ede3eef3f29e0ea45a13a73e1bbbd9ef1b007062f189e"
+      "sha256": "30b75172e1484e9fd03672a4000773fef336eb69b4c4b5426a38f629a453f125"
     }
   ],
-  "modifiers": 1,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
   "type": "browser.files.drop",
-  "x": 9,
-  "y": 2
+  "x": 0,
+  "y": 4
 }
 ```
 
@@ -6594,7 +6616,8 @@ Example:
 ```json
 {
   "downloadId": "example",
-  "offset": 0,
+  "length": 3,
+  "offset": 8,
   "requestId": "example",
   "threadId": "example",
   "type": "browser.download.read"
@@ -6615,7 +6638,7 @@ Example:
 
 ```json
 {
-  "muted": false,
+  "muted": true,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -6660,10 +6683,10 @@ Example:
 ```json
 {
   "input": {
-    "event": "keyUp",
-    "key": "example",
-    "kind": "key",
-    "modifiers": 2
+    "kind": "ime",
+    "selectionEnd": 3,
+    "selectionStart": 0,
+    "text": "example"
   },
   "requestId": "example",
   "threadId": "example",
@@ -7742,6 +7765,23 @@ Example:
 }
 ```
 
+## BrowserEngineMoved
+
+[JSON Schema](schema/BrowserEngineMoved.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | no | [BrowserState.json](schema/BrowserState.json) |  |
+| failed | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"url":{"type":"string","maxLength":8192},"reason":{"type":"string","maxLength":2048}},"required":["url","reason"]}} |
+
+Example:
+
+```json
+{
+  "failed": []
+}
+```
+
 ## BrowserExpectedPlace
 
 [JSON Schema](schema/BrowserExpectedPlace.json), input validation.
@@ -8455,6 +8495,7 @@ Example:
 | error | no | string | {"maxLength":2048} |
 | blocked | no | [BrowserOriginBlock.json](schema/BrowserOriginBlock.json) |  |
 | media | no | [MediaSubscribed.json](schema/MediaSubscribed.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
 
 Example:
 
@@ -8504,6 +8545,23 @@ Example:
 }
 ```
 
+### browser.delivery
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.delivery"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "type": "browser.delivery"
+}
+```
+
 ### browser.frame
 
 | Field | Required | Type | Constraints |
@@ -8518,10 +8576,10 @@ Example:
 {
   "frame": {
     "data": "example",
-    "height": 107,
-    "sequence": 8,
-    "timestamp": 1,
-    "width": 107
+    "height": 102,
+    "sequence": 0,
+    "timestamp": 3,
+    "width": 102
   },
   "threadId": "example",
   "type": "browser.frame"
@@ -8562,33 +8620,11 @@ Example:
 ```json
 {
   "page": {
-    "focus": {
-      "inputMode": "example",
-      "rect": {
-        "height": 3,
-        "width": 7,
-        "x": 5,
-        "y": 7
-      },
-      "type": "example"
-    },
-    "picker": {
-      "kind": "datetime-local",
-      "min": "example",
-      "options": [],
-      "pickerId": "example",
-      "rect": {
-        "height": 4,
-        "width": 3,
-        "x": 4,
-        "y": 3
-      },
-      "value": "example"
-    },
+    "cursor": "example",
     "tooltip": {
       "text": "example",
-      "x": 4,
-      "y": 8
+      "x": 3,
+      "y": 0
     }
   },
   "tabId": "example",
@@ -14258,6 +14294,7 @@ Example:
 | deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
 | link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
 | codecs | no | [MediaCodecs.json](schema/MediaCodecs.json) |  |
 
 Example:
@@ -14265,12 +14302,13 @@ Example:
 ```json
 {
   "codecs": [
-    "wl"
+    "l0pS6coFS"
   ],
   "deviceId": "ios:847934C2AAd66-3Ad42C43dA78B2b1E71f14",
   "media": {
     "connection": "mc_8jVj2aFIOlmo0nRRlGfFS"
   },
+  "mediaClient": true,
   "op": "subscribe"
 }
 ```
@@ -14655,6 +14693,7 @@ Example:
 | data | no | any JSON value |  |
 | error | no | [DeviceFailure.json](schema/DeviceFailure.json) |  |
 | media | no | [MediaSubscribed.json](schema/MediaSubscribed.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
 
 Example:
 
@@ -14709,6 +14748,27 @@ Example:
 }
 ```
 
+### devices.delivery
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"devices.delivery"` |  |
+| deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
+
+Example:
+
+```json
+{
+  "deviceId": "android:ENIdmETPYhrYmh.RD7i0F1U6Cd8o.aJdQLwNncUQJ6peQWGBT8XWjSnjIaWGwtS2dW08r3FjRLcW8hEheijE6ajtlHuyi6xggrzWR1VFsq8KJEI.IsKxQ-n",
+  "type": "devices.delivery",
+  "undelivered": {
+    "code": "example",
+    "reason": "example"
+  }
+}
+```
+
 ### devices.enabled
 
 | Field | Required | Type | Constraints |
@@ -14720,7 +14780,7 @@ Example:
 
 ```json
 {
-  "enabled": false,
+  "enabled": true,
   "type": "devices.enabled"
 }
 ```
@@ -14738,7 +14798,6 @@ Example:
 ```json
 {
   "devices": [],
-  "issues": [],
   "type": "devices.inventory"
 }
 ```
@@ -14757,10 +14816,10 @@ Example:
 
 ```json
 {
-  "deviceId": "android:wT2XLCKbBfsm.L3DFYAd_ktyHNs.J692u.-RA_E1o.aiOmDYR-i7Br45ey4_ZRG",
-  "dropped": 4,
+  "deviceId": "android:4mZ0SYq9FX9ObQ4FP-I2WCIEGS63N7UyI6bkyR3PDD5ii-t5HZKzd2q8j1wWyrxk21CQXwjMzDOq3DxzATUetVbgodXc.rvtaPixMUw2s",
+  "dropped": 3,
   "lines": [],
-  "sequence": 2,
+  "sequence": 4,
   "type": "devices.logs"
 }
 ```
@@ -27997,6 +28056,24 @@ Example:
 "b6XOiqbBUGmrD3BFdqAqU_9Fbx42EJDjUMDdwrBwXJB"
 ```
 
+## MediaUndelivered
+
+[JSON Schema](schema/MediaUndelivered.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | string | {"minLength":1,"maxLength":64} |
+| reason | yes | string | {"minLength":1,"maxLength":512} |
+
+Example:
+
+```json
+{
+  "code": "example",
+  "reason": "example"
+}
+```
+
 ## Mention
 
 [JSON Schema](schema/Mention.json), input validation.
@@ -39717,12 +39794,16 @@ Example:
 | sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
 | link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
 | codecs | no | [MediaCodecs.json](schema/MediaCodecs.json) |  |
 
 Example:
 
 ```json
 {
+  "codecs": [
+    "0Ri0"
+  ],
   "media": {
     "connection": "mc_2otTIQbL4ydth2_lWmeZlAWc-pCdPxIK9vQr36"
   },
@@ -40050,6 +40131,23 @@ Example:
 }
 ```
 
+### screen.delivery
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"screen.delivery"` |  |
+| sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
+
+Example:
+
+```json
+{
+  "sessionId": "K8Mudup77vg22rN_tvXsVLNhONA7bVd6HhXGOpl-7RvkG0tMRtwo",
+  "type": "screen.delivery"
+}
+```
+
 ### screen.result
 
 | Field | Required | Type | Constraints |
@@ -40062,14 +40160,17 @@ Example:
 | errorCode | no | ["forbidden","permission_denied","screen_disabled","denied","target_gone","not_supported","bounds","busy","timeout","internal","target_busy","foreground_required","focus_changed","window_minimized","window_offscreen","secure_input_required","clipboard_changed","window_ambiguous","key_unsupported","modifier_unsupported","no_key_window","delivery_unconfirmed"] |  |
 | holder | no | object | {"properties":{"sessionId":{"$ref":"https://ace.local/protocol/v1/ScreenId.json"},"owner":{"type":"string","maxLength":1024}},"required":["sessionId","owner"]} |
 | media | no | [MediaSubscribed.json](schema/MediaSubscribed.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
 
 Example:
 
 ```json
 {
   "data": null,
-  "ok": false,
-  "requestId": "K8Mudup77vg22rN_tvXsVLNhONA7bVd6HhXGOpl-7RvkG0tMRtwo",
+  "error": "example",
+  "errorCode": "internal",
+  "ok": true,
+  "requestId": "Y",
   "type": "screen.result"
 }
 ```

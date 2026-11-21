@@ -325,6 +325,16 @@ export const DeviceServerMessage = z.discriminatedUnion("type", [
     undelivered: MediaUndelivered.optional(),
   }),
   z.object({ type: z.literal("devices.state"), state: DeviceState }),
+  /**
+   * After a subscribe that named a media connection: whether its view is getting pictures now.
+   * `undelivered` while its source isn't streaming into ace-media (starting, or it failed),
+   * absent once it is. Sent only to a client that takes media (`mediaClient`), on every change.
+   */
+  z.object({
+    type: z.literal("devices.delivery"),
+    deviceId: AppDeviceId,
+    undelivered: MediaUndelivered.optional(),
+  }),
   /** Devices were turned on or off for the daemon's machine, by any client. */
   z.object({ type: z.literal("devices.enabled"), enabled: z.boolean() }),
   /** The device inventory changed (a simulator booted or shut down outside ace, say). */

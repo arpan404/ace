@@ -120,6 +120,10 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
       for (const watcher of watchers) watcher();
     },
     onChannel,
+    /** A message from the daemon on the channel. */
+    server,
+    /** Why the session's view gets no pictures now, as its view reads it. */
+    why: () => client.undelivered("app"),
     /** Timers waiting on the injected clock (request deadlines, retries). */
     pendingTimers: () => deadlines.size,
     /** Every pending request's deadline passes. */
@@ -380,5 +384,47 @@ describe("a subscribe answered without delivery", () => {
     view.timeOut();
     await flush();
     expect(view.subscribes).toHaveLength(2);
+  });
+});
+
+describe("a bound view whose source isn't streaming", () => {
+  it("says why until the first picture comes on it, whatever the daemon says in between", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.reply(view.subscribes[0]!, "binds");
+    await flush();
+    expect(view.why()).toBeUndefined();
+    // The daemon: the view is held, but nothing streams the session into ace-media.
+    const starting = { code: "starting", reason: "Live video is starting. It shows in a moment." };
+    view.server({ type: "screen.delivery", sessionId: "app", undelivered: starting });
+    expect(view.why()).toBe(starting.reason);
+    view.server({ type: "screen.delivery", sessionId: "app" });
+    expect(view.why()).toBeUndefined();
+    view.server({ type: "screen.delivery", sessionId: "app", undelivered: starting });
+    // The first picture on the delivery clears it.
+    view.deliver(frame(1));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    expect(view.why()).toBeUndefined();
+  });
+
+  it("keeps the reason through a retry until the retry's delivery brings a picture", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    // ace-media couldn't serve it: the reason stands.
+    view.reply(view.subscribes[0]!, "channel");
+    await flush();
+    const why = view.why();
+    expect(why).toBeDefined();
+    // Its retry goes out and is answered: the old picture must not pass for a live one yet.
+    view.timeOut();
+    await flush();
+    expect(view.why()).toEqual(why);
+    view.reply(view.subscribes[1]!, "binds");
+    await flush();
+    expect(view.why()).toEqual(why);
+    view.deliver(frame(1));
+    await flush();
+    expect(view.why()).toBeUndefined();
   });
 });

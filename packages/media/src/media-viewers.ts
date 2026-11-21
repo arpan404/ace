@@ -32,6 +32,11 @@ export type ViewIntent = {
   link?: ViewerOpen["link"];
   /** Whether a producer's pictures are this view's. */
   shows: (producer: IngestProducer) => boolean;
+  /**
+   * The view's grant in ace-media changed: true once a producer streams its source there and the
+   * view is granted under it, false when that ends (a route flip, a refusal, the source gone).
+   */
+  onGrant?: (granted: boolean) => void;
 };
 
 export type MediaPosterBytes = { width: number; height: number; jpeg: Uint8Array };
@@ -107,7 +112,14 @@ export class MediaViewers {
       audio: intent.audio,
       ...(intent.link ? { link: intent.link } : {}),
     });
-    held.path = granted ? path : undefined;
+    this.#path(held, granted ? path : undefined);
+  }
+
+  /** Moves a view's grant, telling its subscriber when whether it is granted changes. */
+  #path(held: Held, path: string | undefined): void {
+    const was = held.path !== undefined;
+    held.path = path;
+    if (was !== (path !== undefined)) held.intent.onGrant?.(path !== undefined);
   }
 
   configure(viewer: string, viewport: ViewViewport, audio: boolean): void {
@@ -146,7 +158,7 @@ export class MediaViewers {
         // The producer left ace-media (a route flip, a refusal): its grant there goes too, or
         // ace-media would keep a view of a source nobody streams to.
         if (held.path) this.#options.send({ type: "viewer.close", viewer: held.intent.viewer });
-        held.path = undefined;
+        this.#path(held, undefined);
       } else if (held.path !== path) this.#grant(held, path, producer);
     }
   }
@@ -232,6 +244,11 @@ export type MediaDeliveryPort = {
   unserved(kind: import("./routes.ts").SourceKind): string | undefined;
   /** The kinds of the open sources `shows` picks: what a view of them would be fed by. */
   sourceKinds(shows: ViewIntent["shows"]): import("./routes.ts").SourceKind[];
+  /**
+   * Where the sources `shows` picks are: streaming into ace-media (`live`), opening or not yet
+   * there (`pending`), or refused by ace-media or their producer (`failed`).
+   */
+  sourceState(shows: ViewIntent["shows"]): "live" | "pending" | "failed";
   /** The view's id, or undefined when the requester doesn't own the connection. */
   bind(request: Omit<ViewIntent, "viewer">): string | undefined;
   granted(viewer: string): boolean;
@@ -348,4 +365,19 @@ export function mediaUndelivered(
     code: "unavailable",
     reason: reasons.find((reason) => reason !== undefined) ?? "Live video isn't available now.",
   };
+}
+
+/** Why a view granted to a subscriber gets no pictures for now, from its source's state. */
+export function pendingUndelivered(
+  state: "live" | "pending" | "failed",
+  unserved: string | undefined,
+): MediaUndelivered | undefined {
+  if (state === "live") return undefined;
+  if (unserved) return { code: "unavailable", reason: unserved };
+  return state === "failed"
+    ? {
+        code: "failed",
+        reason: "Live video couldn't reach ace's media process from here. ace tries again.",
+      }
+    : { code: "starting", reason: "Live video is starting. It shows in a moment." };
 }

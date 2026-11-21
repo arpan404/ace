@@ -671,6 +671,16 @@ export const BrowserServerMessage = z.discriminatedUnion("type", [
     undelivered: MediaUndelivered.optional(),
   }),
   z.object({ type: z.literal("browser.state"), state: BrowserState }),
+  /**
+   * After a subscribe that named a media connection: whether its view is getting pictures now.
+   * `undelivered` while its source isn't streaming into ace-media (starting, or it failed),
+   * absent once it is. Sent only to a client that takes media (`mediaClient`), on every change.
+   */
+  z.object({
+    type: z.literal("browser.delivery"),
+    threadId: ThreadId,
+    undelivered: MediaUndelivered.optional(),
+  }),
   z.object({ type: z.literal("browser.frame"), threadId: ThreadId, frame: BrowserFrame }),
   BrowserAnnotationMessage,
   BrowserPageMessage,

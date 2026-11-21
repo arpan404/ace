@@ -1858,6 +1858,40 @@
     },
     {
       "properties": {
+        "engine": {
+          "enum": [
+            "embedded",
+            "headless"
+          ],
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.engine.move",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "workspaceId",
+        "engine"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -2169,6 +2203,10 @@
         },
         "media": {
           "$ref": "https://ace.local/protocol/v1/MediaBinding.json"
+        },
+        "mediaClient": {
+          "const": true,
+          "type": "boolean"
         },
         "requestId": {
           "maxLength": 256,

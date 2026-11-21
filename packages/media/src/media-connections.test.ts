@@ -444,3 +444,38 @@ test("a view's grant is closed when its producer leaves ace-media, and again on 
   viewers.unbind(v1);
   expect(closes()).toBe(1);
 });
+
+test("a view's subscriber hears each change of its grant: none while nothing streams, then on, then off", async () => {
+  const h = harness();
+  const viewers = new MediaViewers({
+    connections: h.connections,
+    live: () => [],
+    send: () => true,
+    id: () => "view-id",
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  const grant = granted(await h.connections.connect(phone("a")));
+  const grants: boolean[] = [];
+  const viewer =
+    viewers.bind({
+      requester: phone("a"),
+      connection: grant.connection,
+      target: { kind: "browser", threadId: "t1" },
+      codecs: ["avc1.42E033"],
+      viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
+      local: true,
+      audio: false,
+      shows: (p) => p.threadId === "t1",
+      onGrant: (on) => grants.push(on),
+    }) ?? "";
+  // Bound, but nothing streams the tab into ace-media: a held id is no delivery.
+  expect(viewers.granted(viewer)).toBe(false);
+  expect(grants).toEqual([]);
+  viewers.live(producer("t1"), "source-1");
+  // A new id for the same source moves the grant without turning it off.
+  viewers.live(producer("t1"), "source-2");
+  // The producer left ace-media (its ingest refused, say): the subscriber hears it.
+  viewers.live(producer("t1"), undefined);
+  expect(grants).toEqual([true, false]);
+});

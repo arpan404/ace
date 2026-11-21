@@ -195,6 +195,7 @@ export class MediaRuntime {
       unserved: (kind) =>
         undeliveredReason(kind, this.#settings(), this.supervisor.health(), this.#capabilities),
       sourceKinds: (shows) => this.sources.kinds(shows),
+      sourceState: (shows) => this.sources.state(shows),
       bind: (intent) => this.viewers.bind(intent),
       granted: (viewer) => this.viewers.granted(viewer),
       poster: (viewer) => this.viewers.poster(viewer),

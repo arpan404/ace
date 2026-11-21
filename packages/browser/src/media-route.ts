@@ -72,6 +72,12 @@ interface Delivery {
   via: string | undefined;
   /** Why no pictures come, once `via` is `nonePath`. */
   undelivered?: MediaUndelivered;
+  /**
+   * Why its pictures haven't come yet though it may deliver: the daemon's word that its source
+   * isn't streaming, or what the delivery it replaced said. The first picture on it clears this,
+   * so a picture kept from before never passes for a live one meanwhile.
+   */
+  waiting?: MediaUndelivered;
 }
 
 /** Waits before a failed subscribe is tried again, by attempt; then the source gives up. */
@@ -188,7 +194,14 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     if (replaced?.via !== undefined) this.#previous.set(source, replaced);
     const asked =
       binding && this.#refused.get(source) !== binding.connection ? binding.connection : undefined;
-    this.#deliveries.set(source, { generation, asked, via: undefined });
+    // A retry keeps saying why the last one got nothing, until a picture comes on this one.
+    const waiting = replaced && reasonOf(replaced);
+    this.#deliveries.set(source, {
+      generation,
+      asked,
+      via: undefined,
+      ...(waiting ? { waiting } : {}),
+    });
     this.#emit(source);
     // Every subscribe says this client takes pictures only from a media connection.
     if (!binding || !asked) return { generation, fields: { mediaClient: true } };
@@ -251,10 +264,12 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     this.#previous.delete(source);
     this.#attempts.delete(source);
     if (bound && media?.poster) this.#posters.set(source, media.poster);
-    this.#emit(source);
     // What came the settled way while the reply was on its way shows now; the rest is dropped.
     const held = this.#candidates.get(source)?.settle(via);
     this.#candidates.delete(source);
+    // Pictures already came on it: nothing it was waiting for still holds.
+    if (bound && held?.pictures.length) delete delivery.waiting;
+    this.#emit(source);
     return {
       pictures: (held?.pictures ?? []).map((frame) => ({ frame, generation })),
       ...(held?.needsKeyframe && held.ask ? { ask: { frame: held.ask, generation } } : {}),
@@ -348,7 +363,13 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
       }
       return undefined;
     }
-    return delivered(delivery) === path ? { frame, generation: delivery.generation } : undefined;
+    if (delivered(delivery) !== path) return undefined;
+    // A picture on the current delivery: whatever said it was waiting no longer holds.
+    if (delivery.waiting) {
+      delete delivery.waiting;
+      this.#emit(source);
+    }
+    return { frame, generation: delivery.generation };
   }
   /** Whether what comes by `path` for `source` (sound, say) is its current delivery's. */
   expects(source: string, path: string): boolean {
@@ -382,10 +403,24 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     const delivery = this.#deliveries.get(source);
     return delivery?.via === nonePath && delivery.asked !== undefined;
   }
-  /** Why `source`'s current delivery gets no pictures; undefined while one does or may. */
+  /**
+   * Why `source`'s current delivery gets no pictures, or hasn't yet: undefined once a picture
+   * came on it, or while nothing says otherwise.
+   */
   undelivered(source: string): MediaUndelivered | undefined {
     const delivery = this.#deliveries.get(source);
-    return delivery?.via === nonePath ? delivery.undelivered : undefined;
+    return delivery && reasonOf(delivery);
+  }
+  /**
+   * The daemon's word on `source`'s bound view (`*.delivery`): why its source isn't streaming
+   * into ace-media now, or undefined once it is. Pictures that then come clear it too.
+   */
+  report(source: string, undelivered: MediaUndelivered | undefined): void {
+    const delivery = this.#deliveries.get(source);
+    if (!delivery || delivery.via === nonePath) return;
+    if (undelivered) delivery.waiting = undelivered;
+    else delete delivery.waiting;
+    this.#emit(source);
   }
   /**
    * `source`'s delivery ends (its stream invalidated): whatever its pending subscribe still gets
@@ -432,7 +467,7 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     // Unsettled only while a named connection's reply is on its way; otherwise its way is known.
     const pending = delivery.via === undefined && delivery.asked !== undefined;
     const poster = this.#posters.get(source);
-    const undelivered = delivery.via === nonePath ? delivery.undelivered : undefined;
+    const undelivered = reasonOf(delivery);
     const state = {
       source,
       generation: delivery.generation,
@@ -469,3 +504,7 @@ export interface Stamped<F = PictureChunk> {
  * that named nothing gets nothing.
  */
 const delivered = (delivery: Delivery): string => delivery.via ?? delivery.asked ?? nonePath;
+
+/** Why a delivery gets no pictures (`nonePath`), or none yet (`waiting`). */
+const reasonOf = (delivery: Delivery): MediaUndelivered | undefined =>
+  delivery.via === nonePath ? delivery.undelivered : delivery.waiting;
