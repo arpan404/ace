@@ -26,18 +26,20 @@ export function useViewHandoff(options: {
 
   useLayoutEffect(() => {
     if (!doc) return undefined;
+    // The text box and the scroller stay the same nodes for as long as the document does.
+    const box = field.current;
+    const element = scroller.current;
     // Leaving views of this document ran their cleanup earlier in this commit.
     const handoff = arrivingView(doc);
     arrived.current = handoff;
-    if (handoff && claimFocus(doc)) field.current?.focus({ preventScroll: true });
+    if (handoff && claimFocus(doc)) box?.focus({ preventScroll: true });
     return () => {
-      const element = scroller.current;
       const { layout: rows, lineHeight: height } = latest.current;
       const topRow = Math.floor((element?.scrollTop ?? 0) / height);
       leaveView(doc, {
         topLine: rows ? rows.lineAt(topRow) : topRow,
         scrollLeft: element?.scrollLeft ?? 0,
-        focused: field.current !== null && field.current === document.activeElement,
+        focused: box !== null && box === document.activeElement,
       });
     };
   }, [doc, field, scroller]);
@@ -47,8 +49,10 @@ export function useViewHandoff(options: {
     const element = scroller.current;
     if (!handoff || !layout || !element) return;
     arrived.current = undefined;
-    element.scrollTop = layout.startOf(handoff.topLine) * lineHeight;
-    element.scrollLeft = handoff.scrollLeft;
+    element.scrollTo({
+      top: layout.startOf(handoff.topLine) * lineHeight,
+      left: handoff.scrollLeft,
+    });
     onScroll({ top: element.scrollTop, left: element.scrollLeft });
   });
 }

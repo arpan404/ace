@@ -1,5 +1,4 @@
 import { act, render, waitFor } from "@testing-library/react";
-import { useState } from "react";
 import { beforeAll, expect, test } from "vitest";
 import { createBufferRegistry } from "@/features/editor-workbench/buffers/registry.ts";
 import {
@@ -56,6 +55,16 @@ function View({ buffer, label }: { buffer: TextBuffer; label: string }) {
   );
 }
 
+function Groups({ buffer, views }: { buffer: TextBuffer; views: string[] }) {
+  return (
+    <div>
+      {views.map((label) => (
+        <View key={label} buffer={buffer} label={label} />
+      ))}
+    </div>
+  );
+}
+
 const coloured = (label: string) =>
   document
     .querySelector(`section[aria-label="${label}"] [data-line="0"]`)
@@ -63,19 +72,8 @@ const coloured = (label: string) =>
 
 test("after a split, both views of the file keep their colours, and a remount colours again", async () => {
   const buffer = await openBuffer();
-  let split: (views: string[]) => void = () => {};
-  function Groups() {
-    const [views, setViews] = useState(["left"]);
-    split = setViews;
-    return (
-      <div>
-        {views.map((label) => (
-          <View key={label} buffer={buffer} label={label} />
-        ))}
-      </div>
-    );
-  }
-  render(<Groups />);
+  const { rerender } = render(<Groups buffer={buffer} views={["left"]} />);
+  const split = (views: string[]) => rerender(<Groups buffer={buffer} views={views} />);
   await waitFor(() => expect(coloured("left")).toBeGreaterThan(3));
 
   act(() => split(["left", "right"]));

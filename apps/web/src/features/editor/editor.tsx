@@ -385,8 +385,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const [tokens, setTokens] = useState<Token[][]>([]);
   const tokenKey = `${paint}:${first}:${last}`;
   useEffect(() => {
-    // oxlint-disable-next-line react-compiler/set-state-in-effect -- colours live in the highlighter's own store, not in React.
     const drawn = state.highlighter?.tokens(first, last) ?? [];
+    // oxlint-disable-next-line react-compiler/set-state-in-effect -- colours live in the highlighter's own store, not in React.
     setTokens(drawn);
     if (doc) rememberColours(doc, first, drawn);
     // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.

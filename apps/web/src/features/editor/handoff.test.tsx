@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
 import { beforeAll, expect, test } from "vitest";
 import { createBufferRegistry } from "@/features/editor-workbench/buffers/registry.ts";
 import {
@@ -61,18 +60,19 @@ const coloured = (label: string) =>
     .querySelector(`section[aria-label="${label}"] [data-line="0"]`)
     ?.querySelectorAll('[style*="--source-token-light"]').length ?? 0;
 
+/** The editor alone, or moved into a split: a new place in the tree mounts it again. */
+function Layout({ buffer, split }: { buffer: TextBuffer; split: boolean }) {
+  const editor = <View key={split ? "b" : "a"} buffer={buffer} label="code" />;
+  return split ? <div data-split>{editor}</div> : editor;
+}
+
 async function mounted() {
   const buffer = await openBuffer();
-  let move: (wrapped: boolean) => void = () => {};
-  function Layout() {
-    const [wrapped, setWrapped] = useState(false);
-    move = setWrapped;
-    const editor = <View key={wrapped ? "b" : "a"} buffer={buffer} label="code" />;
-    return wrapped ? <div data-split>{editor}</div> : editor;
-  }
-  render(<Layout />);
+  const { rerender } = render(<Layout buffer={buffer} split={false} />);
   await waitFor(() => expect(coloured("code")).toBeGreaterThan(3));
-  return { move: (wrapped: boolean) => act(() => move(wrapped)) };
+  return {
+    move: (split: boolean) => act(() => rerender(<Layout buffer={buffer} split={split} />)),
+  };
 }
 
 test("a view mounted again by a layout change draws its colours on the first frame", async () => {

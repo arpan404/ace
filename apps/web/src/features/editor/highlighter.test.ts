@@ -66,13 +66,14 @@ test("colours come back after the engine forgets the highlighter", async () => {
   highlighter.dispose();
 });
 
+const fail = async () => {
+  throw new Error("Closed line highlighter");
+};
+
 test("an engine that keeps failing is left alone after a few rebuilds", async () => {
   const made: number[] = [];
   const create = (): NativeHighlighter => {
     made.push(made.length);
-    const fail = async () => {
-      throw new Error("Closed line highlighter");
-    };
     return { setText: fail, edit: fail, tokens: fail, advance: fail, free: () => {} };
   };
   const highlighter = new MarkitLineHighlighter("ts", { delay: 0, create });

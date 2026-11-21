@@ -26,8 +26,8 @@ async function open(text: string) {
   const buffer = lease.buffer;
   const doc = buffer.document();
   if (!doc) throw new Error("no document");
-  const type = (text: string) => {
-    doc.insertText(text);
+  const type = (typed: string) => {
+    doc.insertText(typed);
     buffer.edited();
   };
   const undo = () => {
