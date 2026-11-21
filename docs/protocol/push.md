@@ -911,7 +911,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"transfers.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"list"},"transfers":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Transfer.json"}}},"required":["kind","transfers"]},{"type":"object","properties":{"kind":{"type":"string","const":"cancelled"},"transfer":{"$ref":"https://ace.local/protocol/v1/Transfer.json"}},"required":["kind","transfer"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"type":"string","minLength":1,"maxLength":64},"message":{"type":"string","maxLength":512}},"required":["kind","code","message"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"list"},"transfers":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Transfer.json"}}},"required":["kind","transfers"]},{"type":"object","properties":{"kind":{"type":"string","const":"cancelled"},"transfer":{"$ref":"https://ace.local/protocol/v1/Transfer.json"}},"required":["kind","transfer"]},{"type":"object","properties":{"kind":{"type":"string","const":"carriedOnHere"},"transfer":{"$ref":"https://ace.local/protocol/v1/Transfer.json"}},"required":["kind","transfer"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"type":"string","minLength":1,"maxLength":64},"message":{"type":"string","maxLength":512}},"required":["kind","code","message"]}]} |
 
 Example:
 
@@ -924,14 +924,13 @@ Example:
       "commandId": "example",
       "kind": "thread",
       "phase": "starting",
-      "sentBytes": 9,
+      "sentBytes": 1,
       "startedAt": 0,
       "target": {
         "hostId": "example",
         "name": "example"
       },
       "threadId": "example",
-      "totalBytes": 4,
       "transferId": "example",
       "updatedAt": 3,
       "workspaceId": "example"
@@ -958,7 +957,6 @@ Example:
     "live": {
       "stage": "stopping"
     },
-    "method": "bundle",
     "phase": "completed",
     "sentBytes": 8,
     "startedAt": 2,
@@ -967,6 +965,7 @@ Example:
       "name": "example"
     },
     "transferId": "example",
+    "unlinked": true,
     "updatedAt": 1,
     "workspaceId": "example"
   },

@@ -48659,6 +48659,7 @@ Example:
 | threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | target | yes | object | {"properties":{"hostId":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["hostId","name"]} |
 | phase | yes | [TransferPhase.json](schema/TransferPhase.json) |  |
+| unlinked | no | `true` |  |
 | method | no | [TransferMethod.json](schema/TransferMethod.json) |  |
 | options | no | object | {"properties":{"includeChanges":{"type":"boolean"},"includeIgnored":{"type":"boolean"},"parent":{"type":"string","minLength":1,"maxLength":4096}},"required":["includeChanges","includeIgnored"]} |
 | sentBytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -48675,36 +48676,32 @@ Example:
 ```json
 {
   "commandId": "example",
-  "error": {
-    "code": "example",
-    "message": "example"
-  },
-  "ignoredFiles": {
-    "bytes": 1,
-    "files": 7
-  },
   "kind": "project",
-  "method": "remote",
-  "phase": "importing",
-  "result": {
-    "branchOnly": false,
-    "identityConflict": {
-      "identityId": "5e1f0c2a-7d1b-4c7e-9a0e-2f6b8d4c1a90"
+  "live": {
+    "session": {
+      "kind": "summary",
+      "reason": "example"
     },
-    "keptFiles": 4,
-    "path": "example",
-    "workspaceId": "example"
+    "stage": "handing"
   },
-  "sentBytes": 2,
-  "startedAt": 8,
+  "method": "archive",
+  "options": {
+    "includeChanges": true,
+    "includeIgnored": false,
+    "parent": "example"
+  },
+  "phase": "importing",
+  "sentBytes": 7,
+  "startedAt": 3,
   "target": {
     "hostId": "example",
     "name": "example"
   },
   "threadId": "example",
-  "totalBytes": 6,
+  "totalBytes": 2,
   "transferId": "example",
-  "updatedAt": 6,
+  "unlinked": true,
+  "updatedAt": 4,
   "workspaceId": "example"
 }
 ```
@@ -48961,7 +48958,6 @@ Example:
       "files": 6
     },
     "kind": "thread",
-    "method": "archive",
     "phase": "cancelled",
     "result": {
       "ignoredSkipped": 5,
@@ -48977,6 +48973,7 @@ Example:
     "threadId": "example",
     "totalBytes": 7,
     "transferId": "example",
+    "unlinked": true,
     "updatedAt": 9,
     "workspaceId": "example"
   },
@@ -49073,7 +49070,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"transfers.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cancel"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cancel"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]},{"type":"object","properties":{"op":{"type":"string","const":"carryOnHere"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]}]} |
 
 Example:
 
@@ -49095,7 +49092,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"transfers.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"list"},"transfers":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Transfer.json"}}},"required":["kind","transfers"]},{"type":"object","properties":{"kind":{"type":"string","const":"cancelled"},"transfer":{"$ref":"https://ace.local/protocol/v1/Transfer.json"}},"required":["kind","transfer"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"type":"string","minLength":1,"maxLength":64},"message":{"type":"string","maxLength":512}},"required":["kind","code","message"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"list"},"transfers":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Transfer.json"}}},"required":["kind","transfers"]},{"type":"object","properties":{"kind":{"type":"string","const":"cancelled"},"transfer":{"$ref":"https://ace.local/protocol/v1/Transfer.json"}},"required":["kind","transfer"]},{"type":"object","properties":{"kind":{"type":"string","const":"carriedOnHere"},"transfer":{"$ref":"https://ace.local/protocol/v1/Transfer.json"}},"required":["kind","transfer"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"type":"string","minLength":1,"maxLength":64},"message":{"type":"string","maxLength":512}},"required":["kind","code","message"]}]} |
 
 Example:
 
@@ -49103,36 +49100,32 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "kind": "cancelled",
+    "kind": "carriedOnHere",
     "transfer": {
       "commandId": "example",
+      "error": {
+        "code": "example",
+        "message": "example"
+      },
       "ignoredFiles": {
-        "bytes": 5,
-        "files": 8
+        "bytes": 8,
+        "files": 2
       },
       "kind": "thread",
-      "options": {
-        "includeChanges": false,
-        "includeIgnored": true
+      "live": {
+        "stage": "readying"
       },
+      "method": "bundle",
       "phase": "importing",
-      "result": {
-        "branch": "example",
-        "branchOnly": false,
-        "keptFiles": 8,
-        "path": "example",
-        "threadId": "example",
-        "workspaceId": "example"
-      },
-      "sentBytes": 1,
-      "startedAt": 3,
+      "sentBytes": 6,
+      "startedAt": 0,
       "target": {
         "hostId": "example",
         "name": "example"
       },
-      "totalBytes": 0,
+      "totalBytes": 2,
       "transferId": "example",
-      "updatedAt": 0,
+      "updatedAt": 8,
       "workspaceId": "example"
     }
   },
