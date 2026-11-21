@@ -4,7 +4,8 @@
 //! one with `talk`; the person's stamp counts for nothing there. The member the stamp proved is
 //! passed on to the route, which never reads the stamp again (each is good once).
 //!
-//! Its approvals and its access list check their own stamps, for the right each needs.
+//! A club led by a shared bot takes the same: `talk` on its lead to post, `configure` to change
+//! it. Its approvals and its access list check their own stamps, for the right each needs.
 
 use axum::body::Body;
 use axum::extract::{OriginalUri, Request, State};
@@ -44,6 +45,17 @@ fn writes_to(state: &AppState, method: &Method, path: &str) -> Option<(String, R
                 .engine
                 .shared_access(&id)
                 .map(|_| (id, Right::Configure))
+        }
+        // A club led by a shared bot is a shared club: posting to it takes `talk` on its lead,
+        // changing it `configure`.
+        (Some("groups"), Some(id), rest) => {
+            let lead = state.engine.club_lead(id)?;
+            state.engine.shared_access(&lead)?;
+            let right = match rest {
+                Some("messages" | "stop") => Right::Talk,
+                _ => Right::Configure,
+            };
+            Some((lead, right))
         }
         (Some("conversations"), Some(conversation), _) => {
             let (agent, _) = state.engine.shared_over(conversation)?;

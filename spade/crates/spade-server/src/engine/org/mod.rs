@@ -196,6 +196,11 @@ impl Engine {
         Space::Personal
     }
 
+    /// The lead of club `id`, if there is such a club.
+    pub(crate) fn club_lead(&self, id: &str) -> Option<String> {
+        self.store.group(id).ok()?.map(|group| group.lead_id)
+    }
+
     /// The space bot `agent` is in.
     pub(crate) fn agent_space(&self, agent: &str) -> Space {
         match self.store.agent(agent) {

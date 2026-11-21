@@ -41,16 +41,32 @@ pub fn keys() -> Value {
 
 /// Gives `spade` to Acme, with its owner's stamp made with `person_key`.
 pub async fn bind(spade: &Spade, person_key: &[u8]) -> Result<Value> {
-    let stamp = spade_server::security::attest::sign(person_key, "org", ORG, now_ms(), &nonce());
+    bind_to(spade, person_key, ORG, "Acme").await
+}
+
+/// Gives `spade` to organization `org`, called `name`.
+pub async fn bind_to(spade: &Spade, person_key: &[u8], org: &str, name: &str) -> Result<Value> {
+    let stamp = spade_server::security::attest::sign(person_key, "org", org, now_ms(), &nonce());
     let (status, body) = spade
         .put_with(
             "/v1/org",
-            json!({ "org": ORG, "name": "Acme", "host": HOST, "keys": keys() }),
+            json!({ "org": org, "name": name, "host": HOST, "keys": keys() }),
             &[(spade_server::security::attest::HEADER, &stamp)],
         )
         .await?;
     assert_eq!(status, 200, "{body}");
     Ok(body)
+}
+
+/// Writes Acme's binding straight into `spade`'s settings, as a host given to it keeps it: for
+/// a Spade whose security service has no person key to check the owner's stamp with.
+pub fn bind_directly(spade: &Spade) -> Result {
+    let binding = json!({ "org": ORG, "name": "Acme", "host": HOST, "keys": keys() });
+    spade_store::Store::connect(spade.database())?.execute(
+        "INSERT INTO settings (key, value) VALUES ('org', ?1)",
+        [binding.to_string()],
+    )?;
+    Ok(())
 }
 
 /// `method path` with `body` as `member`, stamped by ace's daemon with `person_key`, over the
