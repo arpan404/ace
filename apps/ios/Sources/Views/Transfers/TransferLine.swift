@@ -6,9 +6,10 @@ struct OtherMachines {
     var client: @MainActor (String) -> ClientModel? = { _ in nil }
     /// A machine's name as this phone calls it.
     var name: @MainActor (String) -> String? = { _ in nil }
-    /// Opens that machine's thread on the Threads tab, or says why it can't yet. Nil where
-    /// nothing can be opened from (inside Settings).
-    var open: (@MainActor (InboxKey) -> OpenElsewhere)? = nil
+    /// Opens that machine's thread on the Threads tab, or says why it can't yet; `opened` runs
+    /// once the thread shows, also when it waited for that machine's list. Nil where nothing can
+    /// be opened from (inside Settings).
+    var open: (@MainActor (InboxKey, _ opened: @escaping @MainActor () -> Void) -> OpenElsewhere)? = nil
 }
 
 /// What opening another machine's thread did.
@@ -67,7 +68,7 @@ struct TransferLineView: View {
     private func run(_ action: TransferLineRow.Action) {
         if action.act == "open" {
             guard let target = line.open else { return }
-            if let thread = target.threadId, others.open?(InboxKey(machineId: target.hostId, id: thread)) == .opened { opened() }
+            if let thread = target.threadId { _ = others.open?(InboxKey(machineId: target.hostId, id: thread), opened) }
             return
         }
         guard let transferId = line.transferId else {
