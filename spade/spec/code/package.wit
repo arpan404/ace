@@ -7,34 +7,30 @@
 /// and every other effect come through `tools` and `http`, which Spade carries out after its
 /// gate. Values cross as JSON text where a tool's would.
 ///
+/// The package is `spade:package`; `package` is a WIT keyword, so it is written `%package` here.
+///
 /// Version 1.0.0 targets WASI 0.2. A later 1.1.0 accepts the same exports built against WASI 0.3's
 /// async once Spade's pinned runtime enables it.
-package spade:package@1.0.0;
+package spade:%package@1.0.0;
 
-/// Types the other interfaces share.
+/// Types the other interfaces share. A call that gives no answer gives a `string` instead: why,
+/// in a sentence the bot reads.
 interface types {
     /// JSON text: a tool's input or output, a contract's, a card's data.
     type json = string;
-
-    /// Why a call didn't give an answer, in a sentence the bot reads.
-    record failure {
-        message: string,
-    }
 }
 
 /// Calls one of the bot's `spade.v1` tools as the bot. Every call goes through Spade's gate, its
 /// ceiling first; the effect is the called tool's.
 interface tools {
-    use types.{json, failure};
+    use types.{json};
 
-    call: func(name: string, input: json) -> result<json, failure>;
+    call: func(name: string, input: json) -> result<json, string>;
 }
 
 /// One outgoing https request, sent by Spade through the bot's egress proxy to a host the
 /// package declares under `network` and the person left on. No sockets, no other schemes.
 interface http {
-    use types.{failure};
-
     record header {
         name: string,
         value: string,
@@ -53,7 +49,7 @@ interface http {
         body: list<u8>,
     }
 
-    send: func(req: request) -> result<response, failure>;
+    send: func(req: request) -> result<response, string>;
 }
 
 /// Lines for the package's developer, kept with the call: at most 64 KiB a call.
@@ -70,41 +66,31 @@ interface log {
 
 /// A small store the package owns on this bot (at most 16 MiB in all), moved with the bot.
 interface kv {
-    use types.{failure};
-
-    get: func(key: string) -> result<option<list<u8>>, failure>;
-    set: func(key: string, value: list<u8>) -> result<_, failure>;
-    delete: func(key: string) -> result<_, failure>;
-    keys: func(prefix: string) -> result<list<string>, failure>;
+    get: func(key: string) -> result<option<list<u8>>, string>;
+    set: func(key: string, value: list<u8>) -> result<_, string>;
+    delete: func(key: string) -> result<_, string>;
+    keys: func(prefix: string) -> result<list<string>, string>;
 }
 
 /// The tools a component gives its bot: each becomes `code_<component>_<name>` in the `code`
 /// module of `spade.v1`.
 interface toolbox {
-    use types.{json, failure};
+    use types.{json};
 
-    record tool {
-        /// Lower-case letters, digits and `_`, starting with a letter.
-        name: string,
-        /// What it does, for the model.
-        summary: string,
-        /// JSON schemas of its input and its output.
-        input-schema: json,
-        output-schema: json,
-    }
-
-    /// Every tool it has. Called once when the component is loaded.
-    tools: func() -> list<tool>;
+    /// Every tool it has, called once when the component is loaded: a JSON array of objects with
+    /// `name` (lower-case letters, digits and `_`, starting with a letter), `summary` (what it
+    /// does, for the model) and the JSON schemas `input_schema` and `output_schema`.
+    tools: func() -> json;
     /// Runs one of them.
-    call: func(name: string, input: json) -> result<json, failure>;
+    call: func(name: string, input: json) -> result<json, string>;
 }
 
 /// Answers contracts without a model turn, when a contract says
 /// `"handler": "code/<component>#<contract>"` (phase 2).
 interface contract-handler {
-    use types.{json, failure};
+    use types.{json};
 
-    handle: func(contract: string, input: json) -> result<json, failure>;
+    handle: func(contract: string, input: json) -> result<json, string>;
 }
 
 /// Verification steps (ADR 0204, phase 3): an outcome, judged.
@@ -121,9 +107,9 @@ interface check {
 
 /// Shapes a card's data when a card says `"shape": "code/<component>#<name>"` (phase 3).
 interface card-data {
-    use types.{json, failure};
+    use types.{json};
 
-    shape: func(name: string, data: json) -> result<json, failure>;
+    shape: func(name: string, data: json) -> result<json, string>;
 }
 
 /// Code tools: the world this version of Spade runs.

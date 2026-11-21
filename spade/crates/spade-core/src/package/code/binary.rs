@@ -24,10 +24,13 @@ pub struct Inspected {
 }
 
 /// The WebAssembly features a component may use: WebAssembly 2.0 (bulk memory, reference
-/// types, multi-value, SIMD and the rest) and the component model. No threads, GC, memory64,
-/// exceptions, stack switching or async components. `spade-wasm`'s engine enables the same.
+/// types, multi-value, SIMD and the rest) and the component model, but no type that needs a
+/// garbage collector (`externref`; `funcref` stays). No threads, GC, memory64, exceptions, stack
+/// switching or async components. `spade-wasm`'s engine enables exactly these.
 pub fn features() -> WasmFeatures {
-    WasmFeatures::WASM2 | WasmFeatures::COMPONENT_MODEL
+    let mut features = WasmFeatures::WASM2 | WasmFeatures::COMPONENT_MODEL;
+    features.remove(WasmFeatures::GC_TYPES);
+    features
 }
 
 /// `bytes` read as the component at `path`: what it imports and exports, or every reason it's
