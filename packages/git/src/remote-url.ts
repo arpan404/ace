@@ -2,6 +2,7 @@
  * Pure, with no Node imports, so browser code (the fake daemon) compares origins exactly as the
  * daemon does through the `@ace/git/remote-url` export.
  */
+import { publicForgeHosts } from "@ace/protocol";
 
 const schemeUrl = /^([a-z][a-z0-9+.-]*):\/\/([^/]*)(\/.*)?$/i;
 // `[user@]host:path`, as Git reads it: no slash before the colon, and not a drive letter.
@@ -17,26 +18,69 @@ const defaultPorts: Record<string, string> = {
   https: "443",
 };
 
+/** Schemes whose path is a path on the server's disk, as SSH reads it. */
+const sshSchemes = new Set(["ssh", "git+ssh", "ssh+git"]);
+
 /**
  * One key for every spelling of the same repository: `host/owner/repo` for network remotes
- * (scheme, user, the scheme's default port, trailing `.git` and slashes dropped, host
- * lowercased, path case kept; another port stays, as `host:2222/owner/repo`),
- * and the resolved path for local paths and `file://` URLs. Relative paths resolve against
- * `base` (the checkout Git would resolve them in).
+ * (scheme, the scheme's default port, trailing `.git` and slashes dropped, host lowercased,
+ * path case kept; another port stays, as `host:2222/owner/repo`), and the resolved path for
+ * local paths and `file://` URLs. Relative paths resolve against `base` (the checkout Git would
+ * resolve them in).
+ *
+ * Over SSH to a host other than a public forge, the path is a path on that server's disk, and
+ * Git reads an scp-style path without a leading `/` (`git@box:team/app`) from the login user's
+ * home, while `ssh://git@box/team/app` is `/team/app` from the root. So a home-relative path
+ * keys as `box/~user/team/app` (its home's user: the one named with `~name`, else the login
+ * user, else just `~`), apart from the absolute `box/team/app`, which an HTTPS spelling shares.
+ * A public forge (`publicForgeHosts`) serves repositories by name, so there every spelling,
+ * SSH or not, is the one `host/owner/repo`.
  */
 export function normalizeRemoteUrl(url: string, base = "/"): string {
   const value = url.trim();
   if (/^file:\/\//i.test(value)) return localPath(fileUrlPath(value), base);
   const scheme = schemeUrl.exec(value);
   if (scheme) {
-    const port = defaultPorts[(scheme[1] ?? "").toLowerCase()];
-    return networkKey(addressOf(scheme[2] ?? "", port), scheme[3] ?? "");
+    const name = (scheme[1] ?? "").toLowerCase();
+    const authority = scheme[2] ?? "";
+    const host = addressOf(authority, defaultPorts[name]);
+    const path = scheme[3] ?? "";
+    // `ssh://box/~/x` and `ssh://box/~name/x` are home-relative; any other path is from the root.
+    if (sshSchemes.has(name) && !isPublicForge(host) && path.startsWith("/~"))
+      return homeKey(host, loginUser(authority), path.slice(1));
+    return networkKey(host, path);
   }
   if (/^[a-z]:[\\/]/i.test(value) || value.startsWith("/") || value.startsWith("."))
     return localPath(value, base);
   const scp = scpUrl.exec(value);
-  if (scp) return networkKey(addressOf(scp[1] ?? "", undefined), scp[2] ?? "");
+  if (scp) {
+    const authority = scp[1] ?? "";
+    const host = addressOf(authority, undefined);
+    const path = scp[2] ?? "";
+    if (isPublicForge(host) || path.startsWith("/")) return networkKey(host, path);
+    const user = /^([^@/]+)@/.exec(value)?.[1];
+    return homeKey(host, user, path.startsWith("~") ? path : `~/${path}`);
+  }
   return localPath(value, base);
+}
+
+const isPublicForge = (host: string) => Object.hasOwn(publicForgeHosts, host);
+
+/** The user an `ssh://` authority logs in as (`user[:password]@host`), if it names one. */
+function loginUser(authority: string): string | undefined {
+  const at = authority.lastIndexOf("@");
+  if (at < 0) return undefined;
+  return authority.slice(0, at).split(":")[0] || undefined;
+}
+
+/**
+ * The key of a path under a home on `host`: `path` starts `~/` (the login user's home) or
+ * `~name/`, and keys as `host/~name/rest`, the login user filling in a bare `~` when known.
+ */
+function homeKey(host: string, user: string | undefined, path: string): string {
+  const named = /^~([^/]*)(.*)$/.exec(path);
+  const owner = named?.[1] || user || "";
+  return networkKey(host, `~${owner}${named?.[2] ?? ""}`);
 }
 
 /**

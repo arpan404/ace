@@ -159,7 +159,7 @@ test("a remote on a non-default port is another repository; the scheme's default
   ].map((url) => normalizeRemoteUrl(url));
   expect(new Set(keys).size).toBe(keys.length);
   expect(normalizeRemoteUrl("ssh://git@forge:22/team/app")).toBe(
-    normalizeRemoteUrl("git@forge:team/app.git"),
+    normalizeRemoteUrl("ssh://git@forge/team/app.git"),
   );
   expect(normalizeRemoteUrl("https://forge:443/team/app")).toBe(
     normalizeRemoteUrl("http://forge:80/team/app"),
