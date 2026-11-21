@@ -28,6 +28,9 @@ if (process.env.FAKE_PI_LOAD_FAILURE) {
   );
   process.exit(1);
 }
+// As an MCP server's log passed through would be: one stderr line over ace's 1 MiB line limit.
+if (process.env.FAKE_PI_STDERR_FLOOD)
+  process.stderr.write(`${"x".repeat(1024 * 1024 + 1)}\nstill here\n`);
 /** Like Pi, list each `--skill` directory's `<name>/SKILL.md` skills by their frontmatter name. */
 function skillNames(): string[] {
   const names: string[] = [];

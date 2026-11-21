@@ -130,6 +130,8 @@ export async function openPiSession(
     if (lease) out = out.replaceAll(lease.bearer, "<ACE_LEASE>");
     return out;
   };
+  // Bound before `emit` exists: a line can only be dropped once the child writes.
+  let stderrDropped: ((bytes: number) => void) | undefined;
   let proc: ReturnType<PiRuntime["spawn"]>;
   try {
     proc = io.spawn({
@@ -139,6 +141,10 @@ export async function openPiSession(
       env,
       name: "ace-pi",
       maxLineBytes: 1024 * 1024,
+      // MCP servers' logs pass through stderr; a long one is noted, never fatal to the session.
+      onStderrLineDropped: (line) => {
+        if (line.phase !== "start") stderrDropped?.(line.bytes);
+      },
       // Pi echoes every image in message_end/agent_end; their bytes never count toward a line.
       elideStdout: { holdBytes: 16 * 1024, textBytes: 1024 * 1024 },
     });
@@ -249,6 +255,11 @@ export async function openPiSession(
     redact,
     ctx.outputFlow,
   );
+  stderrDropped = (bytes) =>
+    emit(
+      "stderr",
+      new ProviderPayload(JSON.stringify(`ace dropped a stderr line of ${bytes} bytes`)),
+    );
   const detachStderr = readJsonLines(
     proc.stderr,
     1024 * 1024,

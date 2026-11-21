@@ -224,6 +224,20 @@ test("a Pi that exits on startup has said why on stderr before the open fails, a
     false,
   );
 });
+test("an oversized stderr line is dropped with a note and the session keeps working", async () => {
+  const h = await sessionHarness({}, false, { FAKE_PI_STDERR_FLOOD: "1" });
+  try {
+    await h.wait((f) => f.dir === "stderr" && f.data === "still here");
+    await h.session.send(text("hello"), "queue");
+    await h.wait(received("agent_end"));
+    expect(h.frames.filter((f) => f.dir === "stderr").map((f) => f.data)).toEqual([
+      "ace dropped a stderr line of 1048577 bytes",
+      "still here",
+    ]);
+  } finally {
+    await h.dispose();
+  }
+});
 test("unrepresentable blocking dialogs close the transport without reporting completion", async () => {
   const h = await sessionHarness();
   try {
