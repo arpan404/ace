@@ -72,7 +72,7 @@ export class MediaStills {
     if (health() !== "healthy") return capture();
     // A fenced request goes only to a build that honours the fence; otherwise the source's own
     // capture answers rather than risk a still from before the epoch.
-    if (request.minEpoch !== undefined && !(this.#options.speaks?.("picture-ingest") ?? false))
+    if (request.minEpoch !== undefined && !(this.#options.speaks?.("privacy-open") ?? false))
       return capture();
     const id = nextId();
     return new Promise<T>((resolve, reject) => {

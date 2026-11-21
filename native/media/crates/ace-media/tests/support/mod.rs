@@ -89,7 +89,10 @@ impl Drop for Media {
 impl Media {
     /// ace-media as this daemon starts it: offered the optional features it speaks.
     pub fn spawn(name: &str) -> Self {
-        Self::spawn_offering(name, Some("source.ingest,source.sync,picture-ingest"))
+        Self::spawn_offering(
+            name,
+            Some("source.ingest,source.sync,picture-ingest,privacy-open"),
+        )
     }
 
     /// ace-media as an older daemon starts it: offered nothing.
@@ -97,7 +100,7 @@ impl Media {
         Self::spawn_offering(name, None)
     }
 
-    fn spawn_offering(name: &str, offer: Option<&str>) -> Self {
+    pub fn spawn_offering(name: &str, offer: Option<&str>) -> Self {
         let dir = std::env::temp_dir().join(format!("am-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         if let Err(error) = std::fs::create_dir_all(&dir) {

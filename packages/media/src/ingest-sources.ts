@@ -496,10 +496,12 @@ export class IngestSources {
         source: id,
         handle,
         epoch,
-        // A JPEG source opens with its privacy, so ace-media knows it even if the next epoch
-        // overtakes the open on the priority lane (only builds with `picture-ingest` get these).
-        ...(pictureKinds.has(producer.kind) && producer.private
-          ? { private: producer.private() }
+        // A private JPEG source says so in its open, so ace-media knows even if the next epoch
+        // overtakes it: only to a build that agreed to `privacy-open`, and only when true.
+        ...(pictureKinds.has(producer.kind) &&
+        producer.private?.() === true &&
+        port.speaks("privacy-open")
+          ? { private: true }
           : {}),
         origin: producer.origin,
         ...(producer.threadId === undefined ? {} : { threadId: producer.threadId }),

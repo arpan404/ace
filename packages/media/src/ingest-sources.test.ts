@@ -55,7 +55,7 @@ function world() {
     up: true,
     needs: 0,
     /** The running ace-media's agreed features (`ready.features`). */
-    features: ["source.ingest", "source.sync", "picture-ingest"] as string[],
+    features: ["source.ingest", "source.sync", "picture-ingest", "privacy-open"] as string[],
   };
   const sent: { message: ToMedia; payload?: Uint8Array }[] = [];
   const timers: { at: number; run: () => void; cancelled: boolean }[] = [];
@@ -300,6 +300,22 @@ describe("IngestSources", () => {
     expect(w.closed()).toEqual(["s1"]);
     w.router.push(encodeEgressEnd(1, 0, false));
     expect(l.ended.at(-1)).toEqual(["s1", false]);
+  });
+
+  it("a JPEG source's open says it is private only when it is, and only to a build that reads it", () => {
+    const opens = (features: string[], isPrivate: boolean) => {
+      const w = world();
+      w.state.features = features;
+      w.sources.add({ ...producer("tab-pictures").p, private: () => isPrivate });
+      return w.opened()[0];
+    };
+    const all = ["source.ingest", "source.sync", "picture-ingest", "privacy-open"];
+    expect(opens(all, true)).toMatchObject({ private: true });
+    expect(opens(all, false)).not.toHaveProperty("private");
+    // A build with picture-ingest but no privacy-open has a strict decoder: no field for it.
+    expect(opens(["source.ingest", "source.sync", "picture-ingest"], true)).not.toHaveProperty(
+      "private",
+    );
   });
 
   it("epochs announced before ace-media answers a JPEG source's open go after it in order, none merged", () => {

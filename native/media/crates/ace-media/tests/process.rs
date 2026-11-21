@@ -139,6 +139,20 @@ fn a_daemon_that_offers_the_features_gets_them_listed_in_ready() {
         Some(vec![
             "source.ingest".to_owned(),
             "source.sync".to_owned(),
+            "picture-ingest".to_owned(),
+            "privacy-open".to_owned()
+        ])
+    );
+}
+
+#[test]
+fn a_daemon_that_offers_picture_ingest_without_privacy_open_is_never_agreed_privacy_open() {
+    let mut media = Media::spawn_offering("no-privacy-open", Some("source.ingest,picture-ingest"));
+    media.start();
+    assert_eq!(
+        media.features,
+        Some(vec![
+            "source.ingest".to_owned(),
             "picture-ingest".to_owned()
         ])
     );

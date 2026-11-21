@@ -164,8 +164,8 @@ export const ToMedia = z.discriminatedUnion("type", [
     sessionId: id.optional(),
     deviceId: id.optional(),
     epoch: u32,
-    /** Whether `epoch` is private (M8): sent for JPEG sources, which open only on a build that
-     * agreed to `picture-ingest`. */
+    /** Whether `epoch` is private (M8): sent, only when true, for a JPEG source on a build that
+     * agreed to `privacy-open`. */
     private: z.boolean().optional(),
     origin: Origin,
   }),
@@ -529,7 +529,13 @@ const fromMediaTypes: ReadonlySet<string> = new Set(
  * Optional features this daemon speaks, offered to ace-media at spawn (`ACE_MEDIA_FEATURES`); a
  * binary that knows one lists it in `ready.features`, and only then is it used.
  */
-export const mediaFeatures = ["source.ingest", "source.sync", "picture-ingest"] as const;
+export const mediaFeatures = [
+  "source.ingest",
+  "source.sync",
+  "picture-ingest",
+  // `source.open.private` and `still.take.minEpoch` (M8): sent only to a build that reads them.
+  "privacy-open",
+] as const;
 export type MediaFeature = (typeof mediaFeatures)[number];
 
 export function decodeToMedia(

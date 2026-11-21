@@ -985,8 +985,14 @@ pub struct InvalidControl;
 /// The optional features this build speaks when a daemon offers them (`ready.features`):
 /// `source.ingest` reports a bound hello; `source.sync` answers ingest barriers;
 /// `picture-ingest` encodes a JPEG source's still pictures (kind 3) off its ingest (X2), so a
-/// daemon sends them there only to a build that says so.
-pub const FEATURES: [&str; 3] = ["source.ingest", "source.sync", "picture-ingest"];
+/// daemon sends them there only to a build that says so; `privacy-open` reads
+/// `source.open.private` and `still.take.minEpoch` (M8), which a stricter build would refuse.
+pub const FEATURES: [&str; 4] = [
+    "source.ingest",
+    "source.sync",
+    "picture-ingest",
+    "privacy-open",
+];
 
 /// The offered features (`ACE_MEDIA_FEATURES`, comma separated) this build speaks, in its own
 /// order; `None` when nothing was offered.

@@ -121,13 +121,14 @@ it("takes every waiting still from its source when ace-media goes away, and each
 });
 
 it("a still fenced on the newest public epoch carries it to an ace-media that honours it, and never to one that doesn't", async () => {
-  const fenced = stills({ features: ["picture-ingest"], minEpoch: 4 });
+  const fenced = stills({ features: ["picture-ingest", "privacy-open"], minEpoch: 4 });
   void fenced.take();
   expect(fenced.sent).toEqual([
     { type: "still.take", request: "still-1", ...request, minEpoch: 4 },
   ]);
-  // An older ace-media would ignore the fence: the source's own capture answers instead.
-  const older = stills({ features: [], minEpoch: 4 });
+  // A build without privacy-open (even one with picture-ingest) would refuse the field: the
+  // source's own capture answers instead.
+  const older = stills({ features: ["picture-ingest"], minEpoch: 4 });
   await expect(older.take()).resolves.toBe("source");
   expect(older.sent).toEqual([]);
 });
