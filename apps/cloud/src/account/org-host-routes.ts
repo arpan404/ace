@@ -6,7 +6,9 @@ import {
   AceSpace,
 } from "@ace/protocol/ace-org";
 import { orgRole } from "@ace/account-grant/org-roles";
-import { policyBodySha256, signOrgPolicy } from "@ace/account-grant";
+import { decodeBase64url, policyBodySha256, signOrgPolicy } from "@ace/account-grant";
+import { ORG_ENROLL_LIFETIME_MS, orgEnrollProofValid } from "@ace/account-grant/machine-proof";
+import { hostId as hostIdOf } from "@ace/secure-channel";
 import type { GrantSigningKey } from "@ace/account-grant";
 import { HostId } from "@ace/relay/wire";
 import type { OrgAccess } from "./org-access.ts";
@@ -30,6 +32,8 @@ export function orgHostRoutes(deps: {
   orgs: OrgStore;
   audit: OrgAudit;
   signingKey: GrantSigningKey;
+  /** The key a machine's consent is checked against (ADR 0190's exchange key). */
+  exchangeKey: { privateKey: Uint8Array };
   now: () => number;
   /** Names each enrollment of a host, which its machine credentials are bound to. */
   newEnrollment: () => string;
@@ -61,6 +65,42 @@ export function orgHostRoutes(deps: {
       : { org, version: 0, body: NO_POLICY };
   }
 
+  /** Why a machine's consent doesn't let this person enroll it here, or undefined. */
+  function consentRefusal(
+    body: AceOrgHostEnrollRequest,
+    org: string,
+    account: string,
+  ): string | undefined {
+    const { consent } = body;
+    if (consent.hostId !== body.hostId || consent.org !== org) return "consent_mismatch";
+    // The machine's owner, as its daemon checked, must be the one enrolling it.
+    if (consent.account !== account) return "not_machine_owner";
+    const at = now();
+    if (consent.expiresAt <= at || consent.expiresAt > at + ORG_ENROLL_LIFETIME_MS + 60_000)
+      return "consent_expired";
+    let named = false;
+    try {
+      named = hostIdOf(decodeBase64url(consent.hostKey)) === consent.hostId;
+    } catch {
+      named = false;
+    }
+    const valid =
+      named &&
+      orgEnrollProofValid({
+        exchangePrivateKey: deps.exchangeKey.privateKey,
+        hostKey: consent.hostKey,
+        consent: {
+          hostId: consent.hostId,
+          org: consent.org,
+          account: consent.account,
+          nonce: consent.nonce,
+          expiresAt: consent.expiresAt,
+        },
+        proof: consent.proof,
+      });
+    return valid ? undefined : "consent_invalid";
+  }
+
   return {
     /**
      * GET /v1/machines?space= — `personal`: the account's own machines, never an org host;
@@ -87,13 +127,19 @@ export function orgHostRoutes(deps: {
       ),
 
     /**
-     * POST /v1/orgs/{org}/hosts — a person with `hosts:manage` gives a machine on their own list
-     * to the organization. The machine itself also checks the person's standing as its owner.
+     * POST /v1/orgs/{org}/hosts — a person with `hosts:manage` gives a machine to the
+     * organization, with the machine's own consent: its daemon gave it to a socket that proved
+     * this person is its owner (ADR 0190), for this host and this organization, and it is spent
+     * here, once.
      */
     enroll: (request: Request, org: string) =>
       access.member(request, org, "hosts:manage", async (member) => {
-        const body = AceOrgHostEnrollRequest.safeParse(await jsonBody(request, 1024));
+        const body = AceOrgHostEnrollRequest.safeParse(await jsonBody(request, 2048));
         if (!body.success) return fail(400, "invalid_request");
+        const refused = consentRefusal(body.data, member.org, member.principal.account.id);
+        if (refused) return fail(403, refused);
+        const { consent } = body.data;
+        if (!(await orgs.spendConsent(consent))) return fail(409, "consent_used");
         const enrolled = await orgs.enrollHost(
           {
             hostId: body.data.hostId,

@@ -6,6 +6,8 @@ import { accountBackend } from "./backend.ts";
 import { deviceGrantVerdict, provenStanding } from "./device-grant.ts";
 import { grantKeyCache } from "./grant-keys.ts";
 import { machineOwner } from "./owner.ts";
+import { memberGrantVerdict, provenMemberStanding, type Member } from "./member-grant.ts";
+import { orgEnrollment } from "./org-enrollment.ts";
 import { encodeBase64url, type GrantKeySet } from "@ace/account-grant";
 import { shippedGrantKeys } from "@ace/account-grant/keys";
 import { afterAttempt, codeStep } from "./machine-code-policy.ts";
@@ -27,7 +29,16 @@ export type DeviceAdmission =
    * Admission gives admin, never the person's standing, which a socket proves on its own
    * (`proveStanding`, ADR 0190).
    */
-  | { admitted: true; account: string; expiresAt: number }
+  | {
+      admitted: true;
+      account: string;
+      expiresAt: number;
+      /**
+       * On an organization's host (ADR 0206 §2.2): the member the grant names, with their role,
+       * and the owner generation it was admitted under; a change of owner ends it.
+       */
+      member?: (Member & { generation: number }) | undefined;
+    }
   | { admitted: false; code: "unauthorized" | MachineCodeRefusal; message: string };
 
 const refusals: Record<MachineCodeRefusal, string> = {
@@ -107,6 +118,19 @@ export function machineAccount(options: {
   // Never keys from the session's origin, which the host token sets, or from ACE_ACCOUNT_URL.
   const personKeys = options.personKeys ?? shippedGrantKeys;
   const owner = machineOwner(options.dataDir);
+  const enrollment = orgEnrollment({
+    owner,
+    backend,
+    session: () => {
+      const current = active();
+      return current ? { origin: current.origin, token: current.token } : undefined;
+    },
+    relayKeys: options.relayKeys,
+    hostId: () => ownHostId(),
+    randomBytes: options.randomBytes,
+    now: options.now,
+    signal: () => request(),
+  });
   let stopRenewing: () => void = noop;
   let closed = false;
   // Closing gives up every request still out to the backend: shutdown never waits on it.
@@ -445,16 +469,38 @@ export function machineAccount(options: {
       machineCode?: string | undefined;
     },
   ): Promise<DeviceAdmission> {
-    const verdict = deviceGrantVerdict(hello.grant, {
-      keys: published,
-      now: options.now(),
-      account: active()?.account.id,
-      deviceId: hello.deviceId,
-      host: await ownHostId(),
-    });
-    if (!verdict.accepted) return unauthorized();
-    const account = verdict.claims.account;
-    const expiresAt = verdict.claims.exp;
+    // An organization's host takes its members' grants only, and a person's machine never one
+    // (ADR 0206 §2.2): a device grant names the person's account, never a member.
+    const org = owner.org();
+    const generation = owner.generation();
+    let account: string;
+    let expiresAt: number;
+    let member: (Member & { generation: number }) | undefined;
+    if (org !== undefined) {
+      const verdict = memberGrantVerdict(hello.grant, {
+        keys: published,
+        now: options.now(),
+        org,
+        deviceId: hello.deviceId,
+        host: await ownHostId(),
+      });
+      if (!verdict.accepted || !owner.holds(generation)) return unauthorized();
+      account = verdict.member.account;
+      expiresAt = verdict.exp;
+      member = { ...verdict.member, generation };
+    } else {
+      const verdict = deviceGrantVerdict(hello.grant, {
+        keys: published,
+        now: options.now(),
+        account: active()?.account.id,
+        deviceId: hello.deviceId,
+        host: await ownHostId(),
+      });
+      if (!verdict.accepted) return unauthorized();
+      account = verdict.claims.account;
+      expiresAt = verdict.claims.exp;
+    }
+    const admitted = { admitted: true as const, account, expiresAt, ...(member ? { member } : {}) };
     // One code check at a time, so concurrent wrong codes all count toward the lock.
     const run = codeChecks.then(async (): Promise<DeviceAdmission> => {
       const code = options.codes.current();
@@ -465,10 +511,10 @@ export function machineAccount(options: {
         lock: options.codes.lock(),
         now: options.now(),
       });
-      if (step.kind === "admit") return { admitted: true, account, expiresAt };
+      if (step.kind === "admit") return admitted;
       if (step.kind === "refuse")
         return { admitted: false, code: step.reason, message: refusals[step.reason] };
-      if (!code) return { admitted: true, account, expiresAt };
+      if (!code) return admitted;
       const correct = await machineCodeMatches(step.code, code.hash);
       // The code changed while it was checked: the device enters the new one.
       if (options.codes.current()?.version !== code.version)
@@ -482,11 +528,17 @@ export function machineAccount(options: {
       if (next.step.kind === "refuse")
         return { admitted: false, code: next.step.reason, message: refusals[next.step.reason] };
       options.codes.rememberPass(hello.deviceId, account, code.version, options.now());
-      return { admitted: true, account, expiresAt };
+      return admitted;
     });
     codeChecks = run.catch(() => {});
     return run;
   }
+  const ownerStatus = () => {
+    const org = owner.org();
+    if (org !== undefined) return { org };
+    const account = owner.current();
+    return account === undefined ? null : { account };
+  };
   return {
     /** Reads the stored session, then keeps it renewed while the daemon runs. */
     async load(): Promise<void> {
@@ -524,7 +576,7 @@ export function machineAccount(options: {
         sessionId,
         ...(hostIdKnown ? { relayHostId: hostIdKnown } : {}),
         // Who the machine answers to (ADR 0190 §3a), so the person can see it and fix it.
-        owner: owner.current() === undefined ? null : { account: owner.current() },
+        owner: ownerStatus(),
         // A session from before machine credentials that couldn't be exchanged yet.
         ...(session && session.kind !== "machine" && !noCredentials
           ? { signInAgain: true as const }
@@ -742,7 +794,8 @@ export function machineAccount(options: {
      * whose key isn't cached is refused now, and the key is fetched for the next attempt.
      */
     async admitDeviceCached(hello: { grant: string; deviceId: string }): Promise<DeviceAdmission> {
-      if (!active()) return unauthorized();
+      // An organization's members come through the full hello, never NK's first message.
+      if (!active() || owner.org() !== undefined) return unauthorized();
       const published = keys.cached(hello.grant);
       return published ? admitWith(published, hello) : unauthorized();
     },
@@ -763,7 +816,8 @@ export function machineAccount(options: {
       // grant names, from the window signed in as the person: never the account this machine is
       // signed in to, which the host token can switch first.
       const seen = owner.generation();
-      if (!owner.holds(seen)) return undefined;
+      // An organization's host has no person (ADR 0206 §2.1): its members prove their own.
+      if (!owner.holds(seen) || owner.org() !== undefined) return undefined;
       const proven = await provenStanding({
         ...input,
         account: owner.current(),
@@ -773,6 +827,54 @@ export function machineAccount(options: {
       });
       if (!proven || !(await owner.claim(proven.account, seen))) return undefined;
       return { until: proven.until, generation: seen };
+    },
+    /**
+     * A member's standing on this organization's host (ADR 0206 §2.2), proven on one socket as a
+     * person's is: their member grant for this host, signed by a key this build pins, and its
+     * device key's signature over this socket's nonce. Undefined on a person's machine, which
+     * refuses every member grant, and for any other organization's grant.
+     */
+    async proveMemberStanding(input: {
+      grant: string;
+      proof: string;
+      nonce: string;
+      binding: string | undefined;
+      deviceId: string;
+    }): Promise<{ until: number; generation: number; member: Member } | undefined> {
+      const seen = owner.generation();
+      const org = owner.org();
+      if (!owner.holds(seen) || org === undefined) return undefined;
+      const proven = await provenMemberStanding({
+        ...input,
+        keys: personKeys,
+        now: options.now(),
+        org,
+        host: await ownHostId(),
+      });
+      if (!proven || !owner.holds(seen) || owner.org() !== org) return undefined;
+      return { until: proven.until, generation: seen, member: proven.member };
+    },
+    /** The clock grants are checked against: a standing's `until` is on it. */
+    grantClock(): number {
+      return options.now();
+    },
+    /** The organization whose host this is (ADR 0206 §2.1), or undefined. */
+    ownerOrg(): string | undefined {
+      return owner.org();
+    },
+    /**
+     * The machine's consent to become `org`'s host (ADR 0206 §2.1), for the owner `account` a
+     * socket proved under `generation`; the client enrolls with it.
+     */
+    enrollConsent: enrollment.consent,
+    /**
+     * The backend enrolled this machine as `org`'s host with the consent last given: the machine
+     * answers to `org` now. `drop` ends what is kept beyond a socket, as a release does.
+     */
+    async confirmEnrollment(org: string, drop: () => void): Promise<boolean> {
+      const done = await enrollment.confirm({ org, drop });
+      if (done) notify();
+      return done;
     },
     /** Whether standing proven under `generation` still counts (`MachineOwner.holds`). */
     standingHolds(generation: number): boolean {
@@ -794,9 +896,20 @@ export function machineAccount(options: {
       await owner.release(drop);
       notify();
     },
-    /** Whether an admitted account device keeps access: same account, current code passed. */
-    stillAdmitted(deviceId: string, account: string): boolean {
-      if (active()?.account.id !== account) return false;
+    /**
+     * Whether an admitted account device keeps access: same account, current code passed. A
+     * member (`member`) keeps it while the machine is still that organization's host, under the
+     * owner it was admitted under.
+     */
+    stillAdmitted(
+      deviceId: string,
+      account: string,
+      member?: { org: string; generation: number } | undefined,
+    ): boolean {
+      if (member) {
+        if (owner.org() !== member.org || !owner.holds(member.generation) || !active())
+          return false;
+      } else if (owner.org() !== undefined || active()?.account.id !== account) return false;
       const code = options.codes.current();
       return code === undefined || options.codes.passed(deviceId, account, code.version);
     },

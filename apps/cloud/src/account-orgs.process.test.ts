@@ -156,7 +156,7 @@ it("Remove deletes the membership, ends the person's org grants and portal sessi
   const machineSession = await signIn(owner, "machine");
   const box = await api.machine(worker.db, owner.id, machineSession);
   expect(
-    (await api.call(ownerToken, "POST", `/v1/orgs/${org}/hosts`, { hostId: box.hostId })).status,
+    (await api.enroll(ownerToken, org, box, await api.consent(box, org, owner.id))).status,
   ).toBe(201);
 
   const miaToken = await signIn(mia);

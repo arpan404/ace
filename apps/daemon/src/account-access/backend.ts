@@ -13,8 +13,9 @@ export class AccountBackendError extends Error {
 const responseLimit = 64 * 1024;
 
 /**
- * The account backend's published grant keys (ADR 0111). Everything else (sign-in, grants) goes
- * through `@ace/client/ace-account`, which leaves keys out to keep Ed25519 from web bundles.
+ * The account backend's published grant keys (ADR 0111), and whether this machine is an
+ * organization's host (ADR 0206). Everything else (sign-in, grants) goes through
+ * `@ace/client/ace-account`, which leaves keys out to keep Ed25519 from web bundles.
  */
 export function accountBackend(options: { fetch: typeof fetch }) {
   async function call(url: string, init: RequestInit, signal: AbortSignal): Promise<unknown> {
@@ -50,6 +51,24 @@ export function accountBackend(options: { fetch: typeof fetch }) {
   return {
     async keys(origin: string, signal: AbortSignal): Promise<GrantKeySet> {
       return GrantKeySet.parse(await call(`${origin}/v1/keys`, { method: "GET" }, signal));
+    },
+    /**
+     * Whether the backend holds this machine as `org`'s host (ADR 0206 §2.1): an organization's
+     * policy answers a machine credential only for one of its own hosts. False when it refuses.
+     */
+    async isOrgHost(origin: string, token: string, org: string, signal: AbortSignal) {
+      try {
+        await call(
+          `${origin}/v1/orgs/${encodeURIComponent(org)}/policy`,
+          { method: "GET", headers: { Authorization: `Bearer ${token}` } },
+          signal,
+        );
+        return true;
+      } catch (error) {
+        if (error instanceof AccountBackendError && error.status >= 400 && error.status < 500)
+          return false;
+        throw error;
+      }
     },
   };
 }

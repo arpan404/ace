@@ -35,10 +35,25 @@ export function machineCredentialProofValid(input: {
   credential: string;
   proof: string;
 }): boolean {
+  return macValid(
+    input.exchangePrivateKey,
+    input.hostKey,
+    proofText(input.hostId, input.credential),
+    input.proof,
+  );
+}
+
+/** Whether `proof` is the MAC of `text` under the secret this host key shares. Never throws. */
+function macValid(
+  exchangePrivateKey: Uint8Array,
+  hostKey: string,
+  text: Uint8Array,
+  proof: string,
+) {
   try {
-    const shared = x25519.getSharedSecret(input.exchangePrivateKey, decodeBase64url(input.hostKey));
-    const expected = hmac(sha256, shared, proofText(input.hostId, input.credential));
-    const given = decodeBase64url(input.proof);
+    const shared = x25519.getSharedSecret(exchangePrivateKey, decodeBase64url(hostKey));
+    const expected = hmac(sha256, shared, text);
+    const given = decodeBase64url(proof);
     if (given.length !== expected.length) return false;
     let difference = 0;
     for (let index = 0; index < expected.length; index++)
@@ -47,6 +62,49 @@ export function machineCredentialProofValid(input: {
   } catch {
     return false;
   }
+}
+
+/** How long a machine's consent to join an organization stands once given (ADR 0206 §2.1). */
+export const ORG_ENROLL_LIFETIME_MS = 5 * 60_000;
+
+/**
+ * A machine's consent to become one organization's host (ADR 0206 §2.1): the daemon gives it only
+ * to a socket that proved its owner's standing (ADR 0190), and the backend enrolls the host only
+ * with it, once. It names the host, the organization, the owner whose standing the daemon checked
+ * (the enrolling session must be theirs), a nonce the backend spends, and when it lapses; it is a
+ * MAC under the secret the host key shares with the backend's exchange key, so only this machine
+ * makes it and only the backend checks it.
+ */
+export type OrgEnrollConsent = {
+  hostId: string;
+  org: string;
+  account: string;
+  nonce: string;
+  expiresAt: number;
+};
+const consentText = (consent: OrgEnrollConsent) =>
+  encoder.encode(
+    `ace-org-enroll/v1\n${consent.hostId}\n${consent.org}\n${consent.account}\n${consent.nonce}\n${consent.expiresAt}`,
+  );
+
+/** The daemon's MAC over its consent, base64url. */
+export function orgEnrollProof(input: {
+  hostPrivateKey: Uint8Array;
+  exchangeKey: string;
+  consent: OrgEnrollConsent;
+}): string {
+  const shared = x25519.getSharedSecret(input.hostPrivateKey, decodeBase64url(input.exchangeKey));
+  return encodeBase64url(hmac(sha256, shared, consentText(input.consent)));
+}
+
+/** Whether `proof` is this host key's consent, exactly as given. Never throws. */
+export function orgEnrollProofValid(input: {
+  exchangePrivateKey: Uint8Array;
+  hostKey: string;
+  consent: OrgEnrollConsent;
+  proof: string;
+}): boolean {
+  return macValid(input.exchangePrivateKey, input.hostKey, consentText(input.consent), input.proof);
 }
 
 /**

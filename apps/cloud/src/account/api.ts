@@ -131,6 +131,7 @@ export function accountApi(
     orgs,
     audit,
     signingKey: config.grantKey,
+    exchangeKey,
     now,
     newEnrollment: newId,
   });
