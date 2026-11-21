@@ -158,10 +158,7 @@ export function accountApi(
       joined: async (account, org) => {
         if (org) await checker.mirror(account, org);
       },
-      entered: async (account, org) => {
-        await checker.mirror(account, org);
-        return (await orgs.member(org, account))?.status === "active";
-      },
+      entered: (account, org) => checker.activeNow(account, org),
     });
   };
   // The canonical URL still serves deployments with a single public address. Multi-host

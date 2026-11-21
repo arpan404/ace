@@ -51,3 +51,33 @@ it("a machine's sign-in for an organization names it for a member and never for 
     (await signInThroughWorker(worker.http, workos, workosUser("user_wes", "Wes"), "machine")).org,
   ).toBeUndefined();
 });
+
+it("a sign-in for an organization names it only once WorkOS confirms the active membership itself", async () => {
+  const api = orgCalls(worker.http);
+  const xia = workosUser("user_xia", "Xia");
+  const org = await api.createOrg(
+    await signInThroughWorker(worker.http, workos, xia).then((g) => g.token),
+    "Confirmed",
+  );
+  const yan = workosUser("user_yan", "Yan");
+  workos.orgs.addMember(yan.id, org, "member");
+  // The mirror has her as active.
+  await worker.cron("* * * * *");
+  const lookup = (request: { method: string; path: string }) =>
+    request.method === "GET" &&
+    request.path.startsWith("/user_management/organization_memberships");
+
+  // WorkOS can't be asked about the membership: no organization, whatever the mirror says.
+  workos.failNext(lookup, 503, 5);
+  expect(
+    (await signInThroughWorker(worker.http, workos, yan, "machine", { org })).org,
+  ).toBeUndefined();
+
+  // WorkOS put the session in the organization, then the membership went before ace looked.
+  const held = workos.holdNext(lookup, "before");
+  const signing = signInThroughWorker(worker.http, workos, yan, "machine", { org });
+  await held.started;
+  workos.orgs.removeMember(yan.id, org);
+  held.release();
+  expect((await signing).org).toBeUndefined();
+});
