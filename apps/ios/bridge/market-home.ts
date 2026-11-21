@@ -1,6 +1,7 @@
 import type { MarketResult, MarketSource, MarketTrendMovement } from "@ace/protocol/marketplace";
 import { count, readAtText, sentence } from "@ace/ui-core/market";
-import { entryRow, updatesText, type MarketWords } from "./market-rows.ts";
+import { listingRow, type BrowseWords } from "./market-actions.ts";
+import { updatesText, type MarketWords } from "./market-rows.ts";
 
 /*
  * Browsing the market on the phone (spec items 1 to 5): Discover's shelves, the device's own
@@ -31,8 +32,9 @@ function movementText(movement: MarketTrendMovement): string | null {
  * Discover's shelves (spec item 27). A collection with nothing in it is left off, and `empty`
  * says every shelf is, so the home shows the device's own listings instead.
  */
-export function discoverAnswer(result: Result<"discover">) {
+export function discoverAnswer(result: Result<"discover">, words: BrowseWords) {
   const { discover } = result;
+  const entryRow = listingRow(words);
   const answer = {
     hero: discover.hero ? entryRow(discover.hero) : null,
     featured: discover.featured.map(entryRow),
@@ -67,7 +69,8 @@ export function discoverAnswer(result: Result<"discover">) {
   return { ...answer, empty };
 }
 
-export function homeAnswer(result: Result<"home">) {
+export function homeAnswer(result: Result<"home">, words: BrowseWords) {
+  const entryRow = listingRow(words);
   return {
     featured: result.featured.map(entryRow),
     categories: result.categories.map((category) => ({
@@ -81,7 +84,8 @@ export function homeAnswer(result: Result<"home">) {
   };
 }
 
-export function searchAnswer(result: Result<"search">, words: MarketWords) {
+export function searchAnswer(result: Result<"search">, words: BrowseWords) {
+  const entryRow = listingRow(words);
   return {
     rows: result.entries.map(entryRow),
     total: result.total,
@@ -123,8 +127,9 @@ export function sourcesAnswer(result: Result<"sources">, words: MarketWords) {
 }
 
 /** A publisher's public page, read only; its pinned entries lead and aren't listed again. */
-export function publisherAnswer(result: Result<"publisher">) {
+export function publisherAnswer(result: Result<"publisher">, words: BrowseWords) {
   const { page } = result;
+  const entryRow = listingRow(words);
   const pinned = page.pinned.map(entryRow);
   const pinnedIds = new Set(pinned.map((row) => row.id));
   return {

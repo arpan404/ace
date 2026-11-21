@@ -389,3 +389,22 @@ test("offline, only the most recent searches are still kept", async () => {
   expect(await ask({ op: "search", query: "q32" })).toEqual({ ...latest, offline: true });
   expect(await ask({ op: "search", query: "q0" })).not.toEqual({ ...first, offline: true });
 });
+
+test("browse rows carry their button from what the machine has installed", async () => {
+  const { ask } = await market();
+  const buttonOf = async () =>
+    ((await ask({ op: "home" })).featured as { id: string; action: { word: string | null } }[])
+      .filter((row) => row.id === "market/suit/harbour-dusk")
+      .map((row) => row.action.word);
+  expect(await buttonOf()).toEqual(["Get"]);
+  const prepared = await ask({
+    op: "prepare",
+    source: "market",
+    type: "suit",
+    name: "harbour-dusk",
+  });
+  const review = prepared.review as { id: string; hash: string };
+  await ask({ op: "readReview", id: review.id });
+  await ask({ op: "install", id: review.id, hash: review.hash });
+  expect(await buttonOf()).toEqual(["Installed"]);
+});

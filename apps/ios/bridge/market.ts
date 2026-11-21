@@ -1,5 +1,9 @@
 import { ClientError, type ClientCore } from "@ace/client";
-import { MarketOperation, type MarketResult } from "@ace/protocol/marketplace";
+import {
+  MarketOperation,
+  type MarketInstalled,
+  type MarketResult,
+} from "@ace/protocol/marketplace";
 import { LruCache } from "@ace/ui-core";
 import {
   failureSentence,
@@ -20,7 +24,7 @@ import {
 import { confirmedAnswer, confirmingRead } from "./market-confirm.ts";
 import { installedAnswer } from "./market-installed.ts";
 import { doneAnswer, entryAnswer, reviewAnswer, reviewPageAnswer } from "./market-review.ts";
-import type { MarketWords } from "./market-rows.ts";
+import type { BrowseWords } from "./market-actions.ts";
 
 /*
  * The phone's marketplace (spec items 1 to 7): every v1 market operation sent to the paired
@@ -209,16 +213,16 @@ const unknownOutcome = (step: MarketStep) => ({
 });
 
 /** The daemon's result as the phone's answer, or undefined when it answered something else. */
-function shaped(op: V1Op, result: MarketResult, words: MarketWords): object | undefined {
+function shaped(op: V1Op, result: MarketResult, words: BrowseWords): object | undefined {
   switch (result.op) {
     case "discover":
-      return op === "discover" ? discoverAnswer(result) : undefined;
+      return op === "discover" ? discoverAnswer(result, words) : undefined;
     case "home":
-      return op === "home" ? homeAnswer(result) : undefined;
+      return op === "home" ? homeAnswer(result, words) : undefined;
     case "search":
       return op === "search" ? searchAnswer(result, words) : undefined;
     case "publisher":
-      return op === "publisher" ? publisherAnswer(result) : undefined;
+      return op === "publisher" ? publisherAnswer(result, words) : undefined;
     case "picture":
       return op === "picture" ? pictureAnswer(result) : undefined;
     case "sources":
@@ -243,6 +247,8 @@ function shaped(op: V1Op, result: MarketResult, words: MarketWords): object | un
 }
 
 type Owner = Pick<ClientCore, "request" | "state">;
+/** The reads whose rows carry a button, so they read what's installed beside them. */
+const withRows = new Set<string>(["discover", "home", "search", "publisher"]);
 /** The SDK's ways of saying the request never reached the machine or never came back. */
 const unreachable = new Set<string>(["offline", "stale", "timeout", "not_dispatched"]);
 const wait = { timeoutMs: 30_000 };
@@ -264,14 +270,17 @@ export class NativeMarket {
   readonly #pause: (ms: number, signal: AbortSignal) => Promise<void>;
   /** Each kept read's last answer, by its operation, the least recently used let go first. */
   readonly #last = new LruCache<string, object>({ maxEntries: keptAnswers });
+  readonly #botName: (id: string) => string | undefined;
   constructor(
     owner: Owner,
     now: () => number,
     pause: (ms: number, signal: AbortSignal) => Promise<void> = pauseFor,
+    botName: (id: string) => string | undefined = () => undefined,
   ) {
     this.#owner = owner;
     this.#now = now;
     this.#pause = pause;
+    this.#botName = botName;
   }
 
   async answer(request: NativeMarketRequest, signal: AbortSignal): Promise<object> {
@@ -283,6 +292,7 @@ export class NativeMarket {
     const changes = step !== "read" && step !== "review";
     // Not connected: the request can't leave the phone, so nothing was changed.
     if (this.#owner.state !== "ready") return changes ? offlineWrite : this.#offline(key);
+    const installed = withRows.has(op) ? this.#readInstalled(signal) : undefined;
     let result: MarketResult;
     try {
       ({ result } = await this.#owner.request(
@@ -302,11 +312,31 @@ export class NativeMarket {
         message: result.message,
         ...(result.scan ? { scan: result.scan } : {}),
       });
-    const answer = shaped(op, result, { now: this.#now() });
+    const answer = shaped(op, result, {
+      now: this.#now(),
+      installed: installed ? await installed : undefined,
+      botName: this.#botName,
+    });
     if (!answer) return refusalAnswer("failed", stepOf(op));
     const value = { ok: true, offline: false, ...answer };
     if (key) this.#last.set(key, value);
     return value;
+  }
+
+  /**
+   * What's installed, read beside a browse read so its rows' buttons are right. Undefined when
+   * it can't be read: an older list could offer Get for what is installed now. Never throws.
+   */
+  async #readInstalled(signal: AbortSignal): Promise<readonly MarketInstalled[] | undefined> {
+    try {
+      const { result } = await this.#owner.request(
+        { type: "marketplace.request", operation: { op: "installed" } },
+        { ...wait, signal },
+      );
+      return result.op === "installed" ? result.installed : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   #offline(key: string | undefined): object {
