@@ -104,8 +104,8 @@ export function ConnectAppCard(props: {
             <span className="truncate font-medium text-foreground">{ask.name}</span>
             <span className="truncate text-ui text-muted-foreground">
               {way === "reconnect"
-                ? `Its sign-in ended, so ${props.botName} can't use it now`
-                : `${props.botName} asks to use it`}
+                ? `Signed out, so ${props.botName} can't use it now`
+                : `${props.botName} wants to use it`}
             </span>
           </div>
         </div>
@@ -113,14 +113,9 @@ export function ConnectAppCard(props: {
       <CardBody>
         <SpadeBubbleText text={props.why} />
         {ask.can.length > 0 && (
-          <div className="flex flex-col gap-0.5 text-ui text-muted-foreground">
-            <span>{`${props.botName} will be able to:`}</span>
-            <ul className="list-disc pl-5">
-              {ask.can.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          </div>
+          <p className="text-ui text-muted-foreground">
+            {`${props.botName} will be able to ${sentenceOf(ask.can)}.`}
+          </p>
         )}
         {needsKey && (
           <form
@@ -173,21 +168,13 @@ export function ConnectAppCard(props: {
             <label htmlFor={everyoneId}>{`Let every bot use ${ask.name}`}</label>
           </div>
         )}
-        {progress ? (
+        {progress && (
           <ConnectProgress
             phase={flow.phase}
             name={ask.name}
             onCancel={flow.cancel}
             className="text-ui text-foreground"
           />
-        ) : (
-          !failure && (
-            <p className="text-xs leading-4 text-subtle-foreground">
-              {needsKey
-                ? `${props.botName} never sees the key.`
-                : `You sign in on ${ask.name}'s own page. ${props.botName} never sees your password.`}
-            </p>
-          )
         )}
         {failure && (
           <p role="alert" className="text-xs leading-4 text-destructive">
@@ -213,7 +200,7 @@ export function ConnectAppCard(props: {
         end={
           action ? (
             <CardPrimary disabled={busy} onClick={act}>
-              {giving ? "Connecting…" : action}
+              {giving ? "Connecting…" : failure && flow.phase.kind === "failed" ? "Try again" : action}
             </CardPrimary>
           ) : (
             <span className="text-ui text-muted-foreground">Not available yet</span>
@@ -222,4 +209,11 @@ export function ConnectAppCard(props: {
       />
     </RaisedCard>
   );
+}
+
+/** "read issues and projects and comment on issues": the things a bot may do, as one clause. */
+function sentenceOf(can: readonly string[]): string {
+  const lower = can.map((line) => line.charAt(0).toLowerCase() + line.slice(1).replace(/\.$/, ""));
+  if (lower.length < 2) return lower[0] ?? "";
+  return `${lower.slice(0, -1).join(", ")} and ${lower.at(-1) ?? ""}`;
 }

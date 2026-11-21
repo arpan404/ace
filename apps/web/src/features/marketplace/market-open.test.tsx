@@ -18,7 +18,7 @@ test("the rail's Marketplace opens the modal over the page, and Esc closes it", 
   await userEvent.click(await screen.findByRole("button", { name: "Marketplace" }));
   const market = await findMarket();
   expect(
-    within(market).getByRole("button", { name: "Discover" }).getAttribute("aria-current"),
+    within(market).getByRole("button", { name: "Home" }).getAttribute("aria-current"),
   ).toBe("page");
   await expectClosesOnEscape(press);
 });

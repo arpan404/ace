@@ -27,6 +27,8 @@ export type MarketPage =
       /** Which bot an update or rollback moves: one bot package can make several. */
       bot?: string | undefined;
     }
+  /** An app Spade's bots connect to (ADR 0131), by its catalogue id. */
+  | { kind: "app"; id: string }
   | { kind: "publisher"; handle: string }
   | { kind: "collection"; id: string }
   | { kind: "profile" }
@@ -113,6 +115,7 @@ export function parseMarket(value: unknown): MarketView | undefined {
     return slug.test(handle) ? view("discover", [{ kind: "publisher", handle }]) : view("discover");
   }
   const [first = "", second = "", third, fourth] = text.split("/");
+  if (first === "app" && slug.test(second)) return view("apps", [{ kind: "app", id: second }]);
   if (first === "collection" && slug.test(second))
     return view("discover", [{ kind: "collection", id: second }]);
   const entry = entryOf(first, second);
@@ -138,6 +141,8 @@ export function formatMarket(at: MarketView): string {
       return entryText(top.entry);
     case "review":
       return `${entryText(top.entry)}/${top.rollback ? "rollback" : top.update ? "update" : "review"}${top.update && top.bot ? `/${top.bot}` : ""}`;
+    case "app":
+      return `app/${top.id}`;
     case "publisher":
       return `@${top.handle}`;
     case "collection":

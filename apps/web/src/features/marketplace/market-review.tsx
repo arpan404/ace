@@ -31,7 +31,7 @@ import { offlineTitle, useMarketNav } from "./market-nav.ts";
 import { reviewFailure, ReviewFoot, type ReviewFailure } from "./market-review-foot.tsx";
 import { ReviewItems, ReviewTexts } from "./market-review-items.tsx";
 import { ShowFiles, SuitLooks } from "./market-review-suit.tsx";
-import { BotPicture } from "./market-stage.tsx";
+import { BotPicture, Stage } from "./market-stage.tsx";
 import { RecipeChoices } from "./market-review-bot.tsx";
 import { effectDefaults, limitSentences } from "./market-package-words.ts";
 import { part } from "@/lib/suit-part.ts";
@@ -183,23 +183,27 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
   const found = findingSentences(review.scan);
   return (
     <div className="mk-inner" data-width="form" data-variant="review">
-      <div style={{ display: "flex", gap: 20, alignItems: "center", marginTop: 8 }}>
-        {review.type === "spade-bot" && (
-          <BotPicture
-            face={faceFromReview(review)}
-            size={64}
-            style={{ width: 96, aspectRatio: "1" }}
-          />
-        )}
-        <div style={{ display: "grid", gap: 4 }}>
-          <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
-            {review.title}
+      <header className="st-head" style={{ marginTop: 8 }}>
+        <span className="st-icon" aria-hidden>
+          {review.type === "spade-bot" ? (
+            <BotPicture face={faceFromReview(review)} size={40} />
+          ) : (
+            <Stage entry={review} size="small" />
+          )}
+        </span>
+        <div className="st-head-words">
+          <h1 {...part("page-title", undefined, "market")} className="st-title">
+            {moving?.rollback
+              ? `Roll back ${review.title}`
+              : moving || review.updates
+                ? `Update ${review.title}`
+                : `Get ${review.title}`}
           </h1>
-          <span className="mk-line">
+          <span className="st-by">
             {[typeWord(review.type), who, review.version].filter(Boolean).join(" · ")}
           </span>
         </div>
-      </div>
+      </header>
       {review.type === "suit" && <SuitLooks suit={look} />}
       {!review.reviewed && !review.byAce && (
         <div style={{ marginTop: 24 }}>
@@ -208,11 +212,6 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
           </Status>
         </div>
       )}
-      <ul className="mk-review-facts" aria-label="What it is">
-        {lines.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-      </ul>
       {found.length > 0 && (
         <>
           <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
@@ -238,6 +237,11 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
         />
       )}
       {body.type === "spade-plugin" && <BotChoice chosen={bots} onChange={setBots} />}
+      <ul className="mk-review-facts" aria-label="What it is" style={{ marginTop: 28 }}>
+        {lines.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
       <ReviewItems items={items} />
       {review.type !== "suit" && <ReviewTexts items={items} />}
       <ShowFiles items={items} hash={review.hash}>
@@ -268,7 +272,7 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
             variant="primary"
             size="lg"
             disabled={install.isPending || stuck !== undefined || nav.offline}
-            title={nav.offline ? offlineTitle("Install") : undefined}
+            title={nav.offline ? offlineTitle("Get") : undefined}
             onClick={run}
           >
             {moving?.rollback
@@ -280,8 +284,10 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
                   ? "Updating…"
                   : "Update"
                 : install.isPending
-                  ? "Installing…"
-                  : "Install"}
+                  ? "Getting…"
+                  : review.updates
+                    ? "Update"
+                    : "Get"}
           </Button>
         )}
       </ReviewFoot>

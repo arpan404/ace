@@ -73,6 +73,10 @@ const sizes = {
   fact: { tile: "size-8 rounded-lg text-sm", mark: 20 },
   /** The Marketplace's app rows. */
   market: { tile: "size-10 rounded-xl text-base", mark: 28 },
+  /** The store's rows, in the 56px slot a bot's face takes beside it. */
+  store: { tile: "size-14 rounded-[14px] text-xl", mark: 36 },
+  /** An app's own page in the store. */
+  hero: { tile: "size-28 rounded-[26px] text-4xl", mark: 72 },
 } as const;
 
 /** An app's mark, by its catalogue id; its name's first letter when it has none. */

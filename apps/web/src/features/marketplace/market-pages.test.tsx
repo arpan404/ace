@@ -68,8 +68,8 @@ test("an entry page shows its description when it says more than the line", asyn
 test("Tab stays inside the Marketplace, wrapping between its last and first controls", async () => {
   await openApp("/chats?market=discover");
   const market = await findMarket();
-  await within(market).findByRole("tablist", { name: "Featured" });
-  const first = within(market).getByRole("button", { name: "Discover" });
+  await within(market).findByRole("region", { name: "Featured" });
+  const first = within(market).getByRole("button", { name: "Home" });
 
   await userEvent.tab({ shift: true });
   const last = document.activeElement;

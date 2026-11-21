@@ -35,11 +35,11 @@ test("each bot from one package is its own row, and a held update says it waits 
     ],
   });
   const market = await findMarket();
-  const list = within(await within(market).findByRole("list", { name: "Installed" }));
-  const rows = list.getAllByRole("listitem");
-  expect(rows).toHaveLength(2);
-  const waiting = rows.find((row) => within(row).queryByText(/waits for its turn/));
-  const behind = rows.find((row) => row !== waiting);
+  // The bot behind is under Updates; the one whose update waits for its turn isn't offered it.
+  const updates = within(await within(market).findByRole("list", { name: "Updates" }));
+  const installed = within(within(market).getByRole("list", { name: "Installed" }));
+  const [behind] = updates.getAllByRole("listitem");
+  const [waiting] = installed.getAllByRole("listitem");
   if (!waiting || !behind) throw new Error("both rows are listed");
   // The version Spade runs, and the accepted one waiting: not offered again.
   expect(within(waiting).getByText("Update to 2.1.0 waits for its turn")).toBeTruthy();

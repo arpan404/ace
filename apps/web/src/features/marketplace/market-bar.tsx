@@ -17,20 +17,20 @@ import { useMarketMe, useMarketPicture } from "./market-publishing.ts";
  */
 
 const places: readonly { id: MarketPlace; name: string }[] = [
-  { id: "discover", name: "Discover" },
-  { id: "looks", name: "Looks" },
+  { id: "discover", name: "Home" },
   { id: "bots", name: "Bots" },
-  { id: "tools", name: "Tools" },
   { id: "apps", name: "Apps" },
+  { id: "tools", name: "Tools" },
+  { id: "looks", name: "Looks" },
 ];
 
 const placeholders: Readonly<Record<MarketPlace, string>> = {
-  discover: "Search the marketplace",
+  discover: "Search bots, apps and more",
   looks: "Search looks",
   bots: "Search bots",
   tools: "Search skills and plugins",
   apps: "Search apps",
-  installed: "Search the marketplace",
+  installed: "Search bots, apps and more",
 };
 
 export function MarketBar(props: {
@@ -60,8 +60,12 @@ export function MarketBar(props: {
       onClick={() => nav.go("installed")}
     >
       Installed
-      {/* Only what the marketplace installed: no count at zero, as built-in Suits aren't counted. */}
-      {installed?.length ? <span className="mk-count">{updates || installed.length}</span> : null}
+      {/* Only updates are counted: the count asks for something, a total doesn't. */}
+      {updates ? (
+        <span className="mk-count" aria-label={`${updates} ${updates === 1 ? "update" : "updates"}`}>
+          {updates}
+        </span>
+      ) : null}
     </button>
   );
   const placeholder =

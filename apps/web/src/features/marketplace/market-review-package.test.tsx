@@ -98,7 +98,7 @@ test("a stranger's package starts with only its declared hosts on, and only what
   await userEvent.click(
     within(market).getByRole("switch", { name: "Can ask you to send things in your name" }),
   );
-  await userEvent.click(within(market).getByRole("button", { name: "Install" }));
+  await userEvent.click(within(market).getByRole("button", { name: "Get" }));
   await expect
     .poll(() => daemon.marketplace.accepted[0]?.choices.effects)
     .toEqual({

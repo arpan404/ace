@@ -79,7 +79,9 @@ test("a bot asking for an unconnected app shows a connect card, and connecting c
     const asked = await card();
     // The app, the bot's reason and what it may do, then one action in words.
     expect(asked.getByText("To read your Linear board")).toBeTruthy();
-    expect(asked.getByText("Read and change what your Linear account can")).toBeTruthy();
+    expect(
+      asked.getByText("Boards will be able to read and change what your Linear account can."),
+    ).toBeTruthy();
     await userEvent.click(asked.getByRole("button", { name: "Connect Linear" }));
     await waitFor(() =>
       expect(tab.location.replace).toHaveBeenCalledWith(
@@ -194,7 +196,7 @@ test("an expired sign-in shows Reconnect, which signs in to the same app again",
   });
   const tab = browserTab();
   const asked = await card("Boards asks to reconnect Linear");
-  expect(asked.getByText("Its sign-in ended, so Boards can't use it now")).toBeTruthy();
+  expect(asked.getByText("Signed out, so Boards can't use it now")).toBeTruthy();
   await userEvent.click(asked.getByRole("button", { name: "Reconnect Linear" }));
   await waitFor(() => expect(spade.sent("POST", "/v1/connectors/linear/connect")).toHaveLength(1));
   await waitFor(() => expect(tab.location.replace).toHaveBeenCalled());

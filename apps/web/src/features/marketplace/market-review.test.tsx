@@ -42,7 +42,7 @@ test("a Suit's review leads with its look and a short list of facts, its files f
   const market = await findMarket();
 
   expect(
-    await within(market).findByRole("heading", { level: 1, name: "Harbour dusk" }),
+    await within(market).findByRole("heading", { level: 1, name: "Get Harbour dusk" }),
   ).toBeTruthy();
   expect(within(market).getByText("Dark only")).toBeTruthy();
   const facts = within(within(market).getByRole("list", { name: "What it is" }));
@@ -68,7 +68,7 @@ test("a Suit already in this machine's library offers to wear it, not to install
   await openApp("/chats?market=suit/harbour-dusk", {}, { suits: library.transport });
   const market = await findMarket();
   expect(await within(market).findByText("In your Suits")).toBeTruthy();
-  expect(within(market).queryByRole("button", { name: "Install" })).toBeNull();
+  expect(within(market).queryByRole("button", { name: /^(Get|Install)\b/ })).toBeNull();
 
   await userEvent.click(within(market).getByRole("button", { name: "Wear it" }));
   expect(await within(market).findByText("Wearing")).toBeTruthy();
@@ -85,7 +85,7 @@ test("its review says there's nothing to install and offers Wear it", async () =
     ),
   ).toBeTruthy();
   expect(within(market).getByRole("button", { name: "Wear it" })).toBeTruthy();
-  expect(within(market).queryByRole("button", { name: "Install" })).toBeNull();
+  expect(within(market).queryByRole("button", { name: /^(Get|Install)\b/ })).toBeNull();
 });
 
 test("Installed carries no count while the marketplace installed nothing", async () => {
@@ -103,7 +103,7 @@ test("an install that wants a fresh sign-in says so and offers to sign in, never
     message: "Sign in again to do this.",
   };
   const market = await findMarket();
-  await userEvent.click(await within(market).findByRole("button", { name: "Install" }));
+  await userEvent.click(await within(market).findByRole("button", { name: "Get" }));
 
   const said = await within(market).findByRole("status");
   expect(said.textContent).toContain("Installing needs a recent sign-in to your ace account.");
@@ -128,7 +128,7 @@ test("the review is titled with the entry's name, its crumb saying Review", asyn
   await openApp("/chats?market=skill/triage-mail/review");
   const market = await findMarket();
   expect(
-    await within(market).findByRole("heading", { level: 1, name: "Triage mail" }),
+    await within(market).findByRole("heading", { level: 1, name: "Get Triage mail" }),
   ).toBeTruthy();
   expect(
     within(within(market).getByRole("navigation", { name: "Back" })).getByText("Review"),

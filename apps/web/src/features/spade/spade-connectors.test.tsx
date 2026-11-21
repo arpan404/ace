@@ -127,8 +127,8 @@ test("an app whose sign-in ended reconnects from its row", async () => {
   });
   const tab = browserTab();
   const section = await connectors();
-  expect(await section.findByText("Needs reconnect")).toBeTruthy();
-  await userEvent.click(section.getByRole("button", { name: "Reconnect" }));
+  expect(await section.findByText("Signed out")).toBeTruthy();
+  await userEvent.click(section.getByRole("button", { name: "Reconnect Linear" }));
   await waitFor(() => expect(spade.sent("POST", "/v1/connectors/linear/connect")).toHaveLength(1));
   await waitFor(() => expect(tab.location.replace).toHaveBeenCalled());
 });
@@ -155,7 +155,7 @@ test("an app whose sign-in ends later shows it without a reload", async () => {
     // Spade finds the sign-in expired while the page stays open.
     Object.assign(spade.connectors.connectors[0] ?? {}, { state: "needs_reconnect" });
     await vi.advanceTimersByTimeAsync(31_000);
-    expect(await section.findByText("Needs reconnect")).toBeTruthy();
+    expect(await section.findByText("Signed out")).toBeTruthy();
   } finally {
     vi.useRealTimers();
   }

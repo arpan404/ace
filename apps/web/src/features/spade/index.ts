@@ -22,3 +22,7 @@ export { useSpadeConnectors } from "./spade-connector-api.ts";
 export { SpadeFace } from "./spade-face.tsx";
 export { GroupFaces } from "./spade-group-faces.tsx";
 export { readGroups } from "./spade-teams-api.ts";
+export { useAppConnect, type AppToConnect } from "./spade-app-connect.tsx";
+export { AppBotFaces, botsUsing, UseInAnotherBot, useMachineBots } from "./spade-app-bots.tsx";
+export { disconnect, connectorsKey } from "./spade-connector-api.ts";
+export { useSpadeClient } from "./spade-machine.tsx";
