@@ -322,6 +322,7 @@ impl Engine {
                 contract: name.to_owned(),
                 input,
                 effects: contract.effects.clone(),
+                outside: None,
             })),
         };
         let entry = InboxEntry {
