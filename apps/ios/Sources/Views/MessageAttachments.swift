@@ -8,7 +8,8 @@ struct MessageAttachmentAccess {
     let cached: @MainActor (_ itemId: String, _ ref: String) -> UIImage?
     /// The preview, at most `pixels` on its long side; nil when it can't be read.
     let thumbnail: @MainActor (_ itemId: String, _ ref: String, _ pixels: CGFloat) async -> UIImage?
-    let open: @MainActor (_ itemId: String, _ line: AttachmentLine) -> Void
+    /// Opens `line`; for a picture, `pictures` are all the message's, swiped through from it.
+    let open: @MainActor (_ itemId: String, _ line: AttachmentLine, _ pictures: [AttachmentLine]) -> Void
     /// The picture itself, from the message carrying it (or the thread's own list when nil).
     var original: @MainActor (_ itemId: String?, _ ref: String) async -> UIImage? = { _, _ in nil }
 }
@@ -60,14 +61,15 @@ private struct ImageGroup: View {
     private static let single: CGFloat = 240
     var body: some View {
         if images.count == 1, let image = images.first {
-            AttachmentThumb(itemId: itemId, line: image, size: Self.fitted(image))
+            AttachmentThumb(itemId: itemId, line: image, pictures: images, size: Self.fitted(image))
         } else {
             let shown = Array(images.prefix(4))
             let rest = images.count > 4 ? images.count - 3 : 0
             let columns = [GridItem(.fixed(Self.cell), spacing: AceDesign.Space.tight), GridItem(.fixed(Self.cell), spacing: AceDesign.Space.tight)]
             LazyVGrid(columns: columns, alignment: .trailing, spacing: AceDesign.Space.tight) {
                 ForEach(Array(shown.enumerated()), id: \.offset) { index, image in
-                    AttachmentThumb(itemId: itemId, line: image, size: CGSize(width: Self.cell, height: Self.cell),
+                    // "+N" opens the rest too: the viewer swipes through every picture from here.
+                    AttachmentThumb(itemId: itemId, line: image, pictures: images, size: CGSize(width: Self.cell, height: Self.cell),
                                     more: index == 3 ? rest : 0)
                 }
             }
@@ -86,6 +88,7 @@ private struct ImageGroup: View {
 private struct AttachmentThumb: View {
     let itemId: String
     let line: AttachmentLine
+    let pictures: [AttachmentLine]
     let size: CGSize
     var more = 0
     @Environment(\.messageAttachments) private var access
@@ -95,7 +98,7 @@ private struct AttachmentThumb: View {
     var body: some View {
         let ref = line.ref ?? ""
         let image = loaded ?? access?.cached(itemId, ref)
-        Button { access?.open(itemId, line) } label: {
+        Button { access?.open(itemId, line, pictures) } label: {
             ZStack {
                 AceTheme.Colours.fill
                 if let image {
@@ -135,7 +138,7 @@ private struct AttachmentFileLine: View {
     @Environment(\.messageAttachments) private var access
     var body: some View {
         let opens = line.opens == true && access != nil
-        Button { access?.open(itemId, line) } label: {
+        Button { access?.open(itemId, line, [line]) } label: {
             HStack(spacing: AceDesign.Space.related) {
                 AceIcon(line.kind == "image" ? .image : line.kind == "pdf" || line.kind == "text" ? .fileText : .file,
                         size: AceDesign.Size.icon, relativeTo: .footnote)
@@ -184,8 +187,8 @@ struct AttachmentBytes: Decodable, Sendable {
 }
 
 /// Where a message's attachments are read from: a thread, because the message carries them, or
-/// Spade's store by hash (`spade.image`, which has no smaller preview). Both answer in
-/// `AttachmentBytes`.
+/// Spade's store by hash (`spade.image`, whose thumbnail is the daemon's 512-pixel preview). Both
+/// answer in `AttachmentBytes`.
 enum MessageAttachmentSource: Equatable, Sendable {
     case thread(String)
     case spade
@@ -206,7 +209,7 @@ enum MessageAttachmentSource: Equatable, Sendable {
             if let itemId { payload["itemId"] = itemId }
             return payload
         case .spade:
-            return ["type": "spade.image", "sha256": ref]
+            return ["type": "spade.image", "sha256": ref, "variant": variant]
         }
     }
 }
@@ -225,7 +228,9 @@ struct MessageAttachmentRoutes: ViewModifier {
         content
             .environment(\.messageAttachments, access)
             .fullScreenCover(item: $viewing) { target in
-                MediaViewer(title: target.line.name.isEmpty ? "Image" : target.line.name) { await original(target) }
+                MediaPager(pages: target.pictures.map { line in
+                    MediaPager.Page(title: line.name.isEmpty ? "Image" : line.name) { await original(target.itemId, line) }
+                }, start: target.start)
             }
             .quickLookPreview($preview)
             .overlay(alignment: .top) {
@@ -263,7 +268,7 @@ struct MessageAttachmentRoutes: ViewModifier {
                 }
                 return image
             },
-            open: { itemId, line in open(itemId, line) },
+            open: { itemId, line, pictures in open(itemId, line, pictures) },
             original: { itemId, ref in
                 let payload = source.request(itemId, ref, variant: "original")
                 guard let reply = try? await model.service(payload, as: AttachmentBytes.self) else { return nil }
@@ -273,15 +278,17 @@ struct MessageAttachmentRoutes: ViewModifier {
     }
 
     /// The image itself, read because its message carries it, for the full-screen viewer.
-    private func original(_ target: AttachmentTarget) async -> UIImage? {
-        guard let reply = try? await model.service(source.request(target.itemId, target.line.ref ?? "", variant: "original"), as: AttachmentBytes.self) else { return nil }
+    private func original(_ itemId: String, _ line: AttachmentLine) async -> UIImage? {
+        guard let reply = try? await model.service(source.request(itemId, line.ref ?? "", variant: "original"), as: AttachmentBytes.self) else { return nil }
         return await MediaViewer.image(base64: reply.data)
     }
 
-    private func open(_ itemId: String, _ line: AttachmentLine) {
+    private func open(_ itemId: String, _ line: AttachmentLine, _ pictures: [AttachmentLine]) {
         guard line.opens == true, let ref = line.ref, !ref.isEmpty else { return }
         if line.previewed {
-            viewing = AttachmentTarget(itemId: itemId, line: line)
+            let shown = pictures.filter(\.previewed)
+            viewing = AttachmentTarget(itemId: itemId, pictures: shown.isEmpty ? [line] : shown,
+                                       start: shown.firstIndex(of: line) ?? 0)
             return
         }
         opening = line.name
@@ -312,6 +319,8 @@ struct MessageAttachmentRoutes: ViewModifier {
 
 private struct AttachmentTarget: Identifiable {
     let itemId: String
-    let line: AttachmentLine
-    var id: String { "\(itemId)|\(line.ref ?? "")" }
+    /// The message's pictures, swiped through from `start`.
+    let pictures: [AttachmentLine]
+    let start: Int
+    var id: String { "\(itemId)|\(start)|\(pictures.first?.ref ?? "")" }
 }

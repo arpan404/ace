@@ -83,3 +83,30 @@ struct MediaDoneButton: View {
             .accessibilityIdentifier("media.close")
     }
 }
+
+/// Several images full screen, swiped through one at a time from `start`, each a `MediaViewer`
+/// read when its page shows; dots under them say where the person is.
+struct MediaPager: View {
+    struct Page {
+        let title: String
+        let load: @MainActor () async -> UIImage?
+    }
+    let pages: [Page]
+    @State private var shown: Int
+    init(pages: [Page], start: Int) {
+        self.pages = pages
+        _shown = State(initialValue: min(max(start, 0), max(pages.count - 1, 0)))
+    }
+    var body: some View {
+        TabView(selection: $shown) {
+            ForEach(Array(pages.enumerated()), id: \.offset) { index, page in
+                MediaViewer(title: page.title, load: page.load)
+                    .tag(index)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: pages.count > 1 ? .always : .never))
+        .background(AceDesign.Surface.media.ignoresSafeArea())
+        .ignoresSafeArea()
+        .accessibilityIdentifier("media.pager")
+    }
+}
