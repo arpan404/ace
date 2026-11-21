@@ -41,14 +41,21 @@ const chromePx = 8;
 export function roomAsk(input: {
   /** The editor area's width every group needs (`roomNeeded`). */
   needed: number;
-  panel: { size: number; dock: "side" | "bottom"; expanded: boolean };
+  panel: {
+    size: number;
+    dock: "side" | "bottom";
+    expanded: boolean;
+    /** The widest the panel can be beside the chat now; past it an ask can't be met. */
+    max: number;
+  };
   explorer: { open: boolean; width: number };
 }): number | undefined {
   const { panel, explorer } = input;
   if (panel.dock === "bottom" || panel.expanded) return undefined;
   const bare = input.needed + chromePx;
   const width = bare >= compactBelowPx && explorer.open ? bare + explorer.width : bare;
-  return panel.size >= width ? undefined : width;
+  // A panel that can't reach the width would only crowd the chat: the switcher shows instead.
+  return panel.size >= width || width > panel.max ? undefined : width;
 }
 
 /**

@@ -41,6 +41,7 @@ import {
 } from "@/features/editor-workbench/index.ts";
 import { useEditorAnnotations } from "@/features/editor";
 import { cn } from "@/lib/cn.ts";
+import { roomLimits } from "@/lib/shell-room.ts";
 import { editorLineHeight, useEditorPreferences } from "@/lib/editor-preferences.ts";
 import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { useElementSize } from "@/lib/element-size.ts";
@@ -231,6 +232,7 @@ export function EditorPanel(props: TabViewProps) {
           size: workspace.size ?? store.preferred,
           dock: workspace.dock === "bottom" ? "bottom" : "side",
           expanded: workspace.expanded,
+          max: panelMax(root.current),
         },
         explorer: latest.current.explorer,
       });
@@ -486,6 +488,15 @@ export function EditorPanel(props: TabViewProps) {
       )}
     </div>
   );
+}
+
+/**
+ * The widest the side panel can be beside the chat: the row it shares with the chat, less the
+ * chat's minimum (the panel's own `maxWidth`). Unmeasured, it can't grow.
+ */
+function panelMax(panel: HTMLElement | null): number {
+  const row = panel?.closest('[data-part="right-panel"]')?.parentElement;
+  return row ? row.clientWidth - roomLimits.mainMin : 0;
 }
 
 /** The explorer's marks in words: who, and how long ago ("Claude Code · 4m"). */

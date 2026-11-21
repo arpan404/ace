@@ -6,8 +6,11 @@ import type { SplitNode } from "./types.ts";
  * shows one group at a time.
  */
 
-/** The narrowest a group is worth showing beside another. */
-export const groupMinWidth = 320;
+/**
+ * The narrowest a group is worth showing beside another: room for code that wraps at an
+ * ordinary width, not a column of fragments.
+ */
+export const groupMinWidth = 420;
 /** The shortest a group is worth showing above or below another. */
 export const groupMinHeight = 160;
 

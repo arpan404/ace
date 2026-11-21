@@ -47,13 +47,31 @@ const side = { dock: "side", expanded: false } as const;
 const explorer = { open: true, width: 236 };
 
 test.each([
-  ["two groups in a 480px panel ask for 648px", 640, { ...side, size: 480 }, 648],
-  ["three groups ask for room for the docked explorer too", 960, { ...side, size: 600 }, 1204],
-  ["a panel already wide enough asks nothing", 640, { ...side, size: 700 }, undefined],
-  ["full view asks nothing", 640, { ...side, expanded: true, size: 480 }, undefined],
-  ["a bottom panel asks nothing", 640, { dock: "bottom", expanded: false, size: 480 }, undefined],
-] as const)("%s", (_name, needed, panel, ask) => {
-  expect(roomAsk({ needed, panel, explorer })).toBe(ask);
+  [
+    "two groups in a 640px panel ask for room with the docked explorer",
+    840,
+    { ...side, size: 640 },
+    1600,
+    1084,
+  ],
+  [
+    "two groups ask nothing when the panel can't get that wide",
+    840,
+    { ...side, size: 640 },
+    920,
+    undefined,
+  ],
+  ["a panel already wide enough asks nothing", 840, { ...side, size: 1100 }, 1600, undefined],
+  ["full view asks nothing", 840, { ...side, expanded: true, size: 480 }, 1600, undefined],
+  [
+    "a bottom panel asks nothing",
+    840,
+    { dock: "bottom", expanded: false, size: 480 },
+    1600,
+    undefined,
+  ],
+] as const)("%s", (_name, needed, panel, max, ask) => {
+  expect(roomAsk({ needed, panel: { ...panel, max }, explorer })).toBe(ask);
 });
 
 test.each([

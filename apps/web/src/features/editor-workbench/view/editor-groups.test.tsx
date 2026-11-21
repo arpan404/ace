@@ -33,8 +33,8 @@ afterEach(() => {
   HTMLElement.prototype.getBoundingClientRect = realBox;
 });
 
-test("a split shows both groups side by side once each has 320px, under the compact width", async () => {
-  editorSize(700);
+test("a split shows both groups side by side once each has 420px", async () => {
+  editorSize(900);
   await mountEditor(two());
   expect(region(1)).toBeTruthy();
   expect(region(2)).toBeTruthy();
@@ -42,10 +42,10 @@ test("a split shows both groups side by side once each has 320px, under the comp
 });
 
 test("a split without room asks for it, and shows one group with the others a click away", async () => {
-  editorSize(600);
+  editorSize(640);
   const onNeedRoom = vi.fn();
   await mountEditor(two(), { overrides: { onNeedRoom } });
-  expect(onNeedRoom).toHaveBeenCalledWith(640);
+  expect(onNeedRoom).toHaveBeenCalledWith(840);
   expect(screen.queryByRole("region", { name: "Group 2" })).toBeNull();
   expect(tabNames(1)).toEqual(["a.ts"]);
 
@@ -157,4 +157,14 @@ test("split right puts the keyboard in the new group's view", async () => {
 
   const second = within(region(2)).getByRole("textbox");
   expect(document.activeElement).toBe(second);
+});
+
+test("a stored uneven split keeps its proportions, each group held to its 420px", async () => {
+  editorSize(1044);
+  const start = two();
+  const uneven = { ...start, root: { ...start.root, sizes: [0.75, 0.25] } };
+  await mountEditor(uneven as typeof start);
+  const slots = [region(1), region(2)].map((each) => each.parentElement);
+  expect(slots.map((slot) => slot?.style.flexGrow)).toEqual(["0.75", "0.25"]);
+  expect(slots.map((slot) => slot?.style.minWidth)).toEqual(["420px", "420px"]);
 });
