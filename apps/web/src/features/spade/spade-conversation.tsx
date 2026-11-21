@@ -180,7 +180,12 @@ export function Conversation(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, props.computer, memoryKey]);
   // A task it carries on by itself: its line stays between replies, and Stop with it.
-  const task = spadeTaskLine(bot.name, bot.progress, view.status ?? bot.status);
+  const task = spadeTaskLine(
+    bot.name,
+    bot.progress,
+    view.status ?? bot.status,
+    bot.state === "waiting",
+  );
   const open = spadeWorks(view, task, bot.progress?.continuing === true);
   // It drives its computer only while it is at work.
   const computer = useBotComputer(bot, conversation.side, open);

@@ -313,3 +313,28 @@ test("a paused bot rests with Paused as its line, never finished, and still read
     line: "Hi",
   });
 });
+
+test("a bot that said it is blocked on the person reads needs you only while Spade has it waiting", () => {
+  const blocked = { status: "blocked_on_person", note: "Needs the person's approval" };
+  // Nothing open: no request, no waiting worker. Its own last word is not a request.
+  const stale = bot({
+    id: "r",
+    name: "Research",
+    state: "idle",
+    workers: 0,
+    task_state: blocked,
+    last_message: said("Paused pending your approval"),
+  });
+  expect(spadeBotRow(stale)).toEqual({ state: "rest", line: "Paused pending your approval" });
+  expect(spadeNeedsYouCount([stale], [])).toBe(0);
+  // A real approval open: Spade reads it waiting, so it needs the person.
+  const asking = bot({
+    id: "a",
+    name: "Asking",
+    state: "waiting",
+    waiting_for: "approval",
+    task_state: blocked,
+  });
+  expect(spadeBotRow(asking).state).toBe("needs-you");
+  expect(spadeNeedsYouCount([asking], [])).toBe(1);
+});
