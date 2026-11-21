@@ -378,6 +378,9 @@ pub struct Call<'a> {
     /// An MCP tool whose server says it may delete or overwrite, with no trusted declaration
     /// saying otherwise ([`asks_each_call`]): the person decides every call.
     pub destructive: bool,
+    /// For a shared bot on an org host, its organization's policy (ADR 0206 §3); `None` for
+    /// every other bot.
+    pub org: Option<crate::org::Gate<'a>>,
 }
 
 /// Why the person is asked, when it isn't the usual request.
@@ -459,6 +462,41 @@ pub fn route(call: Call<'_>) -> Route {
     if call.credentials || call.effect == Some(Effect::Credential) {
         return Route::Refuse(autonomy::CREDENTIALS_REFUSED.to_owned());
     }
+    // A shared bot's organization, next (ADR 0206 §3): what its policy turns off is refused in
+    // every mode, before the package ceiling, so a call passes org ∩ package ∩ grants.
+    let confined = matches!(call.place, Place::Sandbox | Place::Unprotected);
+    let reading = ceiling::reading(call.effect, call.command);
+    if let Some(gate) = call.org
+        && let Some(why) = crate::org::gate::refusal(gate, reading, call.place, confined)
+    {
+        return Route::Refuse(why);
+    }
+    // Full access on a shared bot holds only while the policy allows it: one raised before the
+    // policy turned it off decides on the auto-review.
+    let call = match call.org {
+        Some(gate) if !gate.policy.full_access_allowed() => Call {
+            mode: Mode::AutoReview,
+            ..call
+        },
+        _ => call,
+    };
+    let routed = decide(call, allowed);
+    // And no outward step of a shared bot runs without a member's say: what the rest would let
+    // run on a verdict alone goes to its approvers.
+    match call.org {
+        Some(_) => {
+            let human = (allowed
+                && !(call.ceiling.is_some() && ceiling::fresh_each_time(call.effect)))
+                || (call.granted != Granted::No
+                    && !(call.ceiling.is_some() && ceiling::fresh_each_time(call.effect)));
+            crate::org::gate::approvers(routed, reading, confined, human)
+        }
+        None => routed,
+    }
+}
+
+/// [`route`] after the hard stops of secrets and the organization.
+fn decide(call: Call<'_>, allowed: bool) -> Route {
     // A packaged bot's ceiling, right after: an effect its package didn't declare, or one the
     // person turned off, is refused before any review or request, in every mode.
     if let Some(why) = ceiling_refusal(&call) {
