@@ -191,7 +191,7 @@ it("closing the session sends its last picture and its ingest end, rather than c
   s.source.close();
   server.resume();
   await until(() => server.received.some((f) => f.kind === 4));
-  expect(server.received.filter((f) => f.kind === 3).at(-1)?.payload[0]).toBe(12);
+  expect(server.received.findLast((f) => f.kind === 3)?.payload[0]).toBe(12);
   expect(server.received.at(-1)?.kind).toBe(4);
 });
 

@@ -394,7 +394,7 @@ describe("live video routed through ace-media", () => {
     ingest.resume();
     // The newest picture, which was waiting for room, goes; then the ingest's end frame.
     await until(() => ingest.received.some((f) => f.kind === 4));
-    const last = ingest.received.filter((f) => f.kind === 3).at(-1);
+    const last = ingest.received.findLast((f) => f.kind === 3);
     expect(last?.payload[0]).toBe(12);
     expect(ingest.received.at(-1)?.kind).toBe(4);
   });
