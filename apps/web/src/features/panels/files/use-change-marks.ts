@@ -16,20 +16,26 @@ export function useChangeMarks(
 ): {
   marks: ReadonlyMap<number, LineMark> | undefined;
   hunks: readonly ChangeHunk[] | undefined;
+  /**
+   * The diff was read for this version (or there is nothing uncommitted to read): no hunks then
+   * means the file is as committed. False while a read runs, fails or shows an older one.
+   */
+  settled: boolean;
 } {
   const changed = useThreadMeta(threadId)?.details?.diff?.files;
-  const { files } = useWorkingTreeDiff(threadId, {
+  const { files, query } = useWorkingTreeDiff(threadId, {
     also: [version],
     enabled: path !== undefined && version !== undefined && changed !== 0,
     // One read per version of a file being edited: keep only the ones in use.
     gcTime: 30_000,
   });
   const file = useMemo(() => files.find((each) => each.path === path), [files, path]);
+  const settled = changed === 0 || (query.isSuccess && !query.isPlaceholderData);
   return useMemo(
     () =>
       file?.rows.length
-        ? { marks: lineMarks(file.rows), hunks: changeHunks(file.rows) }
-        : { marks: undefined, hunks: undefined },
-    [file],
+        ? { marks: lineMarks(file.rows), hunks: changeHunks(file.rows), settled }
+        : { marks: undefined, hunks: undefined, settled },
+    [file, settled],
   );
 }

@@ -70,14 +70,15 @@ export function useChangeGutter(input: {
 
   // The committed text: the file on disk with git's hunks put back. Hunks read for an older
   // version don't fit and are skipped, so a save or an agent's write keeps the last one.
-  const { hunks: committed } = useChangeMarks(threadId, path, version);
+  const { hunks: committed, settled } = useChangeMarks(threadId, path, version);
   useEffect(() => {
     const base = buffer.baseText();
-    // The base text is read again for each disk version.
+    // The base text is read again for each disk version. Until the diff of this version is in,
+    // the committed text stays what it was: an agent's write never makes it the new text.
     if (base === undefined || version === undefined) return;
-    const head = committedText(base, committed ?? []);
+    const head = committed ? committedText(base, committed) : settled ? base : undefined;
     if (head !== undefined) gutter.setHead(head);
-  }, [buffer, gutter, version, committed]);
+  }, [buffer, gutter, version, committed, settled]);
 
   const agentMarks = useMemo(
     () =>

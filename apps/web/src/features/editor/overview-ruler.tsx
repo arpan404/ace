@@ -12,7 +12,7 @@ const tickColour: Record<OverviewTick["kind"], string> = {
   added: "bg-status-done",
   modified: "bg-status-working",
   removed: "bg-status-failed",
-  agent: "bg-status-waiting",
+  agent: "bg-status-needs-you",
   hit: "bg-foreground/45",
   caret: "bg-foreground/70",
 };

@@ -205,7 +205,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 42. An open editor whose file changes on disk and has no unsaved edits reloads in place, keeping
     the caret and scroll anchored to the same text (not the same offset).
 43. Lines an agent wrote while the file was open (a reload, a merge, or a turn under review) get a
-    3px bar in the waiting colour (amber) in the gutter, with the agent's mark on the first line of
+    3px bar in the needs-you colour (amber) in the gutter, with the agent's mark on the first line of
     each block; hovering either says who and when ("Claude Code changed this in turn 2"). Once the
     person edits a block (or keeps it in a review) its bar gives way to the ordinary change mark.
 44. Lines changed since HEAD carry a bar against the committed text, kept live as the person types

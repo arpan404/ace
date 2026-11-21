@@ -8,7 +8,7 @@ import type { RowLayout } from "./wrap-index.ts";
  * The gutter's change marks (docs/editor/workbench.md 43–44), drawn for the rows on screen only:
  * a bar at the gutter's right edge for lines added (green) or changed (blue) since the last
  * commit, a small wedge between lines where lines were removed (red), and lines an agent wrote
- * in the working thread's amber, with the agent's mark on the block's first line. Every mark
+ * in the needs-you amber, with the agent's mark on the block's first line. Every mark
  * says what it is on hover, so none of it is colour alone. A press on a bar reaches the editor's
  * gutter handling, which opens the change.
  */
@@ -106,7 +106,7 @@ export function ChangeBars(props: ChangeBarsProps) {
           <span
             className={cn(
               "absolute inset-y-0 right-0",
-              byAgent ? "bg-status-waiting" : kind && kind !== "removed" && barColour[kind],
+              byAgent ? "bg-status-needs-you" : kind && kind !== "removed" && barColour[kind],
             )}
             style={{ width: barWidth }}
           />
@@ -125,7 +125,7 @@ export function ChangeBars(props: ChangeBarsProps) {
           <span
             className={cn(
               "absolute top-0.5 right-0 size-0 border-y-[4px] border-r-[5px] border-y-transparent",
-              own?.gap ? "border-r-status-waiting" : "border-r-status-failed",
+              own?.gap ? "border-r-status-needs-you" : "border-r-status-failed",
             )}
           />
         </span>,
