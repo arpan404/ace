@@ -1,9 +1,12 @@
 import { expect } from "vitest";
+import { standingProofText } from "@ace/account-grant";
 import { orgCalls, signInThroughWorker, workosUser } from "@ace/cloud/testing";
-import { DeviceId, type ServerMessage } from "@ace/protocol";
+import { DeviceId, type ServerMessage, type SpadeMethod } from "@ace/protocol";
 import type { SpadeLink } from "./spade/link.ts";
+import type { Client } from "./socket-test-support.ts";
 import {
   answer,
+  type deviceKey,
   pageProves,
   person,
   signedInDaemon,
@@ -19,16 +22,24 @@ type AccountBackend = ReturnType<typeof useAccountBackend>;
 /** The organization's member in these suites. */
 export const mia = workosUser("user_mia", "Mia");
 
+/** What an org host is set up with: see {@link orgTeamHost}. */
+export interface TeamHostOptions {
+  confirm?: boolean;
+  spade?: SpadeLink;
+  /** More of the daemon's server options. */
+  server?: Omit<NonNullable<Parameters<typeof signedInDaemon>[0]>, "spade">;
+}
+
 /**
  * A machine Pat owns and signed in, an organization Pat created with Mia as a member, the
  * backend told the machine is the org's host with the machine's own consent; `confirm: false`
  * stops before the daemon takes that in, so the machine stays Pat's.
  */
-export async function orgTeamHost(
-  backend: AccountBackend,
-  options: { confirm?: boolean; spade?: SpadeLink } = {},
-) {
-  const home = await signedInDaemon(options.spade ? { spade: options.spade } : {});
+export async function orgTeamHost(backend: AccountBackend, options: TeamHostOptions = {}) {
+  const home = await signedInDaemon({
+    ...options.server,
+    ...(options.spade ? { spade: options.spade } : {}),
+  });
   const api = orgCalls(backend.worker.http);
   const owner = await pageProves(home, home.session.token);
   expect(owner.ok).toBe(true);
@@ -70,5 +81,50 @@ export async function helloWith(home: Awaited<ReturnType<typeof signedInDaemon>>
     const message: ServerMessage = await client.next();
     if (message.type === "welcome") return { client, nonce: message.standingNonce ?? "" };
     if (message.type === "error") return { client, nonce: "", refused: message.code };
+  }
+}
+
+/** Proves `grant` on `client` with `key`'s signature over its nonce. */
+export async function provesMember(
+  client: Client,
+  host: string,
+  nonce: string,
+  grant: string,
+  key: Awaited<ReturnType<typeof deviceKey>>,
+) {
+  const proof = await key.sign(standingProofText({ host, nonce, binding: undefined, grant }));
+  client.send({ type: "account.standing", requestId: "member", grant, proof });
+  return (await answer(client, "account.standing.result")).result;
+}
+
+let requests = 0;
+/** One `spade.http` request on `client`: Spade's status and body, or the daemon's refusal. */
+export async function spadeHttp(
+  client: Client,
+  method: SpadeMethod,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: unknown } | { refused: string }> {
+  const requestId = `http-${++requests}`;
+  client.send({
+    type: "spade.http",
+    requestId,
+    method,
+    path,
+    encoding: "text",
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  for (;;) {
+    const message = await answer(client, "spade.http.result");
+    if (message.requestId !== requestId) continue;
+    const { result } = message;
+    if (result.kind === "error") return { refused: result.code };
+    let parsed: unknown;
+    try {
+      parsed = result.body ? JSON.parse(result.body) : undefined;
+    } catch {
+      parsed = result.body;
+    }
+    return { status: result.status, body: parsed };
   }
 }

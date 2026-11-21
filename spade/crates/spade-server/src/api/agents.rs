@@ -552,13 +552,22 @@ pub(super) async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
     axum::extract::Query(query): axum::extract::Query<DeleteQuery>,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
 ) -> Response {
-    let deleted = match query.workers.as_deref() {
-        None => state.engine.delete_agent(&id).await,
-        Some(word) => match crate::engine::Workers::parse(word) {
-            Some(workers) => state.engine.delete_agent_with(&id, workers).await,
-            None => return problem(StatusCode::BAD_REQUEST, "workers is stop or keep"),
-        },
+    // On an org host the member who deleted a shared bot is on its record (ADR 0206 §4.1).
+    let by = member.map(|axum::Extension(super::org_guard::Stamped(member))| member);
+    let deleted = crate::org::acting::scoped(by.as_ref(), async {
+        match query.workers.as_deref() {
+            None => Some(state.engine.delete_agent(&id).await),
+            Some(word) => match crate::engine::Workers::parse(word) {
+                Some(workers) => Some(state.engine.delete_agent_with(&id, workers).await),
+                None => None,
+            },
+        }
+    })
+    .await;
+    let Some(deleted) = deleted else {
+        return problem(StatusCode::BAD_REQUEST, "workers is stop or keep");
     };
     if let Err(AgentError::HasWorkers(count)) = &deleted {
         let error = AgentError::HasWorkers(*count).to_string();

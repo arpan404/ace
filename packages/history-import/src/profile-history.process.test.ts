@@ -4,7 +4,6 @@ import { once } from "node:events";
 import { DatabaseSync } from "node:sqlite";
 import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { SnapshotScratch } from "./snapshot-scratch.ts";
 import { environment, init, jsonl, memorySink, text } from "./test-support.ts";
 
 // Each CLI's own layout under a Windows profile folder, with the drive-letter workspace its
@@ -142,7 +141,8 @@ test.runIf(windows)(
   async () => {
     const env = await environment();
     cleanup.push(env.close);
-    const root = join(env.root, "scratch");
+    // ace-history sweeps the directory beside its index when it starts.
+    const root = join(env.root, "ace");
     const exited = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
     await once(exited, "exit");
     const live = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
@@ -154,8 +154,9 @@ test.runIf(windows)(
     });
     await mkdir(join(root, `sqlite-read-${exited.pid}-dead`), { recursive: true });
     await mkdir(join(root, `sqlite-read-${live.pid}-live`), { recursive: true });
-    const removed = await new SnapshotScratch(root).sweep();
-    expect(removed).toBe(1);
-    expect(await readdir(root)).toEqual([`sqlite-read-${live.pid}-live`]);
+    await env.start([]);
+    expect((await readdir(root)).filter((name) => name.startsWith("sqlite-read-"))).toEqual([
+      `sqlite-read-${live.pid}-live`,
+    ]);
   },
 );

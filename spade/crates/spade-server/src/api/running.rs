@@ -55,6 +55,14 @@ async fn pause(State(state): State<AppState>, Path(id): Path<String>) -> Respons
 }
 
 async fn resume(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    // Not while its organization's policy still blocks the version it runs (ADR 0206 §3).
+    if let Some(why) = state
+        .engine
+        .bot_package(&id)
+        .and_then(|link| state.engine.org_blocked(&link.package))
+    {
+        return super::problem(StatusCode::FORBIDDEN, &why);
+    }
     let done = state.engine.resume_agent(&id);
     answered(&state, done)
 }

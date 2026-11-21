@@ -1,12 +1,12 @@
 import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { HostRefusal } from "./host-refusal.ts";
-import { Console } from "node:console";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import { Transform } from "node:stream";
 import { z } from "zod";
 import { boundedJson, RpcWriter } from "@ace/provider-kit/ipc";
+import { routeConsoleToStderr } from "@ace/provider-kit/console-guard";
 
 const Request = z.object({
   id: z.union([z.string().max(128), z.number().int()]),
@@ -18,33 +18,6 @@ const Reply = z.object({
   result: z.unknown().optional(),
   error: z.unknown().optional(),
 });
-const consoleMethods = [
-  "log",
-  "info",
-  "debug",
-  "dir",
-  "dirxml",
-  "table",
-  "trace",
-  "group",
-  "groupCollapsed",
-  "groupEnd",
-  "count",
-  "countReset",
-  "time",
-  "timeEnd",
-  "timeLog",
-  "assert",
-] as const;
-/**
- * Stdout is the JSON-RPC channel. Bun's console writes to fd 1 directly, past the
- * process.stdout.write patch, so console output is sent through the redacting stderr path.
- */
-function routeConsoleToStderr() {
-  const sink = new Console({ stdout: process.stderr, stderr: process.stderr });
-  for (const method of consoleMethods)
-    Object.assign(console, { [method]: sink[method].bind(sink) });
-}
 /** All writes await the shared bounded pipe writer, including onDelta callbacks. */
 export function hostWire(
   dispatch: (method: string, params: unknown) => Promise<unknown>,
@@ -70,6 +43,7 @@ export function hostWire(
     oversizedStderr = false;
   };
   process.on("exit", flushStderr);
+  // Stdout is the JSON-RPC channel; console goes through the redacting, bounded stderr below.
   routeConsoleToStderr();
   process.stderr.write = (
     chunk: string | Uint8Array,

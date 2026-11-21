@@ -158,6 +158,13 @@ impl Drop for Reservation {
 pub const RESERVED: &str = "the bot's workspace is being restored from a checkpoint";
 
 impl Security {
+    /// The store Spade's security writes through: watched as the engine's is (ADR 0206 §4.1).
+    pub(crate) fn store(&self) -> &Store {
+        &self.store
+    }
+}
+
+impl Security {
     /// The service, with the egress proxy listening when this machine has a sandbox.
     pub async fn start(setup: Setup) -> Arc<Self> {
         let log = Arc::new(EgressLog::new(setup.log_dir));

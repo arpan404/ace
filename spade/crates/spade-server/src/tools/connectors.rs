@@ -189,10 +189,14 @@ impl Tool for ConnectorCall {
             }) as Arc<dyn Asker>
         });
         let key = key.to_owned();
+        let tool = self.tool.tool.clone();
         Box::pin(async move {
-            let answer = hub.call_asking(&connector, &name, arguments, asker).await;
-            let secret = forms
-                .and_then(|engine| engine.get())
+            let answer = hub
+                .call_asking(&connector, &name, arguments.clone(), asker)
+                .await;
+            let engine = forms.as_ref().and_then(EngineHandle::get);
+            let secret = engine
+                .as_ref()
                 .is_some_and(|engine| engine.asked_for_secret(&key));
             match answer {
                 // Its app asked for a secret: the form was never shown, and the call fails.
@@ -207,7 +211,22 @@ impl Tool for ConnectorCall {
                         ))
                     }
                 }
-                Ok(result) => super::ace::output(Ok(result)),
+                Ok(result) => {
+                    // A tool that links an app's page shows it as a panel (ADR 0202 §4).
+                    let page = match (&engine, &tool.page) {
+                        (Some(engine), Some(_)) => {
+                            engine
+                                .show_app_page(&key, &connector, &app, &tool, &arguments, &result)
+                                .await
+                        }
+                        _ => None,
+                    };
+                    let mut output = super::ace::output(Ok(result));
+                    if let Some(page) = page {
+                        output.content = format!("{}\n\n{page}", output.content);
+                    }
+                    output
+                }
                 Err(error @ CallError::NeedsReconnect(_)) => ToolOutput {
                     reconnect: Some(connector),
                     ..output(error)

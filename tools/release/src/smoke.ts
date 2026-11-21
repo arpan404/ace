@@ -11,6 +11,7 @@ import { InstalledRelease, DaemonHealth } from "@ace/protocol";
 import { checked, runProcess } from "@ace/service";
 import { smokeMedia } from "./media-smoke.ts";
 import { smokeFiles } from "./files-smoke.ts";
+import { smokeHistory } from "./history-smoke.ts";
 import { aceFilesVersion } from "./ace-files.ts";
 import { verifyDesktopNatives } from "./native-smoke.ts";
 import { hashFile, verifyManifest, unpackArchive } from "@ace/service";
@@ -50,6 +51,7 @@ if (options.manifestPath && options.keyPath) {
       "files.json",
       nativePath("media", "ace-media"),
       nativePath("files", "ace-files"),
+      nativePath("history", "ace-history"),
     ])
       if (
         (await hashFile(join(extracted, "release", path))) !==
@@ -68,8 +70,10 @@ const files = z
   .parse(JSON.parse(await readFile(join(artifact, "files.json"), "utf8")));
 const mediaPath = nativePath("media", "ace-media");
 const filesPath = nativePath("files", "ace-files");
+const historyPath = nativePath("history", "ace-history");
 if (!files.checksums[mediaPath]) throw new Error("Packaged ace-media checksum is missing");
 if (!files.checksums[filesPath]) throw new Error("Packaged ace-files checksum is missing");
+if (!files.checksums[historyPath]) throw new Error("Packaged ace-history checksum is missing");
 for (const [path, expected] of Object.entries(files.checksums)) {
   if (
     path.split(/[\\/]/).some((part) => part === "..") ||
@@ -81,7 +85,7 @@ for (const [path, expected] of Object.entries(files.checksums)) {
     throw new Error(`Packaged file checksum mismatch: ${path}`);
 }
 if (process.platform === "win32" && options.authenticode)
-  for (const path of [mediaPath, filesPath])
+  for (const path of [mediaPath, filesPath, historyPath])
     execFileSync("signtool", ["verify", "/pa", join(artifact, path)], {
       stdio: "inherit",
       timeout: 30_000,
@@ -96,6 +100,11 @@ await smokeFiles(
   artifact,
   manifest.target,
   aceFilesVersion({ repo, target: manifest.target }),
+  join(artifact, "bin", process.platform === "win32" ? "node.exe" : "node"),
+);
+await smokeHistory(
+  artifact,
+  manifest.target,
   join(artifact, "bin", process.platform === "win32" ? "node.exe" : "node"),
 );
 const app = options.app;
@@ -128,6 +137,11 @@ if (app) {
     resources,
     manifest.target,
     aceFilesVersion({ repo, target: manifest.target }),
+    join(resources, "runtime", process.platform === "win32" ? "node.exe" : "bin/node"),
+  );
+  await smokeHistory(
+    resources,
+    manifest.target,
     join(resources, "runtime", process.platform === "win32" ? "node.exe" : "bin/node"),
   );
 }

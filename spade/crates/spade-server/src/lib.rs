@@ -1,5 +1,6 @@
 //! Spade's server: the local API ([`api`]) over the engine ([`engine`]) that runs turns.
 
+pub mod a2a;
 pub mod api;
 mod atomic;
 pub mod bot_test;

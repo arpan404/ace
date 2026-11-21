@@ -86,6 +86,8 @@ export class CursorHost {
         name: "cursor-sdk-host",
         ...(options.outputFlow ? { outputFlow: options.outputFlow } : {}),
         maxLineBytes: this.limits.maxFrameBytes,
+        // Stderr is diagnostics only, and MCP servers the SDK starts write to it unbounded.
+        onStderrLineDropped: () => {},
       });
     } catch (error) {
       release?.();
