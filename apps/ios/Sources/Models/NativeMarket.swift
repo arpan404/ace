@@ -230,9 +230,7 @@ struct MarketReview: Decodable, Equatable {
     let blocked: String?
     /// How many rows its pages hold.
     let items: Int
-    /// A bot or a plugin: installing it needs the person's standing.
-    let personOnly: Bool
-    /// "Install this from your computer." for a person-only install the phone can't prove.
+    /// "Install this from your computer." for an install refused for standing the phone can't prove.
     let standingSentence: String?
     let suit: MarketReviewSuit?
     let plugin: MarketReviewPlugin?

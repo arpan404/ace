@@ -2,9 +2,10 @@ import SwiftUI
 
 /// The review before an install or an update (spec items 9 to 14), as a sheet titled "Get
 /// <title>" at a medium detent that grows to large. It is prepared on the machine; the scan's
-/// findings and what it may do come first, then its switches and its pages, and Install stays
-/// off until the person has read to the end. Dismissed without installing, the review is
-/// cancelled on the machine. `done` gets what landed.
+/// findings and what it may do come first, then its switches and its pages. Each page is fetched
+/// when the person scrolls to the end of the one before, and Install stays off until they have
+/// scrolled to the end of the last. Dismissed without installing, the review is cancelled on
+/// the machine, even one whose prepare was still under way. `done` gets what landed.
 struct MarketReviewSheet: View {
     enum Mode: Hashable {
         /// Get: a listed entry onto this machine.
@@ -19,7 +20,9 @@ struct MarketReviewSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var state = MarketReviewState()
     @State private var preparing = false
-    @State private var installed = false
+    @State private var reading = false
+    /// Outlives the sheet: a prepare that lands after dismissal is cancelled at once.
+    @State private var lease = MarketReviewLease()
 
     private var online: Bool { model.connection == "ready" }
 
@@ -35,7 +38,9 @@ struct MarketReviewSheet: View {
                         if let bot = review.bot { MarketBotSection(bot: bot, state: $state, disabled: state.installing) }
                         if review.plugin?.asksBots == true { MarketPluginBots(model: model, state: $state, disabled: state.installing) }
                         MarketReviewRows(rows: state.rows)
-                        if state.nextOffset != nil { readMore(review) }
+                        if state.nextOffset != nil {
+                            SkeletonRows(count: 2, label: "Scroll to read more of the review")
+                        }
                     } else if preparing {
                         SkeletonRows(count: 4, label: "Reading the review")
                     }
@@ -44,6 +49,15 @@ struct MarketReviewSheet: View {
             }
             .background(AceDesign.Surface.background)
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { foot }
+            // Where the person has scrolled, not what has rendered: the end counts only once it
+            // is in view above the foot, with every row shown so far.
+            .onScrollGeometryChange(for: ScrollEnd.self) { geometry in
+                ScrollEnd(atEnd: MarketReviewState.atEnd(offsetY: geometry.contentOffset.y,
+                                                         containerHeight: geometry.containerSize.height,
+                                                         insetBottom: geometry.contentInsets.bottom,
+                                                         contentHeight: geometry.contentSize.height),
+                          height: geometry.contentSize.height)
+            } action: { _, end in if end.atEnd { reachedEnd() } }
             .navigationTitle(state.review?.heading ?? "Review")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -55,10 +69,9 @@ struct MarketReviewSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(state.installing)
-        .task { await prepare() }
-        .onDisappear {
-            if let review = state.review, !installed { Task { try? await model.marketCancel(review) } }
-        }
+        // Not `.task`: a prepare must finish after dismissal so its review can be cancelled.
+        .onAppear { if !lease.started { lease.started = true; Task { await prepare() } } }
+        .onDisappear { lease.close(model) }
         .accessibilityIdentifier("market.review.sheet")
     }
 
@@ -79,10 +92,12 @@ struct MarketReviewSheet: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// The end of what is read so far: reaching it reads the next page.
-    private func readMore(_ review: MarketReview) -> some View {
-        SkeletonRows(count: 2, label: "Reading more of the review")
-            .task(id: state.nextOffset) { await readPage(review) }
+    /// The scroll reached the end of what the page shows: it counts as seen, and the next page,
+    /// if any, is fetched.
+    private func reachedEnd() {
+        guard let review = state.review else { return }
+        state.reachedEnd(of: review.id, shown: state.rows.count)
+        if state.nextOffset != nil, !reading { Task { await readPage(review) } }
     }
 
     /// Install, what stops it, or what went wrong, always in view at the sheet's foot.
@@ -102,8 +117,8 @@ struct MarketReviewSheet: View {
                     .accessibilityIdentifier("market.review.stuck")
             } else if !online {
                 Text("Your machine is offline.").aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
-            } else if state.review != nil, !state.complete {
-                Text("Read to the end to install.").aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+            } else if state.review != nil, !state.complete || !state.seenEnd {
+                Text("Scroll to the end to install.").aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
             }
             if let review = state.review, review.blocked == nil {
                 Button { install(review) } label: {
@@ -140,17 +155,23 @@ struct MarketReviewSheet: View {
         preparing = true
         defer { preparing = false }
         do {
+            let review: MarketReview
             switch mode {
-            case .install(let key): state.opened(try await model.marketPrepare(key))
-            case .update(let key): state.opened(try await model.marketPrepareUpdate(key))
+            case .install(let key): review = try await model.marketPrepare(key)
+            case .update(let key): review = try await model.marketPrepareUpdate(key)
             }
+            // Closed while it was being prepared: the machine shouldn't hold it until it expires.
+            guard lease.hold(review, model) else { return }
+            state.opened(review)
         } catch let refusal as MarketRefusal {
             state.refused(refusal)
         } catch {}
     }
 
     private func readPage(_ review: MarketReview) async {
-        guard let offset = state.nextOffset else { return }
+        guard let offset = state.nextOffset, !reading else { return }
+        reading = true
+        defer { reading = false }
         do {
             state.read(try await model.marketReviewPage(review.id, offset: offset), from: offset)
         } catch let refusal as MarketRefusal {
@@ -164,7 +185,7 @@ struct MarketReviewSheet: View {
         Task {
             do {
                 let landed = try await model.marketInstall(review, choices: state.choices.payload)
-                installed = true
+                lease.installed()
                 state.finished()
                 // Played here, not by a trigger: the sheet closes in the same moment.
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -176,5 +197,40 @@ struct MarketReviewSheet: View {
                 state.refused(MarketRefusal(code: "failed", message: "The install didn't finish, and nothing was installed.", way: .retry, offline: false))
             }
         }
+    }
+}
+
+/// Whether the content's end is in view, and how tall the content is: rows arriving change the
+/// height, so they are reported even while the end stays in view, and count as seen only then.
+private struct ScrollEnd: Equatable {
+    let atEnd: Bool
+    let height: CGFloat
+}
+
+/// The review this sheet holds on the machine, kept by reference so it outlives the sheet: closed
+/// with a prepare still under way, the review that lands is cancelled as soon as its id arrives.
+@MainActor private final class MarketReviewLease {
+    var started = false
+    private var closed = false
+    private var held: MarketReview?
+
+    /// Takes the prepared review; false, having cancelled it, when the sheet already closed.
+    func hold(_ review: MarketReview, _ model: ClientModel) -> Bool {
+        guard !closed else {
+            Task { try? await model.marketCancel(review) }
+            return false
+        }
+        // A review read again replaces the dropped one, which the machine no longer holds.
+        held = review
+        return true
+    }
+
+    func installed() { held = nil }
+
+    /// The sheet went: the review it holds, if any, is cancelled.
+    func close(_ model: ClientModel) {
+        closed = true
+        if let review = held { Task { try? await model.marketCancel(review) } }
+        held = nil
     }
 }
