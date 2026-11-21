@@ -113,6 +113,13 @@ pub enum Origin {
         #[serde(rename = "platform")]
         platform: String,
     },
+    /// A screen whose helper sends only JPEG pictures (on the control lane, as a private tab's
+    /// are): ace-media encodes them itself.
+    #[serde(rename = "screen-pictures")]
+    ScreenPictures {
+        #[serde(rename = "platform")]
+        platform: String,
+    },
     #[serde(rename = "simulator")]
     Simulator {
         #[serde(rename = "streamUrl")]

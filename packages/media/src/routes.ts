@@ -17,6 +17,7 @@ export const sourceKinds: readonly SourceKind[] = [
   "user-tab",
   "embedded",
   "screen",
+  "screen-pictures",
   "simulator",
   "scrcpy",
   "emulator-frames",
@@ -71,8 +72,9 @@ export const builtRouteCapabilities: RouteCapabilities = {
  * and streams into ace-media's ingest pipe (E1); Linux screens stream in from their helper (E2).
  */
 export function platformRouteCapabilities(platform: string): RouteCapabilities {
-  // The daemon forwards an Android device's scrcpy units itself, on every platform.
-  const ingest = [...builtRouteCapabilities.ingest, "scrcpy"] as const;
+  // The daemon forwards an Android device's scrcpy units itself, on every platform, and a
+  // JPEG-only screen helper's pictures go to ace-media's encoder wherever ace-media runs.
+  const ingest = [...builtRouteCapabilities.ingest, "scrcpy", "screen-pictures"] as const;
   return {
     ...builtRouteCapabilities,
     ingest:

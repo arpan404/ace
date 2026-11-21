@@ -83,7 +83,7 @@ struct Source {
     ingest: Option<IngestId>,
     encode: u32,
     recording: Option<Recording>,
-    /// A JPEG source ace-media encodes itself (`tab-pictures`, `user-tab`), and the token of
+    /// A JPEG source ace-media encodes itself (`tab-pictures`, `user-tab`, `screen-pictures`), and the token of
     /// its running encoder: every command to that encoder and every word from it carries the
     /// token, so a reopened source never takes an earlier encoder's output.
     pictures: bool,
@@ -215,7 +215,10 @@ impl Sources {
         let Some(secret) = vault.store(token) else {
             return status(out, id, Status::Ended, Some("too-many-sources"), None);
         };
-        let pictures = matches!(origin, Origin::TabPictures {} | Origin::UserTab {});
+        let pictures = matches!(
+            origin,
+            Origin::TabPictures {} | Origin::UserTab {} | Origin::ScreenPictures { .. }
+        );
         // An emulator's frame file is encoded by the screen helper's `--encode-frames`, and an
         // Android device's scrcpy stream is forwarded by the daemon, which keeps its sockets: both
         // stream in over ingest like any producer and stamp their own epochs. A Simulator's

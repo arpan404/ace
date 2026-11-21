@@ -155,7 +155,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
       failed = `ace-media is not available: ${error instanceof Error ? error.message : String(error)}`;
       context.log.log("warn", failed);
       // Producers waiting for the runtime will never get one: their views say why.
-      for (const producer of waiting.keys()) producer.stopped?.(failed);
+      for (const producer of waiting.keys()) producer.stopped?.(failed, "unavailable");
     }));
 
   const read = async () => {
@@ -194,7 +194,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     if (runtime) return runtime.sources.add(producer);
     const slot: Waiting = { source: undefined };
     waiting.set(producer, slot);
-    if (failed) producer.stopped?.(failed);
+    if (failed) producer.stopped?.(failed, "unavailable");
     return {
       streaming: () => slot.source?.streaming() ?? false,
       reconnect: () => slot.source?.reconnect(),

@@ -24,6 +24,8 @@ const Origin = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("user-tab") }),
   z.strictObject({ kind: z.literal("embedded") }),
   z.strictObject({ kind: z.literal("screen"), platform: text }),
+  /** A screen whose helper sends only JPEG: ace-media encodes its pictures (X2). */
+  z.strictObject({ kind: z.literal("screen-pictures"), platform: text }),
   z.strictObject({ kind: z.literal("simulator"), streamUrl: text, stillUrl: text }),
   z.strictObject({ kind: z.literal("scrcpy"), host: text, port: u32 }),
   z.strictObject({

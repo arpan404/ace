@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MediaAcceleration } from "./media-acceleration.ts";
+import { LiveVideoStatus, MediaAcceleration } from "./media-acceleration.ts";
 import { MediaLinkHint } from "./media-link.ts";
 import { MediaBinding, MediaCodecs, MediaSubscribed } from "./media-connection.ts";
 import { ThreadId, AgentId } from "./ids.ts";
@@ -178,6 +178,8 @@ export const DeviceState = z.object({
   sharing: CoworkSharing.optional(),
   /** What the live video runs on while ace-media carries it (ADR 0148). */
   acceleration: MediaAcceleration.optional(),
+  /** Set while the live video can't play, with why; absent while it plays. */
+  video: LiveVideoStatus.optional(),
   /** Where the agent last acted on the device, in device points (ADR 0143). */
   agentPointer: AgentPointer.optional(),
   /** The person used the device within the last 3 s; agents' actions wait meanwhile. */

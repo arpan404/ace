@@ -109,9 +109,8 @@ export class SessionObservations {
     const session = this.live(id);
     this.authorize(session.state.target);
     const capabilities = session.helper.capabilities;
-    // Video comes only from ace-media: a helper that makes none, or a session without a media
-    // source, stays on stills.
-    if (!helperEncodesVideo(capabilities) || !session.media) return { codec: "jpeg" };
+    // Video comes only from ace-media: a session without a way there stays on stills.
+    if (!session.media) return { codec: "jpeg" };
     const result = await session.media.configure(settings);
     // A view may ask just before its subscription lands; the last one leaving switches back.
     if (result.codec === "h264" || settings.codec === "h264") session.viewerVideo = true;

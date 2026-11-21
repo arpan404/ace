@@ -258,7 +258,7 @@ describe("live video routed through ace-media", () => {
     const producer = added[0]?.producer;
     await producer?.point(address("m1"));
     await producer?.point(undefined);
-    producer?.stopped?.("ace-media stopped and is starting again");
+    producer?.stopped?.("ace-media stopped and is starting again", "retrying");
     // Nothing is sent anywhere meanwhile: the encoder has no target.
     expect(captures[0]?.targets.at(-1)).toBeUndefined();
     await producer?.point(address("m2"));

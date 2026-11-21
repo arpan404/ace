@@ -154,6 +154,10 @@ export function fakeScreenMedia() {
         path: name,
       });
     },
+    /** ace-media can't take the session's source now, and says why. */
+    stop(sessionId: string, reason: string, status: "retrying" | "unavailable") {
+      producer(sessionId).stopped?.(reason, status);
+    },
     unit(sessionId: string, sequence: number, keyframe: boolean) {
       const { encodeProducerStamp } = producerStamp;
       producer(sessionId).consumers.deliver({

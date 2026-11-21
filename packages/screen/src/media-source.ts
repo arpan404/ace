@@ -5,6 +5,7 @@ import {
   type IngestAddress,
   type IngestProducer,
   type IngestSource,
+  type StopStatus,
 } from "@ace/media/ingest-sources";
 import { readProducerStamp } from "@ace/media/producer-stamp";
 import {
@@ -105,6 +106,8 @@ export type ScreenMediaSourceOptions = {
   /** A frame: video off egress in sequence order, stills off the helper's socket in theirs. */
   accept: (frame: Frame) => void;
   schedule: (callback: () => void, milliseconds: number) => () => void;
+  /** Why the video stopped, or (undefined) that a picture arrived again. */
+  stalled?: (status: { status: StopStatus; reason: string } | undefined) => void;
 };
 
 /** The merge's name for "video goes nowhere": nothing is ever delivered on it. */
@@ -141,6 +144,8 @@ export class ScreenMediaSource {
   #tail: Promise<unknown> = Promise.resolve();
   #lastUnit: EgressUnit | undefined;
   #closed = false;
+  /** The video stopped and no picture came since: the next one clears the reason. */
+  #stalled = false;
   /** The helper encodes HEVC toward ace-media (`helperEncodesHevc`). */
   readonly #hevc: boolean;
   /** What ace-media's plan wants, as `wantedCodec` reads it. */
@@ -175,6 +180,10 @@ export class ScreenMediaSource {
         return this.#point(address);
       },
       keyframe: () => void options.helper.request({ op: "stream.keyframe" }).catch(() => {}),
+      stopped: (reason, status) => {
+        this.#stalled = true;
+        options.stalled?.({ status, reason });
+      },
       // ace-media's end marker for a path, after its last unit.
       pathEnded: (path, interrupted) => this.#pathEnded(path, interrupted),
       // ace-media's plan for the views it delivers (D1): the helper runs one encode, the
@@ -315,6 +324,10 @@ export class ScreenMediaSource {
       return;
     }
     this.#lastVideo = frame.header.sequence;
+    if (this.#stalled) {
+      this.#stalled = false;
+      this.#options.stalled?.(undefined);
+    }
     this.#options.accept(frame);
   }
 

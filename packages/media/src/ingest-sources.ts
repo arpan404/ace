@@ -80,7 +80,7 @@ export type IngestProducer = {
    * unavailable, or kept failing it): why, for its live views. The next `point` with an address
    * means it streams again.
    */
-  stopped?: (reason: string) => void;
+  stopped?: (reason: string, status: StopStatus) => void;
   /**
    * The privacy epochs this producer stamped that the daemon knows were clear: the source was
    * public for all of each one. A poster shows a picture only from these (D1). Absent: none, so
@@ -139,6 +139,12 @@ export const h264Only: readonly string[] = ["avc1.42E033"];
 
 /** Reconnects after the producer's connection ended, before the source stays stopped. */
 export const maxIngestReopens = 3;
+/**
+ * Whether a stopped source comes back by itself soon (`retrying`: ace-media is restarting) or
+ * not (`unavailable`: crash-looping, missing, or it can't take this source).
+ */
+export type StopStatus = "retrying" | "unavailable";
+
 /** What a source's views say when ace-media stopped and gave no reason of its own. */
 export const restartingReason = "ace-media stopped and is starting again";
 /** What they say when ace-media kept failing the source. */
@@ -155,6 +161,7 @@ export const drainMs = 2_000;
 const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>([
   "tab-pictures",
   "user-tab",
+  "screen-pictures",
   "simulator",
 ]);
 
@@ -340,7 +347,7 @@ export class IngestSources {
   #tell(entry: Entry, reason: string): void {
     if (entry.closed || entry.told === reason) return;
     entry.told = reason;
-    entry.producer.stopped?.(reason);
+    entry.producer.stopped?.(reason, reason === restartingReason ? "retrying" : "unavailable");
   }
 
   #live(entry: Entry, path: Path | undefined): void {

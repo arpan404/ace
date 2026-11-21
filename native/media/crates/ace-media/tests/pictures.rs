@@ -92,7 +92,21 @@ fn observed_hardware_jpeg(capabilities: &[Capability]) -> bool {
 
 #[test]
 fn a_jpeg_source_is_encoded_on_videotoolbox_and_returned_on_egress_under_its_handle() {
-    let mut media = Media::spawn("pictures");
+    jpeg_source_round_trip("pictures", json!({ "kind": "tab-pictures" }));
+}
+
+/// A screen whose helper makes only JPEG (no Media Foundation H.264, no VA-API or NVENC) is
+/// encoded here like a private tab's screencast, so it still has live video (X2).
+#[test]
+fn a_jpeg_only_screen_is_encoded_and_returned_on_egress_under_its_handle() {
+    jpeg_source_round_trip(
+        "screen-pictures",
+        json!({ "kind": "screen-pictures", "platform": "windows" }),
+    );
+}
+
+fn jpeg_source_round_trip(name: &str, origin: serde_json::Value) {
+    let mut media = Media::spawn(name);
     let init = json!({ "type": "init", "protocol": 1, "version": "0.0.0-test",
         "runtimeDir": media.dir.to_string_lossy(), "dataDir": media.dir.to_string_lossy(),
         "settings": { "recordings": "legacy", "stills": "legacy", "encode": "auto", "delivery": "legacy" } });
@@ -120,7 +134,7 @@ fn a_jpeg_source_is_encoded_on_videotoolbox_and_returned_on_egress_under_its_han
 
     media.send(
         json!({ "type": "source.open", "source": "private", "handle": 9, "epoch": 1,
-                "origin": { "kind": "tab-pictures" } }),
+                "origin": origin }),
         &[3; 32],
     );
     media.send(
