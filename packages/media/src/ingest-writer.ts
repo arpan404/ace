@@ -10,7 +10,7 @@ import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
  * dropped with what follows it to the next keyframe, which is asked for once. A keyframe that
  * won't fit waits, the newest only, until the backlog makes room; each write's completion is
  * checked, not only `drain`, which a socket under its high-water mark never emits. A backlog
- * still too big after `drainLimit` is a cut.
+ * still too big after `drainLimit` is a cut. A still picture (kind 3) is paced as a keyframe.
  *
  * The writer is one state machine: `open` → `finishing` (its waiting keyframe, then its end
  * frame) → `ended` | `cut`. `ended` is reached only when the end frame's write succeeds, which is
@@ -70,6 +70,8 @@ export class IngestWriter {
   #pending: Uint8Array | undefined;
   /** The armed deadline: over budget while open, or a finish in progress. */
   #deadline: (() => void) | undefined;
+  /** Still in the constructor: a failure now is reported once the caller holds the writer. */
+  #constructing = true;
 
   constructor(options: IngestWriterOptions) {
     this.#options = options;
@@ -80,6 +82,7 @@ export class IngestWriter {
     this.#socket.on("drain", () => this.#room());
     this.#write(encodeMediaFrame({ ...control(5), payload: options.token.slice() }));
     options.token.fill(0);
+    this.#constructing = false;
   }
 
   /** The connection is gone, or finishing. */
@@ -90,11 +93,12 @@ export class IngestWriter {
   /** Queues one unit; false once finishing, ended or cut. */
   write(frame: MediaFrame): boolean {
     if (this.#state.kind !== "open") return false;
-    if (frame.kind !== 1) {
+    if (frame.kind !== 1 && frame.kind !== 3) {
       this.#write(encodeMediaFrame(frame));
       return true;
     }
-    const keyframe = (frame.flags & 1) !== 0;
+    // A still picture stands alone, so it is paced as a keyframe: the newest one waits.
+    const keyframe = frame.kind === 3 || (frame.flags & 1) !== 0;
     // Waiting for room: the newest keyframe replaces the one held, deltas are dropped.
     if (this.#deadline) {
       if (keyframe) this.#pending = encodeMediaFrame(frame);
@@ -149,6 +153,14 @@ export class IngestWriter {
     return this.#state.kind === kind;
   }
 
+  /**
+   * Drops the unit waiting for room, if one is: it is never written. What the socket already
+   * holds still goes. For a producer whose waiting picture became private (M8).
+   */
+  discardWaiting(): void {
+    this.#pending = undefined;
+  }
+
   /** At once, dropping what is queued: ace-media sees that path cut. Not reported. */
   close(): void {
     if (!this.#move({ kind: "cut" })) return;
@@ -161,7 +173,10 @@ export class IngestWriter {
     if (!this.#move({ kind: "cut" })) return;
     this.#stop();
     this.#socket.destroy();
-    this.#options.onClosed(reason);
+    // A socket that fails at once (no such path) fails inside the constructor, before its caller
+    // could tell this writer from an older one.
+    if (this.#constructing) queueMicrotask(() => this.#options.onClosed(reason));
+    else this.#options.onClosed(reason);
   }
 
   #stop(): void {
@@ -255,6 +270,40 @@ export class IngestWriter {
 }
 
 /** A hello (5) or end (4) frame's fields, before its payload. */
+/** The largest media payload ace-media takes (`MEDIA_PAYLOAD_MAX`): a bigger picture is dropped. */
+export const maxStillPictureBytes = 8 * 1024 * 1024;
+
+/**
+ * A JPEG still picture as a producer writes it to its ingest (kind 3, codec JPEG): always a
+ * keyframe, so past the writer's budget only the newest waits. Undefined when it is too large
+ * for ace-media to take, for the producer to drop and count.
+ */
+export function stillPictureFrame(
+  jpeg: Uint8Array,
+  size: { width: number; height: number },
+  epoch: number,
+): MediaFrame | undefined {
+  if (jpeg.length === 0 || jpeg.length > maxStillPictureBytes) return undefined;
+  return {
+    kind: 3,
+    flags: 1,
+    ageUs: 0,
+    width: size.width,
+    height: size.height,
+    displayWidth: size.width,
+    displayHeight: size.height,
+    scale: 1000,
+    rotation: 0,
+    codec: 7,
+    encode: 0,
+    epoch,
+    codecString: "",
+    description: new Uint8Array(0),
+    extension: new Uint8Array(0),
+    payload: jpeg,
+  };
+}
+
 function control(kind: 4 | 5): Omit<MediaFrame, "payload"> {
   return {
     kind,

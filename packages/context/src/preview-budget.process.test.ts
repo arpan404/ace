@@ -2,10 +2,20 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import sharp from "sharp";
 import { expect, test } from "vitest";
 import { ContextService } from "./index.ts";
 import { ContextRequest } from "@ace/protocol";
+
+/** Nine different images ace previews, from the context and image vector fixtures. */
+const distinctImages = [
+  "../fixtures/colours.png",
+  "../fixtures/colours.jpg",
+  "../fixtures/colours.webp",
+  "../fixtures/colours.gif",
+  ...["red-64x48.jpg", "alpha-32x32.png", "palette-8x8.png", "icon-64.png", "screen-20x40.png"].map(
+    (name) => `../../../native/media/vectors/image/inputs/${name}`,
+  ),
+];
 
 async function previews(render: (path: string) => Promise<Buffer>) {
   const root = await mkdtemp(join(tmpdir(), "ace-preview-budget-"));
@@ -70,7 +80,7 @@ test("only two image decodes are admitted concurrently and their slots recover a
   const f = await previews(async (path) => {
     if (++active === 2) entered.resolve();
     if (active <= 2) await gate.promise;
-    return sharp(path).resize(32, 24).png().toBuffer();
+    return Buffer.from(`preview of ${path}`);
   });
   try {
     const hash = await f.upload(fixture);
@@ -97,25 +107,12 @@ test("only two image decodes are admitted concurrently and their slots recover a
 
 test("preview churn retains eight recent previews and evicts the least recently read image", async () => {
   let renderEpoch = 0;
-  const f = await previews(async () =>
-    sharp({
-      create: { width: 8, height: 8, channels: 3, background: { r: ++renderEpoch, g: 0, b: 0 } },
-    })
-      .png()
-      .toBuffer(),
-  );
+  // The renderer stands in for ace-media; what matters is how often it is asked.
+  const f = await previews(async () => Buffer.from([++renderEpoch]));
   const hashes: string[] = [];
   try {
-    for (let n = 0; n < 9; n++)
-      hashes.push(
-        await f.upload(
-          await sharp({
-            create: { width: 16, height: 16, channels: 3, background: { r: n, g: 0, b: 0 } },
-          })
-            .png()
-            .toBuffer(),
-        ),
-      );
+    for (const name of distinctImages)
+      hashes.push(await f.upload(await readFile(new URL(name, import.meta.url))));
     const oldest = hashes[0],
       recent = hashes[1];
     if (!oldest || !recent) throw new Error("Missing fixtures");

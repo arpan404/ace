@@ -82,6 +82,8 @@ export interface BrowserView {
   features?: readonly string[] | undefined;
   /** A recording of the shown tab runs, started by the person or an agent. */
   recording?: { by: BrowserActorView } | undefined;
+  /** A recording ended on its own or its end may be incomplete; a new recording clears it. */
+  recordingNotice?: string | undefined;
   /** What its live video runs on while ace-media carries it (ADR 0148). */
   acceleration?: import("@ace/protocol").MediaAcceleration | undefined;
 }
@@ -307,6 +309,11 @@ export interface PreviewSource {
    * `VideoDecoder`); undefined while it is still being asked. A page shows only as video.
    */
   decodesVideo?(): boolean | undefined;
+  /**
+   * Why the thread's live view gets no pictures, for the person (ace-media can't serve it now,
+   * or this client has no media connection); undefined while video comes or may come.
+   */
+  undelivered?(threadId: string): string | undefined;
   /**
    * A tab's last picture from when it was the shown one (the video follows the shown tab), for
    * split view's other half; undefined when this client never saw it.

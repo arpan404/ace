@@ -56,7 +56,7 @@ else if (command.includes("input")) await appendFile(${JSON.stringify(deviceJour
     platform,
     env: {},
     recordingDirectory: directory,
-    publishArtifact: async (artifact) => artifact,
+    publishArtifact: async () => {},
     runtime: {
       now: () => 1,
       id: () => `device-${++sequence}`,

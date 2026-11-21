@@ -178,8 +178,15 @@
           "const": "prepare",
           "type": "string"
         },
+        "registry": {
+          "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+        },
         "source": {
           "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+        },
+        "trustKey": {
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "type": "string"
         },
         "type": {
           "maxLength": 40,
@@ -195,6 +202,40 @@
         "source",
         "type",
         "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "registryRefresh",
+          "type": "string"
+        },
+        "registry": {
+          "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+        }
+      },
+      "required": [
+        "op",
+        "registry"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "registryLeft",
+          "type": "string"
+        },
+        "registry": {
+          "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+        }
+      },
+      "required": [
+        "op",
+        "registry"
       ],
       "type": "object"
     },

@@ -9,8 +9,7 @@
             "$ref": "https://ace.local/protocol/v1/MarketKeyId.json"
           },
           "publicKey": {
-            "pattern": "^[A-Za-z0-9_-]{43}$",
-            "type": "string"
+            "$ref": "https://ace.local/protocol/v1/MarketPublicKey.json"
           }
         },
         "required": [

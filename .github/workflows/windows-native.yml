@@ -365,11 +365,6 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-browser.config.ts
 
-      - name: Profile Windows browser video (report only)
-        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
-        timeout-minutes: 8
-        run: node packages/browser/bench/video-profile.ts
-
       # The desktop's parking window (apps/desktop/src/main/browser/parking.ts) must keep drawing
       # while offscreen and transparent: compare its page frame rate and capture with and
       # without Chromium's Windows occlusion tracking.
@@ -409,16 +404,6 @@ jobs:
           });
           '@ | Set-Content -Path $probe -Encoding utf8
           foreach ($variant in "default", "no-occlusion") { & $electron $probe $variant; Write-Host "exit $LASTEXITCODE" }
-
-      # Collect native Windows throughput after the serial functional checks.
-      # The existing check:perf thresholds remain the acceptance gate.
-      - name: Observe Windows browser streaming performance (report only)
-        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
-        timeout-minutes: 3
-        env:
-          ACE_VIDEO_LINK_REPORT_ONLY: "1"
-          ACE_VIDEO_LINK_BASELINE_SECONDS: "10"
-        run: node packages/browser/bench/video-link.ts
 
       - name: Native evidence summary
         if: always()

@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryKeyUpload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "proof": {
+      "$ref": "https://ace.local/protocol/v1/MarketSignature.json"
+    },
+    "rotation": {
+      "$ref": "https://ace.local/protocol/v1/MarketSignature.json"
+    },
+    "statement": {
+      "$ref": "https://ace.local/protocol/v1/RegistryKeyStatement.json"
+    }
+  },
+  "required": [
+    "statement",
+    "proof"
+  ],
+  "type": "object"
+}

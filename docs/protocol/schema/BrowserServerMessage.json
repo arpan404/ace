@@ -32,6 +32,9 @@
         "type": {
           "const": "browser.result",
           "type": "string"
+        },
+        "undelivered": {
+          "$ref": "https://ace.local/protocol/v1/MediaUndelivered.json"
         }
       },
       "required": [
@@ -54,6 +57,25 @@
       "required": [
         "type",
         "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.delivery",
+          "type": "string"
+        },
+        "undelivered": {
+          "$ref": "https://ace.local/protocol/v1/MediaUndelivered.json"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
       ],
       "type": "object"
     },

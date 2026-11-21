@@ -181,7 +181,9 @@ export default defineConfig({
     maxWorkers: 2,
     reporters: ["default", new FailureDetailsReporter()],
     include: [
-      "packages/browser/src/video-software.process.test.ts",
+      // A real tab's video through ace-media and back (with ACE_MEDIA_TEST_BINARY): the only
+      // path a Windows tab's video has.
+      "packages/browser/src/media-video.process.test.ts",
       // ace-media's supervisor and egress route over named pipes (with ACE_MEDIA_TEST_BINARY,
       // against the real binary; otherwise the supervisor test drives the TypeScript stand-in).
       "packages/media/src/supervisor.process.test.ts",

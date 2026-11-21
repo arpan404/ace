@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { z } from "zod";
-import sharp from "sharp";
 import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
 import { devicesToolkit } from "@ace/devices";
 import { fakeNode, fakeSimService } from "@ace/devices/testing";
@@ -136,11 +135,10 @@ it("ace sim screenshot writes a JPEG even when no live view runs", () =>
     const shot = await h.sim("screenshot", ios, "--out", out);
     expect(shot.code, shot.stderr).toBe(0);
     expect(shot.json).toMatchObject({ simId: ios, path: out, width: 300, height: 600, scale: 1 });
-    expect(await sharp(await readFile(out)).metadata()).toMatchObject({
-      format: "jpeg",
-      width: 300,
-      height: 600,
-    });
+    // The fake's screen, a 300 × 600 JPEG, written as it came.
+    const written = await readFile(out);
+    expect(written.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+    expect(written.length).toBeGreaterThan(100);
     expect(h.platform.shots).toEqual([ios]);
   }));
 

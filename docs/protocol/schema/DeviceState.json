@@ -98,6 +98,9 @@
         "gestures"
       ],
       "type": "string"
+    },
+    "video": {
+      "$ref": "https://ace.local/protocol/v1/LiveVideoStatus.json"
     }
   },
   "required": [

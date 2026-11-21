@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { CaptureEvents, EncodedAudio, EncodedChunk } from "@ace/browser";
+import type { CaptureEvents } from "@ace/browser";
 import { BrowserOpen } from "@ace/protocol";
 import type { ViewHost } from "./backend.ts";
 import { PageVideo, type EncodeSpec, type PageVideoHost } from "./page-video.ts";
@@ -9,9 +9,10 @@ import type { VideoRelayEvent, VideoRelaySource } from "./video-relay.ts";
 
 /**
  * Remote viewers of a desktop view watch it as video (ADR 0088, embedded backend): the daemon's
- * relay drives the app's encoder over the real backend socket, and the encoder's chunks come
- * back as binary messages. The encoder itself (an Electron page) is the one stand-in: it
- * records what it is told and emits what a test makes it encode.
+ * relay drives the app's encoder over the real backend socket, and the encoder's events (a
+ * failure, an end) come back as binary messages; its chunks go to ace-media's ingest. The
+ * encoder itself (an Electron page) is the one stand-in: it records what it is told and emits
+ * what a test makes it report.
  */
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -25,7 +26,7 @@ class FakeEncoder implements PageVideoHost<string>, VideoRelaySource {
   keyframes: { capture: string; encode: string }[] = [];
   sound = new Map<string, boolean>();
   stopped: string[] = [];
-  private events = new Set<(event: VideoRelayEvent, bytes: Uint8Array | undefined) => void>();
+  private events = new Set<(event: VideoRelayEvent) => void>();
   private stops = new Set<(capture: string) => void>();
   async supported(codecs: readonly string[]): Promise<string[]> {
     return codecs.filter((codec) => codec.startsWith("avc1."));
@@ -37,7 +38,7 @@ class FakeEncoder implements PageVideoHost<string>, VideoRelaySource {
     this.stops.add(listener);
     return () => this.stops.delete(listener);
   }
-  onEvent(listener: (event: VideoRelayEvent, bytes: Uint8Array | undefined) => void) {
+  onEvent(listener: (event: VideoRelayEvent) => void) {
     this.events.add(listener);
     return () => this.events.delete(listener);
   }
@@ -64,8 +65,8 @@ class FakeEncoder implements PageVideoHost<string>, VideoRelaySource {
     this.emit({ t: "ended", capture });
     for (const listener of this.stops) listener(capture);
   }
-  emit(event: VideoRelayEvent & Record<string, unknown>, bytes?: Uint8Array): void {
-    for (const listener of this.events) listener(event, bytes);
+  emit(event: VideoRelayEvent & Record<string, unknown>): void {
+    for (const listener of this.events) listener(event);
   }
 }
 
@@ -111,19 +112,17 @@ async function setup(video: boolean) {
 }
 
 function watch() {
-  const chunks: EncodedChunk[] = [];
-  const audio: EncodedAudio[] = [];
   const failed: string[] = [];
+  let chunks = 0;
   let ended = 0;
   const events: CaptureEvents = {
-    chunk: (chunk) => chunks.push(chunk),
-    audio: (chunk) => audio.push(chunk),
+    chunk: () => chunks++,
     failed: (encode) => failed.push(encode),
     ended: () => {
       ended++;
     },
   };
-  return { events, chunks, audio, failed, ended: () => ended };
+  return { events, failed, chunks: () => chunks, ended: () => ended };
 }
 
 const spec: EncodeSpec = {
@@ -136,7 +135,7 @@ const spec: EncodeSpec = {
 };
 
 describe("remote viewers of a desktop view watch it as video", () => {
-  it("captures the view at the asked size and delivers its encoded chunks with their bytes", async () => {
+  it("captures the view at the asked size and runs its encodes, taking no chunks over the socket", async () => {
     const { encoder, session } = await setup(true);
     const video = session.video?.();
     if (!video) throw new Error("The desktop's views have no video");
@@ -147,48 +146,11 @@ describe("remote viewers of a desktop view watch it as video", () => {
     const capture = encoder.starts[0]?.capture ?? "";
     handle.encodes([spec]);
     await eventually(() => expect(encoder.specs.get(capture)).toEqual([spec]));
-    const avcC = new Uint8Array([1, 66, 0, 51]);
-    encoder.emit(
-      {
-        t: "chunk",
-        capture,
-        encode: spec.key,
-        key: true,
-        codec: "avc1.42E033",
-        codedWidth: 1280,
-        codedHeight: 800,
-        description: Buffer.from(avcC).toString("base64"),
-        age: 4,
-      },
-      new Uint8Array([0, 0, 0, 2, 9, 16]),
-    );
-    encoder.emit(
-      {
-        t: "chunk",
-        capture,
-        encode: spec.key,
-        key: false,
-        codec: "avc1.42E033",
-        codedWidth: 1280,
-        codedHeight: 800,
-        age: 2,
-      },
-      new Uint8Array([0, 0, 0, 1, 7]),
-    );
-    await eventually(() => expect(watcher.chunks).toHaveLength(2));
-    expect(watcher.chunks[0]).toMatchObject({
-      encode: spec.key,
-      key: true,
-      codec: "avc1.42E033",
-      codedWidth: 1280,
-      codedHeight: 800,
-      age: 4,
-    });
-    expect([...(watcher.chunks[0]?.description ?? [])]).toEqual([...avcC]);
-    expect([...(watcher.chunks[0]?.bytes ?? [])]).toEqual([0, 0, 0, 2, 9, 16]);
-    expect(watcher.chunks[1]?.key).toBe(false);
-    expect(watcher.chunks[1]?.description).toBeUndefined();
-    expect([...(watcher.chunks[1]?.bytes ?? [])]).toEqual([0, 0, 0, 1, 7]);
+    // An older desktop's chunk on the socket is not an event the daemon takes.
+    encoder.emit({ t: "chunk", capture, encode: spec.key, key: true });
+    encoder.emit({ t: "failed", capture, encode: spec.key });
+    await eventually(() => expect(watcher.failed).toEqual([spec.key]));
+    expect(watcher.chunks()).toBe(0);
   });
 
   it("forwards keyframe, sound and stop requests to the capture", async () => {
@@ -203,13 +165,6 @@ describe("remote viewers of a desktop view watch it as video", () => {
       expect(encoder.keyframes).toEqual([{ capture, encode: spec.key }]);
       expect(encoder.sound.get(capture)).toBe(true);
     });
-    encoder.emit(
-      { t: "audio", capture, codec: "opus", sampleRate: 48_000, channels: 2, age: 20 },
-      new Uint8Array([252, 255, 254]),
-    );
-    await eventually(() =>
-      expect(watcher.audio).toMatchObject([{ codec: "opus", sampleRate: 48_000, channels: 2 }]),
-    );
     handle?.close();
     await eventually(() => expect(encoder.stopped).toEqual([capture]));
     // A capture the viewer closed reports nothing more.

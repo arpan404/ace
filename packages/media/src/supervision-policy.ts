@@ -1,8 +1,5 @@
-import type { ToMedia } from "./wire.ts";
-
 /** The supervision rules of docs/media/plan.md ("Supervision"), as pure values and functions. */
 
-export type MediaSettings = Extract<ToMedia, { type: "init" }>["settings"];
 export type MediaHealth = "healthy" | "restarting" | "unavailable";
 
 export const supervisionTimings = {
@@ -34,14 +31,19 @@ export function crashLoop(failures: readonly number[], now: number) {
   return { recent, looping: recent.length >= supervisionTimings.crashLimit };
 }
 
-/** The setting gate: ace-media is only ever started while some setting asks for it. */
-export function mediaWanted(settings: MediaSettings): boolean {
-  return Object.values(settings).some((value) => value === "auto");
-}
+/**
+ * The init this build sends, as a level `ace-media --init-level` must report at least. Level 2:
+ * init carries no media settings (ADR 0208). A binary from before it answers nothing (it reads
+ * init from stdin, which the probe closes), and would refuse this init.
+ */
+export const mediaInitLevel = 2;
 
-export const legacyMediaSettings: MediaSettings = {
-  recordings: "legacy",
-  stills: "legacy",
-  encode: "legacy",
-  delivery: "legacy",
-};
+/** What a live view and a recording say when the binary is older than this daemon. */
+export const olderMediaReason =
+  "Live video can't start: this ace-media is older than ace. Update ace or rebuild native/media.";
+
+/** Whether `--init-level`'s output names a level this daemon can start. Pure. */
+export function speaksInit(output: string): boolean {
+  const level = /^\s*(\d+)\s*$/.exec(output)?.[1];
+  return level !== undefined && Number(level) >= mediaInitLevel;
+}

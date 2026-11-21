@@ -10,7 +10,6 @@ import {
 import { recoverHeadless } from "./recovery.ts";
 import { DesktopLoss } from "./desktop-loss.ts";
 import { RecoveryRetry } from "./recovery-retry.ts";
-import { detectFfmpeg } from "./discovery.ts";
 import { ownedHeadless } from "./owned-backend.ts";
 import type { PagePreviewRequest, PagePreviewShot } from "./page-preview.ts";
 import { BrowserProfiles } from "./profiles.ts";
@@ -20,7 +19,7 @@ import { daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 import type { LifecycleSchedule } from "./session-lifecycle.ts";
 import { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
-import type { BrowserBackend, BackendOpen, BrowserBackendSession, VideoHost } from "./backend.ts";
+import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
 import type {
   BrowserAnnotationMessage,
   BrowserBackendLost,
@@ -50,12 +49,6 @@ const defaultGlideMs = 220;
 import { PolicyGate } from "./policy-call.ts";
 import { watchWake } from "./wake-watch.ts";
 import { setMaxListeners } from "node:events";
-import {
-  encodeBrowserAudio,
-  encodeBrowserVideo,
-  type BrowserAudioChunk,
-  type BrowserVideoChunk,
-} from "./stream.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
 import type { DownloadRead } from "./download-read.ts";
@@ -75,9 +68,6 @@ export class BrowserService {
   private opening = new Map<string, Promise<BrowserSession>>();
   private profiles: BrowserProfiles;
   private subscriptions: BrowserSubscriptions;
-  private videoPieces = new WeakMap<BrowserVideoChunk, readonly Uint8Array[]>();
-  private audioPieces = new WeakMap<BrowserAudioChunk, readonly Uint8Array[]>();
-  private streamIds = 0;
   private now: () => number;
   private id: () => string;
   private closing: Promise<void> | undefined;
@@ -121,14 +111,6 @@ export class BrowserService {
   }
   downloadProgress(listener: (progress: BrowserDownloadProgress) => void): () => void {
     return this.acquisition.subscribe(listener);
-  }
-  /**
-   * An encoder for another service's pages that have none ("Use my Chrome", ADR 0088): a Chrome
-   * of ace's that encodes their screencast, started by a viewer and stopped once idle. Absent
-   * when this service runs no Chrome of its own.
-   */
-  videoEncoder(): VideoHost | undefined {
-    return this.acquisition.videoEncoder();
   }
   /**
    * Lays a self-contained page out at each width in a hidden Chrome of ace's and captures it
@@ -541,13 +523,14 @@ export class BrowserService {
         },
       };
       opening = request;
-      const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
       const media = this.options.media;
       const build = (opened: BrowserBackendSession, kind: BrowserBackend["kind"]) =>
         new BrowserSession({
           threadId: options.threadId,
           backend: opened,
           backendKind: kind,
+          // ace-media is the only encoder (`noMedia` where it is missing: a capture says so). A
+          // service given none runs its backends' hosts as they are: test doubles only.
           ...(media
             ? { mediaVideo: mediaVideoHosts(media, () => ({ threadId: options.threadId })) }
             : {}),
@@ -555,6 +538,7 @@ export class BrowserService {
           now: this.now,
           id: this.id,
           navigationClock: this.navigationClock,
+          ...(this.options.images ? { images: this.options.images } : {}),
           cancelPolicy: () => {
             if (!retiring) scope.abort();
           },
@@ -578,7 +562,7 @@ export class BrowserService {
             : {}),
           ...(this.options.collaboration ? { collaboration: this.options.collaboration } : {}),
           ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
-          ...(ffmpeg ? { ffmpeg } : {}),
+          ...(this.options.recorder ? { recorder: this.options.recorder } : {}),
           ...policies.session,
           artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
           state: (state) => this.emit(state),
@@ -818,9 +802,9 @@ export class BrowserService {
     if (generation === undefined) throw new Error("Browser generation unavailable");
     return generation;
   }
-  /** A viewer that subscribed again starts over at a keyframe. */
-  replayFrame(threadId: string, connectionId: string): void {
-    this.get(threadId).live.replay(connectionId);
+  /** The kind of ace-media source the thread's shown tab is; undefined while it has none. */
+  videoKind(threadId: string): import("./backend.ts").VideoMediaKind | undefined {
+    return this.sessions.get(threadId)?.videoKind();
   }
   state(threadId: string): BrowserState {
     return this.get(threadId).state;
@@ -939,42 +923,6 @@ export class BrowserService {
       this.cursorStyle = { fill: style.fill, outline: style.outline };
       for (const session of this.sessions.values()) session.restyleCursors();
     }
-  }
-  /**
-   * A viewer showed every video chunk up to `sequence` (ADR 0088); `keyframe`: its decoder lost
-   * its place and needs one.
-   */
-  acknowledgeVideo(
-    threadId: string,
-    connectionId: string,
-    sequence: number,
-    keyframe = false,
-  ): void {
-    const video = this.get(threadId).live.video;
-    video.acknowledge(connectionId, sequence);
-    if (keyframe) video.keyframe(connectionId);
-  }
-  /** One binary encoding of a video chunk, shared by every viewer of its encode. */
-  streamVideo(threadId: string, chunk: BrowserVideoChunk): readonly Uint8Array[] {
-    let pieces = this.videoPieces.get(chunk);
-    if (!pieces) {
-      this.streamIds = (this.streamIds + 1) >>> 0;
-      const { bytes, ...header } = chunk;
-      pieces = encodeBrowserVideo(this.streamIds, threadId, header, bytes);
-      this.videoPieces.set(chunk, pieces);
-    }
-    return pieces;
-  }
-  /** One binary encoding of an audio chunk, shared by every listener. */
-  streamAudio(threadId: string, chunk: BrowserAudioChunk): readonly Uint8Array[] {
-    let pieces = this.audioPieces.get(chunk);
-    if (!pieces) {
-      this.streamIds = (this.streamIds + 1) >>> 0;
-      const { bytes, ...header } = chunk;
-      pieces = encodeBrowserAudio(this.streamIds, threadId, header, bytes);
-      this.audioPieces.set(chunk, pieces);
-    }
-    return pieces;
   }
   private stateObservers = new Set<(state: BrowserState) => void>();
   /** Every thread's browser state as it changes, for daemon-wide views (who is browsing). */

@@ -175,3 +175,4 @@ export { fakeSpadeNetworkDefaults } from "./spade-security.ts";
 export type { FakeSpadeGroup, FakeSpadeGroupMember } from "./spade-teams.ts";
 export type { FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 export { queuedDelegation, queuedDelegationIds } from "./scenarios/queued-delegation.ts";
+export { FakeMediaConnections, fakeMediaInstance, fakeMediaScheme } from "./media-connections.ts";

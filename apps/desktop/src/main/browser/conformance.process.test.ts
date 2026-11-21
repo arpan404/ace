@@ -31,7 +31,6 @@ defineBrowserConformance({
       headlessBackend: noChrome,
       backendPreference: () => "embedded",
       tabLifecycle: false,
-      ffmpeg: "",
     });
     cleanups.push(() => service.close());
     const daemon = await relayDaemon(cleanups, {

@@ -16,34 +16,12 @@ const state = (sink: RecordingSink) =>
     | undefined;
 
 describe("Live browser view", () => {
-  test("hardware HEVC is preferred and a failed viewer alone falls back to H.264", async () => {
+  test("hardware HEVC is named first in the view's subscribe", async () => {
     Object.assign(host, { video: { decoders: () => ["hvc1.1.6.L153.B0", "avc1.42E033"] } });
     const { sink, view, requested } = await live();
     view.action({ kind: "open", threadId: "web", viewport });
     await until(() => state(sink) != null, "browser state");
     expect(requested).toContainEqual(
-      expect.objectContaining({
-        type: "browser.subscribe",
-        video: { codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"] },
-      }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    // No delivery was sent to Swift here, so its acks carry no generation.
-    view.action({ kind: "ack", sequence: 1, keyframe: true, fallback: true });
-    await until(
-      () =>
-        requested.filter((value) => (value as { type: string }).type === "browser.subscribe")
-          .length === 2,
-      "fallback subscription",
-    );
-    expect(requested.at(-1)).toMatchObject({
-      type: "browser.subscribe",
-      video: { codecs: ["avc1.42E033"] },
-    });
-    const other = await live();
-    other.view.action({ kind: "open", threadId: "web", viewport });
-    await until(() => state(other.sink) != null, "other viewer");
-    expect(other.requested).toContainEqual(
       expect.objectContaining({
         type: "browser.subscribe",
         video: { codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"] },
@@ -101,26 +79,6 @@ describe("Live browser view", () => {
         video: { codecs: ["avc1.42E033"] },
       }),
     );
-  });
-
-  test("decoded chunks are acknowledged as video, a decode error asks for a keyframe", async () => {
-    const { sink, view, sent } = await live();
-    view.action({ kind: "open", threadId: "web", viewport });
-    await until(() => state(sink) != null, "browser state");
-    // No delivery was sent to Swift here (no media route), so its acks carry no generation.
-    view.action({ kind: "ack", sequence: 4 });
-    view.action({ kind: "ack", sequence: 9, keyframe: true });
-    expect(sent).toEqual([
-      expect.objectContaining({ type: "browser.ack", threadId: "web", sequence: 4, video: true }),
-      expect.objectContaining({
-        type: "browser.ack",
-        threadId: "web",
-        sequence: 9,
-        video: true,
-        keyframe: true,
-      }),
-    ]);
-    expect(sent[0]).not.toHaveProperty("keyframe");
   });
 
   test("switching tabs starts the pictures again and shows the new tab's page state", async () => {

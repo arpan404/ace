@@ -1,3 +1,5 @@
+import { modelImageRuntime } from "@ace/mcp-server";
+import { daemonImages } from "./media-images.ts";
 import {
   ComputerClient,
   type ComputerClientOptions,
@@ -22,7 +24,7 @@ import { performance } from "node:perf_hooks";
 import { ComputerUsingThreads } from "../computer-using.ts";
 import { resolveScreenHelper } from "../screen-helper-path.ts";
 import { ScreenSettings } from "../screen-settings.ts";
-import { startMedia } from "./media.ts";
+import { noMediaRecorder, startMedia } from "./media.ts";
 import type { ServiceContext } from "./types.ts";
 import { mediaOwner } from "./media-connect.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -69,9 +71,8 @@ export async function startScreen(
           }
         : {}),
   });
-  // ace-media (ADR 0147, phase 2): Mac screens stream into it while `media.encode` is `auto`.
-  const media =
-    process.platform === "darwin" && helper && !options.screen ? startMedia(context) : undefined;
+  // ace-media (ADR 0147, phase 2): every screen helper streams its video into it, and nowhere else.
+  const media = helper && !options.screen ? startMedia(context) : undefined;
   const manager =
     options.screen ??
     (helper
@@ -81,6 +82,10 @@ export async function startScreen(
           session,
           cowork,
           media: media ? { add: (producer) => media.attach(producer) } : undefined,
+          // Every screen recording is ace-media's (X1); without it a recording refuses, saying why.
+          recorder: media?.recorder ?? noMediaRecorder,
+          // Agents' screenshots are fitted by ace-media's image process (ADR 0208).
+          modelImageRuntime: modelImageRuntime(daemonImages(context)),
         })
       : undefined);
   if (!manager) return;
@@ -201,25 +206,12 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
       if (!context.options.screen || !context.authorize("admin")) return;
       channel = screenConnection(context.options.screen, simulators, context.sessionId, {
         send: context.send,
-        // Video for a helper that makes only JPEG (Linux, Windows): ace's encoder-only Chrome.
-        pictureEncoder: () => context.options.browser?.videoEncoder(),
-        // Subscribes naming a media connection go to ace-media (D1) while it serves screens.
+        // Its pictures come only from ace-media (D1, X3), on the client's media connection.
         delivery: {
           owner: () => mediaOwner(context),
           port: () => context.options.mediaDelivery?.(),
         },
         acceleration: context.options.mediaAcceleration,
-        media: {
-          bufferedBytes: () => context.socket.bufferedAmount,
-          write: (piece) =>
-            new Promise<void>((resolve, reject) => {
-              if (!context.connected() || !context.authorize("admin"))
-                return reject(new Error("Screen socket revoked"));
-              context.socket.send(piece, { binary: true, compress: false }, (error) =>
-                error ? reject(error) : resolve(),
-              );
-            }),
-        },
       });
     },
     close() {

@@ -17,16 +17,17 @@ import { StreamMessages } from "./stream-messages.ts";
  * A client's media connection (ADR 0147 §4, docs/media/plan.md "Clients"): one per daemon
  * connection. It asks the main session for `media.connect`, opens the socket it names with the
  * ticket as its binary hello, and once ace-media welcomes it, names it in subscribes
- * (`binding()`), carries pictures (`onStream`) and takes the viewers' acks (`ack`). When the
- * daemon has no media connection to give (`media.delivery: legacy`, ace-media unhealthy, an
- * older daemon), the binding stays absent and everything keeps travelling on the main socket.
- * Whenever the binding changes, views resubscribe (`watch`).
+ * (`binding()`), carries pictures (`onStream`) and takes the viewers' acks (`ack`). Only
+ * ace-media delivers live pictures (X3): when the daemon has no media connection to give
+ * (ace-media unhealthy or missing, an older daemon), the binding stays absent, views get no
+ * pictures and say why (`unavailableReason`), and it asks again later. Whenever the binding
+ * changes, views resubscribe (`watch`).
  *
  * When the relay is how this client reaches the daemon (`media.connect` then gives no `url`, or
  * one it can't reach), the connection is a relay stream with the `media` purpose instead
  * (`relay`, D2), whose hello carries the ticket and whose welcome is the daemon's; what crosses it afterwards is the same. A stream refused before
- * its welcome (a spent or foreign ticket, a daemon or relay without media) leaves delivery on the
- * main socket.
+ * its welcome (a spent or foreign ticket, a daemon or relay without media) leaves the
+ * connection unavailable until the next ask.
  */
 
 export interface MediaSocketEvents {
@@ -57,8 +58,11 @@ export type MediaState =
   | { state: "off" }
   | { state: "connecting" }
   | { state: "open"; connection: MediaConnectionId }
-  /** The daemon delivers on the main socket; `reason` is its code, or why the client chose to. */
-  | { state: "legacy"; reason: string };
+  /**
+   * No media connection until the next ask: `reason` is the daemon's code, or what went wrong
+   * here; `message` the daemon's own words, when it gave them.
+   */
+  | { state: "unavailable"; reason: string; message?: string };
 
 export interface MediaConnectionOptions {
   /** `media.connect` on the main session; the reply is parsed here, so any value may come back. */
@@ -68,7 +72,7 @@ export interface MediaConnectionOptions {
    * The relay stream opener, answered only while this client reaches the daemon through a relay;
    * asked at each `media.connect`. While it answers one, the media connection is a relay stream
    * even when the grant names a `url` (that address is the daemon's own, unreachable from here).
-   * Absent, or answering undefined: a grant without a `url` goes legacy.
+   * Absent, or answering undefined: a grant without a `url` is unavailable.
    */
   relay?(): OpenMediaRelay | undefined;
   /** How long a relay stream may wait for its welcome; `mediaAdmissionMs` unless given. */
@@ -81,9 +85,9 @@ export interface MediaConnectionOptions {
 
 /** Waits before trying again, by attempt; the last repeats. */
 export const mediaRetryMs = [250, 1_000, 2_000, 5_000, 10_000] as const;
-/** How long a legacy answer stands before the client asks again (a setting may change). */
-export const mediaLegacyRetryMs = 30_000;
-/** How long a first subscribe waits for the connection to settle before going legacy. */
+/** How long an unavailable answer stands before the client asks again. */
+export const mediaUnavailableRetryMs = 30_000;
+/** How long a first subscribe waits for the connection to settle before it subscribes without one. */
 export const mediaSettleMs = 2_000;
 /** A socket that opened but hasn't been welcomed by then is dropped and tried again. */
 export const mediaWelcomeMs = 5_000;
@@ -126,12 +130,12 @@ export class MediaConnection {
   get state(): MediaState {
     return this.#state;
   }
-  /** What a subscribe names now; absent: deliver on the main socket. */
+  /** What a subscribe names now; absent: no media connection, so no live pictures. */
   binding(): MediaBinding | undefined {
     return this.#state.state === "open" ? { connection: this.#state.connection } : undefined;
   }
   /**
-   * Resolves once the connection has opened or fallen back to legacy, or after
+   * Resolves once the connection has opened or is unavailable, or after
    * `mediaSettleMs`, so a view's first subscribe names the connection when there will be one.
    */
   settled(): Promise<void> {
@@ -153,7 +157,7 @@ export class MediaConnection {
     this.#streams.add(listener);
     return () => void this.#streams.delete(listener);
   }
-  /** Sends an ack (or ping) on the connection; false when it isn't open, so it goes by the main socket. */
+  /** Sends an ack (or ping) on the connection; false when it isn't open (it goes nowhere). */
   ack(message: MediaStreamClientMessage): boolean {
     if (this.#state.state !== "open" || !this.#socket) return false;
     try {
@@ -167,7 +171,7 @@ export class MediaConnection {
   start(): void {
     this.#reset();
     this.#attempt = 0;
-    // #open retries or falls back to the main socket by itself.
+    // #open retries, or waits while unavailable, by itself.
     void this.#open().catch(() => {});
   }
   /** The main session ended: its media connection ends with it. */
@@ -203,9 +207,9 @@ export class MediaConnection {
     if (epoch !== this.#epoch) return;
     const parsed = MediaConnectResult.safeParse(reply);
     // An older daemon answers with an error it doesn't name this way: it has no media connection.
-    if (!parsed.success) return this.#legacy("unsupported");
+    if (!parsed.success) return this.#unavailable("unsupported");
     const result = parsed.data.result;
-    if (!result.ok) return this.#legacy(result.code);
+    if (!result.ok) return this.#unavailable(result.code, mediaUnavailableRetryMs, result.message);
     // A client that reaches the daemon through the relay can't reach a direct address, whatever
     // the grant says: its media connection is a relay stream too.
     const relay = this.#options.relay?.();
@@ -216,7 +220,7 @@ export class MediaConnection {
     try {
       hello = mediaHello(result.ticket);
     } catch {
-      return this.#legacy("unsupported");
+      return this.#unavailable("unsupported");
     }
     const current = () => epoch === this.#epoch;
     let welcomed = false;
@@ -243,9 +247,9 @@ export class MediaConnection {
           if (!current()) return;
           if (welcomed) return this.#closed(epoch, code);
           // Never welcomed: ace-media turned the ticket down (or wasn't there to take it). Asking
-          // again at once would only be refused again; delivery stays legacy until the next ask.
+          // again at once would only be refused again; it stays unavailable until the next ask.
           this.#socket = undefined;
-          this.#legacy(code === mediaCloseCodes.refused ? "refused" : "unwelcomed");
+          this.#unavailable(code === mediaCloseCodes.refused ? "refused" : "unwelcomed");
         },
       });
     } catch {
@@ -259,7 +263,7 @@ export class MediaConnection {
     ticket: string,
     open: OpenMediaRelay | undefined,
   ): void {
-    if (!open) return this.#legacy("relay");
+    if (!open) return this.#unavailable("relay");
     const current = () => epoch === this.#epoch;
     let welcomed = false;
     // Accepted but never welcomed or closed: give the stream up and try afresh.
@@ -280,14 +284,14 @@ export class MediaConnection {
         close: (code) => {
           if (!current()) return;
           cancelAdmission();
-          // Refused before its welcome: the ticket won't open a stream; delivery stays legacy.
+          // Refused before its welcome: the ticket won't open a stream; it stays unavailable.
           if (welcomed) return this.#closed(epoch, code);
           this.#socket = undefined;
-          this.#legacy("relay-refused");
+          this.#unavailable("relay-refused");
         },
       });
     } catch {
-      this.#legacy("relay-refused");
+      this.#unavailable("relay-refused");
     }
   }
   #opened(epoch: number, connection: MediaConnectionId): void {
@@ -314,7 +318,7 @@ export class MediaConnection {
     if (epoch !== this.#epoch) return;
     this.#socket = undefined;
     this.#pieces.reset();
-    if (code === mediaCloseCodes.revoked) this.#legacy("revoked");
+    if (code === mediaCloseCodes.revoked) this.#unavailable("revoked");
     else this.#retry("closed");
   }
   #ping(epoch: number): void {
@@ -338,14 +342,14 @@ export class MediaConnection {
   }
   #retry(reason: string): void {
     const wait = mediaRetryMs[Math.min(this.#attempt++, mediaRetryMs.length - 1)] ?? 10_000;
-    this.#legacy(reason, wait);
+    this.#unavailable(reason, wait);
   }
-  /** Delivery stays on the main socket until the next try. */
-  #legacy(reason: string, retryMs: number = mediaLegacyRetryMs): void {
+  /** No media connection until the next try. */
+  #unavailable(reason: string, retryMs: number = mediaUnavailableRetryMs, message?: string): void {
     const epoch = ++this.#epoch;
-    this.#set({ state: "legacy", reason });
+    this.#set({ state: "unavailable", reason, ...(message ? { message } : {}) });
     this.#after(retryMs, () => {
-      // #open retries or falls back to the main socket by itself.
+      // #open retries, or waits while unavailable, by itself.
       if (epoch === this.#epoch) void this.#open().catch(() => {});
     });
   }
@@ -373,6 +377,20 @@ export class MediaConnection {
     if (this.binding()?.connection === before) return;
     for (const listener of this.#watchers) listener();
   }
+}
+
+/**
+ * Why a client's live views get no pictures while its media connection is unavailable, for the
+ * person; undefined while it is open or still connecting.
+ */
+export function unavailableReason(state: MediaState): string | undefined {
+  if (state.state !== "unavailable") return undefined;
+  if (state.message) return /[.!?]$/.test(state.message) ? state.message : `${state.message}.`;
+  if (state.reason === "unsupported")
+    return "This computer runs an older ace without live video here. Update ace on it.";
+  if (state.reason === "unreachable" || state.reason === "welcome")
+    return "Can't reach live video on this computer. ace keeps trying.";
+  return "Live video isn't available on this computer right now. ace tries again shortly.";
 }
 
 /** A media connection's text message, or undefined when it isn't one this build knows. */

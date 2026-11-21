@@ -14,10 +14,12 @@ import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 export interface BrowserServiceOptions {
   dataDir: string;
   /**
-   * The daemon's ace-media (E4): live video streams through it while `media.encode` routes it
-   * there. Omitted, every capture uses the browser's own path.
+   * The daemon's ace-media (E4, X2), the only encoder live video has (`noMedia` where it is
+   * missing, so a capture says why). Omitted, backends' hosts run as they are: test doubles only.
    */
   media?: import("./media-video.ts").BrowserMedia;
+  /** ace-media's image work (ADR 0208): the measurement filmstrip. */
+  images?: import("@ace/media/images").ImageWork;
   /** A Chromium to run instead of ace's pinned one (`ACE_CHROMIUM_PATH`). */
   executablePath?: string;
   /**
@@ -25,7 +27,9 @@ export interface BrowserServiceOptions {
    * person's explicit choice, never as a fallback. Default true.
    */
   sandbox?: boolean;
-  ffmpeg?: string;
+  /** ace-media's recorder, which every browser recording goes through (X1); omitted, recordings
+   * refuse, saying why. */
+  recorder?: import("@ace/media/tee-recordings").MediaRecorder;
   originPolicy?: OriginPolicy;
   /**
    * Sessions kept off this machine and its local network, whatever `originPolicy` allows: an
@@ -104,8 +108,6 @@ export interface BrowserServiceOptions {
   chrome?: Partial<ChromeLaunch>;
   /** Browser shutdown deadline and its force-kill. */
   cleanup?: Partial<ChromeCleanup>;
-  /** How long the encoder-only Chrome (`BrowserService.videoEncoder`) outlives its last capture. Default 30 s. */
-  videoEncoderIdleMs?: number;
   /** The recording encoder's process edge. */
   spawn?: ProcessSpawner;
   headlessBackend?: BrowserBackend;

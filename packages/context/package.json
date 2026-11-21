@@ -12,13 +12,11 @@
   },
   "dependencies": {
     "@ace/handoff": "workspace:*",
+    "@ace/media": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "@ace/workspace": "workspace:*",
     "image-size": "^2.0.2",
     "zod": "^4.1.12"
-  },
-  "devDependencies": {
-    "sharp": "0.34.5"
   }
 }

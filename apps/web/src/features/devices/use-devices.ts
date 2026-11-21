@@ -75,6 +75,8 @@ export interface DevicesView {
   agentPointer: AgentPointer | undefined;
   /** What the selected device's live video runs on while ace-media carries it (ADR 0148). */
   acceleration: DeviceState["acceleration"];
+  /** Why the selected device's live video can't play now, while it can't (X2). */
+  video: DeviceState["video"];
   stateLoaded: boolean;
   /** Every device's controller and holder, for the list's tiles. */
   controllers: ReadonlyMap<string, Pick<DeviceState, "controller" | "holder" | "ownedHere">>;
@@ -235,6 +237,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     personActive: state?.controller === "agent" && state.personActive === true,
     agentPointer: state?.controller === "agent" ? state.agentPointer : undefined,
     acceleration: state?.acceleration,
+    video: state?.video,
     stateLoaded: state !== undefined,
     controllers: new Map(
       snapshot.states.map((entry) => [

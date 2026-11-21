@@ -99,11 +99,12 @@ import Testing
         let shown = TabLog()
         let renderer = BrowserRenderer(threadId: "thread", present: { shown.add($0.tabId) }, ack: { _ in })
         defer { renderer.close() }
+        renderer.delivery("thread", MediaDelivery(generation: 1, path: "media"))
         for (index, bytes) in encoded.enumerated() {
             // Only the keyframe names its tab; the deltas after it show the same one.
             renderer.receive(BrowserVideoChunk(threadId: "thread", sequence: index + 1, timestamp: 0, width: 400, height: 300,
                                                codedWidth: 320, codedHeight: 240, codec: "avc1.42E033", key: index == 0,
-                                               description: index == 0 ? description : nil, tabId: index == 0 ? "tab-2" : nil, bytes: bytes))
+                                               description: index == 0 ? description : nil, tabId: index == 0 ? "tab-2" : nil, bytes: bytes), path: "media")
         }
         for _ in 0..<400 where shown.values.count < 3 { try await Task.sleep(for: .milliseconds(5)) }
         #expect(shown.values == ["tab-2", "tab-2", "tab-2"])

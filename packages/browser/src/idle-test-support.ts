@@ -1,3 +1,4 @@
+import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,10 +11,9 @@ import type {
   CaptureEvents,
   VideoHost,
 } from "./backend.ts";
-import type { VideoEncode } from "./video-policy.ts";
+import type { VideoEncode } from "./backend.ts";
+import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import { BrowserService, connectBrowser } from "./index.ts";
-import { decodeStreamMessage, StreamAssembler } from "./stream.ts";
-import type { BrowserVideoChunk } from "./stream-video.ts";
 import { TestNavigationClock } from "./navigation-test-clock.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 
@@ -47,6 +47,8 @@ export class RestingTabs extends FakeHeadless {
     closed: boolean;
   }[] = [];
   private videoHost: VideoHost = {
+    // A tab of ace's Chrome, as ace-media sees it: the kind a view of it is delivered as.
+    mediaKind: "tab",
     supported: async (codecs) => codecs.filter((codec) => codec === "vp8"),
     open: async (page, _width, _height, events) => {
       const opened = { page, events, encodes: [] as VideoEncode[], keyframes: 0, closed: false };
@@ -201,7 +203,7 @@ export async function idleThread() {
     headlessBackend: backend,
     backendPreference: () => "headless",
     wakeWatch: false,
-    ffmpeg: "/nonexistent",
+    recorder: new FakeMediaRecorder(),
     now: () => clock.now,
     tabLifecycle: {
       policy: defaultTabLifecycle,
@@ -239,25 +241,19 @@ export async function idleThread() {
 /** Lets pending callbacks run, so a held step is reached. */
 export const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
-/** A person's video viewer of the thread: the chunks it was sent, in order. */
+/**
+ * A person's video viewer of the thread, on a media connection ace-media delivers (X3): the
+ * capture runs for it. Its pictures go to ace-media, never back on the main socket, so what a
+ * test can see of its video here is the capture (`capture`) and the thread's `video` status.
+ */
 export async function watch(service: BrowserService, connectionId = "viewer") {
-  const chunks: BrowserVideoChunk[] = [];
-  const assembler = new StreamAssembler();
-  /** While set, the viewer's transport pushes back: chunks wait in its queue. */
-  const link = { blocked: false };
+  const delivery = fakeDelivery();
   const bridge = connectBrowser(service, {
     connectionId,
     authorize: () => true,
     send: () => true,
-    sendStream: (pieces) => {
-      if (link.blocked) return false;
-      for (const piece of pieces) {
-        const envelope = assembler.push(piece);
-        const message = envelope && decodeStreamMessage(envelope);
-        if (message?.kind === "browser.video") chunks.push(message.chunk);
-      }
-      return true;
-    },
+    media: { owner: () => phoneOwner, delivery: () => delivery.port },
+    sendStream: () => true,
   });
   let closed = false;
   const leave = () => {
@@ -273,16 +269,9 @@ export async function watch(service: BrowserService, connectionId = "viewer") {
     binaryFrames: true,
     viewport: { width: 640, height: 400, devicePixelRatio: 1 },
     video: { codecs: ["vp8"] },
+    media: { connection: "mc_viewerconnection" },
   });
-  const ack = (sequence: number) =>
-    bridge.handle({
-      type: "browser.ack",
-      threadId: "thread",
-      requestId: `ack-${sequence}`,
-      sequence,
-      video: true,
-    });
-  return { chunks, ack, leave, link };
+  return { leave };
 }
 
 /** The tab capture the live video opened `index`th, once it was told what to encode. */

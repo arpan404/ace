@@ -11,7 +11,5 @@ swiftc native/screen-helper/VideoEncoder.swift native/screen-helper/StreamPolicy
 /tmp/ace-recording-fixture/generate packages/screen/src/testing/fixtures/h264-deltas.ace-screen
 ```
 
-`decode-recording.swift` is a test-only VideoToolbox decoder. It reads complete
-recorded access units, creates a decoder from their SPS/PPS, and counts successful
-image callbacks after draining. The recording test compares that count with all
-fixture inputs pushed synchronously during the first outstanding disk write.
+The H.264 screen recording test (`recording-media.process.test.ts`) tees these frames into
+ace-media's recorder and reads the MP4 parts it writes.

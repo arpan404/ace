@@ -71,7 +71,7 @@ function producer(
   cleanups.push(stop);
   const made: IngestProducer = {
     epoch: () => 0,
-    consumers: { deliver: () => {}, record: () => {}, still: () => {} },
+    consumers: { deliver: () => {} },
     keyframe: () => {},
     ...ids,
     point: (address) => {
@@ -117,7 +117,6 @@ function start() {
     binary,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => ({ encode: "auto", delivery: "auto", recordings: "legacy", stills: "legacy" }),
     host: nodeMediaHost(process.env),
     clock: systemMediaClock,
     random: Math.random,
@@ -125,8 +124,6 @@ function start() {
     id: () => `id-${++ids}`,
     capabilities: {
       ingest: ["tab", "screen", "scrcpy"],
-      recordings: false,
-      stills: false,
       delivery: true,
     },
     log: () => {},

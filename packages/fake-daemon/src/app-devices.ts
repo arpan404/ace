@@ -15,6 +15,7 @@ import {
   DeviceState,
 } from "@ace/protocol/devices";
 import { fakeDeviceFrame, fakePictureBytes } from "./screen-frame.ts";
+import type { FakeMediaConnections } from "./media-connections.ts";
 import { fakeDeviceUITree } from "./device-ui-tree.ts";
 
 const leaseMs = 5 * 60_000;
@@ -66,6 +67,8 @@ type DeviceTransportEvents = Parameters<DeviceTransport["open"]>[0];
 interface Channel {
   events: DeviceTransportEvents;
   streams: Set<string>;
+  /** The media connection each watched device's pictures go to (X3: only there). */
+  media: Map<string, string>;
 }
 
 class Refusal extends Error {
@@ -165,8 +168,16 @@ export class FakeAppDevices {
   private messageIds = 0;
   /** Every live-view setting a viewer asked for, in order. */
   readonly streamRequests: { deviceId: string; settings: StreamSettings }[] = [];
-  constructor(clock: () => number) {
+  /** ace-media's media connections; absent: no live view gets pictures. */
+  readonly #media: FakeMediaConnections | undefined;
+  constructor(clock: () => number, media?: FakeMediaConnections) {
     this.clock = clock;
+    this.#media = media;
+    // Acks come on the media connection now.
+    media?.onAck((message) => {
+      const ack = DeviceAck.safeParse(message);
+      if (ack.success) this.#acked(ack.data);
+    });
     for (const device of [
       AppDevice.parse({
         id: "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b",
@@ -319,7 +330,7 @@ export class FakeAppDevices {
           queueMicrotask(() => events.close());
           return;
         }
-        const opened: Channel = { events, streams: new Set<string>() };
+        const opened: Channel = { events, streams: new Set<string>(), media: new Map() };
         channel = opened;
         this.channels.add(opened);
         queueMicrotask(() => {
@@ -329,18 +340,8 @@ export class FakeAppDevices {
       send: (raw) => {
         const current = channel;
         if (!current) throw new Error("Device channel is not authenticated");
-        if (raw.type === "devices.ack") {
-          const ack = DeviceAck.parse(raw);
-          this.acks.push(ack);
-          // A decoder that lost its place gets a fresh picture, as the daemon's window sends.
-          const session = this.sessions.get(ack.deviceId);
-          if (ack.keyframe && session)
-            queueMicrotask(() => {
-              session.keyframe = true;
-              this.paint(session);
-            });
-          return;
-        }
+        // Acks go on the media connection; one here is read and changes nothing.
+        if (raw.type === "devices.ack") return void DeviceAck.parse(raw);
         const message = DeviceClientMessage.parse(raw);
         queueMicrotask(() => this.receive(current, message));
       },
@@ -410,6 +411,17 @@ export class FakeAppDevices {
     return this.messageIds;
   }
 
+  /** A view's ack: a decoder that lost its place gets a fresh picture, as ace-media sends. */
+  #acked(ack: DeviceAck): void {
+    this.acks.push(ack);
+    const session = this.sessions.get(ack.deviceId);
+    if (ack.keyframe && session)
+      queueMicrotask(() => {
+        session.keyframe = true;
+        this.paint(session);
+      });
+  }
+
   /** One picture to `viewers`, as stream kind `deviceFrame` pieces. */
   private show(session: Session, viewers: readonly Channel[]): void {
     const pieces = fakeDeviceFrame({
@@ -423,7 +435,11 @@ export class FakeAppDevices {
       id: this.nextMessageId(),
     });
     session.keyframe = false;
-    for (const channel of viewers) for (const piece of pieces) channel.events.message(piece);
+    // Only ace-media delivers: each view's pictures go on its media connection, never here.
+    for (const channel of viewers) {
+      const connection = channel.media.get(session.device.id);
+      if (connection) this.#media?.send(connection, pieces);
+    }
   }
 
   /** A new picture for the device's viewers; live views only ever get video. */
@@ -481,7 +497,28 @@ export class FakeAppDevices {
       });
       return;
     }
-    this.send(channel, { type: "devices.result", requestId: message.requestId, ok: true, data });
+    const operation = message.operation;
+    const delivered =
+      operation.op === "subscribe" ? channel.media.get(operation.deviceId) : undefined;
+    this.send(channel, {
+      type: "devices.result",
+      requestId: message.requestId,
+      ok: true,
+      data,
+      ...(operation.op !== "subscribe"
+        ? {}
+        : delivered
+          ? { media: { connection: delivered } }
+          : {
+              undelivered: operation.media
+                ? { code: "unavailable", reason: "Live video isn't available now." }
+                : {
+                    code: "update",
+                    reason:
+                      "Update this app to see live video. This computer now sends it a newer way.",
+                  },
+            }),
+    });
   }
 
   /**
@@ -616,6 +653,9 @@ export class FakeAppDevices {
         // A viewer's arrival switches the capture to video; one that can't make it is refused.
         if (session.lifecycle === "live" && !this.videoEncoding) throw noVideo();
         channel.streams.add(session.device.id);
+        if (operation.media && this.#media?.live(operation.media.connection))
+          channel.media.set(session.device.id, operation.media.connection);
+        else channel.media.delete(session.device.id);
         session.codec = "h264";
         // A new viewer starts from a self-contained frame.
         session.keyframe = true;

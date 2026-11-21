@@ -90,6 +90,8 @@ struct DeviceScreenInfo: Codable, Sendable, Equatable {
     let problem: DeviceProblem?
     /// One sentence while the picture runs degraded on the processor; empty otherwise.
     var degraded: String? = nil
+    /// Why the live video can't play now; empty while it plays. Shown in `degraded`'s place.
+    var stopped: String? = nil
     let touch: String
     /// A foldable device's posture (`closed`, `partiallyOpen` or `open`); nil when it doesn't fold.
     var posture: String? = nil

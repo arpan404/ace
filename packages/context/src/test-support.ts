@@ -55,7 +55,7 @@ export async function repository() {
 }
 export async function uploads(
   limits: Partial<UploadLimits> = {},
-  storage: Pick<UploadOptions, "syncChunk" | "retained" | "threadExists"> = {},
+  storage: Pick<UploadOptions, "syncChunk" | "retained" | "threadExists" | "previewable"> = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-uploads-")));
   let counter = 0,

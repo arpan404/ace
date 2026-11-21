@@ -21,7 +21,7 @@ afterEach(async () => {
 }, 60_000);
 
 const Machines = z.object({ machines: z.array(MachineSummary) });
-const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexistent/ffmpeg" });
+const browser = () => ({ headlessBackend: new FakeHeadless() });
 type Machine = Awaited<ReturnType<typeof daemonFixture>>;
 
 /** The machine's own app window: its socket, signed in with the host token. */

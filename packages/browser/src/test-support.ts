@@ -1,3 +1,4 @@
+import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -177,6 +178,8 @@ export async function fixture(options: Partial<BrowserServiceOptions> = {}) {
   const service = new BrowserService({
     dataDir: home,
     ...(executablePath ? { executablePath } : {}),
+    // ace-media's recorder stands in: what a recording takes, not what ace-media makes of it.
+    recorder: new FakeMediaRecorder(),
     ...options,
   });
   cleanups.push(async () => {
@@ -215,6 +218,7 @@ export async function sharedFixture() {
       service: new BrowserService({
         dataDir: home,
         ...(executablePath ? { executablePath } : {}),
+        recorder: new FakeMediaRecorder(),
       }),
     };
   }

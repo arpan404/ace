@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { cursorFixture, executablePath } from "./cursor-test-support.ts";
+import { cursorFixture, runnable } from "./cursor-test-support.ts";
 import { ref, Snapshot } from "./test-support.ts";
 
-const test = it.skipIf(!executablePath);
+const test = it.skipIf(!runnable);
 
-describe.skipIf(!executablePath)("the agent cursor drawn in the page", () => {
+describe.skipIf(!runnable)("the agent cursor drawn in the page", () => {
   test("the person sees the agent's cursor land where it clicks, and the click reaches the page", async () => {
     const f = await cursorFixture();
     const go = await f.box("#go");

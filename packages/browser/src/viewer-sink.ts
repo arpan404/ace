@@ -1,20 +1,14 @@
-import type { AudioSink } from "./audio-fanout.ts";
-import type { BrowserAudioChunk } from "./stream-audio.ts";
-import type { BrowserVideoChunk } from "./stream-video.ts";
-import type { VideoSink } from "./video-fanout.ts";
 export type { CaptureViewer } from "./capture-policy.ts";
 
 /**
- * Where one viewer's live view goes (ADR 0088, amended): encoded video only. A viewer without
- * a video sink (no binary transport) still follows the thread's state, but gets no pictures.
+ * Where one viewer's live view goes (ADR 0088, ADR 0147): nowhere on its own connection. ace-media
+ * delivers its video and sound on the client's media connection (X3); the viewer follows the
+ * thread's state here.
  */
 export interface ViewerSink {
-  video?: VideoSink<BrowserVideoChunk>;
-  /** Takes the page's sound while the viewer plays video unmuted. */
-  audio?: AudioSink<BrowserAudioChunk>;
   /**
    * The viewer is on this machine (the daemon's loopback listener): its link carries whatever
-   * the encoder makes, so its video starts full size at the top rate instead of probing up.
+   * the encoder makes, so its first encode starts at the top rate.
    */
   local?: boolean;
 }

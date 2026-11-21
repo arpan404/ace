@@ -1,23 +1,14 @@
 import type { MediaClock } from "./supervisor-host.ts";
-import type { MediaHealth, MediaSettings } from "./supervision-policy.ts";
-import type { FromMedia, ToMedia } from "./wire.ts";
+import type { MediaHealth } from "./supervision-policy.ts";
+import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
 /**
  * Agent stills made by ace-media (docs/media/plan.md, F2): `still.take` for the current picture
  * of a source ace-media has, answered by `still.done` with the JPEG as its payload. Every other
- * end (`still.failed`, the deadline passing, ace-media unavailable or exiting) falls back to the
- * caller's legacy still maker, so an agent always gets its still, and gets it once.
+ * end (`still.failed`, the deadline passing, ace-media not healthy or exiting) falls back to the
+ * source's own capture (the helper's JPEG, `simctl` or `adb` screenshots), so an agent always
+ * gets its still, and gets it once. There is no legacy still maker since X1.
  */
-
-export type StillRoute = "ace-media" | "legacy";
-
-/**
- * Where a still is made. `media.stills` is `legacy` by default; `auto` uses ace-media only while
- * it is healthy, so a still never waits on a process that isn't there.
- */
-export function stillRoute(settings: MediaSettings, health: MediaHealth): StillRoute {
-  return settings.stills === "auto" && health === "healthy" ? "ace-media" : "legacy";
-}
 
 export type StillSteps = Extract<FromMedia, { type: "still.done" }>["steps"];
 
@@ -28,21 +19,34 @@ export type StillRequest = {
   maxPixels: number;
   /** JPEG quality, 1 to 100. */
   quality: number;
-  /** How long ace-media may take before the legacy path answers instead. */
+  /** How long ace-media may take before the source's own capture answers instead. */
   deadlineMs: number;
+  /**
+   * For a request that isn't private: the newest public epoch the daemon announced for the
+   * source (M8). ace-media answers only from a picture of that epoch or later, so private
+   * content still in flight when the source went public is never this still.
+   */
+  minEpoch?: number;
+  /**
+   * Only from a picture that reaches ace-media after the request, never the one it holds (an
+   * agent's still right after its input). Absent a new picture by the deadline, the source's
+   * own capture answers.
+   */
+  fresh?: boolean;
 };
 
 /** A still ace-media made: the JPEG, its size, and the path it took. */
 export type MediaStill = { jpeg: Uint8Array; width: number; height: number; steps: StillSteps };
 
 export type MediaStillsOptions = {
-  settings: () => MediaSettings;
   health: () => MediaHealth;
   /** False when ace-media can't take the message. */
   send: (message: ToMedia) => boolean;
   clock: MediaClock;
   /** A request id unique for this daemon's lifetime. */
   nextId: () => string;
+  /** Whether the running ace-media agreed to an optional feature (`ready.features`). */
+  speaks?: (feature: MediaFeature) => boolean;
 };
 
 type Pending = { done: (still: MediaStill) => void; fallBack: () => void };
@@ -61,16 +65,24 @@ export class MediaStills {
   }
 
   /**
-   * A still of `request.source`: from ace-media when the route says so and it answers in time,
-   * otherwise from `legacy`. `adopt` turns ace-media's still into the caller's result type.
+   * A still of `request.source`: from ace-media while it is healthy and answers in time,
+   * otherwise from `capture`, the source's own. `adopt` turns ace-media's still into the
+   * caller's result type.
    */
   take<T>(
     request: StillRequest,
-    legacy: () => Promise<T>,
+    capture: () => Promise<T>,
     adopt: (still: MediaStill) => T,
   ): Promise<T> {
-    const { settings, health, send, clock, nextId } = this.#options;
-    if (stillRoute(settings(), health()) === "legacy") return legacy();
+    const { health, send, clock, nextId } = this.#options;
+    if (health() !== "healthy") return capture();
+    // A fenced request goes only to a build that honours the fence; otherwise the source's own
+    // capture answers rather than risk a still from before the epoch.
+    if (request.minEpoch !== undefined && !(this.#options.speaks?.("privacy-open") ?? false))
+      return capture();
+    // Likewise a fresh one: a build that can't promise it might answer from the screen as it was.
+    if (request.fresh === true && !(this.#options.speaks?.("still-fresh") ?? false))
+      return capture();
     const id = nextId();
     return new Promise<T>((resolve, reject) => {
       let settled = false;
@@ -82,7 +94,7 @@ export class MediaStills {
         return true;
       };
       const fallBack = () => {
-        if (end()) legacy().then(resolve, reject);
+        if (end()) capture().then(resolve, reject);
       };
       const cancel = clock.setTimeout(fallBack, request.deadlineMs);
       this.#pending.set(id, {
@@ -106,7 +118,7 @@ export class MediaStills {
     pending.done({ jpeg: payload.slice(), width, height, steps });
   }
 
-  /** ace-media exited or became unavailable: every waiting still is made the legacy way. */
+  /** ace-media exited or became unavailable: every waiting still comes from its source. */
   lost(): void {
     for (const pending of this.#pending.values()) pending.fallBack();
   }

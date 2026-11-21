@@ -1,6 +1,6 @@
 import { AppDeviceId, ScreenId } from "@ace/protocol";
 import { z } from "zod";
-import { encodeStream, streamKinds, StreamEnvelopeError } from "./stream-envelope.ts";
+import { streamKinds, StreamEnvelopeError } from "./stream-envelope.ts";
 
 /*
  * The picture kinds' header: one picture of a simulator's or emulator's screen
@@ -50,7 +50,6 @@ export interface PictureChunk {
 /** The two picture kinds: which one says what the source id names. */
 export type PictureKind = typeof streamKinds.deviceFrame | typeof streamKinds.screenFrame;
 
-const utf8 = (value: string) => new TextEncoder().encode(value);
 const text = (bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 
 export const PictureCodec = z.union([
@@ -81,39 +80,6 @@ const sources = {
   [streamKinds.deviceFrame]: AppDeviceId,
   [streamKinds.screenFrame]: ScreenId,
 } as const;
-
-/** One picture's binary messages: its header and bytes, cut into socket-sized pieces. */
-export function encodePicture(
-  kind: PictureKind,
-  id: number,
-  sourceId: string,
-  chunk: Omit<PictureChunk, "bytes">,
-  bytes: Uint8Array,
-): Uint8Array[] {
-  const codec = utf8(chunk.codec);
-  const source = utf8(sourceId);
-  const stream = utf8(chunk.streamId);
-  if (codec.length > 255) throw new StreamEnvelopeError("Codec too long");
-  const meta = new Uint8Array(32 + codec.length + source.length + stream.length);
-  const view = new DataView(meta.buffer);
-  view.setFloat64(0, chunk.sequence);
-  view.setFloat64(8, chunk.timestamp);
-  view.setUint16(16, chunk.width);
-  view.setUint16(18, chunk.height);
-  view.setFloat32(20, chunk.scale);
-  view.setUint16(24, chunk.rotation);
-  view.setUint8(26, (chunk.key ? 1 : 0) | (chunk.still ? 2 : 0));
-  view.setUint8(27, codec.length);
-  let at = 28;
-  meta.set(codec, at);
-  at += codec.length;
-  for (const part of [source, stream]) {
-    view.setUint16(at, part.length);
-    meta.set(part, at + 2);
-    at += 2 + part.length;
-  }
-  return encodeStream(kind, id, meta, bytes);
-}
 
 /** A picture from its header and payload; throws on anything malformed. */
 export function decodePicture(

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { MediaRuntime } from "@ace/media/runtime";
-import { legacyMediaSettings, systemMediaClock, type MediaHost } from "@ace/media/supervisor";
+import { systemMediaClock, type MediaHost } from "@ace/media/supervisor";
 import { keyPair } from "@ace/secure-channel";
 import { daemonDelivery } from "../services/media.ts";
 import { lateMediaRelay } from "./port.ts";
@@ -24,7 +24,6 @@ function runtime() {
     binary: "/nonexistent/ace-media",
     runtimeDir: "/nonexistent",
     dataDir: "/nonexistent",
-    settings: () => legacyMediaSettings,
     host: neverStarted,
     clock: systemMediaClock,
     random: () => 0,
@@ -34,12 +33,10 @@ function runtime() {
   });
 }
 
-const settings = () => ({ ...legacyMediaSettings, delivery: "auto" as const });
-
 it("repeated lookups through the delivery factory keep one watcher, and each message reaches the streams once", () => {
   const live = runtime();
-  const port = new RuntimeRelayPort(live, () => true);
-  const relay = lateMediaRelay(() => daemonDelivery(live, port, settings).relay, {
+  const port = new RuntimeRelayPort(live);
+  const relay = lateMediaRelay(() => daemonDelivery(live, port).relay, {
     hostKeys: keyPair(),
   });
   for (let i = 0; i < 50; i++)
@@ -50,7 +47,7 @@ it("repeated lookups through the delivery factory keep one watcher, and each mes
 
 it("a watcher that unsubscribes hears nothing more", () => {
   const live = runtime();
-  const port = new RuntimeRelayPort(live, () => true);
+  const port = new RuntimeRelayPort(live);
   let heard = 0;
   const stop = port.watch({ message: () => heard++, exit: () => heard++ });
   port.message({ type: "relay.dialed", stream: "s" }, new Uint8Array(0));

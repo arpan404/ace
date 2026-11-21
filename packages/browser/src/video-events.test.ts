@@ -13,8 +13,7 @@ test("why the encoder ended a capture reaches the capture's listener", () => {
     ["capture-1", events],
     ["capture-2", events],
   ]);
-  const ended = (raw: unknown) =>
-    deliverVideoEvent(captures, VideoEncoderEvent.parse(raw), undefined);
+  const ended = (raw: unknown) => deliverVideoEvent(captures, VideoEncoderEvent.parse(raw));
   ended({ t: "ended", capture: "capture-1", reason: "The tab capture sent no picture" });
   // An encoder that gives no reason still ends the capture.
   ended({ t: "ended", capture: "capture-2" });

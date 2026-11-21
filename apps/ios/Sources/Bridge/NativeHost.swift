@@ -163,15 +163,18 @@ final class NativeHost: @unchecked Sendable {
         let revision: Int
         let path: String?
         let poster: String?
+        /// Why its pictures don't come, or haven't yet: one sentence for the live view.
+        let waiting: String?
     }
     private func mediaDelivery(_ input: Data, callback: Callback) {
         guard let value = try? JSONDecoder().decode(DeliveryInput.self, from: input),
               ["browser", "screen", "device"].contains(value.view), value.generation >= 0,
               value.source.utf8.count <= 512, (value.path?.utf8.count ?? 0) <= 128,
-              (value.poster?.utf8.count ?? 0) <= 64 else {
+              (value.poster?.utf8.count ?? 0) <= 64, (value.waiting?.utf8.count ?? 0) <= 512 else {
             reply(.failure(HostError.encoding), to: callback); return
         }
-        runtime?.browserStreams?.setDelivery(MediaDelivery(generation: value.generation, path: value.path, revision: value.revision, poster: value.poster),
+        runtime?.browserStreams?.setDelivery(MediaDelivery(generation: value.generation, path: value.path, revision: value.revision, poster: value.poster,
+                                                                           waiting: value.waiting),
                                              for: DeliveryKey(view: value.view, source: value.source))
         reply(.success(""), to: callback)
     }
@@ -242,7 +245,7 @@ final class NativeHost: @unchecked Sendable {
                     HostTrace.measure("js.socket") { _ = context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, payload]) }
                 }
             }
-            // Pictures on either socket go to the same native views; each socket assembles its own.
+            // Live pictures come only by media sockets; each assembles its own for the native views.
             let streams = runtime?.browserStreams
             let socket: any DaemonSocket
             switch (SocketOpening.parse(text), target.relay) {

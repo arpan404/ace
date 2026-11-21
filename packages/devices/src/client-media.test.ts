@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MediaRoute } from "@ace/browser/live-view";
-import type { StreamMessage } from "@ace/browser/stream";
+import { streamKinds, type StreamMessage } from "@ace/browser/stream";
+import { encodePicture } from "@ace/browser/stream-encode";
 import type { MediaStreamClientMessage } from "@ace/protocol";
 import type { DeviceAck, DeviceClientMessage } from "@ace/protocol/devices";
 import { DeviceClient, type DeviceTransportEvents } from "./client.ts";
@@ -8,21 +9,21 @@ import { DeviceClient, type DeviceTransportEvents } from "./client.ts";
 const deviceId = "android:Pixel_9";
 const device = { id: deviceId, platform: "android", name: "Pixel", state: "booted" } as const;
 
+const hevcFrame = (sequence: number) => ({
+  sequence,
+  timestamp: sequence,
+  width: 100,
+  height: 200,
+  scale: 2,
+  rotation: 0 as const,
+  codec: "hvc1.1.6.L153.B0",
+  key: true,
+  streamId: "stream_1",
+});
 const hevc = (sequence: number): StreamMessage => ({
   kind: "device.frame",
   sourceId: deviceId,
-  frame: {
-    sequence,
-    timestamp: sequence,
-    width: 100,
-    height: 200,
-    scale: 2,
-    rotation: 0,
-    codec: "hvc1.1.6.L153.B0",
-    key: true,
-    streamId: "stream_1",
-    bytes: Uint8Array.of(0, 0, 0, 1, 0x40),
-  },
+  frame: { ...hevcFrame(sequence), bytes: Uint8Array.of(0, 0, 0, 1, 0x40) },
 });
 
 /** How the daemon answers a subscribe naming a connection. */
@@ -128,6 +129,8 @@ describe("device pictures by the media connection", () => {
         deviceId,
         media: { connection: "mc_aaaaaaaaaa" },
         codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"],
+        mediaClient: true,
+        deliveryStatus: true,
       },
     ]);
     deliver(hevc(1));
@@ -149,17 +152,49 @@ describe("device pictures by the media connection", () => {
     ]);
   });
 
-  it("stays on the channel when the media connection has no binding", () => {
+  it("without a binding, subscribes naming none, and says why instead of drawing pictures", async () => {
     const { client, subscribes } = setup(undefined);
-    client.retainStream(deviceId);
-    expect(subscribes()).toEqual([{ op: "subscribe", deviceId }]);
-  });
-
-  it("subscribes on the channel when the daemon refuses the connection", async () => {
-    const { client, subscribes } = setup("mc_aaaaaaaaaa", "refuses");
+    const states: unknown[] = [];
+    client.watchDeliveries((state) => states.push(state));
     client.retainStream(deviceId);
     await flush();
-    expect(subscribes().map((s) => s.media)).toEqual([{ connection: "mc_aaaaaaaaaa" }, undefined]);
+    expect(subscribes()).toEqual([
+      { op: "subscribe", deviceId, mediaClient: true, deliveryStatus: true },
+    ]);
+    expect(states.at(-1)).toMatchObject({
+      path: "none",
+      undelivered: { code: "connecting", reason: "Connecting to live video…" },
+    });
+  });
+
+  it("a connection the daemon refuses isn't named again for the device, which says why", async () => {
+    const { client, subscribes } = setup("mc_aaaaaaaaaa", "refuses");
+    const states: unknown[] = [];
+    client.watchDeliveries((state) => states.push(state));
+    client.retainStream(deviceId);
+    await flush();
+    // No subscribe on the channel: only ace-media delivers (X3). It is tried again later.
+    expect(subscribes().map((s) => s.media)).toEqual([{ connection: "mc_aaaaaaaaaa" }]);
+    expect(states.at(-1)).toMatchObject({ path: "none", undelivered: { code: "failed" } });
+  });
+
+  it("a live picture on the channel, from an older daemon, never reaches the view", async () => {
+    const { client, receive } = setup("mc_aaaaaaaaaa");
+    const drawn: number[] = [];
+    client.watchPictures(deviceId, async (picture) => void drawn.push(picture.sequence));
+    client.retainStream(deviceId);
+    await flush();
+    receive(
+      encodePicture(
+        streamKinds.deviceFrame,
+        1,
+        deviceId,
+        { ...hevcFrame(1), codec: "avc1.42E033" },
+        Uint8Array.of(1),
+      )[0],
+    );
+    await flush();
+    expect(drawn).toEqual([]);
   });
 
   it("a viewer that can't decode HEVC moves only its own device to H.264", async () => {
@@ -176,6 +211,8 @@ describe("device pictures by the media connection", () => {
         deviceId,
         media: { connection: "mc_aaaaaaaaaa" },
         codecs: ["avc1.42E033"],
+        mediaClient: true,
+        deliveryStatus: true,
       },
     ]);
   });

@@ -19,6 +19,11 @@ export async function closeBrowserFixtures(): Promise<void> {
 }
 
 export const viewport = { width: 390, height: 700, devicePixelRatio: 3 };
+/** Why the daemon couldn't serve a view (`media: "unserved"`). */
+export const unservedReason = {
+  code: "restarting",
+  reason: "Live video is starting. It shows in a moment.",
+};
 
 /** A real client on the fake daemon; `push` delivers a message the fixture doesn't produce. */
 export async function liveBrowser(
@@ -28,11 +33,12 @@ export async function liveBrowser(
     names?: Record<string, string>;
     /**
      * How the daemon answers a subscribe naming a media connection (ADR 0147 §4): `binds` says
-     * so in its reply, `refuses` refuses it as another session's, and by default it serves the
-     * view on the main socket as the fake daemon does. `hangs`: its request waits until the test
-     * fails it (`hanging`), as a lost connection would. `fails`: its request fails at once.
+     * so in its reply, `refuses` refuses it as another session's, `unserved` answers without
+     * `media`, saying why (ace-media can't serve it yet), and by default it answers as the fake
+     * daemon does, without `media`. `hangs`: its request waits until the test fails it
+     * (`hanging`), as a lost connection would. `fails`: its request fails at once.
      */
-    media?: "binds" | "refuses" | "hangs" | "fails";
+    media?: "binds" | "refuses" | "unserved" | "hangs" | "fails";
     devices?: { storage: KeyValueStorage; ready: Promise<void> };
     context?: Pick<
       BrowserThreadContext,
@@ -65,8 +71,15 @@ export async function liveBrowser(
       if (named && options.media === "hangs")
         return new Promise((_resolve, reject) => void hanging.push(reject));
       const reply = client.request(message, requestOptions);
+      if (named && options.media === "unserved")
+        return reply.then((value) => ({ ...value, undelivered: unservedReason }));
       if (!named || options.media !== "binds") return reply;
-      return reply.then((value) => ({ ...value, media: { connection: named.connection } }));
+      // Served: its reply names the connection and says nothing is missing.
+      return reply.then((value) => {
+        const served = { ...value, media: { connection: named.connection } };
+        Reflect.deleteProperty(served, "undelivered");
+        return served;
+      });
       // The fake daemon's own replies, changed only where a test asked for a media answer.
     }) as BrowserOwner["request"],
     send: (message) => {
@@ -120,6 +133,10 @@ export async function liveBrowser(
     const page = BrowserPageMessage.parse(message);
     for (const listener of listeners) listener(page);
   };
+  /** A message from the daemon the fixture doesn't produce (`browser.delivery`, say). */
+  const announce = (message: ServerMessage) => {
+    for (const listener of listeners) listener(message);
+  };
   /** Runs the scheduled callbacks of `delay` ms, as if that long passed for them alone. */
   const elapse = (delay: number) => {
     for (const run of scheduled.filter((callback) => delays.get(callback) === delay)) {
@@ -127,5 +144,17 @@ export async function liveBrowser(
       run();
     }
   };
-  return { daemon, client, sink, view, sent, requested, push, scheduled, hanging, elapse };
+  return {
+    daemon,
+    client,
+    sink,
+    view,
+    sent,
+    requested,
+    push,
+    announce,
+    scheduled,
+    hanging,
+    elapse,
+  };
 }

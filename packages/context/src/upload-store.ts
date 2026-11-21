@@ -469,6 +469,7 @@ export class UploadStore {
                 candidate,
                 inspected.mimeType,
                 (this.options.imageLimits ?? defaultImageLimits).maxPixels,
+                this.options.previewable,
               ),
       });
     } catch (error) {

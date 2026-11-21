@@ -83,7 +83,6 @@
     "@ace/workspace": "workspace:*",
     "@clack/prompts": "^1.8.1",
     "qrcode-generator": "2.0.4",
-    "sharp": "0.34.5",
     "ws": "^8.18.3",
     "zod": "^4.6.5"
   },

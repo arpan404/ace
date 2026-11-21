@@ -58,7 +58,6 @@ it("browser user calls run in the person's Chrome, list their shared tabs, and n
     headlessBackend: new UserChromeTabsBackend(user),
     backendPreference: () => "headless",
     tabLifecycle: false,
-    ffmpeg: "",
   });
   onTestFinished(() => sessions.close());
   const mcp = await startDaemonMcp(store, [
