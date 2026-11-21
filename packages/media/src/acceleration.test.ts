@@ -36,6 +36,7 @@ function world() {
       send: () => true,
       ingest: () => ({ socket: "/tmp/i.sock", websocketPort: 4000 }),
       need: () => () => {},
+      speaks: () => true,
     },
     router: new EgressRouter((kind) => routes()[kind]),
     routes,

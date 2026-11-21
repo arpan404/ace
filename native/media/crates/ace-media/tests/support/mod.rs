@@ -89,7 +89,7 @@ impl Drop for Media {
 impl Media {
     /// ace-media as this daemon starts it: offered the optional features it speaks.
     pub fn spawn(name: &str) -> Self {
-        Self::spawn_offering(name, Some("source.ingest,source.sync"))
+        Self::spawn_offering(name, Some("source.ingest,source.sync,picture-ingest"))
     }
 
     /// ace-media as an older daemon starts it: offered nothing.

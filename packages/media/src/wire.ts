@@ -524,7 +524,7 @@ const fromMediaTypes: ReadonlySet<string> = new Set(
  * Optional features this daemon speaks, offered to ace-media at spawn (`ACE_MEDIA_FEATURES`); a
  * binary that knows one lists it in `ready.features`, and only then is it used.
  */
-export const mediaFeatures = ["source.ingest", "source.sync"] as const;
+export const mediaFeatures = ["source.ingest", "source.sync", "picture-ingest"] as const;
 export type MediaFeature = (typeof mediaFeatures)[number];
 
 export function decodeToMedia(

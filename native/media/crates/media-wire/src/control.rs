@@ -965,8 +965,10 @@ pub fn lane(kind: &str) -> Lane {
 pub struct InvalidControl;
 
 /// The optional features this build speaks when a daemon offers them (`ready.features`):
-/// `source.ingest` reports a bound hello; `source.sync` answers ingest barriers.
-pub const FEATURES: [&str; 2] = ["source.ingest", "source.sync"];
+/// `source.ingest` reports a bound hello; `source.sync` answers ingest barriers;
+/// `picture-ingest` encodes a JPEG source's still pictures (kind 3) off its ingest (X2), so a
+/// daemon sends them there only to a build that says so.
+pub const FEATURES: [&str; 3] = ["source.ingest", "source.sync", "picture-ingest"];
 
 /// The offered features (`ACE_MEDIA_FEATURES`, comma separated) this build speaks, in its own
 /// order; `None` when nothing was offered.

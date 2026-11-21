@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { EgressRouter, type EgressUnit } from "./egress.ts";
 import { encodeEgress, encodeEgressEnd, type MediaFrame } from "./frame.ts";
 import {
+  pictureIngestMissing,
   drainMs,
   failedReason,
   IngestSources,
@@ -53,6 +54,8 @@ function world() {
     health: "healthy" as MediaHealth,
     up: true,
     needs: 0,
+    /** The running ace-media's agreed features (`ready.features`). */
+    features: ["source.ingest", "source.sync", "picture-ingest"] as string[],
   };
   const sent: { message: ToMedia; payload?: Uint8Array }[] = [];
   const timers: { at: number; run: () => void; cancelled: boolean }[] = [];
@@ -73,6 +76,7 @@ function world() {
         state.needs++;
         return () => void state.needs--;
       },
+      speaks: (feature) => state.features.includes(feature),
     },
     router,
     routes,
@@ -296,6 +300,24 @@ describe("IngestSources", () => {
     expect(w.closed()).toEqual(["s1"]);
     w.router.push(encodeEgressEnd(1, 0, false));
     expect(l.ended.at(-1)).toEqual(["s1", false]);
+  });
+
+  it("an ace-media too old to encode pictures off the ingest leaves only JPEG sources off, saying why, until a newer one runs", () => {
+    const w = world();
+    w.state.features = ["source.ingest", "source.sync"];
+    const pictures = producer("tab-pictures", "jpeg");
+    const tab = producer("tab", "tab");
+    w.sources.add(pictures.p);
+    w.sources.add(tab.p);
+    // The tab's own video goes on; the JPEG source never opens there.
+    expect(w.opened().map((o) => o.origin.kind)).toEqual(["tab"]);
+    expect(pictures.stops).toEqual([pictureIngestMissing]);
+    expect(tab.stops).toEqual([]);
+    // A newer ace-media starts: the JPEG source opens there.
+    w.state.features = ["source.ingest", "source.sync", "picture-ingest"];
+    w.sources.exited();
+    w.sources.replay();
+    expect(w.opened().map((o) => o.origin.kind)).toContain("tab-pictures");
   });
 
   it("a source ace-media ended with a reason stays stopped until its route changes or ace-media starts again", () => {

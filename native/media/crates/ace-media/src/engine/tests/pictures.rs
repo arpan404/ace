@@ -121,6 +121,33 @@ fn a_picture_captured_before_a_privacy_change_and_delivered_after_never_reaches_
 }
 
 #[test]
+fn an_older_daemons_picture_on_the_control_lane_ends_its_source_saying_why_once() {
+    let mut engine = engine();
+    open(&mut engine, "tab-pictures");
+    let _: Vec<Effect> = engine.effects().collect();
+    engine.skipped("source.picture", Some("p"));
+    let effects: Vec<Effect> = engine.effects().collect();
+    assert_eq!(
+        statuses(&effects),
+        [(
+            "p".to_owned(),
+            Status::Ended,
+            Some("picture-ingest-required".to_owned())
+        )]
+    );
+    // Said once; one naming no source, or a source that isn't a JPEG source, says nothing.
+    engine.skipped("source.picture", Some("p"));
+    engine.skipped("source.picture", None);
+    engine.skipped("source.someday", Some("p"));
+    assert!(statuses(&engine.effects().collect::<Vec<_>>()).is_empty());
+    let mut tab = super::engine();
+    open_tab(&mut tab, "t", 4, 8);
+    let _: Vec<Effect> = tab.effects().collect();
+    tab.skipped("source.picture", Some("t"));
+    assert!(statuses(&tab.effects().collect::<Vec<_>>()).is_empty());
+}
+
+#[test]
 fn a_tab_source_takes_no_encodes_and_a_closed_source_stops_its_encoder() {
     let mut tab = engine();
     open_tab(&mut tab, "p", 3, 9);

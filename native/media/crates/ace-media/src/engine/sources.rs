@@ -14,6 +14,9 @@ use media_wire::control::{
 use media_wire::frame::MediaFrame;
 use std::collections::{HashMap, HashSet, VecDeque};
 
+/// Why a JPEG source ended when its pictures came on the control lane (an older daemon's).
+pub const PICTURE_INGEST_REQUIRED: &str = "picture-ingest-required";
+
 /// An ingest connection, named by the shell.
 pub type IngestId = u64;
 
@@ -299,6 +302,31 @@ impl Sources {
     /// but viewers have moved on).
     pub fn encoder_is(&self, id: &str, token: u64) -> bool {
         self.by_id.get(id).is_some_and(|s| s.encoder == Some(token))
+    }
+
+    /// An older daemon sent a JPEG source's picture on the control lane, which this build no
+    /// longer reads: the source ends, once, saying why, so its views don't wait on nothing.
+    pub fn needs_picture_ingest(&mut self, id: &str, out: &mut Vec<Effect>) {
+        let Some(source) = self.by_id.get_mut(id) else {
+            return;
+        };
+        if !source.pictures || matches!(source.status, Status::Ended) {
+            return;
+        }
+        log(
+            out,
+            Level::Warn,
+            "source.picture skipped: this ace-media takes pictures on the ingest only",
+            &source.id,
+        );
+        source.status = Status::Ended;
+        status(
+            out,
+            &source.id,
+            Status::Ended,
+            Some(PICTURE_INGEST_REQUIRED),
+            None,
+        );
     }
 
     pub fn bound(&self, conn: IngestId) -> Option<&str> {

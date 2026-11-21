@@ -117,6 +117,7 @@ export class MediaRuntime {
           return ingest && { ...ingest, ...(pid ? { pid } : {}) };
         },
         need: () => this.supervisor.need(),
+        speaks: (feature) => this.supervisor.speaks(feature),
       },
       router: this.egress,
       routes: () => this.routes.routes(),

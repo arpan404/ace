@@ -268,6 +268,17 @@ impl Engine {
 
     /// One control message from either lane. Its payload is wiped when this returns, unless it
     /// was handed on (pictures).
+    /// A control message of a type this build doesn't speak was skipped. An older daemon's
+    /// `source.picture` (pictures on the control lane, before X2) names its source, which then
+    /// says why it has no video rather than wait silently.
+    pub fn skipped(&mut self, kind: &str, source: Option<&str>) {
+        if kind == "source.picture"
+            && let Some(source) = source
+        {
+            self.sources.needs_picture_ingest(source, &mut self.out);
+        }
+    }
+
     pub fn control(&mut self, message: ToMedia, payload: Zeroizing<Vec<u8>>, now: Now) {
         self.apply_control(message, payload, now);
         self.closed_connections(now);

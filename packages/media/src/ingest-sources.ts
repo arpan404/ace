@@ -8,7 +8,7 @@ import {
   type SourceRoute,
 } from "./routes.ts";
 import type { MediaSettings } from "./supervision-policy.ts";
-import type { FromMedia, ToMedia } from "./wire.ts";
+import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
 /**
  * Producers that stream into ace-media's ingest (docs/media/plan.md, phase 2, E1–E4): the
@@ -99,6 +99,8 @@ export type IngestPort = {
   send: (message: ToMedia, payload?: Uint8Array) => boolean;
   ingest: () => { socket: string; websocketPort: number; pid?: number } | undefined;
   need: () => () => void;
+  /** Whether the running ace-media agreed to an optional feature (`ready.features`). */
+  speaks: (feature: MediaFeature) => boolean;
 };
 
 export type IngestSourcesOptions = {
@@ -149,6 +151,19 @@ export type StopStatus = "retrying" | "unavailable";
 export const restartingReason = "ace-media stopped and is starting again";
 /** What they say when ace-media kept failing the source. */
 export const failedReason = "ace-media couldn't take this video";
+/**
+ * What a JPEG source's views say when the running ace-media is older than this daemon and
+ * can't encode pictures off the ingest (`picture-ingest` not agreed). Its other video goes on.
+ */
+export const pictureIngestMissing =
+  "This ace-media is too old to encode this video. Update ace to see it.";
+
+/** Sources whose pictures ace-media encodes off their ingest (X2): only with `picture-ingest`. */
+const pictureKinds: ReadonlySet<SourceKind> = new Set<SourceKind>([
+  "tab-pictures",
+  "user-tab",
+  "screen-pictures",
+]);
 
 /** Longest a handle waits for its end marker after its producer was pointed away. */
 export const drainMs = 2_000;
@@ -426,6 +441,12 @@ export class IngestSources {
     const { port, router, randomBytes } = this.#options;
     if (!port.ingest()) return; // Not up yet: `replay` opens it.
     const { producer } = entry;
+    // An older ace-media would take the pictures as they are and never encode them: a blank
+    // view that says it plays. The source stays off, saying why, until a newer one runs.
+    if (pictureKinds.has(producer.kind) && !port.speaks("picture-ingest")) {
+      this.#tell(entry, pictureIngestMissing);
+      return;
+    }
     const id = this.#options.id();
     let path: Path | undefined;
     const consumers: LegacyConsumers = {
