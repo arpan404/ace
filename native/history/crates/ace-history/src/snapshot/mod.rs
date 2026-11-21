@@ -4,6 +4,7 @@
 //! `provider-db.ts`): one at a time, inside a scratch cap and a free-space margin, and swept when
 //! their owner is gone.
 
+mod claim;
 mod copy;
 mod provider_db;
 mod scratch;
