@@ -36,10 +36,6 @@ import QuartzCore
     @ObservationIgnored var recentRemovals: [ThreadItemRemoval] = []
     /// A partial replacement cannot be advertised as a warm copy to the bridge ledger.
     @ObservationIgnored var requiresSnapshot = false
-    /// The staging holds a complete tail (the newest screenful) behind rows already on screen:
-    /// those rows stay until the whole window commits, and that window's pass carries on from
-    /// the staging, which is what the bridge's ledger holds (`ThreadRefresh.holdTail`).
-    @ObservationIgnored var tailHeld = false
     /// Which folds are open; shared with the history pages of the same thread.
     @ObservationIgnored var disclosures = Disclosures()
     @ObservationIgnored var positions: [String: Int] = [:]
@@ -644,20 +640,21 @@ import QuartzCore
                 target.loaded = target === reading
                 target.screen.reset()
             case .snapshotBegin(let id, let epoch, let revision, let before):
-                // Warm whole-thread pass: stage like a reset, keep showing the old copy. Behind a
-                // held tail it carries on from the tail instead (below).
-                if let thread, thread.id == id, thread.epoch == epoch, thread.loaded, !thread.tailHeld {
-                    thread.beginSnapshot(revision: revision, warm: true, before: before)
-                    reorder = false
-                    added = []
-                    continue
-                }
-                // A newer pass before the open's first fence: the bridge's ledger sends it only what
-                // changed since the rows already staged, so the staging carries on under its
-                // revision. Restaging empty would lose those rows and fail every fence after.
+                // A pass while this generation is still staging (a held tail, a reset whose fence
+                // hasn't come, the open's first pass): the bridge's ledger sends only what changed
+                // since what native acknowledged, which is the staging, never the copy on screen.
+                // The staging carries on under the new revision; seeded again from the screen it
+                // would bring back what the bridge removed or answered, and send it never again.
                 if let thread, thread.id == id, thread.epoch == epoch, thread.refresh != nil {
                     thread.refreshRevision = revision
                     thread.refreshBefore = before
+                    continue
+                }
+                // Warm whole-thread pass over a committed copy: stage from it, keep showing it.
+                if let thread, thread.id == id, thread.epoch == epoch, thread.loaded {
+                    thread.beginSnapshot(revision: revision, warm: true, before: before)
+                    reorder = false
+                    added = []
                     continue
                 }
                 guard let target = scoped(id, epoch) else { continue }
@@ -859,7 +856,6 @@ import QuartzCore
         opened.refresh = nil
         opened.refreshRevision = nil
         opened.refreshBefore = nil
-        opened.tailHeld = false
         opened.epoch = generation
         opened.visit = visits
         opened.metadataCurrent = false
@@ -914,7 +910,6 @@ import QuartzCore
         current.refresh = nil
         current.refreshRevision = nil
         current.refreshBefore = nil
-        current.tailHeld = false
         current.requiresSnapshot = true
         current.epoch = generation
         current.metadataCurrent = false
