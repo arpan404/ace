@@ -151,7 +151,7 @@ struct NeedsRunPage: View {
             } else {
                 Button("Review") { reviewing = true }.buttonStyle(PillButtonStyle(kind: .secondary))
                     .accessibilityIdentifier("run.plan.review")
-                if model.canOperate && !request.tooLargeToApprove {
+                if model.canOperate && request.planApprovable {
                     Button("Approve") {
                         model.answerNeed(request, in: threadId, answer: ["kind": "plan", "decision": "approve"])
                         decided()

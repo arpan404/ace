@@ -422,6 +422,49 @@ describe("a summarized request read whole on the phone", () => {
     });
   });
 
+  it("sends back a plan too long to show in full, and never approves it", async () => {
+    const markdown = `## Plan\n\n${"1. Verify the partition, then swap its pointer.\n".repeat(6000)}`;
+    const { daemon, session } = asking("t-huge", [
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "plan",
+        blocking: true,
+        request: { kind: "plan_review", title: "Migrate every shard", markdown },
+      },
+    ]);
+    const id = String((await card("plan_review", "unread")).id);
+    session.handle({ type: "request.read", interactionId: id });
+    const whole = await card("plan_review", "loaded");
+    expect(whole.plan).toMatchObject({
+      truncated: true,
+      incomplete: "This plan is too long to review here. Approve it on your machine.",
+    });
+    const version = String(whole.wholeVersion);
+
+    session.handle({
+      type: "resolve",
+      interactionId: id,
+      answer: { kind: "plan", decision: "approve" },
+      version,
+      requestId: "approve",
+    });
+    expect(await admitted("approve")).toBe(false);
+    session.handle({
+      type: "resolve",
+      interactionId: id,
+      answer: { kind: "plan", decision: "reject", feedback: "Split it into smaller plans" },
+      version,
+      requestId: "back",
+    });
+    expect((await until(() => latest("receipt", "back"), "the receipt")).ok).toBe(true);
+    expect(daemon.interactionOf("t-huge", id)?.resolution).toEqual({
+      kind: "plan_review",
+      decision: "reject",
+      feedback: "Split it into smaller plans",
+    });
+  });
+
   it("never answers the version it read once the request has changed: it shows the new one", async () => {
     const { daemon, session } = asking("t-changed", [approvalAsk(manifest)]);
     const id = String((await card("approval", "unread")).id);

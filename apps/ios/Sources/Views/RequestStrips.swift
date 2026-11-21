@@ -66,7 +66,7 @@ struct RequestStrip: View {
             return words
         case "plan_review":
             // A summarized plan opens in the review sheet to load in full before it can be approved.
-            if request.tooLargeToApprove { return [DockAction(id: "review", label: "Review", primary: true, identifier: "plan.review", run: review)] }
+            if !request.planApprovable { return [DockAction(id: "review", label: "Review", primary: true, identifier: "plan.review", run: review)] }
             return [DockAction(id: "review", label: "Review", identifier: "plan.review", run: review),
                     DockAction(id: "approve", label: "Approve", primary: true, enabled: open, identifier: "plan.approve") {
                         model.resolve(request, answer: ["kind": "plan", "decision": "approve"])

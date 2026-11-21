@@ -173,8 +173,9 @@ struct PlanReviewCard: View {
         HStack(spacing: AceDesign.Space.related) {
             CardButton(title: "Review") { reviewing = true }
                 .accessibilityIdentifier("plan.review")
-            // A summarized plan opens in Review to load in full before it can be approved.
-            if !interaction.tooLargeToApprove {
+            // A summarized plan opens in Review to load in full before it can be approved; one too
+            // long to show in full is only sent back here.
+            if interaction.planApprovable {
                 CardButton(title: "Approve", primary: true) { answer(["kind": "plan", "decision": "approve"]) }
                     .disabled(submission != nil || !canAct)
                     .accessibilityIdentifier("plan.approve")
@@ -217,9 +218,10 @@ struct PlanReviewSheet: View {
                     if !summarized.isEmpty {
                         SummarizedRequestNote(text: summarized, failed: wholeState == "failed",
                                               retryable: wholeRetryable == true, retry: retry)
-                    } else if plan?.truncated == true {
-                        Text("The full plan is on your machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    } else if let incomplete = plan?.incomplete, !incomplete.isEmpty {
+                        Text(incomplete).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .accessibilityIdentifier("plan.incomplete")
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -257,7 +259,7 @@ struct PlanReviewSheet: View {
                     CardButton(title: "Send feedback", primary: true, enabled: !words.isEmpty) {
                         answer(["kind": "plan", "decision": "reject", "feedback": words])
                     }.accessibilityIdentifier("plan.send")
-                } else if summarized.isEmpty {
+                } else if summarized.isEmpty && (plan?.incomplete ?? "").isEmpty {
                     CardButton(title: "Approve plan", primary: true) { answer(["kind": "plan", "decision": "approve"]) }
                         .accessibilityIdentifier("plan.approveFull")
                 }

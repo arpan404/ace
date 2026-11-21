@@ -252,6 +252,8 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
         var named = action; named["version"] = wholeVersion; return named
     }
     var tooLargeToApprove: Bool { !(summarized ?? "").isEmpty }
+    /// A plan can be approved here only when it loaded whole and its card shows all of it.
+    var planApprovable: Bool { !tooLargeToApprove && (plan?.incomplete ?? "").isEmpty }
 }
 struct PendingRow: Codable, Sendable, Identifiable {
     let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String

@@ -163,7 +163,7 @@ export function interactionRow(
   const interaction = summarized ? declinesOnly(full) : full;
   const base = approvalRow(interaction, reader, fallback, loadedWhole);
   const request = interaction.request;
-  const row = requestRow(request, loadedWhole);
+  const row = requestRow(request);
   const maxQuestions = loadedWhole ? 64 : questionLimit;
   const maxOptions = loadedWhole ? 256 : optionLimit;
   const wholeState = isSummarized ? (whole?.status ?? "unread") : undefined;
