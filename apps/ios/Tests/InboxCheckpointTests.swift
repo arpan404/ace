@@ -122,6 +122,29 @@ import Testing
         #expect(model.inbox.isEmpty, "a machine signed out of shows none of its kept rows")
     }
 
+    @Test func aCopyKeptByAnOlderBuildStillShowsItsRowsMovedOnesIncluded() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = ClientModel.database(hostId: "host", deviceId: "device", in: directory)
+        // Written before moved rows carried Open's words, beside a row this build can't read.
+        var moved = row("moved", state: "done", label: "Moved to Studio", token: "neutral")
+        moved["look"] = ["level": "quiet", "word": "Moved to Studio", "tone": "idle", "muted": true, "settled": false,
+                         "subagents": 0, "moved": ["hostId": "studio", "name": "Studio", "threadId": "there"]]
+        try InboxCheckpoint.write(try json([
+            ["type": "inbox.reset", "ids": ["moved", "done", "odd"]],
+            ["type": "inbox.row", "id": "moved", "row": moved],
+            ["type": "inbox.row", "id": "odd", "row": ["id": "odd"]],
+            ["type": "inbox.row", "id": "done", "row": row("done", state: "done", label: "Done", token: "done")],
+        ]), database: database)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in StartRecorder() })
+
+        await model.connect(target: try target(), directory: directory)
+
+        #expect(model.inbox["moved"]?.look?.moved?.hostId == "studio")
+        #expect(model.inbox["done"]?.status.label == "Done")
+        #expect(model.inbox["odd"] == nil, "only the row this build can't read is left out")
+    }
+
     @Test func anUnreadableCopyStartsTheInboxEmpty() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

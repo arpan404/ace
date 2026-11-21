@@ -23,6 +23,8 @@ import {
   spadeListRows,
   spadePlaceLine,
 } from "./spade-rows.ts";
+import { SpadeWorkerTree } from "./spade-worker-tree.ts";
+import { SpadeWorkerWatch } from "./spade-worker-watch.ts";
 
 /*
  * Spade on the iPhone (ADR 0121): always through the daemon's `spade.*` family, since the phone
@@ -127,6 +129,10 @@ export class NativeSpade {
   /** The seen mark last sent, `conversation:seq`, so each latest message is marked once. */
   private seen: string | undefined;
   private readonly live: SpadeDaemonLive;
+  /** The open chat's ace workers as ace lists their threads. */
+  private readonly workers: SpadeWorkerWatch;
+  /** The open chat's bot's tree, for whether a bot worker has started or finished. */
+  private readonly tree: SpadeWorkerTree;
   private readonly owner: ClientCore;
   private readonly sink: PatchSink;
   private readonly deps: SpadeDeps;
@@ -140,6 +146,11 @@ export class NativeSpade {
     this.sink = sink;
     this.deps = deps;
     this.live = new SpadeDaemonLive(owner, deps.id);
+    this.workers = new SpadeWorkerWatch(owner, () => this.publishOpen());
+    this.tree = new SpadeWorkerTree(
+      { read: (path) => spadeText(owner, deps.id, "GET", path), later: deps.later },
+      () => this.publishOpen(),
+    );
   }
 
   get ready(): boolean {
@@ -371,6 +382,8 @@ export class NativeSpade {
       return;
     open?.stop();
     this.open = undefined;
+    this.workers.stop();
+    this.tree.stop();
     this.sent.clear();
     this.order = [];
     this.sink.clear("spade:row:");
@@ -478,7 +491,14 @@ export class NativeSpade {
     if (open.kind === "bot") {
       const { view, problem } = open.follow.get();
       const bot = this.botOf(open.id);
-      this.putRows(open.id, spadeConversationRows(view, bot?.name || "Spade"));
+      const facts = this.workers.facts(
+        () => this.agents,
+        (id) => this.tree.node(id),
+      );
+      const rows = spadeConversationRows(view, bot?.name || "Spade", facts);
+      this.workers.showing(rows);
+      this.tree.showing(bot?.id, rows);
+      this.putRows(open.id, rows);
       this.sink.put("spade:conversation", () =>
         spadeConversationHead(open.id, view, problem, bot ? botFace(bot) : null),
       );

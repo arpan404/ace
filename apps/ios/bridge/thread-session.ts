@@ -329,8 +329,14 @@ export class ThreadSession {
   // Queued after the snapshot's items AND blocks, so native reveals one coherent transcript: the
   // latest window, never waiting for older history (the reading window, `native-transcript.ts`).
   #ready(): void {
+    // A tail (the newest screenful, the rest of the window on its way) says so: native already
+    // showing the thread keeps its rows until the whole window's fence instead of this one.
     if (this.#store.thread)
-      this.#put("ready", () => ({ type: "thread.ready", count: this.#store.order.length }));
+      this.#put("ready", () => ({
+        type: "thread.ready",
+        count: this.#store.order.length,
+        ...(this.#store.filling ? { tail: true } : {}),
+      }));
   }
 
   /** The navigation generation this session serves. */

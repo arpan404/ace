@@ -13,8 +13,28 @@ const extensions: Record<string, string> = {
 export function mediaExtension(mime: string): string {
   return extensions[mime] ?? "";
 }
+/**
+ * Pictures kept as opaque files, which no provider takes natively (ADR 0034), but which the
+ * daemon's decoder reads: the apps still draw them from a preview.
+ */
+const previewOnly = new Set(["image/heic", "image/heif", "image/tiff", "image/bmp"]);
 export function hasThumbnail(mime: string): boolean {
-  return mime.startsWith("image/") && mediaExtension(mime) !== "";
+  return (mime.startsWith("image/") && mediaExtension(mime) !== "") || previewOnly.has(mime);
+}
+/**
+ * Whether an opaque file is a picture the daemon can preview: one of `previewOnly` whose header
+ * ace-media reads as an image within `maxPixels` (`probe`, header only, never the pixels). A
+ * HEIC on an OS without a decoder ace uses is not one (ADR 0208), and without ace-media nothing
+ * is.
+ */
+export async function opaquePreviewable(
+  path: string,
+  mime: string,
+  maxPixels: number,
+  probe: ((path: string, maxPixels: number) => Promise<boolean>) | undefined,
+): Promise<boolean> {
+  if (!previewOnly.has(mime) || !probe) return false;
+  return probe(path, maxPixels);
 }
 /** Hard links keep the verified original bytes, including alpha and colour profiles. */
 export async function providerImagePath(path: string, mime: string): Promise<string> {

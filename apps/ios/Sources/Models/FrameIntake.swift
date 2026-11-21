@@ -12,8 +12,10 @@ import Foundation
 ///   one acknowledged early always applies under the generation it was meant for;
 /// - it carries no streaming text edit, which only the main thread can check against the text on
 ///   screen;
-/// - the frames acknowledged early and not yet taken stay under `answeredLimit` bytes, so a busy
+/// - the frames acknowledged early and not yet applied stay under `answeredLimit` bytes, so a busy
 ///   main thread can't fall behind without bound: past it, frames wait for the main thread again.
+///   Taking frames doesn't free the room; the main thread hands it back once it has applied them
+///   (`applied`), since frames taken can wait in its batch for the next flush.
 /// Everything else is acknowledged by the main thread once held. A retired runtime's intake is
 /// closed: what arrives late is dropped unanswered.
 final class FrameIntake: @unchecked Sendable {
@@ -22,8 +24,10 @@ final class FrameIntake: @unchecked Sendable {
         let bytes: Int
         /// Already acknowledged when it was decoded: holding it must not answer again.
         let answered: Bool
+        /// Bytes it holds of the cap, handed back with `applied` once it has been applied.
+        let counted: Int
     }
-    /// Bytes of frames acknowledged early that the main thread has not taken yet.
+    /// Bytes of frames acknowledged early that the main thread has not applied yet.
     nonisolated static let answeredLimit = 1024 * 1024
 
     private let lock = NSLock()
@@ -50,8 +54,9 @@ final class FrameIntake: @unchecked Sendable {
             guard !closed else { return nil }
             var answer = Self.answer(patches, open: open)
             if answer == true, answeredBytes + bytes > Self.answeredLimit { answer = nil }
-            if answer == true { answeredBytes += bytes }
-            frames.append(Frame(patches: patches, bytes: bytes, answered: answer != nil))
+            let counted = answer == true ? bytes : 0
+            answeredBytes += counted
+            frames.append(Frame(patches: patches, bytes: bytes, answered: answer != nil, counted: counted))
             return answer
         }
     }
@@ -66,6 +71,10 @@ final class FrameIntake: @unchecked Sendable {
             open = nil
             return takeLocked()
         }
+    }
+    /// The main thread applied frames holding `bytes` of the cap (their `counted`).
+    func applied(_ bytes: Int) {
+        lock.withLock { answeredBytes = max(0, answeredBytes - bytes) }
     }
     /// The thread now open, whose frames may be answered early again; nil while none is.
     func opened(_ thread: String, epoch: Int) {
@@ -83,10 +92,7 @@ final class FrameIntake: @unchecked Sendable {
         }
     }
     private func takeLocked() -> [Frame] {
-        defer {
-            frames.removeAll(keepingCapacity: true)
-            answeredBytes = 0
-        }
+        defer { frames.removeAll(keepingCapacity: true) }
         return frames
     }
 }

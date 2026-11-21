@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// One bubble of a Spade conversation as the bridge put it (`bridge/spade-rows.ts`): the
-/// person's on the right in the accent, the bot's on the left on the page's fill with its words
-/// as markdown, an approval as a raised card with its answers, a card of questions, a quiet line
-/// for the rest.
+/// person's on the right in the accent with its pictures above it as a thread message's, the
+/// bot's on the left on the page's fill with its words as markdown, an approval as a raised card
+/// with its answers, a card of questions, a quiet line for the rest.
 struct SpadeBubbleView: View {
     let bubble: SpadeModel.Bubble
     /// An approval's answer: its call, allowed or not, and whether always; true once it went.
@@ -20,10 +20,12 @@ struct SpadeBubbleView: View {
 
     var body: some View {
         switch bubble {
-        case let .person(text, sending, attached):
+        case let .person(text, sending, attached, images):
             HStack(spacing: AceTheme.Spacing.none) {
                 Spacer(minLength: UserBubble.inset)
                 VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
+                    // Spade names a picture by its hash alone, so no message id is needed to read it.
+                    if !images.isEmpty { MessageAttachments(itemId: "", attachments: images, more: 0) }
                     if let attached { Text(attached).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted) }
                     if !text.isEmpty {
                         Text(text)
@@ -37,7 +39,8 @@ struct SpadeBubbleView: View {
                     }
                 }
             }
-            .accessibilityElement(children: .combine)
+            // Contained, not combined: each picture stays its own button that opens it.
+            .accessibilityElement(children: images.isEmpty ? .combine : .contain)
             .accessibilityIdentifier("spade.bubble.person")
         case let .bot(text, live, end):
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
@@ -63,6 +66,9 @@ struct SpadeBubbleView: View {
                                   drafts: drafts(card.callId), fold: { fold(card.callId, $0) }, reply: { await reply(card.callId, $0) })
         case let .member(name, text, face, first, last):
             SpadeMemberBubble(name: name, text: text, face: face, first: first, last: last)
+        // Drawn by the chat, which has the client its requests answer through (`SpadeWorkersCard`).
+        case .workers:
+            EmptyView()
         case let .note(text):
             Text(text)
                 .aceFont(AceDesign.TextRole.meta)

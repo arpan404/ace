@@ -56,7 +56,10 @@ export class FakeContextWire {
     });
   }
   /** Seeds text bytes under a precomputed hash, the way the daemon stores a published visual. */
-  seedText(threadId: string, document: { sha256: string; text: string; name: string }): void {
+  seedText(
+    threadId: string,
+    document: { sha256: string; text: string; name: string; mimeType?: string },
+  ): void {
     if (!this.context.thread(threadId)) return;
     const bytes = new TextEncoder().encode(document.text);
     this.blobs.set(document.sha256, bytes);
@@ -64,7 +67,7 @@ export class FakeContextWire {
       sha256: document.sha256,
       bytes: bytes.length,
       name: document.name,
-      mimeType: "text/plain",
+      mimeType: document.mimeType ?? "text/plain",
     });
   }
   private counter = 0;

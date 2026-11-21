@@ -49,6 +49,7 @@ import type { PatchSink } from "./agents.ts";
 import type { CheckoutFiles } from "./checkout-files.ts";
 import { NativeFilesRequest } from "./checkout-request.ts";
 import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachment.ts";
+import { ImageBudget, imageBudgetBytes } from "./image-budget.ts";
 import { NativeImageRequest, readNativeImage } from "./native-image.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
@@ -169,6 +170,8 @@ export class NativeServices {
   catalog: CatalogPage | undefined;
   /** Spade on this machine (`spade.ts`), set once the runtime has made it. */
   spade: NativeSpade | undefined;
+  /** Every image read answered for Swift, thread or Spade, shares this budget of bytes. */
+  readonly images = new ImageBudget(imageBudgetBytes);
   readonly owner: ClientCore;
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
@@ -334,7 +337,7 @@ export class NativeServices {
       }
       const spadeRequest = NativeSpadeRequest.safeParse(raw);
       if (spadeRequest.success && this.spade) {
-        const deps = { id: () => host.uuid(), now: this.now };
+        const deps = { id: () => host.uuid(), now: this.now, images: this.images };
         const outcome = await answerSpade(
           this.owner,
           this.spade,
@@ -575,6 +578,7 @@ export class NativeServices {
             attachment.data,
             controller.signal,
             this.threadFiles,
+            this.images,
           ),
           "",
         );

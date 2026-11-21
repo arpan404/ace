@@ -42,19 +42,22 @@ import Testing
         #expect(ids(AgentTreeLayout.lines(rows: rows, tasks: [], expanded: [])).contains("agent:asker"))
     }
 
-    @Test func manyFinishedSiblingsFoldButWorkingAndFailedOnesStay() {
+    @Test func pastAFewSettledSiblingsTheRestFoldFailedOnesIncludedWhileWorkingOnesStay() {
+        // The bridge sends the rest newest first, so the newest failure shows and older ones fold.
         var rows = [row("root", parent: nil, depth: 0, running: true), row("live", parent: "root", depth: 1, running: true),
                     row("broken", parent: "root", depth: 1, failed: true)]
         for index in 0..<10 { rows.append(row("done\(index)", parent: "root", depth: 1)) }
+        rows.append(row("old-broken", parent: "root", depth: 1, failed: true))
         let lines = AgentTreeLayout.lines(rows: rows, tasks: [], expanded: [])
         let shown = ids(lines)
-        #expect(shown.contains("agent:live") && shown.contains("agent:broken"))
-        #expect(shown.filter { $0.hasPrefix("agent:done") }.count == AgentTreeLayout.shownFinished)
+        #expect(shown.contains("agent:live") && shown.contains("agent:broken") && !shown.contains("agent:old-broken"))
+        #expect(shown.filter { $0.hasPrefix("agent:done") }.count == AgentTreeLayout.shownFinished - 1)
         if case .more(let key, let count, let finished, _) = lines.last {
-            #expect(finished && count == 10 - AgentTreeLayout.shownFinished && key == AgentTreeLayout.finishedKey("root"))
-        } else { Issue.record("no fold for the finished agents") }
+            #expect(finished && count == 12 - AgentTreeLayout.shownFinished && key == AgentTreeLayout.finishedKey("root"))
+        } else { Issue.record("no fold for the settled agents") }
         let opened = AgentTreeLayout.lines(rows: rows, tasks: [], expanded: [AgentTreeLayout.finishedKey("root")])
         #expect(ids(opened).filter { $0.hasPrefix("agent:done") }.count == 10)
+        #expect(ids(opened).contains("agent:old-broken"))
     }
 
     @Test func endedCommandsFoldWhileRunningOnesStay() {

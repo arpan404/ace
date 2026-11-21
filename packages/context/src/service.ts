@@ -1,5 +1,5 @@
 import type { ImageWork } from "@ace/media/images";
-import { thumbnailRenderer } from "./attachment-images.ts";
+import { previewProbe, thumbnailRenderer } from "./attachment-images.ts";
 import { AttachmentBytes } from "./attachment-bytes.ts";
 import { attachmentDownload } from "./attachment-download.ts";
 import { prepareFiles } from "./prepare-files.ts";
@@ -85,6 +85,9 @@ export class ContextService {
       await UploadStore.open({
         ...options,
         ...(options.workspaceRoot ? { workspace: options.workspaceRoot } : {}),
+        ...(options.images && !options.previewable
+          ? { previewable: previewProbe(options.images) }
+          : {}),
         threadWorkspace: options.threadWorkspaceRoot ?? options.workspace,
       }),
     );

@@ -197,3 +197,62 @@ test("a file from the thread's Attachments list opens without naming a message; 
   await expect(ask(notesSha, "elsewhere")).rejects.toThrow("Attachment unavailable");
   await expect(ask("0".repeat(64))).rejects.toThrow("Attachment unavailable");
 });
+
+test("a HEIC stored without a preview is drawn as a picture, read from its original", async () => {
+  // A HEIC's own first bytes (an ISO box naming the brand), then the rest of the file.
+  const bytes = "\0\0\0\x18ftypheic\0\0\0\0mif1heic the rest";
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  const heic: Attachment = {
+    sha256: sha,
+    bytes: Buffer.byteLength(bytes),
+    mimeType: "image/heic",
+    name: "Pasted image.heic",
+    kind: "binary",
+    thumbnailAvailable: false,
+  };
+  const fake = sentFromWeb("heic", [{ type: "text", text: "Look" }], [heic]);
+  fake.seedServices({
+    attachmentTexts: [
+      { threadId: "heic", sha256: sha, text: bytes, name: heic.name, mimeType: "image/heic" },
+    ],
+  });
+  const { owner, row, itemId } = await personsRow(fake, "heic");
+
+  expect(row.attachments).toEqual([
+    expect.objectContaining({ kind: "image", ref: sha, thumbnail: true, opens: true }),
+  ]);
+  const thumbnail = await read(owner, { threadId: "heic", itemId, ref: sha, variant: "thumbnail" });
+  expect(thumbnail).toMatchObject({ kind: "image", mimeType: "image/heic" });
+  expect(Buffer.from(thumbnail.data, "base64").toString()).toBe(bytes);
+});
+
+test("a HEIC whose bytes aren't a picture is never sent to be drawn", async () => {
+  const bytes = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  const heic: Attachment = {
+    sha256: sha,
+    bytes: Buffer.byteLength(bytes),
+    mimeType: "image/heic",
+    name: "drawing.heic",
+    kind: "binary",
+    thumbnailAvailable: false,
+  };
+  const fake = sentFromWeb("fake-heic", [{ type: "text", text: "Look" }], [heic]);
+  fake.seedServices({
+    attachmentTexts: [
+      { threadId: "fake-heic", sha256: sha, text: bytes, name: heic.name, mimeType: "image/heic" },
+    ],
+  });
+  const { owner, itemId } = await personsRow(fake, "fake-heic");
+
+  await expect(
+    read(owner, { threadId: "fake-heic", itemId, ref: sha, variant: "thumbnail" }),
+  ).rejects.toThrow("Not a picture");
+  const opened = await read(owner, {
+    threadId: "fake-heic",
+    itemId,
+    ref: sha,
+    variant: "original",
+  });
+  expect(opened.kind).toBe("file");
+});

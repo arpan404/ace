@@ -100,18 +100,41 @@ import Observation
         let text: String
         let alert: Bool
     }
+    /// The workers one call started (ADR 0161), each as it stands now.
+    struct Workers: Decodable, Equatable, Sendable {
+        struct Worker: Decodable, Equatable, Sendable, Identifiable {
+            let id: String
+            let name: String
+            /// `ace` (a thread) or `bot`.
+            let kind: String
+            /// An ace agent's thread, which a tap opens.
+            let thread: String?
+            /// While it waits on the person: the threads of its tree that do, its own first, then
+            /// the delegated ones below it. nil from an older bridge, which named only its thread.
+            let asking: [String]?
+            /// A bot's conversation, which a tap opens.
+            let conversation: String?
+            /// `needs-you`, `working`, `failed` or `rest`.
+            let tone: String
+            let line: String
+        }
+        let title: String
+        let workers: [Worker]
+    }
     /// One bubble of the conversation.
     enum Bubble: Decodable, Equatable, Sendable {
-        case person(text: String, sending: Bool, attached: String?)
+        /// `attached` names what isn't drawn as a picture; `images` are drawn as a thread's are.
+        case person(text: String, sending: Bool, attached: String?, images: [AttachmentLine])
         case bot(text: String, live: Bool, end: End?)
         case ask(callId: String, sentence: String, detail: String?, reason: String?, always: Bool)
         case question(SpadeQuestionCard)
         /// A member's message in a group: its name above the first of a run, its face by the last.
         case member(name: String, text: String, face: Face, first: Bool, last: Bool)
+        case workers(Workers)
         case note(text: String)
 
         private enum Keys: String, CodingKey {
-            case kind, text, sending, attached, live, end, callId, sentence, detail, reason, always, name, face, first, last
+            case kind, text, sending, attached, images, live, end, callId, sentence, detail, reason, always, name, face, first, last
         }
         init(from decoder: any Decoder) throws {
             let box = try decoder.container(keyedBy: Keys.self)
@@ -119,7 +142,8 @@ import Observation
             switch try box.decode(String.self, forKey: .kind) {
             case "person":
                 self = .person(text: text, sending: try box.decodeIfPresent(Bool.self, forKey: .sending) ?? false,
-                               attached: try box.decodeIfPresent(String.self, forKey: .attached))
+                               attached: try box.decodeIfPresent(String.self, forKey: .attached),
+                               images: try box.decodeIfPresent([AttachmentLine].self, forKey: .images) ?? [])
             case "bot":
                 self = .bot(text: text, live: try box.decodeIfPresent(Bool.self, forKey: .live) ?? false,
                             end: try box.decodeIfPresent(End.self, forKey: .end))
@@ -130,6 +154,8 @@ import Observation
                             always: try box.decodeIfPresent(Bool.self, forKey: .always) ?? false)
             case "question":
                 self = .question(try SpadeQuestionCard(from: decoder))
+            case "workers":
+                self = .workers(try Workers(from: decoder))
             case "member":
                 self = .member(name: try box.decode(String.self, forKey: .name), text: text,
                                face: try box.decode(Face.self, forKey: .face),
@@ -208,6 +234,7 @@ import Observation
             if bubbles[key] != bubble { bubbles[key] = bubble }
             if case let .question(card) = bubble { cards.saw(card, in: id) }
         }
+        SpadeFeedTrace.applied(patch, model: self)
     }
 
     /// Another conversation's bubbles begin: the last one's go.

@@ -523,3 +523,61 @@ it("requests waiting in a delegated thread are counted as elsewhere, apart from 
     }),
   );
 });
+
+/** A plan too large to send with the thread: the daemon sends it summarized (ADR 0157). */
+const largePlan = (daemon: FakeDaemon) =>
+  daemon.apply(asking, [
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "plan",
+      blocking: true,
+      request: {
+        kind: "plan_review",
+        title: "Migrate the shards",
+        markdown: `## Plan\n\n${"1. Verify the partition, then swap its pointer.\n".repeat(1800)}`,
+      },
+    },
+  ]);
+
+it("a summarized plan read without opening its thread is approved only once read whole, naming the version read", async () => {
+  const { latest, of, act, interaction } = await phone({ history: largePlan });
+  type Row = { id: string; kind: string; wholeState?: string; wholeVersion?: string };
+  const plan = () =>
+    (latest(asking)?.requests as Row[] | undefined)?.find((row) => row.kind === "plan_review");
+  await vi.waitFor(() => expect(plan()?.wholeState).toBe("unread"));
+  const id = plan()?.id ?? "";
+  const approve = { kind: "plan", decision: "approve" } as const;
+
+  act({
+    type: "needs.answer",
+    threadId: asking,
+    interactionId: id,
+    answer: approve,
+    requestId: "p0",
+  });
+  await vi.waitFor(() =>
+    expect(of("admission").find((patch) => patch.id === "p0")).toMatchObject({ ok: false }),
+  );
+
+  act({ type: "needs.read", threadId: asking, interactionId: id });
+  await vi.waitFor(() => expect(plan()?.wholeState).toBe("loaded"));
+  const version = plan()?.wholeVersion ?? "";
+  expect(version).not.toBe("");
+
+  act({
+    type: "needs.answer",
+    threadId: asking,
+    interactionId: id,
+    answer: approve,
+    version,
+    requestId: "p1",
+  });
+  await vi.waitFor(() =>
+    expect(of("receipt").find((patch) => patch.id === "p1")).toMatchObject({ ok: true }),
+  );
+  expect(interaction(id)).toMatchObject({
+    state: "resolved",
+    resolution: { kind: "plan_review", decision: "approve" },
+  });
+});

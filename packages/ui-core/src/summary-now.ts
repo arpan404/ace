@@ -41,6 +41,19 @@ export interface NowFacts {
   asker?: { name: string; root: boolean; request: InteractionRequest | undefined } | undefined;
   /** The main agent's error, when the thread failed. */
   error?: string | undefined;
+  /**
+   * The phone's agent groups (`summaryAgents`), when its Summary shows them: the line then
+   * counts what they count, as its "N of M done" line does, and leaves out agents whose facts
+   * aren't in yet (the agents list folds those). Without them it counts the whole tree.
+   */
+  groups?: SummaryGroupCounts | undefined;
+}
+
+/** How many agents each of the phone Summary's groups holds. */
+export interface SummaryGroupCounts {
+  working: number;
+  failed: number;
+  done: number;
 }
 
 /** What a request asks, in a few words: the question, the approval's title. */
@@ -81,13 +94,24 @@ const waits: Record<Extract<ThreadStatus, { state: "waiting" }>["on"], string> =
   queue: "Queued",
 };
 
-function work(tally: ForestTally): string {
+const commandWords = (tally: ForestTally) =>
+  tally.commands ? `${pluralCount(tally.commands, "command")} running` : "";
+
+/** The whole tree's work, as the web's Summary says it: "2 agents working · 3 done". */
+function treeWork(tally: ForestTally): string {
   const words: string[] = [];
   if (tally.working) words.push(`${pluralCount(tally.working, "agent")} working`);
   if (tally.done) words.push(`${tally.done} done`);
   if (tally.syncing) words.push(`${tally.syncing} syncing`);
-  if (tally.commands) words.push(`${pluralCount(tally.commands, "command")} running`);
-  return words.join(" · ");
+  return [...words, commandWords(tally)].filter(Boolean).join(" · ");
+}
+
+/** The phone's groups' work: "1 agent working · 8 failed"; its progress line says the done. */
+function groupWork(groups: SummaryGroupCounts, tally: ForestTally): string {
+  const words: string[] = [];
+  if (groups.working) words.push(`${pluralCount(groups.working, "agent")} working`);
+  if (groups.failed) words.push(`${groups.failed} failed`);
+  return [...words, commandWords(tally)].filter(Boolean).join(" · ");
 }
 
 /** "#1544 is ready for review", "#1544 merged": the newest pull request, as an outcome. */
@@ -132,7 +156,8 @@ const lowerFirst = (sentence: string): string =>
  * clock is `now`.
  */
 export function nowLine(facts: NowFacts): NowLine {
-  const { status, tally, turn } = facts;
+  const { status, tally, turn, groups } = facts;
+  const work = (counted: ForestTally) => (groups ? groupWork(groups, counted) : treeWork(counted));
   if (facts.asker) {
     const who = facts.asker.root ? "The main agent" : facts.asker.name;
     const ask = askWords(facts.asker.request);
@@ -215,9 +240,11 @@ export function nowLine(facts: NowFacts): NowLine {
   if (!facts.confirmed)
     return { say: "Syncing", sub: work(tally), tone: "plain", lead: "Syncing", speak: "syncing" };
   // Done: how long the last turn took, then what came of it.
+  const finished = groups ? groups.done : tally.done;
   const outcome = [
     prOutcome(facts.prs),
-    tally.done ? `${pluralCount(tally.done, "agent")} finished` : undefined,
+    finished ? `${pluralCount(finished, "agent")} finished` : undefined,
+    groups?.failed ? `${groups.failed} failed` : undefined,
   ].filter(Boolean);
   const said = turn?.said?.replace(/\s+/g, " ").trim();
   const sub = outcome.length ? outcome.join(" · ") : (said ?? "");

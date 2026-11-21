@@ -200,7 +200,7 @@ export class FakeSpadeWork {
       subtree_cost_micros: subtree,
       budget_micros: null,
       parked: null,
-      queued: false,
+      queued: agent.queued === true,
       children,
     };
   }

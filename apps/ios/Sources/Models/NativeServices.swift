@@ -107,6 +107,13 @@ extension ClientModel {
     func readGeneration(_ payload: [String: Any]) -> Int {
         ReadMirror.key(payload).map { reads.generation($0) } ?? 0
     }
+    /// Whether an answer to `payload` is kept: one that lands after its screen stopped waiting
+    /// (a timeout, a dropped connection) flips it, so the screen reads it and draws it.
+    func hasKept(_ payload: [String: Any]) -> Bool {
+        ReadMirror.key(payload).map { reads.values[$0] != nil } ?? false
+    }
+    /// Moves when any kept answer of `family` goes out of date, whichever read it answered.
+    func familyGeneration(_ family: String) -> Int { reads.generations[family] ?? 0 }
     private func call<T: Decodable>(_ payload: [String: Any], cache: String?, as type: T.Type, timeout: Duration) async throws -> T {
         let id = "native-\(admissions.nextId())"
         let name = serviceName(payload)

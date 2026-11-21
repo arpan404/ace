@@ -119,7 +119,7 @@ function failureCode(error: unknown): string {
  */
 export class WholeRequests {
   readonly #client: Reader;
-  readonly #store: ThreadSource;
+  readonly #store: Pick<ThreadSource, "interaction">;
   readonly #threadId: ThreadId;
   readonly #signal: AbortSignal;
   readonly #emit: (interactionId: string) => void;
@@ -127,7 +127,7 @@ export class WholeRequests {
 
   constructor(
     client: Reader,
-    store: ThreadSource,
+    store: Pick<ThreadSource, "interaction">,
     threadId: ThreadId,
     signal: AbortSignal,
     emit: (interactionId: string) => void,

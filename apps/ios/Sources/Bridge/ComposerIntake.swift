@@ -14,8 +14,9 @@ enum ComposerIntake {
     /// What arrived, and a note when a folder held more than was taken or nothing could be read.
     struct Result: Sendable { var files: [StagedAttachment] = []; var note: String? }
 
-    /// Pasted or dropped items: images as images, anything with a file behind it as that file,
-    /// folders walked. Plain text is the text field's own.
+    /// Pasted or dropped items: images as images (a HEIC or TIFF re-encoded as a JPEG every agent
+    /// sees as a picture), anything with a file behind it as that file, folders walked. Plain text
+    /// is the text field's own.
     static func stage(_ providers: [NSItemProvider], into staging: AttachmentStaging) async -> Result {
         var result = Result()
         var more = false
@@ -150,7 +151,9 @@ enum ComposerIntake {
         if provider.canLoadObject(ofClass: UIImage.self), !provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
            let type = provider.registeredContentTypes.first(where: { $0.conforms(to: .image) }) {
             if let url = await fileURL(provider, type: type) {
-                let name = provider.suggestedName.map { "\($0).\(type.preferredFilenameExtension ?? "png")" } ?? "Pasted image.\(type.preferredFilenameExtension ?? "png")"
+                let stem = provider.suggestedName ?? "Pasted image"
+                if let picture = await picture(url, type: type, stem: stem, into: staging) { return picture }
+                let name = "\(stem).\(type.preferredFilenameExtension ?? "png")"
                 return try? staging.stage(moving: url, name: name, mimeType: type.preferredMIMEType ?? "image/png")
             }
         }
@@ -159,7 +162,24 @@ enum ComposerIntake {
         let name = provider.suggestedName.map { name in
             name.contains(".") ? name : "\(name).\(type.preferredFilenameExtension ?? "")"
         } ?? url.lastPathComponent
+        if let picture = await picture(url, type: type, stem: (name as NSString).deletingPathExtension, into: staging) {
+            return picture
+        }
         return try? staging.stage(moving: url, name: name, mimeType: type.preferredMIMEType ?? "application/octet-stream")
+    }
+
+    /// A pasted or dropped image in a type agents don't take as a picture (HEIC, HEIF, TIFF),
+    /// staged re-encoded as Photos picks are (`PhotoConversion`), off the main actor; nil when it
+    /// already is such a type or can't be decoded, and then it goes as it is.
+    private static func picture(_ url: URL, type: UTType, stem: String, into staging: AttachmentStaging) async -> StagedAttachment? {
+        guard type.conforms(to: .image), !(type.preferredMIMEType.map { PhotoConversion.readable.contains($0) } ?? false) else { return nil }
+        return await Task.detached(priority: .userInitiated) { () -> StagedAttachment? in
+            guard let data = try? Data(contentsOf: url), let picture = PhotoConversion.readable(data, type: type),
+                  let staged = try? staging.stage(data: picture.data, name: "\(stem).\(picture.fileExtension)", mimeType: picture.mimeType)
+            else { return nil }
+            try? FileManager.default.removeItem(at: url)
+            return staged
+        }.value
     }
 
     /// The provider's file, copied aside before its temporary file goes away.

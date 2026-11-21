@@ -53,6 +53,17 @@ import Testing
         #expect(landing.step(row: "block:7", frame: row(top, top + 80), in: keyboard, now: start) == .landed(rowID: "block:7"))
     }
 
+    @Test func aRowNearlyAScreenTallLandsWithTheKeyboardUp() {
+        // 640 points in a 650-point scrolled space: no anchor centres it in what the reader sees
+        // (100 to 350), and the scroll view's own centre would put its middle behind the keyboard.
+        var landing = aimed()
+        guard case .scroll("block:7", let anchor) = landing.step(row: "block:7", frame: row(1_200, 1_840), in: keyboard, now: start) else {
+            Issue.record("an off-screen row is scrolled to"); return
+        }
+        let top = 100 + (anchor ?? 0.5) * (650 - 640)
+        #expect(landing.step(row: "block:7", frame: row(top, top + 640), in: keyboard, now: start) == .landed(rowID: "block:7"))
+    }
+
     @Test func aRowTallerThanTheScreenLandsWhenItsMiddleIsInView() {
         var landing = aimed()
         #expect(landing.step(row: "block:7", frame: row(-500, 1_250), in: screen, now: start) == .landed(rowID: "block:7"))

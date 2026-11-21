@@ -11,6 +11,8 @@ import { defaultImageLimits } from "./media.ts";
 /** A file ace-media may read for one job. */
 const fileBound = 32 * 1024 * 1024;
 const deadlineMs = 15_000;
+/** A header read: an upload's commit waits on it. */
+const probeDeadlineMs = 5_000;
 
 /** A PNG preview of at most 512 px a side, upright by its EXIF orientation. */
 export function thumbnailRenderer(images: ImageWork): (path: string) => Promise<Buffer> {
@@ -33,6 +35,29 @@ export function thumbnailRenderer(images: ImageWork): (path: string) => Promise<
     } catch (error) {
       if (!(error instanceof ImageError)) throw error;
       throw new ContextError(error.passing ? "busy" : "unsupported", error.message);
+    }
+  };
+}
+
+/**
+ * Whether ace-media reads the file's header as a picture within `maxPixels`: its `probe`, which
+ * decodes no pixels. Any refusal (not a picture, too large, cut short, no decoder on this OS,
+ * or ace-media unable to run) is no.
+ */
+export function previewProbe(
+  images: ImageWork,
+): (path: string, maxPixels: number) => Promise<boolean> {
+  return async (path, maxPixels) => {
+    try {
+      await images.run({
+        inputs: [{ kind: "file", path, maxBytes: fileBound }],
+        op: { op: "probe", maxPixels },
+        deadlineMs: probeDeadlineMs,
+      });
+      return true;
+    } catch (error) {
+      if (error instanceof ImageError) return false;
+      throw error;
     }
   };
 }

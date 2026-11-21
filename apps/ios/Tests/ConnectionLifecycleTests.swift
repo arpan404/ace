@@ -146,10 +146,54 @@ import Testing
         busy(until: { session.acks.count >= frames }, for: 2)
         #expect(session.acks.count < frames)
         #expect(session.acks.count > 1)
-        await settle { session.acks.count == frames }
+        // The last frames are answered on decode, so their rows may land a moment after the acks.
+        await settle { session.acks.count == frames && model.thread?.order.count == frames }
         #expect(session.acks.count == frames)
-        #expect(model.thread?.order.count == frames)
+        #expect(model.thread?.order == (0..<frames).map { "r\($0)" })
         await close(model, session)
+    }
+
+    /// A patch sent in fragments weighs every fragment toward the cap, not only the last: one
+    /// reassembled patch past the cap waits for the main thread instead of being answered early.
+    @Test func aReassembledPatchPastTheCapWaitsForTheMainThread() async throws {
+        let (model, session) = try await connected()
+        model.open("t")
+        let epoch = try #require(model.thread?.epoch)
+        let text = String(repeating: "x", count: FrameIntake.answeredLimit + 100_000)
+        let bytes = try JSONSerialization.data(withJSONObject: item(epoch, "big", text, index: 0))
+        let size = 16_000
+        let chunks = stride(from: 0, to: bytes.count, by: size).map { bytes[$0..<min($0 + size, bytes.count)] }
+        for (index, chunk) in chunks.enumerated().dropLast() {
+            session.send([fragment(index, last: false, chunk)])
+        }
+        // The fragments before the last carry no rows; the main thread answers them.
+        await settle { session.acks.count == chunks.count - 1 }
+        #expect(session.acks.count == chunks.count - 1)
+        session.send([fragment(chunks.count - 1, last: true, try #require(chunks.last))])
+        busy(until: { session.acks.count >= chunks.count }, for: 0.5)
+        #expect(session.acks.count == chunks.count - 1)
+        await settle { session.acks.count == chunks.count && model.thread?.items["big"] != nil }
+        #expect(session.acks.count == chunks.count)
+        #expect(model.thread?.items["big"] != nil)
+        await close(model, session)
+    }
+    /// The cap counts frames answered early until the main thread has applied them, not only
+    /// until it has taken them: taken but still batched, they are rows the bridge counts as shown.
+    @Test func framesTakenButNotYetAppliedStillCountTowardTheCap() throws {
+        let intake = FrameIntake()
+        intake.opened("t", epoch: 1)
+        var frames = BridgeFrames()
+        let patches = try frames.decode(try frame([item(1, "a", "A", index: 0)]))
+        let half = FrameIntake.answeredLimit / 2 + 1
+        #expect(intake.push(patches, bytes: half) == true)
+        let taken = intake.take()
+        // Taken into the main thread's batch, not applied yet: the next one would pass the cap.
+        #expect(intake.push(patches, bytes: half) == nil)
+        intake.applied(taken.map(\.counted).reduce(0, +))
+        #expect(intake.push(patches, bytes: half) == true)
+    }
+    private func fragment(_ index: Int, last: Bool, _ chunk: Data) -> [String: Any] {
+        ["type": "fragment", "id": "transfer", "index": index, "last": last, "data": chunk.base64EncodedString()]
     }
 
     private func connected() async throws -> (ClientModel, Session) {
@@ -269,6 +313,125 @@ import Testing
         await model.disconnectAndWait()
     }
 
+    /// The new route's runtime opens the thread from a screenful (its tail), then sends the rest of
+    /// its window once native says that screenful is drawn. A thread already on screen never
+    /// shows the tail: its rows stay until the whole window replaces them, and the bridge is told
+    /// at once that nothing waits to be drawn, so that window comes now.
+    @Test func aRouteChangesTailNeverReplacesTheRowsOnScreenAndTheWholeWindowFollowsAtOnce() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let direct = try #require(sessions.values.first)
+        direct.emit("ready")
+        await drain()
+        model.open("thread")
+        let first = try #require(model.thread?.epoch)
+        model.receive(try frame([reset(first), row("a", 0, first), row("b", 1, first), row("c", 2, first),
+                                 ready(first, count: 3, revision: 1)]))
+        let shown = try #require(model.thread)
+        #expect(shown.order == ["a", "b", "c"])
+
+        let relay = Task { await model.connect(target: try target("mac", port: SpikeFixture.port + 1), directory: directory) }
+        await drain()
+        direct.finishShutdown()
+        try await relay.value
+        let replacement = try #require(sessions.values.last)
+        let second = try #require(model.thread?.epoch)
+
+        // The tail: the newest row alone, fenced as a tail.
+        model.receive(try frame([["type": "thread.reset", "threadId": "thread", "epoch": second, "revision": 2],
+                                 row("c", 0, second), ready(second, count: 1, revision: 2, tail: true)]))
+        #expect(model.thread === shown)
+        #expect(shown.order == ["a", "b", "c"])
+        #expect(shown.loaded)
+        let told = replacement.actions.filter { $0["type"] as? String == "thread.shown" }
+        #expect(told.count == 1)
+        #expect(told.first?["epoch"] as? Int == second)
+
+        // The whole window carries on from the tail, as the bridge's ledger holds it.
+        model.receive(try frame([["type": "thread.snapshot.begin", "threadId": "thread", "epoch": second, "revision": 3],
+                                 row("a", 0, second), row("b", 1, second),
+                                 ["type": "thread.position", "threadId": "thread", "epoch": second, "id": "c", "index": 2],
+                                 row("d", 3, second), ready(second, count: 4, revision: 3)]))
+        #expect(shown.order == ["a", "b", "c", "d"])
+        model.disconnect()
+        await drain()
+        replacement.finishShutdown()
+        await model.disconnectAndWait()
+    }
+
+    /// The bridge diffs a whole-thread pass against what native acknowledged. A pass that begins
+    /// while the new runtime's staging is still filling (its tail's fence not in yet) carries on
+    /// from that staging: seeded again from the copy on screen, it would bring back a request the
+    /// bridge has already told native was answered, and never send its answer again.
+    @Test func anAnsweredRequestNeverComesBackWhenTheWholeWindowBeginsBeforeTheTailsFence() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let direct = try #require(sessions.values.first)
+        direct.emit("ready")
+        await drain()
+        model.open("thread")
+        let first = try #require(model.thread?.epoch)
+        model.receive(try frame([reset(first), row("a", 0, first), request(first, state: "pending"),
+                                 ready(first, count: 1, revision: 1)]))
+        let shown = try #require(model.thread)
+        #expect(shown.approvals.map(\.id) == ["req-1"])
+
+        let relay = Task { await model.connect(target: try target("mac", port: SpikeFixture.port + 1), directory: directory) }
+        await drain()
+        direct.finishShutdown()
+        try await relay.value
+        let replacement = try #require(sessions.values.last)
+        let second = try #require(model.thread?.epoch)
+
+        // The new runtime's cold reset, the row and the request's answer, acknowledged; then the
+        // whole window begins before any fence, and sends only what changed since.
+        model.receive(try frame([["type": "thread.reset", "threadId": "thread", "epoch": second, "revision": 2],
+                                 row("a", 0, second), request(second, state: "approved")]))
+        model.receive(try frame([["type": "thread.snapshot.begin", "threadId": "thread", "epoch": second, "revision": 3],
+                                 ready(second, count: 1, revision: 3)]))
+        #expect(shown.order == ["a"])
+        #expect(shown.approvals.isEmpty)
+        #expect(shown.interactions["req-1"]?.state == "approved")
+        model.disconnect()
+        await drain()
+        replacement.finishShutdown()
+        await model.disconnectAndWait()
+    }
+
+    /// A route change keeps the thread's model and starts the navigation count again, so the new
+    /// runtime's generation can equal the one a reveal began under. That reveal drew the old
+    /// runtime's screen and must not tell the new one its first screen is shown.
+    @Test func aRevealFromTheRetiredRuntimeNeverReportsTheNewRuntimesFirstScreen() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let direct = try #require(sessions.values.first)
+        direct.emit("ready")
+        await drain()
+        model.open("thread")
+        let shown = try #require(model.thread)
+        let revealing = model.showing(shown)
+
+        let relay = Task { await model.connect(target: try target("mac", port: SpikeFixture.port + 1), directory: directory) }
+        await drain()
+        direct.finishShutdown()
+        try await relay.value
+        let replacement = try #require(sessions.values.last)
+        #expect(model.thread === shown)
+        #expect(shown.epoch == revealing.epoch)
+
+        model.threadShown(shown, at: revealing)
+        #expect(!replacement.actions.contains { $0["type"] as? String == "thread.shown" })
+        model.threadShown(shown, at: model.showing(shown))
+        #expect(replacement.actions.filter { $0["type"] as? String == "thread.shown" }.count == 1)
+        model.disconnect()
+        await drain()
+        replacement.finishShutdown()
+        await model.disconnectAndWait()
+    }
+
     @Test func aRouteChangeKeepsTheTypedReviewReplyAndAnswersItsUnansweredSend() async throws {
         let sessions = Sessions()
         let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
@@ -313,6 +476,25 @@ import Testing
     }
     private func ready(_ epoch: Int) -> [String: Any] {
         ["type": "thread.ready", "threadId": "thread", "epoch": epoch, "count": 1, "revision": 1]
+    }
+    private func ready(_ epoch: Int, count: Int, revision: Int, tail: Bool = false) -> [String: Any] {
+        var patch: [String: Any] = ["type": "thread.ready", "threadId": "thread", "epoch": epoch, "count": count, "revision": revision]
+        if tail { patch["tail"] = true }
+        return patch
+    }
+    private func request(_ epoch: Int, state: String) -> [String: Any] {
+        let options: [[String: Any]] = [["id": "allow-once", "label": "Allow once", "kind": "allow_once"]]
+        return ["type": "thread.interaction", "threadId": "thread", "epoch": epoch, "id": "req-1", "row": [
+            "id": "req-1", "kind": "approval", "state": state, "title": "Migrate schema",
+            "description": "", "command": "bun run db:migrate", "options": options,
+            "decisions": [["verb": "allow_once", "option": 0, "label": "Allow once", "scope": "", "emphasis": "primary"]],
+            "truncated": false, "summarized": "", "wholeState": "loaded", "wholeRetryable": false,
+        ] as [String: Any]]
+    }
+    private func row(_ id: String, _ index: Int, _ epoch: Int) -> [String: Any] {
+        var patch = item(id, epoch: epoch)
+        if var row = patch["row"] as? [String: Any] { row["index"] = index; patch["row"] = row }
+        return patch
     }
     private func item(_ id: String, epoch: Int) -> [String: Any] {
         let row: [String: Any] = ["id": id, "index": 0, "type": "message", "role": "user", "text": id,

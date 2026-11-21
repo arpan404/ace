@@ -85,9 +85,9 @@ export function spadeBotRow(bot: SpadeRowBot, notYet?: string): SpadeRow {
   // The person has its computer: Spade pauses it until they hand it back.
   if (bot.computer?.driver === "person")
     return { state: "rest", line: "Paused while you have the computer" };
-  // A task it carries on by itself, or one that waits on the person, in its chat's words.
-  const task = spadeTaskLine(bot.name, bot.progress, bot.status);
-  if (task?.tone === "needs-you") return { state: "needs-you", line: task.step ?? "Needs you" };
+  // A task it carries on by itself, in its chat's words. A bot Spade reads waiting returned
+  // above, so its own `blocked_on_person` here is stale and never reads needs you.
+  const task = spadeTaskLine(bot.name, bot.progress, bot.status, false);
   const goal = goalRow(bot, task !== undefined, notYet);
   if (goal) return goal;
   // Waiting on a job, another bot or its next step's time: nothing for the person to do.

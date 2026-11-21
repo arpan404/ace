@@ -62,7 +62,14 @@ export interface ServicesSeed extends AutomationSeed {
   notificationPublicKey?: string;
   attachmentImages?: { threadId: string; name?: string }[];
   /** Text attachments with precomputed hashes, such as published HTML visualizations. */
-  attachmentTexts?: { threadId: string; sha256: string; text: string; name: string }[];
+  attachmentTexts?: {
+    threadId: string;
+    sha256: string;
+    text: string;
+    name: string;
+    /** The stored type; `text/plain` by default. */
+    mimeType?: string;
+  }[];
   plugins?: PluginSeed;
   /** ace's marketplace (ADR 0168): listings, featured entries, categories and installs. */
   marketplace?: MarketplaceSeed;

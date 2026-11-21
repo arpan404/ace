@@ -37,6 +37,17 @@ extension ThreadModel {
         metadataCurrent = false
     }
 
+    /// Whether the staging is the complete tail `revision` and `count` describe, which then stays
+    /// staged behind what is on screen instead of committing: the whole window's pass carries on
+    /// from it. False when the fence doesn't describe the staging; the caller then treats it as
+    /// any failed fence.
+    func holdTail(revision: Int?, count: Int) -> Bool {
+        guard let incoming = refresh else { return false }
+        if let revision, let staged = refreshRevision, revision != staged { return false }
+        incoming.reorder()
+        return incoming.order.count == count
+    }
+
     /// Legacy cold begin without an explicit revision (older bridges, recorded tests).
     func beginRefresh() {
         beginSnapshot(revision: nil, warm: false, before: nil)

@@ -13,6 +13,11 @@ const types: Record<string, string> = {
   wav: "audio/wav",
   mp4: "video/mp4",
   mov: "video/quicktime",
+  heic: "image/heic",
+  heif: "image/heif",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  bmp: "image/bmp",
 };
 export function binaryMime(name: string, declared?: string): string {
   return (

@@ -13,7 +13,7 @@ import type { SocketContext, SocketService } from "./socket.ts";
 const maxStreams = 16;
 /** What the session reads of the Spade service. */
 export type SpadeAccess = Pick<SpadeLink, "ready" | "status" | "subscribe" | "onRunEnded"> &
-  Partial<Pick<SpadeLink, "revokeGrant" | "personKey">>;
+  Partial<Pick<SpadeLink, "revokeGrant" | "personKey" | "previews">>;
 type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> &
   Partial<
     Pick<SocketContext, "device" | "personProven" | "memberStanding" | "orgHost" | "spadeAuthorize">
@@ -68,6 +68,7 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     context.spadeAuthorize ? context.spadeAuthorize(scope) : context.authorize(scope);
   const http = createSpadeHttp({
     host,
+    previews: host()?.previews,
     authorize: allowed,
     connected: () => context.connected(),
     send: (message) => context.send(message),

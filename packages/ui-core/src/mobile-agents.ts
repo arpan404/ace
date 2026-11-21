@@ -2,6 +2,8 @@ import { isInternalTask } from "@ace/projection";
 import type { Agent, BackgroundTask, Interaction } from "@ace/protocol";
 import type { ThreadReader } from "@ace/client";
 import { agentName, agentTreeWork, agentWorkState, taskState } from "./agents.ts";
+import { attentionOrder } from "./agent-order.ts";
+import { subagentsAtWork } from "./live-status.ts";
 import { lostChildAsk, type LostChildAsk } from "./lost-child.ts";
 import { modelLabel } from "./providers.ts";
 import { toneToken, type StatusDisplay, type StatusToken } from "./mobile-status.ts";
@@ -134,8 +136,19 @@ function collect<T>(ids: readonly string[], read: (id: string) => T | undefined)
   return out;
 }
 
-/** Depth-first from each root (an agent with no parent, or whose parent isn't held). */
-function treeOrder(agents: readonly Agent[]) {
+/**
+ * Depth-first from each root (an agent with no parent, or whose parent isn't held). Siblings
+ * read as `attentionOrder` puts them: who needs the person, what works, then the rest newest
+ * first.
+ */
+function treeOrder(
+  agents: readonly Agent[],
+  work: { needsYou: ReadonlySet<string>; running: ReadonlySet<string> },
+) {
+  const rank = attentionOrder(
+    (agent: Agent) => ({ needsYou: work.needsYou.has(agent.id), live: work.running.has(agent.id) }),
+    (agent) => agent.createdAt,
+  );
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
   const children = new Map<string, Agent[]>();
   for (const agent of agents)
@@ -158,7 +171,9 @@ function treeOrder(agents: readonly Agent[]) {
     if (seen.has(next.agent.id)) continue;
     seen.add(next.agent.id);
     order.push(next);
-    const own = (children.get(next.agent.id) ?? []).toSorted((a, b) => b.createdAt - a.createdAt);
+    // Reversed before the stable sort, so agents started in the same millisecond read latest
+    // first; pushed in reverse, so the first in `attentionOrder` comes off the stack first.
+    const own = (children.get(next.agent.id) ?? []).toReversed().toSorted(rank).toReversed();
     for (const child of own) stack.push({ agent: child, depth: next.depth + 1 });
   }
   return order;
@@ -232,7 +247,7 @@ export function agentSheet(
     if (ask && !lost.has(ask.childThreadId)) lost.set(ask.childThreadId, ask);
   }
   const fresh = reader.unconfirmed !== true && reader.syncing !== true;
-  const order = treeOrder(agents);
+  const order = treeOrder(agents, work);
   // Stop names only the subagents it would stop: those still unsettled.
   const descendants = descendantCounts(order, (id) => work.running.has(id));
   // The first page holds what the person must see first, each with the ancestors that place
@@ -294,14 +309,15 @@ export function agentSheet(
       continue;
     }
     const state = agentWorkState(agent, work, { fresh });
+    // An unnamed subagent goes by what the call that started it says it is for.
+    const name = agentName(agent, agent.spawnedBy ? reader.item(agent.spawnedBy) : undefined);
     const modelId = agent.model ?? usage?.model ?? "";
     const running = work.running.has(agent.id);
     rows.push({
       id: agent.id,
       parentId: agent.parentId,
       depth,
-      // An unnamed subagent goes by what the call that started it says it is for.
-      name: agentName(agent, agent.spawnedBy ? reader.item(agent.spawnedBy) : undefined),
+      name,
       model: modelId,
       status: { label: state.label, token: toneToken(state.tone) },
       activity: state.activity,
@@ -317,7 +333,8 @@ export function agentSheet(
       endedAt: agent.endedAt ?? null,
       provider: agent.native.provider,
       modelLabel: modelId ? modelLabel(modelId) : "",
-      role: agent.role ?? "",
+      // A role that is only its name again ("Fix-2132…" twice) says nothing more.
+      role: agent.role && agent.role.toLowerCase() !== name.toLowerCase() ? agent.role : "",
       machine: agent.machine?.name ?? null,
       reason: agentNodeReason(agent),
       icon: agentNodeIcon(
@@ -365,6 +382,18 @@ export function agentSheet(
         ? { used: meter.usedTokens, window: meter.windowTokens }
         : null,
     treeRunning: work.running.size > 0,
-    summary: agentTreeSummary({ agents, tasks: listed, work, asking, fresh }),
+    summary: agentTreeSummary({
+      agents,
+      tasks: listed,
+      work,
+      asking,
+      fresh,
+      // The count the thread's chip says, so the two never disagree while rows still arrive.
+      working: subagentsAtWork(
+        agents.filter((agent) => agent.origin !== "root" && work.running.has(agent.id)).length,
+        reader.thread?.live,
+        agents.find((agent) => agent.origin === "root")?.status,
+      ),
+    }),
   };
 }

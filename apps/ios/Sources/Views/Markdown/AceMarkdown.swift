@@ -2,9 +2,10 @@ import Markit
 import SwiftUI
 
 /// Markdown as ace draws it everywhere: markit's native rendering (CommonMark,
-/// tables, task lists, code blocks with grammar colours, Copy and a "Show all" fold past 22 lines,
+/// task lists, code blocks with grammar colours, Copy and a "Show all" fold past 22 lines,
 /// diff fences, inline and display math) in ace's look (`AceMarkdownTheme`). It takes the width it
-/// is offered and the height its content needs.
+/// is offered and the height its content needs. A table at the margin is drawn by ace
+/// (`MarkdownTableView`): fitted to that width, and scrolling sideways only when its words can't fit.
 ///
 /// A streaming message reaches markit at a steady pace (`StreamPace`) rather than on every delta,
 /// and markit reparses only its open last blocks; finished text shows at once. Links open through
@@ -77,12 +78,33 @@ struct AceMarkdown: View {
         let onReference: (MarkitReference) -> Void = { reference in
             if let route { if let target = route.reference(reference) { open(target) } } else { open(Self.url(for: reference)) }
         }
-        if !streaming, let shelf {
+        // Tables are ace's own (`MarkdownTableView`), between the prose markit draws. Task boxes
+        // tick by their offset in the whole text, so text that ticks them stays in one piece.
+        let shown = streaming ? (paced ?? text) : text
+        let pieces = onTask == nil ? MarkdownBlocks.split(shown) : [.prose(shown)]
+        VStack(alignment: .leading, spacing: theme.blockSpacing) {
+            ForEach(pieces.indices, id: \.self) { index in
+                switch pieces[index] {
+                case .prose(let prose):
+                    // Only the last piece can still be arriving.
+                    self.prose(prose, live: streaming && index == pieces.count - 1, theme: theme, onLink: onLink, onReference: onReference)
+                case .table(let source):
+                    MarkdownTableView(source: source, flavor: flavor, theme: theme, selectable: selectable,
+                                      onLink: onLink, onReference: onReference)
+                        .equatable()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func prose(_ text: String, live: Bool, theme: MarkitTheme, onLink: @escaping (URL) -> Void,
+                                    onReference: @escaping (MarkitReference) -> Void) -> some View {
+        if !live, let shelf {
             ShelvedMarkdown(text: text, flavor: flavor, theme: theme, selectable: selectable,
                             codeCollapse: Self.collapse, onLink: onLink, onReference: onReference,
                             resolveImage: resolveImage, onTask: onTask, renderDiagram: renderDiagram, shelf: shelf)
         } else {
-            MarkitInline(markdown: streaming ? (paced ?? text) : text, finalized: !streaming, flavor: flavor,
+            MarkitInline(markdown: text, finalized: !live, flavor: flavor,
                          theme: theme, isTextSelectable: selectable, codeCollapse: Self.collapse,
                          onLink: onLink, onReference: onReference,
                          resolveImage: resolveImage, onTask: onTask, renderDiagram: renderDiagram)

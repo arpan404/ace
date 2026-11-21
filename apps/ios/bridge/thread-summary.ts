@@ -90,6 +90,7 @@ export class ThreadSummary {
   #catchUp: { since: number; reply: ThreadCatchUpResponse } | undefined;
   #showClosed = false;
   #showDone = false;
+  #showUnsure = false;
   #tick: (() => void) | undefined;
   #closed = false;
   /** The spare room last tried at: one try per rise, cleared once room runs out. */
@@ -151,6 +152,12 @@ export class ThreadSummary {
   /** Open or close the agents' "N done" fold: its rows cross only while it is open. */
   doneRows(shown: boolean): void {
     this.#showDone = shown;
+    this.#put();
+  }
+
+  /** Open or close the fold of agents not loaded yet: its rows cross only while it is open. */
+  unsureRows(shown: boolean): void {
+    this.#showUnsure = shown;
     this.#put();
   }
 
@@ -355,6 +362,7 @@ export class ThreadSummary {
           plans: this.#plans(),
           showClosed: this.#showClosed,
           showDone: this.#showDone,
+          showUnsure: this.#showUnsure,
           now,
           name: (threadId, agent) => this.#name(threadId, agent),
           agent: (id) => this.#store.agent(id),

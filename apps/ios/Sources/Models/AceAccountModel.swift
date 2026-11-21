@@ -28,7 +28,9 @@ private struct AccountPoll: Decodable {
     let session: AccountGrant?
 }
 /// `refused`: a 403, such as Delete account from a session the backend won't let delete it.
-private enum AccountFailure: Error { case request, expired, invalid, refused }
+/// `conflict`: a 409; from `session`, an account deletion this session asked for is still
+/// finishing.
+private enum AccountFailure: Error { case request, expired, invalid, refused, conflict }
 
 private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask,
@@ -92,6 +94,11 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
             await loadPicture()
         } catch AccountFailure.expired {
             try? secrets.delete(key); token = nil; account = nil; picture = nil
+        } catch AccountFailure.conflict {
+            // A deletion that failed before the app restarted: the backend's hourly sweep
+            // finishes it, and the saved session opens nothing else.
+            try? secrets.delete(key); token = nil; account = nil; picture = nil
+            error = "Your account is being deleted. ace finishes deleting it on its own shortly."
         } catch { self.error = "Couldn't verify your account. Try again." }
     }
 
@@ -260,6 +267,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         guard let response = response as? HTTPURLResponse else { throw AccountFailure.request }
         if response.statusCode == 401 || response.statusCode == 410 { throw AccountFailure.expired }
         if response.statusCode == 403 { throw AccountFailure.refused }
+        if response.statusCode == 409 { throw AccountFailure.conflict }
         if (400..<500).contains(response.statusCode) && response.statusCode != 429 { throw AccountFailure.invalid }
         guard (200..<300).contains(response.statusCode) else { throw AccountFailure.request }
         var data = Data()

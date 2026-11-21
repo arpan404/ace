@@ -205,6 +205,8 @@ import QuartzCore
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
     /// Which runtime is current: a retired one's late callbacks see a newer value and drop.
     @ObservationIgnored private var runtimeEpoch = 0
+    /// The current runtime's place in this model's count, for what must stay with one runtime.
+    var runtimeGeneration: Int { runtimeEpoch }
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
     /// Frames held to apply together on the next flush.
@@ -216,6 +218,8 @@ import QuartzCore
     /// batch and that can navigate (a snapshot retry opens the thread again), which takes the
     /// rest from here in order, so none is ever held ahead of one before it.
     @ObservationIgnored private var taken: [FrameIntake.Frame] = []
+    /// Bytes of the early-ack cap the frames held in the batch take, handed back once applied.
+    @ObservationIgnored private var heldEarly = 0
     @ObservationIgnored private let frameTiming: FrameTiming
     @ObservationIgnored private var sawFrame = false
     /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
@@ -286,10 +290,11 @@ import QuartzCore
         let decoder = FrameDecoder()
         let intake = FrameIntake()
         self.intake = intake
+        heldEarly = 0
         let answers = FrameAnswers()
         let runtime = makeRuntime(target, database, { [weak self] data in
-            decoder.decode(data) { patches in
-                if let accepted = intake.push(patches, bytes: data.count) { answers.acknowledge(accepted) }
+            decoder.decode(data) { patches, bytes in
+                if let accepted = intake.push(patches, bytes: bytes) { answers.acknowledge(accepted) }
                 Task { @MainActor in
                     guard let self, self.runtimeEpoch == epoch else { return }
                     self.takeFrames()
@@ -345,6 +350,8 @@ import QuartzCore
         flushTask?.cancel(); flushTask = nil
         let bytes = batch.bytes
         let patches = batch.take(at: frameTiming.now())
+        // Applied below, so the room they took under the early-ack cap is free again.
+        defer { intake.applied(heldEarly); heldEarly = 0 }
         guard !patches.isEmpty else { return }
         let began = CACurrentMediaTime()
         let patchesBefore = patchCount, updatesBefore = streamedUpdates
@@ -376,6 +383,7 @@ import QuartzCore
         taken.append(contentsOf: frames ?? intake.take())
         while !taken.isEmpty {
             let frame = taken.removeFirst()
+            heldEarly += frame.counted
             let accepted = hold(frame.patches, bytes: frame.bytes)
             if !frame.answered { runtime?.acknowledge(accepted: accepted) }
         }
@@ -640,19 +648,21 @@ import QuartzCore
                 target.loaded = target === reading
                 target.screen.reset()
             case .snapshotBegin(let id, let epoch, let revision, let before):
-                // Warm whole-thread pass: stage like a reset, keep showing the old copy.
+                // A pass while this generation is still staging (a held tail, a reset whose fence
+                // hasn't come, the open's first pass): the bridge's ledger sends only what changed
+                // since what native acknowledged, which is the staging, never the copy on screen.
+                // The staging carries on under the new revision; seeded again from the screen it
+                // would bring back what the bridge removed or answered, and send it never again.
+                if let thread, thread.id == id, thread.epoch == epoch, thread.refresh != nil {
+                    thread.refreshRevision = revision
+                    thread.refreshBefore = before
+                    continue
+                }
+                // Warm whole-thread pass over a committed copy: stage from it, keep showing it.
                 if let thread, thread.id == id, thread.epoch == epoch, thread.loaded {
                     thread.beginSnapshot(revision: revision, warm: true, before: before)
                     reorder = false
                     added = []
-                    continue
-                }
-                // A newer pass before the open's first fence: the bridge's ledger sends it only what
-                // changed since the rows already staged, so the staging carries on under its
-                // revision. Restaging empty would lose those rows and fail every fence after.
-                if let thread, thread.id == id, thread.epoch == epoch, thread.refresh != nil {
-                    thread.refreshRevision = revision
-                    thread.refreshBefore = before
                     continue
                 }
                 guard let target = scoped(id, epoch) else { continue }
@@ -702,12 +712,22 @@ import QuartzCore
                 target.interactions[interactionId] = row
                 if target !== reading, row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
             case .cursor(let id, let epoch, let cursor): scoped(id, epoch)?.cursor = cursor
-            case .ready(let id, let epoch, let count, let revision):
+            case .ready(let id, let epoch, let count, let revision, let tail):
                 if let thread, thread.id == id, thread.epoch == epoch {
                     if thread.refresh != nil {
                         // A late fence belongs to the superseded pass. Leave the newer
                         // staging intact; its own matching fence can still complete it.
                         if let revision, let staged = thread.refreshRevision, revision < staged { continue }
+                        // A screenful staged behind rows already on screen (a reconnect, a kept
+                        // copy read again) never replaces them: it stays staged, and the bridge
+                        // is told at once that nothing waits to be drawn, so the whole window,
+                        // which commits over them, comes now (`OpenTail.shown`).
+                        if tail, thread.loaded, !thread.order.isEmpty, thread.holdTail(revision: revision, count: count) {
+                            reorder = false
+                            added = []
+                            threadShown(thread, at: showing(thread))
+                            continue
+                        }
                         if thread.loaded, let incoming = thread.refresh, incoming.items.count > thread.items.count {
                             liveWindowWillGrow?()
                         }

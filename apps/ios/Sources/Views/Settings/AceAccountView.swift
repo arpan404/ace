@@ -121,10 +121,19 @@ struct AceAccountView: View {
                     .accessibilityIdentifier("account.signIn")
             }
         } footer: {
-            Text(Self.agreement)
-                .font(AceDesign.Typeface.meta)
-                .foregroundStyle(AceDesign.Ink.muted)
-                .accessibilityIdentifier("account.signIn.terms")
+            // Development and fixture builds name no account server (`ACE_ACCOUNT_URL`), so the
+            // greyed-out button says why rather than looking broken.
+            if model.configured {
+                Text(Self.agreement)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .accessibilityIdentifier("account.signIn.terms")
+            } else {
+                Text("This build has no account server, so sign-in is off.")
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .accessibilityIdentifier("account.signIn.off")
+            }
         }
         .insetRowBackground()
     }
