@@ -45,7 +45,13 @@ test("a bot carrying on by itself says so in its chat and its row, and the line 
 test("a task waiting on the person reads that the bot needs you", async () => {
   await spadeApp("/spade", (api) => {
     withSpade(api);
-    api.addAgent({ id: "scout", name: "Scout", task_state: { status: "blocked_on_person" } });
+    api.addAgent({
+      id: "scout",
+      name: "Scout",
+      state: "waiting",
+      waiting_for: "approval",
+      task_state: { status: "blocked_on_person" },
+    });
   });
   const row = await botRow("Scout");
   await waitFor(() => expect(row.textContent).toContain("Needs you"));
@@ -54,6 +60,21 @@ test("a task waiting on the person reads that the bot needs you", async () => {
   await waitFor(() =>
     expect(within(feed).getByRole("status").textContent).toContain("Scout needs you"),
   );
+});
+
+test("a bot that last said it was blocked on the person, with nothing open, never reads needs you", async () => {
+  // Its request was answered, its workers ended, or Spade restarted: Spade reads it idle.
+  await spadeApp("/spade", (api) => {
+    withSpade(api);
+    api.addAgent({ id: "scout", name: "Scout", task_state: { status: "blocked_on_person" } });
+  });
+  const row = await botRow("Scout");
+  await waitFor(() => expect(row.textContent).toContain("No messages yet"));
+  expect(row.textContent).not.toContain("Needs you");
+  await userEvent.click(row);
+  const feed = await screen.findByRole("feed", { name: "Conversation with Scout" });
+  await waitFor(() => expect(feed).toBeTruthy());
+  expect(within(feed).queryByText("Scout needs you")).toBeNull();
 });
 
 test("a task waiting on something else says so quietly, with its note and Stop for its next step", async () => {
