@@ -363,6 +363,18 @@ async fn the_hosts_audit_log_verifies_offline_and_a_rewrite_is_found() -> Result
     let (verified, _) =
         spade_server::org::export::verify(&log, "7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E");
     assert!(!verified);
+    // `ace org audit verify` runs the binary the release ships, offline.
+    let dir = tempfile::tempdir()?;
+    for (text, good) in [(&log, true), (&edited, false)] {
+        let file = dir.path().join("export.jsonl");
+        std::fs::write(&file, text)?;
+        let run = std::process::Command::new(env!("CARGO_BIN_EXE_spade"))
+            .arg("--verify-org-audit")
+            .arg(&file)
+            .arg(&key)
+            .output()?;
+        assert_eq!(run.status.success(), good, "{run:?}");
+    }
 
     // The outbox gives every entry once, in order, until the backend took them.
     let (_, outbox) = w.spade.get("/v1/org/audit/outbox?limit=500").await?;
