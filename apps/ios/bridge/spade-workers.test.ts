@@ -132,3 +132,52 @@ test("a bot waiting on one of its workers says so in the list, where its chat sh
 
   expect([row.state, row.line]).toEqual(["needs-you", "An agent it started needs you"]);
 });
+
+/** Research with one bot worker, Scout, made through `delegate`, as the roster lists it. */
+async function scouting(scout: { queued: boolean }) {
+  let conversation = "";
+  let made = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const host = await setUp((api) => {
+    const research = api.addAgent({ name: "Research" });
+    conversation = research.conversation;
+    made = api.addAgent({
+      name: "Scout",
+      state: "idle",
+      parent: { id: research.id, name: "Research" },
+      queued: scout.queued,
+    });
+    api.store(conversation, { type: "user_message", text: "Scout the venues" });
+    api.store(conversation, { type: "reply_started", reply: "r1" });
+    api.store(conversation, {
+      type: "worker_started",
+      reply: "r1",
+      worker: made.id,
+      kind: "bot",
+      name: "Scout",
+      call: "call-1",
+    });
+  });
+  host.spade.handle({ type: "spade.open", conversationId: conversation });
+  const workers = () =>
+    host.patches.bubbles.find((row): row is SpadeWorkersRow => row.kind === "workers");
+  if (!made) throw new Error("no scout");
+  return { ...host, workers, scout: made };
+}
+
+test("a bot worker still queued for a slot reads as waiting to start, never as having run", async () => {
+  const { workers } = await scouting({ queued: true });
+
+  // The roster alone lists the queued bot as idle; its maker's tree says it waits for a slot.
+  await until(() => workers()?.workers[0]?.line === "Queued");
+
+  expect(workers()?.title).toBe("Started 1 agent");
+  expect(workers()?.workers[0]?.tone).toBe("working");
+});
+
+test("a bot worker reads as done once its maker's tree says it has finished", async () => {
+  const { workers } = await scouting({ queued: false });
+
+  await until(() => workers()?.workers[0]?.line === "Done");
+
+  expect(workers()?.title).toBe("1 agent ran");
+});

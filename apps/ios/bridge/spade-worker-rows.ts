@@ -3,7 +3,9 @@ import {
   spadeAskingWords,
   spadeWorkersTitle,
   type SpadeAgent,
+  spadeTreeWorkerState,
   type SpadeStartedWorker,
+  type SpadeWorkerNode,
 } from "@ace/ui-core/spade-chat";
 
 /*
@@ -43,12 +45,18 @@ export interface SpadeWorkerFacts {
    * oldest open request asks for; undefined while the list doesn't say.
    */
   listed(thread: string): { state: SubagentState; asking: string | undefined } | undefined;
-  /** A bot from the bots list. */
+  /** A bot from the bots list, for its chat and its own words. */
   bot(id: string): SpadeAgent | undefined;
+  /** A bot worker as its maker's tree last said it: the only word on whether it has started. */
+  node(id: string): SpadeWorkerNode | undefined;
 }
 
 /** Nothing known yet: every worker still at work, never done (AGENTS.md priority 1). */
-export const unknownWorkers: SpadeWorkerFacts = { listed: () => undefined, bot: () => undefined };
+export const unknownWorkers: SpadeWorkerFacts = {
+  listed: () => undefined,
+  bot: () => undefined,
+  node: () => undefined,
+};
 
 const tones: Record<SubagentState, SpadeWorkerTone> = {
   human: "needs-you",
@@ -61,13 +69,17 @@ const tones: Record<SubagentState, SpadeWorkerTone> = {
   done: "rest",
 };
 
-/** A bot worker's state from the bots list; one the list doesn't have yet still works. */
-function botState(agent: SpadeAgent | undefined): SubagentState {
-  if (!agent) return "working";
-  if (agent.state === "waiting") return "human";
-  if (agent.state === "idle") return "done";
+/**
+ * A bot worker's state: its maker's tree first, which knows one queued for a slot from one that
+ * finished (the roster lists both as idle); else waiting or paused as the roster says, and
+ * otherwise still at work, never done on the roster's word alone (AGENTS.md priority 1).
+ */
+function botState(agent: SpadeAgent | undefined, node: SpadeWorkerNode | undefined): SubagentState {
+  const tree = spadeTreeWorkerState(node);
+  if (tree) return tree;
+  if (agent?.state === "waiting") return "human";
   // Paused by the person: neither running nor done.
-  if (agent.state === "paused") return "waiting";
+  if (agent?.state === "paused") return "waiting";
   return "working";
 }
 
@@ -87,8 +99,10 @@ function workerLine(
     };
   }
   const agent = facts.bot(worker.id);
-  const state = botState(agent);
-  const words = agent?.status ?? (state === "human" ? "Needs you" : subagentLabels[state]);
+  const state = botState(agent, facts.node(worker.id));
+  // Its own words only while it works or waits on the person; a queued or finished bot's go stale.
+  const own = state === "working" || state === "human" ? agent?.status : undefined;
+  const words = own ?? (state === "human" ? "Needs you" : subagentLabels[state]);
   return {
     state,
     line: {

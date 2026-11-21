@@ -26,7 +26,10 @@ export class SpadeWorkerWatch {
   }
 
   /** What is known of the workers now, with bots from `agents`. */
-  facts(agents: () => readonly SpadeAgent[] | undefined): SpadeWorkerFacts {
+  facts(
+    agents: () => readonly SpadeAgent[] | undefined,
+    node: SpadeWorkerFacts["node"],
+  ): SpadeWorkerFacts {
     return {
       // The list is held only once a chat shows an ace worker.
       listed: (thread) => {
@@ -36,6 +39,7 @@ export class SpadeWorkerWatch {
         return state && { state, asking: store.thread(thread)?.live?.asking?.[0]?.kind };
       },
       bot: (id) => agents()?.find((agent) => agent.id === id),
+      node,
     };
   }
 
