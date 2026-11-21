@@ -365,7 +365,9 @@ enum BridgePatch: Decodable, Sendable {
     case metadata(String, Int, ThreadRow?)
     case interaction(String, Int, String, ApprovalRow?)
     case cursor(String, Int, Int)
-    case ready(String, Int, Int, Int?)
+    /// The open thread's snapshot is complete: `count` rows under `revision`. `tail` when it holds
+    /// only the newest screenful, which the rest of the thread's window follows.
+    case ready(String, Int, Int, Int?, tail: Bool)
     /// A warm whole-thread pass began: like `threadReset` but native keeps showing
     /// its copy until `thread.ready` with the same revision commits. Cold opens use
     /// `threadReset` (with revision); warm reopens diffing against the ledger use this.
@@ -456,7 +458,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, socket }
+    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, socket, tail }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -500,7 +502,8 @@ enum BridgePatch: Decodable, Sendable {
         case "thread.cursor": let (id, epoch) = try scope(); self = .cursor(id, epoch, try box.decode(Int.self, forKey: .cursor))
         case "thread.ready":
             let (id, epoch) = try scope()
-            self = .ready(id, epoch, try box.decode(Int.self, forKey: .count), try box.decodeIfPresent(Int.self, forKey: .revision))
+            self = .ready(id, epoch, try box.decode(Int.self, forKey: .count), try box.decodeIfPresent(Int.self, forKey: .revision),
+                          tail: try box.decodeIfPresent(Bool.self, forKey: .tail) ?? false)
         case "thread.snapshot.begin":
             let (id, epoch) = try scope()
             self = .snapshotBegin(id, epoch, try box.decode(Int.self, forKey: .revision), try box.decodeIfPresent(Int.self, forKey: .before))

@@ -105,3 +105,18 @@ test("a flush that takes under a millisecond traces its time, never zero", async
     vi.restoreAllMocks();
   }
 });
+
+test("a row native keeps turning down is parked without holding the thread's fence back for good", async () => {
+  const queue = new PatchPump();
+  // Native turns down every frame carrying the bad row, however it is degraded.
+  native.ack = (accepted) => {
+    const sent = native.frames.slice(native.frames.length - (native.batches.at(-1) ?? 0));
+    queue.ack(accepted && !sent.some((frame) => frame.id === "bad"));
+  };
+  queue.put("thread:item:good", () => ({ type: "thread.item", id: "good", row: { index: 0 } }));
+  queue.put("thread:item:bad", () => ({ type: "thread.item", id: "bad", row: { index: 1 } }));
+  queue.put("thread:ready", () => ({ type: "thread.ready", count: 2 }));
+  for (let turn = 0; turn < 40; turn++) await vi.advanceTimersByTimeAsync(100);
+  expect(native.frames.some((frame) => frame.type === "error")).toBe(true);
+  expect(native.frames.some((frame) => frame.type === "thread.ready")).toBe(true);
+});
