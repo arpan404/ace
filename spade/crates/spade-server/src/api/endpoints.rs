@@ -372,3 +372,27 @@ pub(super) async fn use_local(
     )
     .await
 }
+
+// `/endpoints/local` also names the local-server routes, and a static path wins over
+// `/endpoints/{id}`, so an endpoint whose id is `local` (one named "Local") is reached here.
+const LOCAL: &str = "local";
+
+pub(super) async fn update_local(state: State<AppState>, body: Body<EndpointBody>) -> Response {
+    update(state, Path(LOCAL.to_owned()), body).await
+}
+
+pub(super) async fn delete_local(state: State<AppState>) -> Response {
+    delete(state, Path(LOCAL.to_owned())).await
+}
+
+pub(super) async fn live_local(state: State<AppState>) -> Response {
+    live(state, Path(LOCAL.to_owned())).await
+}
+
+pub(super) async fn save_local_model(state: State<AppState>, body: Body<ModelBody>) -> Response {
+    save_model(state, Path(LOCAL.to_owned()), body).await
+}
+
+pub(super) async fn delete_local_model(state: State<AppState>, model: Query<ModelId>) -> Response {
+    delete_model(state, Path(LOCAL.to_owned()), model).await
+}

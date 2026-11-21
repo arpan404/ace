@@ -114,7 +114,18 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/main", get(moves::main_state).put(agents::set_main))
         .route("/endpoints", post(endpoints::create))
-        .route("/endpoints/local", get(endpoints::local))
+        .route(
+            "/endpoints/local",
+            get(endpoints::local)
+                .patch(endpoints::update_local)
+                .delete(endpoints::delete_local),
+        )
+        .route(
+            "/endpoints/local/models",
+            get(endpoints::live_local)
+                .post(endpoints::save_local_model)
+                .delete(endpoints::delete_local_model),
+        )
         .route("/endpoints/local/{server}", post(endpoints::use_local))
         .route(
             "/endpoints/{id}",

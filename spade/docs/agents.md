@@ -242,7 +242,8 @@ OpenAI `GET /models` (or Ollama's `/api/tags` shape), `endpoint` the person's en
 address if any. `POST /v1/endpoints/local/{server} {model}` adds the server as an
 `openai-chat` endpoint with no key the first time (an endpoint already at that address is used),
 saves the model on it and answers `{endpoint, value: "<endpoint>/<model>"}`; `404` for a server
-Spade doesn't know.
+Spade doesn't know. An endpoint whose id is `local` (one named "Local") keeps its own paths beside
+these: `PATCH` and `DELETE /v1/endpoints/local` and `/v1/endpoints/local/models` reach it.
 
 The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain (ADR 0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read
 from there on every start, holds presets: endpoint templates and known facts about model ids
