@@ -64,6 +64,23 @@ fn starts_authenticates_its_lanes_once_serves_both_lanes_and_exits_when_stdin_cl
 }
 
 #[test]
+fn the_binary_reports_the_init_level_it_takes_without_starting() {
+    // The daemon asks this before init; it never waits for stdin.
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ace-media"))
+        .arg("--init-level")
+        .stdin(std::process::Stdio::null())
+        .output();
+    let Ok(output) = output else {
+        panic!("ace-media did not run");
+    };
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        media_wire::control::INIT_LEVEL.to_string()
+    );
+}
+
+#[test]
 fn an_older_daemons_init_with_media_settings_still_starts_ace_media() {
     // A daemon from before ADR 0201 sends the media settings it had; ace-media ignores them.
     let mut media = Media::spawn("olderinit");

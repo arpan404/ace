@@ -12,6 +12,10 @@ fn main() {
             let _ = writeln!(io::stdout().lock(), "{VERSION}");
             return;
         }
+        Some("--init-level") => {
+            let _ = writeln!(io::stdout().lock(), "{}", media_wire::control::INIT_LEVEL);
+            return;
+        }
         // Image jobs (ADR 0201): no runtime, no sockets, no secrets. `--images` is the image
         // process the daemon supervises; `--image` runs one job, for tests and tools.
         Some(mode @ ("--image" | "--images")) => {

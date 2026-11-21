@@ -15,6 +15,8 @@ import { refusingRecorder, type MediaRecorder } from "@ace/media/tee-recordings"
 import {
   mediaBinaryPath,
   nodeMediaHost,
+  olderMediaReason,
+  speaksInit,
   systemMediaClock,
   systemWallClock,
 } from "@ace/media/supervisor";
@@ -40,7 +42,21 @@ function executable(path: string): string | undefined {
 }
 
 /** Why ace-media didn't start, for the person. */
+/** The binary answered `--init-level` with a level below `mediaInitLevel`, or nothing. */
+class OlderMedia extends Error {}
+
+/**
+ * The binary's init level (`--init-level`), with stdin closed at once: an older binary takes the
+ * flag for a start, reads end-of-file where init should be and exits saying nothing.
+ */
+async function readInitLevel(binary: string): Promise<string> {
+  const run = promisify(execFile)(binary, ["--init-level"], { timeout: 5_000 });
+  run.child.stdin?.end();
+  return (await run).stdout;
+}
+
 function mediaFailure(error: unknown): string {
+  if (error instanceof OlderMedia) return olderMediaReason;
   const detail = error instanceof Error ? error.message : String(error);
   return `Live video can't start: ace's media process didn't run (${detail.slice(0, 160)}).`;
 }
@@ -194,6 +210,8 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
     const trying = executable(binary);
     return (starting = (async () => {
       const { stdout } = await promisify(execFile)(binary, ["--version"], { timeout: 5_000 });
+      // An older ace-media would refuse this daemon's init: it is never started, and says so.
+      if (!speaksInit(await readInitLevel(binary))) throw new OlderMedia();
       if (closed) return;
       runtimeDir = mkdtempSync(join(tmpdir(), "acem-"));
       runtime = new MediaRuntime({
@@ -250,9 +268,9 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       start: async (spec) => {
         await start();
         if (!runtime)
-          return refusingRecorder(closed ? "the daemon is stopping" : "it didn't start").start(
-            spec,
-          );
+          return refusingRecorder(
+            closed ? "the daemon is stopping" : (failure ?? "it didn't start"),
+          ).start(spec);
         return runtime.recordings.start(spec);
       },
     },

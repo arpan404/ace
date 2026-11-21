@@ -349,3 +349,31 @@ it("a binary that never answers its version leaves every producer told why, befo
   media?.attach(producer(late));
   expect(late).toEqual(early);
 });
+
+it("an ace-media older than ace is refused before init, and live views and recordings say so", async () => {
+  // A binary from before the init change: it answers `--version`, and anything else runs its
+  // server, which reads init from stdin and gives up when stdin ends.
+  const { media, dir } = await daemonWith(
+    `echo "$*" >> "$(dirname "$0")/calls"\nif [ "$1" = "--version" ]; then echo "0.0.0-old"; exit 0; fi\ncat > /dev/null`,
+  );
+  const stops: string[] = [];
+  media?.attach(producer(stops));
+  await expect.poll(() => stops.length, { timeout: 5_000 }).toBe(1);
+  expect(stops[0]).toBe(
+    "Live video can't start: this ace-media is older than ace. Update ace or rebuild native/media.",
+  );
+  expect(media?.delivery()?.unserved("tab")).toBe(stops[0]);
+  const recording = await media?.recorder.start({
+    origin: { kind: "tab" },
+    directory: join(dir, "recording"),
+    maxBytes: 1 << 20,
+    private: () => false,
+    keyframe: () => {},
+  });
+  expect(recording).toMatchObject({ ok: false });
+  expect(JSON.stringify(recording)).toContain("older than ace");
+  // Never started as ace-media: only asked what it is, and not again in a loop.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const calls = (await readFile(join(dir, "calls"), "utf8")).trim().split("\n");
+  expect(calls).toEqual(["--version", "--init-level"]);
+});

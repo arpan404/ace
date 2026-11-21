@@ -1,6 +1,10 @@
 pub use crate::capability::{Acceleration, Backend, Capability, SourceStep, Step, TrialState};
 pub use crate::link::LinkHint;
 use serde::{Deserialize, Serialize};
+/// The init this binary takes, reported by `ace-media --init-level` so a daemon checks it before
+/// sending one. Level 2: init carries no media settings (ADR 0201). A daemon refuses a binary
+/// below its own level instead of starting it.
+pub const INIT_LEVEL: u32 = 2;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Status {
     #[serde(rename = "starting")]
