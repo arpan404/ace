@@ -58,6 +58,9 @@ import Testing
         // The tool's own words still find that page.
         #expect(SettingsSearch.matches(items, query: "subagents").first?.target
             == .machine(machine: "studio", page: "agents", pageTitle: "Agents", row: ""))
+        // The page's title and the tool's words together still find it once the index is read (#2480).
+        #expect(SettingsSearch.matches(items, query: "agents roles").contains { $0.place == nil
+            && $0.target == .machine(machine: "studio", page: "agents", pageTitle: "Agents", row: "") })
     }
 
     @Test func phoneSettingsAreFoundByTheWordsPeopleUse() {
