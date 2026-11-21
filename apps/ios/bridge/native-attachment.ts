@@ -2,7 +2,14 @@ import { attachmentBytes, listThreadAttachments, type ClientCore } from "@ace/cl
 import { BlobHash, ItemId, ThreadId, type Attachment } from "@ace/protocol";
 import { z } from "zod";
 
+import {
+  drawnAsPicture,
+  heicOriginalLimit,
+  originalStandsIn,
+  pictureBytes,
+} from "./attachment-picture.ts";
 import { base64 } from "./bytes.ts";
+import type { ImageBudget } from "./image-budget.ts";
 import { readNativeItem } from "./native-item.ts";
 
 /*
@@ -25,7 +32,8 @@ export type NativeAttachmentRequest = z.infer<typeof NativeAttachmentRequest>;
 
 /** The most of one file the phone fetches to open it (the SDK's own ceiling). */
 const originalLimit = 32 * 1024 * 1024;
-const shownImages = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+/** The most a daemon preview holds (`@ace/context`'s preview limit). */
+const previewBytes = 512 * 1024;
 /** Inline image data a message part may carry: base64 of an image type the phone decodes. */
 const inlineImage = /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/]+=*)$/;
 
@@ -43,12 +51,14 @@ export async function readNativeAttachment(
   signal: AbortSignal,
   /** The Attachments list the person is looking at, so a listed file isn't listed again. */
   listed?: { find(threadId: string, sha256: string): Attachment | undefined },
+  /** The phone's budget of image bytes in flight; unbounded when absent (a test's one read). */
+  images?: ImageBudget,
 ): Promise<NativeAttachment> {
   if (!request.itemId) {
     // Only a file the thread itself stores, as its Attachments list names it.
     if (request.ref.startsWith("part:")) throw new Error("Attachment unavailable");
     const known = listed?.find(request.threadId, request.ref);
-    if (known) return readStored(owner, request, known, signal);
+    if (known) return readStored(owner, request, known, signal, images);
     const files = await listThreadAttachments(
       request.threadId,
       async (operation) =>
@@ -59,7 +69,7 @@ export async function readNativeAttachment(
     );
     const stored = files.find((file) => file.sha256 === request.ref);
     if (!stored) throw new Error("Attachment unavailable");
-    return readStored(owner, request, stored, signal);
+    return readStored(owner, request, stored, signal, images);
   }
   // Another thread's item, or one the daemon refuses, simply has no files here.
   const item = await readNativeItem(owner, request.threadId, request.itemId, signal).catch(
@@ -78,7 +88,7 @@ export async function readNativeAttachment(
   }
   const attachment = item.attachments?.find((file) => file.sha256 === request.ref);
   if (!attachment) throw new Error("Attachment unavailable");
-  return readStored(owner, request, attachment, signal);
+  return readStored(owner, request, attachment, signal, images);
 }
 
 /** A stored file's preview or bytes, once the caller has shown the thread holds it. */
@@ -87,23 +97,45 @@ async function readStored(
   request: NativeAttachmentRequest,
   attachment: Attachment,
   signal: AbortSignal,
+  images: ImageBudget | undefined,
 ): Promise<NativeAttachment> {
   const thumbnail = request.variant === "thumbnail";
-  // A file without a preview is never downloaded whole just to draw a row.
-  if (thumbnail && !attachment.thumbnailAvailable) throw new Error("No preview");
+  // A file without a preview is never downloaded whole just to draw a row, except a small HEIC
+  // the daemon couldn't preview, which the phone decodes itself (`attachment-picture.ts`).
+  const standIn = thumbnail && originalStandsIn(attachment);
+  if (thumbnail && !attachment.thumbnailAvailable && !standIn) throw new Error("No preview");
   if (!thumbnail && attachment.bytes > originalLimit) throw new Error("Too large to open here");
-  const result = await attachmentBytes(
-    owner,
-    {
-      threadId: request.threadId,
-      sha256: attachment.sha256,
-      variant: request.variant,
-      ...(thumbnail ? {} : { maxBytes: originalLimit }),
-    },
-    { signal },
+  const read = (variant: "thumbnail" | "original", maxBytes: number | undefined) =>
+    attachmentBytes(
+      owner,
+      {
+        threadId: request.threadId,
+        sha256: attachment.sha256,
+        variant,
+        ...(maxBytes === undefined ? {} : { maxBytes }),
+      },
+      { signal },
+    );
+  const original = () => read("original", thumbnail ? heicOriginalLimit : originalLimit);
+  const fetch = () =>
+    thumbnail && attachment.thumbnailAvailable
+      ? read("thumbnail", undefined).catch((error: unknown) => {
+          if (!standIn || signal.aborted) throw error;
+          return original();
+        })
+      : original();
+  // Counted at the most it may bring as base64: a preview, or the original whole.
+  const most = Math.ceil(
+    ((thumbnail && !standIn ? previewBytes : Math.max(attachment.bytes, previewBytes)) * 4) / 3,
   );
+  const result = images ? await images.run(most, fetch) : await fetch();
+  // Only bytes that begin as a picture are ever handed to the phone's decoder.
+  const picture =
+    drawnAsPicture({ mimeType: result.mimeType, name: attachment.name }) &&
+    pictureBytes(result.bytes);
+  if (thumbnail && !picture) throw new Error("Not a picture");
   return {
-    kind: shownImages.has(result.mimeType) ? "image" : "file",
+    kind: picture ? "image" : "file",
     name: attachment.name,
     mimeType: result.mimeType,
     data: base64(result.bytes),

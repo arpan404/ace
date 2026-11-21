@@ -4,7 +4,7 @@ import {
   resumeAttachmentCleanup,
   type AttachmentCleanupEntry,
 } from "./retention.ts";
-import { hasThumbnail } from "./attachment-bytes.ts";
+import { hasThumbnail, opaquePreviewable } from "./attachment-bytes.ts";
 import { beginUpload, formatLimit } from "./upload-admission.ts";
 import { allAttachments, listAttachmentPage } from "./attachment-list.ts";
 import { BlobLeases, type BlobLease } from "./blob-leases.ts";
@@ -462,7 +462,14 @@ export class UploadStore {
       attachment = Attachment.parse({
         ...inspected,
         name: row.name,
-        thumbnailAvailable: inspected.kind === "image" && hasThumbnail(inspected.mimeType),
+        thumbnailAvailable:
+          inspected.kind === "image"
+            ? hasThumbnail(inspected.mimeType)
+            : await opaquePreviewable(
+                candidate,
+                inspected.mimeType,
+                (this.options.imageLimits ?? defaultImageLimits).maxPixels,
+              ),
       });
     } catch (error) {
       await this.removeUpload(row);

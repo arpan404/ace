@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { link, open } from "node:fs/promises";
 import type { Attachment } from "@ace/protocol";
-import { fitImage } from "@ace/provider-kit/image";
+import { fitImage, imageSize } from "@ace/provider-kit/image";
 import { requireContext } from "./errors.ts";
 
 const extensions: Record<string, string> = {
@@ -14,8 +14,30 @@ const extensions: Record<string, string> = {
 export function mediaExtension(mime: string): string {
   return extensions[mime] ?? "";
 }
+/**
+ * Pictures kept as opaque files, which no provider takes natively (ADR 0034), but which the
+ * daemon's decoder reads: the apps still draw them from a preview.
+ */
+const previewOnly = new Set(["image/heic", "image/heif", "image/tiff", "image/bmp"]);
 export function hasThumbnail(mime: string): boolean {
-  return mime.startsWith("image/") && mediaExtension(mime) !== "";
+  return (mime.startsWith("image/") && mediaExtension(mime) !== "") || previewOnly.has(mime);
+}
+/**
+ * Whether an opaque file is a picture the daemon can preview: one of `previewOnly` whose header
+ * reads as an image within `maxPixels`. Reads only the header, never the pixels.
+ */
+export async function opaquePreviewable(
+  path: string,
+  mime: string,
+  maxPixels: number,
+): Promise<boolean> {
+  if (!previewOnly.has(mime)) return false;
+  try {
+    await imageSize({ input: { path }, maxPixels, autoOrient: false });
+    return true;
+  } catch {
+    return false;
+  }
 }
 /** Hard links keep the verified original bytes, including alpha and colour profiles. */
 export async function providerImagePath(path: string, mime: string): Promise<string> {

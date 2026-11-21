@@ -13,6 +13,9 @@ import {
   spadeRefusedAt,
 } from "./spade-question-rows.ts";
 import { spadeProfile, type SpadeProfileRow } from "./spade-profile.ts";
+import type { ImageBudget } from "./image-budget.ts";
+import { readSpadeImage, SpadeImageRequest } from "./spade-image.ts";
+import type { NativeAttachment } from "./native-attachment.ts";
 import {
   answerSpadeNewBot,
   spadeNewBotRequests,
@@ -91,6 +94,8 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
     // Spade's limit is in code points, and so is Zod's `max` on a string (not UTF-16 units).
     task: z.string().max(spadeAgentTaskMax),
   }),
+  /** A picture in a conversation, by its hash, for its thumbnail or the full-screen viewer. */
+  SpadeImageRequest,
   ...spadeSettingsRequests,
   ...spadeNewBotRequests,
 ]);
@@ -102,6 +107,7 @@ type Answer =
   | Outcome
   | { ok: true; profile: SpadeProfileRow }
   | { ok: true; task: string }
+  | ({ ok: true } & NativeAttachment)
   | SpadeSettingsAnswer
   | SpadeNewBotAnswer;
 
@@ -123,7 +129,7 @@ export async function answerSpade(
   owner: ClientCore,
   spade: NativeSpade,
   request: NativeSpadeRequest,
-  deps: { id(): string; now(): number },
+  deps: { id(): string; now(): number; images: ImageBudget },
   signal: AbortSignal,
 ): Promise<Answer> {
   const ask = (
@@ -164,6 +170,13 @@ export async function answerSpade(
       );
     case "spade.question.read":
       return readBack(spade, request.conversationId, (route) => ask("GET", route));
+    case "spade.image":
+      try {
+        const image = await readSpadeImage(owner, deps.images, deps.id, request, signal);
+        return { ok: true, ...image };
+      } catch (error) {
+        return refused("Couldn't show the image", error);
+      }
     case "spade.enable":
       return setRunning(owner, spade, true, signal);
     case "spade.group.send":
