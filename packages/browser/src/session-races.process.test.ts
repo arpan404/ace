@@ -1,7 +1,5 @@
 import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { expect, it, onTestFinished } from "vitest";
-import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
 import { FakeHeadless, FakePage, backendFixture, markedJpeg } from "./backend-test-support.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
 
