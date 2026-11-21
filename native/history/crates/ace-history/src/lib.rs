@@ -12,6 +12,7 @@ mod fsread;
 mod hooks;
 mod import;
 mod json;
+mod opencode;
 mod options;
 mod paths;
 mod scan;

@@ -9,7 +9,7 @@ mod sample;
 pub mod stat;
 mod walk;
 
-pub use jsonl::{JsonLines, RECORD_LIMIT, RecordKind, read_range};
+pub use jsonl::{JsonLines, RECORD_LIMIT, RecordKind, decode, read_range};
 pub use open::safe_open;
 pub use sample::read_head_tail;
 pub use walk::{Budget, walk_files};

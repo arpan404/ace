@@ -85,6 +85,39 @@ fn spawned_elsewhere(payload: &serde_json::Map<String, Value>) -> bool {
         )
 }
 
+/// `[1, 2, 3].includes(Number(version ?? 1))`: the Pi session formats this reader opens.
+fn pi_version(version: Option<&Value>) -> bool {
+    let number = match version {
+        None | Some(Value::Null) => Some(1.0),
+        Some(Value::Bool(b)) => Some(if *b { 1.0 } else { 0.0 }),
+        Some(Value::Number(n)) => n.as_f64(),
+        Some(Value::String(s)) => js_to_number(s),
+        // `Number([x])` is `Number(String(x))`; any other array or object is NaN or 0.
+        Some(Value::Array(items)) => match items.as_slice() {
+            [Value::String(s)] => js_to_number(s),
+            [Value::Number(n)] => n.as_f64(),
+            [Value::Bool(_)] => None,
+            _ => None,
+        },
+        Some(Value::Object(_)) => None,
+    };
+    number.is_some_and(|n| n == 1.0 || n == 2.0 || n == 3.0)
+}
+
+/// `Number(text)` for the values that can equal a small integer: decimal, signed, exponent or
+/// hex, surrounded by whitespace.
+fn js_to_number(text: &str) -> Option<f64> {
+    let text = js::trim(text);
+    if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        return u64::from_str_radix(hex, 16).ok().map(|n| n as f64);
+    }
+    let valid = !text.is_empty()
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.' | b'e' | b'E'));
+    if valid { text.parse().ok() } else { None }
+}
+
 /// The catalog summary of one transcript, from its sampled records.
 pub fn summary(
     home: &Home,
@@ -153,6 +186,35 @@ pub fn summary(
                 }
                 if is_true(r, "isSidechain") {
                     parent.get_or_insert_with(|| "sidechain".to_owned());
+                }
+            }
+            Provider::Pi => {
+                let kind = field(r, "type").as_str();
+                if kind == Some("session") {
+                    if let Some(id) = string(r, "id") {
+                        native_id = id.to_owned();
+                    }
+                    if !pi_version(r.get("version")) {
+                        reason = Some(
+                            "This Pi history format cannot be opened. Update ace and try again."
+                                .to_owned(),
+                        );
+                    }
+                }
+                if kind == Some("session_info")
+                    && let Some(name) = string(r, "name")
+                {
+                    title = name.to_owned();
+                }
+                if kind == Some("model_change")
+                    && let Some(id) = string(r, "modelId")
+                {
+                    model = Some(id.to_owned());
+                }
+                if kind == Some("message")
+                    && matches!(field(message, "role").as_str(), Some("user" | "assistant"))
+                {
+                    count += 1;
                 }
             }
             _ => {}

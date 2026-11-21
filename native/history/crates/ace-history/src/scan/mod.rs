@@ -4,7 +4,9 @@
 //! at a time, and write each batch of 64 in one transaction.
 
 mod codex;
+mod database;
 mod sample;
+mod storage;
 mod summary;
 mod tally;
 pub mod user;
@@ -35,7 +37,7 @@ const READERS: usize = 8;
 /// Everything a scan uses.
 pub struct Scan<'a> {
     pub catalog: &'a mut Catalog,
-    pub scratch: &'a mut SnapshotScratch,
+    pub scratch: &'a SnapshotScratch,
     pub options: &'a Options,
     pub cancel: &'a Cancel,
     pub now: &'a dyn Fn() -> f64,
@@ -134,8 +136,9 @@ impl Scan<'_> {
         if !batch.is_empty() {
             self.flush(home, epoch, batch)?;
         }
+        // Only recognized database names in the home root are opened, never auth or config.
+        database::databases(self, home, epoch)?;
         if home.provider == Provider::Codex {
-            codex::databases(self, home, epoch)?;
             codex::titles(self, home, epoch)?;
         }
         self.cancel.check()?;
@@ -170,7 +173,8 @@ impl Scan<'_> {
 
     fn precheck(&mut self, home: &Home, path: &Path) -> Result<Pre> {
         let name = text(path);
-        if !name.ends_with(".jsonl") {
+        let stored = home.provider == Provider::Opencode;
+        if !name.ends_with(if stored { ".json" } else { ".jsonl" }) {
             if name.ends_with(".zst") && !self.tally.unsupported.iter().any(|(i, _)| *i == home.id)
             {
                 self.tally.unsupported(
@@ -185,7 +189,11 @@ impl Scan<'_> {
             self.report()?;
         }
         let info = std::fs::symlink_metadata(path).map_err(|e| io_at(e, path))?;
-        let fp = fingerprint(&info);
+        let fp = if stored {
+            crate::opencode::storage::fingerprint(home, path, self.cancel)?
+        } else {
+            fingerprint(&info)
+        };
         if self.catalog.matches(&home.id, &name, &fp)? {
             self.tally.skipped += 1;
             return Ok(Pre::Done(Some(Write::Touch {
@@ -309,14 +317,25 @@ impl Scan<'_> {
                         let index = next.fetch_add(1, Ordering::SeqCst);
                         let Some(job) = jobs.get(index) else { break };
                         let mut read = Read::default();
-                        let found = read_content(
-                            home,
-                            &job.path,
-                            &job.fingerprint,
-                            self.cancel,
-                            &large,
-                            &mut read,
-                        );
+                        let found = if home.provider == Provider::Opencode {
+                            storage::read_storage(
+                                home,
+                                &job.path,
+                                self.scratch,
+                                self.cancel,
+                                &large,
+                                &mut read,
+                            )
+                        } else {
+                            read_content(
+                                home,
+                                &job.path,
+                                &job.fingerprint,
+                                self.cancel,
+                                &large,
+                                &mut read,
+                            )
+                        };
                         if let Ok(mut slots) = results.lock() {
                             slots[index] = Some((read, found));
                         }
@@ -355,7 +374,11 @@ impl Scan<'_> {
                     hidden: found.hidden,
                     path: text(&job.path),
                     fingerprint: job.fingerprint,
-                    kind: Kind::Jsonl,
+                    kind: if home.provider == Provider::Opencode {
+                        Kind::Storage
+                    } else {
+                        Kind::Jsonl
+                    },
                     instance_id: home.id.clone(),
                 }),
                 size: job.size,

@@ -167,6 +167,25 @@ test.skipIf(!binary)(
     expect(typescript.imports.some((i) => Object.keys(i.archive?.blobs ?? {}).length > 1)).toBe(
       true,
     );
+    // Every provider's homes are listed and imported, OpenCode's three stores and Pi included.
+    const kinds = new Set(
+      typescript.stored.sources.map((row) => `${String(row.instance)}:${String(row.kind)}`),
+    );
+    for (const kind of [
+      "opencode-storage:storage",
+      "opencode-v1:database",
+      "opencode-v2:database",
+      "pi-home:jsonl",
+    ])
+      expect(kinds).toContain(kind);
+    const importedFrom = (instance: string) =>
+      typescript.imports.filter(
+        (i) =>
+          i.archive !== null &&
+          typescript.stored.sources.some((row) => row.id === i.session && row.instance === instance),
+      ).length;
+    for (const instance of ["opencode-storage", "opencode-v1", "opencode-v2", "pi-home"])
+      expect(importedFrom(instance), instance).toBeGreaterThan(0);
     expect(rust.scan).toEqual(typescript.scan);
     expect(rust.stored).toEqual(typescript.stored);
     expect(rust.pages).toEqual(typescript.pages);

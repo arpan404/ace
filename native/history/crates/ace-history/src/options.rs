@@ -28,9 +28,6 @@ impl Provider {
     }
 }
 
-/// The providers this build reads itself (ADR 0206); the rest stay with the TypeScript reader.
-pub const OWN: [Provider; 3] = [Provider::Claude, Provider::Codex, Provider::Cursor];
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Home {
@@ -73,11 +70,9 @@ pub struct Options {
 impl Options {
     /// Whether this reader scans and imports `provider`.
     pub fn reads(&self, provider: Provider) -> bool {
-        OWN.contains(&provider)
-            && self
-                .providers
-                .as_ref()
-                .is_none_or(|p| p.contains(&provider))
+        self.providers
+            .as_ref()
+            .is_none_or(|p| p.contains(&provider))
     }
 
     /// The ids of the homes this reader scans.

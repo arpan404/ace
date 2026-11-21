@@ -4,8 +4,8 @@
 //! `history-plan-<pid>-*` work directories.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::cancel::Cancel;
 use crate::error::{Error, Result, io_at};
@@ -86,7 +86,8 @@ pub struct SnapshotScratch {
     pub root: PathBuf,
     policy: Policy,
     pid: i32,
-    held: bool,
+    /// Whether the one stage is taken; shared with the stage, which frees it when dropped.
+    held: Arc<AtomicBool>,
 }
 
 /// A private work directory, removed when dropped (or by the next start's sweep after a crash).
@@ -111,10 +112,20 @@ impl Drop for WorkDir {
     }
 }
 
-/// The one snapshot stage; released by [`SnapshotScratch::release`].
+/// The one snapshot stage, removed and freed when dropped.
 pub struct Stage {
     pub dir: PathBuf,
     lock: Option<std::fs::File>,
+    held: Arc<AtomicBool>,
+}
+
+impl Drop for Stage {
+    fn drop(&mut self) {
+        // Unlocked and closed first: Windows cannot remove a folder holding an open file.
+        drop(self.lock.take());
+        let _ = std::fs::remove_dir_all(&self.dir);
+        self.held.store(false, Ordering::SeqCst);
+    }
 }
 
 impl SnapshotScratch {
@@ -123,7 +134,7 @@ impl SnapshotScratch {
             root,
             policy,
             pid: std::process::id() as i32,
-            held: false,
+            held: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -168,9 +179,9 @@ impl SnapshotScratch {
         })
     }
 
-    pub fn acquire(&mut self, cancel: &Cancel) -> Result<Stage> {
+    pub fn acquire(&self, cancel: &Cancel) -> Result<Stage> {
         cancel.check()?;
-        if self.held {
+        if self.held.load(Ordering::SeqCst) {
             return Err(Error::message(super::BUSY));
         }
         self.sweep_prefixes(&["sqlite-read-"])?;
@@ -188,17 +199,12 @@ impl SnapshotScratch {
             }
         };
         crate::hooks::snapshot(&dir);
-        self.held = true;
+        self.held.store(true, Ordering::SeqCst);
         Ok(Stage {
             dir,
             lock: Some(lock),
+            held: self.held.clone(),
         })
-    }
-
-    pub fn release(&mut self, mut stage: Stage) {
-        drop(stage.lock.take());
-        let _ = std::fs::remove_dir_all(&stage.dir);
-        self.held = false;
     }
 
     /// Refuse before writing when a copy is over the cap or would starve the disk.
@@ -223,61 +229,45 @@ impl SnapshotScratch {
         Ok(())
     }
 
-    /// A copy-on-write clone, where the filesystem allows one. False otherwise.
-    pub fn clone_file(&self, source: &Path, target: &Path) -> bool {
-        let command = if cfg!(target_os = "macos") {
-            Some((
-                "/bin/cp",
-                vec![
-                    "-c".into(),
-                    source.as_os_str().to_owned(),
-                    target.as_os_str().to_owned(),
-                ],
-            ))
-        } else if cfg!(target_os = "linux") {
-            Some((
-                "cp",
-                vec![
-                    "--reflink=always".into(),
-                    source.as_os_str().to_owned(),
-                    target.as_os_str().to_owned(),
-                ],
-            ))
-        } else {
-            None
-        };
-        let Some((program, args)) = command else {
-            return false;
-        };
-        let Ok(mut child) = Command::new(program)
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        else {
-            return false;
-        };
-        let started = Instant::now();
-        let ok = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status.success(),
-                Ok(None) if started.elapsed() < Duration::from_secs(60) => {
-                    std::thread::sleep(Duration::from_millis(5))
-                }
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break false;
-                }
-            }
-        };
-        // A failed clone may leave an empty target; the streamed copy recreates it exclusively.
-        if !ok {
-            let _ = std::fs::remove_file(target);
-        }
-        ok
+    /// A copy-on-write clone of the open `source` at `target`, where the filesystem allows one.
+    /// It clones the descriptor that was checked, never a path, so nothing swapped in after the
+    /// check can be what is copied. False otherwise; the streamed copy then makes `target`.
+    pub fn clone_file(&self, source: &std::fs::File, target: &Path) -> bool {
+        clone_from(source, target)
     }
+}
+
+#[cfg(target_vendor = "apple")]
+fn clone_from(source: &std::fs::File, target: &Path) -> bool {
+    rustix::fs::fclonefileat(
+        source,
+        rustix::fs::CWD,
+        target,
+        rustix::fs::CloneFlags::empty(),
+    )
+    .is_ok()
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn clone_from(source: &std::fs::File, target: &Path) -> bool {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let Ok(out) = options.open(target) else {
+        return false;
+    };
+    let ok = rustix::fs::ioctl_ficlone(&out, source).is_ok();
+    drop(out);
+    // A failed clone leaves an empty target; the streamed copy recreates it exclusively.
+    if !ok {
+        let _ = std::fs::remove_file(target);
+    }
+    ok
+}
+
+#[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+fn clone_from(_source: &std::fs::File, _target: &Path) -> bool {
+    false
 }
 
 #[cfg(test)]

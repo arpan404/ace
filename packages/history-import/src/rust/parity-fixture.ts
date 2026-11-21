@@ -2,6 +2,7 @@ import { mkdir, readdir, writeFile, open } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { object, readJsonLines } from "@ace/native-session";
+import { providerHomes } from "./parity-providers.ts";
 import { claudeRecords, codexRecords, cwd, jsonl, nativeId, otherId } from "../test-support.ts";
 
 const fixtures = new URL("../../../../fixtures/", import.meta.url).pathname;
@@ -307,6 +308,7 @@ export async function parityHomes(root: string) {
       { id: "claude-home", provider: "claude" as const, homeDir: claude },
       { id: "codex-home", provider: "codex" as const, homeDir: codex },
       { id: "cursor-home", provider: "cursor" as const, homeDir: cursor },
+      ...(await providerHomes(root)),
     ],
   };
 }

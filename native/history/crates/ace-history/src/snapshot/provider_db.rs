@@ -4,6 +4,7 @@
 //! empty is read in place with `immutable=1` and fenced by its fingerprint; anything else is read
 //! from a private snapshot.
 
+use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
@@ -54,9 +55,9 @@ fn wal_mode(home: &Path, path: &Path) -> Result<bool> {
 }
 
 /// A `file:` URI for SQLite, its reserved characters escaped.
-fn uri(path: &Path) -> String {
+fn uri(path: &str) -> String {
     let mut out = String::from("file:");
-    for byte in path.to_string_lossy().bytes() {
+    for byte in path.bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
                 out.push(byte as char)
@@ -68,7 +69,30 @@ fn uri(path: &Path) -> String {
     out
 }
 
-fn open_immutable(path: &Path) -> Result<Connection> {
+/// The database opened read-only with `immutable=1`, pinned to the file `safe_open` checked:
+/// SQLite opens the checked descriptor through `/dev/fd`, so no path swapped in after the check
+/// is what it reads. The file stays open beside the connection.
+#[cfg(unix)]
+fn open_immutable(home: &Path, path: &Path) -> Result<(Connection, Option<File>)> {
+    use std::os::fd::AsRawFd;
+    let file = safe_open(home, path)?;
+    let db = connect(&format!("/dev/fd/{}", file.as_raw_fd()))?;
+    Ok((db, Some(file)))
+}
+
+/// Windows: the checked path, then its identity proven against the checked handle.
+#[cfg(not(unix))]
+fn open_immutable(home: &Path, path: &Path) -> Result<(Connection, Option<File>)> {
+    let file = safe_open(home, path)?;
+    let db = connect(&path.to_string_lossy())?;
+    let now = safe_open(home, path)?;
+    if fingerprint(&now.metadata()?) != fingerprint(&file.metadata()?) {
+        return Err(Error::message(super::CHANGED));
+    }
+    Ok((db, Some(file)))
+}
+
+fn connect(path: &str) -> Result<Connection> {
     Ok(Connection::open_with_flags(
         uri(path),
         OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -81,7 +105,9 @@ fn open_immutable(path: &Path) -> Result<Connection> {
 pub struct ProviderDb {
     pub db: Connection,
     fence: Option<(PathBuf, String)>,
-    stage: Option<Stage>,
+    /// The checked file an in-place read is pinned to.
+    _pinned: Option<File>,
+    _stage: Option<Stage>,
 }
 
 impl ProviderDb {
@@ -96,18 +122,18 @@ impl ProviderDb {
         Ok(())
     }
 
-    pub fn close(self, scratch: &mut SnapshotScratch) {
-        drop(self.db);
-        if let Some(stage) = self.stage {
-            scratch.release(stage);
-        }
+    /// Closes the database, then removes its snapshot, if it had one.
+    pub fn close(self) {
+        let ProviderDb { db, _stage, .. } = self;
+        drop(db);
+        drop(_stage);
     }
 }
 
 fn attempt(
     home: &Home,
     path: &Path,
-    scratch: &mut SnapshotScratch,
+    scratch: &SnapshotScratch,
     cancel: &Cancel,
 ) -> Result<ProviderDb> {
     let journal = size(&sibling(path, "-journal"))?.is_some();
@@ -122,11 +148,12 @@ fn attempt(
         ));
     }
     if home.offline_snapshot {
-        drop(safe_open(&home.home_dir, path)?);
+        let (db, pinned) = open_immutable(&home.home_dir, path)?;
         return Ok(ProviderDb {
-            db: open_immutable(path)?,
+            db,
             fence: None,
-            stage: None,
+            _pinned: pinned,
+            _stage: None,
         });
     }
     if wal_bytes.unwrap_or(0) == 0 && wal_mode(&home.home_dir, path)? {
@@ -136,10 +163,12 @@ fn attempt(
         if size(&sibling(path, "-wal"))?.unwrap_or(0) == 0
             && size(&sibling(path, "-journal"))?.is_none()
         {
+            let (db, pinned) = open_immutable(&home.home_dir, path)?;
             return Ok(ProviderDb {
-                db: open_immutable(path)?,
+                db,
                 fence: Some((path.to_owned(), before)),
-                stage: None,
+                _pinned: pinned,
+                _stage: None,
             });
         }
     }
@@ -167,12 +196,10 @@ fn attempt(
         Ok(db) => Ok(ProviderDb {
             db,
             fence: None,
-            stage: Some(stage),
+            _pinned: None,
+            _stage: Some(stage),
         }),
-        Err(error) => {
-            scratch.release(stage);
-            Err(error)
-        }
+        Err(error) => Err(error),
     }
 }
 
@@ -180,7 +207,7 @@ fn attempt(
 pub fn open_provider_db(
     home: &Home,
     path: &Path,
-    scratch: &mut SnapshotScratch,
+    scratch: &SnapshotScratch,
     cancel: &Cancel,
 ) -> Result<ProviderDb> {
     let mut tries = 0;

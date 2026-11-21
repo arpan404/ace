@@ -91,7 +91,7 @@ pub fn copy_snapshot(
             .len(),
         None => 0,
     };
-    let cloned = info.len() > 0 && scratch.clone_file(source, target);
+    let cloned = info.len() > 0 && scratch.clone_file(&base, target);
     cancel.check()?;
     scratch.reserve(if cloned { 0 } else { info.len() } + wal_bytes)?;
     if !cloned {

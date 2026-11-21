@@ -6,7 +6,8 @@
 mod map;
 mod packet;
 mod plan;
-mod source;
+mod reference;
+pub mod source;
 mod tools;
 
 use history_wire::ImportInit;
@@ -25,13 +26,10 @@ use crate::session::{Accuracy, Source};
 use crate::snapshot::SnapshotScratch;
 use map::{Context, map_history};
 use plan::INLINE_RAW_BYTES;
-use source::{current_fingerprint, records};
+use source::{current_fingerprint, import_records};
 use tools::{blocks, complete, native_call_id};
 
-/// Pi resumes a saved file by its identity; other CLIs by session id. Pi is not read here.
-pub fn native_reference(source: &Source) -> Value {
-    json!({ "provider": source.summary.provider, "nativeId": source.summary.native_id })
-}
+pub use reference::native_reference;
 
 /// A source in the imported tree, with its agent.
 pub struct Member {
@@ -72,7 +70,8 @@ pub fn plan_tree(
         if let crate::session::Support::Unsupported { reason } = &member.source.summary.support {
             return Err(Error::message(reason.clone()));
         }
-        if current_fingerprint(&member.source)? != member.source.fingerprint {
+        if current_fingerprint(&home, &member.source, &Cancel::new())? != member.source.fingerprint
+        {
             return Err(Error::message(
                 "History source changed; rescan before importing",
             ));
@@ -146,7 +145,7 @@ pub fn import_history(
         "readAt": init.at,
         "createdAt": init.at,
         "updatedAt": init.at,
-        "imported": { "sourceId": init.source_id, "instanceId": home.id, "native": native_reference(root), "importedAt": init.at },
+        "imported": { "sourceId": init.source_id, "instanceId": home.id, "native": native_reference(root)?, "importedAt": init.at },
     })))?;
     let mut root_count = 0;
     let mut accuracy = Accuracy::Exact;
@@ -157,7 +156,7 @@ pub fn import_history(
             "threadId": init.thread_id,
             "parentId": member.parent_id,
             "origin": if member.parent_id.is_some() { "provider_subagent" } else { "root" },
-            "native": native_reference(&member.source),
+            "native": native_reference(&member.source)?,
             "fidelity": "full",
             "cwd": s.cwd,
             "status": { "state": "idle" },
@@ -171,7 +170,7 @@ pub fn import_history(
         let plan = plan::prepare(home, &member.source, scratch, cancel)?;
         let mut seq = 0;
         let mut ordinal = 0;
-        for record in records(home, &member.source, cancel)? {
+        for record in import_records(home, &member.source, scratch, cancel)? {
             let record = record?;
             cancel.check()?;
             ordinal += 1;
@@ -193,19 +192,12 @@ pub fn import_history(
                     id: id.clone(),
                     bytes: record.bytes,
                 })?;
-                crate::fsread::read_range(
-                    &home.home_dir,
-                    std::path::Path::new(&member.source.path),
-                    record.offset,
-                    record.bytes,
-                    cancel,
-                    &mut |chunk| {
-                        emit(Packet::BlobChunk {
-                            id: id.clone(),
-                            bytes: chunk.to_vec(),
-                        })
-                    },
-                )?;
+                record.chunks(home, cancel, &mut |chunk| {
+                    emit(Packet::BlobChunk {
+                        id: id.clone(),
+                        bytes: chunk.to_vec(),
+                    })
+                })?;
                 emit(Packet::BlobEnd { id: id.clone() })?;
                 json!({ "type": kind, "blobRef": id, "size": record.bytes, "preview": "" })
             } else {
@@ -261,7 +253,7 @@ pub fn import_history(
     }
     emit(Packet::Barrier)?;
     for member in members {
-        if current_fingerprint(&member.source)? != member.source.fingerprint {
+        if current_fingerprint(home, &member.source, cancel)? != member.source.fingerprint {
             return Err(Error::message("History source changed during import"));
         }
     }

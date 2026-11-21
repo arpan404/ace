@@ -6,7 +6,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
-use super::source::records;
+use super::source::import_records;
 use super::tools::{Completion, native_completions};
 use crate::cancel::Cancel;
 use crate::error::{Error, Result};
@@ -148,7 +148,7 @@ pub fn prepare(
         let mut result = db.prepare("INSERT OR REPLACE INTO results VALUES(?1,?2,?3)")?;
         let mut boundary = db.prepare("INSERT OR IGNORE INTO boundaries VALUES(?1)")?;
         let mut summary = db.prepare("INSERT OR REPLACE INTO summaries VALUES(?1,?2,?3,?4,?5)")?;
-        for record in records(home, source, cancel)? {
+        for record in import_records(home, source, scratch, cancel)? {
             let record = record?;
             ordinal += 1;
             cancel.check()?;

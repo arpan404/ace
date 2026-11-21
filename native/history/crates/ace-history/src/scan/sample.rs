@@ -18,7 +18,7 @@ use crate::session::{Session, Support};
 
 /// Largest record decoded while looking for a first prompt; larger ones are only counted.
 pub const PREVIEW_RECORD_LIMIT: usize = 128 * 1024;
-const TOO_LARGE: &str = "The first request in this saved conversation is too large to preview. Open it in its original app.";
+pub const TOO_LARGE: &str = "The first request in this saved conversation is too large to preview. Open it in its original app.";
 
 /// What one content read found, and what it adds to the scan's counts.
 #[derive(Debug, Default)]

@@ -264,7 +264,10 @@ impl Server {
                 if !self.owns(&id)? {
                     return Ok(Reply::Elsewhere);
                 }
-                get(self.catalog.reader(), &id)?.map_or(Value::Null, |s| json!(s.summary.native_id))
+                match get(self.catalog.reader(), &id)? {
+                    Some(source) => import::native_reference(&source)?["nativeId"].clone(),
+                    None => Value::Null,
+                }
             }
             Request::ImportPersist { init } => {
                 if !self.owns(&init.source_id)? {
@@ -392,7 +395,7 @@ impl Server {
         };
         let scan = Scan {
             catalog: &mut self.catalog,
-            scratch: &mut self.scratch,
+            scratch: &self.scratch,
             options: &self.options,
             cancel: &self.cancel,
             now: &now,
