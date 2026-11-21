@@ -145,3 +145,13 @@ else, and Spade can reach MCP servers only over HTTP, so a plugin's local server
   restarted after a crash, and gets none of Spade's environment.
 - A `PreToolUse` hook that exits 2 refuses the call with its reason; one that times out leaves the
   turn running; one that prints text adds untrusted text, after which a write asks.
+
+## Amendment, 2026-11-20: the shared standard (ADR 0202 §1)
+
+The store also takes skills from outside ace's library. A folder that meets the Agent Skills
+specification imports as a `spade` skill with every file as it came (`ace spade skill import`,
+from a folder or a git address), and any skill but a plugin's exports as a folder that passes the
+specification's validator (`ace spade skill export`). The market's skill check and `ace bot check`
+hold the specification's front matter rules. A skill's `allowed-tools` is shown and never grants
+anything: point 5's gate reads its calls as before. The mapping is in
+[spade/docs/workspace.md](../../spade/docs/workspace.md), "Skills to and from the shared standard".

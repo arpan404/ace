@@ -34,7 +34,7 @@ Add `--json` to read results as data. Exit codes: 0 done, 1 a problem to fix (ea
    - `effects`: every effect beyond reading and writing its own folder, each with a `why` the install review shows beside its switch. Words: `network` (optionally `hosts`), `publish`, `send_as_person`, `pay`, `change_access`. Undeclared, a call is refused before any review: `Not run: Fare watcher doesn't declare publishing.` Declare only what the task needs, and write each `why` as a sentence about this bot ("Reads fares from the airline sites you name.").
    - `model`: `fast` or `capable`, never a model id: the person's own models run it.
    - `needs.connectors`: apps by catalogue id or https address, each with a `why`. Only the person connects them.
-   - `skills`: `skills/<name>` folders in the package (ADR 0103's `SKILL.md`), or `spade-skill/<name>` from the market.
+   - `skills`: `skills/<name>` folders in the package (a `SKILL.md` meeting the Agent Skills specification: `name` the folder's, lower-case letters, digits and single hyphens; `description` at most 1,024 characters), or `spade-skill/<name>` from the market.
    - `tests`: the scenario files.
    - `pricing`: `{"kind": "free"}`; nothing else is offered.
 4. **Never put in `bot.json`:** a key, token or password; `publisher`, `signature`, `hash`, `package` or a string `version` (the market's signed manifest says who and which version); `mcpServers`, `hooks` or `commands` (code runs only as a skill's script or through a plugin); the `credential` effect. `ace bot check` refuses each.
