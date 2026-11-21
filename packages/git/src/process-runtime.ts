@@ -1,5 +1,8 @@
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { join } from "node:path";
+import { systemListing, type ProcessListing } from "@ace/provider-kit/process-listing";
+import { provenAdoptions, reap, zombieChildren } from "@ace/provider-kit/process-reaper";
+import { captureTree, type CapturedMember } from "@ace/provider-kit/process-tree";
 import { developerToolsGit } from "./git-binary.ts";
 import { processGroupAlive, scanGitProcesses } from "./git-processes.ts";
 import type { GitProcessRuntime } from "./types.ts";
@@ -91,13 +94,48 @@ export function killTree(
       child.kill("SIGKILL");
     });
   } else if (child.pid) {
+    // Linux: read the tree while every member's parent still lives, the proof that reaps them.
+    let members: CapturedMember[] = [];
+    try {
+      if (runtime.platform === "linux") members = captureTree([child.pid]).members;
+    } catch {
+      // Unread, the kill still goes ahead; its orphans then stay as harmless zombies.
+    }
     try {
       runtime.signalGroup(child.pid, "SIGKILL");
     } catch {
       child.kill("SIGKILL");
     }
+    if (members.length) void reapOrphans(members, runtime.scheduleTimeout).catch(() => {});
   } else child.kill("SIGKILL");
   return Promise.resolve();
+}
+
+/**
+ * Reaps the members of a killed group that became this process's zombies. The kernel hands a
+ * member whose parent died first to the nearest child subreaper, which on Linux is the daemon,
+ * and only the daemon can reap it. `members` was captured before the kill: a parent other than
+ * this process proves the zombie was adopted, so a child the runtime started itself is never
+ * reaped (`provenAdoptions`). Bounded; what is left stays a zombie, which `processGroupAlive`
+ * already counts as gone.
+ */
+async function reapOrphans(
+  members: readonly CapturedMember[],
+  schedule: GitProcessRuntime["scheduleTimeout"],
+  listing: ProcessListing = systemListing,
+  attempts = 40,
+): Promise<void> {
+  const evidence = new Map(members.map(({ pid, start, parent }) => [pid, { start, parent }]));
+  const self = { pid: process.pid };
+  for (let attempt = 0; attempt < attempts && evidence.size; attempt++) {
+    const zombies = zombieChildren(listing.lister()(self.pid), listing);
+    for (const pid of provenAdoptions(zombies, self, new Set(), evidence))
+      if (reap(pid)) evidence.delete(pid);
+    // Gone without becoming ours (init or another subreaper took it): nothing to reap.
+    for (const [pid, seen] of evidence)
+      if (listing.info(pid)?.start !== seen.start) evidence.delete(pid);
+    if (evidence.size) await new Promise<void>((resolve) => schedule(resolve, 25));
+  }
 }
 
 /** Drain the owned leader without waiting for inherited pipes or claiming containment. */
