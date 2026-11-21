@@ -48,9 +48,11 @@ test("file URLs decode their path, keep a drive letter and keep another host apa
 });
 
 test("an ssh remote with a path from the root keeps that path", () => {
-  expect(normalizeRemoteUrl("git@host.example:/srv/git/app.git")).toBe("host.example/srv/git/app");
+  expect(normalizeRemoteUrl("git@host.example:/srv/git/app.git")).toBe(
+    "v2:host.example/srv/git/app",
+  );
   expect(normalizeRemoteUrl("ssh://git@host.example/srv/git/app.git")).toBe(
-    "host.example/srv/git/app",
+    "v2:host.example/srv/git/app",
   );
 });
 

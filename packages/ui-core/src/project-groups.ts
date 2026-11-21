@@ -12,6 +12,7 @@
  *
  * The one grouping web and iOS use. Pure: the caller passes every machine's last list.
  */
+import { publicForgeHosts, remoteKeyVersionPrefix } from "@ace/protocol";
 
 /** What grouping reads of a registration (`Project` on the wire). */
 export interface GroupableProject {
@@ -110,12 +111,24 @@ export const checkoutOrder = (a: ProjectCheckout, b: ProjectCheckout) =>
   Number(b.online) - Number(a.online) || recency(a, b);
 
 /**
- * The node two checkouts of the same remotes at the same folder share; none without a remote.
- * A client that sees one machine's list at a time (the iPhone's per-machine runtime) matches
- * checkouts across machines by these and the identity ids.
+ * Whether a remote key names one repository whichever daemon made it: a versioned key
+ * (`remoteKeyVersionPrefix`), or a public forge's, whose keys never changed meaning. An older
+ * daemon's key of any other host may be an SSH path from a home or from the root alike.
+ */
+export function unambiguousRemoteKey(key: string): boolean {
+  if (key.startsWith(remoteKeyVersionPrefix)) return true;
+  const slash = key.indexOf("/");
+  return slash > 0 && Object.hasOwn(publicForgeHosts, key.slice(0, slash));
+}
+
+/**
+ * The node two checkouts of the same remotes at the same folder share; none without a remote,
+ * or with a remote whose key is ambiguous (`unambiguousRemoteKey`): such a checkout groups only
+ * through its identity. A client that sees one machine's list at a time (the iPhone's
+ * per-machine runtime) matches checkouts across machines by these and the identity ids.
  */
 export function remoteNode(key: GroupableProject["remoteKey"]): string | undefined {
-  if (!key?.remotes.length) return undefined;
+  if (!key?.remotes.length || !key.remotes.every(unambiguousRemoteKey)) return undefined;
   // Sorted and without repeats, so two daemons listing them in another order still agree.
   return `remote:${key.subpath}\n${[...new Set(key.remotes)].toSorted().join("\n")}`;
 }
