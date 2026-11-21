@@ -27,7 +27,7 @@
           "items": {
             "$ref": "https://ace.local/protocol/v1/OutsideScope.json"
           },
-          "maxItems": 6,
+          "maxItems": 7,
           "minItems": 1,
           "type": "array"
         }

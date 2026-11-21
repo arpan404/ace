@@ -134,7 +134,7 @@ it("a member of the organization that holds a host reaches it; anyone else is re
     )
     .bind(connection.hostId)
     .run();
-  const member = (org: string, host = connection.hostId) => {
+  const member = (org: string, target = connection.hostId) => {
     const iat = Date.now();
     return signMemberGrant(
       {
@@ -142,7 +142,7 @@ it("a member of the organization that holds a host reaches it; anyone else is re
         role: "member",
         account: "user_m",
         subject: "phone",
-        host,
+        host: target,
         key: encodeBase64url(new Uint8Array(65).fill(4)),
         policy: 0,
         iat,
