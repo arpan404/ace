@@ -79,9 +79,22 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
     /** Only a thread that needs the person sets its title in semibold. */
     strong: level === "needs-you",
     /** Where its work went (ADR 0191), for the row's Open; null for every other row. */
-    moved: null as { hostId: string; name: string; threadId: string } | null,
+    moved: null as MovedTo | null,
   };
   return entry.status.state === "moved" ? movedLook(look, entry.status) : look;
+}
+
+/**
+ * Where a moved thread's work went, and what its Open says when this phone can't show the
+ * thread there: `unpaired` when the phone isn't paired with that machine, `waiting` while that
+ * machine's thread list hasn't caught up (after a reconnect), when the thread opens by itself.
+ */
+interface MovedTo {
+  hostId: string;
+  name: string;
+  threadId: string;
+  unpaired: string;
+  waiting: string;
 }
 
 /**
@@ -104,6 +117,12 @@ function movedLook<Look>(
     word: words,
     meaning: words,
     state: "moved",
-    moved: { hostId, name, threadId },
+    moved: {
+      hostId,
+      name,
+      threadId,
+      unpaired: `This phone isn't paired with ${name}. Pair it in Settings › Machines to open the thread there.`,
+      waiting: `${name}'s threads are still loading. The thread opens once they arrive.`,
+    } satisfies MovedTo,
   };
 }

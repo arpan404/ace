@@ -31,13 +31,20 @@ enum InboxCheckpoint {
         let file = url(database: database)
         guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= limit,
               let data = try? Data(contentsOf: file),
-              let patches = try? JSONDecoder().decode([BridgePatch].self, from: data) else { return [] }
+              let kept = try? JSONDecoder().decode([Kept].self, from: data) else { return [] }
         // Only inbox patches: a copy can never restore a connection state or a thread.
-        return patches.filter {
+        return kept.compactMap(\.patch).filter {
             switch $0 {
             case .inboxReset, .inbox, .inboxSections, .chatSections: true
             default: false
             }
         }
+    }
+
+    /// One kept patch, or nil when this build can't read its shape (an older or newer build
+    /// wrote it): that patch is left out, never the whole copy.
+    private struct Kept: Decodable {
+        let patch: BridgePatch?
+        init(from decoder: any Decoder) throws { patch = try? BridgePatch(from: decoder) }
     }
 }

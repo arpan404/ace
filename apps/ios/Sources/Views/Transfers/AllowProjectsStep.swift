@@ -10,7 +10,7 @@ struct AllowProjectsStep: View {
     let step: TransferSheetState.Allow
     @Environment(\.otherMachines) private var others
     @State private var offer: AllowProjectsOffer?
-    @State private var refused: String?
+    @State private var refused: Refusal?
     @State private var allowing = false
 
     /// That machine's runtime, while the phone reaches it.
@@ -43,6 +43,11 @@ struct AllowProjectsStep: View {
         }
     }
 
+    /// Why Allow projects didn't take, and the offer it answered. It stands until that machine's
+    /// offer changes: a grant that landed though its reply was lost reads "held" on the next
+    /// read, and Continue shows.
+    private struct Refusal { let words: String; let against: AllowProjectsOffer? }
+
     private enum Next { case allow, proceed }
     /// Allow projects while that machine says this phone may; Continue once it takes them.
     private var next: Next? {
@@ -55,14 +60,16 @@ struct AllowProjectsStep: View {
     }
 
     private var words: String {
-        if let refused { return refused }
+        if let refused { return refused.words }
         if there == nil { return step.unreached }
         return offer?.words ?? "Checking \(step.machine.name)…"
     }
 
     private func read() async {
         guard let there else { offer = nil; return }
-        offer = await there.allowProjectsOffer(deviceId: step.machine.deviceId, sender: step.sender, machine: step.machine.name)
+        let fresh = await there.allowProjectsOffer(deviceId: step.machine.deviceId, sender: step.sender, machine: step.machine.name)
+        offer = fresh
+        if let fresh, let refused, refused.against != fresh { self.refused = nil }
     }
 
     private func act(_ next: Next) {
@@ -72,7 +79,10 @@ struct AllowProjectsStep: View {
         Task {
             let answer = await there.setLinkProjects(deviceId: step.machine.deviceId, allowed: true, machine: step.machine.name)
             allowing = false
-            if answer.ok { model.transfer(["kind": "allowed", "hostId": step.machine.hostId]) } else { refused = answer.message ?? "\(step.machine.name) didn't change the link." }
+            if answer.ok { model.transfer(["kind": "allowed", "hostId": step.machine.hostId]); return }
+            refused = Refusal(words: answer.message ?? "\(step.machine.name) didn't change the link.", against: offer)
+            // The reply may be what was lost: read the offer again, so a grant that landed shows Continue.
+            await read()
         }
     }
 }
