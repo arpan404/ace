@@ -125,7 +125,10 @@ export class TrayPopover {
       }
       this.hide();
     };
-    const timer = setInterval(() => void refresh(), 1_000);
+    const refreshSoon = () => {
+      void refresh().catch((error: unknown) => this.options.log(`Native tray: ${String(error)}`));
+    };
+    const timer = setInterval(refreshSoon, 1_000);
     const close = () => {
       abort.abort();
       clearInterval(timer);
@@ -155,7 +158,7 @@ export class TrayPopover {
       if (action.action === "tab") {
         this.tab = action.tab;
         void writeFile(this.options.tabFile, action.tab).catch(() => {});
-        void refresh();
+        refreshSoon();
         return;
       }
       pending = true;
@@ -165,10 +168,10 @@ export class TrayPopover {
         })
         .finally(() => {
           pending = false;
-          void refresh();
+          refreshSoon();
         });
     });
-    void refresh();
+    refreshSoon();
     return true;
   }
 
