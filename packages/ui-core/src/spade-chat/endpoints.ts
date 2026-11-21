@@ -37,6 +37,8 @@ export interface SpadeEndpoint {
   /** Names of the extra headers it sends; their values stay with Spade. */
   headerNames: string[];
   needsKey: boolean;
+  /** It runs on this computer (a local model server): offered before any other (ADR 0205). */
+  local: boolean;
   /** Undefined while the keychain hasn't answered (a prompt is open): not known yet. */
   keySet: boolean | undefined;
   /**
@@ -128,6 +130,7 @@ const endpointShape = z.object({
   session_header: optionalText,
   header_names: z.array(z.string()).catch([]).default([]),
   needs_key: z.boolean().catch(false).default(false),
+  local: z.boolean().catch(false).default(false),
   // Null while the keychain hasn't answered; missing (an older Spade) reads as no key.
   key_set: z.boolean().nullable().catch(false).default(false),
   key_source: optionalText,
@@ -148,6 +151,7 @@ export function parseSpadeEndpointValue(raw: unknown): SpadeEndpoint | undefined
     sessionHeader: endpoint.session_header || undefined,
     headerNames: endpoint.header_names,
     needsKey: endpoint.needs_key,
+    local: endpoint.local,
     keySet: endpoint.key_set ?? undefined,
     keySource:
       endpoint.key_source === "keychain" || endpoint.key_source === "environment"
@@ -271,12 +275,20 @@ function tokens(count: number): string {
 const trim = (value: number) => String(Math.round(value * 10) / 10);
 
 /**
+ * The person's endpoints in the order Spade offers them: those `local` says run on this computer
+ * first, the rest after, each in the person's order (ADR 0205 §1).
+ */
+export function spadeLocalFirst<T>(items: readonly T[], local: (item: T) => boolean): T[] {
+  return [...items.filter((each) => local(each)), ...items.filter((each) => !local(each))];
+}
+
+/**
  * The model Spade gives a new bot when the person chose none: the first model of the first
- * endpoint that can be used now, as `endpoint/model`. Undefined when there is none: Spade then
- * gives no model rather than one the person hasn't set up.
+ * endpoint that can be used now, local ones first, as `endpoint/model`. Undefined when there is
+ * none: Spade then gives no model rather than one the person hasn't set up. Never a subscription.
  */
 export function spadeFirstUsableModel(endpoints: readonly SpadeEndpoint[]): string | undefined {
-  for (const endpoint of endpoints) {
+  for (const endpoint of spadeLocalFirst(endpoints, (each) => each.local)) {
     if (endpoint.needsKey && !endpoint.keySet) continue;
     const model = endpoint.models[0];
     if (model) return `${endpoint.id}/${model.id}`;

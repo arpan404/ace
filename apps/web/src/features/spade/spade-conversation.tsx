@@ -22,6 +22,7 @@ import {
   type BotPlace,
 } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
+import { SpadeTermsHold } from "./spade-terms-hold.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeFirstRun } from "./spade-first-run.tsx";
 import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
@@ -356,6 +357,7 @@ export function Conversation(props: {
           />
         )}
         {bot.kind === "main" && view.loaded && line.ready && <SpadeFirstRun main={bot} />}
+        {bot.termsHold && <SpadeTermsHold bot={bot} />}
       </Scroller>
       <SpadeComposer
         name={bot.name}

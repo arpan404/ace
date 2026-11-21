@@ -73,6 +73,11 @@ export interface SpadeAgent {
   status: string | undefined;
   /** Why its latest reply on a subscription failed (signed out, out of quota), until one works. */
   problem: string | undefined;
+  /**
+   * Its subscription's maker no longer allows this (ADR 0205 §4): it waits for the person to pick
+   * one of `choices` (their own models) or another. Undefined while it isn't held.
+   */
+  termsHold: SpadeTermsHold | undefined;
   lastMessage: SpadeLastMessage | undefined;
   /** The conversation's seen cursor: the last event the person has seen; undefined when never marked. */
   seenSeq: number | undefined;
@@ -167,6 +172,15 @@ const agentShape = z.object({
   working: z.boolean().optional().catch(undefined),
   status: z.string().nullish().catch(undefined),
   problem: z.string().nullish().catch(undefined),
+  terms_hold: z
+    .object({
+      provider: z.string().catch(""),
+      name: z.string().catch(""),
+      text: z.string().min(1),
+      choices: z.array(z.string().min(1)).catch([]),
+    })
+    .nullish()
+    .catch(undefined),
   last_message: lastMessageShape.nullish().catch(undefined),
   seen_seq: z.number().int().nonnegative().nullish().catch(undefined),
   unseen: z.boolean().catch(false).default(false),
@@ -197,6 +211,16 @@ export function parseSpadeAvatar(raw: unknown, seed: string): SpadeAvatar {
   return avatarOf(raw, seed, false);
 }
 
+/** Why a bot on a subscription waits, and the person's own models it could move to. */
+export interface SpadeTermsHold {
+  provider: string;
+  name: string;
+  /** "Codex's terms no longer allow this. Pick another model for this bot." */
+  text: string;
+  /** `endpoint/model`s, the bot's route first. */
+  choices: string[];
+}
+
 /** One agent value; undefined when it has no id or no conversation. */
 export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
   const parsed = agentShape.safeParse(raw);
@@ -222,6 +246,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     questionsForLater: agent.questions_for_later ?? 0,
     status: agent.status || undefined,
     problem: agent.problem || undefined,
+    termsHold: agent.terms_hold ?? undefined,
     lastMessage: last
       ? {
           from: last.from,
