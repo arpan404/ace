@@ -224,7 +224,6 @@ impl Stills {
         let Some(entry) = self.current.get_mut(source) else {
             return;
         };
-        let follows_private = follows_private || std::mem::take(&mut entry.opened_private);
         if !follows_private || epoch <= entry.private_before {
             return;
         }
@@ -235,10 +234,12 @@ impl Stills {
         }
     }
 
-    /// Whether the source opened private and has applied no epoch since: the next one follows
-    /// a private one.
-    pub fn opened_private(&self, source: &str) -> bool {
-        self.current.get(source).is_some_and(|e| e.opened_private)
+    /// Whether the source opened private and has applied no epoch since, so the epoch being
+    /// applied now follows a private one. Consumed: it is true for that first epoch only.
+    pub fn take_opened_private(&mut self, source: &str) -> bool {
+        self.current
+            .get_mut(source)
+            .is_some_and(|e| std::mem::take(&mut e.opened_private))
     }
 
     /// `record.epochs`'s discarded ranges for `source`: a poster in the making from one of them

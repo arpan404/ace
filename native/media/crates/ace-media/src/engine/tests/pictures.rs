@@ -148,6 +148,40 @@ fn an_older_daemons_picture_on_the_control_lane_ends_its_source_saying_why_once(
 }
 
 #[test]
+fn opened_private_then_public_then_private_again_never_stamps_a_new_private_picture_public() {
+    let lane = Kept::default();
+    let mut engine = Engine::new(
+        Box::new(super::super::recorder::NoRecorders),
+        Box::new(lane.clone()),
+    );
+    send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "p", "handle": 3, "epoch": 1, "private": true,
+                "origin": { "kind": "tab-pictures" } }),
+        &[9; 32],
+        NOW,
+    );
+    engine.ingest_hello(7, &[9; 32]);
+    encodes(&mut engine, spec());
+    let epoch = |engine: &mut Engine, seq: u64, epoch: u32, follows: bool, now: Now| {
+        send(
+            engine,
+            json!({ "type": "source.epoch", "source": "p", "seq": seq, "epoch": epoch,
+                    "followsPrivate": follows }),
+            &[],
+            now,
+        )
+    };
+    // Private 1 (the open) → public 2 → private 3.
+    epoch(&mut engine, 1, 2, true, at(2_000));
+    epoch(&mut engine, 2, 3, false, at(3_000));
+    // An epoch-3 picture read 50 ms after private 3 began keeps epoch 3: the read gap after
+    // a public epoch holds nothing.
+    let effects = picture(&mut engine, 3, at(3_050));
+    assert_eq!(encode_effects(&effects), ["Picture(p, epoch 3)"]);
+}
+
+#[test]
 fn a_tab_source_takes_no_encodes_and_a_closed_source_stops_its_encoder() {
     let mut tab = engine();
     open_tab(&mut tab, "p", 3, 9);

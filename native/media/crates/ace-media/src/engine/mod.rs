@@ -352,7 +352,9 @@ impl Engine {
             } => {
                 // A source that opened private: its first epoch since follows a private one,
                 // even if this announcement reached ace-media without saying so.
-                let follows_private = follows_private || self.stills.opened_private(source.get());
+                // The open's word holds for this first epoch only: consumed whatever it says.
+                let opened_private = self.stills.take_opened_private(source.get());
+                let follows_private = follows_private || opened_private;
                 self.stills.epoch(source.get(), epoch, follows_private);
                 self.sources
                     .epoch(&source, &seq, epoch, follows_private, now.mono_ms, out);
