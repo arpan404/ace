@@ -77,7 +77,7 @@ interface Parsed {
 
 function parse(yaml: string): Parsed {
   const lineCounter = new LineCounter();
-  const document = parseDocument(yaml, { lineCounter, maxAliasCount: 16, uniqueKeys: true });
+  const document = parseDocument(yaml, { lineCounter, uniqueKeys: true });
   const lines = new Map<string, number>();
   if (document.errors.length > 0)
     return { data: undefined, lines, error: document.errors[0]?.message.split("\n")[0] };
@@ -261,6 +261,10 @@ export function exportSkillMd(markdown: string, facts: ExportFacts): string {
   return frontMatter(out, front.body);
 }
 
+/** The `metadata` keys an export writes, which an import reads and takes out. */
+const ours = (key: string) =>
+  key === "spade.version" || key === "spade.source" || key.startsWith(fieldPrefix);
+
 /** What an import keeps of an exported skill's own `spade.` keys. */
 export interface Imported {
   /** SKILL.md as Spade stores it. */
@@ -282,8 +286,6 @@ export function importSkillMd(markdown: string): Imported {
   if (!data || !metadata || typeof metadata !== "object" || Array.isArray(metadata))
     return { markdown, source: undefined };
   const entries = Object.entries(metadata as Record<string, unknown>);
-  const ours = (key: string) =>
-    key === "spade.version" || key === "spade.source" || key.startsWith(fieldPrefix);
   if (!entries.some(([key]) => ours(key))) return { markdown, source: undefined };
   const source = str((metadata as Record<string, unknown>)["spade.source"]);
   const kept = Object.fromEntries(entries.filter(([key]) => !ours(key)));

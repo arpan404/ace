@@ -883,6 +883,33 @@ Turn a client's sign-in away.
 
 ## Spade and the market
 
+### `ace spade skill import FROM [flags]`
+
+Keep a SKILL.md folder, or one in a git repository, as a Spade skill.
+
+The folder must meet the Agent Skills specification: SKILL.md with name (the folder's name: lower-case letters, digits and single hyphens, at most 64) and description (at most 1,024 characters), and license, compatibility, metadata and allowed-tools as the specification has them. It passes the market's skill checks too: no secrets, within a skill's limits. Every file is kept as it came; hidden files are left out. Fields Spade doesn't use are kept and listed. allowed-tools grants nothing: Spade's gate still decides each call the skill's instructions lead to.
+
+- `FROM`: The skill's folder, or a git address (https, ssh or user@host:path)
+
+- `--path FOLDER`: With a git address, the skill's folder in the repository; its root otherwise
+- `--git`: Read FROM as a git repository, a local one's path included
+- `--replace`: Replace a skill written in Spade with the same name
+
+    ace spade skill import ./triage-mail
+    # A folder on this machine
+
+    ace spade skill import https://github.com/example/skills --path triage-mail
+    # One skill from a repository's folder
+
+### `ace spade skill export SKILL [DIR]`
+
+Write a Spade skill as a SKILL.md folder that meets the Agent Skills specification.
+
+The folder is DIR/<name>, which must not exist yet. SKILL.md keeps the specification's fields and its body as they were; fields the specification doesn't define move under metadata as spade.field.<name>, and metadata.spade.version and metadata.spade.source say how it was written and where the skill came from. Importing the folder again gives back the same skill. A plugin's skills export with their plugin.
+
+- `SKILL`: The skill's name or id
+- `DIR`: Where to write its folder; this folder when omitted
+
 ### `ace spade status`
 
 Whether Spade is on, and how it is.

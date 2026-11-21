@@ -11,6 +11,7 @@ import { folder } from "./testing.ts";
 
 const md = (front: string, body = "# Triage mail\n\nRead the newest mail first.\n") =>
   `---\n${front}\n---\n${body}`;
+const files = (markdown: string) => folder({ "SKILL.md": markdown });
 const valid = "name: triage-mail\ndescription: Sorts a mail inbox into what needs a reply today.";
 
 describe("SKILL.md front matter against the Agent Skills specification", () => {
@@ -69,7 +70,6 @@ describe("SKILL.md front matter against the Agent Skills specification", () => {
   });
 
   it("refuses the same cases in the market's skill check", () => {
-    const files = (markdown: string) => folder({ "SKILL.md": markdown });
     expect(checkFiles("spade-skill", "triage-mail", files(md(valid))).problems).toEqual([]);
     const refused = checkFiles(
       "spade-skill",

@@ -178,3 +178,43 @@ describe("ace bot publish against the version published in the market", () => {
     }
   });
 });
+
+async function skill(name: string, front: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "skill-check-"));
+  folders.push(dir);
+  const root = join(dir, name);
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, "SKILL.md"), `---\n${front}\n---\n# Triage mail\n`);
+  return root;
+}
+
+describe("ace bot check on a SKILL.md folder", () => {
+  it("passes a skill meeting the specification, naming what it keeps unused and what allowed-tools means", async () => {
+    const root = await skill(
+      "triage-mail",
+      "name: triage-mail\ndescription: Sorts mail.\nallowed-tools: Bash Read\nmodel: fast",
+    );
+    const checked = await checkPackage(root);
+    expect(checked.name).toBe("triage-mail");
+    expect(checked.warnings.map((warning) => warning.message)).toEqual([
+      "Not used by this Spade: model.",
+      "It asks to run Bash and Read without asking. Spade still decides each call.",
+    ]);
+  });
+
+  it("refuses a skill breaking the specification, with the rule at its line", async () => {
+    const root = await skill(
+      "triage-mail",
+      "name: triage-mail\ndescription: Sorts.\nname2: x\nlicense: [1]",
+    );
+    const failure = await checkPackage(root).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(CliFailure);
+    expect(JSON.stringify(failure)).toContain("license must be text");
+  });
+
+  it("refuses a skill whose name isn't its folder's", async () => {
+    const root = await skill("mail", "name: triage-mail\ndescription: Sorts mail.");
+    const failure = await checkPackage(root).catch((error: unknown) => error);
+    expect(JSON.stringify(failure)).toContain("name must be the folder's name, mail");
+  });
+});
