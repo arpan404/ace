@@ -84,7 +84,7 @@ export function MarketSidebar(props: { query: string; onQuery(query: string): vo
         />
       }
     >
-      <nav aria-label="Marketplace" data-part="market-nav">
+      <nav aria-label="Marketplace">
         <ul className="mt-1 flex flex-col gap-px">
           {shown.map((place) => row(place.id, place.name, place.icon))}
         </ul>

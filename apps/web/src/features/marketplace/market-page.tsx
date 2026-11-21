@@ -1,6 +1,5 @@
 import { CaretLeftIcon } from "@ace/icons";
 import { Fragment } from "react";
-import { part } from "@/lib/suit-part.ts";
 import type { MarketPage as Page, MarketView } from "./market-address.ts";
 import { useMarketEntry } from "./market-api.ts";
 import { AppPage } from "./market-app-page.tsx";
@@ -176,7 +175,8 @@ function Place(props: { view: MarketView; query: string }) {
 export function MarketLayer(props: { view: MarketView; query: string }) {
   const top = props.view.pages.at(-1);
   return (
-    <div {...part("page")} data-page={top ? "market-entry" : "marketplace"}>
+    // The Screen around it is the Suit's page (`marketplace` or `market-entry`).
+    <div>
       {top ? (
         <>
           <Crumbs view={props.view} />

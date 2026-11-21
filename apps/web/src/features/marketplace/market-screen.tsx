@@ -130,7 +130,6 @@ export function MarketScreen(props: {
             <div
               role="region"
               aria-label="Marketplace"
-              {...part("page", undefined, "market")}
               className="mk-modal"
               data-page=""
               data-edge={edge ? "" : undefined}

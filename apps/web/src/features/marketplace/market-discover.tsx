@@ -9,6 +9,7 @@ import { openEntry, useMarketNav } from "./market-nav.ts";
 import { useMarketDiscover } from "./market-publishing.ts";
 import { RankedSections, TrendingSection } from "./market-ranked.tsx";
 import { Stage } from "./market-stage.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { AppRow, EntryRow, entryKeyOf, GetButton, Shelf, StoreRows } from "./market-store-row.tsx";
 
 /*
@@ -115,7 +116,7 @@ export function DiscoverPage(props: { query: string }) {
   return (
     <div className="mk-inner">
       {featured.length > 0 && (
-        <section className="st-featured" aria-label="Featured">
+        <section {...part("market-hero")} className="st-featured" aria-label="Featured">
           {featured.map((entry) => (
             <Feature key={entryKeyOf(entry)} entry={entry} eyebrow={eyebrowOf(entry)} />
           ))}

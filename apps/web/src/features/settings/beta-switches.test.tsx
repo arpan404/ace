@@ -137,9 +137,10 @@ test("New bot offers bots from the marketplace only while it is on", async () =>
       turnedOn ? {} : { daemon: marketplaceOff },
     );
     await openNew("New bot");
-    // The templates' list, which ends with the way to the marketplace.
-    expect(await screen.findByRole("button", { name: /^Morning digest/ })).toBeTruthy();
-    const link = screen.queryByRole("button", { name: "From the marketplace" });
+    // Where a bot starts from, which ends with the way to the marketplace.
+    const start = within(await screen.findByRole("region", { name: "Start from" }));
+    expect(await start.findByRole("button", { name: /^Morning digest/ })).toBeTruthy();
+    const link = start.queryByRole("button", { name: "Marketplace" });
     expect(link !== null).toBe(turnedOn);
     cleanup();
   }
