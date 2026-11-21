@@ -80,7 +80,10 @@ pub enum EncodeEffect {
         source: String,
         /// The encoder this is for (`Sources` gives each encoder one).
         token: u64,
+        /// The picture: base64 JPEG text off the control lane, or (`raw`) the JPEG itself off the
+        /// source's ingest connection.
         text: Vec<u8>,
+        raw: bool,
         epoch: u32,
         age_us: u32,
     },

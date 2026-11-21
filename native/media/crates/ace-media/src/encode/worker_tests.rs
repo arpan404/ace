@@ -116,6 +116,7 @@ fn units(out: &[Output]) -> Vec<&MediaFrame> {
 fn picture(epoch: u32) -> Command {
     Command::Picture {
         text: jpeg(64, 48),
+        raw: false,
         epoch,
         age_us: 2_000,
     }
@@ -203,6 +204,7 @@ fn pictures_that_are_not_base64_jpeg_are_skipped_without_ending_the_source() {
         worker.command(
             Command::Picture {
                 text,
+                raw: false,
                 epoch: 1,
                 age_us: 0,
             },

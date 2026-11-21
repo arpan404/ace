@@ -28,6 +28,8 @@ pub enum Command {
     /// long ago it was captured.
     Picture {
         text: Vec<u8>,
+        /// `text` is the JPEG itself (off an ingest connection), not base64.
+        raw: bool,
         epoch: u32,
         age_us: u32,
     },
@@ -288,9 +290,17 @@ impl<B: Backends> Worker<B> {
             Command::Configure(specs) => self.configure(specs, out),
             Command::Picture {
                 text,
+                raw,
                 epoch,
                 age_us,
-            } => self.picture(&text, epoch, now_us.saturating_sub(u64::from(age_us)), out),
+            } => {
+                let captured = now_us.saturating_sub(u64::from(age_us));
+                if raw {
+                    self.picture(text, epoch, captured, out);
+                } else if let Some(jpeg) = crate::engine::base64::decode(&text) {
+                    self.picture(jpeg, epoch, captured, out);
+                }
+            }
             Command::Key(id) => {
                 if let Some(running) = self.encodes.get_mut(&id) {
                     running.key_owed = true;
@@ -417,13 +427,10 @@ impl<B: Backends> Worker<B> {
         }
     }
 
-    fn picture(&mut self, text: &[u8], epoch: u32, captured_us: u64, out: &mut Vec<Output>) {
+    fn picture(&mut self, jpeg: Vec<u8>, epoch: u32, captured_us: u64, out: &mut Vec<Output>) {
         if self.encodes.is_empty() {
             return;
         }
-        let Some(jpeg) = crate::engine::base64::decode(text) else {
-            return;
-        };
         let Ok(source_size) = jpeg_size(&jpeg) else {
             return;
         };

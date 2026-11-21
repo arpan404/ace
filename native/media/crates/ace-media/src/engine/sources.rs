@@ -582,6 +582,7 @@ impl Sources {
                 source: id.to_owned(),
                 token,
                 text: payload,
+                raw: false,
                 epoch: stamped,
                 age_us: age_ms.saturating_mul(1000),
             }));
@@ -700,6 +701,29 @@ impl Sources {
         let Some(id) = self.bindings.get(&conn).cloned() else {
             return out.push(Effect::CloseIngest(conn));
         };
+        // A picture source's JPEGs come on its own ingest connection, bounded there, and go to its
+        // encoder as they are (no base64, no control-lane frame).
+        if frame.kind == KIND_PICTURE
+            && frame.codec == CODEC_JPEG
+            && let Some(source) = self.by_id.get_mut(&id)
+            && source.pictures
+            && let Some(token) = source.encoder
+        {
+            source.received += 1;
+            let epoch = source
+                .stamper
+                .as_ref()
+                .map_or(frame.epoch, |s| s.stamp(now.mono_ms).min(frame.epoch));
+            out.push(Effect::Encode(EncodeEffect::Picture {
+                source: id.clone(),
+                token,
+                text: frame.payload,
+                raw: true,
+                epoch,
+                age_us: frame.age_us,
+            }));
+            return self.synced(&id, out);
+        }
         match frame.kind {
             KIND_VIDEO | KIND_AUDIO | KIND_PICTURE => {
                 self.unit(&id, frame, now, egress, out);

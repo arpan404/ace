@@ -1,8 +1,55 @@
-import { expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, it, onTestFinished } from "vitest";
+import { decodeMediaFrame, type MediaFrame } from "@ace/media/frame";
 import type { IngestProducer, StopStatus } from "@ace/media/ingest-sources";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import { framePacket, FrameDecoder, type Frame } from "./frames.ts";
-import { ScreenPictureSource } from "./picture-source.ts";
+import { maxPictureBytes, ScreenPictureSource } from "./picture-source.ts";
+
+/** ace-media's ingest socket, as a producer sees it: frames read whole, in order. */
+async function ingest() {
+  const directory = mkdtempSync(join(tmpdir(), "ace-pictures-"));
+  const path = join(directory, "i.sock");
+  const received: MediaFrame[] = [];
+  let peer: Socket | undefined;
+  let buffer = Buffer.alloc(0);
+  const server = createServer((socket) => {
+    peer = socket;
+    socket.on("data", (chunk: Buffer) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (buffer.length >= 12) {
+        const total = buffer.readUInt16BE(6) + buffer.readUInt32BE(8);
+        if (buffer.length < total) break;
+        received.push(decodeMediaFrame(new Uint8Array(buffer.subarray(0, total))));
+        buffer = buffer.subarray(total);
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(path, resolve));
+  onTestFinished(() => {
+    peer?.destroy();
+    server.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  return {
+    path,
+    received,
+    pause: () => peer?.pause(),
+    resume: () => peer?.resume(),
+    connected: () => peer !== undefined,
+  };
+}
+
+async function until(condition: () => boolean): Promise<void> {
+  const end = performance.now() + 5_000;
+  while (!condition()) {
+    if (performance.now() > end) throw new Error("timed out");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 const viewer: ScreenStreamSettings = {
   codec: "h264",
@@ -12,9 +59,10 @@ const viewer: ScreenStreamSettings = {
   bitrate: 2_000_000,
 };
 
-function still(sequence: number): Frame {
+function still(sequence: number, bytes?: number): Frame {
   const frames: Frame[] = [];
-  const payload = Buffer.from(`jpeg-${sequence}`);
+  const payload =
+    bytes === undefined ? Buffer.from(`jpeg-${sequence}`) : Buffer.alloc(bytes, sequence);
   new FrameDecoder((frame) => void frames.push(frame)).push(
     framePacket(
       {
@@ -116,8 +164,12 @@ const unit = (path: string, keyframe: boolean) => ({
   },
 });
 
-it("a JPEG-only helper's pictures go to ace-media for a viewer, encoded inside the viewer's box", async () => {
+const point = (s: ReturnType<typeof session>, socket: string) =>
+  s.producer().point({ url: "", socket, token: new Uint8Array(32).fill(4), epoch: 1, path: "p1" });
+
+it("a JPEG-only helper's pictures go to ace-media's ingest as binary still pictures, never on the control lane", async () => {
   const s = session();
+  const server = await ingest();
   expect(s.producer().origin).toEqual({ kind: "screen-pictures", platform: "windows" });
   expect(await s.source.configure(viewer)).toEqual({ codec: "h264" });
   // The helper keeps sending JPEG, at the viewer's rate.
@@ -127,17 +179,63 @@ it("a JPEG-only helper's pictures go to ace-media for a viewer, encoded inside t
   });
   // Nothing goes to ace-media before it holds the source.
   s.source.daemonFrame(still(1));
-  expect(s.pictures).toEqual([]);
-  await s
-    .producer()
-    .point({ url: "", socket: "", token: new Uint8Array(32), epoch: 1, path: "p1" });
+  await point(s, server.path);
   s.source.daemonFrame(still(2));
-  expect(s.pictures).toEqual(["jpeg-2"]);
+  await until(() => server.received.length >= 2);
+  const [hello, picture] = server.received;
+  expect(hello?.kind).toBe(5);
+  expect(picture).toMatchObject({ kind: 3, codec: 7, flags: 1, width: 1920, height: 1080 });
+  expect(Buffer.from(picture?.payload ?? []).toString()).toBe("jpeg-2");
+  expect(s.pictures).toEqual([]);
   expect(s.encodes.at(-1)).toEqual([
     { id: 1, codec: "avc1.42E033", width: 960, height: 540, fps: 30, bitrate: 2_000_000 },
   ]);
   // Its stills stay the session's, for agents.
   expect(s.accepted.map((f) => f.header.codec)).toEqual(["jpeg", "jpeg"]);
+});
+
+it("a picture too large for ace-media is dropped and counted, and the session goes on", async () => {
+  const s = session();
+  const server = await ingest();
+  await s.source.configure(viewer);
+  await point(s, server.path);
+  s.source.daemonFrame(still(1, maxPictureBytes + 1));
+  s.source.daemonFrame(still(2));
+  await until(() => server.received.length >= 2);
+  expect(s.source.dropped).toBe(1);
+  expect(server.received.filter((f) => f.kind === 3).map((f) => f.payload.length)).toEqual([6]);
+  expect(s.accepted).toHaveLength(2);
+});
+
+it("while ace-media reads slowly only the newest picture waits: the queue never grows with the helper", async () => {
+  const s = session();
+  const server = await ingest();
+  await s.source.configure(viewer);
+  await point(s, server.path);
+  await until(server.connected);
+  server.pause();
+  // Pictures far past the writer's budget arrive while ace-media isn't reading.
+  for (let n = 1; n <= 40; n++) s.source.daemonFrame(still(n, 512 * 1024));
+  server.resume();
+  await until(() => server.received.some((f) => f.kind === 3 && f.payload[0] === 40));
+  const pictures = server.received.filter((f) => f.kind === 3);
+  expect(pictures.length).toBeLessThan(40);
+  expect(pictures.at(-1)?.payload[0]).toBe(40);
+});
+
+it("ace-media's plan for the views it delivers runs as its own encodes and sets the helper's pictures", async () => {
+  const s = session();
+  s.producer().want?.([
+    { id: 9, codec: "avc1.42E033", width: 640, height: 360, fps: 15, bitrate: 600_000 },
+  ]);
+  expect(s.encodes.at(-1)).toEqual([
+    { id: 9, codec: "avc1.42E033", width: 640, height: 360, fps: 15, bitrate: 600_000 },
+  ]);
+  await until(() => s.sent.length > 0);
+  expect(s.sent.at(-1)).toMatchObject({
+    op: "stream.configure",
+    settings: { codec: "jpeg", maxWidth: 640, maxHeight: 360, fps: 15 },
+  });
 });
 
 it("ace-media's encode comes back as the session's H.264, Annex B with its parameter sets on the keyframe", async () => {

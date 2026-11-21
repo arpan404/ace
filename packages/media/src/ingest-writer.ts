@@ -10,7 +10,7 @@ import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
  * dropped with what follows it to the next keyframe, which is asked for once. A keyframe that
  * won't fit waits, the newest only, until the backlog makes room; each write's completion is
  * checked, not only `drain`, which a socket under its high-water mark never emits. A backlog
- * still too big after `drainLimit` is a cut.
+ * still too big after `drainLimit` is a cut. A still picture (kind 3) is paced as a keyframe.
  *
  * The writer is one state machine: `open` → `finishing` (its waiting keyframe, then its end
  * frame) → `ended` | `cut`. `ended` is reached only when the end frame's write succeeds, which is
@@ -90,11 +90,12 @@ export class IngestWriter {
   /** Queues one unit; false once finishing, ended or cut. */
   write(frame: MediaFrame): boolean {
     if (this.#state.kind !== "open") return false;
-    if (frame.kind !== 1) {
+    if (frame.kind !== 1 && frame.kind !== 3) {
       this.#write(encodeMediaFrame(frame));
       return true;
     }
-    const keyframe = (frame.flags & 1) !== 0;
+    // A still picture stands alone, so it is paced as a keyframe: the newest one waits.
+    const keyframe = frame.kind === 3 || (frame.flags & 1) !== 0;
     // Waiting for room: the newest keyframe replaces the one held, deltas are dropped.
     if (this.#deadline) {
       if (keyframe) this.#pending = encodeMediaFrame(frame);

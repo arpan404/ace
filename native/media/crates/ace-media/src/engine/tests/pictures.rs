@@ -3,10 +3,15 @@
 use super::*;
 
 fn open(engine: &mut Engine, kind: &str) {
+    let origin = if kind == "screen-pictures" {
+        json!({ "kind": kind, "platform": "windows" })
+    } else {
+        json!({ "kind": kind })
+    };
     send(
         engine,
         json!({ "type": "source.open", "source": "p", "handle": 3, "epoch": 2,
-                "origin": { "kind": kind } }),
+                "origin": origin }),
         &[9; 32],
         NOW,
     );
@@ -422,4 +427,24 @@ fn stuck_encoder_threads_count_against_the_source_limit() {
         NOW,
     );
     assert_eq!(statuses(&refused)[0].2.as_deref(), Some("source-limit"));
+}
+
+#[test]
+fn a_jpeg_on_a_picture_sources_ingest_lane_goes_to_its_encoder_as_it_is_with_no_base64() {
+    let mut engine = engine();
+    open(&mut engine, "screen-pictures");
+    encodes(&mut engine, spec());
+    assert!(engine.ingest_hello(7, &[9; 32]), "the source's own token");
+    let jpeg = vec![0xff, 0xd8, 0xff, 0xd9];
+    let mut picture = frame(3, 1, 2, jpeg.clone());
+    picture.codec = 7;
+    let effects = ingest(&mut engine, 7, picture, at(2_000));
+    let raw = effects.iter().any(|e| {
+        matches!(e, Effect::Encode(EncodeEffect::Picture { text, raw: true, .. }) if *text == jpeg)
+    });
+    assert!(
+        raw,
+        "the JPEG bytes themselves: {:?}",
+        encode_effects(&effects)
+    );
 }
