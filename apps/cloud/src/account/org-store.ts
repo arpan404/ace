@@ -164,10 +164,17 @@ export function orgStore(db: D1Database) {
            WHERE excluded.version > orgs.version`,
         )
         .bind(org.id, org.name, org.createdBy ?? "", now, org.version),
-    deletingOrg: (org: string, version: string) =>
+    /**
+     * WorkOS deleted the organization at `version`: kept as a deleted row, made if the mirror had
+     * none, so no event of it at or before that time brings it back.
+     */
+    deletingOrg: (org: string, version: string, now: number) =>
       db
-        .prepare("UPDATE orgs SET deleted = 1, version = ?2 WHERE org_id = ?1 AND version <= ?2")
-        .bind(org, version),
+        .prepare(
+          `INSERT INTO orgs (org_id, name, created_at, version, deleted) VALUES (?1, '', ?3, ?2, 1)
+           ON CONFLICT (org_id) DO UPDATE SET deleted = 1, version = ?2 WHERE orgs.version <= ?2`,
+        )
+        .bind(org, version, now),
     upsertingMember,
     /**
      * Marks one membership deleted at WorkOS time `version`, kept as `removed` for history (ADR

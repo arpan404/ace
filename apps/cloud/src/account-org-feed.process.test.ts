@@ -291,3 +291,40 @@ it("a later event on the same page for a deleted user's membership logs nothing"
   expect(added).toEqual(["org.member.removed"]);
   expect(entries()).toBe(before + 1);
 });
+
+it("an organization deleted before the mirror saw it stays deleted when its older events arrive", async () => {
+  const ownerToken = await world.signIn(world.owner);
+  const ghost = "org_01GHOST";
+  const [early, tied] = [later(1_000), later(2_000)];
+  const org = (at: string) => ({
+    object: "organization",
+    id: ghost,
+    name: "Ghost",
+    updated_at: at,
+  });
+  const deliverOrg = (id: string, event: string, at: string) =>
+    deliver({ id, event, data: org(at), created_at: at });
+  expect(await deliverOrg("event_01GHOSTDEL", "organization.deleted", tied)).toBe(200);
+  expect(await deliverOrg("event_01GHOSTNEW", "organization.created", early)).toBe(200);
+  expect(await deliverOrg("event_01GHOSTUP", "organization.updated", tied)).toBe(200);
+  // Its owner's membership, mirrored afterwards, opens no space in a deleted organization.
+  expect(
+    await deliver({
+      id: "event_01GHOSTOWN",
+      event: "organization_membership.created",
+      data: {
+        object: "organization_membership",
+        id: "om_01GHOST",
+        user_id: world.owner.id,
+        organization_id: ghost,
+        status: "active",
+        role: { slug: "owner" },
+      },
+      created_at: later(3_000),
+    }),
+  ).toBe(200);
+  const spaces = (await world.api.call(ownerToken, "GET", "/v1/orgs")).body.orgs as {
+    id: string;
+  }[];
+  expect(spaces.map((each) => each.id)).not.toContain(ghost);
+});

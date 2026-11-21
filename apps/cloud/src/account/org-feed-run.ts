@@ -208,7 +208,7 @@ export function feedRun(deps: FeedRunDeps, lookups: { left: number }) {
         if (!parsed.success) return;
         writes.push(
           event.event === "organization.deleted"
-            ? orgs.deletingOrg(parsed.data.id, event.created_at)
+            ? orgs.deletingOrg(parsed.data.id, event.created_at, now())
             : orgs.upsertingOrg(
                 { id: parsed.data.id, name: parsed.data.name, version: event.created_at },
                 now(),
