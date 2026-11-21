@@ -202,3 +202,22 @@ test("Discover draws only the sections the daemon has data for", async () => {
     expect(within(market).queryByRole("region", { name })).toBeNull();
   expect(within(market).queryByRole("button", { name: "Apps" })).toBeNull();
 });
+
+test("each page replaces the one before it, so only the current page can be seen or reached", async () => {
+  await openApp("/chats?market=bot/inbox");
+  const market = await findMarket();
+  await within(market).findByRole("heading", { level: 1, name: "Inbox" });
+  const entryOnly = () => within(market).queryByRole("region", { name: "More from harbour-co" });
+  await userEvent.click(await within(market).findByRole("button", { name: /^(Get|Install)$/ }));
+  await within(market).findByRole("button", { name: "Cancel" });
+
+  // Nothing of the entry page is left under its review, hidden or not.
+  expect(market.querySelectorAll(".mk-view")).toHaveLength(1);
+  expect(entryOnly()).toBeNull();
+  expect(within(market).queryByText("Harbour dusk")).toBeNull();
+
+  await userEvent.keyboard("{Meta>}[[{/Meta}");
+  await waitFor(() => expect(within(market).queryByRole("button", { name: "Cancel" })).toBeNull());
+  expect(market.querySelectorAll(".mk-view")).toHaveLength(1);
+  await within(market).findByRole("heading", { level: 1, name: "Inbox" });
+});

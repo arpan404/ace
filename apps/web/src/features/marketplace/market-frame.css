@@ -282,43 +282,21 @@
   .mk-view:has(.mk-foot) {
     padding-bottom: 0;
   }
-  .mk-view[data-motion="push-in"] {
-    animation: mk-push-in var(--motion-slow) var(--ease-out);
+  /* One page at a time: it arrives on its own opaque page, never over the one it replaced. */
+  .mk-view[data-motion="push"] {
+    animation: mk-push-in var(--motion-base) var(--ease-out);
   }
-  .mk-view[data-motion="pop-in"] {
-    animation: mk-pop-in var(--motion-slow) var(--ease-out);
-  }
-  .mk-view[data-motion="push-out"] {
-    animation: mk-push-out var(--motion-slow) var(--ease-out) forwards;
-    pointer-events: none;
-  }
-  .mk-view[data-motion="pop-out"] {
-    animation: mk-pop-out var(--motion-base) var(--ease-exit) forwards;
-    pointer-events: none;
-    z-index: 1;
+  .mk-view[data-motion="pop"] {
+    animation: mk-pop-in var(--motion-base) var(--ease-out);
   }
   @keyframes mk-push-in {
     from {
-      transform: translateX(48px);
-      opacity: 0;
+      transform: translateX(16px);
     }
   }
   @keyframes mk-pop-in {
     from {
-      transform: translateX(-24px);
-      opacity: 0.4;
-    }
-  }
-  @keyframes mk-push-out {
-    to {
-      transform: translateX(-24px);
-      opacity: 0;
-    }
-  }
-  @keyframes mk-pop-out {
-    to {
-      transform: translateX(48px);
-      opacity: 0;
+      transform: translateX(-16px);
     }
   }
   .mk-inner {

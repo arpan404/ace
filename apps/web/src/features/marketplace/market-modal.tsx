@@ -25,12 +25,15 @@ import { keepTabWithin } from "./market-focus.ts";
  */
 
 type Motion = "push" | "pop" | "none";
-interface Layer {
+/**
+ * The one page on screen. A page replaces the one before it outright: no layer of the old page
+ * stays under the new one, so nothing shows through while it arrives (it only slides a little
+ * into place on an opaque page).
+ */
+interface Shown {
   id: number;
   view: MarketView;
-  query: string;
-  leaving?: "push-out" | "pop-out";
-  entering?: "push-in" | "pop-in";
+  motion: Exclude<Motion, "none"> | undefined;
 }
 
 const depthOf = (view: MarketView) => view.pages.length;
@@ -48,7 +51,7 @@ export function MarketModal(props: {
   const [edge, setEdge] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [notice, setNotice] = useState<string>();
-  const [stack, setStack] = useState<Layer[]>([{ id: 0, view: props.view, query: "" }]);
+  const [shown, setShown] = useState<Shown>({ id: 0, view: props.view, motion: undefined });
   const nextId = useRef(1);
   const modal = useRef<HTMLDivElement>(null);
   const tryOn = useTryOn(setNotice);
@@ -60,24 +63,8 @@ export function MarketModal(props: {
     const value = formatMarket(next);
     if (value !== formatMarket(view)) props.onMove(value);
     const id = nextId.current++;
-    setStack((layers) => {
-      const top = layers.at(-1);
-      const fresh: Layer = { id, view: next, query: nextQuery };
-      if (motion === "none" || reduce || !top) return [fresh];
-      fresh.entering = motion === "push" ? "push-in" : "pop-in";
-      const { entering: _, ...settled } = top;
-      return [{ ...settled, leaving: motion === "push" ? "push-out" : "pop-out" }, fresh];
-    });
+    setShown({ id, view: next, motion: motion === "none" || reduce ? undefined : motion });
   };
-  // A leaving layer is gone once its slide has played.
-  useEffect(() => {
-    if (!stack.some((layer) => layer.leaving)) return;
-    const timer = setTimeout(
-      () => setStack((layers) => layers.filter((layer) => !layer.leaving)),
-      340,
-    );
-    return () => clearTimeout(timer);
-  }, [stack]);
 
   const close = () => {
     if (tryOn.trying) tryOn.undo();
@@ -199,18 +186,14 @@ export function MarketModal(props: {
             </p>
           )}
           <main className="mk-stack">
-            {stack.map((layer) => (
-              <section
-                key={layer.id}
-                className="mk-view"
-                data-motion={layer.leaving ?? layer.entering}
-                aria-hidden={layer.leaving ? true : undefined}
-                inert={layer.leaving ? true : undefined}
-                onScroll={layer.leaving ? undefined : onScroll}
-              >
-                <MarketLayer view={layer.view} query={layer.leaving ? layer.query : query} />
-              </section>
-            ))}
+            <section
+              key={shown.id}
+              className="mk-view"
+              data-motion={shown.motion}
+              onScroll={onScroll}
+            >
+              <MarketLayer view={shown.view} query={query} />
+            </section>
           </main>
         </div>
         <TryBar trying={tryOn.trying} onUndo={tryOn.undo} onKeep={keep} />
