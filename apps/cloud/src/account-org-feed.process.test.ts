@@ -161,3 +161,22 @@ it("an entry the audit log couldn't take is sent later, once, and none is sent f
     ),
   ).toEqual([]);
 });
+
+it("an organization's update at the same WorkOS time as its deletion leaves it deleted", async () => {
+  const ownerToken = await world.signIn(world.owner);
+  const org = await world.api.createOrg(ownerToken, "Tied away");
+  const at = new Date(Date.now() + 1_000).toISOString();
+  const data = { object: "organization", id: org, name: "Tied away", updated_at: at };
+  const spaces = async () =>
+    ((await world.api.call(ownerToken, "GET", "/v1/orgs")).body.orgs as { id: string }[]).map(
+      (each) => each.id,
+    );
+  expect(await spaces()).toContain(org);
+  expect(
+    await deliver({ id: "event_01ORGDEL", event: "organization.deleted", data, created_at: at }),
+  ).toBe(200);
+  expect(
+    await deliver({ id: "event_01ORGUP", event: "organization.updated", data, created_at: at }),
+  ).toBe(200);
+  expect(await spaces()).not.toContain(org);
+});

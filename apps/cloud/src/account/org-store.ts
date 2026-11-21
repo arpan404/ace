@@ -149,6 +149,10 @@ export function orgStore(db: D1Database) {
       )
       .bind(...values, expected);
   return {
+    /**
+     * The organization as WorkOS described it at `version`: only a strictly newer description
+     * lands, so a deletion at the same time wins (`deletingOrg` applies at or after).
+     */
     upsertingOrg: (
       org: { id: string; name: string; createdBy?: string; version: string },
       now: number,
@@ -157,7 +161,7 @@ export function orgStore(db: D1Database) {
         .prepare(
           `INSERT INTO orgs (org_id, name, created_by, created_at, version) VALUES (?1, ?2, ?3, ?4, ?5)
            ON CONFLICT (org_id) DO UPDATE SET name = excluded.name, deleted = 0, version = excluded.version
-           WHERE excluded.version >= orgs.version`,
+           WHERE excluded.version > orgs.version`,
         )
         .bind(org.id, org.name, org.createdBy ?? "", now, org.version),
     deletingOrg: (org: string, version: string) =>
