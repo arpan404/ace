@@ -501,6 +501,144 @@ mod tests {
     }
 }
 
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    fn input(path: &Path, max_bytes: u32) -> ImageInput {
+        ImageInput::File {
+            path: path.to_string_lossy().into_owned(),
+            max_bytes,
+        }
+    }
+    fn reason(root: &FileRoot, inputs: &[ImageInput]) -> Option<ImageFailure> {
+        root.read_all(inputs, &|| false).err().map(|f| f.reason)
+    }
+    fn base(tag: &str) -> std::io::Result<PathBuf> {
+        let base = std::env::temp_dir().join(format!("ace-media-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("root").join("blobs"))?;
+        Ok(base)
+    }
+    /// A directory junction: made without any privilege, unlike a symbolic link.
+    fn junction(link: &Path, target: &Path) -> std::io::Result<bool> {
+        Ok(std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link)
+            .arg(target)
+            .stdout(std::process::Stdio::null())
+            .status()?
+            .success())
+    }
+
+    #[test]
+    fn only_regular_files_inside_the_root_are_read_and_never_through_a_reparse_point()
+    -> std::io::Result<()> {
+        let base = base("files")?;
+        let root = base.join("root");
+        std::fs::write(root.join("blobs").join("a.png"), b"inside")?;
+        std::fs::write(base.join("outside"), b"secret")?;
+        let joined = junction(&root.join("up"), &base)?;
+        let linked = std::os::windows::fs::symlink_file(
+            base.join("outside"),
+            root.join("blobs").join("link"),
+        )
+        .is_ok();
+        let files = FileRoot::new(Some(&root));
+
+        assert_eq!(
+            files
+                .read_all(&[input(&root.join("blobs").join("a.png"), 64)], &|| false)
+                .ok(),
+            Some(vec![b"inside".to_vec()])
+        );
+        // Forward slashes and another letter case name the same file on Windows.
+        let slashed = format!("{}/blobs/A.PNG", root.display());
+        assert_eq!(
+            files
+                .read_all(&[input(Path::new(&slashed), 64)], &|| false)
+                .ok(),
+            Some(vec![b"inside".to_vec()])
+        );
+        assert_eq!(
+            reason(&files, &[input(&base.join("outside"), 64)]),
+            Some(ImageFailure::Unreadable)
+        );
+        assert_eq!(
+            reason(&files, &[input(&root.join("blobs\\..\\..\\outside"), 64)]),
+            Some(ImageFailure::Unreadable)
+        );
+        assert_eq!(
+            reason(
+                &files,
+                &[input(&root.join("blobs").join("a.png:stream"), 64)]
+            ),
+            Some(ImageFailure::Unreadable)
+        );
+        assert_eq!(
+            reason(&files, &[input(&root.join("blobs"), 64)]),
+            Some(ImageFailure::Unreadable)
+        );
+        assert_eq!(
+            reason(&files, &[input(&root.join("blobs").join("missing"), 64)]),
+            Some(ImageFailure::Unreadable)
+        );
+        assert!(joined, "a junction could not be made");
+        assert_eq!(
+            reason(&files, &[input(&root.join("up").join("outside"), 64)]),
+            Some(ImageFailure::Unreadable)
+        );
+        if linked {
+            assert_eq!(
+                reason(&files, &[input(&root.join("blobs").join("link"), 64)]),
+                Some(ImageFailure::Unreadable)
+            );
+        }
+        assert_eq!(
+            reason(&files, &[input(&root.join("blobs").join("a.png"), 3)]),
+            Some(ImageFailure::TooLarge)
+        );
+        std::fs::remove_dir(root.join("up"))?;
+        std::fs::remove_dir_all(&base)
+    }
+
+    #[test]
+    fn a_root_that_is_a_junction_is_never_read_from() -> std::io::Result<()> {
+        let base = base("rootlink")?;
+        std::fs::write(base.join("root").join("a"), b"behind")?;
+        assert!(junction(&base.join("via"), &base.join("root"))?);
+        // Named through the junction, the root resolves to the real folder and reads work;
+        // the junction itself is refused as a root.
+        assert!(Root::pin(&base.join("via")).is_err());
+        assert!(Root::pin(&base.join("root")).is_ok());
+        std::fs::remove_dir(base.join("via"))?;
+        std::fs::remove_dir_all(&base)
+    }
+
+    #[test]
+    fn the_pinned_root_cannot_be_swapped_while_the_process_holds_it() -> std::io::Result<()> {
+        let base = base("pinned")?;
+        let root = base.join("root");
+        std::fs::write(root.join("a"), b"first")?;
+        let files = FileRoot::new(Some(&root));
+        let moved = std::fs::rename(&root, base.join("moved")).is_ok();
+        if moved {
+            std::fs::create_dir_all(&root)?;
+            std::fs::write(root.join("a"), b"second")?;
+        }
+        assert_eq!(
+            files
+                .read_all(&[input(&root.join("a"), 64)], &|| false)
+                .ok(),
+            Some(vec![b"first".to_vec()])
+        );
+        drop(files);
+        std::fs::remove_dir_all(&base)
+    }
+}
+
 #[cfg(test)]
 mod name_tests {
     use super::plain_name;
