@@ -51,7 +51,9 @@ const said = (entries: readonly SpadeEntry[]) =>
                           ? `[asked ${part.answer ?? "open"}]`
                           : part.kind === "question"
                             ? `[question ${part.standing}]`
-                            : part.text,
+                            : part.kind === "served"
+                              ? `[served ${part.line}]`
+                              : part.text,
             ),
             ...(entry.live ? [`${entry.live}…`] : []),
           ].join(" | ")}${entry.end ? ` (${entry.end.kind})` : ""}`

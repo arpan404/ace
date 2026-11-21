@@ -180,6 +180,16 @@ export async function readSubscriptions(
   return sure(parseSpadeSubscriptions(body), "subscriptions");
 }
 
+/**
+ * The person ticked Use it for `provider`'s subscription (ADR 0205 §1): what choosing it means,
+ * read once per provider.
+ */
+export async function acknowledgeTerms(target: SpadeTarget, provider: string): Promise<void> {
+  await spadeHttp(target, "PUT", `/v1/subscriptions/${segment(provider)}/terms`, {
+    body: { use: true },
+  });
+}
+
 /** What the endpoint itself lists now. */
 export async function readLiveModels(
   target: SpadeTarget,

@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use futures_util::{Stream, StreamExt};
 use spade_core::maintenance::{Pause, Point};
+use spade_core::routing::fallback::{self, After, Needs, Reason, Skipped};
 use spade_core::wake::{self, CancelledBy, Cause, Ended, Purpose};
 use spade_models::{Delta, ModelError, Prompt};
 use tokio::sync::watch;
@@ -75,42 +76,124 @@ pub(super) enum Opened {
 /// fails before anything streamed and the failure may pass. The status reads "Retrying"
 /// meanwhile; Stop and a pause end the wait. Once the quick tries are used up the turn waits out
 /// the endpoint on an outage wake and tries again, as long as it takes.
+///
+/// `route` is the models the step may run on, in order (ADR 0205 §2): one that can't serve what
+/// the prompt needs is passed over, and a definite sign (unreachable, a rate limit, a used-up
+/// quota, a server error once its tries are used up) moves the step to the next. Anything else,
+/// and any failure on the route's last model, is handled as for a lone model. The answer names
+/// the model that was tried last and the ones passed over.
 pub(super) async fn open(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    route: &[String],
+    prompt: &Prompt,
+    stop: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
+) -> (Opened, String, Vec<Skipped>) {
+    let needs = needs_of(prompt);
+    let unfit: Vec<Option<Reason>> = route
+        .iter()
+        .map(|model| fallback::unfit(needs, engine.can_of(model)))
+        .collect();
+    // With no model that can serve it, the route's first takes it, as a lone model.
+    let any_fits = unfit.iter().any(Option::is_none);
+    let mut passed: Vec<Skipped> = Vec::new();
+    let mut tried = String::new();
+    for (at, model) in route.iter().enumerate() {
+        if !any_fits && at > 0 {
+            break;
+        }
+        if let (true, Some(reason)) = (any_fits, unfit[at]) {
+            passed.push(Skipped {
+                model: model.clone(),
+                reason,
+            });
+            continue;
+        }
+        let more = any_fits && unfit[at + 1..].iter().any(Option::is_none);
+        tried.clone_from(model);
+        match open_on(engine, id, reply, model, prompt, more, stop, pause).await {
+            OnModel::Opened(opened) => return (opened, tried, passed),
+            OnModel::MovedOn(reason) => passed.push(Skipped {
+                model: model.clone(),
+                reason,
+            }),
+        }
+    }
+    // Only an empty route gets here: the last model tried never moves on.
+    (
+        Opened::Failed(ModelError::UnknownModel(tried.clone())),
+        tried,
+        passed,
+    )
+}
+
+/// What a step's prompt needs of the model that serves it.
+fn needs_of(prompt: &Prompt) -> Needs {
+    let images = prompt.messages.iter().any(|message| {
+        matches!(message, spade_models::Message::Person { images, .. } if !images.is_empty())
+    });
+    Needs {
+        tools: !prompt.tools.is_empty(),
+        images,
+        tokens: u64::from(super::ledger::prompt_tokens(prompt)),
+    }
+}
+
+enum OnModel {
+    Opened(Opened),
+    /// A definite sign: the next model of the route takes the step.
+    MovedOn(Reason),
+}
+
+/// [`open`] on one model of the route; `more` while later models follow it.
+#[allow(clippy::too_many_arguments)]
+async fn open_on(
     engine: &Arc<Engine>,
     id: &str,
     reply: &str,
     model: &str,
     prompt: &Prompt,
+    more: bool,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
-) -> Opened {
+) -> OnModel {
     let policy = engine.limits.retry;
     let mut waited = Duration::ZERO;
     let mut tries = 1;
     // A turn resumed after a restart (or an update) keeps waiting out its outage.
     match resume(engine, id, reply, stop, pause).await {
         Waited::Again => {}
-        Waited::Stopped => return Opened::Stopped,
-        Waited::Paused => return Opened::Paused,
+        Waited::Stopped => return OnModel::Opened(Opened::Stopped),
+        Waited::Paused => return OnModel::Opened(Opened::Paused),
     }
     loop {
         let first = tokio::select! {
             first = first_item(engine, model, prompt) => first,
-            _ = super::turn::stopped(stop) => return Opened::Stopped,
-            _ = super::turn::pausing(pause, Point::Streaming) => return Opened::Paused,
+            _ = super::turn::stopped(stop) => return OnModel::Opened(Opened::Stopped),
+            _ = super::turn::pausing(pause, Point::Streaming) => return OnModel::Opened(Opened::Paused),
         };
         let error = match first {
-            Ok(stream) => return Opened::Answering(stream),
+            Ok(stream) => return OnModel::Opened(Opened::Answering(stream)),
             Err(error) => error,
         };
         let pause_for = error
             .transient()
             .then(|| wait(&policy, tries + 1, waited, error.retry_after()))
             .flatten();
+        let unserved = error.unserved();
+        if fallback::after(unserved, pause_for.is_some(), more) == After::MoveOn
+            && let Some(unserved) = unserved
+        {
+            tracing::warn!(%error, %model, "the route's next model takes the step");
+            engine.set_status(id, Some(THINKING.to_owned()));
+            return OnModel::MovedOn(unserved.into());
+        }
         let Some(pause_for) = pause_for else {
             if !error.transient() {
                 // A refused key, a used-up quota or a bad request: the person has to act.
-                return Opened::Failed(error);
+                return OnModel::Opened(Opened::Failed(error));
             }
             // An outage: wait it out, then start the quick tries again.
             tracing::warn!(%error, "the endpoint is down; the turn waits for it");
@@ -126,8 +209,8 @@ pub(super) async fn open(
             .await
             {
                 Waited::Again => {}
-                Waited::Stopped => return Opened::Stopped,
-                Waited::Paused => return Opened::Paused,
+                Waited::Stopped => return OnModel::Opened(Opened::Stopped),
+                Waited::Paused => return OnModel::Opened(Opened::Paused),
             }
             waited = Duration::ZERO;
             tries = 1;
@@ -137,8 +220,8 @@ pub(super) async fn open(
         engine.set_status(id, Some(RETRYING.to_owned()));
         tokio::select! {
             () = tokio::time::sleep(pause_for) => {}
-            _ = super::turn::stopped(stop) => return Opened::Stopped,
-            _ = super::turn::pausing(pause, Point::Streaming) => return Opened::Paused,
+            _ = super::turn::stopped(stop) => return OnModel::Opened(Opened::Stopped),
+            _ = super::turn::pausing(pause, Point::Streaming) => return OnModel::Opened(Opened::Paused),
         }
         engine.set_status(id, Some(THINKING.to_owned()));
         waited += pause_for;

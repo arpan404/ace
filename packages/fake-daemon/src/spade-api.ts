@@ -755,6 +755,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
       });
     if (root === "subscriptions" && request.method === "GET")
       return reply({ providers: this.subscriptions, error: null });
+    // The person ticked Use it for a provider's subscription (ADR 0205 §1).
+    if (root === "subscriptions" && id && sub === "terms" && request.method === "PUT") {
+      const found = this.subscriptions.find((each) => each.provider === id);
+      const terms = found?.terms as Json | undefined;
+      if (!found || terms?.status === "refused") return problem(400, "That isn't offered.");
+      found.terms = { ...terms, acknowledged: true };
+      return reply({ terms: found.terms });
+    }
     if (root === "endpoints" && id === "local" && request.method === "GET")
       return reply({ servers: this.localServers });
     if (root === "endpoints" && id === "local" && sub && request.method === "POST")
@@ -915,6 +923,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(400, "Spade's name and face can't change.");
       for (const key of ["name", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
+      // As Spade: another model ends a hold its subscription's terms put on it (ADR 0205).
+      if (typeof body.model === "string" && agent.terms_hold) {
+        agent.terms_hold = null;
+        agent.problem = null;
+      }
       // As Spade: whether it may make bots (ADR 0161, amendment 1).
       if (
         body.may_create_bots === "yes" ||
