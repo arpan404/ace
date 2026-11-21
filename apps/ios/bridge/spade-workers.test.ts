@@ -138,12 +138,12 @@ async function scouting(scout: { queued: boolean }) {
   let conversation = "";
   let made = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
   const host = await setUp((api) => {
-    const research = api.addAgent({ name: "Research" });
-    conversation = research.conversation;
+    const maker = api.addAgent({ name: "Research" });
+    conversation = maker.conversation;
     made = api.addAgent({
       name: "Scout",
       state: "idle",
-      parent: { id: research.id, name: "Research" },
+      parent: { id: maker.id, name: "Research" },
       queued: scout.queued,
     });
     api.store(conversation, { type: "user_message", text: "Scout the venues" });
