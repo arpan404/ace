@@ -14,7 +14,7 @@ import {
 
 const idle: AgentStatus = { state: "idle" };
 const working: AgentStatus = { state: "working", activity: "tool" };
-const blocked: AgentStatus = { state: "blocked", on: "human" };
+const blocked: AgentStatus = { state: "blocked", on: "human", refs: [] };
 
 let clock = 0;
 const agent = (
@@ -471,6 +471,7 @@ test("a second delegate to a thread already shown under another reads its work, 
       "t2",
       thread([agent("t2", "root", idle), agent("t2", "asks", blocked, "root")], {
         state: "needs_you",
+        interactions: 1,
       }),
     ],
   ]);
