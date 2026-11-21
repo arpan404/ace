@@ -20,11 +20,12 @@ export function turnHunks(rows: readonly DiffRow[]): TurnHunk[] {
   for (const row of rows)
     if ((row.kind === "add" || row.kind === "context") && row.new !== undefined)
       text.set(row.new, row.text);
-  return changeHunks(rows).map((hunk) => ({
-    ...hunk,
-    above: text.get(hunk.start - 1),
-    below: text.get(hunk.start + hunk.added.length),
-  }));
+  return changeHunks(rows).map((hunk): TurnHunk =>
+    Object.assign(hunk, {
+      above: text.get(hunk.start - 1),
+      below: text.get(hunk.start + hunk.added.length),
+    }),
+  );
 }
 
 /** How far from where the turn left it a hunk is looked for. */

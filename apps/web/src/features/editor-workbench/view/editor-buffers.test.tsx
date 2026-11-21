@@ -34,7 +34,9 @@ test("the notice appears when an agent writes a file with unsaved edits, and Mer
   // The agent writes the top of the file; the person typed at its end: no overlap.
   await editor.changeOnDisk("src/a.ts", "agent again\n// src/a.ts\nline two\nagent line\n");
   expect(
-    await screen.findByText("Claude Code changed line 1 while you were editing line 4. No overlap."),
+    await screen.findByText(
+      "Claude Code changed line 1 while you were editing line 4. No overlap.",
+    ),
   ).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "Merge" }));

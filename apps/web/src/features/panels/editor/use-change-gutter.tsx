@@ -73,7 +73,8 @@ export function useChangeGutter(input: {
   const { hunks: committed } = useChangeMarks(threadId, path, version);
   useEffect(() => {
     const base = buffer.baseText();
-    if (base === undefined) return;
+    // The base text is read again for each disk version.
+    if (base === undefined || version === undefined) return;
     const head = committedText(base, committed ?? []);
     if (head !== undefined) gutter.setHead(head);
   }, [buffer, gutter, version, committed]);

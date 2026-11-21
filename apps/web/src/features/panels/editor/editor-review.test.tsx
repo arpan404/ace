@@ -40,7 +40,9 @@ test("a turn's change opens inline, named as the agent's, and Revert puts it bac
   expect(peek.textContent).toContain("Claude Code · turn 1 · 1 of 3");
   expect(peek.textContent).toContain("const COLD_START_WINDOW = 200;");
   // The turn's lines carry the agent's mark, saying who and which turn.
-  expect(within(view()).getAllByTitle("Claude Code changed this in turn 1").length).toBeGreaterThan(0);
+  expect(within(view()).getAllByTitle("Claude Code changed this in turn 1").length).toBeGreaterThan(
+    0,
+  );
 
   await userEvent.click(within(peek).getByRole("button", { name: "Revert" }));
 

@@ -96,9 +96,9 @@ test("change marks appear in the gutter after an edit", async () => {
   act(() => ref.current?.focus());
   await userEvent.keyboard("2");
   await waitFor(() =>
-    expect(
-      document.querySelector('[data-change-line="2"]')?.getAttribute("data-change-bar"),
-    ).toBe("modified"),
+    expect(document.querySelector('[data-change-line="2"]')?.getAttribute("data-change-bar")).toBe(
+      "modified",
+    ),
   );
 });
 

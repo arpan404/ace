@@ -6,7 +6,13 @@ import {
   type WholeLineChange,
 } from "@ace/ui-core";
 import type { BufferEvent, TextBuffer } from "@/features/editor-workbench/index.ts";
-import { landBlocks, mapBlocks, withoutLines, type AgentBlock, type AgentWho } from "./agent-lines.ts";
+import {
+  landBlocks,
+  mapBlocks,
+  withoutLines,
+  type AgentBlock,
+  type AgentWho,
+} from "./agent-lines.ts";
 
 /*
  * One open file's change marks (docs/editor/workbench.md 43–44), shared by every view of it and

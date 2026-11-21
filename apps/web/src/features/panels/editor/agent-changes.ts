@@ -173,6 +173,9 @@ export function treeMarks(input: {
   return marks;
 }
 
+const compare = (a: readonly [number, number], b: readonly [number, number]) =>
+  a[0] - b[0] || a[1] - b[1];
+
 /** A place Next change goes: an agent's block in an open file. */
 export interface ChangeStop {
   path: string;
@@ -197,8 +200,6 @@ export function stepAgentChange(
   if (stops.length === 0) return undefined;
   const order = (stop: ChangeStop) => [open.indexOf(stop.path), stop.line] as const;
   const here = [at.path === undefined ? -1 : open.indexOf(at.path), at.line] as const;
-  const compare = (a: readonly [number, number], b: readonly [number, number]) =>
-    a[0] - b[0] || a[1] - b[1];
   const sorted = stops.toSorted((a, b) => compare(order(a), order(b)));
   if (direction === 1) return sorted.find((stop) => compare(order(stop), here) > 0) ?? sorted[0];
   return sorted.findLast((stop) => compare(order(stop), here) < 0) ?? sorted.at(-1);

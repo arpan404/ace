@@ -26,8 +26,7 @@ export const gutterDelay = 150;
 /** Whom a change is credited to, as the gutter's hover names them. */
 export function whoOf(author: Author | undefined): AgentWho | undefined {
   if (!author || author.kind === "unknown") return undefined;
-  if (author.kind === "thread")
-    return { name: author.title, provider: providerOf(author.agent) };
+  if (author.kind === "thread") return { name: author.title, provider: providerOf(author.agent) };
   return { name: author.agent, provider: providerOf(author.agent), turn: author.turn };
 }
 

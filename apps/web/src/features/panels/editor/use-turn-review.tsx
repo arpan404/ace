@@ -68,8 +68,8 @@ export function useTurnReview(input: {
     () =>
       turn
         ? groupFileChanges(turn.edits).map((file) => ({
-            ...file,
             path: workspaceRelative(file.path, checkout) ?? file.path,
+            changes: file.changes,
           }))
         : noFiles,
     [turn, checkout],
@@ -83,7 +83,9 @@ export function useTurnReview(input: {
   const marks = useSyncExternalStore(subscribe, () => gutter.state());
   const located = useMemo(() => {
     const doc = buffer.document();
-    return doc ? hunks.map((hunk) => locateHunk(hunk, (line) => doc.line(line), doc.lenLines())) : [];
+    return doc
+      ? hunks.map((hunk) => locateHunk(hunk, (line) => doc.line(line), doc.lenLines()))
+      : [];
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the gutter's state moves with the text.
   }, [hunks, buffer, marks]);
 
@@ -100,12 +102,12 @@ export function useTurnReview(input: {
 
   // A new review starts at the turn's first change in this file.
   const first = located.findIndex((hunk) => hunk !== undefined);
-  const at = first < 0 ? undefined : located[first];
+  const opening = first < 0 ? undefined : located[first];
   useEffect(() => {
-    if (!key || !at || progress.get(key)) return;
+    if (!key || !opening || progress.get(key)) return;
     progress.set(key, { index: first, done: noneDone });
-    requestReveal(threadId, { path, group, line: at.start, focus: true });
-  }, [key, at, first, path, group, threadId]);
+    requestReveal(threadId, { path, group, line: opening.start, focus: true });
+  }, [key, opening, first, path, group, threadId]);
 
   if (!review || !turn || hunks.length === 0) return undefined;
 
@@ -136,7 +138,8 @@ export function useTurnReview(input: {
   const keep = () => current && finish(current);
   const revert = () => {
     const doc = buffer.document();
-    const change = current && doc && revertChange(current, (line) => doc.line(line), doc.lenLines());
+    const change =
+      current && doc && revertChange(current, (line) => doc.line(line), doc.lenLines());
     if (!current || !change) return;
     // Revert saves only what it put back: other unsaved edits stay the person's to save.
     const clean = !buffer.snapshot().dirty;

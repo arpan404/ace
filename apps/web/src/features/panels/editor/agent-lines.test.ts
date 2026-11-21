@@ -30,13 +30,41 @@ test("an agent's change becomes a block of the lines it wrote, in the new text's
 });
 
 test.each([
-  { name: "lines typed above move a block down", change: { start: 0, end: 0, text: "x\ny\n" }, after: [[5, 7]] },
-  { name: "lines removed above move it up", change: { start: 0, end: 2, text: "" }, after: [[1, 3]] },
-  { name: "a change below leaves it where it is", change: { start: 9, end: 10, text: "z\n" }, after: [[3, 5]] },
-  { name: "a line typed right above it pushes it down", change: { start: 3, end: 3, text: "x\n" }, after: [[4, 6]] },
-  { name: "a line added right after it leaves it", change: { start: 5, end: 5, text: "x\n" }, after: [[3, 5]] },
-  { name: "the person typing in it makes it theirs", change: { start: 4, end: 5, text: "edit\n" }, after: [] },
-  { name: "a line added inside it makes it theirs", change: { start: 4, end: 4, text: "x\n" }, after: [] },
+  {
+    name: "lines typed above move a block down",
+    change: { start: 0, end: 0, text: "x\ny\n" },
+    after: [[5, 7]],
+  },
+  {
+    name: "lines removed above move it up",
+    change: { start: 0, end: 2, text: "" },
+    after: [[1, 3]],
+  },
+  {
+    name: "a change below leaves it where it is",
+    change: { start: 9, end: 10, text: "z\n" },
+    after: [[3, 5]],
+  },
+  {
+    name: "a line typed right above it pushes it down",
+    change: { start: 3, end: 3, text: "x\n" },
+    after: [[4, 6]],
+  },
+  {
+    name: "a line added right after it leaves it",
+    change: { start: 5, end: 5, text: "x\n" },
+    after: [[3, 5]],
+  },
+  {
+    name: "the person typing in it makes it theirs",
+    change: { start: 4, end: 5, text: "edit\n" },
+    after: [],
+  },
+  {
+    name: "a line added inside it makes it theirs",
+    change: { start: 4, end: 4, text: "x\n" },
+    after: [],
+  },
 ])("$name", ({ change, after }) => {
   expect(mapBlocks([block(3, 5)], [change]).map(span)).toEqual(after);
 });

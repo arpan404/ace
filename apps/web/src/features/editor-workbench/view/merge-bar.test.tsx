@@ -34,7 +34,10 @@ async function editing() {
     if (!doc) throw new Error("no document");
     act(() => {
       doc.apply([
-        { range: { start: { line, column: 0 }, end: { line, column: doc.line(line).length } }, text },
+        {
+          range: { start: { line, column: 0 }, end: { line, column: doc.line(line).length } },
+          text,
+        },
       ]);
       buffer().edited();
     });
@@ -42,7 +45,8 @@ async function editing() {
   return { editor, buffer, typeOver };
 }
 
-const bar = () => screen.getByText((_, node) => node?.getAttribute("data-part") === "editor-notice");
+const bar = () =>
+  screen.getByText((_, node) => node?.getAttribute("data-part") === "editor-notice");
 
 test("the bar at the editor's foot says who changed which lines while the person edited which", async () => {
   const { editor, typeOver } = await editing();

@@ -204,26 +204,37 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 
 42. An open editor whose file changes on disk and has no unsaved edits reloads in place, keeping
     the caret and scroll anchored to the same text (not the same offset).
-43. Lines changed by an agent since the person last looked get a 3px bar in the working colour in
-    the gutter, and the first line of each changed block shows, after its text, the agent's mark
-    and "Claude Code · just now" in subtle ink (it ages: "· 4m"). Once the block has been on screen
-    for 2 s, or the person edits it, the bar turns into the ordinary changed-line mark (muted ink)
-    and the label goes; hovering any changed-line mark names who changed it and when.
-44. The person's own unsaved lines carry a muted ink bar. Lines changed since HEAD but not in this
-    session keep today's change marks. Three marks, three meanings, one place. A press on a
+43. Lines an agent wrote while the file was open (a reload, a merge, or a turn under review) get a
+    3px bar in the waiting colour (amber) in the gutter, with the agent's mark on the first line of
+    each block; hovering either says who and when ("Claude Code changed this in turn 2"). Once the
+    person edits a block (or keeps it in a review) its bar gives way to the ordinary change mark.
+44. Lines changed since HEAD carry a bar against the committed text, kept live as the person types
+    (worked out once typing pauses, off the main thread for large files): green for added lines,
+    blue for changed ones, a small red wedge between lines where lines were removed. A press on a
     change mark shows that hunk under its lines (what it replaced, then what is there now) with
-    Revert, which puts the committed lines back and saves through the versioned write, and Close.
+    Revert, which puts the committed lines back and saves through the versioned write (only when
+    nothing else is unsaved), and Close. F7 and ⇧F7 step through the file's changes. The
+    scrollbar carries an overview ruler of the changes, the agents' lines, find hits and the
+    caret line; a press on a tick brings its line into view.
+    44a. **Review in editor** (a turn's changed files in the transcript, a file's menu in Changes, the
+    Work card's last turn) opens the file with that turn's hunks, from the same diff Changes
+    shows, found in the text as it is now. Each opens under its lines with Keep, Revert and
+    Comment (a code annotation on its lines); F7 and ⇧F7 (or the arrows) step through them and on
+    to the turn's next file; Done ends the review.
 45. When an agent changes files open in the editor, the status line says so ("Claude Code changed
-    2 open files") with Next change (⌥F5), which steps through unseen blocks across open editors.
+    2 open files") with Next change (⌥F5), which steps through the agents' blocks across open
+    editors, line by line.
     Attribution: a change is credited to the thread whose live turn reported an edit tool call on
     that path within 10 s before the disk change; with none, it reads "Changed on disk" and no
     agent is named. A change from another thread names that thread ("Changed by Fix relay loop").
 46. **An agent changes a file the person is editing.** The moment the disk version moves under an
-    unsaved buffer, one line appears under that group's breadcrumbs: the agent's mark, "Claude Code
-    also changed this file.", then Merge (button) and Compare (text button). Merge runs a three-way
-    merge (base: the version the person started from; theirs: disk; mine: the buffer). Clean, it
-    applies in one undoable step and both sets of marks show; overlapping blocks show inline with
-    "Keep mine" and "Take theirs" per block, and Save waits until each is answered. Compare opens a
+    unsaved buffer, one bar appears at the group's foot: the agent's mark, what happened in words
+    ("Claude Code changed lines 2–3 while you were editing line 5. No overlap."), then Merge
+    (button) and Compare (text button). Merge runs a three-way merge (base: the version the person
+    started from; theirs: disk; mine: the buffer). Clean, it applies in one undoable step, unsaved,
+    and both sets of marks show; overlapping blocks show in place of the editor, the person's lines
+    beside the agent's, with "Keep mine" and "Take theirs" per block (or for all of them from the
+    bar), and Save waits until each is answered. Compare opens a
     diff of disk against the buffer in a new tab. The line stays until merged or until the person
     saves (which then asks: "Replace Claude Code's changes in places.ts?" with Replace and Cancel;
     Merge is the default answer).
@@ -307,6 +318,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 | Search file contents                  | ⇧⌘F               | same      | Editor (exists) |
 | Next / previous search hit            | F4 / ⇧F4          | same      | Editor          |
 | Next / previous agent change          | ⌥F5 / ⇧⌥F5        | same      | Editor          |
+| Next / previous change in the file    | F7 / ⇧F7          | same      | Editor          |
 | Go to line                            | ⌃G, or `:n` in ⌘P | same      | Editor          |
 | Rename in explorer                    | F2                | same      | files (exists)  |
 | Back to the composer                  | Esc               | same      | Editor          |

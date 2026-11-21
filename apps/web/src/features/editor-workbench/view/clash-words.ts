@@ -23,7 +23,8 @@ function linesAfter(changes: readonly WholeLineChange[]): Lines[] {
   });
 }
 
-const one = (lines: Lines) => (lines.from === lines.to ? `${lines.from}` : `${lines.from}–${lines.to}`);
+const one = (lines: Lines) =>
+  lines.from === lines.to ? `${lines.from}` : `${lines.from}–${lines.to}`;
 
 /** "line 5", "lines 2–3", "lines 2–3 and 9", "lines 2–3, 9 and 2 more places". */
 export function linesWords(lines: readonly Lines[]): string {

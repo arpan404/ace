@@ -162,9 +162,18 @@ describe("Next change through the agents' blocks", () => {
   const of = (path: string) => blocks[path] ?? [];
 
   it("goes to the next block in the shown file, then on to the next file", () => {
-    expect(stepAgentChange(open, of, { path: "a.ts", line: -1 })).toEqual({ path: "a.ts", line: 4 });
-    expect(stepAgentChange(open, of, { path: "a.ts", line: 4 })).toEqual({ path: "a.ts", line: 20 });
-    expect(stepAgentChange(open, of, { path: "a.ts", line: 20 })).toEqual({ path: "c.ts", line: 2 });
+    expect(stepAgentChange(open, of, { path: "a.ts", line: -1 })).toEqual({
+      path: "a.ts",
+      line: 4,
+    });
+    expect(stepAgentChange(open, of, { path: "a.ts", line: 4 })).toEqual({
+      path: "a.ts",
+      line: 20,
+    });
+    expect(stepAgentChange(open, of, { path: "a.ts", line: 20 })).toEqual({
+      path: "c.ts",
+      line: 2,
+    });
   });
 
   it("wraps from the last block to the first, and back", () => {
@@ -176,7 +185,10 @@ describe("Next change through the agents' blocks", () => {
   });
 
   it("from a file without blocks goes to the next file that has one", () => {
-    expect(stepAgentChange(open, of, { path: "b.ts", line: -1 })).toEqual({ path: "c.ts", line: 2 });
+    expect(stepAgentChange(open, of, { path: "b.ts", line: -1 })).toEqual({
+      path: "c.ts",
+      line: 2,
+    });
   });
 
   it("finds nothing when no open file has an agent's block", () => {
