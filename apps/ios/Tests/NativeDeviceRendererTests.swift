@@ -13,16 +13,17 @@ import UIKit
         let recorder = DeviceRenderRecorder()
         let renderer = NativeRemotePictureRenderer(deviceId: "android:phone", present: recorder.present, acknowledge: recorder.acknowledge)
         defer { renderer.close() }
+        renderer.delivery("android:phone", MediaDelivery(generation: 1, path: "media"))
         // Another device, and JPEG stills, cannot affect the live decoder.
-        renderer.receiveVideo(chunk(device: "android:other", seq: 1, key: true, bytes: key))
+        renderer.receiveVideo(chunk(device: "android:other", seq: 1, key: true, bytes: key), path: "media")
         var still = chunk(seq: 1, key: true, bytes: key); still.still = true
-        renderer.receiveVideo(still)
-        renderer.receiveVideo(chunk(seq: 1, key: false, bytes: delta))
+        renderer.receiveVideo(still, path: "media")
+        renderer.receiveVideo(chunk(seq: 1, key: false, bytes: delta), path: "media")
         try await wait { recorder.acks.count == 1 }
         #expect(recorder.sizes.isEmpty)
         #expect(recorder.acks.first?.keyframe == true)
-        renderer.receiveVideo(chunk(seq: 2, key: true, bytes: key))
-        renderer.receiveVideo(chunk(seq: 3, key: false, bytes: delta))
+        renderer.receiveVideo(chunk(seq: 2, key: true, bytes: key), path: "media")
+        renderer.receiveVideo(chunk(seq: 3, key: false, bytes: delta), path: "media")
         try await wait { recorder.acks.count == 3 }
         #expect(recorder.sizes == [CGSize(width: 320, height: 240), CGSize(width: 320, height: 240)])
         #expect(recorder.acks.map(\.sequence) == [1, 2, 3])
@@ -30,7 +31,7 @@ import UIKit
         renderer.receiveVideo(chunk(seq: 4, key: true, bytes: Data([0, 0, 1, 0x65, 1])))
         try await wait { recorder.acks.count == 4 }
         #expect(recorder.acks.last?.keyframe == true)
-        renderer.receiveVideo(chunk(seq: 5, key: true, bytes: key))
+        renderer.receiveVideo(chunk(seq: 5, key: true, bytes: key), path: "media")
         try await wait { recorder.acks.count == 5 }
         #expect(recorder.sizes.count == 3)
         #expect(recorder.acks.last?.keyframe == false)
@@ -52,9 +53,10 @@ import UIKit
         let recorder = DeviceRenderRecorder()
         let renderer = NativeRemotePictureRenderer(deviceId: "screen-session", present: recorder.present, acknowledge: recorder.acknowledge)
         defer { renderer.close() }
-        renderer.receiveScreen(chunk(device: "other-session", seq: 1, key: true, bytes: bytes))
-        renderer.receiveVideo(frame) // Device video never draws a JPEG fallback.
-        renderer.receiveScreen(frame)
+        renderer.delivery("screen-session", MediaDelivery(generation: 1, path: "media"))
+        renderer.receiveScreen(chunk(device: "other-session", seq: 1, key: true, bytes: bytes), path: "media")
+        renderer.receiveVideo(frame, path: "media") // Device video never draws a JPEG fallback.
+        renderer.receiveScreen(frame, path: "media")
         try await wait { recorder.acks.count == 1 }
         #expect(recorder.sizes == [CGSize(width: 320, height: 240)])
         #expect(recorder.acks.first?.deviceId == "screen-session")

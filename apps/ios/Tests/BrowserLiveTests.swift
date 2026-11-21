@@ -71,13 +71,13 @@ import Testing
         let (model, session) = try await connected()
         model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
         // Another thread's chunks are not this view's: never decoded, never acknowledged.
-        session.hub.deliver(chunk(sequence: 2, key: false, threadId: "other"))
-        session.hub.deliver(chunk(sequence: 3, key: false))
+        session.hub.live(chunk(sequence: 2, key: false, threadId: "other"))
+        session.hub.live(chunk(sequence: 3, key: false))
         try await until { session.acks.count == 1 }
         #expect(session.acks[0]["sequence"] as? Int == 3)
         #expect(session.acks[0]["keyframe"] == nil)
         // A keyframe whose bytes don't decode: the newest chunk is acknowledged with a keyframe request.
-        session.hub.deliver(chunk(sequence: 4, key: true))
+        session.hub.live(chunk(sequence: 4, key: true))
         try await until { session.acks.count == 2 }
         #expect(session.acks[1]["sequence"] as? Int == 4)
         #expect(session.acks[1]["keyframe"] as? Bool == true)
@@ -92,10 +92,10 @@ import Testing
         let broken = BrowserVideoChunk(threadId: "thread", sequence: 1, timestamp: 0, width: 400, height: 300,
                                        codedWidth: 320, codedHeight: 240, codec: "hvc1.1.6.L153.B0", key: true,
                                        description: Data([1, 2]), tabId: nil, bytes: Data([1]))
-        session.hub.deliver(broken)
+        session.hub.live(broken)
         try await until { session.acks.count == 1 }
         #expect(session.acks[0]["fallback"] as? Bool == true)
-        for chunk in try realVideo(threadId: "thread", from: 2, frames: 1) { session.hub.deliver(chunk) }
+        for chunk in try realVideo(threadId: "thread", from: 2, frames: 1) { session.hub.live(chunk) }
         try await until { session.acks.count == 2 }
         #expect(session.acks[1]["fallback"] == nil)
         #expect(model.browser.nextPicture() != nil)
@@ -104,7 +104,7 @@ import Testing
     @Test func everyDecodedChunkIsAcknowledgedAndTheScreenDrawsOnlyTheNewest() async throws {
         let (model, session) = try await connected()
         model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
-        for chunk in try realVideo(threadId: "thread", from: 20, frames: 3) { session.hub.deliver(chunk) }
+        for chunk in try realVideo(threadId: "thread", from: 20, frames: 3) { session.hub.live(chunk) }
         // Acknowledged as each is decoded, before any screen refresh draws one.
         try await until { session.acks.count == 3 }
         #expect(session.acks.map { $0["sequence"] as? Int } == [20, 21, 22])
@@ -123,8 +123,8 @@ import Testing
         let (model, session) = try await connected()
         model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
         model.browser.setVisible(false)
-        session.hub.deliver(chunk(sequence: 3, key: false))
-        for chunk in try realVideo(threadId: "thread", from: 20, frames: 2) { session.hub.deliver(chunk) }
+        session.hub.live(chunk(sequence: 3, key: false))
+        for chunk in try realVideo(threadId: "thread", from: 20, frames: 2) { session.hub.live(chunk) }
         // Still decoded while hidden.
         var drawn: BrowserPicture?
         try await until {
@@ -302,14 +302,14 @@ import Testing
         let model = BrowserLiveModel()
         let first = AckLog(), second = AckLog()
         model.open(threadId: "A", streams: hub, ack: { first.record($0) })
-        for chunk in try realVideo(threadId: "A", from: 10, frames: 1) { hub.deliver(chunk) }
+        for chunk in try realVideo(threadId: "A", from: 10, frames: 1) { hub.live(chunk) }
         try await until { first.count == 1 }
         model.open(threadId: "B", streams: hub, ack: { second.record($0) })
         #expect(model.nextPicture() == nil)
         #expect(model.pageSize == nil)
         // Chunks for the earlier thread aren't this view's; the current one's are drawn and acknowledged.
         for chunk in try realVideo(threadId: "A", from: 11, frames: 1) + realVideo(threadId: "B", from: 12, frames: 1) {
-            hub.deliver(chunk)
+            hub.live(chunk)
         }
         try await until { second.count == 1 }
         #expect(second.sequences == [12])
@@ -396,6 +396,16 @@ private final class AckLog: @unchecked Sendable {
     var values: [BrowserAck] { lock.withLock { recorded } }
     var count: Int { values.count }
     var sequences: [Int] { values.map(\.sequence) }
+}
+
+extension BrowserStreamHub {
+    /// A live picture by the view's media connection, as ace-media delivers it: the first one of
+    /// a thread sets its delivery, as the script would have before subscribing.
+    func live(_ chunk: BrowserVideoChunk) {
+        let key = DeliveryKey(view: "browser", source: chunk.threadId)
+        if delivery(key) == nil { setDelivery(MediaDelivery(generation: 1, path: "media", revision: 1), for: key) }
+        deliver(chunk, path: "media")
+    }
 }
 
 private final class BrowserRecorder: ClientSession, @unchecked Sendable {

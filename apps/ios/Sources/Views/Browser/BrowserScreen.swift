@@ -278,8 +278,11 @@ struct BrowserScreen: View {
         if let permission = state?.permission {
             BrowserStrip(sentence: permission) { EmptyView() }
         }
-        // The video falls back to the processor: one sentence, nothing to press.
-        if let degraded = state?.degraded, !degraded.isEmpty, state?.closed == false {
+        // Why the page's pictures don't come yet, as the machine says it: one sentence.
+        if let waiting = browser.waiting, !waiting.isEmpty, state?.closed == false {
+            BrowserStrip(sentence: waiting) { EmptyView() }.accessibilityIdentifier("browser.waiting")
+        } else if let degraded = state?.degraded, !degraded.isEmpty, state?.closed == false {
+            // The video falls back to the processor: one sentence, nothing to press.
             BrowserStrip(sentence: degraded) { EmptyView() }.accessibilityIdentifier("browser.degraded")
         }
         if let device = browser.view?.device, device.toolbar, state?.activeTabId != nil, state?.closed == false {

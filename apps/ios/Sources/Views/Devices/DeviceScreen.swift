@@ -253,6 +253,14 @@ struct DeviceScreen: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
                     .accessibilityIdentifier("devices.videoStopped")
+            } else if let waiting = devices.live.waiting, !waiting.isEmpty, info?.live == true {
+                // Why the live view's pictures don't come yet, as the machine says it.
+                Text(waiting)
+                    .aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
+                    .accessibilityIdentifier("devices.waiting")
             } else if let degraded = info?.degraded, !degraded.isEmpty, info?.live == true {
                 Text(degraded)
                     .aceFont(AceDesign.TextRole.meta)

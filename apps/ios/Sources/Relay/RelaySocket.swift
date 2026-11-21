@@ -33,9 +33,9 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     /// The relay stream's purpose: nil for the daemon's own channels, `media` for a media
     /// connection, whose stream the daemon hands to ace-media once it has admitted the hello.
     private let purpose: String?
-    /// The way this socket's pictures come (`MediaDelivery`): the channel, or the media
-    /// connection's own socket id.
-    private let path: String
+    /// A media connection's own socket id, the way its pictures come (`MediaDelivery`); nil for
+    /// the daemon's main channel, which carries no live pictures (ADR 0201).
+    private let path: String?
     private let event: @Sendable (String, SocketPayload) -> Void
     private let streams: BrowserStreamHub?
     private let aceClient: String?
@@ -80,7 +80,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         case secured(RelaySession)
     }
 
-    init(route: RelayRoute, purpose: String? = nil, path: String = MediaDelivery.channel, streams: BrowserStreamHub? = nil,
+    init(route: RelayRoute, purpose: String? = nil, path: String? = nil, streams: BrowserStreamHub? = nil,
          aceClient: String? = AceCloudRequest.defaultClient,
          allowLoopback: Bool = false,
          keys: @escaping @Sendable () -> (NoiseKeys, NoiseKeys) = { (.generate(), .generate()) },
@@ -365,9 +365,9 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private func deliver(_ bytes: Data) -> Bool {
         switch router.route(bytes) {
         case .none: break
-        case .stream(let message): streams?.deliver(message, path: path)
-        case .device(let message): streams?.deliver(message, path: path)
-        case .screen(let message): streams?.deliverScreen(message, path: path)
+        case .stream(let message): if let path { streams?.deliver(message, path: path) }
+        case .device(let message): if let path { streams?.deliver(message, path: path) }
+        case .screen(let message): if let path { streams?.deliverScreen(message, path: path) }
         case .sdk: event("binary", .bytes(bytes))
         case .broken: finish(1002, cause: "broken binary message"); return false
         }

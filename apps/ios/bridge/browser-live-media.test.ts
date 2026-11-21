@@ -7,15 +7,21 @@ import {
   type DeliveryState,
   type MediaRoute,
 } from "@ace/browser/live-view";
-import type { MediaStreamClientMessage } from "@ace/protocol";
+import { ThreadId, type MediaStreamClientMessage } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
-import { closeBrowserFixtures, liveBrowser as live, viewport } from "./browser-fixture.ts";
+import {
+  closeBrowserFixtures,
+  liveBrowser as live,
+  unservedReason,
+  viewport,
+} from "./browser-fixture.ts";
 import { until } from "./sheet-fixture.ts";
 
 /*
  * The phone's live browser view and its media connection (ADR 0147 §4): its subscribe names the
  * open connection, a new connection subscribes it again with a fresh decoder, and the acks of
- * pictures that came by the connection go on it. Without one, the main socket carries all of it.
+ * pictures that came by the connection go on it. Only ace-media delivers (ADR 0201): without a
+ * connection, or one it can't serve, the view gets no pictures and says why.
  */
 
 afterEach(closeBrowserFixtures);
@@ -54,18 +60,19 @@ const subscribes = (requested: unknown[]) =>
 
 async function opened(
   bound: string | undefined,
-  /** `serves`: the daemon answers without `media`, keeping the view on the main socket. */
-  daemon: "binds" | "refuses" | "serves" = "binds",
+  daemon: "binds" | "refuses" | "unserved" = "binds",
 ) {
   const media = connection();
   media.bind(bound);
-  const browser = await live(daemon === "serves" ? {} : { media: daemon });
+  const browser = await live({ media: daemon });
   // What `media.delivery` tells Swift; Swift stamps each ack with the latest generation.
   const deliveries: DeliveryState[] = [];
   browser.view.useMedia(media.route, (_view, state) => deliveries.push(state));
   const delivered = () => deliveries.at(-1)?.generation;
   browser.view.action({ kind: "open", threadId: "web", viewport });
-  await until(() => browser.sink.read("browser:view")?.state != null, "browser state");
+  // A refused subscribe brings no state until the view asks again.
+  if (daemon !== "refuses")
+    await until(() => browser.sink.read("browser:view")?.state != null, "browser state");
   await until(() => subscribes(browser.requested).length >= 1, "subscribe");
   // The subscribe's reply has landed.
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -99,44 +106,81 @@ test("a new media connection subscribes the view again on it and starts a fresh 
   expect(media.carried.at(-1)).toMatchObject({ sequence: 1 });
 });
 
-test("losing the media connection moves the view and its acks back to the main socket", async () => {
-  const { requested, sent, view, media, delivered } = await opened("mc_aaaaaaaa");
+test("losing the media connection leaves the view without pictures, saying why, and its acks go nowhere", async () => {
+  const { requested, sent, view, media, deliveries, delivered } = await opened("mc_aaaaaaaa");
   media.bind(undefined);
   await until(() => subscribes(requested).length === 2, "resubscribe");
   expect(subscribes(requested)[1]?.media).toBeUndefined();
   await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(deliveries.at(-1)).toMatchObject({
+    path: "none",
+    undelivered: { code: "connecting" },
+  });
 
   view.action({ kind: "ack", sequence: 3, generation: delivered() });
   expect(media.carried).toEqual([]);
-  expect(sent).toEqual([
-    expect.objectContaining({ type: "browser.ack", threadId: "web", sequence: 3, video: true }),
-  ]);
+  expect(sent).toEqual([]);
 });
 
-test("without a media connection the view is delivered and acknowledged on the main socket", async () => {
-  const { requested, sent, view, media, delivered } = await opened(undefined);
-  expect(subscribes(requested)[0]?.media).toBeUndefined();
-  view.action({ kind: "ack", sequence: 2, generation: delivered() });
-  expect(media.carried).toEqual([]);
-  expect(sent).toEqual([expect.objectContaining({ type: "browser.ack", sequence: 2 })]);
+test("every subscribe says the phone takes pictures only from its media connection", async () => {
+  for (const bound of ["mc_aaaaaaaa", undefined]) {
+    const { requested } = await opened(bound);
+    expect(subscribes(requested)[0]).toMatchObject({ mediaClient: true, deliveryStatus: true });
+    await closeBrowserFixtures();
+  }
 });
 
-test("a daemon that serves the view on its main socket keeps its acks there", async () => {
-  const { requested, sent, view, media, delivered } = await opened("mc_aaaaaaaa", "serves");
+test("a daemon that can't serve the view yet says why, and the view asks again on the unserved ladder", async () => {
+  const { requested, sent, view, media, deliveries, delivered, elapse } = await opened(
+    "mc_aaaaaaaa",
+    "unserved",
+  );
   expect(subscribes(requested)[0]?.media).toEqual({ connection: "mc_aaaaaaaa" });
+  expect(deliveries.at(-1)).toMatchObject({ path: "none", undelivered: unservedReason });
   view.action({ kind: "ack", sequence: 6, generation: delivered() });
   expect(media.carried).toEqual([]);
-  expect(sent).toEqual([expect.objectContaining({ type: "browser.ack", sequence: 6 })]);
+  expect(sent).toEqual([]);
+  // The view's own 5 s poll doesn't cancel the wait; the ladder's first step asks again.
+  elapse(5_000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(subscribes(requested)).toHaveLength(1);
+  elapse(mediaRetryDelaysMs[0]);
+  await until(() => subscribes(requested).length === 2, "asked again");
+  expect(subscribes(requested)[1]?.media).toEqual({ connection: "mc_aaaaaaaa" });
 });
 
-test("a refused media connection subscribes the view again on the main socket", async () => {
-  const { requested, sent, view, media, delivered } = await opened("mc_aaaaaaaa", "refuses");
+test("the machine's word that a bound view's source isn't streaming reaches Swift", async () => {
+  const { deliveries, announce } = await opened("mc_aaaaaaaa");
+  expect(deliveries.at(-1)).toMatchObject({ path: "mc_aaaaaaaa" });
+  expect(deliveries.at(-1)?.undelivered).toBeUndefined();
+  announce({
+    type: "browser.delivery",
+    threadId: ThreadId.parse("web"),
+    undelivered: unservedReason,
+  });
+  expect(deliveries.at(-1)).toMatchObject({ path: "mc_aaaaaaaa", undelivered: unservedReason });
+  // Another thread's word is not this view's.
+  const count = deliveries.length;
+  announce({
+    type: "browser.delivery",
+    threadId: ThreadId.parse("other"),
+    undelivered: unservedReason,
+  });
+  expect(deliveries).toHaveLength(count);
+});
+
+test("a refused media connection is named no more, and the view asks again on the ladder", async () => {
+  const { requested, sent, view, media, delivered, elapse } = await opened(
+    "mc_aaaaaaaa",
+    "refuses",
+  );
+  elapse(mediaRetryDelaysMs[0]);
   await until(() => subscribes(requested).length === 2, "subscribe without the connection");
   expect(subscribes(requested)[1]?.media).toBeUndefined();
   await new Promise((resolve) => setTimeout(resolve, 0));
   view.action({ kind: "ack", sequence: 8, generation: delivered() });
   expect(media.carried).toEqual([]);
-  expect(sent).toEqual([expect.objectContaining({ type: "browser.ack", sequence: 8 })]);
+  expect(sent).toEqual([]);
 });
 
 test("after a rebind, an ack stamped with the old delivery goes nowhere", async () => {
@@ -168,7 +212,7 @@ test("a subscribe that fails after the view's retry fired is settled and asked a
   browser.hanging[0]?.(new ClientError("offline"));
   await new Promise((resolve) => setTimeout(resolve, 0));
   // Swift stops holding pictures for it, and the view asks again.
-  expect(deliveries.at(-1)?.path).toBe("channel");
+  expect(deliveries.at(-1)).toMatchObject({ path: "none", undelivered: { code: "failed" } });
   // On the shared ladder: its first wait is a second.
   browser.elapse(1_000);
   await until(() => subscribes(browser.requested).length === 2, "the subscribe asked again");
@@ -221,7 +265,7 @@ async function hanging() {
   return { ...browser, media, deliveries, named, timeOut };
 }
 
-test("subscribes that time out before failing climb the shared ladder, then fall back to the channel", async () => {
+test("subscribes that time out before failing climb the shared ladder, then name no connection", async () => {
   const view = await hanging();
   for (const wait of mediaRetryDelaysMs) {
     await view.timeOut();
@@ -236,10 +280,10 @@ test("subscribes that time out before failing climb the shared ladder, then fall
     await until(() => view.named() === before + 1, `the retry after ${wait} ms`);
   }
   await view.timeOut();
-  // The ladder is spent: after the cooldown the view subscribes on the channel, naming nothing.
+  // The ladder is spent: after the cooldown the view subscribes naming nothing.
   const asked = subscribes(view.requested).length;
   view.elapse(mediaRetryCooldownMs);
-  await until(() => subscribes(view.requested).length === asked + 1, "the channel's subscribe");
+  await until(() => subscribes(view.requested).length === asked + 1, "the unnamed subscribe");
   expect(subscribes(view.requested).at(-1)?.media).toBeUndefined();
   expect(view.named()).toBe(mediaRetryDelaysMs.length + 1);
 });
@@ -273,8 +317,8 @@ test("subscribes that fail at once, each restoring the delivery before, still cl
   const browser = await live({ media: "fails" });
   browser.view.useMedia(media.route, () => {});
   browser.view.action({ kind: "open", threadId: "web", viewport });
-  // Subscribed on the channel first: the delivery a failed resubscribe falls back to.
-  await until(() => subscribes(browser.requested).length === 1, "the channel's subscribe");
+  // Subscribed without a connection first.
+  await until(() => subscribes(browser.requested).length === 1, "the first subscribe");
   await new Promise((resolve) => setTimeout(resolve, 0));
   const named = () =>
     subscribes(browser.requested).filter((subscribe) => subscribe.media !== undefined).length;

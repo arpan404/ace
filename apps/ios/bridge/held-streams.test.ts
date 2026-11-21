@@ -6,8 +6,9 @@ import { HeldStreams } from "./held-streams.ts";
 
 /*
  * A Mac app's live view on the phone through the shared screen client: Swift holds the stream,
- * acknowledges what it decoded and falls back to H.264, and the client sends each where it
- * belongs. The channel is a fake daemon that binds every subscribe naming a media connection.
+ * acknowledges what it decoded and falls back to H.264, and the client sends each ack by the media
+ * connection or nowhere. The channel is a fake daemon that binds a subscribe naming a media
+ * connection when the test says so, and otherwise answers without delivery.
  */
 
 const state = ScreenState.parse({
@@ -54,8 +55,7 @@ function phone(bound: string | undefined, binds = false) {
             type: "screen.result",
             requestId,
             ok: true,
-            // As D1 serves screens today: the subscribe may name the connection, and the daemon
-            // answers without `media`, keeping the pictures on the channel.
+            // Unless told to bind, the daemon answers without `media`: nothing serves the view.
             ...(media && binds
               ? {
                   media: { ...media, poster: { width: 4, height: 2, jpeg: `poster-${requestId}` } },
@@ -90,7 +90,7 @@ const settle = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
-test("a held app names the media connection; served on the channel, its pictures are acked there", async () => {
+test("a held app names the media connection; answered without delivery, nothing is acked", async () => {
   const app = phone("mc_aaaaaaaa");
   app.streams.hold("app");
   await settle();
@@ -100,24 +100,29 @@ test("a held app names the media connection; served on the channel, its pictures
       sessionId: "app",
       media: { connection: "mc_aaaaaaaa" },
       codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"],
+      mediaClient: true,
+      deliveryStatus: true,
     },
   ]);
-  app.streams.ack("app", "capture-1", 5, true);
-  expect(app.channelAcks()).toEqual([
-    { type: "screen.ack", sessionId: "app", streamId: "capture-1", sequence: 5, keyframe: true },
-  ]);
+  expect(app.deliveries.at(-1)).toMatchObject({ view: "screen", source: "app", path: "none" });
+  app.streams.ack("app", "capture-1", 5, true, app.deliveries.at(-1)?.generation);
+  expect(app.channelAcks()).toEqual([]);
   expect(app.carried).toEqual([]);
 });
 
-test("without a media connection the app is subscribed and acked on its channel", async () => {
+test("without a media connection the app says why it gets no pictures, and nothing is acked", async () => {
   const app = phone(undefined);
   app.streams.hold("app");
   await settle();
-  expect(app.subscribes()).toEqual([{ op: "subscribe", sessionId: "app" }]);
-  app.streams.ack("app", "capture-1", 2, false);
-  expect(app.channelAcks()).toEqual([
-    { type: "screen.ack", sessionId: "app", streamId: "capture-1", sequence: 2 },
+  expect(app.subscribes()).toEqual([
+    { op: "subscribe", sessionId: "app", mediaClient: true, deliveryStatus: true },
   ]);
+  expect(app.deliveries.at(-1)).toMatchObject({
+    path: "none",
+    undelivered: { code: "connecting" },
+  });
+  app.streams.ack("app", "capture-1", 2, false, app.deliveries.at(-1)?.generation);
+  expect(app.channelAcks()).toEqual([]);
   expect(app.carried).toEqual([]);
 });
 
@@ -134,6 +139,8 @@ test("one view whose decoder can't play HEVC asks again without it; the other ke
       sessionId: "app",
       media: { connection: "mc_aaaaaaaa" },
       codecs: ["avc1.42E033"],
+      mediaClient: true,
+      deliveryStatus: true,
     },
   ]);
   // The other app's next subscribe still names HEVC first.

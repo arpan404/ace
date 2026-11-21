@@ -31,9 +31,10 @@ import { nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 
 /*
  * The thread's live browser view (ADR 0088, #1061). The bridge owns the subscription, the page's
- * state and the person's input; Swift owns the pictures. The view is video only: H.264 chunks
- * never enter JavaScriptCore, the native socket assembles and decodes them itself, and
- * acknowledges each one through `ack` as soon as it is decoded.
+ * state and the person's input; Swift owns the pictures. The view is video only, and only
+ * ace-media delivers it (ADR 0201), on the phone's media connection: H.264 chunks never enter
+ * JavaScriptCore, the native socket assembles and decodes them itself, and acknowledges each one
+ * through `ack` as soon as it is decoded. The ack leaves by that media connection.
  */
 
 export type BrowserOwner = Pick<
@@ -145,6 +146,11 @@ interface Watch {
   generation: number;
   /** A failed subscribe's retry on the shared ladder and cooldown. */
   ladder: SubscribeRetry;
+  /**
+   * A subscribe the daemon answered without delivery (ace-media can't serve it yet) asks again
+   * on its own ladder, which never gives up: its source may become available at any time.
+   */
+  unserved: SubscribeRetry;
   subscribed: boolean;
   subscribing: boolean;
   state: BrowserState | undefined;
@@ -165,7 +171,6 @@ export class BrowserLive {
   #schedule: Schedule;
   #watch: Watch | undefined;
   #probe: { threadId: string; epoch: number } | undefined;
-  #requests = 0;
   #stops: (() => void)[] = [];
   #context: BrowserThreadContext;
   #tools: BrowserTools;
@@ -215,7 +220,11 @@ export class BrowserLive {
       },
       opened: () => {
         const watch = this.#watch;
-        if (!watch || watch.subscribed) return;
+        if (!watch) return;
+        // A browser opened: an unserved view may be served now, and asks again (once a step).
+        if (watch.subscribed && this.#media.unserved(watch.threadId) && watch.unserved.event())
+          watch.subscribed = false;
+        if (watch.subscribed) return;
         watch.retry?.();
         watch.retry = undefined;
         this.#subscribe(watch);
@@ -412,6 +421,11 @@ export class BrowserLive {
         ladder: new SubscribeRetry(this.#media, action.threadId, (run, ms) =>
           this.#schedule(ms, run),
         ),
+        unserved: new SubscribeRetry(
+          { retryDelay: (source) => this.#media.unservedDelay(source), giveUp: () => {} },
+          action.threadId,
+          (run, ms) => this.#schedule(ms, run),
+        ),
       };
       this.#watch = watch;
       // Each watch starts on the first page of tabs, whatever an earlier one had shown.
@@ -492,19 +506,12 @@ export class BrowserLive {
           video: true as const,
           ...(action.keyframe ? { keyframe: true as const } : {}),
         };
-        // Each ack goes the way its picture's delivery came (Swift stamps the generation it was
-        // delivered for): the media connection, the main socket, or nowhere once it is stale.
-        const way = this.#media.way(watch.threadId, action.generation);
-        // A picture of an earlier subscribe (another thread's, or this one's before it subscribed
-        // again): neither its ack nor its decoder's failure says anything about this view now.
-        if (way === "stale") return true;
-        if (way === "media") this.#media.route?.ack(ack);
-        else if (way === "channel")
-          try {
-            this.#owner.send({ ...ack, requestId: this.#requestId() });
-          } catch {
-            // Offline: the subscription ended with the connection.
-          }
+        // Each ack goes by the media connection its picture's delivery came on (Swift stamps the
+        // generation it was delivered for), or nowhere once it is stale: a picture of an earlier
+        // subscribe (another thread's, or this one's before it subscribed again) says nothing
+        // about this view now, neither its ack nor its decoder's failure.
+        if (this.#media.way(watch.threadId, action.generation) !== "media") return true;
+        this.#media.route?.ack(ack);
         if (action.fallback && !this.#h264Only) {
           this.#h264Only = true;
           watch.subscribed = false;
@@ -522,6 +529,7 @@ export class BrowserLive {
     this.#watch = undefined;
     watch.retry?.();
     watch.ladder.stop();
+    watch.unserved.stop();
     this.#media.forget(watch.threadId);
     this.#endFollowing();
     this.#annotate.close();
@@ -536,9 +544,6 @@ export class BrowserLive {
       .request({ type: "browser.unsubscribe", threadId: watch.threadId, subscriberId })
       .catch(() => {});
   }
-  #requestId(): string {
-    return `ios-browser-${++this.#requests}`;
-  }
   /**
    * Subscribes the view, unless it is subscribed or one is on its way. After a failed subscribe it
    * waits on the shared ladder and cooldown (`SubscribeRetry`): the view's own poll waits with
@@ -548,6 +553,8 @@ export class BrowserLive {
   #subscribe(watch: Watch, cause: "event" | "poll" = "event"): void {
     if (this.#watch !== watch || watch.subscribed || watch.subscribing) return;
     if (watch.ladder.waiting && (cause === "poll" || !watch.ladder.event())) return;
+    // An unserved view waits on its own ladder; an event may cut one step of it short.
+    if (watch.unserved.waiting && (cause === "poll" || !watch.unserved.event())) return;
     watch.retry?.();
     watch.retry = this.#schedule(retryMs, () => {
       watch.retry = undefined;
@@ -559,7 +566,9 @@ export class BrowserLive {
     const h264Only = this.#h264Only;
     const binding = this.#media.route?.binding()?.connection;
     const begun = this.#media.begin(watch.threadId);
-    const { media } = begun.fields;
+    // The browser names its decoders in `video`; the rest says this client takes pictures only
+    // from its media connection and reads `browser.delivery`.
+    const { media, mediaClient, deliveryStatus } = begun.fields;
     let refused = false;
     /** The request failed while it was still the view's latest, however its delivery settled. */
     let lost = false;
@@ -589,13 +598,15 @@ export class BrowserLive {
         viewport: captureFor(watch),
         video: { codecs: this.#h264Only ? ["avc1.42E033"] : nativeVideoCodecs() },
         ...(media ? { media } : {}),
+        mediaClient,
+        deliveryStatus,
       })
       .then(
         (reply) => {
           if (this.#watch !== watch) return;
           if (!reply.ok) {
-            // A connection the daemon won't bind for this view goes on the main socket; any other
-            // failure falls back as the shared client says, and is asked again on its ladder.
+            // A connection the daemon won't bind for this view is named no more; any other failure
+            // falls back as the shared client says, and is asked again on its ladder.
             failed(new Error(reply.error ?? ""));
             if (refused) return;
             watch.error = reply.error ?? "browser_failed";
@@ -604,12 +615,21 @@ export class BrowserLive {
           }
           watch.error = undefined;
           watch.subscribed = true;
-          // Delivery by the media connection only when the daemon's answer says so.
-          this.#media.subscribed(watch.threadId, begun.generation, reply.media);
+          // Delivery by the media connection only when the daemon's answer says so; otherwise
+          // none, and why.
+          this.#media.subscribed(watch.threadId, begun.generation, reply.media, reply.undelivered);
           // The menu's note names the machine's default; read again on each new subscription.
           void this.#engine.readDefault();
           watch.retry?.();
           watch.retry = undefined;
+          // Answered without delivery: asked again on the unserved ladder, never giving up.
+          if (this.#media.unserved(watch.threadId))
+            watch.unserved.failed(() => {
+              if (this.#watch !== watch) return;
+              watch.subscribed = false;
+              this.#subscribe(watch, "poll");
+            });
+          else watch.unserved.stop();
           // A size reported while the subscribe was on its way.
           if (generation === watch.generation) this.#putView(watch);
         },
@@ -686,6 +706,12 @@ export class BrowserLive {
     if (!watch) return;
     if (message.type === "browser.annotation") {
       this.#annotate.receive(message);
+      return;
+    }
+    if (message.type === "browser.delivery") {
+      // Whether the bound view gets pictures now, and why not: Swift says it until one comes.
+      if (message.threadId === watch.threadId)
+        this.#media.report(message.threadId, message.undelivered);
       return;
     }
     if (message.type === "browser.state") {
