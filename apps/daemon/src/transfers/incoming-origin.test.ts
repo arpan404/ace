@@ -26,6 +26,7 @@ const device = Device.parse({
   revokedAt: null,
 });
 const project = WorkspaceId.parse("workspace-here");
+const unreached = () => Promise.reject(new Error("Not reached in this test"));
 
 /** A target with one project, a checkout whose origin is `origin`. */
 async function target(origin: string) {
@@ -34,7 +35,6 @@ async function target(origin: string) {
   const store = new Store(join(root, "events.sqlite"));
   cleanup.push(async () => store.close());
   const path = join(root, "app");
-  const unreached = () => Promise.reject(new Error("Not reached in this test"));
   const git = {
     transferOrigin: async (at: string) =>
       at === path ? { url: origin, normalized: normalizeRemoteUrl(origin) } : undefined,
