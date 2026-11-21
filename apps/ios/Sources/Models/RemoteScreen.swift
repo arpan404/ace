@@ -76,8 +76,34 @@ struct RemoteScreenInventory: Decodable {
     let chooser: Chooser?
 }
 
+/// One screen request to the machine and its raw answer: `ClientModel.service` on the phone,
+/// a stand-in in tests.
+typealias ScreenAsk = @MainActor (_ payload: [String: Any], _ timeout: Duration) async throws -> ServiceValue
+
+extension ClientModel {
+    var screenAsk: ScreenAsk {
+        { [weak self] payload, timeout in
+            guard let self else { throw CancellationError() }
+            return try await self.service(payload, as: ServiceValue.self, timeout: timeout)
+        }
+    }
+}
+
+/// What the Computer use page shows above its rows: the read under way, the read that failed
+/// (with Try again), or the machine's state.
+enum RemoteScreenPage: Equatable {
+    case reading
+    case failed(String)
+    case shown
+}
+
 @MainActor @Observable final class RemoteScreen {
     private(set) var status: RemoteScreenStatus?
+    /// A read of the machine's computer use is under way. It starts true: the page's first read
+    /// begins as it appears.
+    private(set) var reading = true
+    /// Which read is the latest; an older one that ends late doesn't end the newer one's wait.
+    private var generation = 0
     private(set) var states: [RemoteScreenState] = []
     private(set) var sessions: [ScreenSessionInfo] = []
     private(set) var windows: [RemoteScreenInventory.Window] = []
@@ -94,13 +120,27 @@ struct RemoteScreenInventory: Decodable {
     func session(_ id: String) -> ScreenSessionInfo? { sessions.first { $0.id == id } }
     func controls(_ id: String) -> Bool { owned.contains(id) && state(id)?.controller == "human" }
     func previousHolder(_ id: String) -> RemoteScreenState.Holder? { previous[id] }
-    func refresh(_ model: ClientModel) async {
+    /// The page as the reads left it. Never a wait with nothing under way: a read that was
+    /// cancelled or never started says so, with Try again.
+    var page: RemoteScreenPage {
+        if status != nil { return .shown }
+        if let problem { return .failed(problem) }
+        return reading ? .reading : .failed("Computer use hasn't loaded.")
+    }
+    func refresh(_ model: ClientModel) async { await load(model.screenAsk) }
+    /// Reads whether computer use is on and its permissions, then the apps in use. The page
+    /// shows the first answer as it comes: the permission check can take seconds on a Mac.
+    func load(_ ask: ScreenAsk) async {
+        generation += 1
+        let mine = generation
+        reading = true
+        defer { if generation == mine { reading = false } }
         do {
-            status = try await request(model, ["op": "status"])
-            states = try await request(model, ["op": "sessions"])
-            sessions = try await shaped(model)
-            owned = owned.filter { state($0)?.controller == "human" }
+            status = try await request(ask, ["op": "status"])
             problem = nil
+            states = try await request(ask, ["op": "sessions"])
+            sessions = try await shaped(ask)
+            owned = owned.filter { state($0)?.controller == "human" }
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
     func targets(_ model: ClientModel) async {
@@ -188,14 +228,22 @@ struct RemoteScreenInventory: Decodable {
         model.action(["type": "native.screen.unwatch", "sessionId": id])
         if owned.remove(id) != nil { model.action(["type": "native.screen.release", "sessionId": id]) }
     }
-    func disconnected() { live.close(); owned.removeAll() }
-    private func shaped(_ model: ClientModel) async throws -> [ScreenSessionInfo] {
-        let reply = try await model.service(["type": "screen.sessions"], as: DeviceServiceReply<ScreenSessionsReply>.self)
+    /// The machine went away: nothing is read until it is back.
+    func disconnected() {
+        live.close(); owned.removeAll()
+        generation += 1
+        reading = false
+    }
+    private func shaped(_ ask: ScreenAsk) async throws -> [ScreenSessionInfo] {
+        let reply = try await ask(["type": "screen.sessions"], .seconds(30)).decode(DeviceServiceReply<ScreenSessionsReply>.self)
         guard reply.ok, let data = reply.data else { throw ServiceFailure(message: reply.error?.message ?? "Screen request failed") }
         return data.sessions
     }
     private func request<T: Decodable>(_ model: ClientModel, _ operation: [String: Any], timeout: Duration = .seconds(30)) async throws -> T {
-        let reply = try await model.service(["type": "screen.request", "operation": operation], as: DeviceServiceReply<T>.self, timeout: timeout)
+        try await request(model.screenAsk, operation, timeout: timeout)
+    }
+    private func request<T: Decodable>(_ ask: ScreenAsk, _ operation: [String: Any], timeout: Duration = .seconds(30)) async throws -> T {
+        let reply = try await ask(["type": "screen.request", "operation": operation], timeout).decode(DeviceServiceReply<T>.self)
         guard reply.ok else { throw ScreenRefusal(message: reply.error?.message ?? "Screen request failed", code: reply.error?.code) }
         if let data = reply.data { return data }
         return try ServiceValue.null.decode(T.self)
