@@ -261,11 +261,38 @@ struct MarketReviewRows: View {
                 .padding(.horizontal, AceDesign.Space.margin)
             }
         }
-        group("What it runs", kind: "run", mono: true)
+        runs
         group("What changed", kind: "change", mono: false)
         group("Files", kind: "file", mono: true)
         ForEach(rows.filter { $0.kind == "note" }) { row in
             QuietSectionRow { sentence(row.title) }
+        }
+    }
+
+    /// Each hook and server with its whole command and arguments, or a remote server's whole
+    /// address: monospaced, wrapping and selectable, never cut, since this is what Install allows.
+    @ViewBuilder private var runs: some View {
+        let picked = rows.filter { $0.kind == "run" }
+        if !picked.isEmpty {
+            QuietSection("What it runs") {
+                ForEach(picked) { row in
+                    QuietSectionRow {
+                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                            Text(row.title).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if let detail = row.detail {
+                                Text(verbatim: detail).aceMonospace(AceDesign.TextRole.code)
+                                    .foregroundStyle(AceDesign.Ink.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .textSelection(.enabled)
+                                    .accessibilityIdentifier("market.review.run")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
         }
     }
 
