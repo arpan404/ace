@@ -42,6 +42,9 @@ pub(crate) struct Queue {
     pub in_flight: usize,
     pub error: Option<CodecError>,
     pub dropped: u64,
+    /// VideoToolbox dropped a frame submitted as a forced keyframe (its rate control, past a
+    /// keyframe that overspent, drops the frames after it): the keyframe is still owed.
+    pub key_dropped: bool,
     /// The stream frames submitted from now on belong to; none for JPEG.
     pub stream: Option<StreamMeta>,
 }
@@ -73,8 +76,16 @@ impl Shared {
     /// Called on VideoToolbox's thread for each finished frame. A panic in the
     /// recording is caught (it must not unwind into VideoToolbox) and becomes
     /// a backend error; the in-flight count is released either way.
-    pub fn complete(&self, status: i32, dropped: bool, sample: Option<&CMSampleBuffer>) {
-        let recorded = catch_unwind(AssertUnwindSafe(|| self.record(status, dropped, sample)));
+    pub fn complete(
+        &self,
+        status: i32,
+        dropped: bool,
+        forced: bool,
+        sample: Option<&CMSampleBuffer>,
+    ) {
+        let recorded = catch_unwind(AssertUnwindSafe(|| {
+            self.record(status, dropped, forced, sample)
+        }));
         let mut queue = self.lock();
         queue.in_flight = queue.in_flight.saturating_sub(1);
         if recorded.is_err() {
@@ -83,7 +94,7 @@ impl Shared {
             ));
         }
     }
-    fn record(&self, status: i32, dropped: bool, sample: Option<&CMSampleBuffer>) {
+    fn record(&self, status: i32, dropped: bool, forced: bool, sample: Option<&CMSampleBuffer>) {
         let mut queue = self.lock();
         if status != 0 {
             queue.error = Some(CodecError::Backend(format!(
@@ -93,6 +104,7 @@ impl Shared {
         }
         let Some(sample) = sample.filter(|_| !dropped) else {
             queue.dropped += 1;
+            queue.key_dropped |= forced;
             return;
         };
         let mut slot = queue.free.pop().unwrap_or_default();

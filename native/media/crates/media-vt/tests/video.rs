@@ -501,3 +501,52 @@ fn annex_b_or_a_mismatched_unit_never_reaches_videotoolbox() -> TestResult {
     );
     Ok(())
 }
+
+/// Polls until `encoder` hands out a unit or `ms` pass, with no further input or flush.
+fn next_unit(encoder: &mut VtEncoder, ms: u64) -> Result<Option<EncodedUnit>, CodecError> {
+    let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+    while std::time::Instant::now() < end {
+        if let Some(unit) = encoder.poll_result()? {
+            return Ok(Some(unit));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    Ok(None)
+}
+
+#[test]
+fn a_still_screens_last_picture_encoded_again_comes_out_a_keyframe_with_nothing_after_it()
+-> TestResult {
+    let size = Size {
+        width: 390,
+        height: 844,
+    };
+    let frames = Frames::new(size, 1)?;
+    for (codec, bits) in [
+        (Codec::H264, 300_000),
+        (Codec::Hevc, 300_000),
+        (Codec::H264, 1_000_000),
+    ] {
+        let mut encoder = VtEncoder::new();
+        encoder.configure(&EncodeSpec {
+            codec,
+            size,
+            fps: 30,
+            rate: RateControl::Bitrate(bits),
+        })?;
+        // The screen's one picture, then nothing: the source is still.
+        encoder.encode(frames.picture(0, 1_000)?, false)?;
+        let first = next_unit(&mut encoder, 500)?.ok_or("the first picture never came out")?;
+        assert!(first.key, "{codec:?}");
+        // A viewer subscribes again: the same picture, a moment later, as a keyframe.
+        encoder.encode(frames.picture(0, 1_001)?, true)?;
+        let again = next_unit(&mut encoder, 500)?;
+        assert!(
+            again.as_ref().is_some_and(|unit| unit.key),
+            "{codec:?} at {bits} b/s: the picture encoded again came out as {:?} ({} dropped)",
+            again.map(|unit| unit.key),
+            encoder.dropped()
+        );
+    }
+    Ok(())
+}

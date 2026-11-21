@@ -19,6 +19,18 @@ use std::sync::Arc;
 
 /// Pictures accepted but not yet polled before `encode` reports backpressure.
 const MAX_PENDING: usize = 8;
+/// Times a dropped forced keyframe is submitted again when no newer picture came. Low-latency
+/// rate control drains its budget per frame, so a keyframe that overspent at a low bitrate
+/// drops the next few; measured on Apple silicon, the fourth try at 300 kb/s comes out.
+const KEY_RETRIES: u32 = 12;
+
+/// The last picture submitted as a forced keyframe, kept until a keyframe comes out, so a
+/// still source (which sends no next picture) still gets it.
+struct Forced {
+    surface: VtSurface,
+    pts_us: u64,
+    tries: u32,
+}
 
 pub(crate) struct CompressionSession {
     raw: CFRetained<VTCompressionSession>,
@@ -98,6 +110,8 @@ impl CompressionSession {
             "prepare encoder",
         )
     }
+    /// Encodes `buffer`. `properties` set marks the frame a forced keyframe, which the output
+    /// callback hears of (`FORCED_KEY`), so a forced keyframe VideoToolbox drops stays owed.
     pub(crate) fn encode(
         &self,
         buffer: &VtSurface,
@@ -105,6 +119,11 @@ impl CompressionSession {
         duration_us: u64,
         properties: Option<&CFDictionary>,
     ) -> Result<(), CodecError> {
+        let frame = if properties.is_some() {
+            FORCED_KEY
+        } else {
+            std::ptr::null_mut()
+        };
         // SAFETY: The session retains the pixel buffer until it is encoded.
         let status = unsafe {
             self.raw.encode_frame(
@@ -112,7 +131,7 @@ impl CompressionSession {
                 cf::time_us(pts_us),
                 cf::time_us(duration_us),
                 properties,
-                std::ptr::null_mut(),
+                frame,
                 std::ptr::null_mut(),
             )
         };
@@ -139,9 +158,13 @@ impl Drop for CompressionSession {
     }
 }
 
+/// The per-frame refcon of a frame submitted with frame options (a forced keyframe). A marker
+/// only, never dereferenced.
+const FORCED_KEY: *mut c_void = std::ptr::dangling_mut::<u8>().cast();
+
 unsafe extern "C-unwind" fn on_encoded(
     refcon: *mut c_void,
-    _frame: *mut c_void,
+    frame: *mut c_void,
     status: i32,
     flags: VTEncodeInfoFlags,
     sample: *mut CMSampleBuffer,
@@ -153,6 +176,7 @@ unsafe extern "C-unwind" fn on_encoded(
     shared.complete(
         status,
         flags.contains(VTEncodeInfoFlags::FrameDropped),
+        frame == FORCED_KEY,
         sample,
     );
 }
@@ -202,6 +226,8 @@ pub struct VtEncoder {
     uploads: Option<PixelPool>,
     force_key: FrameOptions,
     key_owed: bool,
+    /// The forced keyframe owed while no newer picture was submitted.
+    forced: Option<Forced>,
     hardware: bool,
     copies: Copies,
 }
@@ -224,6 +250,7 @@ impl VtEncoder {
             uploads: None,
             force_key: FrameOptions(force_key),
             key_owed: true,
+            forced: None,
             hardware: false,
             copies: Copies::default(),
         }
@@ -249,6 +276,7 @@ impl VtEncoder {
     /// The allocation-free poll: swaps the next unit's bytes into `unit`, whose
     /// previous buffer is recycled for a later frame.
     pub fn poll_into(&mut self, unit: &mut EncodedUnit) -> Result<bool, CodecError> {
+        self.retry_dropped_key()?;
         let mut queue = self.shared.lock();
         if let Some(error) = queue.error.take() {
             return Err(error);
@@ -263,12 +291,53 @@ impl VtEncoder {
             unit.format = stream.format;
         }
         std::mem::swap(&mut unit.data, &mut slot.data);
+        if slot.key {
+            self.forced = None;
+        }
         unit.key = slot.key;
         unit.pts_us = slot.pts_us;
         unit.duration_us = slot.duration_us;
         unit.description = slot.description.take();
         queue.free.push(slot);
         Ok(true)
+    }
+    /// A forced keyframe VideoToolbox dropped: submitted again, one frame interval later, while
+    /// no newer picture came (a still source), up to `KEY_RETRIES` times. Outside the queue's
+    /// lock: VideoToolbox may report a drop inside the submit.
+    fn retry_dropped_key(&mut self) -> Result<(), CodecError> {
+        let dropped = std::mem::take(&mut self.shared.lock().key_dropped);
+        if !dropped {
+            return Ok(());
+        }
+        let (Some(session), Some(spec), Some(forced)) = (
+            self.session.as_ref(),
+            self.spec.as_ref(),
+            self.forced.as_mut(),
+        ) else {
+            // A newer picture went in after it: the next one carries the keyframe.
+            self.key_owed = true;
+            return Ok(());
+        };
+        if forced.tries >= KEY_RETRIES {
+            self.forced = None;
+            self.key_owed = true;
+            return Ok(());
+        }
+        let duration = 1_000_000 / u64::from(spec.fps);
+        forced.tries += 1;
+        forced.pts_us += duration;
+        self.shared.lock().in_flight += 1;
+        let result = session.encode(
+            &forced.surface,
+            forced.pts_us,
+            duration,
+            Some(&*self.force_key.0),
+        );
+        if result.is_err() {
+            let mut queue = self.shared.lock();
+            queue.in_flight = queue.in_flight.saturating_sub(1);
+        }
+        result
     }
     fn open(&mut self, spec: &EncodeSpec) -> Result<CompressionSession, CodecError> {
         let (codec_type, _) = codec_type(spec.codec)?;
@@ -420,6 +489,7 @@ impl Encoder for VtEncoder {
         self.session = Some(session);
         self.spec = Some(spec.clone());
         self.key_owed = true;
+        self.forced = None;
         self.uploads = None;
         self.shared.reserve(MAX_PENDING + 2, slot_capacity(spec));
         Ok(())
@@ -462,21 +532,25 @@ impl Encoder for VtEncoder {
         };
         let surface = VtSurface::of(&picture)
             .ok_or_else(|| CodecError::InvalidInput("not a CVPixelBuffer picture".into()))?;
-        let key = force_key || self.key_owed;
+        // A forced keyframe dropped before this picture: this one carries it.
+        let dropped = std::mem::take(&mut self.shared.lock().key_dropped);
+        let key = force_key || self.key_owed || dropped;
         let duration = 1_000_000 / u64::from(spec.fps);
+        let pts_us = picture.pts_us();
         // Reserved only now: a picture refused above never holds a slot.
         self.shared.lock().in_flight += 1;
-        let result = session.encode(
-            surface,
-            picture.pts_us(),
-            duration,
-            key.then_some(&*self.force_key.0),
-        );
+        let result = session.encode(surface, pts_us, duration, key.then_some(&*self.force_key.0));
         if let Err(error) = result {
             let mut queue = self.shared.lock();
             queue.in_flight = queue.in_flight.saturating_sub(1);
             return Err(error);
         }
+        // The newest forced keyframe is the one owed; a delta after it means it came out.
+        self.forced = key.then(|| Forced {
+            surface: surface.share(),
+            pts_us,
+            tries: 0,
+        });
         self.key_owed = false;
         self.copies = copies;
         Ok(())

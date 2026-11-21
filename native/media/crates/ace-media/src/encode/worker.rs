@@ -670,3 +670,7 @@ mod cutover;
 #[cfg(test)]
 #[path = "worker_tests.rs"]
 mod tests;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "worker_vt_tests.rs"]
+mod vt_tests;
