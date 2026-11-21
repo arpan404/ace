@@ -5,8 +5,8 @@ enum AgentTreeLine: Identifiable, Equatable {
     case agent(AgentSheet.Row, level: Int)
     /// A background command, a quiet node under the agent that started it.
     case task(AgentSheet.BackgroundTask, level: Int)
-    /// What a fold holds: a branch below two levels ("Show 12 more"), or a long run of finished
-    /// siblings ("Show 157 finished"). `key` is what opening it adds to the expanded set.
+    /// What a fold holds: a branch below two levels ("Show 12 more"), or a long run of settled
+    /// siblings ("Show 157 earlier"). `key` is what opening it adds to the expanded set.
     case more(key: String, count: Int, finished: Bool, level: Int)
 
     var id: String {
@@ -26,22 +26,24 @@ enum AgentTreeLine: Identifiable, Equatable {
 /// Lays the bridge's agent rows and background tasks out as an indented tree. The rows come
 /// depth-first with their parents; this only places them. Each agent's commands follow its
 /// subagents. Below two levels a branch folds into one "Show N more" line until the person opens
-/// it, except a branch where something needs the person, which always shows. Past a few finished
-/// siblings the rest fold into "Show N finished", so what still works stays in view; a failure
-/// never folds.
+/// it, except a branch where something needs the person, which always shows. Past a few settled
+/// siblings (finished or failed) the rest fold into "Show N earlier", so what still works and
+/// the newest outcomes stay in view.
 enum AgentTreeLayout {
     /// Levels shown before a branch folds.
     static let shownLevels = 2
-    /// Finished siblings shown before the rest fold.
+    /// Settled siblings shown before the rest fold.
     static let shownFinished = 3
 
     /// The fold key for a node's finished children.
     static func finishedKey(_ parent: String) -> String { "\(parent)#finished" }
     /// The fold key for a node's ended background commands.
     static func commandsKey(_ parent: String) -> String { "\(parent)#commands" }
-    /// Settled for good and not a failure: safe to fold away.
+    /// Settled, finished or failed: past a few, it folds away. The bridge sends siblings with
+    /// what needs the person and what works first, then the rest newest first, so the fold holds
+    /// the oldest.
     private static func finished(_ row: AgentSheet.Row) -> Bool {
-        !row.running && !row.needsYou && row.status.token != "failed" && row.icon?.kind != "failed"
+        !row.running && !row.needsYou
     }
 
     static func lines(rows: [AgentSheet.Row], tasks: [AgentSheet.BackgroundTask], expanded: Set<String>) -> [AgentTreeLine] {

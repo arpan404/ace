@@ -72,7 +72,8 @@ struct AgentTreePage: View {
                 .accessibilityIdentifier("agents.summary")
             if model.canOperate && sheet.treeRunning {
                 Button(stop.saving ? "Stopping…" : "Stop all") { request(.tree(agents: sheet.totals.agents)) }
-                    .buttonStyle(.textAction())
+                    // Stop all loses work in flight: the theme's destructive word, never system blue.
+                    .buttonStyle(.textAction(.destructive))
                     .disabled(stop.saving)
                     .padding(.trailing, -AceDesign.Space.related)
                     .accessibilityIdentifier("agents.stopAll")
@@ -91,7 +92,7 @@ struct AgentTreePage: View {
                     AgentTreeTask(task: task, level: level, canStop: model.canOperate) { Task { _ = await model.stopTask(task.id) } }
                 case .more(let key, let count, let finished, let level):
                     Button { expanded.insert(key) } label: {
-                        Text(finished ? "Show \(count) finished" : "Show \(count) more")
+                        Text(finished ? "Show \(count) earlier" : "Show \(count) more")
                             .aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                             .padding(.leading, CGFloat(level) * AgentTreeRails.indent + AceDesign.Size.lead + AceDesign.Space.related)

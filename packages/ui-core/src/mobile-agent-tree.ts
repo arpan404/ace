@@ -1,5 +1,6 @@
 import { isActionableInteraction } from "@ace/core/human";
 import type { Agent, BackgroundTask, Interaction } from "@ace/protocol";
+import { pluralCount } from "./counts.ts";
 import { firstLine } from "./line-text.ts";
 import { syncingWord } from "./row-attention.ts";
 import { formatClock } from "./time.ts";
@@ -101,7 +102,8 @@ export function agentNodeReason(agent: Agent): string | null {
   return null;
 }
 
-const agentsWord = (count: number) => `${count} ${count === 1 ? "agent" : "agents"}`;
+/** Subagents, as the thread's chip counts them: the main agent is never one of them. */
+const subagentsWord = (count: number) => pluralCount(count, "subagent");
 const needWords = (count: number) => (count === 1 ? "One needs you." : `${count} need you.`);
 
 /**
@@ -124,7 +126,10 @@ export function agentTreeSummary(input: {
   if (asking > 0) {
     const waiting = live.length - asking;
     return waiting > 0
-      ? { text: `Waiting on ${agentsWord(live.length)}. ${needWords(asking)}`, token: "needsYou" }
+      ? {
+          text: `Waiting on ${subagentsWord(live.length)}. ${needWords(asking)}`,
+          token: "needsYou",
+        }
       : {
           text: asking === 1 ? "One agent needs you." : `${asking} agents need you.`,
           token: "needsYou",
@@ -134,8 +139,8 @@ export function agentTreeSummary(input: {
   const rootWorks = root?.status.state === "working" || root?.status.state === "starting";
   if (live.length > 0)
     return rootWorks
-      ? { text: `Working: ${agentsWord(live.length + 1)}`, token: "working" }
-      : { text: `Waiting on ${agentsWord(live.length)}`, token: "waiting" };
+      ? { text: `Working with ${subagentsWord(live.length)}`, token: "working" }
+      : { text: `Waiting on ${subagentsWord(live.length)}`, token: "waiting" };
   if (commands > 0)
     return {
       text: `Running ${commands} ${commands === 1 ? "command" : "commands"}`,
