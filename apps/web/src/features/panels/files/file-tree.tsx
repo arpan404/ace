@@ -1,17 +1,17 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
-  buildFileTree,
-  checkoutTreeRows,
   cleanPath,
   folderKey,
   openedFolders,
   pathParts,
+  rankPathMatches,
   toggledFolders,
   type FolderRow,
 } from "@ace/ui-core";
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -30,6 +30,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import { attachWorkspaceScroll } from "@/lib/workspace/index.ts";
+import { FileMatches, matchId } from "./file-matches.tsx";
 import type { FileOperationDialog } from "./file-operation.ts";
 import { FileRowItems } from "./file-row-items.tsx";
 import { isSecondClick } from "./second-click.ts";
@@ -85,10 +86,18 @@ export function FileTree(props: {
   const search = useCheckoutSearch(props.threadId, query);
   const searching = query.trim().length > 0;
   const results = searching ? search.data : undefined;
-  const found = useMemo(() => buildFileTree(results ?? []), [results]);
+  // The filter's matches are one flat list, the best names first (never a tree of their folders).
+  const matches = useMemo(() => rankPathMatches(query, results ?? []), [query, results]);
+  const [activeMatch, setActiveMatch] = useState({ query, index: 0 });
+  const matchIndex =
+    activeMatch.query === query ? Math.min(activeMatch.index, Math.max(0, matches.length - 1)) : 0;
+  const moveMatch = (delta: number) => {
+    if (!matches.length) return;
+    setActiveMatch({ query, index: (matchIndex + delta + matches.length) % matches.length });
+  };
+  const matchList = useId();
   // Folders start folded: a checkout holds far more than a screen. The tab keeps which folders
-  // the person opened; unset, only the current file's parents stand open so it shows. Searching
-  // ignores folding, so every match is visible.
+  // the person opened; unset, only the current file's parents stand open so it shows.
   const currentPath = props.current;
   const onExpanded = props.onExpanded;
   const [follows, setFollows] = useExplorerFollows();
@@ -98,20 +107,7 @@ export function FileTree(props: {
     [props.expanded, follows, currentPath],
   );
   const tree = useFolderTree({ threadId: props.threadId, expanded: opened, paused: searching });
-  const searchRows = useMemo<FolderRow[]>(
-    () =>
-      checkoutTreeRows(found, () => true).map((row) => ({
-        key: row.node.path,
-        kind: row.node.kind === "folder" ? "folder" : "file",
-        name: row.node.name,
-        depth: row.depth,
-        expanded: row.expanded,
-        busy: false,
-        ignored: false,
-      })),
-    [found],
-  );
-  const rows = searching ? searchRows : tree.rows;
+  const rows = useMemo(() => (searching ? [] : tree.rows), [searching, tree.rows]);
   const [focusKey, setFocusKey] = useState<string>();
   const list = useRef<HTMLDivElement>(null);
   const navigable = useMemo(
@@ -164,9 +160,7 @@ export function FileTree(props: {
       return;
     }
     if (row.kind === "folder") {
-      // A folder found by search narrows the search to it; one in the tree opens or closes.
-      if (searching) setQuery(row.key);
-      else toggle(row.key);
+      toggle(row.key);
       return;
     }
     if (row.kind !== "file") return;
@@ -193,6 +187,11 @@ export function FileTree(props: {
     },
   });
   const rename = useInlineRename(props.threadId, reveal);
+  /** A folder the filter found: the filter clears and the tree opens down to it. */
+  const showFolder = (path: string) => {
+    setQuery("");
+    reveal({ path: cleanPath(path), folder: true, focus: true });
+  };
   const order = useMemo(
     () => navigable.filter((row) => row.kind !== "more").map((row) => row.key),
     [navigable],
@@ -300,20 +299,41 @@ export function FileTree(props: {
           disabled={!online}
           onOperation={props.onOperation}
           onUpload={props.onUpload}
-          onFirstRow={() => focusRow(navigable[0]?.key)}
+          onFirstRow={() => (searching ? moveMatch(1) : focusRow(navigable[0]?.key))}
+          onPrevious={() => searching && moveMatch(-1)}
+          matches={
+            searching && matches.length
+              ? { list: matchList, active: matchId(matchList, matchIndex) }
+              : undefined
+          }
           onEnter={() => {
-            const first = rows.find((row) => row.kind === "file");
-            if (first) props.onOpen(first.key, "keep");
+            const picked = matches[matchIndex];
+            if (!searching || !picked) return;
+            if (picked.endsWith("/")) showFolder(picked);
+            else props.onOpen(picked, "keep");
           }}
         />
         <div ref={attachScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2">
+          {searching && (
+            <FileMatches
+              id={matchList}
+              query={query}
+              paths={matches}
+              active={matchIndex}
+              current={currentPath}
+              onActive={(index) => setActiveMatch({ query, index })}
+              onOpen={props.onOpen}
+              onFolder={showFolder}
+              commands={commands}
+            />
+          )}
           <div
             ref={list}
             role="tree"
-            aria-label={searching ? "Matching files" : "Checkout files"}
+            hidden={searching}
+            aria-label="Checkout files"
             data-part="file-tree"
             data-variant="files"
-            aria-busy={searching && search.pending}
             aria-multiselectable
             className={cn(
               "flex flex-col rounded-md",
@@ -332,11 +352,9 @@ export function FileTree(props: {
                   index={index}
                   current={currentPath}
                   focusable={row.key === focusable}
-                  searching={searching}
-                  query={query}
                   online={online}
                   dropTarget={drag.dropTarget}
-                  drag={searching ? undefined : drag}
+                  drag={drag}
                   selected={selection.has(row.key)}
                   cut={cutKeys.has(row.key)}
                   place={positions.get(row.key)}
@@ -350,7 +368,7 @@ export function FileTree(props: {
                   onHoverEnd={hoverEnd}
                   onRetry={tree.retry}
                   onMore={tree.showMore}
-                  renaming={!searching && rename.key === row.key ? rename : undefined}
+                  renaming={rename.key === row.key ? rename : undefined}
                   mark={props.marks?.get(row.key)}
                 />
               )}
@@ -362,7 +380,7 @@ export function FileTree(props: {
             query={query}
             search={search}
             results={results}
-            empty={!rows.length}
+            empty={!searching && !rows.length}
           />
           <RootMenu commands={commands} follows={follows} onFollows={setFollows} />
         </div>

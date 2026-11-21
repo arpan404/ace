@@ -15,7 +15,12 @@ export function FileTreeSearch(props: {
   disabled: boolean;
   onOperation(operation: FileOperationDialog): void;
   onUpload(files: readonly File[], folder: string): void;
+  /** ↓: the tree's first row, or while filtering the next match. */
   onFirstRow(): void;
+  /** ↑ while filtering: the previous match. */
+  onPrevious(): void;
+  /** While filtering with matches: their list, and the one Enter opens. */
+  matches?: { list: string; active: string } | undefined;
   onEnter(): void;
 }) {
   const upload = useRef<HTMLInputElement>(null);
@@ -33,6 +38,8 @@ export function FileTreeSearch(props: {
           aria-label="Find files in the checkout"
           placeholder="Find files…"
           value={props.query}
+          aria-controls={props.matches?.list}
+          aria-activedescendant={props.matches?.active}
           spellCheck={false}
           autoComplete="off"
           onChange={(event) => props.onQuery(event.target.value)}
@@ -44,6 +51,9 @@ export function FileTreeSearch(props: {
             } else if (event.key === "ArrowDown") {
               event.preventDefault();
               props.onFirstRow();
+            } else if (event.key === "ArrowUp" && props.query) {
+              event.preventDefault();
+              props.onPrevious();
             } else if (event.key === "Enter") {
               props.onEnter();
             }

@@ -1,5 +1,5 @@
 import { CaretRightIcon, FolderIcon, FolderOpenIcon } from "@ace/icons";
-import { cleanPath, fuzzyPositions, type FolderRow } from "@ace/ui-core";
+import type { FolderRow } from "@ace/ui-core";
 import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import type { ProviderKind } from "@ace/protocol";
 import { Icon } from "@/components/icon.tsx";
@@ -11,11 +11,13 @@ import { FileRowItems } from "./file-row-items.tsx";
 import type { OpenHow, TreeCommands } from "./tree-commands.ts";
 import { entryOf } from "./tree-row-keys.ts";
 import type { TreeDrag } from "./use-tree-drag.ts";
-import { Highlighted } from "./highlighted-path.tsx";
+import { MiddleName } from "./middle-name.tsx";
 import { RenameField, type InlineRename } from "./file-tree-rename.tsx";
 
 const rowClass =
   "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-sidebar-accent";
+
+const noPositions: readonly number[] = [];
 
 /** The marker before a status row's words, sized like a row's caret and icon. */
 function RowIndent() {
@@ -41,8 +43,6 @@ export interface FileTreeRowViewProps {
   index: number;
   current: string | undefined;
   focusable: boolean;
-  searching: boolean;
-  query: string;
   online: boolean;
   dropTarget: string | undefined;
   /** `at`: a click's time, so a second click on a file soon after keeps it. */
@@ -81,10 +81,6 @@ function rowDescription(cut: boolean, mark: RowMark | undefined): string | undef
 /** One row of the lazy checkout tree: an entry, or a folder's Loading, error or Show more line. */
 export function FileTreeRowView(props: FileTreeRowViewProps) {
   const { row, index } = props;
-  const positions = props.searching
-    ? (fuzzyPositions(props.query.trim(), cleanPath(row.key)) ?? [])
-    : [];
-  const nameStart = cleanPath(row.key).length - row.name.length;
   const indent = { paddingLeft: 4 + row.depth * 12 };
   if (row.kind === "loading")
     return (
@@ -227,9 +223,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
           size={14}
           className="text-subtle-foreground"
         />
-        <span className="min-w-0 truncate">
-          <Highlighted text={row.name} offset={nameStart} positions={positions} />
-        </span>
+        <MiddleName text={row.name} offset={0} positions={noPositions} />
         {props.mark && (
           <span
             aria-hidden

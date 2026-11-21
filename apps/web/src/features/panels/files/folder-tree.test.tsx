@@ -151,7 +151,7 @@ test("a search pauses listing; clearing it lists only what changed meanwhile", a
 
   const filter = within(panel).getByRole("searchbox", { name: "Find files in the checkout" });
   await userEvent.type(filter, "socket");
-  await within(panel).findByRole("tree", { name: "Matching files" });
+  await within(panel).findByRole("listbox", { name: "Matching files" });
   folders.changed(["apps"]);
   await new Promise((resolve) => setTimeout(resolve, 250));
   expect(folders.count("apps")).toBe(1);

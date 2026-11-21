@@ -110,8 +110,8 @@ test("a click in the tree previews a file in place; a kept tab stays", async () 
       .at(-1) as HTMLElement,
     "socket",
   );
-  const found = await within(side).findByRole("tree", { name: "Matching files" });
-  await userEvent.click(await within(found).findByRole("treeitem", { name: "socket.ts" }));
+  const found = await within(side).findByRole("listbox", { name: "Matching files" });
+  await userEvent.click(await within(found).findByRole("option", { name: /^socket\.ts/ }));
   await within(side).findByRole("tab", { name: "socket.ts", selected: true });
   const names = within(side)
     .getAllByRole("tab")
@@ -184,8 +184,8 @@ test("a checkout of hundreds of files lists one folder at a time, and search fin
     within(side).getByRole("searchbox", { name: "Find files in the checkout" }),
     "case-399",
   );
-  const found = await within(side).findByRole("tree", { name: "Matching files" });
-  expect(await within(found).findByRole("treeitem", { name: "case-399.ts" })).toBeTruthy();
+  const found = await within(side).findByRole("listbox", { name: "Matching files" });
+  expect(await within(found).findByRole("option", { name: /^case-399\.ts/ })).toBeTruthy();
   expect(pkg.getAttribute("aria-expanded")).toBe("true");
 });
 
