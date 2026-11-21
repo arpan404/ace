@@ -15,6 +15,7 @@ export {
   MarketFailure,
   needCatalogue,
   needDefaults,
+  offeredUpdate,
   readAtText,
   sizeText,
   typeWord,

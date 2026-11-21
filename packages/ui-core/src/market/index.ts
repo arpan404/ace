@@ -2,7 +2,7 @@
  * `@ace/ui-core/market`: the marketplace's words and choices, pure, shared by the web's
  * marketplace and the phone's bridge (ADR 0168 §12) so neither copies the other's rules.
  */
-export { entryAction, installBlock, typeWord } from "./entry.ts";
+export { entryAction, installBlock, offeredUpdate, typeWord } from "./entry.ts";
 export { failureSentence, findingSentences, MarketFailure, type MarketStep } from "./failure.ts";
 export {
   codeKey,

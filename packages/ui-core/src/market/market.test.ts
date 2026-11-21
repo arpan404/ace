@@ -4,6 +4,7 @@ import {
   andList,
   canDoSentences,
   entryAction,
+  offeredUpdate,
   failureSentence,
   findingSentences,
   flaggedWord,
@@ -72,6 +73,15 @@ test("the entry's action is Get, Update or Installed by what this machine holds"
   expect(entryAction(entry())).toBe("install");
   expect(entryAction(entry({ installed: installed() }))).toBe("installed");
   expect(entryAction(entry({ installed: installed("1.1.0") }))).toBe("update");
+});
+
+test("an update accepted while its bot works isn't offered again until a newer one comes", () => {
+  const held = { ...installed("1.1.0"), held: { version: "1.1.0" } };
+  expect(offeredUpdate(held)).toBeUndefined();
+  expect(entryAction(entry({ installed: held }))).toBe("installed");
+  expect(offeredUpdate({ ...installed("1.2.0"), held: { version: "1.1.0" } })).toBe("1.2.0");
+  expect(offeredUpdate(installed("1.1.0"))).toBe("1.1.0");
+  expect(offeredUpdate(installed())).toBeUndefined();
 });
 
 test.each([

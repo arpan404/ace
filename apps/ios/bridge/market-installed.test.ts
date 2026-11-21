@@ -172,3 +172,29 @@ test("turning a withdrawn entry back on and removing another change what Install
   const read = await ask({ op: "installed" }, true);
   expect(read.rows).toEqual([expect.objectContaining({ name: "digest", off: false, notes: [] })]);
 });
+
+test("the Marketplace's update count skips an update held for its bot's turn", async () => {
+  const { daemon, client } = sheetFixture();
+  daemon.seedServices({
+    marketplace: {
+      installed: [
+        install("inbox", {
+          type: "spade-bot",
+          target: "b",
+          update: "1.1.0",
+          held: { version: "1.1.0" },
+        }),
+        install("notes", { update: "2.0.0" }),
+      ],
+    },
+  });
+  close = () => client.close();
+  await client.start();
+  await until(() => client.connectionState().getSnapshot() === "ready", "connected");
+  const service = new NativeMarket(client, () => 1);
+  const home = await service.answer(
+    NativeMarketRequest.parse({ type: "market.native", operation: { op: "home" } }),
+    new AbortController().signal,
+  );
+  expect(home).toMatchObject({ ok: true, updates: 1, updatesText: "1 update" });
+});

@@ -1,5 +1,5 @@
 import type { MarketInstalled, MarketResult } from "@ace/protocol/marketplace";
-import { count } from "@ace/ui-core/market";
+import { count, offeredUpdate } from "@ace/ui-core/market";
 import { installedRow, updatesText } from "./market-rows.ts";
 
 /*
@@ -10,10 +10,6 @@ import { installedRow, updatesText } from "./market-rows.ts";
  */
 
 type Result<T extends MarketResult["op"]> = Extract<MarketResult, { op: T }>;
-
-/** An update the person accepted that waits for its bot's turn isn't offered again. */
-const offered = (item: MarketInstalled): string | null =>
-  item.update && item.update !== item.held?.version ? item.update : null;
 
 export function installedAnswer(result: Result<"installed">) {
   const rows = result.installed
@@ -36,7 +32,7 @@ export function installedAnswer(result: Result<"installed">) {
 
 /** One installed entry as Installed's row. */
 function installedItem(item: MarketInstalled) {
-  const update = offered(item);
+  const update = offeredUpdate(item) ?? null;
   const row = installedRow({ ...item, update: update ?? undefined });
   const bot = row.bot !== null;
   return {
