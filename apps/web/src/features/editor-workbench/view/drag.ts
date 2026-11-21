@@ -48,8 +48,8 @@ export type GroupDrag = { kind: "tab"; tab: TabDrag } | { kind: "files"; paths: 
 
 /** Over a group only the drag's types can be read: a tab or the explorer's rows. */
 export function carriesGroupDrag(transfer: DataTransfer): boolean {
-  const types = Array.from(transfer.types);
-  return types.includes(editorTabDragType) || types.includes(treeEntriesDragType);
+  const types = new Set(transfer.types);
+  return types.has(editorTabDragType) || types.has(treeEntriesDragType);
 }
 
 /**
