@@ -2,7 +2,7 @@
 //! objects with known fields, strings with a length, numbers, booleans, enums and arrays with a
 //! size, at most six levels deep. Small enough that every value checked against one is bounded,
 //! and that the marketplace's reader (`packages/marketplace/src/schema.ts`) reads it the same way
-//! (`schema_cases.json` holds both to it). Pure.
+//! (the conformance suite's `contracts/schemas.json` holds both to it). Pure.
 //!
 //! A schema is JSON Schema's words for these shapes and nothing else: a keyword outside the subset
 //! refuses the schema, so a schema can never mean more than this reader checks.

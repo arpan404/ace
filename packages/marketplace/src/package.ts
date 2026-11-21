@@ -120,7 +120,7 @@ function newer(wanted: string, have: string): boolean {
 
 /**
  * Spade's own tools that send in the person's name (`spade_core::effect`'s table): a `tool` grant
- * of one is never made, as Spade's reader refuses it. `rules.json` holds both readers to this.
+ * of one is never made, as Spade's reader refuses it. the conformance suite (`spade/spec/conformance/`) holds both readers to this.
  */
 const sendingTools = new Set(["git_push", "pr_comment", "issue_comment", "send_message"]);
 

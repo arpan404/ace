@@ -2,7 +2,7 @@
  * The bounded schema subset a contract's input and output are written in (ADR 0200 §5.1, §7):
  * objects with known fields, strings with a length, numbers, booleans, enums and arrays with a
  * size, at most six levels deep. Read the way Spade reads it (`spade_core::schema`); the shared
- * cases in `spade/crates/spade-core/src/schema/cases.json` hold both readers to it. A keyword
+ * cases in `spade/spec/conformance/contracts/schemas.json` hold both readers to it. A keyword
  * outside the subset refuses the schema, so a schema never means more than this checks.
  */
 

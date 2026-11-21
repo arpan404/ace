@@ -8,7 +8,7 @@ input and get typed output back ([ADR 0200](../../docs/adr/0200-spade-is-an-agen
 ## In the manifest
 
 `bot.json`'s `contracts` (version 3), read by `spade_core::package::contract` and `readContracts`
-in `@ace/marketplace` (the shared `package/rules.json` holds both to the same refusals):
+in `@ace/marketplace` (the conformance suite's cases in `spade/spec/conformance/` hold both to the same refusals):
 
 ```json
 {
@@ -70,7 +70,7 @@ two (`{"input": {…}, "output": {…}}`, at most 40 KiB).
   that isn't in the package, isn't a JSON object, or holds any other field.
 - The file is written into the contract before `bot.json` is read
   (`spade_core::package::contract_files`, `inlineContractFiles` in `@ace/marketplace`, held
-  together by `rules.json`), so every reader, check, comparison and view sees one form. A call
+  together by the conformance suite), so every reader, check, comparison and view sees one form. A call
   to such a contract runs as any other: the callee's strict output check, the caller's reader's
   check, its effects' hold and its taint all read the schemas written in.
 - **The signature covers it.** The market's signed version manifest lists every file of the
@@ -86,7 +86,7 @@ two (`{"input": {…}, "output": {…}}`, at most 40 KiB).
 ### The schema subset
 
 `spade_core::schema` and `schema.ts` in `@ace/marketplace`, held together by
-`spade/crates/spade-core/src/schema/cases.json`. JSON Schema's words for these shapes only:
+`spade/spec/conformance/contracts/schemas.json`. JSON Schema's words for these shapes only:
 
 | `type`              | Keywords                                                                    |
 | ------------------- | --------------------------------------------------------------------------- |

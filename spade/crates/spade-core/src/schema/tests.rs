@@ -2,14 +2,14 @@ use serde_json::{Value, json};
 
 use super::*;
 
-/// Every case of `cases.json`, which the marketplace's reader runs too.
+/// Every schema case of the conformance suite (`spade/spec/conformance/contracts/schemas.json`),
+/// which the marketplace's reader runs too.
 #[test]
 fn both_readers_agree_on_every_schema_case() {
-    let all: Value = serde_json::from_str(include_str!("cases.json")).unwrap_or_default();
-    let cases = all["cases"].as_array().cloned().unwrap_or_default();
+    let cases = crate::spec::conformance::SCHEMAS.cases();
     assert!(cases.len() >= 10, "the cases are read");
     for case in cases {
-        let name = case["name"].as_str().unwrap_or_default();
+        let name = case["id"].as_str().unwrap_or_default();
         let read = read(&case["schema"], "input");
         if let Some(word) = case["refused"].as_str() {
             let problems = read.err().unwrap_or_default();
