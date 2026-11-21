@@ -97,6 +97,8 @@ it("a link being issued as its admin is removed is revoked once it exists", asyn
   expect((await api.call(ownerToken, "DELETE", `/v1/orgs/${org}/members/${mia.id}`)).status).toBe(
     200,
   );
+  // The cron sees WorkOS's deletion event while the link is still being made.
+  await events();
   held.release();
   await linking;
   await events();
