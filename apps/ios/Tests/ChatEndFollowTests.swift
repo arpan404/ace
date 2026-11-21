@@ -91,15 +91,19 @@ import Testing
         // Pulled past the end first, then back toward older messages.
         var travel = DragTravel()
         travel.began(at: 1_000)
-        #expect(!travel.moved(to: 1_050))
-        #expect(travel.moved(to: 1_030))
+        let pastTheEnd = travel.moved(to: 1_050)
+        let back = travel.moved(to: 1_030)
+        #expect(!pastTheEnd)
+        #expect(back)
     }
 
     @Test func aDragTowardNewerMessagesIsNotOne() {
         var travel = DragTravel()
         travel.began(at: 1_000)
-        #expect(!travel.moved(to: 1_000.5))
-        #expect(!travel.moved(to: 1_200))
+        let nudge = travel.moved(to: 1_000.5)
+        let newer = travel.moved(to: 1_200)
+        #expect(!nudge)
+        #expect(!newer)
     }
 
     @Test func sendingFollowsTheEndFromWhereverThePersonWas() {
