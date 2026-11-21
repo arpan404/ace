@@ -33,6 +33,8 @@ fn call(effect: Option<Effect>, place: Place) -> Call<'static> {
         command: None,
         destructive: false,
         org: None,
+        permits: crate::permission::Held::default(),
+        connected: false,
     }
 }
 
