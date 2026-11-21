@@ -124,6 +124,7 @@ function seedSetup(spade: FakeSpadeApi): void {
       name: "Reviewer",
       blurb: "Reads pull requests and says what needs another look",
       task: "Review pull requests",
+      routines: [{ name: "Morning reviews", words: "Weekdays at 9:00" }],
     },
   ];
   spade.connectors.connectors = [

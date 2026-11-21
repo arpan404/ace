@@ -63,6 +63,10 @@ extension SpadeUITests {
         app.buttons["spade.newBot"].tap()
         XCTAssertTrue(app.buttons["spade.newbot.template.reviewer"].waitForExistence(timeout: 10))
         screenshot("spade-newbot-light")
+        // A template's routines show with their schedule, and can wait paused.
+        app.buttons["spade.newbot.template.reviewer"].tap()
+        XCTAssertTrue(app.switches["spade.newbot.routines"].waitForExistence(timeout: 10))
+        screenshot("spade-newbot-template-light")
         app.buttons["spade.newbot.cancel"].tap()
 
         let dark = launch(appearance: "dark")
@@ -78,5 +82,10 @@ extension SpadeUITests {
         dark.buttons["spade.settings.models"].tap()
         XCTAssertTrue(dark.descendants(matching: .any)["spade.settings.key.openrouter"].waitForExistence(timeout: 15))
         screenshot("spade-models-dark")
+        dark.navigationBars.buttons.element(boundBy: 0).tap()
+        // An app whose sign-in ended offers Reconnect.
+        dark.buttons["spade.settings.apps"].tap()
+        XCTAssertTrue(dark.buttons["spade.app.reconnect.linear"].waitForExistence(timeout: 15))
+        screenshot("spade-apps-dark")
     }
 }
