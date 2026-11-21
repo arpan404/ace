@@ -7,7 +7,9 @@ desktop beside the bot's conversation. Phones show the bot's cards.
 ## Declaring them
 
 `bot.json`'s `surfaces` (at most 16, at most 8 panels), each with an `id` of lower-case letters,
-digits and dashes:
+digits and dashes: A card's `id` is what `card_show`'s `surface` names: the card still comes in `data`, and the
+package's `schema` checks on `card:<id>` hold it before it is shown ([quality.md](quality.md),
+Checks).
 
 ```json
 "surfaces": [

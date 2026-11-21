@@ -28,6 +28,7 @@ pub mod made;
 pub mod maintenance;
 pub mod memory;
 pub mod named_devices;
+pub mod org;
 pub mod outward;
 pub mod oversight;
 pub mod package;

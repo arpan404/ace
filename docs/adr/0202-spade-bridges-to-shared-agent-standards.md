@@ -347,7 +347,45 @@ Tests: `outside_contracts.rs` in `spade-server` (Spade's own MCP client and an A
 a stand-in for the daemon), `serve` in `spade-mcp`, and `spade-contracts.test.ts` and
 `card-signature.test.ts` in the daemon.
 
-## Amendment 2: inbound, as built
+## Amendment 2: each outside caller stays inside its own grant
+
+Accepted 2026-11-20, after a security review of amendment 1 as built. Each point closes a way for
+one of the person's outside agents to reach past its own calls:
+
+1. **A Stop reaches only the call it names.** A2A `CancelTask` and MCP cancellation used to stop
+   the callee's whole conversation, which could serve another grant's call, another bot's or the
+   person's words in the same turn. Now `contract::stop_reach` decides: the turn and the jobs it
+   started stop only when that turn serves the named call alone. Otherwise the call ends alone
+   (`ContractEnded` with the new ending `stopped`), and the turn carries on for the others. The
+   decision is made and stored under the record lock, so nothing joins the turn between the look
+   and the stop. Calls between bots follow the same rule.
+2. **A call's record outlives the inbox's cleanup.** The 30-day inbox cleanup no longer takes
+   outside rows. Each call's outcome is recorded once (`outside_outcomes`), and an outside call is
+   forgotten only 30 days after it ended, never while it is open. GetTask, CancelTask and a
+   retried key keep finding the original call and its first outcome. A retry never delivers
+   again, whatever tool it names now.
+3. **Reading a call costs the call, not history.** A read starts at the call's delivery seq, or
+   at its stored outcome once it ended. Whether its callee waits comes from the conversation's
+   cached activity, never from its events. A request that waits on a call holds a slot: 8 per
+   grant and 32 in all. A wait beyond the cap is refused before anything is delivered.
+   `returnImmediately` and GetTask never wait.
+4. **A stamp can't be replayed or moved.** ace's stamp on a forwarded request
+   (`ace-spade-outside/1`) signs the method, Spade's route, the protocol headers Spade acts on
+   (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, `A2A-Version`), the body and a nonce. Spade
+   takes each nonce once while the stamp's time verifies, and refuses a stamp signed before it
+   started, since the nonces it saw before then are gone.
+5. **MCP request ids keep their type.** `7` and `"7"` are two requests. An id still in flight is
+   refused (`-32600`) before anything is delivered.
+6. **The card key can rotate.** The daemon reads `a2a-card-key.pem` again whenever the file
+   changes, and has `reload` and an atomic `rotate`. The JWK set answers an ETag and
+   `max-age=300, must-revalidate`. The card's ETag changes with its key. Both answer 304 to a
+   matching `If-None-Match`, so a verifier sees a new key within minutes.
+
+Tests: `outside_contracts_guards.rs` in `spade-server`, one per point, each shown to fail with its
+fix turned off. `stop_reach` cases in spade-core. `card-key.test.ts`, `outside-proof.test.ts` (a
+vector shared with Spade's) and `spade-contracts.test.ts` in the daemon.
+
+## Amendment 3: inbound, as built
 
 Accepted 2026-11-20, with phases 3 and 4 (sections 4 and 5). The MCP Apps facts were read from
 the [spec file](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx)

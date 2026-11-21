@@ -96,22 +96,17 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Working line.** Under the last bubble while the bot works: its 32px face, moving, one line of
   what it is doing and a running time. It goes when the reply ends. Only a working face moves
   (ADR 0127); every other pose moves once and holds.
-- **Steps.** A reply's finished steps fold into one quiet line under its words, counted in words
-  ("Ran 3 commands, changed 2 files"), that opens to each: what it did and the one thing it
-  touched (a command, a path, an address), where it ran (in its sandbox or outside it) and how it
-  ended. A step the person must see stands under the line unopened, in full ink: one the network
-  policy blocked ("Blocked example.com: …"), the review refused or the person declined, one that
-  deletes or can't be undone, and one that acted outside the bot's box (ran outside the sandbox,
-  reached the network, pushed, commented, sent). Words only: no icons, badges or tints. Notes it
-  saved and what it showed the person keep their own places. Helpers are one line each, opening
-  to their steps. Raw markdown and raw tool arguments never show.
-- **Undo.** When a reply changed the bot's files, its step line ends in the quiet words "Undo
-  these changes" (the whole turn, from its first file-changing step), and each such step offers
-  them too. They open a dialog that first says what goes back, which new files are removed and which
-  deleted files come back (paths in mono on `--chat-well`), and what undo can't take back, then
-  Undo. A step undo can't reach says so plainly in its own line, in full ink: "Can't be undone:
-  it was sent in your name.", "…a payment can't be taken back from here.", "…it's published.",
-  "Can't be undone here: it changed linear." The step's declared effect decides it, not its name (ADR 0167, spade/docs/security.md).
+- **Steps.** As steps finish, they fold into one quiet line under the reply
+  ("Ran 3 commands, changed 2 files"). The line starts closed and counts failures
+  ("Ran a command, one step failed"). Open it to read one row per step with what it did,
+  what it touched and any failure or refusal reason. Say who approved a step when a
+  reviewer or a one-time decision let it run. Standing permission needs no label.
+  The running step stays on the working line. Pending approvals and questions keep their
+  own cards. Notes, things the bot showed, and helpers keep their own places.
+- **Undo.** When a reply changed the bot's files, the collapsed line offers "Undo these changes"
+  for the whole turn and each undoable step offers it in the detail. The confirmation lists which
+  files go back, which new files are removed and which deleted files come back (paths in mono on
+  `--chat-well`). It also lists the actions undo can't take back (ADR 0167, spade/docs/security.md).
 - **What it had in mind.** Under a finished reply whose message recalled notes, one quiet line
   ("Had 2 notes in mind") opens to them; each opens where it's from.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.

@@ -6,11 +6,13 @@ import {
   MarketReportsBody,
   MarketDiscoverBody,
   MarketReportState,
+  MarketTermsNotice,
   type MarketCollection,
 } from "@ace/protocol/marketplace";
 import {
   findingSentence,
   signBlocklistChange,
+  signNoticeChange,
   signOfficialChange,
   signReview,
   signVerifiedChange,
@@ -356,6 +358,31 @@ async function officialCommand(args: Args): Promise<void> {
   );
 }
 
+/** Signs a subscription's terms status into the notices devices read (ADR 0205 §4). */
+async function noticeCommand(args: Args): Promise<void> {
+  validateArgs(args, ["url", "dev-market", "key", "note"], 4, 4);
+  const notice = MarketTermsNotice.omit({ at: true }).safeParse({
+    provider: args.words[2],
+    status: args.words[3],
+    note: option(args, "note") ?? "",
+  });
+  if (!notice.success)
+    throw new CliFailure(
+      "refused",
+      "Use ace market maintainer notice PROVIDER allowed|unclear|refused --note TEXT (at most 500 characters)",
+    );
+  const key = await readKey(option(args, "key"));
+  succeeded(
+    await signNoticeChange(signerIo(marketUrl(args)), key, now, trustedWith(key), notice.data),
+  );
+  return print(
+    args,
+    args.flags.json
+      ? { ok: true }
+      : `${notice.data.provider}'s terms read ${notice.data.status} in the signed notices. Devices only let a notice tighten what their build ships.`,
+  );
+}
+
 export async function maintainerWork(verb: string | undefined, args: Args): Promise<void> {
   switch (verb) {
     case "review":
@@ -379,10 +406,12 @@ export async function maintainerWork(verb: string | undefined, args: Args): Prom
       return verifyCommand(verb, args);
     case "official":
       return officialCommand(args);
+    case "notice":
+      return noticeCommand(args);
     default:
       throw new CliFailure(
         "refused",
-        "Use ace market maintainer keygen, sign, review, feature, revoke, reports, collection, publisher, block, appeals, appeal, verify or official. See ace help market-maintainer.",
+        "Use ace market maintainer keygen, sign, review, feature, revoke, reports, collection, publisher, block, appeals, appeal, verify, official or notice. See ace help market-maintainer.",
       );
   }
 }

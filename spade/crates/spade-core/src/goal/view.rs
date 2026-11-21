@@ -54,6 +54,53 @@ pub fn task(events: &[Event]) -> Option<TaskView> {
     })
 }
 
+/// How a verified routine run stands (ADR 0204 §3), from the events since its message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunCheck {
+    /// The check hasn't said done yet.
+    Checking,
+    /// The check said done.
+    Done,
+    /// The check said "not yet" too often; what it found missing last.
+    Failed(Vec<String>),
+    /// The person ended its goal.
+    Ended,
+}
+
+/// How run `run`'s goal stands; `None` when no goal names the run.
+pub fn run_check<'a>(events: impl IntoIterator<Item = &'a Event>, run: &str) -> Option<RunCheck> {
+    let mut goal: Option<&str> = None;
+    let mut missing: Vec<String> = Vec::new();
+    for event in events {
+        let Event::Known(known) = event else { continue };
+        match known {
+            Known::GoalSet {
+                goal: id,
+                run: Some(r),
+                ..
+            } if r == run && goal.is_none() => goal = Some(id),
+            Known::TaskVerified {
+                goal: id,
+                verdict,
+                missing: found,
+                ..
+            } if Some(id.as_str()) == goal => match verdict {
+                Finding::Done => return Some(RunCheck::Done),
+                _ => missing.clone_from(found),
+            },
+            Known::GoalCleared { goal: id, failed } if Some(id.as_str()) == goal => {
+                return Some(if *failed {
+                    RunCheck::Failed(missing)
+                } else {
+                    RunCheck::Ended
+                });
+            }
+            _ => {}
+        }
+    }
+    goal.map(|_| RunCheck::Checking)
+}
+
 /// Progress alone.
 pub fn progress(events: &[Event]) -> Progress {
     progress_in(events, crate::task::jobs_running(events))

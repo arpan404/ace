@@ -277,6 +277,10 @@ pub enum Known {
         /// Allow this tool without asking again in this conversation.
         #[serde(default)]
         always: bool,
+        /// For a shared bot (ADR 0206 §2.3), the member whose stamped answer this is: one of
+        /// its approvers, checked. Absent for every other bot's answer and older events.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<Box<crate::org::Member>>,
     },
     ToolStarted {
         reply: String,
@@ -444,6 +448,10 @@ pub enum Known {
         /// The model that checks this goal, when the person chose one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         verifier: Option<String>,
+        /// The routine run that opened it, for a trigger that says `"verify": true` (ADR 0204
+        /// §3): the run counts as done only once this goal's check says so.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<String>,
     },
     /// The person ended the goal without it being done (ADR 0159); `failed` when they ended it
     /// as failed (ADR 0164), which its episode records.

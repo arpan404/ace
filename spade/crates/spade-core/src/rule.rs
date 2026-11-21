@@ -186,6 +186,48 @@ rules! {
     ACTION_LABEL = "surfaces.action-label", "surfaces", true,
         "An action's label isn't a few words (at most 40 characters).";
     CONFIRM = "surfaces.confirm", "surfaces", true, "An action's `confirm` isn't true or false.";
+    CHECKS = "checks.list", "package", true, "`checks` isn't a list of at most 32.";
+    CHECK_FIELD = "checks.field", "package", false,
+        "A check isn't an object, or holds a field checks don't have.";
+    CHECK_NAME = "checks.name", "package", false,
+        "A check's name isn't 1 to 40 lower-case letters, digits and dashes.";
+    CHECK_NAME_UNIQUE = "checks.name-unique", "package", false, "Two checks have one name.";
+    CHECK_ON = "checks.on", "package", false,
+        "A check's `on` isn't 1 to 8 places, each once: one of the package's contracts \
+         (`contract:<name>`), one of its cards (`card:<id>`) or `goal`.";
+    CHECK_KIND = "checks.kind", "package", false,
+        "A check's kind isn't `schema`, `code` or `criterion`.";
+    CHECK_CODE_LATER = "checks.code-later", "package", false,
+        "A `code` check, which the runtime doesn't run yet.";
+    CHECK_SCHEMA_PLACE = "checks.schema-place", "package", false,
+        "A `schema` check is on the goal, or has no `rule`.";
+    CHECK_CRITERION = "checks.criterion", "package", false,
+        "A `criterion` check is on anything but the goal, or doesn't say in 1 to 500 characters \
+         what must hold.";
+    CHECK_CRITERIA = "checks.criteria", "package", false, "More than 8 `criterion` checks.";
+    RULE_SIZE = "check-rule.size", "package", false, "A check's rule is longer than 16 KiB.";
+    RULE_OBJECT = "check-rule.object", "package", false, "A check's rule isn't a JSON object.";
+    RULE_KEYWORD = "check-rule.keyword", "package", false,
+        "A check's rule uses a keyword outside the rule subset.";
+    RULE_MIXED = "check-rule.mixed", "package", false,
+        "A check's rule mixes keywords of different kinds of value.";
+    RULE_TYPE = "check-rule.type", "package", false,
+        "A check's rule names a `type` that isn't one, or one its keywords don't narrow.";
+    RULE_TEXT = "check-rule.text", "package", false,
+        "A check's rule's `description` or `title` isn't text of at most 500 characters.";
+    RULE_DEPTH = "check-rule.depth", "package", false, "A check's rule nests more than 6 levels.";
+    RULE_FIELDS = "check-rule.fields", "package", false,
+        "A check's rule names more than 64 fields, or a field name that isn't 1 to 64 letters, \
+         digits and `_`.";
+    RULE_REQUIRED = "check-rule.required", "package", false,
+        "A check's rule's `required` isn't a list of field names.";
+    RULE_ENUM = "check-rule.enum", "package", false,
+        "A check's rule's enum isn't 1 to 64 words of at most 200 characters.";
+    RULE_BOUND = "check-rule.bound", "package", false,
+        "A check's rule's bound isn't a number in its range, or a lower bound is past its upper one.";
+    RULE_PATTERN = "check-rule.pattern", "package", false,
+        "A check's rule's `pattern` is outside the part of regular expressions both readers \
+         read alike, or longer than 200 characters.";
     CODE_LIST = "code.list", "code", true, "`code` isn't a list of at most 4 components.";
     CODE_FIELD = "code.field", "code", true, "A component's entry isn't an object.";
     CODE_NAME = "code.name", "code", true,

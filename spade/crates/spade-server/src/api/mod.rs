@@ -18,6 +18,8 @@ mod knowledge;
 mod media;
 mod memory;
 mod moves;
+mod org;
+mod org_guard;
 mod outside;
 mod oversight;
 mod packages;
@@ -115,6 +117,15 @@ pub fn router(state: AppState) -> Router {
             put(goals::set).delete(goals::clear),
         )
         .route("/main", get(moves::main_state).put(agents::set_main))
+        // Spade on an org host (ADR 0206).
+        .route("/org", get(org::view).put(org::bind).delete(org::unbind))
+        .route("/org/policy", put(org::policy))
+        .route("/org/bots", post(org::create))
+        .route("/org/audit", post(org::record))
+        .route("/org/audit/outbox", get(org::outbox))
+        .route("/org/audit/forwarded", post(org::forwarded))
+        .route("/org/audit/export", get(org::export))
+        .route("/agents/{id}/access", get(org::access).put(org::set_access))
         .route("/endpoints", post(endpoints::create))
         .route(
             "/endpoints/local",
@@ -129,6 +140,8 @@ pub fn router(state: AppState) -> Router {
                 .delete(endpoints::delete_local_model),
         )
         .route("/endpoints/local/{server}", post(endpoints::use_local))
+        .route("/endpoints/local/probe", post(endpoints::probe_local))
+        .route("/endpoints/{id}/probe", post(endpoints::probe))
         .route(
             "/endpoints/{id}",
             axum::routing::patch(endpoints::update).delete(endpoints::delete),
@@ -226,6 +239,12 @@ pub fn router(state: AppState) -> Router {
         .merge(reach::routes())
         .merge(running::routes())
         .merge(cases::routes())
+        // A shared bot changes only on a member's stamp (ADR 0206 §2.3), checked once the
+        // token is.
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            org_guard::guard,
+        ))
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()
@@ -499,13 +518,18 @@ struct Approval {
 async fn approve(
     State(state): State<AppState>,
     Path((id, call_id)): Path<(String, String)>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<Approval>,
 ) -> Response {
+    // A shared bot's approver answers with the daemon's stamp of them (ADR 0206 §2.3).
+    let target = crate::security::member::approval_target(&id, &call_id);
+    let member = org::answered(&state, &headers, &target, body.allowed, body.always);
     match state
         .engine
-        .answer(&id, &call_id, body.allowed, body.always)
+        .answer_by(&id, &call_id, body.allowed, body.always, member.as_ref())
     {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(AnswerError::ApproverOnly(why)) => problem(StatusCode::FORBIDDEN, why),
         Err(AnswerError::NotFound) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(AnswerError::NotAwaiting) => problem(
             StatusCode::CONFLICT,
@@ -522,13 +546,17 @@ async fn approve(
 async fn answer_outside(
     State(state): State<AppState>,
     Path((id, ask_id)): Path<(String, String)>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<Approval>,
 ) -> Response {
+    let target = crate::security::member::outside_target(&id, &ask_id);
+    let member = org::answered(&state, &headers, &target, body.allowed, body.always);
     match state
         .engine
-        .answer_outside(&id, &ask_id, body.allowed, body.always)
+        .answer_outside_by(&id, &ask_id, body.allowed, body.always, member.as_ref())
     {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(AnswerError::ApproverOnly(why)) => problem(StatusCode::FORBIDDEN, why),
         Err(AnswerError::NotFound) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(AnswerError::NotAwaiting) => problem(
             StatusCode::CONFLICT,

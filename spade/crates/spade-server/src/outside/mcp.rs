@@ -2,7 +2,11 @@
 //! contract of each bot that takes calls. `tools/call` delivers a contract call once, by the
 //! caller's key in `_meta` (a fresh one when it gave none), waits for `contract_return` and
 //! answers `structuredContent`. A modern client's closed stream, or a legacy client's
-//! `notifications/cancelled`, is its Stop: the callee's turn for the call ends.
+//! `notifications/cancelled`, is its Stop: the callee's work for that call ends, and nobody
+//! else's (`Engine::stop_call`). A request id keeps its JSON type (`7` and `"7"` are two
+//! requests), and one id is in flight once per grant: a second `tools/call` with an id still
+//! running is refused before anything is delivered. A call waits holding one of its grant's
+//! wait slots; one beyond the cap is refused, undelivered.
 
 use std::sync::Arc;
 
@@ -68,7 +72,7 @@ pub async fn answer(
             serve::called(&message, SERVER, &called)
         }
         Method::Cancelled(request) => {
-            if let Some(call) = engine.outside_request_call(&caller.grant, &request_id(request)) {
+            if let Some(call) = engine.outside_request_call(&caller.grant, request) {
                 engine.outside_stop(&caller, &call);
             }
             serve::accepted()
@@ -77,16 +81,13 @@ pub async fn answer(
     }
 }
 
-fn request_id(id: &Value) -> String {
-    id.as_str().map_or_else(|| id.to_string(), str::to_owned)
-}
-
-/// While a `tools/call` runs: dropped when it ends or its request goes away. For a modern
-/// client a request that went away was cancelled, and the callee's turn for an open call stops.
+/// While a `tools/call` runs, from before its call is delivered: dropped when it ends or its
+/// request goes away. For a modern client a request that went away was cancelled, and the
+/// callee's work for an open call stops.
 struct Running {
     engine: Arc<Engine>,
     caller: OutsideCaller,
-    request: String,
+    request: Value,
     call: String,
     era: Era,
 }
@@ -120,13 +121,19 @@ async fn call(
         Some(key) => key.to_owned(),
         None => engine.outside_fresh_key(),
     };
-    let call = match engine.outside_call(caller, OutsideVia::Mcp, &key, tool, input.clone()) {
-        Ok(call) => call,
-        Err(OutsideRefused::NoSuchTool) => return Called::NoSuchTool(tool.to_owned()),
-        Err(OutsideRefused::Problem(why)) => return Called::Failed(why),
+    // The wait is admitted before anything is delivered.
+    let Some(_slot) = engine.outside_wait_slot(caller) else {
+        return Called::Failed(
+            "This client has too many calls waiting; try again when one has ended.".to_owned(),
+        );
     };
-    let request = message.id.as_ref().map(request_id).unwrap_or_default();
-    engine.outside_request_started(&caller.grant, &request, &call);
+    // So is the request's id: one in flight at a time, claimed before the call is delivered.
+    // The call's id follows from its key, so the guard can hold it from here.
+    let request = message.id.clone().unwrap_or(Value::Null);
+    let call = caller.call_id(&key);
+    if !engine.outside_request_started(&caller.grant, &request, &call) {
+        return Called::DuplicateId;
+    }
     let _running = Running {
         engine: engine.clone(),
         caller: caller.clone(),
@@ -134,6 +141,12 @@ async fn call(
         call: call.clone(),
         era: message.era,
     };
+    if let Err(refused) = engine.outside_call(caller, OutsideVia::Mcp, &key, tool, input.clone()) {
+        return match refused {
+            OutsideRefused::NoSuchTool => Called::NoSuchTool(tool.to_owned()),
+            OutsideRefused::Problem(why) => Called::Failed(why),
+        };
+    }
     let bot = engine
         .outside_callee(caller, &call)
         .unwrap_or_else(|| "The bot".to_owned());

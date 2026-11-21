@@ -286,6 +286,11 @@ async fn drive(
                 if !helper && engine.offer_person_activity(id) {
                     continue;
                 }
+                // A shared bot thinks only with models its organization allows, and never on a
+                // member's coding subscription (ADR 0206 §3).
+                if let Some(why) = engine.org_model_refusal(id, &model) {
+                    return Ended::Failed(String::new(), why.to_owned());
+                }
                 // A reply left open on a subscription its maker's terms no longer allow (one
                 // from before this record): it ends with why, and what comes next waits for the
                 // person to pick another model (ADR 0205 §4).

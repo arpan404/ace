@@ -1,0 +1,13 @@
+{
+  "about": "Made by signOrgPolicy (@ace/account-grant) with Ed25519 seed 0x03 x 32; regenerate only when the statement format changes.",
+  "keys": [
+    {
+      "id": "k3",
+      "publicKey": "7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+    }
+  ],
+  "org": "org_01JSPADETEAM",
+  "version": 4,
+  "body": "{\"effects\":{\"pay\":\"off\",\"publish\":\"approvers\"},\"full_access\":\"never\"}",
+  "statement": "eyJ2IjoxLCJraWQiOiJrMyIsImtpbmQiOiJvcmctcG9saWN5Iiwib3JnIjoib3JnXzAxSlNQQURFVEVBTSIsInZlcnNpb24iOjQsImJvZHlfc2hhMjU2IjoiZTM2MmMxZjBmZDEwMmUxM2VkMzMxOWU2Y2IyODJlNjcwODVlOGY3NjFmZGY1MzI3MTIyMTIzNGFhYThjODI5NyIsInNldF9ieSI6InVzZXJfMDFKU1BBREUiLCJzZXRfYXQiOjE4MDAwMDAwMDAwMDB9.uFxthZjq-PnrKs_UdqztkzQeVjiTcGcZSAeKPHTDzWnCvU7FFQ2l18bBAHaibXmr4oqFSb6I9bQyAx2ld-mmAQ"
+}

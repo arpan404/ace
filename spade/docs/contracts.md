@@ -151,7 +151,8 @@ Output from another machine is untrusted unless that machine says otherwise.
   that finishes without returning fails the call; a stopped one stops it. The caller checks the
   output against the schema again, as a reader: a field its schema doesn't name passes (a newer
   version may add optional output fields, which the signer allows), and every field it names is
-  checked.
+  checked. Output that fits is held to the package's `schema` checks on the contract too, with the
+  same tries ([quality.md](quality.md), Checks).
 - **Stop.** Stop on the caller stops the callee's turn for each open call (here, or through the
   outbox's `stop` on another machine), also after a restart. Stop on the callee ends the call
   `stopped`. The outbox marks a queued entry as maybe there before each send (`maybe_there` in
@@ -210,8 +211,9 @@ same contracts, through ace's outside listener (ADR 0122), with an ace grant tha
 - **Who.** The daemon takes a live grant issued for that base with `spade-contracts`; without
   a token it answers 401 naming the resource's metadata, without the scope 403
   `insufficient_scope`. It forwards to Spade's `/v1/outside/{mcp,a2a,card}` stamped
-  `ace:outside:<grant>` with the client's name, signed with ace's local token; Spade takes no
-  request without that stamp (`api/outside.rs`).
+  `ace:outside:<grant>` with the client's name, signed with ace's local token over the method,
+  the route, the protocol headers, the body and a nonce; Spade takes no request without that
+  stamp, and each nonce once (`api/outside.rs`, ADR 0202 amendment 2).
 - **What is offered.** Each contract of each bot that takes calls, as `<bot slug>__<contract>`
   (the switch above turns a bot's off for outside callers too). MCP tools carry the contract's
   schemas as `inputSchema` and `outputSchema`, `readOnlyHint` only when the contract holds no
@@ -221,7 +223,13 @@ same contracts, through ace's outside listener (ADR 0122), with an ace grant tha
 - **A call** runs as a bot's call does, from the client: the callee reads
   `<contract_call from="Claude Code" id="outside:<grant>" outside="mcp" …>`, never the person's
   words. Its key is the caller's (`_meta["dev.acehq.spade/key"]` in MCP, the message id in A2A),
-  so a retry finds the same call; one grant can't read or stop another's.
+  so a retry finds the same call and its first outcome, and never delivers again; one grant
+  can't read or stop another's. A call's record stays while it is open and for 30 days after it
+  ended, whatever the inbox's own cleanup does.
+- **Waiting.** A request that waits on a call holds one of 8 slots per grant (32 in all); one
+  beyond is refused before it is delivered. A2A `returnImmediately` and `GetTask` never wait, and
+  reading a task costs that call's events, not the bot's history. MCP request ids keep their
+  JSON type, and an id already in flight is refused.
 - **The answer.** MCP answers `structuredContent` (and its JSON as text), with
   `_meta["dev.acehq.spade/untrusted"]`. A2A completes the task with one `application/json` data
   artifact whose extension metadata says `untrusted`. A failed call is a tool error (MCP) or
@@ -230,8 +238,13 @@ same contracts, through ace's outside listener (ADR 0122), with an ace grant tha
   with a message saying the person is deciding in ace; nothing is asked of the client, and the
   task goes on when the person answers.
 - **Stop.** A modern MCP client closing its call's stream, a legacy one's
-  `notifications/cancelled`, or A2A `CancelTask` stops the callee's turn for the call; the task
-  reads `TASK_STATE_CANCELED`.
+  `notifications/cancelled`, or A2A `CancelTask` stops that call and nothing else: the callee's
+  turn and the jobs it started stop when the turn serves this call alone; when it serves others
+  too (another client's call, another bot's, the person's words) the call ends alone and the turn
+  carries on. The task reads `TASK_STATE_CANCELED`. A bot's Stop on its calls follows the same
+  rule.
+- **The card's key** is read again whenever its file changes; the JWK set and card answer an
+  ETag, a short max-age with `must-revalidate`, and 304 to a matching `If-None-Match`.
 
 ## Developer kit
 

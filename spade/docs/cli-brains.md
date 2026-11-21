@@ -50,6 +50,19 @@ acknowledged}`. `acknowledgement` is what the person reads: "This bot will run i
   holds until that provider's status changes. `POST /v1/agents` and `PATCH /v1/agents/{id}` with
   a `cli:` model of a provider not acknowledged answer `409 {"error", "terms": {provider,
 acknowledgement}}`.
+- **Signed notices.** A change between builds reaches Spade as the market's signed notices
+  (`GET /v1/notices` on the market, `{format: "ace-market-notices", issued, notices: [{provider,
+status, note, at}], key}`, signed by the signer behind `ace-market-notices-v1`). The daemon reads
+  them with the marketplace's daily refresh (and every manual one), verifies them with the keys
+  its build ships and hands them over as signed: `PUT /v1/subscriptions/notices {"signed"}`.
+  Spade checks the signature again with its own market keys (`400`, nothing changed, for one no
+  trusted key signed), keeps the list only when its `issued` is newer than the one it has
+  (`{"applied": false}` otherwise), stores it as `terms_notices`, and applies it at every start.
+  Each notice only ever makes a provider's status stricter than the shipped record: `allowed`,
+  then `unclear`, then `refused`; a looser one is ignored, since loosening needs a build. A record
+  a notice tightened carries `noticed_ms` and the notice's `note`. A notice never changes a bot's
+  model: a bot on a provider it refuses waits, as below. The daemon reads notices only while
+  Settings › Beta has the marketplace on.
 - **Refused.** A `refused` provider is offered to no new bot (`400`, and its acknowledgement is
   refused). A bot already on it waits: messages are stored and no turn starts, as for a paused
   bot; a reply left open on it ends with the refusal. Its roster row carries `terms_hold:

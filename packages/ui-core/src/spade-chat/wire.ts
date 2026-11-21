@@ -318,6 +318,7 @@ const known = z.discriminatedUnion("type", [
     call_id: z.string(),
     name: z.string().catch(""),
     verdict: z.string(),
+    model: z.string().catch("").default(""),
     reason: z.string().catch("").default(""),
   }),
   z.object({

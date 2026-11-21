@@ -1,5 +1,6 @@
 import {
   mergeSpadeModels,
+  spadeChecking,
   spadeLocalChoices,
   spadeSubscriptionSources,
   type SpadeEndpoint,
@@ -15,11 +16,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { selectTrigger } from "@/components/ui/select.tsx";
 import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { cn } from "@/lib/cn.ts";
-import { acknowledgeTerms, pickLocalModel, readLiveModels } from "./spade-api.ts";
+import { acknowledgeTerms, pickLocalModel, readLiveModels, readModels } from "./spade-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import {
   spadeModelGroups,
   spadeModelLabel,
+  spadeWaitForChecks,
   type SpadeModelOption,
   type SpadeModelSources,
 } from "./spade-model-options.ts";
@@ -57,11 +59,18 @@ export function SpadeModelPicker(props: {
   follows?: string | undefined;
   /** Offer the person's coding subscriptions: only where a bot's own model is picked. */
   subscriptions?: boolean | undefined;
+  /**
+   * The model runs a bot or tool work (a bot's own, helper-level roles): a local model whose
+   * checks found it can't call tools is shown with why, and can't be picked. Where
+   * `subscriptions` is on, it is too.
+   */
+  forBots?: boolean | undefined;
   className?: string | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const [asking, setAsking] = useState<SpadeModelOption>();
-  const sources = useModelSources(open, props.subscriptions === true);
+  const forBots = props.forBots ?? props.subscriptions === true;
+  const sources = useModelSources(open, props.subscriptions === true, forBots);
   const client = useSpadeClient();
   const cache = useQueryClient();
   const [problem, setProblem] = useState<string>();
@@ -71,8 +80,29 @@ export function SpadeModelPicker(props: {
     setOpen(false);
     setAsking(undefined);
   };
+  const machine = useSpadeMachine().key;
+  // A local model just added: its checks run before a bot may think with it.
+  const [checking, setChecking] = useState(false);
+  const checksOf = async (value: string) => {
+    setChecking(true);
+    try {
+      return await spadeWaitForChecks(value, () =>
+        cache.fetchQuery({
+          queryKey: [...modelsKey, machine],
+          queryFn: ({ signal }) => readModels(client, { signal }),
+          staleTime: 0,
+        }),
+      );
+    } finally {
+      setChecking(false);
+    }
+  };
   const pick = async (option: SpadeModelOption) => {
     setProblem(undefined);
+    if (option.cant) {
+      setProblem(option.cant);
+      return;
+    }
     if (option.acknowledge) {
       setAsking(option);
       return;
@@ -85,7 +115,9 @@ export function SpadeModelPicker(props: {
     try {
       const value = await pickLocalModel(client, option.adds.server, option.adds.model);
       await cache.invalidateQueries({ queryKey: modelsKey });
-      done(value);
+      const cant = forBots ? await checksOf(value) : undefined;
+      if (cant) setProblem(cant);
+      else done(value);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : "Try again.");
     } finally {
@@ -152,6 +184,7 @@ export function SpadeModelPicker(props: {
             onPick={(option) => void pick(option)}
           />
         )}
+        {checking && <p className="px-2 py-1 text-xs text-muted-foreground">{spadeChecking}</p>}
         {problem && <p className="px-2 py-1 text-xs text-destructive">{problem}</p>}
       </PopoverContent>
     </Popover>
@@ -163,7 +196,11 @@ export function SpadeModelPicker(props: {
  * `withSubscriptions`) every subscription. Endpoints and local servers are looked at live only
  * while the list is open (`live`), and an endpoint never while its key isn't known.
  */
-function useModelSources(live: boolean, withSubscriptions: boolean): SpadeModelSources {
+function useModelSources(
+  live: boolean,
+  withSubscriptions: boolean,
+  forBots: boolean,
+): SpadeModelSources {
   const machine = useSpadeMachine().key;
   const client = useSpadeClient();
   const models = useSpadeModels(true);
@@ -193,6 +230,7 @@ function useModelSources(live: boolean, withSubscriptions: boolean): SpadeModelS
     subscriptions: withSubscriptions
       ? spadeSubscriptionSources(subscriptions.data?.providers ?? [])
       : [],
+    forBots,
   };
 }
 
@@ -354,9 +392,11 @@ function ModelOption(props: {
       onPointerMove={props.active ? undefined : props.onPoint}
       onMouseDown={(event) => event.preventDefault()}
       onClick={props.onPick}
-      className={cn(menuItem, props.active && "bg-accent")}
+      aria-disabled={option.cant ? true : undefined}
+      title={option.cant}
+      className={cn(menuItem, props.active && "bg-accent", option.cant && "text-muted-foreground")}
     >
-      <span className="max-w-[70%] shrink-0 truncate">{option.name}</span>
+      <span className="max-w-[60%] shrink-0 truncate">{option.name}</span>
       <span className="min-w-0 flex-1 truncate text-right text-xs text-subtle-foreground">
         {option.facts}
       </span>

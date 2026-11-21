@@ -20,6 +20,7 @@ pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/subscriptions", get(subscriptions))
         .route("/subscriptions/{provider}/terms", put(acknowledge))
+        .route("/subscriptions/notices", put(notices))
         .route("/agents/{id}/mcp", post(mcp))
 }
 
@@ -65,6 +66,30 @@ async fn acknowledge(
         Ok(terms) => Json(json!({ "terms": terms })).into_response(),
         Err(error) => super::agents::agent_problem(&error),
     })
+    .await
+}
+
+/// The market's signed terms notices, as the daemon read them (ADR 0205 §4): `{"signed": …}`.
+#[derive(Deserialize)]
+struct SignedNotices {
+    signed: Value,
+}
+
+/// `200 {"applied": true}` when the list is newer than Spade's and now in force, `false` when
+/// Spade has it or a newer one; `400` when no trusted market key signed it, changing nothing.
+async fn notices(
+    State(state): State<AppState>,
+    super::body::Body(body): super::body::Body<SignedNotices>,
+) -> Response {
+    super::off_thread(
+        move || match state.engine.take_terms_notices(&body.signed) {
+            Ok(applied) => Json(json!({
+                "applied": matches!(applied, crate::engine::Applied::Newer),
+            }))
+            .into_response(),
+            Err(error) => problem(StatusCode::BAD_REQUEST, &error),
+        },
+    )
     .await
 }
 

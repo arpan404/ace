@@ -16,10 +16,10 @@ serde.workspace = true
 serde_json.workspace = true
 spade-keys = { path = "../spade-keys" }
 thiserror.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 spade-testkit = { path = "../spade-testkit" }
-tokio.workspace = true
 axum.workspace = true
 
 [lints]

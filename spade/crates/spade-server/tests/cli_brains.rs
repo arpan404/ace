@@ -764,3 +764,85 @@ async fn a_refused_record_keeps_new_bots_off_and_holds_a_bot_until_the_person_pi
     assert!(requests(&daemon).is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn a_signed_notice_only_tightens_and_a_refusal_holds_the_bot_until_the_person_picks() -> Result
+{
+    let spade = Spade::start_with(
+        vec![
+            spade_testkit::Script::reply("On your endpoint now."),
+            spade_testkit::Script::reply("").plain(r#"{"title":"Notes"}"#),
+        ],
+        Vec::new(),
+        Options::default(),
+    )
+    .await?;
+    support::market::trust(&spade.engine);
+    let (daemon, url) = fake_daemon().await?;
+    connect(&spade.engine, &daemon, &url, &spade.base)?;
+    let (bot, chat) = cli_bot(&spade, "").await?;
+    let status_of = |listed: &Value| listed["providers"][0]["terms"]["status"].clone();
+    let take = |signed: Value| spade.put("/v1/subscriptions/notices", json!({ "signed": signed }));
+
+    // A notice that would loosen Codex's terms is ignored: loosening needs a build.
+    let (status, body) = take(support::market::notices(10, &[("codex", "allowed")], false)).await?;
+    assert_eq!(status, 200, "{body}");
+    let (_, listed) = spade.get("/v1/subscriptions").await?;
+    assert_eq!(status_of(&listed), "unclear", "{listed}");
+
+    // One with a bad signature changes nothing.
+    let forged = support::market::notices(20, &[("codex", "refused")], true);
+    let (status, _) = take(forged).await?;
+    assert_eq!(status, 400);
+    let (_, listed) = spade.get("/v1/subscriptions").await?;
+    assert_eq!(status_of(&listed), "unclear");
+    assert_eq!(roster_row(&spade, &bot).await?["terms_hold"], Value::Null);
+
+    // A valid one that refuses Codex: no new use, and the bot waits for the person.
+    let (status, body) = take(support::market::notices(30, &[("codex", "refused")], false)).await?;
+    assert_eq!((status, &body["applied"]), (200, &json!(true)), "{body}");
+    let (_, listed) = spade.get("/v1/subscriptions").await?;
+    assert_eq!(status_of(&listed), "refused", "{listed}");
+    let (status, _) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "New", "task": "", "model": "cli:codex@work/gpt-6.1-sol" }),
+        )
+        .await?;
+    assert_eq!(status, 400, "no new bot on a refused provider");
+    // An older list arriving late doesn't undo it.
+    let (_, body) = take(support::market::notices(25, &[("codex", "unclear")], false)).await?;
+    assert_eq!(body["applied"], false);
+
+    spade.say(&chat, "Hi").await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(requests(&daemon).is_empty(), "no CLI turn started");
+    let row = roster_row(&spade, &bot).await?;
+    assert_eq!(
+        row["model"], "cli:codex@work/gpt-6.1-sol",
+        "never switched by itself"
+    );
+    assert_eq!(
+        row["terms_hold"]["text"],
+        "Codex's terms no longer allow this. Pick another model for this bot."
+    );
+
+    // The person picks one of their models: what waited is answered there.
+    let (status, body) = spade
+        .patch(&format!("/v1/agents/{bot}"), json!({ "model": "fake/m" }))
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    assert_eq!(finished_text(&events), ["On your endpoint now."]);
+    assert!(requests(&daemon).is_empty());
+
+    // The notice outlives a restart.
+    let spade = spade
+        .restart(Vec::new(), vec![spade_testkit::Script::reply("")])
+        .await?;
+    support::market::trust(&spade.engine);
+    connect(&spade.engine, &daemon, &url, &spade.base)?;
+    let (_, listed) = spade.get("/v1/subscriptions").await?;
+    assert_eq!(status_of(&listed), "refused", "{listed}");
+    Ok(())
+}

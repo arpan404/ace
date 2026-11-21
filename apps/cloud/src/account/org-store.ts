@@ -285,10 +285,30 @@ export function orgStore(db: D1Database) {
       return raw?.org_id;
     },
     /**
+     * Spends a machine's consent to join `org` (ADR 0206 §2.1): true the first time its nonce is
+     * seen, false for every replay.
+     */
+    async spendConsent(consent: {
+      nonce: string;
+      hostId: string;
+      org: string;
+      expiresAt: number;
+    }): Promise<boolean> {
+      const spent = await db
+        .prepare(
+          "INSERT OR IGNORE INTO org_enroll_consents (nonce, host_id, org_id, expires_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(consent.nonce, consent.hostId, consent.org, consent.expiresAt)
+        .run();
+      return (spent.meta.changes ?? 0) > 0;
+    },
+    /**
      * Gives a machine to an organization as enrollment `enrollment`, in one batch: its directory
      * row names the org, and its credentials for the account it is signed in to (the directory
      * row's) are bound to this enrollment; any other account's are bound to none. Only a machine
-     * on `account`'s own list, not yet any org's, moves.
+     * the directory knows, not yet any org's, moves. Who may give it is the machine's own
+     * consent's to say (`spendConsent`), never the directory row's account, which can differ
+     * from the machine's owner (ADR 0190 §3a).
      */
     async enrollHost(
       host: {
@@ -304,7 +324,7 @@ export function orgStore(db: D1Database) {
         db
           .prepare(
             `INSERT OR IGNORE INTO org_hosts (host_id, org_id, enrolled_by, enrolled_at, audit_key, enrollment)
-             SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM machines WHERE host_id = ?1 AND account_id = ?3 AND org_id IS NULL)`,
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM machines WHERE host_id = ?1 AND org_id IS NULL)`,
           )
           .bind(host.hostId, host.org, host.account, now, host.auditKey ?? null, host.enrollment),
         db
@@ -452,6 +472,7 @@ export function orgStore(db: D1Database) {
         .prepare("DELETE FROM org_checks WHERE checked_at < ?")
         .bind(now - 60 * ORG_CHECK_TTL_MS)
         .run();
+      await db.prepare("DELETE FROM org_enroll_consents WHERE expires_at < ?").bind(now).run();
     },
   };
 }
