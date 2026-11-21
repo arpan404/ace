@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use spade_core::event::{Event, Known, PanelSender};
 use spade_core::package::surfaces::{self, Surface};
 use spade_core::panel::{self, Refused};
@@ -36,8 +36,13 @@ pub struct PanelView {
     pub actions: Vec<String>,
     /// Those only the person may send, with the words ace's confirm shows for each.
     pub confirm: Vec<ConfirmView>,
-    /// The latest state its bot set, if any.
+    /// The latest state its bot set, if any; an app's panel's is its tool's input and result.
     pub state: Option<Value>,
+    /// For an MCP app's page (ADR 0202 §4), its app: name, tool, page address, its tools and
+    /// whether each is offered to the page, why it isn't drawn, and what it asked for and didn't
+    /// get. `None` for a package's panel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app: Option<Value>,
 }
 
 /// Kept pages one batch of the collection looks at, in one short transaction.
@@ -146,7 +151,7 @@ impl Engine {
         let (agent, surfaces) = self.panels_for(id)?;
         let pages = crate::packages::panels::hashes(self, &agent);
         let events = self.load(id)?;
-        Ok(surfaces::panels(&surfaces)
+        let mut views: Vec<PanelView> = surfaces::panels(&surfaces)
             .map(|declared| PanelView {
                 id: declared.id.clone(),
                 title: declared.title.clone(),
@@ -162,8 +167,28 @@ impl Engine {
                     })
                     .collect(),
                 state: panel::state(&events, &declared.id).cloned(),
+                app: None,
             })
-            .collect())
+            .collect();
+        // Pages of the apps the bot used, beside its package's (ADR 0202 §4).
+        views.extend(Self::app_panels(&events).into_iter().map(|(id, data)| {
+            PanelView {
+                title: data["app"]["name"].as_str().unwrap_or("App").to_owned(),
+                page: data["app"]["page"].as_str().map(str::to_owned),
+                actions: [
+                    spade_core::app_page::TOOLS_CALL,
+                    spade_core::app_page::MESSAGE,
+                    spade_core::app_page::MODEL_CONTEXT,
+                ]
+                .map(str::to_owned)
+                .to_vec(),
+                confirm: Vec::new(),
+                state: Some(json!({ "input": data["input"], "result": data["result"] })),
+                app: Some(data["app"].clone()),
+                id,
+            }
+        }));
+        Ok(views)
     }
 
     /// Action `action` with `value` came from panel `surface` in conversation `id`, sent `by` its
@@ -180,6 +205,9 @@ impl Engine {
         by: PanelSender,
     ) -> Result<(), PanelError> {
         let (_, surfaces) = self.panels_for(id)?;
+        if spade_core::app_page::is_app_panel(surface) {
+            return self.act_on_app_panel(id, surface, key, action, value, by);
+        }
         let event =
             panel::act(&surfaces, surface, key, action, value, by).map_err(PanelError::Refused)?;
         // Checked again under the lock it is stored under, so a request sent twice lands once.

@@ -5,6 +5,7 @@
 mod adopt;
 mod agents;
 mod app_forms;
+mod app_pages;
 mod apps;
 mod archive;
 mod autonomy;
