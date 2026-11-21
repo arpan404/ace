@@ -870,6 +870,10 @@ pub(super) async fn handle_calls(
         }
     }
     for (call, name) in orphaned {
+        // What its code asked the person for waits on nothing now.
+        if spade_core::package::code::run::is_tool(&name) {
+            engine.close_code_asks(id, reply, &call.id);
+        }
         let unknown = ToolOutput::maybe_ran(context::MAYBE_RAN);
         finish_tool(engine, id, reply, &call, &name, unknown).await;
     }

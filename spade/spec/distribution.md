@@ -105,6 +105,7 @@ The file, which holds no field but these:
 | `cards` | a list of strings | MAY | Cards shown, each by words in its title. |
 | `reply_contains` | a list of strings | MAY | Words the agent's reply contains, case aside. |
 | `output` | any JSON | MAY | With `given.call`: fields the call's output holds, each with this value. The output is always checked against the contract's schema. |
+| `results` | an object of any JSON | MAY | Fields a tool's answer holds, by tool name, each with this value: its last answer, read as a JSON object. How a scenario checks what a package's own code answered (`code_<component>_<tool>`, ADR 0203 §6). |
 <!-- spec:end scenario -->
 
 <!-- spec:begin scenario-bounds -->

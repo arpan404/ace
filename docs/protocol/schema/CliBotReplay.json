@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliBotReplay.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cases": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliBotReplayCase.json"
+      },
+      "type": "array"
+    },
+    "failed": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "mode": {
+      "enum": [
+        "wiring",
+        "model"
+      ],
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "outside": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "passed": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "mode",
+    "cases",
+    "passed",
+    "failed",
+    "outside",
+    "summary"
+  ],
+  "type": "object"
+}

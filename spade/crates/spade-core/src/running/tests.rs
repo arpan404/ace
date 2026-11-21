@@ -74,6 +74,7 @@ fn a_bot_being_updated_reads_updating_and_counts_as_working_never_at_rest() {
 
 fn facts(id: &str, name: &str, state: State) -> Facts {
     Facts {
+        code: CodeUse::default(),
         id: id.to_owned(),
         name: name.to_owned(),
         kind: if id == "main" { "main" } else { "bot" }.to_owned(),
@@ -269,4 +270,46 @@ fn the_sooner_of_two_wakes_is_next() {
     assert_eq!(sooner(at(10, "wake"), at(5, "routine")), at(5, "routine"));
     assert_eq!(sooner(at(10, "wake"), None), at(10, "wake"));
     assert_eq!(sooner(None, at(7, "routine")), at(7, "routine"));
+}
+
+fn code_ran(component: &str, run_ms: u64, cut: Option<&str>) -> Event {
+    Event::Known(Known::CodeRan {
+        reply: "r".to_owned(),
+        call_id: "c".to_owned(),
+        component: component.to_owned(),
+        run_ms,
+        fuel: 10,
+        peak_memory: run_ms * 1000,
+        cut: cut.map(str::to_owned),
+        reached: Vec::new(),
+        calls: Vec::new(),
+    })
+}
+
+#[test]
+fn code_calls_are_summed_and_three_failures_in_a_row_mark_a_component_failed() {
+    let events = vec![
+        code_ran("fares", 5, None),
+        code_ran("fares", 7, Some("trap")),
+        code_ran("fares", 1, Some("deadline")),
+        code_ran("dates", 2, Some("stopped")),
+        code_ran("fares", 3, Some("trap")),
+    ];
+    let used = code_in(&events);
+    assert_eq!(used.calls, 5);
+    assert_eq!(used.run_ms, 18);
+    assert_eq!(used.fuel, 50);
+    assert_eq!(used.peak_memory, 7000);
+    assert_eq!(used.cut_off, 4);
+    assert_eq!(used.failing.len(), 1);
+    assert_eq!(used.failing[0].component, "fares");
+    assert!(used.failing[0].reason.contains("failed on its own"));
+    // A call that answers again clears it; Stop is never the code's own failure.
+    let mut later = events.clone();
+    later.push(code_ran("fares", 1, None));
+    later.extend([
+        code_ran("dates", 1, Some("stopped")),
+        code_ran("dates", 1, Some("stopped")),
+    ]);
+    assert!(code_in(&later).failing.is_empty());
 }

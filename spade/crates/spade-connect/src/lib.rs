@@ -34,7 +34,7 @@ pub use catalogue::{Category, Entry, Listed, Ready, SignIn, Via, WaitsFor};
 pub use cloud::{AccountCredential, AccountProblem, CLOUD_URL, Cloud, Credential};
 pub use device_sign_in::DeviceView;
 pub use hub::{Callback, ConnectError, ConnectRequest, FinishError, Started};
-pub use live::{CallError, ConnectorTool, RELIST};
+pub use live::{CallError, ConnectorTool, RELIST, SEPARATOR};
 pub use oauth::Addresses;
 pub use oauth::cimd::CLIENT_METADATA_URL;
 pub use oauth::pkce::{OsRandom, Random};

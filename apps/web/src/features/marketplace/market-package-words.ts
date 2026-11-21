@@ -17,9 +17,16 @@ type Bot = Extract<MarketReviewBody, { type: "spade-bot" }>;
  * starts with what it declares; a stranger's starts with only its declared hosts.
  */
 export function effectDefaults(body: Bot, byAce: boolean): Record<string, boolean> {
-  return Object.fromEntries(
-    (body.effects ?? []).map((row) => [row.key, effectStartsOn(row, byAce)]),
-  );
+  return Object.fromEntries([
+    ...(body.effects ?? []).map((row) => [row.key, effectStartsOn(row, byAce)]),
+    // A component the review lists runs once installed unless the person turns it off here.
+    ...(body.code ?? []).map((row) => [codeKey(row.name), true]),
+  ]);
+}
+
+/** A component's switch, beside the effects' (ADR 0203 §5): `code:fares`. */
+export function codeKey(name: string): string {
+  return `code:${name}`;
 }
 
 const dollars = (usd: number) => `$${usd < 1 ? usd.toFixed(2) : usd.toFixed(usd % 1 ? 2 : 0)}`;

@@ -30,6 +30,11 @@ fn encode(message: &impl Serialize) -> io::Result<Vec<u8>> {
     Ok(frame)
 }
 
+/// Whether `error` is a frame too large to send (or read), rather than a pipe that failed.
+pub fn too_large(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::InvalidData && error.to_string().contains("is over the pipe's")
+}
+
 fn decode<T: DeserializeOwned>(body: &[u8]) -> io::Result<T> {
     serde_json::from_slice(body).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }

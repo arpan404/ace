@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { readAgents } from "./spade-api.ts";
 import { botNames, ConnectorSettings } from "./spade-connector-settings.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
+import { OutsideAgentSettings } from "./spade-outside-agents.tsx";
 import { pluginsKey, readBotPlugins } from "./spade-plugin-api.ts";
 import { fault, Refusal, SpadeNotRunning, useSpadeRunning } from "./spade-settings-rows.tsx";
 import { addSkillToAce, readSkillStore, type SpadeStoredSkill } from "./spade-skills-api.ts";
@@ -14,7 +15,8 @@ import { agentsKey } from "./use-spade-roster.ts";
 const storeKey = ["spade", "skill-store"] as const;
 
 /**
- * Settings › Spade › Apps: the apps Spade is connected to, then the plugins and skills its bots
+ * Settings › Spade › Apps: the apps Spade is connected to, the outside agents added like apps
+ * (ADR 0202 §5), then the plugins and skills its bots
  * use, each with the bots that use it: an app's and a skill's as Spade lists them, a plugin's
  * from each bot's own plugin choice.
  */
@@ -35,6 +37,7 @@ export function SpadeAppsSettings() {
   return (
     <>
       <ConnectorSettings ready={line.ready} names={names} />
+      {line.ready && <OutsideAgentSettings />}
       {line.ready && <PluginSection bots={bots} />}
       {line.ready && <SkillSection names={names} />}
     </>

@@ -351,6 +351,28 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         refused: Vec<RefusedHost>,
     },
+    /// What one call of a package's code used (ADR 0203 §4), stored right after its
+    /// `tool_finished` like `command_ran`: its component, the time it ran (waits on Spade not
+    /// counted), its fuel and peak memory, why it gave no answer when it gave none, the hosts its
+    /// `http` reached, and each tool it called through Spade with how that ended. The model never
+    /// reads it; the Running page sums it beside spend.
+    CodeRan {
+        reply: String,
+        call_id: String,
+        component: String,
+        run_ms: u64,
+        fuel: u64,
+        peak_memory: u64,
+        /// Why it gave no answer (`deadline`, `fuel`, `memory`, `trap`, `stopped`, `refused`,
+        /// `lost`); none when it answered.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cut: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        reached: Vec<String>,
+        /// `name: ran`, `name: refused`, `name: declined`, …, in order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        calls: Vec<String>,
+    },
     /// An allowed call was handed to a background job. Its `tool_finished` says so at once; the
     /// job's own result comes later as `job_finished`.
     JobStarted {

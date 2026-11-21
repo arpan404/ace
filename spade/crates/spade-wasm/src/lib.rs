@@ -12,6 +12,7 @@
 
 pub mod bot;
 pub mod client;
+pub mod confine;
 pub mod engine;
 pub mod frame;
 pub mod host;

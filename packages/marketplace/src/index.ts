@@ -74,6 +74,7 @@ export {
   botSchemaAddress,
   effectKey,
   formatSpec,
+  codeSwitchKey,
   grantedEffects,
   packageRuntime,
   readPackage,

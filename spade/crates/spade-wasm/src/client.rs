@@ -20,6 +20,8 @@ use crate::protocol::{Answer, Cut, FromWorker, HostRequest, Stats, Target, ToWor
 
 /// How long Stop waits for the worker to end a call before it kills the worker.
 pub const STOP_GRACE: Duration = Duration::from_secs(1);
+/// Why a message didn't cross the pipe: it was too large.
+const TOO_LARGE: &str = "is larger than the 16 MiB the pipe carries";
 /// How long a new worker has to say it is ready.
 const READY_WITHIN: Duration = Duration::from_secs(10);
 
@@ -141,11 +143,19 @@ impl Worker {
         self.inner.child.lock().ok().and_then(|child| child.id())
     }
 
+    /// Sends `message`. A pipe that fails ends the worker, so every open call reads stopped or
+    /// lost and none waits on a message that never came; a message too large to send fails alone.
     async fn send(&self, message: &ToWorker) -> Result<(), String> {
         let mut stdin = self.inner.stdin.lock().await;
-        frame::write_async(&mut *stdin, message)
-            .await
-            .map_err(|e| format!("the code worker's pipe: {e}"))
+        match frame::write_async(&mut *stdin, message).await {
+            Ok(()) => Ok(()),
+            Err(error) if frame::too_large(&error) => Err(TOO_LARGE.to_owned()),
+            Err(error) => {
+                drop(stdin);
+                self.kill();
+                Err(format!("the code worker's pipe: {error}"))
+            }
+        }
     }
 
     /// Compiles the component at `path` (in the worker's folder), whose sha256 is `component`.
@@ -376,15 +386,35 @@ impl Running {
             .unwrap_or(Event::End(Outcome::ended(Cut::Lost)))
     }
 
-    /// Spade's answer to the component's `request`.
+    /// Spade's answer to the component's `request`. One too large for the pipe reaches the
+    /// component as a short failure instead, so the call never waits on it.
     pub async fn reply(&self, request: u64, answer: Answer) -> Result<(), String> {
-        self.worker
+        let sent = self
+            .worker
             .send(&ToWorker::Reply {
                 id: self.id,
                 request,
                 answer,
             })
-            .await
+            .await;
+        match sent {
+            Err(why) if why == TOO_LARGE => {
+                let short = Err(format!("Spade's answer {TOO_LARGE}"));
+                let sent = self
+                    .worker
+                    .send(&ToWorker::Reply {
+                        id: self.id,
+                        request,
+                        answer: short,
+                    })
+                    .await;
+                if sent.is_err() {
+                    self.worker.kill();
+                }
+                sent
+            }
+            sent => sent,
+        }
     }
 
     /// Runs the call to its end, answering each request with `host`.

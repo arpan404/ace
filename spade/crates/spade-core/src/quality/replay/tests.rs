@@ -98,6 +98,7 @@ fn same() -> Observed {
         ],
         cards: vec!["Fare drop".into()],
         card_problems: Vec::new(),
+        results: Default::default(),
         reply: "Watching it.".into(),
         ended: None,
         returned: None,
