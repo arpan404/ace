@@ -563,3 +563,63 @@ fn a_jpeg_on_a_picture_sources_ingest_lane_goes_to_its_encoder_as_it_is() {
         encode_effects(&effects)
     );
 }
+
+/// The `seq` of every `source.synced` among `effects`.
+fn synced(effects: &[Effect]) -> Vec<u64> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Normal(FromMedia::SourceSynced { seq, .. }) => Some(seq.get()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_barrier_on_a_picture_source_holds_until_its_encoder_handed_over_every_picture_it_took() {
+    let mut engine = engine();
+    open(&mut engine, "tab-pictures");
+    encodes(&mut engine, spec());
+    picture(&mut engine, 2, at(2_000));
+    picture(&mut engine, 2, at(2_010));
+    // Both pictures were taken off the ingest, but the encoder still holds them.
+    let asked = send(
+        &mut engine,
+        json!({ "type": "source.sync", "source": "p", "seq": 0, "frames": 2, "decided": 1 }),
+        &[],
+        at(2_020),
+    );
+    assert!(
+        synced(&asked).is_empty(),
+        "answered before the encoder's output"
+    );
+    assert_eq!(encode_effects(&asked), ["Drain(p)"]);
+    engine.encoded("p", 1, unit(2, true), at(2_030));
+    let before: Vec<Effect> = engine.effects().collect();
+    assert!(
+        synced(&before).is_empty(),
+        "answered before the encoder said it handed all over"
+    );
+    engine.encoder_drained("p", 1);
+    let done: Vec<Effect> = engine.effects().collect();
+    assert_eq!(synced(&done), [0]);
+}
+
+#[test]
+fn a_barrier_on_a_picture_source_whose_encoder_never_drains_is_never_answered() {
+    let mut engine = engine();
+    open(&mut engine, "tab-pictures");
+    encodes(&mut engine, spec());
+    picture(&mut engine, 2, at(2_000));
+    let asked = send(
+        &mut engine,
+        json!({ "type": "source.sync", "source": "p", "seq": 0, "frames": 1, "decided": 1 }),
+        &[],
+        at(2_010),
+    );
+    assert!(synced(&asked).is_empty());
+    // The daemon's own bound on the barrier ends the wait, and its end says what was left out.
+    engine.tick(at(2_010 + 10_000));
+    let later: Vec<Effect> = engine.effects().collect();
+    assert!(synced(&later).is_empty());
+}

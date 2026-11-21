@@ -97,6 +97,11 @@ struct Source {
     received: u64,
     /// `source.sync` barriers not yet answered: seq, frames, the epoch to be decided.
     syncs: Vec<(Sequence, u64, u32)>,
+    /// A picture source's barrier asked its encoder to hand over every picture it took
+    /// (`EncodeEffect::Drain`): `Some(false)` until it said so, `Some(true)` after. A barrier on
+    /// a picture source holds only then, since a picture counted as received may still be in
+    /// the encoder. A barrier is the end of what the source takes (a recording's stop).
+    flushed: Option<bool>,
 }
 
 /// Barriers one source keeps waiting; an older one beyond this is dropped (its asker times out).
@@ -262,6 +267,7 @@ impl Sources {
                 encoder: None,
                 received: 0,
                 syncs: Vec::new(),
+                flushed: None,
             },
         );
         status(out, id, Status::Starting, None, None);
@@ -479,7 +485,8 @@ impl Sources {
             + self.stuck
     }
 
-    /// The encoder of a closed JPEG source handed over its last output.
+    /// The encoder of a closed JPEG source handed over its last output, or that of an open one
+    /// a barrier flushed: the barrier may hold now, and the encoder thread ends.
     pub fn encoder_drained(
         &mut self,
         id: &str,
@@ -487,6 +494,19 @@ impl Sources {
         egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
+        if let Some(source) = self
+            .by_id
+            .get_mut(id)
+            .filter(|s| s.encoder == Some(token) && s.flushed == Some(false))
+        {
+            source.flushed = Some(true);
+            source.encoder = None;
+            out.push(Effect::Encode(EncodeEffect::Close {
+                source: id.to_owned(),
+                token,
+            }));
+            return self.synced(id, out);
+        }
         self.drained(id, Some(token), false, egress, out);
     }
 
@@ -844,6 +864,17 @@ impl Sources {
             source.syncs.remove(0);
         }
         source.syncs.push((seq, frames, decided));
+        // Pictures counted as received may still be in the encoder: it hands them all over first.
+        if source.pictures
+            && source.flushed.is_none()
+            && let Some(token) = source.encoder
+        {
+            source.flushed = Some(false);
+            out.push(Effect::Encode(EncodeEffect::Drain {
+                source: id.get().to_owned(),
+                token,
+            }));
+        }
         self.synced(id.get(), out);
     }
 
@@ -853,6 +884,10 @@ impl Sources {
             return;
         };
         if source.syncs.is_empty() {
+            return;
+        }
+        // A picture source's encoder still holds pictures until it drained.
+        if source.flushed == Some(false) {
             return;
         }
         let received = source.received;
