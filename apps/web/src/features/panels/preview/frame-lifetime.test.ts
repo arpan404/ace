@@ -1,4 +1,3 @@
-import { mediaSubscribeDeadlineMs } from "@ace/browser/live-view";
 import { fakePreviewMedia } from "./stream-test-support.ts";
 import { FakeDaemon, ScenarioPlayer, failingSubagent, fakeTransport } from "@ace/fake-daemon";
 import { BrowserState, DeviceId, ServerMessage } from "@ace/protocol";
@@ -61,19 +60,15 @@ async function setup() {
   };
   const decoder = heldDecoder();
   let visible = true;
-  /** The view's next retry, fired by hand. */
-  let retry: (() => void) | undefined;
+  /** Every timer the view arms, kept independently, as a clock does; none fires by itself. */
+  const timers = new Set<{ ms: number; run: () => void }>();
   const source = daemonPreview(client, {
     // Acks go on the media connection now: they are recorded with the rest of what it sends.
     media: (await fakePreviewMedia(daemon, { acks: sent })).media,
     schedule: (callback, ms) => {
-      // A media subscribe's reply deadline isn't the view's retry: it never fires here.
-      if (process.env.X3DEBUG) console.log("SCHED", ms);
-      if (ms === mediaSubscribeDeadlineMs) return () => {};
-      retry = callback;
-      return () => {
-        if (retry === callback) retry = undefined;
-      };
+      const timer = { ms, run: callback };
+      timers.add(timer);
+      return () => void timers.delete(timer);
     },
     visibility: { visible: () => visible, watch: () => () => {} },
     videoDecoder: decoder.factory,
@@ -96,7 +91,14 @@ async function setup() {
     hide: () => {
       visible = false;
     },
-    retry: () => retry?.(),
+    /** The view's poll comes round: its 5 s timer fires, and only that one. */
+    retry: () => {
+      const polls = [...timers].filter((timer) => timer.ms === 5_000);
+      for (const timer of polls) {
+        timers.delete(timer);
+        timer.run();
+      }
+    },
     quiet: () => {
       quiet = true;
     },
@@ -175,7 +177,7 @@ test.each(["local close", "remote close", "unwatch", "disconnect"])(
           closed: false,
         }),
       });
-      // The view asks again on its next retry.
+      // The view asks again when its poll comes round.
       t.retry();
     } else if (transition === "unwatch") {
       t.stop();
