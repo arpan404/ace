@@ -129,7 +129,10 @@ export function screenConnection(
     const delivery = peer.delivery;
     const port = delivery?.port();
     const requester = delivery?.owner();
-    if (!requester || !port || !port.serves("screen")) return undefined;
+    // A session's video comes from its helper's encoder or, for a JPEG-only helper, from
+    // ace-media's encode of its pictures: a view shows whichever this session has.
+    if (!requester || !port || !(port.serves("screen") || port.serves("screen-pictures")))
+      return undefined;
     const link = viewLink(operation.link);
     const viewer = port.bind({
       requester,
@@ -141,7 +144,9 @@ export function screenConnection(
       local: false,
       audio: false,
       ...(link ? { link } : {}),
-      shows: (producer) => producer.kind === "screen" && producer.sessionId === sessionId,
+      shows: (producer) =>
+        (producer.kind === "screen" || producer.kind === "screen-pictures") &&
+        producer.sessionId === sessionId,
     });
     if (viewer === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
