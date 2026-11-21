@@ -38,15 +38,22 @@ export function TabStrip(props: {
     group.tabs.findIndex((tab) => tab.path === group.active),
   );
 
-  // The active tab always scrolls into view (spec 28), again once the ⌄ takes its room.
+  // The active tab always scrolls into view (spec 28): when it changes, once the ⌄ takes its
+  // room, and whenever the strip is resized (a split, full view, the panel's edge).
   const active = group.active;
   useLayoutEffect(() => {
+    const element = scroller.current;
     // With every tab in view there is nothing to scroll to.
-    if (active === undefined || !overflowing) return;
-    const shown = scroller.current?.querySelector<HTMLElement>(
-      `[data-path="${CSS.escape(active)}"]`,
-    );
-    shown?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    if (active === undefined || !overflowing || !element) return;
+    const reveal = () => {
+      const shown = element.querySelector<HTMLElement>(`[data-path="${CSS.escape(active)}"]`);
+      if (shown) element.scrollLeft = revealedScroll(element, shown);
+    };
+    reveal();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(reveal);
+    observer.observe(element);
+    return () => observer.disconnect();
   }, [active, overflowing]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>, index: number) => {
@@ -202,6 +209,21 @@ function OverflowMenu(props: { group: GroupNode; actions: GroupActions }) {
       </MenuContent>
     </Menu>
   );
+}
+
+/** Room kept beside a revealed tab, so it clears the edge's fade. */
+const revealMargin = 24;
+
+/** The strip's scroll that shows `tab` whole, moving as little as it can. */
+function revealedScroll(strip: HTMLElement, tab: HTMLElement): number {
+  const box = strip.getBoundingClientRect();
+  const at = tab.getBoundingClientRect();
+  const left = at.left - box.left + strip.scrollLeft;
+  const right = left + at.width;
+  if (left - revealMargin < strip.scrollLeft) return Math.max(0, left - revealMargin);
+  if (right + revealMargin > strip.scrollLeft + strip.clientWidth)
+    return right + revealMargin - strip.clientWidth;
+  return strip.scrollLeft;
 }
 
 /** The strip's mask: each edge that hides tabs fades over 24px. */

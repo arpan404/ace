@@ -74,7 +74,7 @@ export function EditorTabView(props: {
         props.onDragOver(event, event.clientX > box.left + box.width / 2);
       }}
       className={cn(
-        "flex h-7 shrink-0 cursor-default items-center gap-1.5 rounded-sm pr-1 pl-3 text-ui whitespace-nowrap select-none focus-ring-inset",
+        "flex h-7 shrink-0 cursor-default items-center gap-1 rounded-sm pr-1 pl-2.5 text-ui whitespace-nowrap select-none focus-ring-inset",
         "transition-[background-color,color] duration-(--motion-fast)",
         props.active
           ? // The focused group's shown tab in full ink; another group's keeps the fill, muted.
