@@ -102,6 +102,29 @@ extension EnvironmentValues {
     @Entry var cardButtonFills = false
 }
 
+/// What a card says while a summarized request loads in full, or why it couldn't load, with Retry.
+struct SummarizedRequestNote: View {
+    let text: String
+    var failed = false
+    var retryable = false
+    var retry: (() -> Void)? = nil
+    var body: some View {
+        HStack(alignment: .center, spacing: AceDesign.Space.related) {
+            Text(text)
+                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(failed ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("request.summarized")
+            if failed, retryable, let retry {
+                Button("Retry", action: retry)
+                    .buttonStyle(StripTextButtonStyle())
+                    .accessibilityIdentifier("request.retry")
+            }
+        }
+    }
+}
+
 /// A plan waiting for review, as one line above the composer like every request strip: "Plan
 /// ready · Kill-all filters · 3 steps", then Review and Approve as buttons. Review opens the
 /// whole plan in a sheet, where it can be approved or sent back with what should change. The
@@ -110,6 +133,8 @@ struct PlanReviewCard: View {
     let interaction: ApprovalRow
     let submission: ApprovalSubmission?
     var canAct = true
+    var onRead: (() -> Void)? = nil
+    var retry: (() -> Void)? = nil
     let answer: ([String: Any]) -> Void
     @State private var reviewing = false
     var body: some View {
@@ -126,9 +151,14 @@ struct PlanReviewCard: View {
         }
         .modifier(RequestCardFrame(submission: submission))
         .sheet(isPresented: $reviewing) {
-            PlanReviewSheet(plan: plan, summarized: interaction.summarized ?? "", submission: submission, canAct: canAct) { decision in
+            PlanReviewSheet(plan: plan, summarized: interaction.summarized ?? "",
+                            wholeState: interaction.wholeState, wholeRetryable: interaction.wholeRetryable,
+                            submission: submission, canAct: canAct, retry: retry) { decision in
                 reviewing = false
                 answer(decision)
+            }
+            .task(id: interaction.id) {
+                if interaction.tooLargeToApprove { onRead?() }
             }
         }
     }
@@ -143,8 +173,9 @@ struct PlanReviewCard: View {
         HStack(spacing: AceDesign.Space.related) {
             CardButton(title: "Review") { reviewing = true }
                 .accessibilityIdentifier("plan.review")
-            // A plan too large to review here is approved on a computer.
-            if !interaction.tooLargeToApprove {
+            // A summarized plan opens in Review to load in full before it can be approved; one too
+            // long to show in full is only sent back here.
+            if interaction.planApprovable {
                 CardButton(title: "Approve", primary: true) { answer(["kind": "plan", "decision": "approve"]) }
                     .disabled(submission != nil || !canAct)
                     .accessibilityIdentifier("plan.approve")
@@ -159,10 +190,13 @@ struct PlanReviewCard: View {
 /// what should change before it sends.
 struct PlanReviewSheet: View {
     let plan: PlanRequest?
-    /// Why it can only be sent back here (ADR 0157); "" when the plan came whole.
+    /// Why it can only be sent back until it loads in full (ADR 0157); "" once the plan is whole.
     var summarized = ""
+    var wholeState: String? = nil
+    var wholeRetryable: Bool? = nil
     let submission: ApprovalSubmission?
     let canAct: Bool
+    var retry: (() -> Void)? = nil
     let answer: ([String: Any]) -> Void
     @State private var revising = false
     @State private var feedback = ""
@@ -182,11 +216,12 @@ struct PlanReviewSheet: View {
                             .aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
                     if !summarized.isEmpty {
-                        Text(summarized).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        SummarizedRequestNote(text: summarized, failed: wholeState == "failed",
+                                              retryable: wholeRetryable == true, retry: retry)
+                    } else if let incomplete = plan?.incomplete, !incomplete.isEmpty {
+                        Text(incomplete).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    } else if plan?.truncated == true {
-                        Text("The full plan is on your machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .accessibilityIdentifier("plan.incomplete")
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -224,7 +259,7 @@ struct PlanReviewSheet: View {
                     CardButton(title: "Send feedback", primary: true, enabled: !words.isEmpty) {
                         answer(["kind": "plan", "decision": "reject", "feedback": words])
                     }.accessibilityIdentifier("plan.send")
-                } else if summarized.isEmpty {
+                } else if summarized.isEmpty && (plan?.incomplete ?? "").isEmpty {
                     CardButton(title: "Approve plan", primary: true) { answer(["kind": "plan", "decision": "approve"]) }
                         .accessibilityIdentifier("plan.approveFull")
                 }
@@ -244,6 +279,7 @@ struct FormRequestCard: View {
     let interaction: ApprovalRow
     let submission: ApprovalSubmission?
     var canAct = true
+    var retry: (() -> Void)? = nil
     let answer: ([String: Any]) -> Void
     @State private var values: [String: String] = [:]
     var body: some View {
@@ -254,8 +290,8 @@ struct FormRequestCard: View {
                 Text(form.message).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             if interaction.tooLargeToApprove {
-                Text(interaction.summarized ?? "")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                SummarizedRequestNote(text: interaction.summarized ?? "", failed: interaction.wholeState == "failed",
+                                      retryable: interaction.wholeRetryable == true, retry: retry)
             } else if form?.unsupported == true {
                 Text(form?.mode == "url" ? "This request has no safe consent page. Decline or cancel it." : "This form can't be filled in here. Decline or cancel it.")
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.StatusText.failed)

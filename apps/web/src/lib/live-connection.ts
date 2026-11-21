@@ -7,6 +7,7 @@ import {
   useThreadSyncing,
   useThreadUnconfirmed,
 } from "@ace/client-react";
+import { isStoreCurrent } from "@ace/ui-core";
 import { useCallback } from "react";
 
 /** Connection freshness is shared by every thread indicator, including the phone header. */
@@ -31,7 +32,7 @@ export function isCurrent(
   ready: boolean,
   copy: { unconfirmed?: boolean; syncing?: boolean } | undefined,
 ): boolean {
-  return ready && copy?.unconfirmed !== true && copy?.syncing !== true;
+  return isStoreCurrent(ready, copy);
 }
 
 /**

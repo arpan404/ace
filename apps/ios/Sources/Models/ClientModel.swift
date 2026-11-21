@@ -957,7 +957,10 @@ import QuartzCore
         let id = admissions.nextId()
         approvalSubmissions[interaction.id] = ApprovalSubmission(requestId: id, phase: .saving)
         approvalRequests[id] = interaction.id
-        if !command(["type": "interaction.resolve", "interactionId": interaction.id, "resolution": ["kind": "approval", "optionId": option.id]], requestId: id) {
+        let dispatched = thread != nil
+            ? threadAction(interaction.seen(["type": "approve", "interactionId": interaction.id, "optionId": option.id, "requestId": id]))
+            : command(["type": "interaction.resolve", "interactionId": interaction.id, "resolution": ["kind": "approval", "optionId": option.id]], requestId: id)
+        if !dispatched {
             approvalSubmissions[interaction.id] = nil
             approvalRequests[id] = nil
         }
