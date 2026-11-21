@@ -38,7 +38,7 @@ it("a frame ace fails to store is reported to the host as ace's storage failure"
 const wire = hostWire(async (method) => {
   if (method !== "send") return { alive: true };
   try {
-    await wire.confirmed("frame", ${JSON.stringify(frame)}, () => 30_000);
+    await wire.confirmed("frame", ${JSON.stringify(frame)}, AbortSignal.timeout(30_000));
     return { stored: true };
   } catch (error) {
     return { stored: false, reason: error instanceof Error ? error.message : String(error) };

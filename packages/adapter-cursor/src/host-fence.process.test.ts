@@ -29,3 +29,52 @@ it("a turn fenced while streaming is cancelled without waiting for its fence not
   await expect(fixture.send("first")).resolves.toEqual({ runId: "run" });
   expect(await cancelledWithin(fixture.reached("sdk-cancel"), 1500)).toBe("cancelled");
 });
+
+// ace treats the fence notice as the turn's end, so it must not arrive while the run still works.
+it("a fenced turn's notice is published only after its SDK run has stopped", async () => {
+  await using fixture = await runtimeFixture(
+    {},
+    (frame) => (frame.kind === "message" ? storageFailed() : Promise.resolve()),
+    { cancelDelayMs: 300 },
+  );
+  await fixture.open();
+  await fixture.send("first");
+  await fixture.fenced;
+  expect(fixture.events.indexOf("sdk-cancelled")).toBeGreaterThan(-1);
+  expect(fixture.events.indexOf("fence")).toBeGreaterThan(fixture.events.indexOf("sdk-cancelled"));
+});
+
+for (const cancel of ["hang", "reject"] as const) {
+  it(`a fenced run whose cancel ${cancel === "hang" ? "hangs" : "fails"} ends its host with the original cause instead of reporting it stopped`, async () => {
+    await using fixture = await runtimeFixture(
+      { timeoutMs: 2000 },
+      (frame) => (frame.kind === "message" ? storageFailed() : Promise.resolve()),
+      { cancel },
+    );
+    await fixture.ping();
+    await fixture.open();
+    await fixture.send("first");
+    const ended = await Promise.race([
+      fixture.host.process.exited.then(() => "host ended"),
+      sleep(6000).then(() => "host still running"),
+    ]);
+    expect(ended).toBe("host ended");
+    expect(fixture.events).not.toContain("fence");
+    expect(fixture.host.stopCause).toContain("database is locked");
+  }, 15_000);
+}
+
+it("a checkpoint write ace refuses fences the turn, cancels its run first and names the cause", async () => {
+  await using fixture = await runtimeFixture(
+    { maxCheckpointBytes: 1_000_000 },
+    () => Promise.resolve(),
+    {
+      checkpointBlobBytes: 800_000,
+    },
+  );
+  await fixture.open();
+  await fixture.send("first");
+  expect(await fixture.fenced).toContain("blob exceeds budget");
+  expect(fixture.events.indexOf("sdk-cancelled")).toBeGreaterThan(-1);
+  expect(fixture.events.indexOf("fence")).toBeGreaterThan(fixture.events.indexOf("sdk-cancelled"));
+});

@@ -1,5 +1,6 @@
 import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { HostRefusal } from "./host-refusal.ts";
+import { ackExpired } from "./ack-budgets.ts";
 import { createTextRedactor } from "@ace/redaction";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
@@ -24,6 +25,7 @@ function refusal(error: unknown): string {
   const reply = ReplyError.safeParse(error);
   return reply.success ? reply.data.message.slice(0, 512) : "ace refused a Cursor SDK frame";
 }
+const expiredError = () => new Error(ackExpired);
 /** All writes await the shared bounded pipe writer, including onDelta callbacks. */
 export function hostWire(
   dispatch: (method: string, params: unknown) => Promise<unknown>,
@@ -84,43 +86,43 @@ export function hostWire(
     },
   });
   const writer = new RpcWriter(output, 2_097_152);
-  const send = async (message: unknown) => {
+  const send = async (message: unknown, signal?: AbortSignal) => {
     const line = boundedJson(message, maxFrameBytes - 1) + "\n";
-    await writer.send(line, Buffer.byteLength(line));
+    await writer.send(line, Buffer.byteLength(line), signal);
   };
   let outbound = 0;
   const acknowledgements = new Map<string, { resolve(): void; reject(reason: string): void }>();
   /**
-   * `remaining` says how long ace may still take to store this frame. It is asked again at least
-   * once a second, so a shorter deadline that starts later (a cancel) still bounds the wait.
+   * Waits for ace to store one frame until `expired` aborts. The write itself is abandoned then
+   * too: a daemon that stops reading fills the pipe, and the caller must still learn it waited
+   * too long, so it can fence the turn.
    */
-  const confirmed = async (method: string, params: unknown, remaining: () => number) => {
+  const confirmed = async (method: string, params: unknown, expired: AbortSignal) => {
     if (acknowledgements.size >= 32) throw new Error("SDK storage acknowledgements exceed budget");
+    if (expired.aborted) throw expiredError();
     const id = `host:${++outbound}`;
     const completion = Promise.withResolvers<void>();
     void completion.promise.catch(() => {});
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const arm = () => {
-      const left = remaining();
-      if (left > 0) {
-        timer = setTimeout(arm, Math.min(left, 1000));
-        return;
-      }
+    const expire = () => {
+      // A reply after this finds nothing and is ignored.
       acknowledgements.delete(id);
-      completion.reject(
-        new Error("ace took too long to store a Cursor SDK frame (acknowledgement expired)"),
-      );
+      completion.reject(expiredError());
     };
     acknowledgements.set(id, {
       resolve: () => completion.resolve(),
-      reject: (reason) => completion.reject(new Error(reason)),
+      reject: (refused) => completion.reject(new Error(refused)),
     });
-    arm();
+    expired.addEventListener("abort", expire, { once: true });
     try {
-      await send({ jsonrpc: "2.0", id, method, params });
+      await Promise.race([
+        send({ jsonrpc: "2.0", id, method, params }, expired),
+        completion.promise,
+      ]);
       await completion.promise;
+    } catch (error) {
+      throw expired.aborted ? expiredError() : error;
     } finally {
-      clearTimeout(timer);
+      expired.removeEventListener("abort", expire);
       acknowledgements.delete(id);
     }
   };

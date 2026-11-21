@@ -125,7 +125,22 @@ const wire = hostWire(async (method, params) => {
           process.platform === "linux" ? () => explainSandboxRefusal() : undefined,
         ),
     },
-    (frame, remaining) => wire.confirmed("frame", frame, remaining),
+    (frame, expired) => wire.confirmed("frame", frame, expired),
+    undefined,
+    undefined,
+    undefined,
+    // A fenced run that will not stop: name the cause on stderr, then end this host.
+    (reason) => {
+      try {
+        writeSync(
+          2,
+          fatalLine("fenced", new Error(reason), (text) => text),
+        );
+      } catch {
+        // stderr already closed: stop anyway.
+      }
+      stop();
+    },
   );
   if (method === "open") return runtime.open(params);
   if (method === "configure") return runtime.configure(params);

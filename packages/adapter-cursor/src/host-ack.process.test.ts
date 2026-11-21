@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,8 +20,7 @@ const frame = { schemaVersion: 1, operationId: "op", generation: "gen", segment:
 const wire = hostWire(async (method) => {
   if (method !== "send") return { alive: true };
   try {
-    const deadline = performance.now() + ${ackMs};
-    await wire.confirmed("frame", frame, () => deadline - performance.now());
+    await wire.confirmed("frame", frame, AbortSignal.timeout(${ackMs}));
     return { stored: true };
   } catch (error) {
     return { stored: false, reason: error instanceof Error ? error.message : String(error) };
@@ -111,4 +111,58 @@ it("a frame already waiting on storage is fenced within the deadline of a cancel
   await expect(fixture.cancel()).rejects.toThrow();
   expect(await fixture.fenced).toMatch(/ace took too long to store a Cursor SDK frame/);
   expect(performance.now() - started).toBeLessThan(2500);
+});
+
+// A daemon that stops reading fills the host's stdout pipe. The expiry must still reach the
+// runtime, which can only fence and cancel the turn once its storage wait ends.
+it("a frame stuck behind a full pipe still expires, so the host can fence the turn", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cursor-host-ack-pipe-"));
+  const entry = join(root, "host.ts");
+  await writeFile(
+    entry,
+    `import { hostWire } from ${JSON.stringify(wire)};
+const frame = { schemaVersion: 1, operationId: "op", generation: "gen", segment: 0, kind: "delta", body: { text: "x".repeat(900_000) } };
+const wire = hostWire(async () => {
+  try {
+    await wire.confirmed("frame", frame, AbortSignal.timeout(300));
+  } catch (error) {
+    process.stderr.write("storage wait ended: " + (error instanceof Error ? error.message : String(error)) + "\\n");
+  }
+  return {};
+}, () => process.exit(0));
+`,
+  );
+  // This parent never reads the child's stdout, as a stalled daemon would not.
+  const child = spawn(process.execPath, [entry], { stdio: ["pipe", "pipe", "pipe"] });
+  child.stdout.pause();
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
+  try {
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "send" })}\n`);
+    for (let waited = 0; waited < 3000 && !stderr.includes("storage wait ended"); waited += 50)
+      await sleep(50);
+    expect(stderr).toContain("storage wait ended: ace took too long to store a Cursor SDK frame");
+  } finally {
+    child.kill("SIGKILL");
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// A cancel that starts while a frame waits must cut that wait at its own deadline, not later.
+it("a short cancel deadline cuts the wait of a frame already waiting at once", async () => {
+  await using fixture = await runtimeFixture({ timeoutMs: 300, ackTimeoutMs: 60_000 }, (frame) =>
+    frame.kind === "message" ? sleep(10_000) : Promise.resolve(),
+  );
+  await fixture.ping();
+  await fixture.open(undefined, 15_000);
+  await fixture.host.request(
+    "send",
+    { operationId: "first", segment: 0, input: [{ type: "text", text: "go" }] },
+    15_000,
+  );
+  await sleep(50);
+  const started = performance.now();
+  void fixture.cancel().catch(() => {});
+  await fixture.fenced;
+  expect(performance.now() - started).toBeLessThan(700);
 });
