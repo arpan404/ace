@@ -89,7 +89,10 @@ export function orgStore(db: D1Database) {
         now,
       );
   return {
-    upsertingOrg: (org: { id: string; name: string; createdBy?: string; version: string }, now: number) =>
+    upsertingOrg: (
+      org: { id: string; name: string; createdBy?: string; version: string },
+      now: number,
+    ) =>
       db
         .prepare(
           `INSERT INTO orgs (org_id, name, created_by, created_at, version) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -155,14 +158,15 @@ export function orgStore(db: D1Database) {
         .all();
       return results.map((raw) => {
         const row = SpaceRow.parse(raw);
-        return {
+        const space: AceOrgSpace = {
           id: row.org_id,
           name: row.name ?? "",
           role: row.role,
           plan: row.plan === "team" ? "team" : "pilot",
           directoryManaged: row.directory_managed === 1,
-          ...(row.no_owner === 1 ? { noOwner: true } : {}),
         };
+        if (row.no_owner === 1) space.noOwner = true;
+        return space;
       });
     },
     async members(org: string): Promise<AceOrgMember[]> {
@@ -174,14 +178,15 @@ export function orgStore(db: D1Database) {
         .all();
       return results.map((raw) => {
         const row = MemberRow.parse(raw);
-        return {
+        const member: AceOrgMember = {
           account: row.account_id,
-          ...(row.email ? { email: row.email } : {}),
-          ...(row.name ? { name: row.name } : {}),
           role: row.role,
           status: memberStatus(row.status),
           directoryManaged: row.directory_managed === 1,
         };
+        if (row.email) member.email = row.email;
+        if (row.name) member.name = row.name;
+        return member;
       });
     },
     async orgName(org: string): Promise<string | undefined> {
@@ -263,7 +268,9 @@ export function orgStore(db: D1Database) {
     async releaseHost(hostId: string, org: string): Promise<boolean> {
       const [removed] = await db.batch([
         db.prepare("DELETE FROM org_hosts WHERE host_id = ? AND org_id = ?").bind(hostId, org),
-        db.prepare("UPDATE machines SET org_id = NULL WHERE host_id = ? AND org_id = ?").bind(hostId, org),
+        db
+          .prepare("UPDATE machines SET org_id = NULL WHERE host_id = ? AND org_id = ?")
+          .bind(hostId, org),
         db
           .prepare("UPDATE machine_credentials SET org_id = NULL WHERE host_id = ? AND org_id = ?")
           .bind(hostId, org),
@@ -282,7 +289,12 @@ export function orgStore(db: D1Database) {
         .all();
       return results.map((raw) => {
         const row = MachineRow.parse(raw);
-        return { hostId: row.host_id, name: row.name, platform: row.platform, lastSeenAt: row.last_seen_at };
+        return {
+          hostId: row.host_id,
+          name: row.name,
+          platform: row.platform,
+          lastSeenAt: row.last_seen_at,
+        };
       });
     },
     /** The account's own machines: those no organization owns. */
@@ -295,7 +307,12 @@ export function orgStore(db: D1Database) {
         .all();
       return results.map((raw) => {
         const row = MachineRow.parse(raw);
-        return { hostId: row.host_id, name: row.name, platform: row.platform, lastSeenAt: row.last_seen_at };
+        return {
+          hostId: row.host_id,
+          name: row.name,
+          platform: row.platform,
+          lastSeenAt: row.last_seen_at,
+        };
       });
     },
 

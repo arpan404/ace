@@ -273,7 +273,14 @@ export function accountApi(
       if (request.url.length > 4096) return secure(fail(414, "invalid_request"), origin);
       try {
         return secure(await route(request, url, login), origin);
-      } catch {
+      } catch (error) {
+        // The error's kind only: never a token, body or account.
+        console.warn(
+          JSON.stringify({
+            event: "account_route_failed",
+            error: error instanceof Error ? error.name : typeof error,
+          }),
+        );
         return secure(fail(503, "account_unavailable"), origin);
       }
     },

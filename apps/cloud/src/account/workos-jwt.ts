@@ -121,13 +121,9 @@ export function workosTokenVerifier(deps: {
           const value = jwk[field];
           if (value !== undefined) material[field] = value;
         }
-        const key = await crypto.subtle.importKey(
-          "jwk",
-          material,
-          algorithm.import,
-          false,
-          ["verify"],
-        );
+        const key = await crypto.subtle.importKey("jwk", material, algorithm.import, false, [
+          "verify",
+        ]);
         valid = await crypto.subtle.verify(
           algorithm.verify,
           key,

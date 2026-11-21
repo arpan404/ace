@@ -190,9 +190,7 @@ export const MemberGrantClaims = z.strictObject({
   aud: z.literal(DEVICE_GRANT_AUDIENCE),
   standing: z.literal("member"),
   org: OrgId,
-  role: z
-    .string()
-    .regex(/^[A-Za-z0-9_:-]{1,64}$/),
+  role: z.string().regex(/^[A-Za-z0-9_:-]{1,64}$/),
   account: GrantClaims.shape.account,
   subject: GrantClaims.shape.subject,
   host: HostIdClaim,

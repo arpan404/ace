@@ -6,6 +6,13 @@ import type { Principal, PrincipalReader } from "./principal.ts";
 import { bearer, fail, json } from "./respond.ts";
 import type { SessionStore } from "./sessions.ts";
 
+/** The answer for an org check that didn't let the session in (ADR 0206 §1.4). */
+export function orgRefusal(org: string, error: "not_member" | "org_sign_in_required" | "busy") {
+  if (error === "org_sign_in_required") return json(403, { error, org });
+  if (error === "busy") return fail(503, "busy");
+  return fail(403, "not_member");
+}
+
 /** A person acting in an organization, with the role WorkOS just confirmed. */
 export type Member = { principal: Principal & { kind: "session" }; org: string; role: string };
 
@@ -32,16 +39,8 @@ export function orgAccess(deps: {
     return principal;
   }
 
-  /** The answer for a check that didn't let the session in. */
-  function refused(org: string, error: "not_member" | "org_sign_in_required" | "busy") {
-    if (error === "org_sign_in_required") return json(403, { error, org });
-    if (error === "busy") return fail(503, "busy");
-    return fail(403, "not_member");
-  }
-
   return {
     person,
-    refused,
     /** Runs `then` for an active member of `org` whose role allows `permission`, if given. */
     async member(
       request: Request,
@@ -55,7 +54,7 @@ export function orgAccess(deps: {
       if (principal instanceof Response) return principal;
       if (principal.kind !== "session") return fail(403, "person_required");
       const check = await deps.checker.check(principal, org.data);
-      if (!check.ok) return refused(org.data, check.error);
+      if (!check.ok) return orgRefusal(org.data, check.error);
       if (permission && !orgAllows(check.role, permission)) return fail(403, "forbidden");
       return then({ principal, org: org.data, role: check.role });
     },

@@ -11,6 +11,7 @@ import {
 import type { GrantKeySet, GrantSigningKey } from "@ace/account-grant";
 import { HostId } from "@ace/relay/wire";
 import type { machineStore } from "./machines.ts";
+import { orgRefusal } from "./org-access.ts";
 import type { OrgChecker } from "./org-check.ts";
 import type { OrgStore } from "./org-store.ts";
 import { bearer, fail, json, jsonBody } from "./respond.ts";
@@ -56,11 +57,6 @@ export function directoryRoutes(deps: {
     const principal = token ? await principals.read(token) : undefined;
     return principal ? then(principal) : fail(401, "unauthenticated");
   }
-  function orgRefused(org: string, error: "not_member" | "org_sign_in_required" | "busy") {
-    if (error === "org_sign_in_required") return json(403, { error, org });
-    return error === "busy" ? fail(503, "busy") : fail(403, "not_member");
-  }
-
   /**
    * A member grant (ADR 0206 §2.2): only for the person's own session, with WorkOS's answer
    * under 60 seconds old that the account is an active member, an active mirror row, and `host`
@@ -73,7 +69,7 @@ export function directoryRoutes(deps: {
     if (!speaksForPerson(await deps.sessionStore.standingNow(principal.hash, now())))
       return fail(403, "person_required");
     const check = await deps.orgs.checker.check(principal, org);
-    if (!check.ok) return orgRefused(org, check.error);
+    if (!check.ok) return orgRefusal(org, check.error);
     const store = deps.orgs.store;
     if ((await store.member(org, principal.account.id))?.status !== "active")
       return fail(403, "not_member");
@@ -82,7 +78,17 @@ export function directoryRoutes(deps: {
     const iat = now();
     const exp = iat + GRANT_LIFETIME_MS;
     const token = signMemberGrant(
-      { org, role: check.role, account: principal.account.id, subject, host, key, policy, iat, exp },
+      {
+        org,
+        role: check.role,
+        account: principal.account.id,
+        subject,
+        host,
+        key,
+        policy,
+        iat,
+        exp,
+      },
       signingKey,
     );
     return json(200, { token, expiresAt: exp });
@@ -144,7 +150,7 @@ export function directoryRoutes(deps: {
         if (org !== undefined) {
           if (!person || !deps.orgs) return fail(403, "person_required");
           const check = await deps.orgs.checker.check(principal, org);
-          if (!check.ok) return orgRefused(org, check.error);
+          if (!check.ok) return orgRefusal(org, check.error);
         }
         const exp = iat + GRANT_LIFETIME_MS;
         const claims = { kind, account: account.id, subject, iat, exp };

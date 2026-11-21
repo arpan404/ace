@@ -37,7 +37,14 @@ export type AceOrgSpace = z.infer<typeof AceOrgSpace>;
 export const AceOrgList = z.object({ orgs: z.array(AceOrgSpace).max(1000) });
 
 /** `POST /v1/orgs`: a new organization, with the person as its owner. */
-export const AceOrgCreateRequest = z.object({ name: z.string().trim().min(1).max(128) });
+export const AceOrgCreateRequest = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .meta({ "x-ace-constraint": "Leading and trailing whitespace is removed." }),
+});
 
 export const AceOrgMemberStatus = z.enum(["pending", "active", "inactive", "removed"]);
 /** A member as the organization's mirror lists them (`GET /v1/orgs/{org}/members`). */
@@ -60,7 +67,8 @@ export const AceOrgInvitationRequest = z.object({
     .string()
     .trim()
     .max(320)
-    .regex(/^[^\s@]+@[^\s@]+$/),
+    .regex(/^[^\s@]+@[^\s@]+$/)
+    .meta({ "x-ace-constraint": "Leading and trailing whitespace is removed." }),
   role: AceOrgAssignableRole.default("member"),
 });
 export const AceOrgInvitationState = z.enum(["pending", "accepted", "expired", "revoked"]);
@@ -202,6 +210,7 @@ export const AceOrgAuditEntry = z.object({
       z.union([z.string().max(500), z.number(), z.boolean()]),
     )
     .refine((value) => Object.keys(value).length <= 49, "At most 49 metadata keys")
+    .meta({ "x-ace-constraint": "At most 49 keys." })
     .optional(),
 });
 export type AceOrgAuditEntry = z.infer<typeof AceOrgAuditEntry>;

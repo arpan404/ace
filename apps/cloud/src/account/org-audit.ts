@@ -17,7 +17,10 @@ function context(request: Request) {
  * (membership, policy, invitations, hosts, portal links) and forwards org hosts' entries, each
  * with an idempotency key, so a retry or a replay after a restart never writes one twice.
  */
-export function orgAudit(deps: { workos: Pick<WorkosOrgs, "createAuditEvent">; now: () => number }) {
+export function orgAudit(deps: {
+  workos: Pick<WorkosOrgs, "createAuditEvent">;
+  now: () => number;
+}) {
   return {
     /**
      * One of the backend's own events. The action already happened at WorkOS, so a failure here
@@ -30,7 +33,14 @@ export function orgAudit(deps: { workos: Pick<WorkosOrgs, "createAuditEvent">; n
     ): Promise<void> {
       const occurredAt = new Date(deps.now()).toISOString();
       const key = await digest(
-        JSON.stringify([org, event.action, event.actor.id, event.targets, event.metadata, occurredAt]),
+        JSON.stringify([
+          org,
+          event.action,
+          event.actor.id,
+          event.targets,
+          event.metadata,
+          occurredAt,
+        ]),
       );
       try {
         await deps.workos.createAuditEvent(

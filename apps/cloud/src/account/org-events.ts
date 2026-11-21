@@ -77,14 +77,17 @@ export function orgEvents(deps: {
     if (event.event.startsWith("organization.")) {
       const parsed = WorkosOrganization.safeParse(event.data);
       if (!parsed.success) return [];
-      if (event.event === "organization.deleted") return [orgs.deletingOrg(parsed.data.id, version)];
+      if (event.event === "organization.deleted")
+        return [orgs.deletingOrg(parsed.data.id, version)];
       return [orgs.upsertingOrg({ id: parsed.data.id, name: parsed.data.name, version }, now())];
     }
     if (event.event === "user.updated") {
       const parsed = WorkosUser.safeParse(event.data);
       if (!parsed.success) return [];
       const user = parsed.data;
-      return [orgs.renamingAccount(user.id, user.email, fullName(user.first_name, user.last_name) ?? "")];
+      return [
+        orgs.renamingAccount(user.id, user.email, fullName(user.first_name, user.last_name) ?? ""),
+      ];
     }
     return [];
   }
@@ -102,7 +105,8 @@ export function orgEvents(deps: {
         pages++;
         const touched = new Set<string>();
         const statements: D1PreparedStatement[] = [];
-        for (const event of page.events) statements.push(...(await statementsFor(event, touched, lookups)));
+        for (const event of page.events)
+          statements.push(...(await statementsFor(event, touched, lookups)));
         for (const org of touched) statements.push(orgs.flaggingOwners(org));
         statements.push(orgs.settingCursor(MEMBERS_FEED, page.after, now()));
         await orgs.run(statements);

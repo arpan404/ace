@@ -65,7 +65,8 @@ export function continuePage(id: string, returnOrigins: readonly string[]): Resp
 function escape(text: string): string {
   return text.replace(
     /[&<>"']/g,
-    (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char,
+    (char) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char,
   );
 }
 

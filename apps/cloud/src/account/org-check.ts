@@ -56,7 +56,9 @@ export function orgChecker(deps: {
     if (!(await leased(hash))) {
       // Another reader may have just asked WorkOS for this very organization.
       const recent = await orgs.check(hash, org, now());
-      return recent ? { ok: true, role: recent.role, sid: recent.sid } : { ok: false, error: "busy" };
+      return recent
+        ? { ok: true, role: recent.role, sid: recent.sid }
+        : { ok: false, error: "busy" };
     }
     let identity;
     try {
@@ -76,7 +78,13 @@ export function orgChecker(deps: {
     }
     const expiresAt = Math.max(stored.expiresAt, now() + SESSION_LIFETIME_MS);
     if (
-      !(await store.rotate(hash, identity.account, identity.refreshToken, expiresAt, identity.pictureUrl))
+      !(await store.rotate(
+        hash,
+        identity.account,
+        identity.refreshToken,
+        expiresAt,
+        identity.pictureUrl,
+      ))
     )
       return { ok: false, error: "not_member" };
     let token;
@@ -89,7 +97,8 @@ export function orgChecker(deps: {
       }
       throw error;
     }
-    if (token.account !== account || token.org !== org) return { ok: false, error: "org_sign_in_required" };
+    if (token.account !== account || token.org !== org)
+      return { ok: false, error: "org_sign_in_required" };
     await orgs.putCheck({ session: hash, org, account, role: token.role, sid: token.sid }, now());
     return { ok: true, role: token.role, sid: token.sid };
   }
@@ -109,7 +118,9 @@ export function orgChecker(deps: {
             status: found.status,
             directoryManaged: found.directory_managed === true,
             email: found.user?.email ?? undefined,
-            name: [found.user?.first_name, found.user?.last_name].filter(Boolean).join(" ") || undefined,
+            name:
+              [found.user?.first_name, found.user?.last_name].filter(Boolean).join(" ") ||
+              undefined,
             version: found.updated_at ?? new Date(now()).toISOString(),
           },
           now(),

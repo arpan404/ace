@@ -170,12 +170,22 @@ export function loginRoutes(deps: {
         return page(429, "ace is busy. Try again in a minute.");
       const id = opaqueToken(random);
       const hash = await digest(id);
-      await logins.create(hash, await digest(opaqueToken(random)), time + LOGIN_LIFETIME_MS, null, "join");
+      await logins.create(
+        hash,
+        await digest(opaqueToken(random)),
+        time + LOGIN_LIFETIME_MS,
+        null,
+        "join",
+      );
       const auth = await pkce(random);
       const binding = opaqueToken(random);
       const opened = await logins.openBrowser(
         hash,
-        { state: await digest(auth.state), binding: await digest(binding), verifier: auth.verifier },
+        {
+          state: await digest(auth.state),
+          binding: await digest(binding),
+          verifier: auth.verifier,
+        },
         now(),
       );
       if (!opened) return expired();

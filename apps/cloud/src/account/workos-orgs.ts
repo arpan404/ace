@@ -94,6 +94,18 @@ const list = <Item extends z.ZodType>(item: Item) =>
     }),
   );
 
+const MembershipList = list(WorkosMembership);
+const InvitationList = list(WorkosInvitation);
+const PortalLink = z.looseObject({ link: z.url() });
+const EventId = WorkosEvent.pick({ id: true });
+
+function parse<T>(schema: z.ZodType<T>, raw: unknown): T {
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) throw new Error("WorkOS answered an unexpected shape");
+  return parsed.data;
+}
+const id = (value: string) => encodeURIComponent(value);
+
 export function workosOrgs(config: AccountConfig, fetcher: typeof fetch) {
   const base = config.workosUrl;
   async function call(
@@ -117,18 +129,14 @@ export function workosOrgs(config: AccountConfig, fetcher: typeof fetch) {
     if (response.status >= 400 && response.status < 500) {
       const failure = Failure.safeParse(raw);
       const code = failure.success ? (failure.data.code ?? failure.data.error) : undefined;
-      console.warn(JSON.stringify({ event: "workos_refused", method, status: response.status, code }));
+      console.warn(
+        JSON.stringify({ event: "workos_refused", method, status: response.status, code }),
+      );
       throw new WorkosRefusal(response.status, code);
     }
     if (!response.ok) throw new Error(`WorkOS answered ${response.status}`);
     return raw;
   }
-  const parse = <T>(schema: z.ZodType<T>, raw: unknown): T => {
-    const parsed = schema.safeParse(raw);
-    if (!parsed.success) throw new Error("WorkOS answered an unexpected shape");
-    return parsed.data;
-  };
-  const id = (value: string) => encodeURIComponent(value);
 
   return {
     createOrganization: async (name: string) =>
@@ -159,7 +167,7 @@ export function workosOrgs(config: AccountConfig, fetcher: typeof fetch) {
       const query = new URLSearchParams({ user_id: user, organization_id: org, limit: "10" });
       for (const status of ["active", "inactive", "pending"]) query.append("statuses", status);
       const found = parse(
-        list(WorkosMembership),
+        MembershipList,
         await call("GET", `/user_management/organization_memberships?${query}`),
       );
       return found[0];
@@ -179,12 +187,7 @@ export function workosOrgs(config: AccountConfig, fetcher: typeof fetch) {
       await call("DELETE", `/user_management/organization_memberships/${id(membership)}`);
     },
 
-    sendInvitation: async (invite: {
-      email: string;
-      org: string;
-      role: string;
-      inviter: string;
-    }) =>
+    sendInvitation: async (invite: { email: string; org: string; role: string; inviter: string }) =>
       parse(
         WorkosInvitation,
         await call("POST", "/user_management/invitations", {
@@ -197,7 +200,7 @@ export function workosOrgs(config: AccountConfig, fetcher: typeof fetch) {
       ),
     listInvitations: async (org: string) =>
       parse(
-        list(WorkosInvitation),
+        InvitationList,
         await call(
           "GET",
           `/user_management/invitations?${new URLSearchParams({ organization_id: org, limit: "100" })}`,
@@ -220,7 +223,7 @@ export function workosOrgs(config: AccountConfig, fetcher: typeof fetch) {
     /** A five-minute Admin Portal link, tagged with the admin's account so it can be revoked. */
     portalLink: async (org: string, intent: string, admin: string) =>
       parse(
-        z.looseObject({ link: z.url() }),
+        PortalLink,
         await call("POST", "/portal/generate_link", {
           organization: org,
           intent,
@@ -244,7 +247,7 @@ export function workosOrgs(config: AccountConfig, fetcher: typeof fetch) {
         if (parsed.success) events.push(parsed.data);
       }
       const last = page.data.at(-1);
-      const lastId = WorkosEvent.pick({ id: true }).safeParse(last);
+      const lastId = EventId.safeParse(last);
       return {
         events,
         count: page.data.length,

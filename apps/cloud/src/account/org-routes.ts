@@ -29,6 +29,13 @@ const portalPermission: Record<AceOrgPortalIntent, OrgPermission> = {
   audit_logs: "audit:read",
 };
 
+const actor = ({ principal }: Member) => ({
+  type: "member",
+  id: principal.account.id,
+  name: principal.account.name || principal.account.email,
+});
+const gone = () => page(410, "This invitation has expired or was already used.");
+
 const invitation = (raw: WorkosInvitation): AceOrgInvitation => ({
   id: raw.id,
   email: raw.email,
@@ -52,11 +59,6 @@ export function orgRoutes(deps: {
   now: () => number;
 }) {
   const { access, orgs, workos, audit, now } = deps;
-  const actor = ({ principal }: Member) => ({
-    type: "member",
-    id: principal.account.id,
-    name: principal.account.name || principal.account.email,
-  });
   const iso = () => new Date(now()).toISOString();
 
   /** Whether `member` may change `target`'s membership to `role` (undefined: remove it). */
@@ -278,7 +280,11 @@ export function orgRoutes(deps: {
         if (!orgAllows(member.role, portalPermission[body.data.intent]))
           return fail(403, "forbidden");
         const expiresAt = now() + PORTAL_LINK_MS;
-        const link = await workos.portalLink(member.org, body.data.intent, member.principal.account.id);
+        const link = await workos.portalLink(
+          member.org,
+          body.data.intent,
+          member.principal.account.id,
+        );
         await audit.record(request, member.org, {
           action: "org.portal.opened",
           actor: actor(member),
@@ -294,7 +300,6 @@ export function orgRoutes(deps: {
      */
     async joinPage(url: URL): Promise<Response> {
       const token = url.searchParams.get("invitation_token") ?? "";
-      const gone = () => page(410, "This invitation has expired or was already used.");
       if (!invitationToken.test(token)) return gone();
       const found = await workos.findInvitation(token).catch((error: unknown) => {
         if (error instanceof WorkosRefusal) return undefined;
