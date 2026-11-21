@@ -23,6 +23,7 @@ import {
   spadeListRows,
   spadePlaceLine,
 } from "./spade-rows.ts";
+import { SpadeWorkerWatch } from "./spade-worker-watch.ts";
 
 /*
  * Spade on the iPhone (ADR 0121): always through the daemon's `spade.*` family, since the phone
@@ -127,6 +128,8 @@ export class NativeSpade {
   /** The seen mark last sent, `conversation:seq`, so each latest message is marked once. */
   private seen: string | undefined;
   private readonly live: SpadeDaemonLive;
+  /** The open chat's ace workers as ace lists their threads. */
+  private readonly workers: SpadeWorkerWatch;
   private readonly owner: ClientCore;
   private readonly sink: PatchSink;
   private readonly deps: SpadeDeps;
@@ -140,6 +143,7 @@ export class NativeSpade {
     this.sink = sink;
     this.deps = deps;
     this.live = new SpadeDaemonLive(owner, deps.id);
+    this.workers = new SpadeWorkerWatch(owner, () => this.publishOpen());
   }
 
   get ready(): boolean {
@@ -371,6 +375,7 @@ export class NativeSpade {
       return;
     open?.stop();
     this.open = undefined;
+    this.workers.stop();
     this.sent.clear();
     this.order = [];
     this.sink.clear("spade:row:");
@@ -478,7 +483,10 @@ export class NativeSpade {
     if (open.kind === "bot") {
       const { view, problem } = open.follow.get();
       const bot = this.botOf(open.id);
-      this.putRows(open.id, spadeConversationRows(view, bot?.name || "Spade"));
+      const facts = this.workers.facts(() => this.agents);
+      const rows = spadeConversationRows(view, bot?.name || "Spade", facts);
+      this.workers.showing(rows);
+      this.putRows(open.id, rows);
       this.sink.put("spade:conversation", () =>
         spadeConversationHead(open.id, view, problem, bot ? botFace(bot) : null),
       );

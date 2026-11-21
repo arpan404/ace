@@ -18,6 +18,12 @@ import {
 import type { SpadeStatus } from "@ace/protocol";
 import { botFace, groupFaces, initialOf, type SpadeFaceRow } from "./spade-group-rows.ts";
 import { spadeQuestionCardRow, type SpadeQuestionCardRow } from "./spade-question-rows.ts";
+import {
+  spadeWorkersRow,
+  unknownWorkers,
+  type SpadeWorkerFacts,
+  type SpadeWorkersRow,
+} from "./spade-worker-rows.ts";
 
 /*
  * Spade's list and one conversation as the iPhone draws them, from the rules every client shares
@@ -133,6 +139,8 @@ export type SpadeBubbleRow =
     }
   /** A card of questions the bot asks (ADR 0154). */
   | SpadeQuestionCardRow
+  /** The workers one call started, each as it stands now (ADR 0161). */
+  | SpadeWorkersRow
   /** Anything that is nobody's words: one quiet line between bubbles. */
   | { kind: "note"; text: string };
 
@@ -168,8 +176,15 @@ export function spadeDetailText(detail: SpadeRequestDetail | undefined): string 
 
 const endText = { stopped: "Stopped", failed: "Couldn't finish", interrupted: "Interrupted" };
 
-/** A bubble as the phone draws it; `who` is the bot's name, for the approval's sentence. */
-export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow | undefined {
+/**
+ * A bubble as the phone draws it; `who` is the bot's name, for the approval's sentence, and
+ * `workers` what is known of the workers it started.
+ */
+export function spadeBubbleRow(
+  bubble: SpadeBubble,
+  who: string,
+  workers: SpadeWorkerFacts = unknownWorkers,
+): SpadeBubbleRow | undefined {
   switch (bubble.kind) {
     case "person":
       return {
@@ -217,12 +232,8 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
       return { kind: "note", text: bubble.text };
     case "quiet":
       return { kind: "note", text: spadeQuietLine(bubble.quiet).label };
-    // The workers a call started, by name, until the iPhone draws their cards.
     case "workers":
-      return {
-        kind: "note",
-        text: `Started ${bubble.workers.map((worker) => worker.name).join(", ")}`,
-      };
+      return spadeWorkersRow(bubble.workers, workers);
     case "remembered":
       return { kind: "note", text: `Remembered: ${bubble.note.text}` };
     // The iPhone doesn't show which notes a reply had in mind yet.
@@ -241,9 +252,10 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
 export function spadeConversationRows(
   view: SpadeView,
   who: string,
+  workers: SpadeWorkerFacts = unknownWorkers,
 ): { key: string; row: SpadeBubbleRow }[] {
   return spadeBubbles(view).flatMap((bubble) => {
-    const row = spadeBubbleRow(bubble, who);
+    const row = spadeBubbleRow(bubble, who, workers);
     return row ? [{ key: bubble.key, row }] : [];
   });
 }
