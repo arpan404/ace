@@ -6,7 +6,7 @@ import { AppMark } from "@/components/ui/app-mark.tsx";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { useMarketEntry, useMarketReview, useMarketSearch, type EntryKey } from "./market-api.ts";
-import { Empty, publisherName } from "./market-card.tsx";
+import { EntryByline, Empty, publisherName } from "./market-card.tsx";
 import { EntryBlocked, EntrySub, useWearing } from "./market-entry-parts.tsx";
 import { useInLibrary, useSuitLook } from "./market-looks.ts";
 import {
@@ -260,7 +260,7 @@ function Information(props: { detail: MarketEntryDetail; recipe: Recipe | undefi
   const { summary, versions } = props.detail;
   const latest = versions[0];
   const rows: [string, ReactNode][] = [
-    ["Made by", publisherName(summary) ?? "—"],
+    ["Made by", <EntryByline key="by" entry={summary} />],
     ["Kind", typeWord(summary.type)],
     ["Version", latest?.version ?? summary.version ?? "—"],
   ];

@@ -1,5 +1,5 @@
 import type { FakeDaemon } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { roster, spadeApp } from "@/test/spade.ts";
@@ -33,7 +33,7 @@ test("search narrows the marketplace to what matches, and Esc clears it first", 
     within(market).getByRole<HTMLInputElement>("searchbox", { name: "Search bots, apps and more" })
       .value,
   ).toBe("");
-  expect(screen.getByRole("dialog", { name: "Marketplace" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Marketplace" })).toBeTruthy();
 });
 
 test("Try it dresses the whole app in the Suit, and Undo puts the person's look back", async () => {
@@ -72,9 +72,7 @@ test("a recipe installs with its switches as the person set them, then opens its
   // Without a required app it can't install, and says why.
   await userEvent.click(gmail);
   expect(within(market).getByText("Inbox can't work without Gmail.")).toBeTruthy();
-  expect(within(market).getByRole("button", { name: "Get" }).hasAttribute("disabled")).toBe(
-    true,
-  );
+  expect(within(market).getByRole("button", { name: "Get" }).hasAttribute("disabled")).toBe(true);
 
   await userEvent.click(gmail);
   await userEvent.click(receipts);
@@ -102,7 +100,7 @@ test("an entry ace hasn't reviewed says so on its page and its review", async ()
       "Not reviewed by ace. Read what it does before you install it.",
     ),
   ).toBeTruthy();
-  expect(new URLSearchParams(history.location.search).get("market")).toBe("bot/inbox/review");
+  expect(new URLSearchParams(history.location.search).get("at")).toBe("bot/inbox/review");
 
   // A reviewed one says it was.
   await userEvent.click(within(market).getByRole("button", { name: "Tools" }));
@@ -122,9 +120,7 @@ test("a withdrawn entry says why and can't be installed, even from its review's 
   ).toBeTruthy();
   expect(within(market).queryByRole("button", { name: /^(Get|Install)\b/ })).toBeNull();
 
-  await userEvent.click(within(market).getByRole("button", { name: "Close" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Marketplace" })).toBeNull());
-  app.history.push("/chats?market=plugin/old-tools/review");
+  act(() => app.history.push("/chats?market=plugin/old-tools/review"));
   const again = await findMarket();
   expect(await within(again).findByRole("heading", { name: "Old tools" })).toBeTruthy();
   expect(within(again).queryByRole("button", { name: /^(Get|Install)\b/ })).toBeNull();
@@ -170,7 +166,9 @@ test("an update waits in Updates until its own review is installed", async () =>
       result: { installed: [{ name: "triage-mail", version: "1.1.0" }] },
     }),
   );
-  expect(await within(market).findByText("Everything is up to date. ace checks once a day.")).toBeTruthy();
+  expect(
+    await within(market).findByText("Everything is up to date. ace checks once a day."),
+  ).toBeTruthy();
 });
 
 test("Discover draws only the sections the daemon has data for", async () => {

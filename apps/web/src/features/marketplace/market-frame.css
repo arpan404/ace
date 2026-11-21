@@ -4,6 +4,13 @@
  * Values are ace's tokens; the few store sizes this surface adds (display type, the gutter,
  * section gaps, the stage tint) are named here once. Narrower widths are market-widths.css.
  */
+/*
+ * The cascade's layer order, said here too: the Marketplace's page loads with its route, which
+ * can come before the app's own sheet; a layer first named here would otherwise rank its
+ * components under Tailwind's base and lose to its resets. Same order as Tailwind's.
+ */
+@layer theme, base, components, utilities;
+
 @layer components {
   .mk-modal,
   .mk-trybar {
@@ -52,6 +59,23 @@
     transition:
       transform var(--motion-slow) var(--ease-out),
       opacity var(--motion-base) var(--ease-out);
+  }
+  /* The page form: the Marketplace fills the main column, as pull requests do. */
+  .mk-modal[data-page] {
+    position: relative;
+    z-index: auto;
+    inset: auto;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+    transition: none;
+  }
+  [data-market-trying] .mk-modal[data-page] {
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
   }
   .mk-modal[data-leaving] {
     animation: mk-leave var(--motion-exit) var(--ease-exit) forwards;

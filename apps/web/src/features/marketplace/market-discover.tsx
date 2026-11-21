@@ -7,16 +7,9 @@ import { Card, CardItem, Cards, Empty } from "./market-card.tsx";
 import { failureSentence } from "./market-model.ts";
 import { openEntry, useMarketNav } from "./market-nav.ts";
 import { useMarketDiscover } from "./market-publishing.ts";
-import { RankedSections } from "./market-ranked.tsx";
+import { RankedSections, TrendingSection } from "./market-ranked.tsx";
 import { Stage } from "./market-stage.tsx";
-import {
-  AppRow,
-  EntryRow,
-  entryKeyOf,
-  GetButton,
-  Shelf,
-  StoreRows,
-} from "./market-store-row.tsx";
+import { AppRow, EntryRow, entryKeyOf, GetButton, Shelf, StoreRows } from "./market-store-row.tsx";
 
 /*
  * Home (featured, then a few named shelves), the type places, and search across everything:
@@ -128,6 +121,11 @@ export function DiscoverPage(props: { query: string }) {
           ))}
         </section>
       )}
+      {discover && discover.trending.length > 0 && (
+        <TrendingSection
+          rows={discover.trending.filter((row) => !spade || row.entry.type !== "suit")}
+        />
+      )}
       <TypeShelf title="Popular bots" types={botTypes} place="bots" popular skip={skip} />
       <AppsShelf />
       {!spade && <LooksShelf />}
@@ -150,8 +148,7 @@ export function SearchResults(props: { query: string; types?: readonly string[] 
   const entries = found.data?.entries;
   // Apps sit beside every kind except where a search is narrowed to one (Looks, Bots, Tools).
   const appsFound = apps && props.types?.length !== 1 ? searchApps(apps, props.query) : [];
-  if (found.isError && !found.data)
-    return <Empty title={failureSentence(found.error, "read")} />;
+  if (found.isError && !found.data) return <Empty title={failureSentence(found.error, "read")} />;
   if (!entries) return null;
   if (!entries.length && !appsFound.length)
     return (

@@ -19,6 +19,8 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { openExternal } from "@/boot/open-external.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
+import { useOpenMarket } from "@/lib/open-market.ts";
 import { AddConnectorDialog } from "./spade-add-connector.tsx";
 import { UseInAnotherBot } from "./spade-app-bots.tsx";
 import { useAppConnect } from "./spade-app-connect.tsx";
@@ -39,6 +41,10 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
 export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<string, string> }) {
   const connectors = useSpadeConnectors(props.ready);
   const [adding, setAdding] = useState(false);
+  // One catalogue: with the Marketplace on, its Apps, where each app connects in place; without
+  // it, this catalogue dialog.
+  const market = useBetaEnabled("marketplace") === true;
+  const openMarket = useOpenMarket();
   return (
     <section aria-label="Connected apps" className={settingsGroup}>
       <SettingCard>
@@ -61,7 +67,9 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
                 now={connectors.dataUpdatedAt}
               />
             ))}
-            <SettingAddRow onClick={() => setAdding(true)}>Connect an app</SettingAddRow>
+            <SettingAddRow onClick={() => (market ? openMarket("apps") : setAdding(true))}>
+              Connect an app
+            </SettingAddRow>
           </>
         )}
       </SettingCard>

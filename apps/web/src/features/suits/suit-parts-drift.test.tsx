@@ -550,7 +550,7 @@ test("the Marketplace modal names its bar, titles, hero, stages, lockups and Try
     },
   });
   await app.open("/chats?market=discover");
-  await screen.findByRole("dialog", { name: "Marketplace" });
+  await screen.findByRole("region", { name: "Marketplace" });
   await waitFor(() => expect(missing(marketScreen)).toEqual([]));
   // The pick beside the hero follows the slide shown, so a Suit can mark it.
   const picks = [

@@ -49,7 +49,7 @@ test("each bot from one package is its own row, and a held update says it waits 
   await userEvent.click(within(behind).getByRole("button", { name: "Update Flight watcher" }));
   // The review it opens is that bot's update.
   await waitFor(() =>
-    expect(new URLSearchParams(app.history.location.search).get("market")).toBe(
+    expect(new URLSearchParams(app.history.location.search).get("at")).toBe(
       "bot/flight-watcher/update/bot_1",
     ),
   );

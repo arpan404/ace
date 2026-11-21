@@ -1,6 +1,6 @@
 import { marketPublishFixture, type FakeDaemon } from "@ace/fake-daemon";
 import type { MarketScanReport } from "@ace/protocol/marketplace";
-import { configure, waitFor, within } from "@testing-library/react";
+import { act, configure, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { entry, findMarket, openApp, seed } from "./market-test-seed.ts";
@@ -205,32 +205,30 @@ test("withdrawing a version asks first, and only the confirmation withdraws it",
 });
 
 test("the By ace mark shows only for ace's own publisher by the signed list", async () => {
-  await openApp("/chats?market=tools", {
-    entries: [
-      {
-        summary: entry("spade-skill", "official", "Official", {
-          byAce: true,
-          publisher: { id: "pub_ace", name: "ace" },
-        }),
-      },
-      // The index claims the name; the daemon found no signed list naming it.
-      {
-        summary: entry("spade-skill", "lookalike", "Lookalike", {
-          publisher: { id: "pub_x", name: "ace" },
-        }),
-      },
-    ],
-  });
+  const entries = [
+    {
+      summary: entry("spade-skill", "official", "Official", {
+        byAce: true,
+        publisher: { id: "pub_ace", name: "ace" },
+      }),
+    },
+    // The index claims the name; the daemon found no signed list naming it.
+    {
+      summary: entry("spade-skill", "lookalike", "Lookalike", {
+        publisher: { id: "pub_x", name: "ace" },
+      }),
+    },
+  ];
+  const app = await openApp("/chats?market=skill/official", { entries });
   const market = await findMarket();
-  const skills = within(await within(market).findByRole("list", { name: "Skills" }));
-  await skills.findByText("Lookalike");
-  const official = skills.getByText("Official").closest(".mk-card") as HTMLElement;
-  const lookalike = skills.getByText("Lookalike").closest(".mk-card") as HTMLElement;
+  await within(market).findByRole("heading", { level: 1, name: "Official" });
+  expect(within(market).getAllByLabelText("By ace").length).toBeGreaterThan(0);
+  expect(within(market).getAllByRole("img", { name: "Verified by ace" }).length).toBeGreaterThan(0);
 
-  expect(within(official).getByLabelText("By ace")).toBeTruthy();
-  expect(within(official).getByRole("img", { name: "Verified by ace" })).toBeTruthy();
-  expect(within(lookalike).queryByLabelText("By ace")).toBeNull();
-  expect(within(lookalike).queryByRole("img", { name: "Verified by ace" })).toBeNull();
+  act(() => app.history.push("/chats?market=skill/lookalike"));
+  await within(market).findByRole("heading", { level: 1, name: "Lookalike" });
+  expect(within(market).queryByLabelText("By ace")).toBeNull();
+  expect(within(market).queryByRole("img", { name: "Verified by ace" })).toBeNull();
 });
 
 test("an entry this device's scan blocks can't be installed, and says why", async () => {

@@ -62,19 +62,19 @@ test("the Spade switch on Settings › Beta saves the setting and swaps Spade's 
   expect(await within(rail()).findByRole("link", { name: "Spade" })).toBeTruthy();
 });
 
-test("a marketplace address opens the modal only while the marketplace is on", async () => {
+test("a marketplace address opens its page only while the marketplace is on", async () => {
   for (const turnedOn of [true, false]) {
     const history = createMemoryHistory({ initialEntries: ["/chats?market=installed"] });
     const app = harness({ history });
     if (!turnedOn) marketplaceOff(app.daemon);
     const view = await app.open("/chats?market=installed");
     await screen.findByRole("navigation", { name: "App" });
-    if (turnedOn) expect(await screen.findByRole("dialog", { name: "Marketplace" })).toBeTruthy();
+    if (turnedOn) expect(await screen.findByRole("region", { name: "Marketplace" })).toBeTruthy();
     else {
       // Its setting has been read: the rail has no Marketplace, and no modal opened.
       await waitFor(() => expect(app.daemon.services.settings.get("beta.marketplace")).toBe(false));
       await new Promise((resolve) => setTimeout(resolve, 200));
-      expect(screen.queryByRole("dialog", { name: "Marketplace" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "Marketplace" })).toBeNull();
     }
     view.unmount();
   }
@@ -167,7 +167,7 @@ test("the command palette goes to the Marketplace only while it is on", async ()
       await waitFor(() => expect(option()).toBeDefined());
       const command = option();
       if (command) await userEvent.click(command);
-      expect(await screen.findByRole("dialog", { name: "Marketplace" })).toBeTruthy();
+      expect(await screen.findByRole("region", { name: "Marketplace" })).toBeTruthy();
     } else {
       // Settings › Beta has been read (Appearance's own link waits on it the same way).
       await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));

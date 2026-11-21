@@ -91,7 +91,7 @@ test("its review says there's nothing to install and offers Wear it", async () =
 test("Installed carries no count while the marketplace installed nothing", async () => {
   await openApp("/chats?market=discover");
   const market = await findMarket();
-  expect((await within(market).findAllByRole("button", { name: "Installed" })).length).toBe(2);
+  expect((await within(market).findAllByRole("button", { name: "Installed" })).length).toBe(1);
   expect(within(market).queryByRole("button", { name: /^Installed \d/ })).toBeNull();
 });
 
@@ -105,7 +105,8 @@ test("an install that wants a fresh sign-in says so and offers to sign in, never
   const market = await findMarket();
   await userEvent.click(await within(market).findByRole("button", { name: "Get" }));
 
-  const said = await within(market).findByRole("status");
+  const page = await screen.findByRole("region", { name: "Marketplace" });
+  const said = await within(page).findByRole("status");
   expect(said.textContent).toContain("Installing needs a recent sign-in to your ace account.");
   // A build without an ace account sends the person to sign in under Profile.
   expect(within(said).getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe(

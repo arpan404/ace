@@ -1,6 +1,7 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createMemoryHistory } from "@tanstack/react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { spadeApp, withEndpoint } from "@/test/spade.ts";
 
@@ -29,6 +30,15 @@ function browserTab() {
   return tab;
 }
 
+/**
+ * Settings › Apps with the Marketplace off, where Connect an app opens Spade's own catalogue
+ * dialog; with it on, the Marketplace's Apps is the one catalogue (its own test below).
+ */
+const appsSettings = (seeding: (api: FakeSpadeApi) => void) =>
+  spadeApp("/settings/spade/apps", seeding, {
+    daemon: (daemon) => daemon.services.settings.write("beta.marketplace", false),
+  });
+
 const connectors = async () =>
   within(await screen.findByRole("region", { name: "Connected apps" }));
 
@@ -38,7 +48,7 @@ async function openCatalogue() {
 }
 
 test("signing in to an app opens its page in the browser, and its row follows the sign-in", async () => {
-  const { spade } = await spadeApp("/settings/spade/apps", seed);
+  const { spade } = await appsSettings(seed);
   const tab = browserTab();
   const dialog = await openCatalogue();
   await userEvent.click(dialog.getByRole("button", { name: "Sign in for Linear" }));
@@ -55,7 +65,7 @@ test("signing in to an app opens its page in the browser, and its row follows th
 });
 
 test("a token goes to Spade in one request, and Disconnect removes the app", async () => {
-  const { spade } = await spadeApp("/settings/spade/apps", seed);
+  const { spade } = await appsSettings(seed);
   const dialog = await openCatalogue();
   await userEvent.click(dialog.getByRole("button", { name: "Use a key for Linear" }));
   await userEvent.type(dialog.getByLabelText("Key for Linear"), "lin-key-1");
@@ -72,7 +82,7 @@ test("a token goes to Spade in one request, and Disconnect removes the app", asy
 });
 
 test("a server added by address reaches local addresses only when the person says it is theirs", async () => {
-  const { spade } = await spadeApp("/settings/spade/apps", seed);
+  const { spade } = await appsSettings(seed);
   const dialog = await openCatalogue();
   await userEvent.type(
     dialog.getByRole("textbox", { name: "Another server" }),
@@ -94,7 +104,7 @@ test("a server added by address reaches local addresses only when the person say
 });
 
 test("an app that registers no clients by itself asks for the person's client ID", async () => {
-  const { spade } = await spadeApp("/settings/spade/apps", (api) => {
+  const { spade } = await appsSettings((api) => {
     seed(api);
     api.connectors.needsClient.add("linear");
   });
@@ -114,7 +124,7 @@ test("an app that registers no clients by itself asks for the person's client ID
 });
 
 test("an app whose sign-in ended reconnects from its row", async () => {
-  const { spade } = await spadeApp("/settings/spade/apps", (api) => {
+  const { spade } = await appsSettings((api) => {
     seed(api);
     api.connectors.connectors.push({
       id: "linear",
@@ -139,7 +149,7 @@ const checked = (element: HTMLElement) => element.getAttribute("aria-checked") =
 test("an app whose sign-in ends later shows it without a reload", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
-    const { spade } = await spadeApp("/settings/spade/apps", (api) => {
+    const { spade } = await appsSettings((api) => {
       seed(api);
       api.connectors.connectors.push({
         id: "linear",
@@ -276,7 +286,7 @@ const followed = () => vi.advanceTimersByTimeAsync(2_100);
 
 test("a device sign-in shows its code in the app's row, with Copy code and Open, until it connects", () =>
   onFakeTimers(async (user) => {
-    const { spade } = await spadeApp("/settings/spade/apps", withGitHub);
+    const { spade } = await appsSettings(withGitHub);
     const tab = browserTab();
     const dialog = await openCatalogue();
     await user.click(dialog.getByRole("button", { name: "Sign in for GitHub" }));
@@ -306,7 +316,7 @@ test("a device sign-in shows its code in the app's row, with Copy code and Open,
 
 test("a device code that expired or was declined says so, and Try again shows a new code", () =>
   onFakeTimers(async (user) => {
-    const { spade } = await spadeApp("/settings/spade/apps", withGitHub);
+    const { spade } = await appsSettings(withGitHub);
     browserTab();
     const dialog = await openCatalogue();
     await user.click(dialog.getByRole("button", { name: "Sign in for GitHub" }));
@@ -339,7 +349,7 @@ const asana = {
 };
 
 test("an app through Spade Cloud signs in in the browser and its row says it signs in through the cloud", async () => {
-  const { spade } = await spadeApp("/settings/spade/apps", (api) => {
+  const { spade } = await appsSettings((api) => {
     seed(api);
     api.connectors.catalogue.push(asana);
     api.connectors.viaCloud.add("asana");
@@ -360,7 +370,7 @@ test("an app through Spade Cloud signs in in the browser and its row says it sig
 });
 
 test("signed out of ace, an app through Spade Cloud says to sign in to ace instead of asking for a client ID", async () => {
-  const { spade } = await spadeApp("/settings/spade/apps", (api) => {
+  const { spade } = await appsSettings((api) => {
     seed(api);
     api.connectors.catalogue.push(asana);
     api.connectors.viaCloud.add("asana");
@@ -381,7 +391,7 @@ test("signed out of ace, an app through Spade Cloud says to sign in to ace inste
 });
 
 test("an app through Spade Cloud that can't renew while signed out of ace says so, with Sign in to ace", async () => {
-  await spadeApp("/settings/spade/apps", (api) => {
+  await appsSettings((api) => {
     seed(api);
     api.connectors.connectors.push({
       id: "asana",
@@ -443,7 +453,7 @@ const rowOf = (dialog: ReturnType<typeof within>, name: string) =>
   within(dialog.getByText(name, { selector: "span" }).closest("li") as HTMLElement);
 
 test("an app that can't connect on this build says Coming soon and offers no Sign in", async () => {
-  await spadeApp("/settings/spade/apps", withMore);
+  await appsSettings(withMore);
   const dialog = await openCatalogue();
   const slackRow = rowOf(dialog, "Slack");
   expect(slackRow.getByText("Coming soon.")).toBeTruthy();
@@ -456,7 +466,7 @@ test("an app that can't connect on this build says Coming soon and offers no Sig
 });
 
 test("an app that takes only a key says so, shows its steps and opens the page that makes one", async () => {
-  const { spade } = await spadeApp("/settings/spade/apps", withMore);
+  const { spade } = await appsSettings(withMore);
   const dialog = await openCatalogue();
   const row = rowOf(dialog, "Render");
   expect(row.getByText("Needs a key from Render.")).toBeTruthy();
@@ -475,7 +485,7 @@ test("an app that takes only a key says so, shows its steps and opens the page t
 });
 
 test("the catalogue finds an app by name across categories, and a category shows only its apps", async () => {
-  await spadeApp("/settings/spade/apps", withMore);
+  await appsSettings(withMore);
   const dialog = await openCatalogue();
   // Grouped by category, apps that connect now first within each.
   expect(dialog.getByRole("region", { name: "Mail & chat" })).toBeTruthy();
@@ -499,7 +509,7 @@ test("the catalogue finds an app by name across categories, and a category shows
 });
 
 test("apps already added lead the catalogue with their state, and an app reached for lately comes next", async () => {
-  await spadeApp("/settings/spade/apps", (api) => {
+  await appsSettings((api) => {
     withMore(api);
     api.connectors.needsClient.add("linear");
     api.connectors.connectors.push({
@@ -533,7 +543,7 @@ test("apps already added lead the catalogue with their state, and an app reached
 });
 
 test("each app shows its own mark, and a server added by address its first letter", async () => {
-  await spadeApp("/settings/spade/apps", (api) => {
+  await appsSettings((api) => {
     seed(api);
     api.connectors.connectors.push(
       {
@@ -568,4 +578,16 @@ test("each app shows its own mark, and a server added by address its first lette
   );
   expect(tile("Linear")?.querySelector("img")).toBeNull();
   await waitFor(() => expect(tile("nas.local")?.textContent).toBe("N"));
+});
+
+test("with the Marketplace on, Connect an app opens its Apps, the one catalogue", async () => {
+  const history = createMemoryHistory({ initialEntries: ["/settings/spade/apps"] });
+  await spadeApp("/settings/spade/apps", seed, {
+    history,
+    daemon: (daemon) => daemon.services.settings.write("beta.marketplace", true),
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Connect an app" }));
+  await waitFor(() => expect(history.location.pathname).toBe("/market"));
+  expect(new URLSearchParams(history.location.search).get("at")).toBe("apps");
+  expect(screen.queryByRole("dialog", { name: "Connect an app" })).toBeNull();
 });

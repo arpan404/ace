@@ -65,23 +65,6 @@ test("an entry page shows its description when it says more than the line", asyn
   expect(within(market).getByText("Triage mail in one line")).toBeTruthy();
 });
 
-test("Tab stays inside the Marketplace, wrapping between its last and first controls", async () => {
-  await openApp("/chats?market=discover");
-  const market = await findMarket();
-  await within(market).findByRole("region", { name: "Featured" });
-  const first = within(market).getByRole("button", { name: "Home" });
-
-  await userEvent.tab({ shift: true });
-  const last = document.activeElement;
-  expect(last !== market && market.contains(last)).toBe(true);
-
-  await userEvent.tab();
-  expect(document.activeElement).toBe(first);
-
-  await userEvent.tab({ shift: true });
-  expect(document.activeElement).toBe(last);
-});
-
 test("Remove takes a link off the publisher's profile", async () => {
   await openApp("/chats?market=me", { publishing: marketPublishFixture() });
   const market = await findMarket();
@@ -93,5 +76,5 @@ test("Remove takes a link off the publisher's profile", async () => {
 
   await within(market).findByRole("button", { name: "Edit profile" });
   await waitFor(() => expect(within(market).queryByRole("link", { name: "Site" })).toBeNull());
-  expect(screen.getByRole("dialog", { name: "Marketplace" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Marketplace" })).toBeTruthy();
 });
