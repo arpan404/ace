@@ -2584,4 +2584,7 @@ color}` (the built-in 5 × 7 bitmap font, scaled to `size` px high).
   anything awaits. A recording ace-media ends says so (`BrowserState.recordingNotice`) and its
   stop fails with the reason; a truncated end returns with a notice. `still.take.fresh`
   (feature `still-fresh`): a still only from a picture that arrives after the request; a
-  watched Simulator's agent still asks for it, and `simctl` answers when none comes in time.
+  watched Simulator's agent still asks for it with a 300 ms budget, and `simctl` answers when
+  none comes in time. The draining barrier is its own feature (`sync-drain`) and drains only
+  once every picture it names is in; without it the daemon waits (bounded) for the encode's
+  first unit before a quick clip's stop. Notices are written only for the latest recording.

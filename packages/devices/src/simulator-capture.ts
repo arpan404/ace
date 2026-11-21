@@ -27,15 +27,15 @@ const Endpoint = z.object({
 /**
  * An agent's still from ace-media: inside the frame packet's bounds (a portrait phone fitted to
  * 2160 high), which ace-media scales to, never the daemon; and fresh, from a picture that came
- * after it was asked, never the one ace-media held from before the agent's last input. A late
- * one gives way to `simctl`.
+ * after it was asked, never the one ace-media held from before the agent's last input. A screen
+ * that shows nothing new sends no picture, so the wait is short: past it `simctl` answers.
  */
 const agentStill = {
   maxWidth: 1920,
   maxHeight: 2160,
   maxPixels: 1920 * 2160,
   quality: 80,
-  deadlineMs: 1_500,
+  deadlineMs: 300,
   fresh: true,
 };
 

@@ -33,7 +33,11 @@ const video = {
 function standIn() {
   const producers: IngestProducer[] = [];
   /** Stills asked of ace-media, and whether it makes them (else the source's own capture). */
-  const stills: { asked: SourceStill[]; makes: boolean } = { asked: [], makes: false };
+  const stills: { asked: SourceStill[]; makes: boolean; still: boolean } = {
+    asked: [],
+    makes: false,
+    still: false,
+  };
   const media: DeviceMedia = {
     attach: (producer) => {
       producers.push(producer);
@@ -45,6 +49,10 @@ function standIn() {
         key: () => {},
         still: (request, capture, adopt) => {
           stills.asked.push(request);
+          // A screen that shows nothing new: no fresh picture comes, so ace-media answers at
+          // the request's deadline and the source's own capture takes over.
+          if (stills.still)
+            return new Promise((resolve) => setTimeout(resolve, request.deadlineMs)).then(capture);
           if (!stills.makes) return capture();
           // ace-media's still, scaled inside the request's box.
           return Promise.resolve(
@@ -189,4 +197,17 @@ it("an agent's still of a watched Simulator is ace-media's, inside the frame's 2
   const own = await d.service.screenshot(ios, person);
   expect(d.platform.shots.length).toBe(before + 1);
   expect(own.header).toMatchObject({ codec: "jpeg", width: 300, height: 600 });
+});
+
+it("a watched Simulator whose screen shows nothing new still answers an agent's still within half a second", async () => {
+  const ace = standIn();
+  const d = await simulator(ace.media);
+  await d.service.request({ op: "stream.configure", deviceId: ios, settings: video }, person);
+  await ace.stream();
+  ace.keyframe();
+  ace.stills.still = true;
+  const asked = performance.now();
+  const shot = await d.service.screenshot(ios, person);
+  expect(performance.now() - asked).toBeLessThan(500);
+  expect(shot.header).toMatchObject({ codec: "jpeg", width: 300, height: 600 });
 });
