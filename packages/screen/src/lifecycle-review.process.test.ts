@@ -1,3 +1,4 @@
+import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { expect, it } from "vitest";
 import { helperFixture } from "./testing/support.ts";
 import { deferred } from "./testing/support.ts";
@@ -91,8 +92,12 @@ it("publication rejection cannot leak the host helper during shutdown", async ()
 });
 it("recording completion at its cap releases capture demand and permits another recording", async () => {
   const published = deferred<RecordingArtifact>();
+  // ace-media reports a part as soon as one picture fills it.
+  const recorder = new FakeMediaRecorder();
+  recorder.partBytes = 1;
   const f = await helperFixture("win32", {
     recordingLimitBytes: 1,
+    recorder,
     publishArtifact: async (artifact) => {
       published.resolve(artifact);
     },
@@ -101,7 +106,7 @@ it("recording completion at its cap releases capture demand and permits another 
     const session = await f.start();
     await f.manager.captureScreenshot(session.sessionId);
     await f.manager.startRecording(session.sessionId);
-    expect((await published.promise).bytes).toBe(0);
+    expect((await published.promise).parts).toHaveLength(1);
     expect((await f.manager.targets()).windows[0]?.title).toMatch(/:false$/);
     await f.manager.startRecording(session.sessionId);
     await f.manager.stopRecording(session.sessionId);

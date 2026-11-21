@@ -22,7 +22,7 @@ import { performance } from "node:perf_hooks";
 import { ComputerUsingThreads } from "../computer-using.ts";
 import { resolveScreenHelper } from "../screen-helper-path.ts";
 import { ScreenSettings } from "../screen-settings.ts";
-import { startMedia } from "./media.ts";
+import { noMediaRecorder, startMedia } from "./media.ts";
 import type { ServiceContext } from "./types.ts";
 import { mediaOwner } from "./media-connect.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -80,6 +80,8 @@ export async function startScreen(
           session,
           cowork,
           media: media ? { add: (producer) => media.attach(producer) } : undefined,
+          // Every screen recording is ace-media's (X1); without it a recording refuses, saying why.
+          recorder: media?.recorder ?? noMediaRecorder,
         })
       : undefined);
   if (!manager) return;

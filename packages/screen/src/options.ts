@@ -8,6 +8,9 @@ export type ScreenOptions = Omit<HelperOptions, "onFrame" | "onFailure"> & {
   recordingDirectory: string;
   recordingLimitBytes?: number;
   publishArtifact: (artifact: RecordingArtifact) => Promise<void>;
+  /** ace-media's recorder, which every screen recording goes through (X1); absent, recordings
+   * refuse, saying why. */
+  recorder?: import("@ace/media/tee-recordings").MediaRecorder;
   /**
    * Cowork (ADR 0143): the person's input reaches a session an agent holds without taking its
    * controls, and extends their lease on its app; agents' input there waits for it. Absent: the

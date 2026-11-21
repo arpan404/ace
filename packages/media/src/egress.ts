@@ -21,8 +21,9 @@ export type EgressUnit = {
 };
 
 /**
- * The daemon's side of one source: until X2, the frames a recording tees into ace-media's
- * recorder. No viewer is fed from egress: ace-media delivers every live view itself (X3).
+ * The daemon's side of one source: a screen's or device's H.264, which its recording tees into
+ * ace-media's recorder, and the source's end marker. No viewer is fed from egress: ace-media
+ * delivers every live view itself (X3).
  */
 export type LegacyConsumers = {
   deliver: (unit: EgressUnit) => void;

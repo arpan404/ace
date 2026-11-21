@@ -3,7 +3,7 @@ import { FrameHub, type Frame } from "./frames.ts";
 import type { Helper } from "./helper.ts";
 import { helperSession, type HelperPort } from "./helper-session.ts";
 import { Pixels } from "./pixels.ts";
-import type { Recording } from "./recording.ts";
+import type { ScreenRecording } from "./recording.ts";
 import type { ScreenPictureSource } from "./picture-source.ts";
 import type { ScreenMediaSource } from "./media-source.ts";
 export interface ControllerBinding {
@@ -26,8 +26,8 @@ export type Session = {
   pointerDown: boolean;
   pointerCleanup?: Promise<void>;
   controllerBinding: ControllerBinding | undefined;
-  recording: Recording | undefined;
-  completedRecording: Recording | undefined;
+  recording: ScreenRecording | undefined;
+  completedRecording: ScreenRecording | undefined;
   actionTail: Promise<void>;
   queuedActions: number;
   recordingStarting: boolean;

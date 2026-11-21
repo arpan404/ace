@@ -1,3 +1,4 @@
+import type { MediaRecorder } from "@ace/media/tee-recordings";
 import type { ScreenCowork } from "./cowork.ts";
 import { linuxLaunch, installedLinuxHelper } from "./linux.ts";
 import { graphicalSessionEnvironment } from "./linux-session.ts";
@@ -25,6 +26,8 @@ export function localScreenManager(
     cowork?: ScreenCowork | undefined;
     /** ace-media's producers (ADR 0147, phase 2): where Mac screens stream while routed. */
     media?: ScreenMedia | undefined;
+    /** ace-media's recorder (X1): every screen recording goes through it. */
+    recorder?: MediaRecorder | undefined;
   } = {},
 ): ScreenManager {
   if (!["darwin", "win32", "linux"].includes(process.platform))
@@ -53,6 +56,7 @@ export function localScreenManager(
     nextId: randomUUID,
     ...(options.cowork ? { cowork: options.cowork } : {}),
     ...(options.media ? { media: options.media } : {}),
+    ...(options.recorder ? { recorder: options.recorder } : {}),
     recordingDirectory: artifactDirectory,
     publishArtifact: async (artifact) => {
       await writeFile(join(artifactDirectory, `${artifact.id}.json`), JSON.stringify(artifact), {

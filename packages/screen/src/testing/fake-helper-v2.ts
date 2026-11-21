@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { readFile, rm } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
@@ -72,7 +73,10 @@ function packet(text?: string): Buffer {
       : process.env.PAYLOAD_VALUE === "1"
         ? `pixels:${value}`
         : `v2-jpeg-${sequence}`);
-  const payload = Buffer.from(content + "x".repeat(padding));
+  // A real picture when the test names one, as a JPEG-only helper sends.
+  const payload = process.env.MODEL_IMAGE_FILE
+    ? readFileSync(process.env.MODEL_IMAGE_FILE)
+    : Buffer.from(content + "x".repeat(padding));
   const header = Buffer.from(
     JSON.stringify({
       version: 2,
@@ -80,8 +84,8 @@ function packet(text?: string): Buffer {
       seq: sequence,
       captureGeneration: generation,
       ts: 1000,
-      width: 100,
-      height: 100,
+      width: Number(process.env.MODEL_FRAME_WIDTH ?? 100),
+      height: Number(process.env.MODEL_FRAME_HEIGHT ?? 100),
       scale: 1.5,
       codec: "jpeg",
       bytes: payload.length,

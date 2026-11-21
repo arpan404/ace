@@ -11,9 +11,11 @@ import type { ToMedia } from "./wire.ts";
  * ace-media isn't healthy, or can't take a kind, that kind's producer streams nowhere, it has
  * no deliverer (`none`), and its live views say why (`undeliveredReason`).
  *
- * Recordings and stills have no legacy consumer since X1: a recording takes the source's frames
- * from egress and tees them into ace-media's recorder (`tee-recordings.ts`), so ace-media always
- * hands a source it ingests back on egress. A still is ace-media's for a source it has, else the
+ * Recordings and stills have no legacy consumer since X1. A screen's or device's recording takes
+ * the source's H.264 back from egress and tees it into ace-media's recorder (`tee-recordings.ts`);
+ * a browser tab's or JPEG-only screen's recording tees its pictures in directly. Egress stays on
+ * for every source ace-media ingests: its end marker is what orders a source's moves between
+ * ace-media paths (`IngestSources`). A still is ace-media's for a source it has, else the
  * source's own capture.
  */
 
@@ -104,7 +106,8 @@ export function sourceRoute(
   const deliverer = producer === "ace-media" && capabilities.delivery ? "ace-media" : "none";
   return {
     producer,
-    // The daemon's recording feed takes every ingested source's frames from egress (X1).
+    // Egress carries every ingested source's end marker, and screens' and devices' H.264 for
+    // their recordings (X1).
     egress: producer === "ace-media",
     deliverer,
   };

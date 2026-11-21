@@ -1,3 +1,4 @@
+import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +29,8 @@ export async function manager(env: NodeJS.ProcessEnv = {}, extra: Partial<Screen
     nextId: ids(),
     recordingDirectory: directory,
     publishArtifact: async () => {},
+    // ace-media's recorder stands in: what a recording takes, not what ace-media makes of it.
+    recorder: new FakeMediaRecorder(),
     ...extra,
   });
   return {
@@ -92,6 +95,7 @@ export async function helperFixture(platform: "win32", overrides: Partial<Screen
     endpoint: `unix:${join(directory, "pipe")}`,
     recordingDirectory: directory,
     publishArtifact: async () => {},
+    recorder: new FakeMediaRecorder(),
     ...windowsFakeOverrides(directory),
     ...overrides,
   });
