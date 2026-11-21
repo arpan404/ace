@@ -6,14 +6,18 @@ import { AceLogin } from "@ace/protocol/ace-account";
 import { address } from "@ace/relay/testing";
 import { hostId, keyPair } from "@ace/secure-channel";
 import { WebSocket } from "ws";
+import { digest, sealer } from "./account/crypto.ts";
+import { accountDeletions, deleteAccountRoute } from "./account/deletion.ts";
+import { sessionStore } from "./account/sessions.ts";
 import { fakeWorkos } from "./testing/fake-workos.ts";
 import type { WorkosUser } from "./testing/fake-workos.ts";
 import { allowedOrigin, mint, startWorker } from "./testing/harness.ts";
 import { continueSignIn, signInThroughWorker } from "./testing/sign-in.ts";
 
 /*
- * Deleting an account while something else is in flight for it: each test holds one step at
- * (fake) WorkOS, changes what the deletion depends on in the meantime, then lets it finish.
+ * Deleting an account while something else is in flight for it: each test holds one step (at
+ * fake WorkOS, or in the route's session read), changes what the deletion depends on in the
+ * meantime, then lets it finish.
  * A real Worker, D1 and relay object, because the guarantees live in their SQL and sockets.
  */
 
@@ -57,10 +61,11 @@ async function addMachine(host: string, accountId: string) {
     .run();
 }
 
-const meanwhile: [string, string, (token: string, id: string) => Promise<unknown>][] = [
+const meanwhile: [string, string, number, (token: string, id: string) => Promise<unknown>][] = [
   [
     "an older daemon takes the session over",
     "user_taken",
+    403,
     (_token, id) =>
       worker.db
         .prepare("UPDATE sessions SET standing = 'exposed' WHERE json_extract(account, '$.id') = ?")
@@ -70,24 +75,56 @@ const meanwhile: [string, string, (token: string, id: string) => Promise<unknown
   [
     "the session signs out",
     "user_left",
+    401,
     (token) =>
       fetch(`${worker.http}/v1/account/session`, { method: "DELETE", headers: auth(token) }),
   ],
 ];
 
+/*
+ * The window is between the route reading the session and recording the deletion. The route
+ * takes its session reader as a dependency, so these run the real route on the Worker's D1 with
+ * a reader that reads the stored session, then changes it before handing it back: the deletion
+ * is recorded against a session that was live a moment ago and isn't now.
+ */
 it.each(meanwhile)(
-  "no deletion is recorded when %s while the deletion reads it",
-  async (_, id, change) => {
+  "no deletion is recorded when %s after the deletion read the session",
+  async (_, id, status, change) => {
     const phone = await signIn(id);
     await addMachine((id.at(-1) ?? "X").toUpperCase().repeat(52), id);
-    const held = workos.holdNext((seen) => seen.body.grant_type === "refresh_token", "before");
-    const deleting = deleteAccount(phone.token);
-    await held.started;
-    await change(phone.token, id);
-    held.release();
-    expect([401, 403]).toContain((await deleting).status);
+    const store = sessionStore(
+      worker.db,
+      sealer(worker.env.ACE_ACCOUNT_ENCRYPTION_KEY ?? "", (n) =>
+        crypto.getRandomValues(new Uint8Array(n)),
+      ),
+      () => crypto.randomUUID(),
+    );
+    const deletedAtWorkos: string[] = [];
+    let readLive = false;
+    const route = deleteAccountRoute({
+      sessions: {
+        read: async (token) => {
+          const live = await store.get(await digest(token), Date.now());
+          readLive = live !== undefined;
+          await change(token, id);
+          return live;
+        },
+      },
+      standing: store,
+      provider: { deleteUser: async (user) => void deletedAtWorkos.push(user) },
+      deletions: accountDeletions(worker.db),
+      now: () => Date.now(),
+    });
+    const response = await route(
+      new Request("https://cloud.test/v1/account", {
+        method: "DELETE",
+        headers: auth(phone.token),
+      }),
+    );
+    expect(readLive).toBe(true);
+    expect(response.status).toBe(status);
     expect(await tombstones(id)).toBe(0);
-    expect(workos.deletedUsers()).not.toContain(id);
+    expect(deletedAtWorkos).toEqual([]);
     expect(await count("SELECT count(*) AS n FROM machines WHERE account_id = ?", id)).toBe(1);
   },
 );
@@ -126,9 +163,10 @@ it("while WorkOS deletes the user, the asking session can only retry: no grants,
     });
     await exchange.body?.cancel();
     expect(exchange.status).toBe(401);
-    expect(
-      (await fetch(`${worker.http}/v1/account/session`, { headers: auth(phone.token) })).status,
-    ).toBe(401);
+    // Reading the session opens nothing, but says the deletion is pending.
+    const read = await fetch(`${worker.http}/v1/account/session`, { headers: auth(phone.token) });
+    expect(read.status).toBe(409);
+    expect(await read.json()).toEqual({ error: "deletion_pending" });
   } finally {
     held.release();
   }

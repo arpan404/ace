@@ -27,8 +27,10 @@ export interface LegalDocument {
   sections: { heading: string; body: LegalBlock[] }[];
 }
 
-const updated = "17 November 2026";
-const updatedIso = "2026-11-17";
+const termsUpdated = "17 November 2026";
+const termsUpdatedIso = "2026-11-17";
+const privacyUpdated = "21 November 2026";
+const privacyUpdatedIso = "2026-11-21";
 
 export const privacyPolicy: LegalDocument = {
   path: "/privacy-policy/",
@@ -36,8 +38,8 @@ export const privacyPolicy: LegalDocument = {
   title: "Privacy policy: what ace collects and why",
   description:
     "What ace's services collect and how to delete it. ace never sees your code or prompts, unless an outside MCP client you connect sends them.",
-  updated,
-  updatedIso,
+  updated: privacyUpdated,
+  updatedIso: privacyUpdatedIso,
   intro:
     "ace is an open-source app that runs coding agents on your own computers. Most of ace never talks to us at all. This policy covers the few services we run: the ace account, the hosted relay, the push gateway for iPhone and iPad, this website (acehq.dev) and the web app (app.acehq.dev).",
   sections: [
@@ -161,6 +163,7 @@ export const privacyPolicy: LegalDocument = {
             "Your account and its machines: until you delete them.",
             "Sessions: until you sign out or they expire.",
             "Sign-ins in progress: up to an hour.",
+            "A record that you deleted your account: 30 days after the deletion finishes, so we can finish it if a step fails, check that it completed, and refuse sign-ins begun before it. Until the deletion finishes, the record also holds a digest of the session that asked for it, and we keep that session so the app can retry; once it finishes, the record holds only the account id and when the deletion started and finished.",
             "Relay connections and notifications: nothing is kept after delivery.",
           ],
         },
@@ -205,8 +208,8 @@ export const termsOfService: LegalDocument = {
   title: "Terms of service: using ace and its services",
   description:
     "The terms for using ace, the ace account and ace's hosted relay: acceptable use, your responsibilities, no warranty, and how accounts end.",
-  updated,
-  updatedIso,
+  updated: termsUpdated,
+  updatedIso: termsUpdatedIso,
   intro:
     "These terms apply when you use ace's apps or the services we run for them: the ace account, the hosted relay, the push gateway, this website and the web app. By using them, you agree to these terms.",
   sections: [
@@ -293,8 +296,8 @@ export const support: LegalDocument = {
   title: "ace support: get help, delete your account",
   description:
     "How to get help with ace, delete your ace account, and what ace does and doesn't see. Email the founders or open an issue on GitHub.",
-  updated,
-  updatedIso,
+  updated: termsUpdated,
+  updatedIso: termsUpdatedIso,
   definition:
     "ace support is where people who use ace, the free, open-source app that runs coding agents, get help and delete their ace account.",
   intro:

@@ -124,8 +124,11 @@ it("a WorkOS failure keeps the asking session only to retry, and trying again fi
   expect((await deleteAccount(grant.token)).status).toBe(502);
   expect(workos.deletedUsers()).not.toContain("user_retry");
   // Everything else ace held is already gone, and the asking session opens nothing now: it
-  // can only retry the deletion.
-  expect((await session(grant.token)).status).toBe(401);
+  // can only retry the deletion, and reading it says the deletion is pending, so an app that
+  // restarts tells the person it finishes on its own rather than that they were signed out.
+  const pending = await session(grant.token);
+  expect(pending.status).toBe(409);
+  expect(await pending.json()).toEqual({ error: "deletion_pending" });
   expect((await session(otherDevice.token)).status).toBe(401);
   expect(await count("SELECT count(*) AS n FROM machines WHERE account_id = ?", "user_retry")).toBe(
     0,
@@ -166,6 +169,7 @@ it("the sweep finishes a deletion the phone never retried", async () => {
   workos.failDeletes(true);
   expect((await deleteAccount(phone.token)).status).toBe(502);
   workos.failDeletes(false);
+  expect((await session(phone.token)).status).toBe(409);
   await worker.cron("17 * * * *");
   expect(workos.deletedUsers()).toContain("user_abandoned");
   expect(await leftFor("user_abandoned")).toBe(0);
