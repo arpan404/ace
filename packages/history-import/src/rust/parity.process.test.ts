@@ -7,7 +7,10 @@ import { afterAll, expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { openHistory, type HistoryService } from "../index.ts";
 import { cwd, init, memorySink, roomySnapshots } from "../test-support.ts";
+import { readFile, writeFile } from "node:fs/promises";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { parityHomes } from "./parity-fixture.ts";
+import { normalize, parityRoot, stamp } from "./parity-normalize.ts";
 import { findHistoryBinary } from "./reader-binary.ts";
 
 const binary = findHistoryBinary();
@@ -152,12 +155,16 @@ async function observe(
   }
 }
 
+const expectedPath = new URL("./parity-expected.json.gz", import.meta.url);
+
 test.skipIf(!binary)(
   "ace-history stores, lists and imports the same history as the TypeScript reader",
   async () => {
-    const root = await mkdtemp(join(tmpdir(), "ace-history-parity-"));
+    const root = parityRoot;
+    await rm(root, { recursive: true, force: true });
     roots.push(root);
     const homes = await parityHomes(join(root, "homes"));
+    await stamp(join(root, "homes"));
     const typescript = await observe(root, homes, null);
     const rust = await observe(root, homes, binary ?? null);
     // The fixture exercises what it means to: sessions listed, imports made, subagents, blobs.
@@ -195,6 +202,11 @@ test.skipIf(!binary)(
     for (const [index, expected] of typescript.imports.entries())
       expect(rust.imports[index]).toEqual(expected);
     expect(rust.counts).toEqual(typescript.counts);
+    // What the TypeScript reader made of these homes, kept for when it is gone.
+    if (process.env.ACE_HISTORY_PARITY_WRITE === "1")
+      await writeFile(expectedPath, gzipSync(JSON.stringify(normalize(typescript))));
+    const expected: unknown = JSON.parse(gunzipSync(await readFile(expectedPath)).toString("utf8"));
+    expect(normalize(rust)).toEqual(expected);
   },
   30_000,
 );
