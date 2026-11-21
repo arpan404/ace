@@ -31,7 +31,7 @@ async function until(condition: () => boolean, ms = 15_000): Promise<void> {
 }
 
 it.runIf(process.platform === "darwin" && !!binary)(
-  "an emulator's host-encoded picture streams through ace-media and back, survives route flips without losing or repeating a unit, and returns to stdout within 2 s of ace-media being killed",
+  "an emulator's host-encoded picture streams only through ace-media and back, every unit once, and after ace-media is killed the picture is back on the new one within 2 s",
   { timeout: 120_000 },
   async () => {
     expect((await probeOutput("sh", [join(helper, "build.sh")], { timeoutMs: 300_000 })).code).toBe(
@@ -91,7 +91,6 @@ it.runIf(process.platform === "darwin" && !!binary)(
       file,
       runtime: { spawn: spawnRawSupervised },
       env: process.env,
-      unit: (unit) => paths?.daemon(unit),
       failed: () => {},
       ingestClosed: () => paths?.ingestClosed(),
     });
@@ -157,30 +156,19 @@ it.runIf(process.platform === "darwin" && !!binary)(
     await until(() => egressed().length >= 20);
     expect(runtime.supervisor.health()).toBe("healthy");
 
-    for (const encode of ["legacy", "auto", "legacy", "auto"] as const) {
-      const flipped = performance.now();
-      settings.encode = encode;
-      runtime.settingsChanged();
-      await until(
-        () =>
-          handed.filter((entry) => entry.at > flipped && entry.egress === (encode === "auto"))
-            .length >= 10,
-      );
-    }
-    // Every picture once, in order, none missing, from the last one before the first switch on
-    // (the encoder may skip pictures while its first session starts). A switch starts its new path at a keyframe,
-    // which the encoder makes of the last picture again when no newer one waits: that is the
-    // only unit that may name a picture already handed on.
+    // Nothing ever comes from anywhere but ace-media's egress.
+    expect(handed.every((entry) => entry.egress)).toBe(true);
+    // Every picture once, in order, none missing (the encoder may skip pictures while its first
+    // session starts). A new path starts at a keyframe, which the encoder makes of the last
+    // picture again when no newer one waits: that is the only unit that may name a picture
+    // already handed on.
     const repeats = handed.filter(
       (entry, index) => index > 0 && entry.number === handed[index - 1]?.number,
     );
     expect(repeats.every((entry) => entry.keyframe)).toBe(true);
-    const firstSwitch = Math.max(0, handed.findIndex((entry) => entry.egress) - 1);
-    const numbers = [...new Set(handed.slice(firstSwitch).map((entry) => entry.number))];
+    const numbers = [...new Set(handed.map((entry) => entry.number))];
     const first = numbers[0] ?? 0;
     expect(numbers).toEqual(Array.from({ length: numbers.length }, (_, index) => first + index));
-    // Each planned move off ace-media wrote its queue and an end frame: a clean end, no cut.
-    expect(ended.length).toBeGreaterThanOrEqual(2);
     expect(ended.filter((end) => end.interrupted)).toEqual([]);
     // Each newly opened ingest must begin with its switch keyframe, even if a delta was
     // still encoding when the route command arrived. Otherwise its gate loses that unit.
@@ -190,11 +178,11 @@ it.runIf(process.platform === "darwin" && !!binary)(
     expect(pid).toBeGreaterThan(0);
     const killed = performance.now();
     process.kill(pid, "SIGKILL");
-    await until(() => handed.some((entry) => entry.at > killed && !entry.egress), 5_000);
-    const back = handed.find((entry) => entry.at > killed && !entry.egress);
+    // The encoder reconnects to the new ace-media's ingest: the picture is back within 2 s.
+    await until(() => handed.some((entry) => entry.at > killed), 10_000);
+    const back = handed.find((entry) => entry.at > killed);
     expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
-    const before = egressed().length;
-    await until(() => egressed().length > before + 10, 20_000);
+    expect(back?.egress).toBe(true);
     expect(runtime.supervisor.snapshot().pid).not.toBe(pid);
     // The killed process's path ended in failure: interrupted.
     expect(ended.filter((end) => end.at > killed).some((end) => end.interrupted)).toBe(true);

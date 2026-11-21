@@ -9,6 +9,7 @@ import { DevicePlatform } from "../index.ts";
 import { scrcpyCapture } from "../scrcpy-capture.ts";
 import type { DeviceCapture } from "../capture.ts";
 import type { DeviceMedia } from "../media-paths.ts";
+import { loopbackMedia } from "./loopback-media.ts";
 
 /** Cleanups the test file runs after each test, newest first. */
 export type Cleanup = (() => Promise<void> | void)[];
@@ -180,7 +181,8 @@ export async function fixture(
       options.onFrame?.(frame);
     },
     failure: (error) => failures.push(error),
-    ...(options.media ? { media: options.media } : {}),
+    // Video comes only through ace-media: a loopback stands in for it unless a test brings one.
+    media: options.media ?? (await loopbackMedia(cleanup)),
   });
   cleanup.push(() => capture.stop());
   const ffmpegPids = async () =>

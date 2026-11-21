@@ -44,8 +44,6 @@ type Link = {
   startedAt: number;
   /** The picture encoded on the host; the server then runs control only. */
   frames: HostFrames | undefined;
-  /** This run has published a keyframe of the host picture: its deltas can now be decoded. */
-  keyed: boolean;
   /** The host-encoded picture's way through ace-media, while the daemon has one. */
   paths: DeviceVideoPaths | undefined;
 };
@@ -191,12 +189,13 @@ export async function scrcpyCapture(options: {
       packet,
     });
   };
-  // ace-media (ADR 0147, phase 2): the daemon keeps scrcpy's sockets and, while the route says
-  // so, forwards each unit unchanged to ace-media's ingest; egress brings it back. One source
-  // for the capture's life, so a server restart (new viewer settings) doesn't reopen it.
+  // ace-media (ADR 0147, phase 2, X2): the daemon keeps scrcpy's sockets and forwards each unit
+  // unchanged to ace-media's ingest, the only way video reaches a viewer; egress brings it back.
+  // One source for the capture's life, so a server restart (new viewer settings) doesn't
+  // reopen it.
   let forward: IngestWriter | undefined;
-  /** Moving to ace-media: units stay on the daemon's path until the device's next keyframe,
-   * which is the first unit forwarded (ace-media's egress drops anything before one). */
+  /** Moving to ace-media: units are dropped until the device's next keyframe, which is the
+   * first unit forwarded (ace-media's egress drops anything before one). */
   let awaitingKey:
     | {
         writer: IngestWriter;
@@ -223,13 +222,13 @@ export async function scrcpyCapture(options: {
                 token: address.token.slice(),
                 onClosed: () => {
                   if (awaitingKey?.writer === writer) {
-                    // Gone before the switch happened: video stays on the daemon's path.
+                    // Gone before the switch happened: nothing streams.
                     awaitingKey.failed(new Error("ace-media closed the ingest connection"));
                     awaitingKey = undefined;
                     return;
                   }
                   if (forward !== writer) return;
-                  // ace-media went away: the units come straight back to the daemon.
+                  // ace-media went away: nothing streams until the source is opened again.
                   forward = undefined;
                   scrcpyPaths?.ingestClosed();
                   keyframe();
@@ -263,7 +262,7 @@ export async function scrcpyCapture(options: {
           schedule: (callback, ms) => runtime.after(ms, callback),
         })
       : undefined);
-  /** A unit off scrcpy's video socket: to ace-media while routed there, else handed on. */
+  /** A unit off scrcpy's video socket: to ace-media while routed there, else dropped. */
   const forwardVideo = (unit: VideoUnit) => {
     const number = forwarded++;
     if (awaitingKey && unit.keyframe) {
@@ -276,9 +275,8 @@ export async function scrcpyCapture(options: {
       forward.write(scrcpyFrame(unit, number));
       return;
     }
-    const paths = pathsFor();
-    if (paths) paths.daemon({ ...unit, sequence: number });
-    else publishVideo(unit);
+    // Opens the source in ace-media, which points the capture at its ingest once it has it.
+    pathsFor();
   };
   const publishImage = (payload: Buffer, width: number, height: number) => {
     const display = displayFor(width, height);
@@ -311,18 +309,6 @@ export async function scrcpyCapture(options: {
           bitrate: wanted.bitrate,
           runtime,
           env: options.env,
-          unit: (unit) => {
-            if (!current) return;
-            if (paths) return paths.daemon(unit);
-            current.streaming = true;
-            if (stopped || link !== current) return;
-            // The encoder starts before the server, so its first keyframe can come before this
-            // run is the live one and be dropped: hold deltas no viewer could decode, and ask
-            // the encoder for another keyframe.
-            if (!unit.keyframe && !current.keyed) return keyframe();
-            current.keyed = true;
-            publishVideo(unit);
-          },
           failed: (error) => {
             if (current) lost(current, error);
           },
@@ -383,7 +369,6 @@ export async function scrcpyCapture(options: {
         after: runtime.after,
       }),
       streaming: false,
-      keyed: false,
       units: new ScrcpyVideoUnits(
         (unit) => {
           started.streaming = true;
@@ -502,6 +487,9 @@ export async function scrcpyCapture(options: {
       else runtime.after(ms, resolve);
     });
 
+  // The source opens in ace-media before the device sends its first keyframe, so that one
+  // is the first unit forwarded.
+  pathsFor();
   await connect();
   try {
     options.signal?.throwIfAborted();

@@ -87,15 +87,14 @@ export async function startCapture(options: {
           runtime: options.runtime,
         });
       checkAbort();
-      const transcoder = options.platform.frameEncoder;
+      const digitizer = options.platform.frameEncoder;
       return simulatorCapture({
         ...options,
         device,
         command,
         commandArgs: status.args,
-        // The screen helper also re-encodes for small viewers and touches through Xcode's own
-        // input service.
-        ...(transcoder ? { transcoder, digitizer: transcoder } : {}),
+        // The screen helper touches through Xcode's own input service.
+        ...(digitizer ? { digitizer } : {}),
         screens: () => options.platform.simulatorScreens(device),
       });
     }
