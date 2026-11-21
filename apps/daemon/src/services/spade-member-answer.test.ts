@@ -43,7 +43,10 @@ async function orgHostSession(
       return answers(grant);
     },
   });
-  standing.prove({ until: T0 + 300_000, generation: 1, member: gus, grant: "grant-gus" });
+  /** Proves `grant`, issued at `issuedAt`, on the socket, as each `account.standing` does. */
+  const prove = (issuedAt = T0, grant = "grant-gus") =>
+    standing.prove({ until: issuedAt + 300_000, generation: 1, member: gus, grant, issuedAt });
+  prove();
   const sent: ServerMessage[] = [];
   const service = createSpadeSession({
     options: {
@@ -92,6 +95,7 @@ async function orgHostSession(
   };
   return {
     answer,
+    prove,
     asked,
     seen,
     advance: (ms: number) => {
@@ -149,4 +153,28 @@ test("a standing the backend confirms answers, and isn't asked about again for a
     expect.stringMatching(/^v1\./),
     expect.stringMatching(/^v1\./),
   ]);
+});
+
+test("proving the same grant again doesn't start the minute over", async ({ onTestFinished }) => {
+  const host = await orgHostSession(async () => ({ current: false }), onTestFinished);
+  host.advance(61_000);
+  // The same unexpired grant, presented again on the socket.
+  host.prove();
+  expect(await host.answer()).toMatchObject({ kind: "error", code: "forbidden" });
+  expect(host.asked).toEqual(["grant-gus"]);
+  // Refused once, the same grant proved again is asked about again, never taken as fresh.
+  host.prove();
+  expect(await host.answer()).toMatchObject({ kind: "error", code: "forbidden" });
+  expect(host.asked).toEqual(["grant-gus", "grant-gus"]);
+  expect(host.seen).toEqual([]);
+});
+
+test("a grant issued more than a minute before it is proven is checked on its first answer", async ({
+  onTestFinished,
+}) => {
+  const host = await orgHostSession(async () => ({ current: false }), onTestFinished);
+  host.advance(10_000);
+  host.prove(T0 - 61_000 + 10_000 - 1);
+  expect(await host.answer()).toMatchObject({ kind: "error", code: "forbidden" });
+  expect(host.asked).toEqual(["grant-gus"]);
 });

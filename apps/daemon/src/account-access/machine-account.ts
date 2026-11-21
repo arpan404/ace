@@ -1000,7 +1000,10 @@ export function machineAccount(options: {
       nonce: string;
       binding: string | undefined;
       deviceId: string;
-    }): Promise<{ until: number; generation: number; member: Member; policy: number } | undefined> {
+    }): Promise<
+      | { until: number; issuedAt: number; generation: number; member: Member; policy: number }
+      | undefined
+    > {
       const seen = owner.generation();
       const org = owner.org();
       if (!owner.holds(seen) || org === undefined) return undefined;
@@ -1014,6 +1017,7 @@ export function machineAccount(options: {
       if (!proven || !owner.holds(seen) || owner.org() !== org) return undefined;
       return {
         until: proven.until,
+        issuedAt: proven.issuedAt,
         generation: seen,
         member: proven.member,
         policy: proven.policy,

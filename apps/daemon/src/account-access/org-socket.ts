@@ -55,15 +55,36 @@ export function orgStanding(deps: {
     checkedAt: number;
   };
   let proven: Proven | undefined;
+  /** When the backend last confirmed each recent grant; a few, newest last. */
+  const confirmed = new Map<string, number>();
   const current = (): Member | undefined =>
     proven && proven.until > deps.now() && deps.holds(proven.generation)
       ? proven.member
       : undefined;
   return {
-    /** Takes a proof begun under `generation`, unless the owner changed since. */
-    prove(next: { until: number; generation: number; member: Member; grant?: string }): boolean {
+    /**
+     * Takes a proof begun under `generation`, unless the owner changed since. Its freshness is
+     * the backend's newest word on it: when the grant was minted (`issuedAt`, on a fresh org
+     * check) or when the backend last confirmed this very grant. Proving the same grant again
+     * never makes it fresher; without `issuedAt` it is checked at its first answer.
+     */
+    prove(next: {
+      until: number;
+      generation: number;
+      member: Member;
+      grant?: string;
+      issuedAt?: number;
+    }): boolean {
       if (!deps.holds(next.generation)) return false;
-      proven = { ...next, checkedAt: deps.now() };
+      const { issuedAt, ...rest } = next;
+      const lastConfirmed = next.grant === undefined ? undefined : confirmed.get(next.grant);
+      proven = {
+        ...rest,
+        checkedAt: Math.max(
+          issuedAt ?? Number.NEGATIVE_INFINITY,
+          lastConfirmed ?? Number.NEGATIVE_INFINITY,
+        ),
+      };
       return true;
     },
     /** The member this socket proved, while that still counts. */
@@ -89,6 +110,14 @@ export function orgStanding(deps: {
         return undefined;
       }
       held.checkedAt = deps.now();
+      if (held.grant !== undefined) {
+        confirmed.delete(held.grant);
+        confirmed.set(held.grant, held.checkedAt);
+        for (const grant of confirmed.keys()) {
+          if (confirmed.size <= 8) break;
+          confirmed.delete(grant);
+        }
+      }
       return current();
     },
     /** Their role, while their standing counts. */
