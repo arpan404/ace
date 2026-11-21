@@ -46,12 +46,11 @@ export const MediaConnectRequest = z.object({
 });
 export type MediaConnectRequest = z.infer<typeof MediaConnectRequest>;
 
-/** Why a media connection wasn't made. The client keeps legacy delivery on its main socket. */
+/** Why a media connection wasn't made. The client's live views get no pictures and say why. */
 export const MediaConnectFailure = z.object({
   ok: z.literal(false),
   /**
-   * `unavailable` (ace-media isn't serving viewers: `media.delivery` is `legacy`, or it isn't
-   * healthy), `limit` (too many connections), `refused` (this session may not view). An open
+   * `unavailable` (ace-media isn't serving viewers: it isn't running or isn't healthy), `limit` (too many connections), `refused` (this session may not view). An open
    * string, so a later code still parses.
    */
   code: z.string().min(1).max(64),
