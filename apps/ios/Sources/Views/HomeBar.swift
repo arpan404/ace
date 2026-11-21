@@ -3,9 +3,9 @@ import SwiftUI
 /// The phone's tab bar, drawn by ace in the iPad sidebar foot's system (`SidebarPlaces`): the
 /// places the home screen switches between (Projects, Chats, Spade while a machine shows it,
 /// Search) in one glass capsule, each glyph over its name as iOS labels its tabs, the one
-/// showing on a filled capsule; then New thread (New chat on Chats) in a round capsule of its
-/// own. Spade's tab is its full face, moving while a Spade bot works, which the system's bar
-/// can't draw. It sits along the foot of each place's first page and steps away with it for a
+/// showing on a filled capsule that glides under a finger sliding along the bar (`GlidingPlaces`);
+/// then New thread (New chat on Chats) in a round capsule of its own. Spade's tab is its full
+/// face, moving while a Spade bot works, which the system's bar can't draw. It sits along the foot of each place's first page and steps away with it for a
 /// pushed page, Select mode or the keyboard.
 struct HomeBar: View {
     @Binding var tab: InboxTab
@@ -19,7 +19,6 @@ struct HomeBar: View {
     /// a long press shows each in the Large Content Viewer instead.
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var keyboard = false
-    @Namespace private var fill
 
     var body: some View {
         Group {
@@ -37,58 +36,49 @@ struct HomeBar: View {
     }
 
     private var places: some View {
-        HStack(spacing: AceTheme.Spacing.none) {
-            ForEach(HomeTabs.footPlaces(spade: showsSpade), id: \.self) { place in item(place) }
+        GlidingPlaces(places: HomeTabs.footPlaces(spade: showsSpade), chosen: tab, spacing: AceTheme.Spacing.none) { place, lit in
+            item(place, lit: lit)
+        } select: { place in
+            // Tapped again, the place showing goes back to its top, as the system's tabs do. Set
+            // anyway: Search's own choice turns a second tap into focusing its field.
+            if tab == place { retap?.ask(place) }
+            tab = place
         }
-        // Only the chosen fill slides; the page it opens shows at once.
-        .animation(.default, value: tab)
-        .padding(AceDesign.Size.tabInset)
         .barGlass(in: AceShape.capsule)
         .floatingShadow()
     }
 
-    private func item(_ place: InboxTab) -> some View {
-        let chosen = tab == place
-        let dot = !chosen && needsYou(place)
-        return Button {
-            // Tapped again, the place showing goes back to its top, as the system's tabs do. Set
-            // anyway: Search's own choice turns a second tap into focusing its field.
-            if chosen { retap?.ask(place) }
-            tab = place
-        } label: {
-            VStack(spacing: AceTheme.Spacing.none) {
-                HomePlaceGlyph(place: place, chosen: chosen)
-                    .overlay(alignment: .topTrailing) {
-                        if dot {
-                            Circle().fill(AceTheme.RowStatus.needsYou)
-                                .frame(width: AceDesign.Size.dotSmall, height: AceDesign.Size.dotSmall)
-                                .offset(x: AceDesign.Space.tight, y: -AceDesign.Space.tight / 2)
-                        }
+    /// A place's glyph over its name, filled while it shows or the finger is over it
+    /// (`GlidingPlaces`, which draws the chosen fill behind and takes the touches).
+    private func item(_ place: InboxTab, lit: Bool) -> some View {
+        let dot = tab != place && needsYou(place)
+        return VStack(spacing: AceTheme.Spacing.none) {
+            HomePlaceGlyph(place: place, chosen: lit)
+                .overlay(alignment: .topTrailing) {
+                    if dot {
+                        Circle().fill(AceTheme.RowStatus.needsYou)
+                            .frame(width: AceDesign.Size.dotSmall, height: AceDesign.Size.dotSmall)
+                            .offset(x: AceDesign.Space.tight, y: -AceDesign.Space.tight / 2)
                     }
-                if !typeSize.isAccessibilitySize {
-                    Text(HomeTabs.title(place))
-                        .aceFont(AceDesign.TextRole.caption)
-                        .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
-                        .foregroundStyle(chosen ? AceDesign.Ink.primary : AceDesign.Ink.muted)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
                 }
+            if !typeSize.isAccessibilitySize {
+                Text(HomeTabs.title(place))
+                    .aceFont(AceDesign.TextRole.caption)
+                    .fontWeight(lit ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
+                    .foregroundStyle(lit ? AceDesign.Ink.primary : AceDesign.Ink.muted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .padding(.vertical, AceDesign.Space.tight)
-            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
-            .background {
-                if chosen { AceShape.capsule.fill(AceDesign.Surface.fill).matchedGeometryEffect(id: "chosen", in: fill) }
-            }
-            .contentShape(AceShape.capsule)
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, AceDesign.Space.tight)
+        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
+        .accessibilityElement(children: .ignore)
         .accessibilityShowsLargeContentViewer {
-            HomePlaceGlyph(place: place, chosen: chosen)
+            HomePlaceGlyph(place: place, chosen: lit)
             Text(HomeTabs.title(place))
         }
         .accessibilityLabel(HomeTabs.title(place))
         .accessibilityValue(dot ? "Needs you" : "")
-        .accessibilityAddTraits(chosen ? [.isSelected, .isButton] : .isButton)
         .accessibilityIdentifier("tab.\(HomeTabs.identifier(place))")
     }
 
