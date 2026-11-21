@@ -217,7 +217,10 @@ export function chainStanding(
  * A registry version's manifest, verified against the organization's chain: signed by one of
  * its keys and naming that registry. Throws `SignatureError`.
  */
-export function verifyRegistryManifest(signed: unknown, chain: VerifiedChain): VersionManifest {
+export function verifyRegistryManifest(
+  signed: unknown,
+  chain: Pick<VerifiedChain, "org" | "keys">,
+): VersionManifest {
   const manifest = verifyManifest(signed, { keys: chain.keys });
   if (manifest.registry !== chain.org)
     throw new SignatureError("The manifest wasn't signed for this registry");

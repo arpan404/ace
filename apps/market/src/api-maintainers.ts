@@ -163,7 +163,7 @@ export async function maintainerRoute(
 }
 
 /** A hold, release or block changes what counts against the owner's quota: reconcile it. */
-async function usageChanged(
+export async function usageChanged(
   context: Context,
   catalogue: D1Database,
   key: { type: string; name: string },

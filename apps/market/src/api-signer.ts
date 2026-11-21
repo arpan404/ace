@@ -154,7 +154,8 @@ async function signVersion(request: Request, key: VersionKey, context: Context) 
   }
   const db = context.dbs.catalogue(key.type);
   const stored = db ? await versionForSigning(db, key) : undefined;
-  if (!db || !stored) return notFound();
+  // An organization's version is signed by its own registry key only (ADR 0206 §5.2).
+  if (!db || !stored || stored.audience !== "public") return notFound();
   // A held or blocked version waits for a maintainer, whatever the signer says.
   if (stored.state !== "pending" && stored.state !== "listed")
     return failure(409, "conflict", `That version is ${stored.state}; a maintainer decides it.`);

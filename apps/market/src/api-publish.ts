@@ -45,6 +45,7 @@ import {
   scanWithin,
 } from "./store/me-scan.ts";
 import { handleTaken } from "./store/profiles.ts";
+import { claimForOrg } from "./store/registries.ts";
 import {
   addWithdrawal,
   claimPublisher,
@@ -144,7 +145,7 @@ async function storeScanned(
 }
 
 /** The publisher's own handle check on a first publish: the rules, then lookalikes taken. */
-async function handleRefusal(db: D1Database, handle: string, self?: string) {
+export async function handleRefusal(db: D1Database, handle: string, self?: string) {
   const problem = handleProblem(handle, { official: false });
   if (problem) return refused([problem]);
   if (await handleTaken(db, handle, skeleton(handle), self))
@@ -160,7 +161,7 @@ export async function publish(
 ): Promise<Response> {
   const db = context.dbs.catalogue(key.type);
   const publishers = context.dbs.publishers;
-  const authed = await authenticate(request, context);
+  const authed = await authenticate(request, context, { org: "publisher" });
   if (authed instanceof Response) return authed;
   if (!db) return notOffered();
   const version = MarketVersion.safeParse(url.searchParams.get("version")).data;
@@ -181,6 +182,12 @@ export async function publish(
   }
   const owner = await ownerOf(db, key.type, key.name);
   if (owner !== undefined && owner !== publisher?.id) return notYours();
+  // A registry's entry is the organization's from its first version on: unlisted and read by
+  // its members only, whichever path (a version now, a draft that scans on) stores it.
+  if (authed.org !== undefined && publisher && owner === undefined) {
+    await ensureCopy(context.dbs, db, publisher.id, context.now);
+    await claimForOrg(db, { ...key, publisher: publisher.id, org: authed.org });
+  }
 
   const body = await readCapped(request, maxArchiveBytes);
   if (!body) return failure(413, "too_large", `An archive is at most ${maxArchiveBytes} bytes.`);

@@ -3,6 +3,7 @@ import {
   MarketEntryName,
   MarketEntryType,
   MarketHash,
+  MarketOrgId,
   MarketPublisherName,
   MarketReportId,
   MarketTransferId,
@@ -96,7 +97,19 @@ export type Route =
   | { kind: "signer-notices" }
   | { kind: "signer-reports" }
   | { kind: "signer-report"; id: string }
-  | { kind: "signer-appeal"; id: string };
+  | { kind: "signer-appeal"; id: string }
+  // An organization's private registry (ADR 0206 §5): its owners and members by market grant,
+  // its signer by the registry key.
+  | { kind: "org-registry"; org: string }
+  | { kind: "org-keys"; org: string }
+  | { kind: "org-key-add"; org: string }
+  | { kind: "org-entries"; org: string }
+  | { kind: "org-signer-pending"; org: string }
+  | { kind: "org-signer-scan-context"; org: string }
+  | { kind: "org-signer-object"; org: string; hash: string }
+  | ({ kind: "org-signer-version"; org: string } & VersionKey)
+  | ({ kind: "org-signer-hold"; org: string } & VersionKey)
+  | ({ kind: "org-signer-block"; org: string } & VersionKey);
 
 export type Matched = { route: Route } | { refused: 404 | 405 };
 /** The routes one path names, by method. */
@@ -110,6 +123,7 @@ export const handle = (value: string | undefined) => MarketPublisherName.safePar
 export const draftId = (value: string | undefined) => MarketDraftId.safeParse(value).data;
 export const transferId = (value: string | undefined) => MarketTransferId.safeParse(value).data;
 export const reportId = (value: string | undefined) => MarketReportId.safeParse(value).data;
+export const orgId = (value: string | undefined) => MarketOrgId.safeParse(value).data;
 export const appealId = (value: string | undefined) =>
   value !== undefined && /^apl_[a-z0-9]{8,40}$/.test(value) ? value : undefined;
 

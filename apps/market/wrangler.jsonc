@@ -59,6 +59,14 @@
       "database_id": "00000000-0000-4000-8000-000000000008",
       "migrations_dir": "migrations/lists",
     },
+    // Organizations' private registries (ADR 0206 §5.1). Not in production yet: until it is
+    // created there, the Worker has no registries and answers their routes 404.
+    {
+      "binding": "MARKET_ORGS",
+      "database_name": "ace-market-orgs",
+      "database_id": "00000000-0000-4000-8000-000000000009",
+      "migrations_dir": "migrations/orgs",
+    },
   ],
   // Each version's archive, at objects/<content hash>, written once.
   "r2_buckets": [{ "binding": "OBJECTS", "bucket_name": "ace-market-objects" }],

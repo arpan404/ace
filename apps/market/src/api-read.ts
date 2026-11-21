@@ -5,7 +5,15 @@ import { entryPage, featuredEntries, indexBody, parseSince, searchInput } from "
 import { etagOf, failure, notFound } from "./http.ts";
 import { searchSort, searchSorted } from "./store/discover.ts";
 import { countDownload } from "./store/downloads.ts";
-import { categories, listedWithHash, signedVersion, withdrawnList } from "./store/read.ts";
+import {
+  categories,
+  listedWithHash,
+  signedVersion,
+  withdrawnList,
+  type ListedCopy,
+} from "./store/read.ts";
+import { mayRead, privateHeaders } from "./registry-access.ts";
+import { audienceOf } from "./store/registries.ts";
 
 /*
  * The catalog API (ADR 0168 §3, ADR 0174 §6): no sign-in, no cookie, and nothing kept about who
@@ -16,11 +24,14 @@ import { categories, listedWithHash, signedVersion, withdrawnList } from "./stor
 
 const revalidate = { "cache-control": "public, max-age=0, must-revalidate" };
 
-/** JSON with a strong ETag; 304 when the caller already has these bytes. */
-async function tagged(request: Request, body: unknown): Promise<Response> {
+/**
+ * JSON with a strong ETag; 304 when the caller already has these bytes. A registry's answer
+ * (`members`) is never kept by a shared cache.
+ */
+async function tagged(request: Request, body: unknown, members = false): Promise<Response> {
   const text = JSON.stringify(body);
   const etag = await etagOf(text);
-  const headers = { ...revalidate, etag };
+  const headers = { ...(members ? privateHeaders : revalidate), etag };
   if (request.headers.get("if-none-match") === etag)
     return new Response(null, { status: 304, headers });
   return new Response(text, {
@@ -59,15 +70,18 @@ export async function readRoute(
       });
     }
     case "entry": {
+      const audience = await readable(request, route, context);
+      if (audience === undefined) return notFound();
       const page = await entryPage(dbs, route.type, route.name);
       if (!page) return notFound();
       const { row: _row, ...body } = page;
-      return tagged(request, body);
+      return tagged(request, body, audience !== "public");
     }
     case "version": {
       const db = dbs.catalogue(route.type);
-      const signed = db ? await signedVersion(db, route) : undefined;
-      return signed ? tagged(request, signed) : notFound();
+      const audience = await readable(request, route, context);
+      const signed = db && audience !== undefined ? await signedVersion(db, route) : undefined;
+      return signed ? tagged(request, signed, audience !== "public") : notFound();
     }
     case "withdrawn": {
       const list = await withdrawnList(dbs.lists);
@@ -80,12 +94,43 @@ export async function readRoute(
   }
 }
 
+/**
+ * The entry's audience when this request may read it; undefined for no entry or one of a
+ * registry the caller isn't a member of, which read alike.
+ */
+async function readable(
+  request: Request,
+  key: { type: string; name: string },
+  context: Context,
+): Promise<string | undefined> {
+  const db = context.dbs.catalogue(key.type);
+  const audience = db ? await audienceOf(db, key.type, key.name) : undefined;
+  if (audience === undefined) return undefined;
+  return (await mayRead(request, context, audience)) ? audience : undefined;
+}
+
+/** The copies this request may read: every public one, and a registry's for its members. */
+async function readableCopies(request: Request, copies: ListedCopy[], context: Context) {
+  if (copies.some((copy) => copy.audience === "public")) return { copies, members: false };
+  const audiences = [...new Set(copies.map((copy) => copy.audience))];
+  const allowed = new Set<string>();
+  for (const audience of audiences)
+    if (await mayRead(request, context, audience)) allowed.add(audience);
+  return { copies: copies.filter((copy) => allowed.has(copy.audience)), members: true };
+}
+
 async function object(request: Request, hash: string, context: Context): Promise<Response> {
-  const copies = await listedWithHash(context.dbs, hash);
+  const { copies, members } = await readableCopies(
+    request,
+    await listedWithHash(context.dbs, hash),
+    context,
+  );
   if (copies.length === 0) return notFound();
   const headers = {
     "content-type": "application/x-tar",
-    "cache-control": "public, max-age=31536000, immutable",
+    "cache-control": members
+      ? privateHeaders["cache-control"]
+      : "public, max-age=31536000, immutable",
     etag: `"${hash}"`,
   };
   if (request.headers.get("if-none-match") === headers.etag)

@@ -23,6 +23,9 @@ export interface GrantOptions {
   action?: string;
   /** Overrides the kind `action` implies: a machine's grant naming a request, say. */
   kind?: "machine" | "device";
+  /** Acting in this organization, with this role in it (ADR 0206 §5.1). */
+  org?: string;
+  orgRole?: string;
 }
 
 /**
@@ -51,6 +54,8 @@ export function grantFor(account: string, options: GrantOptions = {}) {
       account,
       subject: options.action === undefined ? "host-a" : "phone",
       ...(options.action === undefined ? {} : { action: options.action }),
+      ...(options.org === undefined ? {} : { org: options.org }),
+      ...(options.orgRole === undefined ? {} : { orgRole: options.orgRole }),
       iss: options.iss ?? "cloud.acehq.dev",
       emailVerified: options.emailVerified ?? true,
       authAt: options.authAt ?? Date.now(),

@@ -13,6 +13,7 @@
     "./image": "./src/image.ts",
     "./signer": "./src/signer.ts",
     "./registry": "./src/registry.ts",
+    "./registry-io": "./src/registry-io.ts",
     "./testing": "./src/testing.ts"
   },
   "scripts": {
