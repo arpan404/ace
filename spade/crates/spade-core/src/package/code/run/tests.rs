@@ -112,3 +112,84 @@ fn switch_keys_and_tool_names_read_back() {
     assert!(is_tool(&tool_name("fares", "cheapest")));
     assert_eq!(tool_name("fares", "cheapest"), "code_fares_cheapest");
 }
+
+mod routes {
+    use crate::autonomy::Mode;
+    use crate::effect::ceiling::{Ceiling, Effects};
+    use crate::effect::{Effect, Granted, Route};
+    use crate::package::code::run::{CodeCall, route};
+    use crate::tools::Risk;
+
+    fn call(tool: &'static str, risk: Risk, effect: Effect) -> CodeCall<'static> {
+        CodeCall {
+            tool,
+            risk,
+            effect: Some(effect),
+            tainted: false,
+            mode: Mode::AutoReview,
+            ceiling: None,
+            granted: Granted::No,
+            checkpointed: false,
+            credentials: false,
+            target: None,
+        }
+    }
+
+    fn ceiling(allows: &[Effect]) -> Option<Ceiling<'static>> {
+        Some(Ceiling {
+            bot: "Fares",
+            allows: allows.iter().copied().collect::<Effects>(),
+        })
+    }
+
+    fn asks(route: &Route) -> bool {
+        matches!(route, Route::Ask { .. })
+    }
+
+    #[test]
+    fn a_read_runs_and_a_send_from_code_goes_to_the_person_in_every_mode() {
+        assert_eq!(
+            route(call("memory_search", Risk::Read, Effect::Read)),
+            Route::Run
+        );
+        for mode in [Mode::AutoReview, Mode::FullAccess] {
+            let send = CodeCall {
+                mode,
+                ceiling: ceiling(&[Effect::SendAsPerson]),
+                // Even a grant of the person's doesn't carry to code under a ceiling.
+                granted: Granted::Typed,
+                ..call("send_message", Risk::Write, Effect::SendAsPerson)
+            };
+            assert!(asks(&route(send)), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn the_ceiling_holds_code_in_full_access() {
+        for mode in [Mode::AutoReview, Mode::FullAccess] {
+            let send = CodeCall {
+                mode,
+                ceiling: ceiling(&[Effect::Read]),
+                ..call("send_message", Risk::Write, Effect::SendAsPerson)
+            };
+            assert!(matches!(route(send), Route::Refuse(_)), "{mode:?}");
+            let network = CodeCall {
+                mode,
+                ceiling: ceiling(&[]),
+                ..call("bot_message", Risk::Write, Effect::Network)
+            };
+            assert!(matches!(route(network), Route::Refuse(_)), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn what_a_reviewer_would_read_goes_to_the_person_and_credentials_are_refused() {
+        let network = call("bot_message", Risk::Write, Effect::Network);
+        assert!(asks(&route(network)));
+        let secrets = CodeCall {
+            credentials: true,
+            ..call("workspace_read", Risk::Read, Effect::Read)
+        };
+        assert!(matches!(route(secrets), Route::Refuse(_)));
+    }
+}

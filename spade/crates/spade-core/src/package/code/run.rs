@@ -232,5 +232,68 @@ pub fn asks_more(old: Option<&Code>, new: &Code) -> bool {
     old.is_none_or(|old| new.imports.iter().any(|i| !old.imports.contains(i)))
 }
 
+/// What Spade knows about one `tools` call a component makes, for [`route`].
+#[derive(Debug, Clone, Copy)]
+pub struct CodeCall<'a> {
+    pub tool: &'a str,
+    pub risk: crate::tools::Risk,
+    /// The called tool's effect, as it declares it.
+    pub effect: Option<crate::effect::Effect>,
+    /// Anything untrusted is in view: the call's input, an `http` answer, a tool's untrusted
+    /// result, or the turn's prompt.
+    pub tainted: bool,
+    pub mode: crate::autonomy::Mode,
+    pub ceiling: Option<crate::effect::ceiling::Ceiling<'a>>,
+    pub granted: crate::effect::Granted,
+    /// A file write a checkpoint taken now can undo.
+    pub checkpointed: bool,
+    /// Its arguments name a place where sign-ins live.
+    pub credentials: bool,
+    /// Where a send or push goes, for the request's line.
+    pub target: Option<&'a str>,
+}
+
+/// Where a `tools` call from code goes (ADR 0203 §2): the gate's own route for one of Spade's
+/// tools run by Spade, the package's ceiling first and in every mode. Nothing the person answered
+/// before carries to code (no Always allow, no kept answer), so a send, a payment or an access
+/// change from code is theirs each time; and no reviewer or classifier reads code's calls, so
+/// what would go to one goes to the person ([`Route::Ask`]). [`call_refusal`] is checked first.
+pub fn route(call: CodeCall<'_>) -> crate::effect::Route {
+    use crate::effect::{self, Place, Route};
+    let gate = effect::Call {
+        tool: call.tool,
+        rule: crate::gate::decide(call.risk, false, call.tainted),
+        risk: call.risk,
+        always: false,
+        effect: call.effect,
+        remembered: None,
+        place: Place::Host,
+        tainted: call.tainted,
+        credentials: call.credentials,
+        standing: crate::autonomy::STANDING.contains(&call.tool),
+        fits: true,
+        granted: call.granted,
+        checkpointed: call.checkpointed,
+        target: call.target,
+        drive: effect::Drive::default(),
+        mode: call.mode,
+        remote: false,
+        classifier: false,
+        ceiling: call.ceiling,
+        command: None,
+        destructive: false,
+    };
+    match effect::route(gate) {
+        Route::Review(concern) => Route::Ask {
+            line: concern.unwrap_or_else(|| NO_REVIEWER.to_owned()),
+            ask: None,
+        },
+        route => route,
+    }
+}
+
+/// Why the person decides a call code makes that Spade's reviewer would otherwise have read.
+pub const NO_REVIEWER: &str = "Spade's reviewer doesn't read the calls code makes, so you decide.";
+
 #[cfg(test)]
 mod tests;

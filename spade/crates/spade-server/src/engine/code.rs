@@ -23,7 +23,6 @@ use serde_json::Value;
 use spade_core::autonomy;
 use spade_core::effect::{self, Effect, Place, Route};
 use spade_core::event::{Authorized, Known};
-use spade_core::gate;
 use spade_core::package::code::Code as Entry;
 use spade_core::package::code::run::{self as code_run, Stop};
 use spade_core::{Event, Transcript};
@@ -280,49 +279,32 @@ impl Engine {
             .await;
         let ceiling = self.ceiling(at.conversation);
         let target = spade_core::outward::target(name, &arguments);
-        let call = effect::Call {
+        let routed = code_run::route(code_run::CodeCall {
             tool: name,
-            // No Always allow of the person's carries to code.
-            rule: gate::decide(def.risk, false, tainted),
             risk: def.risk,
-            always: false,
             effect: declared,
-            remembered: None,
-            place: Place::Host,
             tainted,
-            credentials: autonomy::reaches_credentials(&arguments),
-            standing: autonomy::STANDING.contains(&name),
-            fits: true,
-            granted: self.granted(at.conversation, name, &arguments, declared),
-            checkpointed,
-            target: target.as_deref(),
-            drive: effect::Drive::default(),
             mode: self.autonomy(at.conversation),
-            remote: false,
-            // Code's calls aren't screened: what the gate wouldn't run on its rules alone goes to
-            // the person.
-            classifier: false,
             ceiling: ceiling
                 .as_ref()
                 .map(|(bot, allows)| effect::ceiling::Ceiling {
                     bot,
                     allows: *allows,
                 }),
-            command: None,
-            destructive: false,
-        };
-        match effect::route(call) {
+            granted: self.granted(at.conversation, name, &arguments, declared),
+            checkpointed,
+            credentials: autonomy::reaches_credentials(&arguments),
+            target: target.as_deref(),
+        });
+        match routed {
             Route::Run => {}
             Route::Refuse(why) => return Err(autonomy::refused(&why)),
-            Route::Ask { line, .. } => {
+            Route::Ask { line, .. } | Route::Review(Some(line)) => {
                 self.ask_for_code(at, name, &arguments, &line, tally)
-                    .await?
+                    .await?;
             }
-            Route::Review(concern) => {
-                let line = concern.unwrap_or_else(|| {
-                    "Spade's reviewer doesn't read code's calls, so you decide.".to_owned()
-                });
-                self.ask_for_code(at, name, &arguments, &line, tally)
+            Route::Review(None) => {
+                self.ask_for_code(at, name, &arguments, code_run::NO_REVIEWER, tally)
                     .await?;
             }
         }
