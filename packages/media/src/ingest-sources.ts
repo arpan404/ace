@@ -7,6 +7,7 @@ import {
   type SourceKind,
   type SourceRoute,
 } from "./routes.ts";
+import type { MediaStill, StillRequest } from "./stills.ts";
 import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
 /**
@@ -126,6 +127,8 @@ export type IngestSourcesOptions = {
    * ace-media follow it (D1).
    */
   onLive?: (producer: IngestProducer, path: string | undefined) => void;
+  /** Agents' stills of sources ace-media has; absent, every still is the source's own. */
+  stills?: SourceStills;
   /** A source's `source.status.acceleration`; undefined once its path ends. */
   acceleration?: (
     subject: AccelerationSubject,
@@ -243,6 +246,18 @@ const pageMessage = (source: string, page: IngestPage) =>
     scale: page.scale,
   }) as const;
 
+/** An agent's still of a source, as its owner asks: ace-media names the source and the fence. */
+export type SourceStill = Omit<StillRequest, "source" | "minEpoch">;
+
+/** How a still is taken of a source ace-media has (`MediaStills.take`). */
+export type SourceStills = {
+  take<T>(
+    request: StillRequest,
+    capture: () => Promise<T>,
+    adopt: (still: MediaStill) => T,
+  ): Promise<T>;
+};
+
 export type IngestSource = {
   /** The producer streams to ace-media now. */
   streaming(): boolean;
@@ -269,6 +284,19 @@ export type IngestSource = {
    * private, so pictures read in the next 100 ms keep that one and nothing from it is a still.
    */
   epoch?(epoch: number, followsPrivate: boolean): void;
+  /**
+   * An agent's still: ace-media's, of the picture it has, fenced on the newest public epoch it
+   * was told (`still.take` `minEpoch`), so nothing from before a privacy change is the still.
+   * The source's own `capture` answers instead whenever ace-media can't: the source isn't
+   * streaming there, it is private now, a privacy change hasn't reached ace-media yet, or
+   * ace-media fails the still (its CPU still path decodes JPEG only, so an H.264 source's
+   * still on Linux or Windows comes back `decode-unavailable`) or misses the deadline.
+   */
+  still?<T>(
+    request: SourceStill,
+    capture: () => Promise<T>,
+    adopt: (still: MediaStill) => T,
+  ): Promise<T>;
   close(): void;
 };
 
@@ -338,6 +366,19 @@ export class IngestSources {
         if (!live) return;
         entry.held.push({ epoch, followsPrivate });
         if (live.acknowledged) this.#announce(entry, live);
+      },
+      still: (request, capture, adopt) => {
+        const live = entry.live;
+        const stills = this.#options.stills;
+        if (
+          !stills ||
+          !live ||
+          entry.state !== "ingest" ||
+          entry.producer.private?.() === true ||
+          entry.held.length > 0
+        )
+          return capture();
+        return stills.take({ ...request, source: live.id, minEpoch: live.epoch }, capture, adopt);
       },
       close: () => this.#close(entry),
     };

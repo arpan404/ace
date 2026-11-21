@@ -1,3 +1,4 @@
+import type { DeviceShot } from "./one-off-screenshot.ts";
 import { simulatorCapture } from "./simulator-capture.ts";
 import type { DeviceInput } from "@ace/protocol/devices";
 import { deviceWindowBundles, type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
@@ -29,6 +30,12 @@ export interface DeviceCapture extends Capture {
    * stream of them (`deviceStillStream`).
    */
   still?(): Promise<void>;
+  /**
+   * An agent's still from ace-media, while the capture streams there (a live view): fenced on
+   * the newest public epoch (`still.take` `minEpoch`) and fitted by ace-media inside the frame's
+   * 1920×2160 bound. Undefined when ace-media can't make it; the device's own screenshot then.
+   */
+  mediaStill?(): Promise<DeviceShot | undefined>;
   /** Pointer input may carry fingers other than the first. */
   readonly multiTouch?: boolean;
   /** Accessibility served by the capture's own transport rather than the screen helper. */

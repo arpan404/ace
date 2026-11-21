@@ -3,6 +3,7 @@ import { framePacket, type Frame } from "@ace/screen";
 import type { ScreenLegacyFrameHeader, ScreenStreamSettings } from "@ace/protocol";
 import type { AppDevice } from "@ace/protocol/devices";
 import type { DeviceCapture } from "./capture.ts";
+import type { DeviceShot } from "./one-off-screenshot.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 import { SimulatorInput } from "./simulator-input.ts";
 import { SimulatorJpeg } from "./simulator-jpeg.ts";
@@ -23,6 +24,18 @@ const Endpoint = z.object({
   streamUrl: z.string().max(4096),
   wsUrl: z.string().max(4096),
 });
+/**
+ * An agent's still from ace-media: inside the frame packet's bounds (a portrait phone fitted to
+ * 2160 high), which ace-media scales to, never the daemon. A late one gives way to `simctl`.
+ */
+const agentStill = {
+  maxWidth: 1920,
+  maxHeight: 2160,
+  maxPixels: 1920 * 2160,
+  quality: 80,
+  deadlineMs: 1_500,
+};
+
 /** serve-sim announces the screen's size and orientation on its control socket (tag 130). */
 const ScreenConfig = z.object({
   width: z.number().int().positive().max(16384),
@@ -525,6 +538,22 @@ export async function simulatorCapture(options: {
       still: async () => {
         controller.signal.throwIfAborted();
         if (mode === "jpeg") await jpeg?.replay();
+      },
+      // ace-media has serve-sim's stream while a view watches: the still is its, scaled there.
+      mediaStill: async () => {
+        controller.signal.throwIfAborted();
+        if (!paths || !fromMedia) return undefined;
+        const size = native;
+        return paths.still<DeviceShot | undefined>(
+          agentStill,
+          () => Promise.resolve(undefined),
+          (made) => ({
+            payload: Buffer.from(made.jpeg),
+            width: made.width,
+            height: made.height,
+            scale: size ? made.width / size.width : 1,
+          }),
+        );
       },
       keyframe: async () => {
         controller.signal.throwIfAborted();

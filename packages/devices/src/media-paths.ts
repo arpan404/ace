@@ -6,8 +6,10 @@ import {
   type IngestSource,
   type Origin,
   type StopStatus,
+  type SourceStill,
 } from "@ace/media/ingest-sources";
 import { PathMerge } from "@ace/media/path-merge";
+import type { MediaStill } from "@ace/media/stills";
 import { readProducerStamp } from "@ace/media/producer-stamp";
 import type { SourceKind } from "@ace/media/routes";
 import type { ScreenStreamSettings } from "@ace/protocol";
@@ -188,6 +190,19 @@ export class DeviceVideoPaths {
     if (this.#closed || this.#onPath === offPath) return false;
     this.#source.key(0);
     return true;
+  }
+
+  /**
+   * An agent's still of the source from ace-media while it streams there, fenced on the newest
+   * public epoch; `capture`, the device's own, whenever ace-media can't make it.
+   */
+  still<T>(
+    request: SourceStill,
+    capture: () => Promise<T>,
+    adopt: (still: MediaStill) => T,
+  ): Promise<T> {
+    if (this.#closed || !this.#source.still) return capture();
+    return this.#source.still(request, capture, adopt);
   }
 
   /** The encodes ace-media runs for this source (a Simulator it re-encodes for a viewer). */

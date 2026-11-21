@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
-import type { IngestProducer } from "@ace/media/ingest-sources";
+import type { IngestProducer, SourceStill } from "@ace/media/ingest-sources";
 import { encodeProducerStamp } from "@ace/media/producer-stamp";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { DevicesService } from "./index.ts";
@@ -32,6 +32,8 @@ const video = {
 /** ace-media at the devices' edge: records each producer; nothing streams on its own. */
 function standIn() {
   const producers: IngestProducer[] = [];
+  /** Stills asked of ace-media, and whether it makes them (else the source's own capture). */
+  const stills: { asked: SourceStill[]; makes: boolean } = { asked: [], makes: false };
   const media: DeviceMedia = {
     attach: (producer) => {
       producers.push(producer);
@@ -41,6 +43,19 @@ function standIn() {
         codecs: () => {},
         encodes: () => {},
         key: () => {},
+        still: (request, capture, adopt) => {
+          stills.asked.push(request);
+          if (!stills.makes) return capture();
+          // ace-media's still, scaled inside the request's box.
+          return Promise.resolve(
+            adopt({
+              jpeg: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+              width: 993,
+              height: 2160,
+              steps: [],
+            }),
+          );
+        },
         close: () => {},
       };
     },
@@ -52,6 +67,7 @@ function standIn() {
   };
   return {
     media,
+    stills,
     async stream() {
       await last().point({ url: "", socket: "", token: new Uint8Array(32), epoch: 0, path: "p1" });
     },
@@ -153,4 +169,23 @@ it("an agent's screenshot while the live view waits for ace-media's first pictur
   const shot = await d.service.screenshot(ios, person);
   expect(d.platform.shots.length).toBe(before + 1);
   expect(shot.header).toMatchObject({ codec: "jpeg", width: 300, height: 600 });
+});
+
+it("an agent's still of a watched Simulator is ace-media's, inside the frame's 2160-pixel bound, and the device's own when ace-media can't make it", async () => {
+  const ace = standIn();
+  const d = await simulator(ace.media);
+  await d.service.request({ op: "stream.configure", deviceId: ios, settings: video }, person);
+  await ace.stream();
+  ace.keyframe();
+  ace.stills.makes = true;
+  const before = d.platform.shots.length;
+  const made = await d.service.screenshot(ios, person);
+  expect(made.header).toMatchObject({ codec: "jpeg", width: 993, height: 2160 });
+  expect(ace.stills.asked.at(-1)).toMatchObject({ maxWidth: 1920, maxHeight: 2160 });
+  expect(d.platform.shots.length).toBe(before);
+  // ace-media can't make it (on Linux its still path decodes JPEG only): simctl's screenshot.
+  ace.stills.makes = false;
+  const own = await d.service.screenshot(ios, person);
+  expect(d.platform.shots.length).toBe(before + 1);
+  expect(own.header).toMatchObject({ codec: "jpeg", width: 300, height: 600 });
 });
