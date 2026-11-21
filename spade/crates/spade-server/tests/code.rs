@@ -190,7 +190,7 @@ async fn the_gate_refuses_code_that_reaches_the_network_when_its_network_switch_
             Script::reply("").call(
                 "c1",
                 "code_fares_http_get",
-                json!("https://api.example-fares.com/x"),
+                json!({ "u": "https://api.example-fares.com/x" }),
             ),
             Script::reply("Couldn't."),
         ],

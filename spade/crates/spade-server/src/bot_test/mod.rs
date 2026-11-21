@@ -6,6 +6,10 @@
 //! takes, as a linked bot with its switches on (the developer is the person), and the person's
 //! part of each approval is answered yes. What happened is read from the conversation's events
 //! and checked by [`spade_core::package::scenario::check`].
+//!
+//! A package's own code runs for real (ADR 0203 §6): its components install with it and run on
+//! a worker in the sandbox, offline; their `http` requests are answered by the scenario's
+//! `http:<host>` fakes, and their `tools` calls reach the same tools as the model's.
 
 mod fakes;
 mod observe;
@@ -105,6 +109,18 @@ pub async fn run(folder: &Path) -> Report {
             })
             .collect();
     let pages = Value::Object(pages);
+    // Its components install with it, as the daemon sends them.
+    let code: serde_json::Map<String, Value> = manifest
+        .code
+        .iter()
+        .filter_map(|entry| {
+            use base64::Engine as _;
+            let bytes = std::fs::read(folder.join(&entry.file)).ok()?;
+            let text = base64::engine::general_purpose::STANDARD.encode(bytes);
+            Some((entry.file.clone(), Value::String(text)))
+        })
+        .collect();
+    let pages = (pages, Value::Object(code));
     let triggers: Vec<&str> = manifest.routines().map(|(name, _, _)| name).collect();
     for file in &manifest.tests {
         let scenario = std::fs::read_to_string(folder.join(file))
@@ -220,7 +236,7 @@ fn toolbox(scenario: &Scenario, workspace: &Path, bots: &EngineHandle) -> Toolbo
             .unwrap_or_default();
         tools.push(fakes::Fake::new(&name, answers));
     }
-    Toolbox::new(tools)
+    Toolbox::new(tools).with_source(Arc::new(crate::code::tools::CodeTools::new(bots.clone())))
 }
 
 /// The model's steps as the fake answers them; titles and other plain calls get a title.
@@ -306,6 +322,7 @@ impl Throwaway {
         })?;
         bots.set(&engine);
         engine.set_security(secure(&dir, &bots).await?);
+        engine.set_code(code(&dir, scenario)?);
         crate::startup::finish(engine.clone(), None, None, crate::startup::SETTLE_DEADLINE).await?;
         engine.set_oversight(GlobalChange {
             classifier: Some(false),
@@ -366,6 +383,31 @@ impl Throwaway {
     }
 }
 
+/// The run's code: workers of this binary in the sandbox, offline, and the scenario's
+/// `http:<host>` fakes for every request.
+fn code(dir: &Path, scenario: &Scenario) -> Result<Arc<crate::code::Code>, Failure> {
+    let program = std::env::current_exe()?;
+    let runner = spade_sandbox::Runner::probe(Some(program.clone()));
+    let workers = crate::code::Workers {
+        program,
+        args: vec![spade_wasm::launch::WORKER_ARG.into()],
+        home: dir.join("home"),
+        spade_data: dir.to_path_buf(),
+        ace_data: None,
+    };
+    let fakes = crate::code::http::Fakes::new(
+        scenario
+            .tools
+            .iter()
+            .map(|(name, answers)| (name.clone(), answers.list())),
+    );
+    Ok(crate::code::Code::new(
+        &dir.join("code"),
+        crate::code::sandboxed(runner, workers),
+        Arc::new(fakes),
+    ))
+}
+
 /// The run's security service: the gate's ceiling and switches, with no sandbox to launch.
 async fn secure(
     dir: &Path,
@@ -387,11 +429,12 @@ async fn secure(
     .await)
 }
 
-/// The install body: every declared effect switched on. With no market signature the package
+/// The install body: every declared effect and every component switched on. With no market signature the package
 /// installs as a local package, linked to `local/<name>` (ADR 0200 §3.2).
-fn install(recipe: &Value, manifest: &Manifest, pages: &Value) -> Value {
+fn install(recipe: &Value, manifest: &Manifest, sent: &(Value, Value)) -> Value {
+    let (pages, code) = sent;
     let switches: serde_json::Map<String, Value> = manifest
-        .effect_keys()
+        .switch_keys()
         .into_iter()
         .map(|key| (key, Value::Bool(true)))
         .collect();
@@ -402,6 +445,7 @@ fn install(recipe: &Value, manifest: &Manifest, pages: &Value) -> Value {
         "switches": switches,
         "start_routines": false,
         "pages": pages,
+        "code": code,
     })
 }
 
@@ -409,7 +453,7 @@ fn install(recipe: &Value, manifest: &Manifest, pages: &Value) -> Value {
 async fn one(
     recipe: &Value,
     manifest: &Manifest,
-    pages: &Value,
+    pages: &(Value, Value),
     scenario: &Scenario,
 ) -> Result<Observed, Failure> {
     let fake = FakeProvider::start_turns(
@@ -439,6 +483,10 @@ async fn one(
         .await?;
     if status != 200 {
         return Err(format!("its model couldn't be set: {}", error_of(&changed)).into());
+    }
+    // Its components list their tools before the scenario starts.
+    if let (Some(code), Some(link)) = (spade.engine.code(), spade.engine.bot_package(&agent)) {
+        code.list(&agent, &link.code).await;
     }
     start(&spade, scenario, &agent, &conversation).await?;
     let events = settle(&spade, &conversation).await?;

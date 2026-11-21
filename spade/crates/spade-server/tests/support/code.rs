@@ -6,8 +6,8 @@
 //! - `echo`: answers its input;
 //! - `spin`: loops forever without yielding;
 //! - `ask_<tool>`: calls Spade's `<tool>` with its input, and answers what Spade said;
-//! - `http_get` (built with `http`): sends a GET to the URL its input (a JSON string) names, and
-//!   answers the body.
+//! - `http_get` (built with `http`): sends a GET to the URL its input names, written exactly
+//!   `{"u":"<url>"}`, and answers the body.
 
 use std::sync::Arc;
 
@@ -61,7 +61,7 @@ pub fn component(http: bool) -> Vec<u8> {
         r#"
       (if (i32.eq (local.get $op) (i32.const 104)) (then
         (call $http-send (i32.const 2900) (i32.const 3)
-          (i32.add (local.get $in) (i32.const 1)) (i32.sub (local.get $in_len) (i32.const 2))
+          (i32.add (local.get $in) (i32.const 6)) (i32.sub (local.get $in_len) (i32.const 8))
           (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 3400))
         (if (i32.eqz (i32.load8_u (i32.const 3400)))
           (then
