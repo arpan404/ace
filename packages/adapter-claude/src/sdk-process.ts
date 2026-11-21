@@ -1,9 +1,16 @@
 import { privateMcpConfig } from "@ace/mcp-server";
+import { droppedLineNotes } from "@ace/provider-kit/dropped-line-notes";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { object } from "./native.ts";
 import type { SpawnedProcess, SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
+
+function unrefSchedule(run: () => void, ms: number): () => void {
+  const timer = setTimeout(run, ms);
+  timer.unref();
+  return () => clearTimeout(timer);
+}
 
 /** SDK transport bridge; provider-kit owns the process group and all shutdowns. */
 export function spawnSdkProcess(
@@ -16,6 +23,8 @@ export function spawnSdkProcess(
     maxOutputBytes?: number;
     outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
     lease?: import("@ace/provider-kit/process").ProcessLease;
+    /** Times the dropped-stderr summaries; defaults to an unref'd timer. */
+    schedule?: (run: () => void, ms: number) => () => void;
   },
 ): SpawnedProcess {
   const args = [...options.args];
@@ -23,6 +32,11 @@ export function spawnSdkProcess(
   const encoded = configIndex > 0 ? args[configIndex] : undefined;
   const file = encoded?.startsWith("{") ? privateMcpConfig(encoded, options.cwd) : undefined;
   if (file) args[configIndex] = file.path;
+  // At most one note a second, however much stderr Claude floods.
+  const stderrDrops = droppedLineNotes({
+    note: (text) => hooks.onStderr(text),
+    schedule: hooks.schedule ?? unrefSchedule,
+  });
   let process: SupervisedProcess;
   try {
     process = (hooks.spawn ?? spawnSupervised)({
@@ -35,10 +49,7 @@ export function spawnSdkProcess(
       ...(hooks.outputFlow ? { outputFlow: hooks.outputFlow } : {}),
       maxLineBytes: 16 * 1024 * 1024,
       // MCP servers' logs pass through stderr; a long one is noted, never fatal to the turn.
-      onStderrLineDropped: (line) => {
-        if (line.phase !== "start")
-          hooks.onStderr(`ace dropped a stderr line of ${line.bytes} bytes`);
-      },
+      onStderrLineDropped: (line) => stderrDrops.dropped(line),
       ...(hooks.maxOutputBytes === undefined ? {} : { maxOutputBytes: hooks.maxOutputBytes }),
     });
   } catch (error) {
@@ -132,6 +143,7 @@ export function spawnSdkProcess(
   // The SDK observes this exit too, so the chain has no other listener to report to.
   void process.exited
     .then((exit) => {
+      stderrDrops.flush();
       file?.remove();
       options.signal.removeEventListener("abort", abort);
       exitCode = exit.code;
