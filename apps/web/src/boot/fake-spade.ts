@@ -13,6 +13,7 @@ import { seedFakeCapabilities } from "./fake-spade-capabilities.ts";
 import { seedFakeReach } from "./fake-spade-reach.ts";
 import { seedFakeRunning } from "./fake-spade-running.ts";
 import { seedFakeWork } from "./fake-spade-work.ts";
+import { seedFakeModelAccess } from "./fake-spade-models.ts";
 
 /*
  * `?fakeWorld=spade`: Spade running on This Mac with its bots, mid-trip-planning, and a bot on the
@@ -547,6 +548,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
   });
   seedFakeReach(here, now);
   seedFakeRunning(here, now);
+  seedFakeModelAccess(here, minutes);
   seedFakeCapabilities(
     here,
     (back) => {
