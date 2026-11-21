@@ -4,6 +4,7 @@ import type { MediaAccelerationStore } from "@ace/media/acceleration";
 import { IngestWriter, maxStillPictureBytes, stillPictureFrame } from "@ace/media/ingest-writer";
 import { PathMerge } from "@ace/media/path-merge";
 import type {
+  CapturePrivacy,
   CaptureEvents,
   EncodedAudio,
   EncodedChunk,
@@ -185,11 +186,11 @@ export function mediaVideoHost(
     ...inner,
     mediaKind: kind,
     supported: (codecs, width, height) => inner.supported(codecs, width, height),
-    open: async (page, width, height, events) => {
+    open: async (page, width, height, events, privacy) => {
       const endpoint = media.endpoint();
       if (endpoint && media.routed(kind)) await inner.reach?.(endpoint).catch(() => {});
       return streamed(
-        (merged) => inner.open(page, width, height, merged),
+        (merged) => inner.open(page, width, height, merged, privacy),
         kind,
         media,
         events,
@@ -363,7 +364,7 @@ function pictureHost(
     mediaKind: kind,
     supported: (codecs) =>
       Promise.resolve(media.pictureCodecs().length === 0 ? [...codecs] : codecs.filter(offered)),
-    open: async (_page, width, height, events) => {
+    open: async (_page, width, height, events, privacy) => {
       const capture = pictureCapture({
         kind,
         media,
@@ -373,6 +374,7 @@ function pictureHost(
         ids: ids(),
         limits,
         canEncode,
+        privacy: privacy ?? { epoch: 0, private: false },
       });
       if (!capture) throw new Error(mediaMissing);
       return capture;
@@ -400,6 +402,8 @@ function pictureCapture(options: {
   ids: Ids;
   limits: MediaVideoLimits;
   canEncode: (codecs: readonly string[]) => boolean;
+  /** The tab's privacy as the capture opens: the producer registers in it. */
+  privacy: CapturePrivacy;
 }): VideoCaptureHandle | undefined {
   const { events } = options;
   let renew: (() => void) | undefined;
@@ -423,8 +427,8 @@ function pictureCapture(options: {
   let writer: IngestWriter | undefined;
   /** Pictures too large for ace-media, dropped rather than sent. */
   let dropped = 0;
-  /** The tab's privacy epoch now, as the capture announced it (M8). */
-  let privacyEpoch = 0;
+  /** The tab's privacy now (M8): what the capture opened in, then each change since. */
+  let privacy = { ...options.privacy };
   const pointAt = (address: IngestAddress | undefined) => {
     // Every picture the old connection holds goes before its end; a new one starts afresh.
     writer?.finish();
@@ -459,7 +463,8 @@ function pictureCapture(options: {
     kind: options.kind,
     origin: { kind: options.kind },
     ...options.ids,
-    epoch: () => privacyEpoch,
+    epoch: () => privacy.epoch,
+    private: () => privacy.private,
     consumers: consumers((unit) => {
       const chunk = chunkOf(unit, encodeIds);
       if (open && chunk) events.chunk(chunk);
@@ -517,10 +522,10 @@ function pictureCapture(options: {
       dropped: () => dropped,
       // The tab's privacy changed: ace-media hears the epoch as a video producer's stamper
       // applies it, and a picture still waiting for room from a private epoch is never sent.
-      epoch: (epoch, followsPrivate) => {
-        privacyEpoch = epoch;
+      epoch: (next, followsPrivate) => {
+        privacy = { ...next };
         if (followsPrivate) writer?.discardWaiting();
-        opened.epoch?.(epoch, followsPrivate);
+        opened.epoch?.(next.epoch, followsPrivate);
       },
     },
     close: () => {

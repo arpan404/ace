@@ -47,8 +47,6 @@ export class LiveCapture {
   private now: () => number;
   private onFrame: (frame: BrowserFrame, epoch: number) => void;
   private privacy: () => Privacy;
-  /** The privacy epoch the video last heard (M8); -1 before the first. */
-  private announced = -1;
   private videoTimer: ReturnType<typeof setInterval> | undefined;
   private sequence = 0;
   private lastFrame = -Infinity;
@@ -320,14 +318,7 @@ export class LiveCapture {
    */
   privacyChanged(): void {
     const privacy = this.privacy();
-    if (privacy.epoch === this.announced) return;
-    // Epochs move on every change and start public (0), so a jump of two or more passed
-    // through a private one.
-    const from = Math.max(0, this.announced);
-    const followsPrivate =
-      privacy.epoch > 0 && (privacy.private !== true || privacy.epoch - from >= 2);
-    this.announced = privacy.epoch;
-    this.video.privacy(privacy.epoch, followsPrivate);
+    this.video.privacy({ epoch: privacy.epoch, private: privacy.private === true });
   }
   /**
    * Attach to the page and seed its first frame, so every viewer that joins gets pixels at
@@ -339,6 +330,8 @@ export class LiveCapture {
     const cdp = this.cdp,
       generation = this.generation;
     this.receive = (raw) => this.captureFrame(raw, cdp, generation);
+    // The video knows the tab's privacy before its first capture opens, so it opens in it.
+    this.privacyChanged();
     cdp.on("Page.screencastFrame", this.receive);
     this.attached = true;
     this.starting = true;

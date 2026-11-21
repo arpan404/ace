@@ -353,9 +353,10 @@ describe("live video routed through ace-media", () => {
         400,
         events().sink,
       );
-      handle.pictures?.epoch?.(1, false);
+      handle.pictures?.epoch?.({ epoch: 1, private: true }, false);
       // A reopen opens in the epoch the tab is in.
       expect(added[0]?.producer.epoch()).toBe(1);
+      expect(added[0]?.producer.private?.()).toBe(true);
       await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
       await until(ingest.connected);
       ingest.pause();
@@ -363,7 +364,7 @@ describe("live video routed through ace-media", () => {
       for (let n = 1; n <= 12; n++)
         handle.pictures?.push(Buffer.alloc(512 * 1024, n).toString("base64"), 1);
       // ...and the tab stops being private before it goes: it never does.
-      handle.pictures?.epoch?.(2, true);
+      handle.pictures?.epoch?.({ epoch: 2, private: false }, true);
       handle.pictures?.push(Buffer.alloc(1024, 99).toString("base64"), 2);
       ingest.resume();
       await until(() => ingest.received.some((f) => f.kind === 3 && f.payload[0] === 99));
@@ -398,6 +399,22 @@ describe("live video routed through ace-media", () => {
     expect(last?.payload[0]).toBe(12);
     expect(ingest.received.at(-1)?.kind).toBe(4);
   });
+
+  it.each(["tab-pictures", "user-tab"] as const)(
+    "a %s capture opened while the tab is private registers in the private epoch",
+    async (kind) => {
+      const { media, added } = fakeMedia({ routed: true });
+      await mediaVideoHost(fakeHost(kind, false).host, media, () => ({})).open(
+        page,
+        640,
+        400,
+        events().sink,
+        { epoch: 3, private: true },
+      );
+      expect(added[0]?.producer.epoch()).toBe(3);
+      expect(added[0]?.producer.private?.()).toBe(true);
+    },
+  );
 
   it("a tab picture too large for ace-media is dropped and counted, and the next one still goes", async () => {
     const { media, added } = fakeMedia({ routed: true });

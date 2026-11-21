@@ -88,8 +88,8 @@ export interface VideoCaptureHandle {
     height: number;
     push(base64: string, epoch: number): void;
     dropped?(): number;
-    /** The tab's privacy epoch from now on; `followsPrivate`: the one it replaces was private. */
-    epoch?(epoch: number, followsPrivate: boolean): void;
+    /** The tab's privacy from now on; `followsPrivate`: the epoch it replaces was private. */
+    epoch?(privacy: CapturePrivacy, followsPrivate: boolean): void;
   };
   /**
    * Present on an encoder of its own (a tab capture): its chunks go to `target` from the moment
@@ -106,6 +106,9 @@ export interface VideoCaptureHandle {
   close(): void;
 }
 /** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */
+/** A tab's privacy (M8): its epoch, and whether that epoch is private. */
+export type CapturePrivacy = { epoch: number; private: boolean };
+
 export interface VideoHost {
   /** The kind of ace-media source this host's captures are. */
   mediaKind: VideoMediaKind;
@@ -117,11 +120,13 @@ export interface VideoHost {
   /** The codecs (of those asked, in order) the encoder supports at this size. */
   supported(codecs: readonly string[], width: number, height: number): Promise<string[]>;
   /** Captures the tab `page` shows, at exactly this many pixels. */
+  /** `privacy`: the tab's privacy as the capture opens (M8), for one fed by pictures. */
   open(
     page: BrowserCdp,
     width: number,
     height: number,
     events: CaptureEvents,
+    privacy?: CapturePrivacy,
   ): Promise<VideoCaptureHandle>;
 }
 export interface BackendLog {

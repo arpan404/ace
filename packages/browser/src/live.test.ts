@@ -153,7 +153,7 @@ it("after the tab stops being private, ace-media hears the epoch once, and pictu
           width,
           height,
           push: (data, epoch) => void pushed.push({ data, epoch }),
-          epoch: (epoch, followsPrivate) => void announced.push([epoch, followsPrivate]),
+          epoch: (privacy, followsPrivate) => void announced.push([privacy.epoch, followsPrivate]),
         },
       }
     ),
@@ -185,15 +185,58 @@ it("after the tab stops being private, ace-media hears the epoch once, and pictu
   screencast("gap", 20.05);
   screencast("public", 20.15);
   await until(() => pushed.length === 3);
-  expect(announced).toEqual([
-    [1, false],
-    [2, true],
-  ]);
+  // It opened private (epoch 1), so only the change is news to it.
+  expect(announced).toEqual([[2, true]]);
   expect(pushed).toEqual([
     { data: "private", epoch: 1 },
     { data: "gap", epoch: 1 },
     { data: "public", epoch: 2 },
   ]);
+  await live.close();
+});
+
+it("a capture opens in the tab's privacy: a tab already private, and a capture replacing one while private", async () => {
+  vi.useFakeTimers();
+  const page = fakePage();
+  const opens: unknown[] = [];
+  const handles: { close: () => void }[] = [];
+  const host: VideoHost = {
+    ...picturesHost,
+    open: async (_page, width, height, events, privacy) => {
+      opens.push(privacy);
+      const handle = {
+        encodes: () => {},
+        keyframe: () => {},
+        close: () => {},
+        pictures: { width, height, push: () => {} },
+      };
+      // The second capture is the replacement: the first ends under it.
+      handles.push({ close: () => events.ended("replaced") });
+      return handle;
+    },
+  };
+  // Private before the live view ever opened.
+  const privacy = { epoch: 1, since: 1_000, private: true };
+  const live = new LiveCapture(
+    page.cdp,
+    () => Date.now(),
+    () => {},
+    () => privacy,
+    () => ({ width: 800, height: 600 }),
+    () => "tab-1",
+    () => 1,
+    () => ({ host, page: page.cdp }),
+  );
+  await live.start();
+  live.subscribe("phone", { video: { send: () => true } }, viewer(false));
+  await vi.advanceTimersByTimeAsync(500);
+  expect(opens[0]).toEqual({ epoch: 1, private: true });
+  // Still private, a new epoch (public then private again), and the capture is replaced.
+  Object.assign(privacy, { epoch: 3, since: 2_000, private: true });
+  live.privacyChanged();
+  handles[0]?.close();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(opens.at(-1)).toEqual({ epoch: 3, private: true });
   await live.close();
 });
 
