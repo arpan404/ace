@@ -16,18 +16,22 @@ const host = region === "eu" ? "https://eu.i.posthog.com" : "https://us.i.postho
       data-api-host={host}
       hidden
     >
-      <h2 id="analytics-consent-title" tabindex="-1">{analyticsConsent.title}</h2>
-      <p>
-        {analyticsConsent.description}{" "}
-        <a href={privacyPolicy.path}>{analyticsConsent.privacyLink}</a>
-      </p>
-      <div class="choices">
-        <button class="button button-secondary" type="button" data-analytics-choice="off">
-          {analyticsConsent.decline}
-        </button>
-        <button class="button button-secondary" type="button" data-analytics-choice="on">
-          {analyticsConsent.accept}
-        </button>
+      <div class="page consent-inner">
+        <div>
+          <h2 id="analytics-consent-title" tabindex="-1">{analyticsConsent.title}</h2>
+          <p>
+            {analyticsConsent.description}{" "}
+            <a href={privacyPolicy.path}>{analyticsConsent.privacyLink}</a>
+          </p>
+        </div>
+        <div class="choices">
+          <button class="button button-secondary" type="button" data-analytics-choice="off">
+            {analyticsConsent.decline}
+          </button>
+          <button class="button button-primary" type="button" data-analytics-choice="on">
+            {analyticsConsent.accept}
+          </button>
+        </div>
       </div>
     </section>
   )
@@ -37,35 +41,61 @@ const host = region === "eu" ? "https://eu.i.posthog.com" : "https://us.i.postho
   section {
     position: fixed;
     z-index: 50;
-    inset-inline-start: var(--gutter);
-    inset-block-end: max(var(--gutter), env(safe-area-inset-bottom));
-    inline-size: min(400px, calc(100% - 2 * var(--gutter)));
-    padding: var(--gutter);
-    border: 1px solid var(--border-strong);
-    border-radius: 16px;
+    inset-inline: 0;
+    inset-block-end: 0;
+    padding-block: 16px calc(16px + env(safe-area-inset-bottom));
+    border-block-start: 1px solid var(--border-strong);
     background: var(--surface);
-    box-shadow: 0 8px 32px -16px var(--shadow-deep);
+  }
+
+  .consent-inner {
+    display: grid;
+    gap: 12px;
+    align-items: center;
   }
 
   h2 {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
   }
 
   p {
-    margin-block: 8px 16px;
+    margin-block-start: 4px;
     color: var(--muted);
     font-size: 14px;
+    line-height: 1.45;
+    text-wrap: pretty;
   }
 
   a {
     color: var(--foreground);
+    white-space: nowrap;
   }
 
   .choices {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
+  }
+
+  button {
+    cursor: pointer;
+    box-shadow: none;
+    block-size: auto;
+    min-block-size: 42px;
+    padding: 8px 12px;
+    white-space: normal;
+  }
+
+  @media (min-width: 768px) {
+    .consent-inner {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+    }
+
+    button {
+      padding-inline: 20px;
+    }
   }
 </style>
 

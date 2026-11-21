@@ -174,7 +174,7 @@ export const privacyPolicy: LegalDocument = {
     {
       heading: "Your choices",
       body: [
-        "Choose Analytics settings in the footer of acehq.dev to change your preference at any time.",
+        "Choose Cookie settings in the footer of acehq.dev to change your preference at any time.",
         "You can use ace without an account. You can change your name in Settings, and sign a machine out in its Settings or with `ace logout`. Signing out ends that session at once; a removed device loses access to your machines within five minutes.",
         "In ace for iPhone and iPad you can delete your account yourself: open Profile and choose Delete account. It deletes your account, its sessions and its machine list from our live database right away, and your user at WorkOS. Our database provider keeps point-in-time backups for up to 30 days, after which no copy remains.",
         `To see the data we hold about you, correct it, remove machines from your account, or delete your account by email, write to ${contact.email} from the address on your account. We delete your account, its machines and sessions from our database, and your user from WorkOS, within 30 days. Depending on where you live, you may have further rights under laws such as the GDPR or CCPA; write to us and we will honour them.`,
@@ -206,13 +206,13 @@ export const privacyPolicy: LegalDocument = {
 };
 
 export const analyticsConsent = {
-  title: "Website analytics",
+  title: "Cookies and privacy",
   description:
-    "Allow PostHog to measure visits and record how you use this website? Form inputs are masked.",
+    "We use optional browser storage for traffic analytics and session recordings. Form inputs are masked.",
   privacyLink: "Privacy policy",
-  accept: "Allow analytics",
-  decline: "Decline",
-  settings: "Analytics settings",
+  accept: "Accept all",
+  decline: "Reject optional",
+  settings: "Cookie settings",
 };
 
 export const termsOfService: LegalDocument = {
