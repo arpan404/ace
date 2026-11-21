@@ -74,6 +74,23 @@ export const ruleIds = [
   "surfaces.action-name-unique",
   "surfaces.action-label",
   "surfaces.confirm",
+  "code.list",
+  "code.field",
+  "code.name",
+  "code.name-unique",
+  "code.file",
+  "code.world",
+  "code.world-later",
+  "code.imports",
+  "code.import",
+  "code.import-twice",
+  "code.http-network",
+  "code.why",
+  "code.bound",
+  "code.file-missing",
+  "code.stray",
+  "code.binary",
+  "code.binary-imports",
 ] as const;
 
 export type RuleId = (typeof ruleIds)[number];

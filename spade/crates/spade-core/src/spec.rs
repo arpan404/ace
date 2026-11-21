@@ -5,6 +5,7 @@
 //! from what the data writes (`SPADE_WRITE_SPEC=1 cargo test -p spade-core spec_doc` writes them),
 //! so the spec and the readers can't drift. Pure: the test does the reading and writing.
 
+mod code;
 pub mod conformance;
 mod contracts;
 mod distribution;
@@ -34,7 +35,7 @@ pub struct Part {
 }
 
 /// The parts, in the order the spec reads.
-pub const PARTS: [Part; 6] = [
+pub const PARTS: [Part; 7] = [
     Part {
         id: "package",
         title: "Package",
@@ -66,6 +67,12 @@ pub const PARTS: [Part; 6] = [
         fixes: "Contract declaration, call and return, the bounded schema subset, input and output bounds, held effects, taint at entry, exactly-once keys, compatible changes.",
     },
     Part {
+        id: "code",
+        title: "Code",
+        version: "1.0",
+        fixes: "WebAssembly components a package ships: Spade's world `spade:package@1.0.0`, what a component may import, its manifest entry, the checks its binary passes and the bounds of a call.",
+    },
+    Part {
         id: "distribution",
         title: "Distribution",
         version: "1.0",
@@ -94,6 +101,7 @@ pub fn files() -> Result<Vec<File>, Vec<String>> {
             "runtime" => Ok(runtime::regions()),
             "surfaces" => Ok(surfaces::regions()),
             "contracts" => contracts::regions(),
+            "code" => Ok(code::regions()),
             _ => Ok(distribution::regions()),
         };
         match regions {

@@ -53,6 +53,7 @@ Version 3 knows these fields:
 | `pricing` | `{kind: "free"}`; missing reads as free, and any other price is refused. |
 | `surfaces` | Cards and panels ([surfaces](surfaces.md)). |
 | `contracts` | Typed calls other bots of the person may make to it ([contracts](contracts.md)). |
+| `code` | WebAssembly components it ships under `code/`, each built for Spade's world ([code](code.md)). |
 <!-- spec:end fields -->
 
 A version 2 manifest knows these fields; a reader MAY install it as a copy the person owns,

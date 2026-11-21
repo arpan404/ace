@@ -7,7 +7,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::effect::{self, Effect, ceiling::DECLARABLE, runtime};
-use crate::package::{contract, contract_files, manifest as m, scenario, surfaces};
+use crate::package::{code, contract, contract_files, manifest as m, scenario, surfaces};
 use crate::schema as subset;
 use crate::tools::Risk;
 
@@ -132,6 +132,10 @@ pub fn bot() -> Value {
                 json!({ "$ref": "#/$defs/contract" }),
             ),
         ),
+        (
+            "code",
+            list(code::MOST_COMPONENTS, json!({ "$ref": "#/$defs/code" })),
+        ),
     ];
     for (field, schema) in pairs {
         properties.insert(field.to_owned(), schema);
@@ -171,6 +175,31 @@ fn defs() -> Value {
         "surface": surface_def(),
         "action": action_def(),
         "schema": subset_def(),
+        "code": code_def(),
+    })
+}
+
+/// A component's entry (ADR 0203): its shape and bounds. That its file matches its name, that
+/// its world is one this runtime runs, that `http` comes with network hosts and that the binary
+/// imports what it lists are the reader's.
+fn code_def() -> Value {
+    let mut worlds = vec![code::WORLD];
+    worlds.extend(code::LATER_WORLDS);
+    let imports: Vec<&str> = code::Import::ALL.iter().map(|i| i.name()).collect();
+    let name = format!("^[a-z][a-z0-9]{{0,{}}}$", code::NAME_CHARS - 1);
+    let file = format!("^code/[a-z][a-z0-9]{{0,{}}}\\.wasm$", code::NAME_CHARS - 1);
+    json!({
+        "type": "object",
+        "required": ["name", "file", "world", "imports", "why"],
+        "properties": {
+            "name": { "type": "string", "pattern": name },
+            "file": { "type": "string", "pattern": file },
+            "world": { "enum": worlds },
+            "imports": { "type": "array", "uniqueItems": true, "items": { "enum": imports } },
+            "why": { "type": "string", "minLength": 1, "maxLength": code::WHY_CHARS, "pattern": "\\S" },
+            "timeout_s": { "type": "integer", "minimum": 1, "maximum": code::MOST_TIMEOUT_S },
+            "memory_mb": { "type": "integer", "minimum": 1, "maximum": code::MOST_MEMORY_MB },
+        },
     })
 }
 

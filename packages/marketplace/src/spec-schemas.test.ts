@@ -45,7 +45,7 @@ const decides = new Map(
   ),
 );
 
-const manifests = ["package", "effects", "contracts", "surfaces"].flatMap((part) => {
+const manifests = ["package", "effects", "contracts", "surfaces", "code"].flatMap((part) => {
   const suite = json(`conformance/${part}/manifests.json`) as Suite;
   // A case whose decisive part is another file of the package is the reader's: bot.json's
   // schema sees bot.json alone.
@@ -71,7 +71,7 @@ describe("bot.schema.json", () => {
 
   it("decides at least one refusal of every part", () => {
     const decided = manifests.filter(([, , rule]) => rule && decides.get(rule));
-    for (const part of ["package", "effects", "contracts", "surfaces"])
+    for (const part of ["package", "effects", "contracts", "surfaces", "code"])
       expect(decided.some(([id]) => id.startsWith(`${part}/`))).toBe(true);
   });
 });
