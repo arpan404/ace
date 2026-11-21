@@ -198,33 +198,49 @@ it("a demotion while WorkOS is still answering never yields a grant with the rol
   );
 });
 
-it("two owners leaving at once: one leaves, the other is the last owner and stays", async () => {
+it.each(["before", "after"] as const)(
+  "two owners leaving at once (WorkOS slow %s acting on the first): one leaves, the other is the last owner and stays",
+  async (when) => {
+    const ownerToken = await signIn();
+    const org = await api.createOrg(ownerToken, `Two owners ${when}`);
+    workos.orgs.addMember(ada.id, org, "owner");
+    await events();
+    const adaToken = await signIn(ada);
+    const members = `/v1/orgs/${org}/members`;
+    expect((await api.call(adaToken, "GET", members)).status).toBe(200);
+
+    // Olivia's leave is at WorkOS; Ada leaves before Olivia's answer comes back.
+    const held = workos.holdNext(
+      ({ method, path }) =>
+        method === "DELETE" && path.startsWith("/user_management/organization_memberships/"),
+      when,
+    );
+    const olivia = api.call(ownerToken, "DELETE", `${members}/${owner.id}`);
+    await held.started;
+    const adaLeaving = api.call(adaToken, "DELETE", `${members}/${ada.id}`);
+    await pause(400);
+    held.release();
+
+    expect((await olivia).status).toBe(200);
+    expect((await adaLeaving).body).toEqual({ error: "last_owner" });
+    expect(workos.orgs.membership(ada.id, org)).toMatchObject({
+      status: "active",
+      role: { slug: "owner" },
+    });
+    expect(workos.orgs.membership(owner.id, org)).toBeUndefined();
+  },
+);
+
+it("an owner WorkOS demoted but the mirror still counts doesn't let the last owner leave", async () => {
   const ownerToken = await signIn();
-  const org = await api.createOrg(ownerToken, "Two owners");
+  const org = await api.createOrg(ownerToken, "Stale owners");
   workos.orgs.addMember(ada.id, org, "owner");
   await events();
-  const adaToken = await signIn(ada);
-  const members = `/v1/orgs/${org}/members`;
-  expect((await api.call(adaToken, "GET", members)).status).toBe(200);
-
-  // Olivia's leave has reached WorkOS; Ada leaves before Olivia's answer comes back.
-  const held = workos.holdNext(
-    ({ method, path }) =>
-      method === "DELETE" && path.startsWith("/user_management/organization_memberships/"),
-  );
-  const olivia = api.call(ownerToken, "DELETE", `${members}/${owner.id}`);
-  await held.started;
-  const adaLeaving = api.call(adaToken, "DELETE", `${members}/${ada.id}`);
-  await pause(400);
-  held.release();
-
-  expect((await olivia).status).toBe(200);
-  expect((await adaLeaving).body).toEqual({ error: "last_owner" });
-  expect(workos.orgs.membership(ada.id, org)).toMatchObject({
-    status: "active",
-    role: { slug: "owner" },
-  });
-  expect(workos.orgs.membership(owner.id, org)).toBeUndefined();
+  // The WorkOS dashboard makes Ada a member; the events cron hasn't run.
+  workos.orgs.setRole(ada.id, org, "member");
+  const leaving = await api.call(ownerToken, "DELETE", `/v1/orgs/${org}/members/${owner.id}`);
+  expect(leaving.body).toEqual({ error: "last_owner" });
+  expect(workos.orgs.membership(owner.id, org)).toMatchObject({ role: { slug: "owner" } });
 });
 
 it("a slow events run never moves the cursor back nor puts older details over newer ones", async () => {
