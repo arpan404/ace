@@ -87,11 +87,14 @@ function SplitEdge(props: {
       aria-valuemin={0}
       aria-valuemax={100}
       className={cn(
-        "relative z-[3] shrink-0 bg-border outline-none",
-        "after:absolute after:transition-colors after:duration-(--motion-fast) hover:after:bg-ring/45 focus-visible:after:bg-ring/45",
+        "group/edge relative z-[3] shrink-0 bg-border outline-none",
+        // `after`: the invisible 9px the pointer takes. `before`: a 3px line that shows only
+        // while the edge is held, hovered a moment, or focused.
+        "after:absolute before:pointer-events-none before:absolute before:bg-ring/50 before:opacity-0",
+        "before:transition-opacity before:duration-(--motion-fast) hover:before:opacity-100 hover:before:delay-150 focus-visible:before:opacity-100 active:before:opacity-100",
         props.row
-          ? "w-px cursor-col-resize after:inset-y-0 after:-left-[3px] after:w-[7px]"
-          : "h-px cursor-row-resize after:inset-x-0 after:-top-[3px] after:h-[7px]",
+          ? "w-px cursor-col-resize after:inset-y-0 after:-left-1 after:w-[9px] before:inset-y-0 before:-left-px before:w-[3px]"
+          : "h-px cursor-row-resize after:inset-x-0 after:-top-1 after:h-[9px] before:inset-x-0 before:-top-px before:h-[3px]",
       )}
       onPointerDown={(event) => {
         if (event.button !== 0) return;

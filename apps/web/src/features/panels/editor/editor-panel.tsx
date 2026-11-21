@@ -25,6 +25,8 @@ import {
   lazy,
   Suspense,
 } from "react";
+import { FilesIcon } from "@ace/icons";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import {
   Editor,
@@ -457,16 +459,16 @@ export function EditorPanel(props: TabViewProps) {
                 onNeedRoom={onNeedRoom}
                 explorerToggle={
                   showsExplorerToggle(place) && (
-                    <button
-                      type="button"
-                      aria-expanded={place === "overlay"}
+                    <IconButton
+                      label="Show files"
+                      shortcut="editor.explorer"
+                      size="sm"
+                      icon={FilesIcon}
+                      pressed={place === "overlay"}
                       onClick={() =>
                         compact ? setOverlay((shown) => !shown) : setExplorer({ open: true })
                       }
-                      className="mr-1 h-6 shrink-0 rounded-sm px-2 text-xs font-medium text-muted-foreground focus-ring-inset hover:bg-hover hover:text-foreground"
-                    >
-                      {place === "overlay" ? "Hide files" : "Show files"}
-                    </button>
+                    />
                   )
                 }
               />

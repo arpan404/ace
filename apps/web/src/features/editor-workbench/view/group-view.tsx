@@ -1,4 +1,13 @@
-import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { cn } from "@/lib/cn.ts";
 import { AgentNotice } from "./agent-notice.tsx";
 import { Breadcrumbs } from "./breadcrumbs.tsx";
@@ -42,6 +51,8 @@ export function GroupView(props: {
   const tab = group.tabs.find((each) => each.path === path);
   const markdown = markdownShow(tab);
   const [zone, setZone] = useState<Zone | undefined>(undefined);
+  const area = useRef<HTMLDivElement>(null);
+  const textStart = useTextStart(area);
   // Compare shows in place of the editor while the change it is about waits for an answer.
   const [comparing, setComparing] = useState<string | undefined>(undefined);
   const compare =
@@ -79,6 +90,7 @@ export function GroupView(props: {
       />
       <Breadcrumbs
         path={path}
+        textStart={textStart}
         end={
           path !== undefined &&
           markdown &&
@@ -105,10 +117,13 @@ export function GroupView(props: {
         />
       )}
       <div
+        ref={area}
         data-part="buffer-editor"
         // Only the focused group draws its caret: the keyboard is in one place (spec 19).
         className={cn(
           "relative flex min-h-0 flex-1 flex-col",
+          // Where the two scrollbars meet, the page shows through instead of a light square.
+          "[&_*::-webkit-scrollbar-corner]:bg-transparent",
           !props.focused && "[&_[data-caret]]:invisible",
         )}
         // Captured, so a tab or file dropped on the code reaches the drop zones and never the
@@ -171,6 +186,21 @@ export function GroupView(props: {
 }
 
 type Zone = Side | "center";
+
+/**
+ * Where the shown editor's text starts (its `data-text-start`), read after each render: it moves
+ * only when the line numbers gain a digit, which comes with a render of the group.
+ */
+function useTextStart(area: RefObject<HTMLDivElement | null>): number | undefined {
+  const [start, setStart] = useState<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    const frame = area.current?.querySelector<HTMLElement>("[data-text-start]");
+    const value = Number(frame?.dataset.textStart);
+    const next = Number.isFinite(value) && value > 0 ? value : undefined;
+    if (next !== start) setStart(next);
+  });
+  return start;
+}
 
 /** The host's editor when it brings one (tests, the harness), else the editor's own. */
 function showEditor(host: EditorHost, editor: BufferEditorProps): ReactNode {

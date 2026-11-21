@@ -71,13 +71,19 @@ export function TabStrip(props: {
   return (
     <div
       data-part="editor-strip"
-      className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border pr-1 pl-1.5"
+      className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-1.5"
     >
       {props.lead}
       <div
         ref={scroller}
         role="tablist"
         aria-label="Open files"
+        // While tabs overflow, the strip's far end fades instead of cutting a name off.
+        style={
+          overflowing
+            ? { maskImage: "linear-gradient(to right, black calc(100% - 24px), transparent)" }
+            : undefined
+        }
         className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
         onDragOver={(event) => {
           if (!carriesGroupDrag(event.dataTransfer)) return;
@@ -130,41 +136,45 @@ export function TabStrip(props: {
           </div>
         ))}
       </div>
-      {overflowing && <OverflowMenu group={group} actions={actions} />}
-      <IconButton
-        label="Split right"
-        shortcut="editor.splitRight"
-        size="sm"
-        icon={SquareSplitHorizontalIcon}
-        // An empty group has nothing to show twice.
-        disabled={group.active === undefined}
-        // ⌥-click splits down, as ⇧⌥⌘\ does.
-        onClick={(event) => actions.split(event.altKey ? "down" : "right")}
-      />
-      <Menu>
-        <MenuTrigger render={<IconButton label="Group actions" size="sm" icon={DotsThreeIcon} />} />
-        <MenuContent align="end">
-          <MenuItem
-            disabled={!group.active}
-            onClick={() => group.active && actions.splitTab(group.active, "right")}
-          >
-            Split right
-          </MenuItem>
-          <MenuItem
-            disabled={!group.active}
-            onClick={() => group.active && actions.splitTab(group.active, "down")}
-          >
-            Split down
-          </MenuItem>
-          <MenuSeparator />
-          <MenuItem
-            disabled={group.tabs.length === 0}
-            onClick={() => actions.close(group.tabs.map((tab) => tab.path))}
-          >
-            Close all
-          </MenuItem>
-        </MenuContent>
-      </Menu>
+      <div className="flex shrink-0 items-center gap-0.5">
+        {overflowing && <OverflowMenu group={group} actions={actions} />}
+        <IconButton
+          label="Split right"
+          shortcut="editor.splitRight"
+          size="sm"
+          icon={SquareSplitHorizontalIcon}
+          // An empty group has nothing to show twice.
+          disabled={group.active === undefined}
+          // ⌥-click splits down, as ⇧⌥⌘\ does.
+          onClick={(event) => actions.split(event.altKey ? "down" : "right")}
+        />
+        <Menu>
+          <MenuTrigger
+            render={<IconButton label="Group actions" size="sm" icon={DotsThreeIcon} />}
+          />
+          <MenuContent align="end">
+            <MenuItem
+              disabled={!group.active}
+              onClick={() => group.active && actions.splitTab(group.active, "right")}
+            >
+              Split right
+            </MenuItem>
+            <MenuItem
+              disabled={!group.active}
+              onClick={() => group.active && actions.splitTab(group.active, "down")}
+            >
+              Split down
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem
+              disabled={group.tabs.length === 0}
+              onClick={() => actions.close(group.tabs.map((tab) => tab.path))}
+            >
+              Close all
+            </MenuItem>
+          </MenuContent>
+        </Menu>
+      </div>
     </div>
   );
 }

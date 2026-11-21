@@ -497,6 +497,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       ) : null}
       <div
         data-editor-frame
+        // Where the text starts, for chrome above the editor that lines up with it (breadcrumbs).
+        data-text-start={gutter}
         className="group/editor relative min-h-0 flex-1 font-mono text-ui focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]"
         style={{
           ...(fontSize === undefined ? {} : { fontSize }),
