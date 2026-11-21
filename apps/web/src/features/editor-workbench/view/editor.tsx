@@ -73,7 +73,7 @@ export function Editor(props: EditorProps) {
     focusInside(
       root.current?.querySelector<HTMLElement>(`[data-group-id="${CSS.escape(focused.id)}"]`),
     );
-  }, [focused.id, ids]);
+  }, [focused.id, ids, known]);
 
   const leadOf = (group: GroupNode) => {
     // The explorer's toggle sits at the left of the first strip on screen.
