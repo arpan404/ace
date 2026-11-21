@@ -49,7 +49,7 @@ test("an organization's host says so, and offers nobody's personal release", () 
 
 test("an org host signed in as its organization is named by the organization, never its placeholder address", () => {
   const acme: AceAccount = { id: "org:org_01ACME", email: "host@org_01acme.invalid", name: "Acme" };
-  const host = status({ account: acme, owner: { org: "org_01ACME", generation: 2 } });
+  const host = status({ account: acme, owner: { org: "org_01ACME" } });
   expect(machineOwnerRow(host, me)?.sentence).toBe(
     "This machine is Acme's host: its owners can release it.",
   );
