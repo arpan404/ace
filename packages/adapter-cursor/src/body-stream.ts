@@ -19,6 +19,7 @@ export const BlobReference = z.object({
   size: z.number().int().nonnegative().max(16777216),
   preview: z.string().max(2048),
 });
+const omitted = Symbol("omitted");
 /** SDK raw provenance and canonical output share the existing engine storage owners. */
 export async function streamSdkBody(
   body: unknown,
@@ -83,39 +84,61 @@ export async function streamSdkBody(
     }
     await flush();
     await emit("blob", { id, offset, done: true });
-    // Bounded semantic preview. Full opaque strings stay in the streamed raw blob.
-    let nodes = 0;
+    // Bounded semantic preview. Full opaque strings stay in the streamed raw blob, so a
+    // wide body is summarised up to a byte budget and marked, never refused.
+    let nodes = 0,
+      used = 0,
+      truncated = false;
+    const budget = Math.min(262144, frameBytes - 2048) - 1024;
+    const fits = (bytes: number) => {
+      if (used + bytes > budget) truncated = true;
+      else used += bytes;
+      return !truncated;
+    };
     const previewValue = (value: unknown, depth: number, field?: string): unknown => {
       if (++nodes > 32768 || depth > 64)
         throw new Error("SDK preview structure exceeds budget", { cause: error });
-      if (isSensitiveField(field ?? "", value)) return "<SECRET>";
-      if (typeof value === "string")
-        return (scrub(value)[Symbol.iterator]().next().value ?? "").slice(0, 512);
+      if (isSensitiveField(field ?? "", value)) return fits(10) ? "<SECRET>" : omitted;
+      if (typeof value === "string") {
+        const clipped = (scrub(value)[Symbol.iterator]().next().value ?? "").slice(0, 512);
+        return fits(Buffer.byteLength(JSON.stringify(clipped))) ? clipped : omitted;
+      }
       if (
         value === null ||
         value === undefined ||
         typeof value === "boolean" ||
         typeof value === "number"
       )
-        return value;
+        return fits(JSON.stringify(value ?? null).length) ? value : omitted;
       if (typeof value !== "object") throw new Error("SDK preview is not JSON", { cause: error });
-      if (Array.isArray(value))
-        return value.slice(0, 128).map((item) => previewValue(item, depth + 1));
+      if (!fits(2)) return omitted;
+      if (Array.isArray(value)) {
+        const items: unknown[] = [];
+        for (const item of value.slice(0, 128)) {
+          if (!fits(1)) break;
+          const summary = previewValue(item, depth + 1);
+          if (summary === omitted) break;
+          items.push(summary);
+        }
+        return items;
+      }
       const result: Record<string, unknown> = {};
       for (const key in value) {
         if (!Object.hasOwn(value, key)) continue;
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (!descriptor || !("value" in descriptor))
           throw new Error("SDK getter rejected", { cause: error });
-        Object.defineProperty(result, key, {
-          value: previewValue(descriptor.value, depth + 1, key),
-          enumerable: true,
-        });
+        if (truncated || !fits(Buffer.byteLength(JSON.stringify(key)) + 2)) break;
+        const summary = previewValue(descriptor.value, depth + 1, key);
+        if (summary === omitted) break;
+        Object.defineProperty(result, key, { value: summary, enumerable: true });
       }
       return result;
     };
     safe = previewValue(body, 0);
-    boundedJson(safe, 262144);
+    if (safe === omitted) safe = null;
+    if (truncated && safe !== null && typeof safe === "object" && !Array.isArray(safe))
+      safe = { ...safe, acePreviewTruncated: true };
     const output = await shell.stream(
       body,
       scope,

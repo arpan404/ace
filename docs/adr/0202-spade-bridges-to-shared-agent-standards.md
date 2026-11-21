@@ -384,3 +384,60 @@ one of the person's outside agents to reach past its own calls:
 Tests: `outside_contracts_guards.rs` in `spade-server`, one per point, each shown to fail with its
 fix turned off. `stop_reach` cases in spade-core. `card-key.test.ts`, `outside-proof.test.ts` (a
 vector shared with Spade's) and `spade-contracts.test.ts` in the daemon.
+
+## Amendment 3: inbound, as built
+
+Accepted 2026-11-20, with phases 3 and 4 (sections 4 and 5). The MCP Apps facts were read from
+the [spec file](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx)
+at 2026-01-26; the A2A facts are amendment 1's (1.0.1).
+
+How sections 4 and 5 were built, where they say more than the text above:
+
+1. **An app's page is a panel of the bot that called its tool.** Spade's MCP sessions declare the
+   `io.modelcontextprotocol/ui` extension. When a connected app's tool that links a `ui://` page
+   returns for a bot, Spade reads the page once, keeps it by sha256 beside packages' panel pages
+   (named under `bot_panels:<bot>:apps`, so the hourly collection keeps it), and stores a
+   `panel_updated` for panel `app.<connector>.<hash of connector and address>` holding the app's
+   facts, the call's arguments and its result. It lists with the bot's panels. A plugin server's
+   page isn't shown yet.
+2. **No network, by policy, not by trust.** A page declaring `connectDomains` or `frameDomains` is
+   not kept or drawn; the bot and the panel read the section's words. Every page drawn gets a
+   package panel's frame and `default-src 'none'`: declared `resourceDomains`, `baseUriDomains`
+   and permissions are listed as withheld and never granted.
+3. **The page's JSON-RPC rides the panel channel.** MCP Apps' transport posts objects, so the
+   outer document writes each as text and holds it to the panel bound (16 KiB of UTF-8) before
+   relaying it, answering the page with an error when it is over; it relays `tools/call`,
+   `ui/message` and `ui/open-link` only while the person is pressing or typing in the page. The
+   host reads the text with the protocol's schemas and takes only the methods of section 4's
+   table. `tools/call` is answered at once ("Sent to the bot…"): the request goes to the bot,
+   which decides through the gate, and the page gets the tool's result when the bot runs it. A
+   tool only pages may call is out of the bot's tools, so the bot is told it can't call it.
+   `ui/update-model-context` is stored without waking the bot. `resources/read` from the page is
+   refused.
+4. **The host confirm line is the link's.** `ui/open-link` waits on amendment 1 of ADR 0200's
+   line under the page ("Linear asks to open linear.app (…)"), opening only on a real press after
+   600 ms. Spade refuses `confirmed` on an app's panel: an app's page has no action that carries
+   the person's standing.
+5. **Outside agents are added at `/v1/a2a-agents`** and in Settings › Spade › Apps. The card is
+   read over https, or plain http to the machine's loopback for an agent the person runs locally.
+   A signature counts only with a key set at a `jku` on the card's own origin; anything else reads
+   "Not signed" with why. An agent whose card requires a security scheme is refused with the
+   schemes' names: sign-in to agents isn't built yet.
+6. **A skill call is a tool call that may become a job.** It sends `SendMessage` with
+   `returnImmediately` and the call's key as `messageId`, follows the task with `GetTask` (200 ms
+   growing to 5 s), and past the foreground limit goes on as the bot's background job, as every
+   long call does. Stop drops the call, and a guard sends `CancelTask` until the agent answers
+   (five tries).
+7. **Not yet:** a question card for `TASK_STATE_INPUT_REQUIRED` and a Reconnect card for
+   `TASK_STATE_AUTH_REQUIRED` (the bot reads the agent's words, untrusted, and asks the person
+   itself); streaming status; per-bot access to an agent (only the main bot has them); the person
+   lowering a skill to `network`; keeping file parts in the workspace; pages that need the
+   network; the spec annexes and conformance cases.
+
+Tests: `spade_core::app_page`'s tables; `app_pages.rs` (a page shows as its panel, kept by hash; a
+network page is refused; a page's tool call reaches the bot as untrusted and taints the turn) and
+`a2a_agents.rs` (a signed card verifies, a tampered or unsigned one reads "Not signed", a call asks
+the person and sends nothing before, its result is untrusted, Stop sends `CancelTask`) in
+`spade-server`; the card check against a card signed by the daemon's own signer; `@ace/html`'s
+`mcp-app.test.ts`, the web's `use-mcp-app-host.test.tsx` and `spade-outside-agents.test.tsx`; and
+the real-Electron `mcp-app-isolation.process.test.ts`.

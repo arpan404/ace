@@ -96,7 +96,8 @@ impl Connectors {
             let Some(session) = live.get(&record.id) else {
                 continue;
             };
-            for tool in &session.tools {
+            // A tool only an app's page may call is never offered to a bot (MCP Apps).
+            for tool in session.tools.iter().filter(|tool| tool.for_model) {
                 tools.push(ConnectorTool {
                     connector: record.id.clone(),
                     connector_name: record.name.clone(),
@@ -115,6 +116,40 @@ impl Connectors {
     pub fn tools_for(&self, agent: &str, is_main: bool) -> Vec<ConnectorTool> {
         let access = self.access(agent, is_main);
         self.tools_where(|id| access.allows(id))
+    }
+
+    /// Every tool `connector` lists, those offered only to its pages included: what an app's
+    /// page may ask for (ADR 0202 §4).
+    pub fn page_tools(&self, connector: &str) -> Vec<McpTool> {
+        let live = self.live.read().unwrap_or_else(|p| p.into_inner());
+        live.get(connector)
+            .map(|session| session.tools.clone())
+            .unwrap_or_default()
+    }
+
+    /// Reads resource `uri` from `connector` (`resources/read`): an app's `ui://` page. Reading
+    /// changes nothing, so any failure is as good as not sent.
+    pub async fn read_resource(
+        self: &Arc<Self>,
+        connector: &str,
+        uri: &str,
+    ) -> Result<serde_json::Value, CallError> {
+        let record = self
+            .record(connector)
+            .ok_or_else(|| CallError::NotRun(format!("{connector} is not connected")))?;
+        if record.needs_reconnect {
+            return Err(CallError::NeedsReconnect(record.name));
+        }
+        let (client, _) = match self.client(&record).await {
+            Ok(ready) => ready,
+            Err(Unready::NeedsReconnect) => return Err(CallError::NeedsReconnect(record.name)),
+            Err(Unready::Other(why)) => {
+                return Err(CallError::NotRun(self.scrubbed(&record.id, why)));
+            }
+        };
+        client.read_resource(uri).await.map_err(|error| {
+            CallError::NotRun(format!("{} could not be read: {error}", record.name))
+        })
     }
 
     /// Runs `tool` (the server's own name) on `connector`.

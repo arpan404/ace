@@ -150,6 +150,8 @@ await stageAceFiles({
 
 log("ripgrep");
 await stageRipgrep(join(dist, "bin"));
+if (process.platform === "darwin")
+  run("sh", [join(repo, "native/tray/build.sh"), join(dist, "bin/ace-tray")]);
 
 log("screen helper");
 await stageScreenHelper(join(dist, "helpers"));

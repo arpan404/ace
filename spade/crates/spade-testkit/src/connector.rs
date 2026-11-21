@@ -92,6 +92,10 @@ struct State {
     device: Mutex<Device>,
     /// Every answer a form got from the client, as sent.
     elicit_answers: Mutex<Vec<Value>>,
+    /// MCP Apps pages by `ui://` address: the `resources/read` contents each answers with.
+    pages: Mutex<HashMap<String, Value>>,
+    /// Every resource address read.
+    reads: Mutex<Vec<String>>,
 }
 
 /// The device grant: whether it is offered, the code handed out, how each poll is answered.
@@ -146,6 +150,8 @@ impl FakeConnector {
             public_client: Mutex::default(),
             device: Mutex::default(),
             elicit_answers: Mutex::default(),
+            pages: Mutex::default(),
+            reads: Mutex::default(),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -184,6 +190,18 @@ impl FakeConnector {
                 .await;
         });
         Self { state, addr, stop }
+    }
+
+    /// Serves an MCP Apps page at `uri`: `html` as `mime`, with `ui` as its contents'
+    /// `_meta.ui` (its CSP and permissions).
+    pub fn add_page(&self, uri: &str, mime: &str, html: &str, ui: Value) {
+        let contents = json!({ "uri": uri, "mimeType": mime, "text": html, "_meta": { "ui": ui } });
+        lock(&self.state.pages).insert(uri.to_owned(), contents);
+    }
+
+    /// Every resource address the client read, in order.
+    pub fn reads(&self) -> Vec<String> {
+        lock(&self.state.reads).clone()
     }
 
     /// The MCP endpoint.
@@ -707,6 +725,7 @@ impl ServerHandler for Fake {
         tools.list_changed = Some(true);
         ServerConfig::new(
             ServerCapabilities::builder()
+                .enable_resources()
                 .enable_tools_with(tools)
                 .build(),
         )
@@ -735,6 +754,20 @@ impl ServerHandler for Fake {
             ));
         }
         Ok(ListToolsResult::with_all_items(lock(&self.0.tools).clone()))
+    }
+
+    async fn read_resource(
+        &self,
+        request: rmcp::model::ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ReadResourceResponse, ErrorData> {
+        lock(&self.0.reads).push(request.uri.clone());
+        let Some(contents) = lock(&self.0.pages).get(&request.uri).cloned() else {
+            return Err(ErrorData::resource_not_found("no such page", None));
+        };
+        serde_json::from_value::<rmcp::model::ReadResourceResult>(json!({ "contents": [contents] }))
+            .map(Into::into)
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))
     }
 
     async fn call_tool(
@@ -842,6 +875,18 @@ async fn sample(context: &RequestContext<RoleServer>) -> String {
         Ok(answer) => format!("sampled: {answer:?}"),
         Err(error) => format!("sampling failed: {error}"),
     }
+}
+
+/// A tool that links the MCP Apps page at `uri`, called by `visibility` (`"model"`, `"app"`).
+pub fn page_tool(name: &str, uri: &str, visibility: &[&str]) -> Tool {
+    let mut meta = serde_json::Map::new();
+    meta.insert(
+        "ui".into(),
+        json!({ "resourceUri": uri, "visibility": visibility }),
+    );
+    let mut tool = tool(name, Some(true), None);
+    tool.meta = Some(rmcp::model::MetaObject(meta));
+    tool
 }
 
 /// A tool with the given hints.

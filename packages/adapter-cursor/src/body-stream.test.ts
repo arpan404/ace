@@ -328,3 +328,52 @@ it("retains large deeper task data as raw evidence without claiming an attribute
     ),
   ).toBe(true);
 });
+
+it("completes a wide Cursor MCP result of long string fields as a succeeded tool call and keeps the full body raw", async () => {
+  const fields = 800,
+    value = "x".repeat(600);
+  const r = replay();
+  const args = { providerIdentifier: "ace", toolName: "wide", args: {} };
+  r.frame("delta", { type: "tool-call-started", callId: "wide", toolCall: { type: "mcp", args } });
+  const structured: Record<string, string> = {};
+  for (let index = 0; index < fields; index++) structured[`field${index}`] = value;
+  const parts: string[] = [];
+  const prepared = await streamSdkBody(
+    {
+      type: "tool-call-completed",
+      callId: "wide",
+      toolCall: {
+        type: "mcp",
+        args,
+        result: { status: "success", value: { structuredContent: structured, isError: false } },
+      },
+    },
+    "wide",
+    async (kind, body) => {
+      if (kind === "blob") {
+        const part = z.object({ text: z.string().optional() }).parse(body);
+        if (part.text) parts.push(part.text);
+      }
+      r.frame(kind, body);
+    },
+    {},
+  );
+  expect(Buffer.byteLength(JSON.stringify(prepared.body))).toBeLessThanOrEqual(262144 - 2048);
+  expect(prepared.body).toMatchObject({ acePreviewTruncated: true });
+  r.frame("delta", prepared.body);
+  r.frame("result", { status: "finished" });
+  const raw = z
+    .object({
+      toolCall: z.object({
+        result: z.object({
+          value: z.object({ structuredContent: z.record(z.string(), z.string()) }),
+        }),
+      }),
+    })
+    .parse(JSON.parse(parts.join("")));
+  expect(raw.toolCall.result.value.structuredContent).toEqual(structured);
+  expect(Object.values(r.state.items).find((item) => item.type === "tool_call")).toMatchObject({
+    complete: true,
+    call: { status: "succeeded" },
+  });
+});

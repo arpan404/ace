@@ -28048,6 +28048,213 @@ Example:
 }
 ```
 
+## McpAppMessage
+
+[JSON Schema](schema/McpAppMessage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| role | yes | `"user"` |  |
+| content | yes | union | {"anyOf":[{"type":"object","properties":{"type":{"type":"string","const":"text"},"text":{"type":"string"}},"required":["type","text"]},{"minItems":1,"type":"array","items":{"type":"object","properties":{"type":{"type":"string","const":"text"},"text":{"type":"string"}},"required":["type","text"]}}]} |
+
+Example:
+
+```json
+{
+  "content": {
+    "text": "example",
+    "type": "text"
+  },
+  "role": "user"
+}
+```
+
+## McpAppModelContext
+
+[JSON Schema](schema/McpAppModelContext.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| content | no | array | {"items":{"type":"object","properties":{"type":{"type":"string","const":"text"},"text":{"type":"string"}},"required":["type","text"]}} |
+| structuredContent | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+
+Example:
+
+```json
+{}
+```
+
+## McpAppNotification
+
+[JSON Schema](schema/McpAppNotification.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| method | yes | string | {"minLength":1,"maxLength":80} |
+| params | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "example"
+}
+```
+
+## McpAppOpenLink
+
+[JSON Schema](schema/McpAppOpenLink.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| url | yes | string | {"maxLength":2000} |
+
+Example:
+
+```json
+{
+  "url": "example"
+}
+```
+
+## McpAppPageMessage
+
+[JSON Schema](schema/McpAppPageMessage.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| id | yes | union | {"anyOf":[{"type":"string","maxLength":100},{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}]} |
+| method | yes | string | {"minLength":1,"maxLength":80} |
+| params | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "id": "example",
+  "jsonrpc": "2.0",
+  "method": "example",
+  "params": null
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| method | yes | string | {"minLength":1,"maxLength":80} |
+| params | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "example",
+  "params": null
+}
+```
+
+### Variant 3
+
+Type: union. See JSON Schema for constraints.
+
+Example:
+
+```json
+{
+  "error": null,
+  "id": 3,
+  "jsonrpc": "2.0"
+}
+```
+
+## McpAppRequest
+
+[JSON Schema](schema/McpAppRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| id | yes | union | {"anyOf":[{"type":"string","maxLength":100},{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}]} |
+| method | yes | string | {"minLength":1,"maxLength":80} |
+| params | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "id": 6,
+  "jsonrpc": "2.0",
+  "method": "example",
+  "params": null
+}
+```
+
+## McpAppResponse
+
+[JSON Schema](schema/McpAppResponse.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| id | yes | union | {"anyOf":[{"type":"string","maxLength":100},{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}]} |
+| result | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "id": 9,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| id | yes | union | {"anyOf":[{"type":"string","maxLength":100},{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}]} |
+| error | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "error": null,
+  "id": 1,
+  "jsonrpc": "2.0"
+}
+```
+
+## McpAppToolCall
+
+[JSON Schema](schema/McpAppToolCall.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"minLength":1,"maxLength":128} |
+| arguments | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+
+Example:
+
+```json
+{
+  "arguments": {},
+  "name": "example"
+}
+```
+
 ## McpAttribution
 
 [JSON Schema](schema/McpAttribution.json), input validation.
