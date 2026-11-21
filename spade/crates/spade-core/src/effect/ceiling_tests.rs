@@ -35,6 +35,8 @@ fn call(
         command: None,
         destructive: false,
         org: None,
+        permits: crate::permission::Held::default(),
+        connected: false,
     }
 }
 
@@ -84,8 +86,20 @@ fn an_undeclared_effect_is_refused_before_review_whatever_the_tool_is_called() {
     for (tool, effect, allows, route) in cases {
         let packaged = call(tool, effect, watcher(allows));
         assert_eq!(super::route(packaged), route, "{tool}");
-        // The same call from a bot with no package reaches the review or the person.
-        let plain = super::route(call(tool, effect, None));
+        // The same call from a bot with no package, its switches on and the step placed, isn't
+        // refused.
+        let plain = super::route(Call {
+            permits: crate::permission::Held {
+                browser: true,
+                ..crate::permission::Held::default()
+            },
+            drive: Drive {
+                target: Ok("docs.rs"),
+                bound: true,
+                ..Drive::default()
+            },
+            ..call(tool, effect, None)
+        });
         assert!(!matches!(plain, Route::Refuse(_)), "{tool}: {plain:?}");
     }
 }

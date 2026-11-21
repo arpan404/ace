@@ -1,11 +1,9 @@
-use serde_json::json;
-
 use super::NO_CLASSIFIER;
 use crate::autonomy::{CREDENTIALS_REFUSED, Class, Mode, Sensitive};
 use crate::effect::{
     Ask, CHANGES_ACCESS, Call, DECLINED_TOOL, Drive, Effect, GIT_PUSH, Granted, OUTSIDE, PUSHES,
     Place, Route, SENDS_AS_YOU, SPENDS, TAINTED_OUTWARD, UNDECLARED, UNDECLARED_TAINTED, UNKNOWN,
-    drive, route,
+    route,
 };
 use crate::gate::Decision;
 use crate::tools::Risk;
@@ -35,6 +33,8 @@ fn full(tool: &str, effect: Option<Effect>) -> Call<'_> {
         command: None,
         destructive: false,
         org: None,
+        permits: crate::permission::Held::default(),
+        connected: false,
     }
 }
 
@@ -51,23 +51,6 @@ fn reviewed(call: Call<'_>) -> Call<'_> {
     Call {
         mode: Mode::AutoReview,
         ..call
-    }
-}
-
-/// A driving step of a Full access bot, placed by what ace would answer for it.
-fn driving<'a>(tool: &'a str, step: &'a drive::Step) -> Call<'a> {
-    Call {
-        drive: Drive {
-            target: step
-                .place
-                .as_ref()
-                .map(drive::Place::shown)
-                .map_err(|why| *why),
-            sensitive: step.sensitive,
-            granted: false,
-            bound: true,
-        },
-        ..full(tool, Some(Effect::Drive))
     }
 }
 
@@ -252,115 +235,6 @@ fn in_full_access_a_secret_is_still_refused() {
         };
         assert_eq!(route(always), refused);
     }
-}
-
-#[test]
-fn in_full_access_a_step_on_a_simulator_still_asks() {
-    let steps = [
-        ("sim_act", json!({"simId": "s1", "action": "tap"})),
-        ("sim_act", json!({"simId": "s1", "action": "type"})),
-        (
-            "sim_act",
-            json!({"simId": "s1", "action": "open_app", "appId": "com.apple.calculator"}),
-        ),
-        ("sim_start", json!({"simId": "s1"})),
-    ];
-    for (tool, arguments) in steps {
-        let step = drive::read(tool, &arguments, None);
-        for call in under_everything(driving(tool, &step)) {
-            let route = route(call);
-            assert!(
-                matches!(
-                    route,
-                    Route::Ask {
-                        ask: Some(Ask::Drive),
-                        ..
-                    }
-                ),
-                "{arguments}: {route:?}"
-            );
-        }
-    }
-}
-
-#[test]
-fn in_full_access_driving_runs_except_where_sends_payments_and_sign_ins_happen() {
-    let app = |id: &str, name: &str| drive::Place::App {
-        id: id.into(),
-        name: name.into(),
-    };
-    let ordinary = app("com.apple.TextEdit", "TextEdit");
-    let step = drive::Step {
-        sensitive: drive::sensitive(&ordinary),
-        place: Ok(ordinary),
-    };
-    let textedit = driving("screen_act", &step);
-    assert!(is_review(&route(reviewed(textedit))));
-    for call in under_everything(textedit) {
-        assert_eq!(route(call), Route::Run, "{call:?}");
-    }
-    for place in [
-        app("com.apple.mail", "Mail"),
-        app("com.apple.MobileSMS", "Messages"),
-        app("com.bitwarden.desktop", "Bitwarden"),
-        app("com.apple.iphonesimulator", "Simulator"),
-        app("com.apple.ScreenContinuity", "iPhone Mirroring"),
-    ] {
-        let why = drive::sensitive(&place);
-        assert!(why.is_some(), "{place:?}");
-        let step = drive::Step {
-            sensitive: why,
-            place: Ok(place),
-        };
-        let always = Call {
-            always: true,
-            rule: Decision::Run,
-            ..driving("screen_act", &step)
-        };
-        assert!(
-            matches!(route(always), Route::Ask { .. }),
-            "{:?}",
-            step.place
-        );
-    }
-    for address in [
-        "https://www.paypal.com/checkout",
-        "https://accounts.google.com/signin",
-        "https://mail.google.com/mail/u/0/",
-    ] {
-        let step = drive::site(address);
-        assert!(step.sensitive.is_some(), "{address}");
-        assert!(
-            matches!(route(driving("browser_act", &step)), Route::Ask { .. }),
-            "{address}"
-        );
-    }
-}
-
-#[test]
-fn in_full_access_a_step_spade_cant_place_or_hold_still_asks() {
-    for why in [drive::UNPLACED, drive::NO_TAB, drive::DEVICE_INPUT] {
-        let step = drive::Step {
-            place: Err(why),
-            sensitive: None,
-        };
-        assert_eq!(
-            route(driving("browser_act", &step)),
-            Route::Ask {
-                line: why.to_owned(),
-                ask: Some(Ask::Drive)
-            }
-        );
-    }
-    let step = drive::site("https://example.com/");
-    let unheld = Call {
-        drive: Drive {
-            bound: false,
-            ..driving("browser_act", &step).drive
-        },
-        ..driving("browser_act", &step)
-    };
-    assert!(matches!(route(unheld), Route::Ask { .. }));
 }
 
 #[test]

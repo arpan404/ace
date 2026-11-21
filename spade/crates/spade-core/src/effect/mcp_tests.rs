@@ -48,6 +48,8 @@ fn app_call(tool: Mcp) -> Call<'static> {
         command: None,
         destructive: asks_each_call(tool),
         org: None,
+        permits: crate::permission::Held::default(),
+        connected: false,
     }
 }
 

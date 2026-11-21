@@ -298,6 +298,8 @@ pub struct Spade {
     pub ace: Option<Arc<AceLink>>,
     /// The person's connected apps, when started with `connectors`.
     pub connectors: Option<Arc<spade_connect::Connectors>>,
+    /// The person's key, as ace's daemon shares it with Spade.
+    pub person_key_path: PathBuf,
     stop: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
 }
@@ -307,6 +309,9 @@ pub type BeforeWork = Arc<dyn Fn(&Arc<Engine>) + Send + Sync>;
 
 pub struct Options {
     pub limits: Limits,
+    /// Where ace's daemon keeps the person's key, which the client signs guarded changes with
+    /// (`Spade::put`); unset: the ace home's, else one of this server's own, kept across restarts.
+    pub person_key: Option<PathBuf>,
     /// The fake endpoints' key variables are unset: no preset is imported, as on a first run
     /// with nothing set up.
     pub no_env_keys: bool,
@@ -453,6 +458,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             limits: Limits::default(),
+            person_key: None,
             no_env_keys: false,
             skills: None,
             ace_home: None,
@@ -601,6 +607,7 @@ impl Spade {
         mut tools: Toolbox,
         options: Options,
     ) -> Result<Self> {
+        let person_key_path = person_key_at(&dir, &options)?;
         let mock = mock::Store::new()?;
         let keys = match (&options.keychain_delete_gate, &options.keychain_read_gate) {
             (None, None) => KeyStore::with_store(mock.clone(), spade_keys::SERVICE),
@@ -800,6 +807,7 @@ impl Spade {
             before(&engine);
         }
         bots.set(&engine);
+        engine.set_person_key(person_key_path.clone());
         // As Spade wires it: workers and arrivals set apps through the hub.
         if let Some(hub) = &connectors {
             engine.set_connector_grants(hub.clone());
@@ -856,6 +864,7 @@ impl Spade {
             mock,
             ace,
             connectors,
+            person_key_path,
             stop: Some(stop),
             task,
         })
@@ -949,15 +958,55 @@ impl Spade {
         self.restart_with(tools, scripts, options).await
     }
 
+    /// `DELETE`, stamped as the person's where ace's daemon stamps it for a window that proved
+    /// it is theirs ([`guarded`]).
     pub async fn delete(&self, path: &str) -> Result<(u16, Value)> {
-        let response = self
+        self.send(reqwest::Method::DELETE, path, None, true).await
+    }
+
+    /// `DELETE` with no stamp of the person's: as a caller without their standing sends it.
+    pub async fn delete_unstamped(&self, path: &str) -> Result<(u16, Value)> {
+        self.send(reqwest::Method::DELETE, path, None, false).await
+    }
+
+    /// `method path` with `body`, stamped as the person's when `stamp` and the route is one
+    /// ace's daemon stamps ([`guarded`]), over the bytes sent.
+    async fn send(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<&Value>,
+        stamp: bool,
+    ) -> Result<(u16, Value)> {
+        let bytes = body.map(serde_json::to_vec).transpose()?;
+        let mut request = self
             .http
-            .delete(format!("{}{path}", self.base))
-            .bearer_auth(TOKEN)
-            .send()
-            .await?;
+            .request(method.clone(), format!("{}{path}", self.base))
+            .bearer_auth(TOKEN);
+        if let Some(bytes) = &bytes {
+            request = request
+                .header("content-type", "application/json")
+                .body(bytes.clone());
+        }
+        if stamp && let Some((target, value)) = guarded(method.as_str(), path, bytes.as_deref()) {
+            let key = std::fs::read_to_string(&self.person_key_path)?;
+            let key: Vec<u8> = (0..key.trim().len())
+                .step_by(2)
+                .map(|at| u8::from_str_radix(&key.trim()[at..at + 2], 16))
+                .collect::<std::result::Result<_, _>>()?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |since| {
+                    i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+                });
+            let nonce = uuid::Uuid::new_v4().simple().to_string();
+            let signed = spade_server::security::attest::sign(&key, &target, &value, now, &nonce);
+            request = request.header(spade_server::security::attest::HEADER, signed);
+        }
+        let response = request.send().await?;
         let status = response.status().as_u16();
-        Ok((status, response.json().await.unwrap_or(Value::Null)))
+        let text = response.text().await?;
+        Ok((status, serde_json::from_str(&text).unwrap_or(Value::Null)))
     }
 
     pub async fn patch(&self, path: &str, body: Value) -> Result<(u16, Value)> {
@@ -972,16 +1021,16 @@ impl Spade {
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
+    /// `PUT`, stamped as the person's where ace's daemon stamps it ([`guarded`]).
     pub async fn put(&self, path: &str, body: Value) -> Result<(u16, Value)> {
-        let response = self
-            .http
-            .put(format!("{}{path}", self.base))
-            .bearer_auth(TOKEN)
-            .json(&body)
-            .send()
-            .await?;
-        let status = response.status().as_u16();
-        Ok((status, response.json().await.unwrap_or(Value::Null)))
+        self.send(reqwest::Method::PUT, path, Some(&body), true)
+            .await
+    }
+
+    /// `PUT` with no stamp of the person's.
+    pub async fn put_unstamped(&self, path: &str, body: Value) -> Result<(u16, Value)> {
+        self.send(reqwest::Method::PUT, path, Some(&body), false)
+            .await
     }
 
     /// `PUT` with extra headers, as ace's daemon sends a stamped change.
@@ -1046,17 +1095,16 @@ impl Spade {
         self.dir.path().join("spade.sqlite")
     }
 
+    /// `POST`, stamped as the person's where ace's daemon stamps it ([`guarded`]).
     pub async fn post(&self, path: &str, body: Value) -> Result<(u16, Value)> {
-        let response = self
-            .http
-            .post(format!("{}{path}", self.base))
-            .bearer_auth(TOKEN)
-            .json(&body)
-            .send()
-            .await?;
-        let status = response.status().as_u16();
-        let text = response.text().await?;
-        Ok((status, serde_json::from_str(&text).unwrap_or(Value::Null)))
+        self.send(reqwest::Method::POST, path, Some(&body), true)
+            .await
+    }
+
+    /// `POST` with no stamp of the person's.
+    pub async fn post_unstamped(&self, path: &str, body: Value) -> Result<(u16, Value)> {
+        self.send(reqwest::Method::POST, path, Some(&body), false)
+            .await
     }
 
     /// `POST` with extra headers, as ace's daemon sends a stamped change.
@@ -1181,4 +1229,71 @@ pub fn types(events: &[Value]) -> Vec<String> {
         .iter()
         .map(|e| e["type"].as_str().unwrap_or("?").to_owned())
         .collect()
+}
+
+/// The person's key for a server in `dir`: the one a test names, else the one an earlier start in
+/// `dir` used, else the ace home's, else one of its own; written if it isn't there yet.
+fn person_key_at(dir: &tempfile::TempDir, options: &Options) -> Result<PathBuf> {
+    let kept = dir.path().join("person-key-path");
+    let path = match (&options.person_key, std::fs::read_to_string(&kept).ok()) {
+        (Some(path), _) => path.clone(),
+        (None, Some(path)) => PathBuf::from(path),
+        (None, None) => match &options.ace_home {
+            Some(home) => home.join(spade_server::security::attest::KEY_FILE),
+            None => dir.path().join(spade_server::security::attest::KEY_FILE),
+        },
+    };
+    std::fs::write(&kept, path.to_string_lossy().as_bytes())?;
+    if !path.exists() {
+        let key: String = (0..2)
+            .map(|_| uuid::Uuid::new_v4().simple().to_string())
+            .collect();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, key)?;
+    }
+    Ok(path)
+}
+
+/// What ace's daemon stamps as the person's on `method path` with `body` for a window that proved
+/// it is theirs (`apps/daemon/src/spade/person-stamp.ts`): a change that may loosen what a bot
+/// may do, as (target, value) over the body's SHA-256. `None` for every other request.
+pub fn guarded(method: &str, path: &str, body: Option<&[u8]>) -> Option<(String, String)> {
+    use sha2::{Digest, Sha256};
+    let digest: String = Sha256::digest(body.unwrap_or_default())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let bare = path.split('?').next().unwrap_or_default();
+    let parts: Vec<&str> = bare.trim_start_matches('/').split('/').collect();
+    let word = |kind: &str| -> Option<&'static str> {
+        match kind {
+            "commands" => Some("commands"),
+            "network" => Some("network"),
+            "plugin-network" => Some("plugin_network"),
+            _ => None,
+        }
+    };
+    match (method, parts.as_slice()) {
+        ("PUT", ["v1", "security", kind]) => {
+            word(kind).map(|word| ("machine".to_owned(), format!("{word}:{digest}")))
+        }
+        ("PUT", ["v1", "agents", bot, "security", kind]) => {
+            word(kind).map(|word| ((*bot).to_owned(), format!("{word}:{digest}")))
+        }
+        ("DELETE", ["v1", "agents", bot, "security", kind]) if *kind != "commands" => {
+            word(kind).map(|word| ((*bot).to_owned(), format!("{word}:inherit")))
+        }
+        ("POST", ["v1", "agents", bot, "grants"]) => {
+            Some(((*bot).to_owned(), format!("grant:{digest}")))
+        }
+        ("PUT", ["v1", "agents", bot, "connectors"]) => {
+            Some(((*bot).to_owned(), format!("connectors:{digest}")))
+        }
+        ("PUT", ["v1", "agents", bot, "package", "effects"]) => {
+            Some(((*bot).to_owned(), format!("package_effect:{digest}")))
+        }
+        _ => None,
+    }
 }

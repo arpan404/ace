@@ -57,6 +57,7 @@ export * from "./roles.ts";
 export * from "./goal.ts";
 export * from "./workers.ts";
 export * from "./decisions.ts";
+export * from "./permissions.ts";
 export * from "./security.ts";
 export * from "./security-words.ts";
 export * from "./request-error.ts";

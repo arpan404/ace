@@ -313,6 +313,9 @@ pub struct Engine {
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
     /// Bots' sandbox, network policies and grants (ADR 0167), once the server has set them.
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
+    /// Where ace's daemon keeps the person's key, for a Spade run without its security service
+    /// (`person_says`); with the service, its own key is read.
+    person_key: std::sync::OnceLock<std::path::PathBuf>,
     /// The package code this Spade runs (ADR 0203), once set up.
     code: std::sync::OnceLock<Arc<crate::code::Code>>,
     /// The local model servers Spade looks for; Ollama's and LM Studio's defaults when unset.
@@ -470,6 +473,7 @@ impl Engine {
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
+            person_key: std::sync::OnceLock::new(),
             code: std::sync::OnceLock::new(),
             local_servers: Mutex::new(None),
             probing: local_probes::Probing::default(),

@@ -113,7 +113,9 @@ async fn secure_with(spade: &Spade, person_key: Option<std::path::PathBuf>) -> R
         clock: Arc::new(SystemClock),
         ids: Arc::new(CountingIds::default()),
         bots,
-        person_key,
+        // The person's key: the one a test names, else this server's own, which its client signs
+        // guarded changes with.
+        person_key: Some(person_key.unwrap_or_else(|| spade.person_key_path.clone())),
     })
     .await;
     spade.engine.set_security(security);

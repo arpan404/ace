@@ -205,9 +205,11 @@ export function createSpadeHttp(context: {
         : context.requestStamp?.({ method: message.method, path: admitted.path, body });
     // Turning Full access on is the person's alone: stamped as theirs, or not forwarded. On an
     // organization's host a member asks instead, and Spade decides by its policy and their role.
+    // A change only Spade can tell loosens anything goes unstamped from a caller without their
+    // standing, and Spade makes it only if it tightens (ADR 0171, amendment 7).
     const guarded = personOnlyWrite(message.method, admitted.path, body);
     const personal = guarded ? await context.stamp(guarded) : undefined;
-    if (personal && "refused" in personal && !member)
+    if (personal && "refused" in personal && !member && !guarded?.optional)
       return fail(message.requestId, "forbidden", personal.refused);
     const stamped = personal && "stamp" in personal ? personal : undefined;
     // An answer to a shared bot's request: the member's, stamped, or not forwarded.
