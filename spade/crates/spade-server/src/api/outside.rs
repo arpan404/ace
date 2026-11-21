@@ -56,6 +56,8 @@ fn caller(
         Stamp::Refused => refused(),
         Stamp::Unchecked => Box::new(unchecked()),
     })?;
+    // The client's name as the person approved it, percent-encoded UTF-8 as every stamp is.
+    let name = crate::teams::proof::decode_name(&name).ok_or_else(refused)?;
     match host.strip_prefix(FROM_OUTSIDE) {
         Some(grant) if valid_grant(grant) => Ok(OutsideCaller {
             grant: grant.to_owned(),

@@ -31,10 +31,11 @@ use support::{FakeTool, Options, Result, TOKEN};
 
 /// ace's local token in its home, which signs what the daemon forwards.
 const DAEMON_TOKEN: &str = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
-/// Two grants with `spade-contracts`, each with its bearer, as ace keeps them.
+/// Two grants with `spade-contracts`, each with its bearer and its client's name as the daemon
+/// stamps it (percent-encoded), as ace keeps them.
 const GRANTS: [(&str, &str, &str); 2] = [
     ("bearer-one", "g_one", "Claude Code"),
-    ("bearer-two", "g_two", "Other agent"),
+    ("bearer-two", "g_two", "Other%20agent"),
 ];
 const TOOL: &str = "flight_watcher__cheapest_fare";
 

@@ -4,7 +4,7 @@
  * How a request arrived decides only its base URL, never what it may do.
  */
 import type { OutsideEndpoint } from "@ace/protocol";
-import { outsideBase, resourceOf, type OutsideBase } from "./oauth/base.ts";
+import { isSpadeContractPath, outsideBase, resourceOf, type OutsideBase } from "./oauth/base.ts";
 
 /** What the remote runtime knows about the ways in beyond loopback. */
 export interface ReachFacts {
@@ -34,7 +34,8 @@ export function outsidePath(path: string): boolean {
     path === "/register" ||
     path === "/authorize" ||
     path === "/authorize/wait" ||
-    path.startsWith("/.well-known/oauth-")
+    path.startsWith("/.well-known/oauth-") ||
+    isSpadeContractPath(path)
   );
 }
 /** `remote.mcpPublicUrl` as the URL clients use: its origin (lowercase host, no :443). */
