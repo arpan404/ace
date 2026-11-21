@@ -64,7 +64,7 @@ export function seedFakeModelAccess(here: FakeSpadeApi, minutes: (count: number)
   here.roles.global.title = "ollama/gemma3:1b";
   here.roles.globalRoutes = {
     main: ["ollama/qwen3:8b", "openrouter/anthropic/claude-sonnet-5.5"],
-    helper: ["ollama/qwen3:8b", "openrouter/anthropic/claude-haiku-5.5"],
+    helper: ["ollama/qwen3:8b", "openrouter/openai/gpt-6.1-mini"],
     title: ["ollama/gemma3:1b"],
   };
   here.roles.global.helper = "ollama/qwen3:8b";

@@ -1126,6 +1126,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     body: Json,
     query: string,
   ): FakeSpadeAnswer {
+    if (id && sub === "probe" && method === "POST") {
+      const endpoint = this.endpoints.find((candidate) => candidate.id === id);
+      const model = (endpoint?.models as Json[] | undefined)?.find((each) => each.id === body.id);
+      if (!endpoint || !model) return problem(404, "no such model");
+      model.probes = { state: "checking" };
+      this.checking.push(model);
+      return reply({ probes: model.probes }, 202);
+    }
     if (!id && method === "POST") {
       const endpoint = {
         id: String(body.name ?? "endpoint")

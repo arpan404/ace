@@ -28,8 +28,7 @@ pub const NO_TOOLS: &str = "This model didn't call tools in Spade's check, so it
 /// What it says while the checks run.
 pub const CHECKING: &str = "Spade is still checking what this model can do; try again in a moment.";
 /// What it says while the checks couldn't reach the model.
-pub const UNCHECKED: &str =
-    "Spade couldn't reach this model to check it, so it can't run a bot yet. Check it again once \
+pub const UNCHECKED: &str = "Spade couldn't reach this model to check it, so it can't run a bot yet. Check it again once \
      its server is running.";
 
 /// Models whose checks are running now.
@@ -41,7 +40,11 @@ struct Done<'a>(&'a Probing, String);
 
 impl Drop for Done<'_> {
     fn drop(&mut self) {
-        self.0.0.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.1);
+        self.0
+            .0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.1);
     }
 }
 
@@ -63,10 +66,7 @@ impl Engine {
 
     /// What `reference`'s checks last found, if they ran.
     pub fn probed(&self, reference: &str) -> Option<Probed> {
-        let raw = self
-            .store
-            .setting(&format!("{PROBES}{reference}"))
-            .ok()??;
+        let raw = self.store.setting(&format!("{PROBES}{reference}")).ok()??;
         serde_json::from_str(&raw).ok()
     }
 

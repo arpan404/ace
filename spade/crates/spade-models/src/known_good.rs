@@ -85,7 +85,13 @@ mod tests {
     #[test]
     fn a_family_covers_its_tags_and_sizes_and_nothing_else() {
         let family = qwen3();
-        for id in ["qwen3", "qwen3:8b", "Qwen3-14B", "qwen/qwen3-8b", "qwen3:latest"] {
+        for id in [
+            "qwen3",
+            "qwen3:8b",
+            "Qwen3-14B",
+            "qwen/qwen3-8b",
+            "qwen3:latest",
+        ] {
             assert!(family.covers(id), "{id}");
         }
         for id in ["qwen3.5:8b", "qwen3-coder:30b", "qwen2.5", "myqwen3", ""] {

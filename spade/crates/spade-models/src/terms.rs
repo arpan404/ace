@@ -145,7 +145,11 @@ impl CliTerms {
                 noticed_ms: Some(notice.at_ms),
                 ..shipped
             };
-            match next.providers.iter_mut().find(|r| r.provider == notice.provider) {
+            match next
+                .providers
+                .iter_mut()
+                .find(|r| r.provider == notice.provider)
+            {
                 Some(held) if held.status.strictness() < notice.status.strictness() => {
                     *held = record;
                 }
@@ -259,7 +263,10 @@ mod tests {
         ]);
         let codex = after.record("codex");
         assert_eq!(codex.status, TermsStatus::Refused);
-        assert_eq!((codex.noticed_ms, codex.note.as_str()), (Some(7), "Read again"));
+        assert_eq!(
+            (codex.noticed_ms, codex.note.as_str()),
+            (Some(7), "Read again")
+        );
         assert_eq!(codex.shown_name(), "Codex");
         // Loosening is ignored, whatever the build ships.
         assert_eq!(after.record("claude").status, TermsStatus::Refused);

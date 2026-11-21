@@ -202,7 +202,11 @@ fn a_measured_local_family_marks_its_models_and_a_bad_entry_stops_the_file() {
         .and_then(|c| c.known_good("qwen3:8b"))
         .map(|f| (f.name.clone(), f.cases));
     assert_eq!(found, Some(("Qwen3".to_owned(), 25)));
-    assert!(catalog.ok().is_some_and(|c| c.known_good("llama4").is_none()));
+    assert!(
+        catalog
+            .ok()
+            .is_some_and(|c| c.known_good("llama4").is_none())
+    );
 
     let unmeasured = r#"{ "local": [ { "family": "qwen3", "name": "Qwen3", "passed": 0.92,
         "cases": 0, "checked": "2026-11-20" } ], "endpoints": [] }"#;

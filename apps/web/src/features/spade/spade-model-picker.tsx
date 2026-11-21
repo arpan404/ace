@@ -398,7 +398,7 @@ function ModelOption(props: {
     >
       <span className="max-w-[60%] shrink-0 truncate">{option.name}</span>
       <span className="min-w-0 flex-1 truncate text-right text-xs text-subtle-foreground">
-        {option.cant ?? option.facts}
+        {option.facts}
       </span>
       <CheckIcon aria-hidden size={14} className={cn(!props.chosen && "invisible")} />
     </div>

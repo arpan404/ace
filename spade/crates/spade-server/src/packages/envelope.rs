@@ -132,8 +132,8 @@ pub fn verify(envelope: &Envelope, keys: &[MarketKey]) -> Result<(PackageId, Val
             error
         }
     })?;
-    let body: Body = serde_json::from_value(body)
-        .map_err(|_| "the signed manifest is malformed".to_owned())?;
+    let body: Body =
+        serde_json::from_value(body).map_err(|_| "the signed manifest is malformed".to_owned())?;
     if body.format != "ace-market-manifest" || body.kind != "spade-bot" {
         return Err("the signed manifest isn't a bot package's".to_owned());
     }

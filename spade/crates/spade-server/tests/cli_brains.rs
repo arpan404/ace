@@ -818,7 +818,10 @@ async fn a_signed_notice_only_tightens_and_a_refusal_holds_the_bot_until_the_per
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(requests(&daemon).is_empty(), "no CLI turn started");
     let row = roster_row(&spade, &bot).await?;
-    assert_eq!(row["model"], "cli:codex@work/gpt-6.1-sol", "never switched by itself");
+    assert_eq!(
+        row["model"], "cli:codex@work/gpt-6.1-sol",
+        "never switched by itself"
+    );
     assert_eq!(
         row["terms_hold"]["text"],
         "Codex's terms no longer allow this. Pick another model for this bot."
@@ -834,7 +837,9 @@ async fn a_signed_notice_only_tightens_and_a_refusal_holds_the_bot_until_the_per
     assert!(requests(&daemon).is_empty());
 
     // The notice outlives a restart.
-    let spade = spade.restart(Vec::new(), vec![spade_testkit::Script::reply("")]).await?;
+    let spade = spade
+        .restart(Vec::new(), vec![spade_testkit::Script::reply("")])
+        .await?;
     support::market::trust(&spade.engine);
     connect(&spade.engine, &daemon, &url, &spade.base)?;
     let (_, listed) = spade.get("/v1/subscriptions").await?;

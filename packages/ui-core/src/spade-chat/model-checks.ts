@@ -61,6 +61,25 @@ export function spadeKnownGoodOf(raw: unknown): SpadeKnownGood | undefined {
 /** The words for a model ace measured: "Works well with Spade's packages". */
 export const spadeWorksWell = "Works well with Spade's packages";
 
+/**
+ * What Settings says under a local model: its checks running, what they found, or that ace's
+ * cases ran well on its family. Undefined when there is nothing to say.
+ */
+export function spadeChecksLine(model: {
+  checks?: SpadeModelChecks | undefined;
+  knownGood?: SpadeKnownGood | undefined;
+}): string | undefined {
+  const checks = model.checks;
+  if (checks?.state === "checking") return spadeChecking;
+  if (checks?.state === "checked" && checks.why) return checks.why;
+  if (model.knownGood) return spadeWorksWell;
+  if (checks?.state === "checked") return "Passed Spade's checks";
+  return undefined;
+}
+
+/** A picker row's few words for a model whose checks found it can't call tools. */
+export const spadeNoToolsShort = "Didn't call tools · titles and summaries only";
+
 /** What the picker says while a model's checks run. */
 export const spadeChecking = "Checking what it can do…";
 

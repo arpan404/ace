@@ -118,11 +118,13 @@ impl Models {
                 "required": ["city"],
             }),
         };
-        let tools = match within(self.chat(
-            reference,
-            &Prompt::ask("What is the weather in Lisbon today? Use the tool to find out.")
-                .tools(vec![weather]),
-        ))
+        let tools = match within(
+            self.chat(
+                reference,
+                &Prompt::ask("What is the weather in Lisbon today? Use the tool to find out.")
+                    .tools(vec![weather]),
+            ),
+        )
         .await
         {
             Ok(reply) => {

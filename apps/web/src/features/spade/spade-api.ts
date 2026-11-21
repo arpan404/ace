@@ -284,6 +284,13 @@ export async function removeModel(target: SpadeTarget, endpoint: string, model: 
   await spadeHttp(target, "DELETE", path);
 }
 
+/** Runs Spade's three checks on a local model again (ADR 0205 §3); they run in the background. */
+export async function checkModel(target: SpadeTarget, endpoint: string, model: string) {
+  await spadeHttp(target, "POST", `/v1/endpoints/${segment(endpoint)}/probe`, {
+    body: { id: model },
+  });
+}
+
 /** `endpoint/model` for titles and other small jobs; null: each agent's own model. */
 export async function setFastModel(target: SpadeTarget, model: string | null): Promise<void> {
   await spadeHttp(target, "PUT", "/v1/settings", { body: { fast_model: model } });

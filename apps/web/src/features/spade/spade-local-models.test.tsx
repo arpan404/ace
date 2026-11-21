@@ -101,7 +101,8 @@ test("a local model that didn't call tools in Spade's check isn't taken as a bot
   await userEvent.click(local.getByRole("option", { name: /^gemma3:4b/ }));
   // The checks run, then the picker says why it can't run a bot and keeps the choice as it was.
   const why = "This model didn't call tools in Spade's check, so it can't run a bot.";
-  expect(await screen.findAllByText(why)).toHaveLength(2);
+  expect(await screen.findByText(why)).toBeTruthy();
+  expect(screen.getByText("Didn't call tools · titles and summaries only")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Model" }).textContent).not.toContain("gemma3:4b");
   // Listed again, it reads why, and picking it doesn't choose it.
   const ollama = within(await screen.findByRole("group", { name: "Ollama" }));
@@ -110,4 +111,46 @@ test("a local model that didn't call tools in Spade's check isn't taken as a bot
   await userEvent.click(option);
   expect(screen.getByRole("button", { name: "Model" }).textContent).not.toContain("gemma3:4b");
   expect(spade.sent("POST", "/v1/endpoints/local/ollama")).toEqual([{ model: "gemma3:4b" }]);
+});
+
+test("Settings says what Spade's checks found on a local model, and Check again runs them", async () => {
+  const { spade } = await spadeApp("/settings/spade/models", (here) => {
+    withLocal(here);
+    here.endpoints.unshift({
+      id: "ollama",
+      name: "Ollama",
+      format: "openai-chat",
+      base_url: "http://127.0.0.1:11434/v1/",
+      local: true,
+      header_names: [],
+      session_header: null,
+      needs_key: false,
+      key_set: false,
+      key_source: null,
+      models: [
+        {
+          id: "gemma3:1b",
+          name: "Gemma 3 1B",
+          capabilities: [],
+          source: "listed",
+          probes: {
+            state: "checked",
+            plain: "passed",
+            tools: "failed",
+            structured: "passed",
+            why: "This model didn't call tools in Spade's check, so it can't run a bot.",
+          },
+        },
+      ],
+    });
+  });
+  const ollama = within(await screen.findByRole("region", { name: "Ollama" }));
+  expect(
+    ollama.getByText("This model didn't call tools in Spade's check, so it can't run a bot."),
+  ).toBeTruthy();
+  await userEvent.click(ollama.getByRole("button", { name: "Check Gemma 3 1B again" }));
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/endpoints/ollama/probe")).toEqual([{ id: "gemma3:1b" }]),
+  );
+  expect(await ollama.findByText("Checking what it can do…")).toBeTruthy();
 });

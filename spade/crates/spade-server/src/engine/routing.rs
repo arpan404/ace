@@ -308,9 +308,7 @@ impl Engine {
                 .filter(|m| person.calls_tools(m))
                 .or_else(|| Some(self.new_bot_default())),
         );
-        let view = |route: Vec<String>| {
-            json!({ "tools": route.iter().any(|m| person.calls_tools(m)), "route": route })
-        };
+        let view = |route: Vec<String>| json!({ "tools": route.iter().any(|m| person.calls_tools(m)), "route": route });
         json!({ "fast": view(fast), "capable": view(capable) })
     }
 

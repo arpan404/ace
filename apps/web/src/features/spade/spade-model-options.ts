@@ -2,6 +2,7 @@ import {
   spadeCantRunBots,
   spadeChecking,
   spadeLocalFirst,
+  spadeNoToolsShort,
   spadeWorksWell,
   spadeModelFacts,
   splitCliModel,
@@ -96,7 +97,10 @@ export function spadeModelGroups(
             : spadeModelFacts(model),
         };
         const cant = sources.forBots ? spadeCantRunBots(model) : undefined;
-        if (cant) option.cant = cant;
+        if (cant) {
+          option.cant = cant;
+          option.facts = model.checks?.tools === "failed" ? spadeNoToolsShort : cant;
+        }
         return option;
       });
     if (typed && !models.some((model) => model.id === typed))
