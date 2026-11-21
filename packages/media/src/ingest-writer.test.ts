@@ -294,3 +294,24 @@ it("a finish whose waiting keyframe can't go within the drain limit is a cut, no
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(server.received.some((frame) => frame.kind === 4)).toBe(false);
 });
+
+it("a socket that fails while the writer is made reports its close after the caller holds the writer", async () => {
+  const closes: { reason: string; held: boolean }[] = [];
+  let writer: IngestWriter | undefined;
+  const made = new IngestWriter({
+    socket: "/nonexistent/ingest.sock",
+    token: new Uint8Array(32),
+    onClosed: (reason) => void closes.push({ reason, held: writer !== undefined }),
+    onKeyframe: () => {},
+    connect: () => {
+      const socket = createConnection("/nonexistent/ingest.sock");
+      socket.on("error", () => {});
+      socket.destroy();
+      return socket;
+    },
+  });
+  writer = made;
+  await until(() => closes.length > 0);
+  expect(closes).toEqual([{ reason: "destroyed", held: true }]);
+  expect(made.closed).toBe(true);
+});

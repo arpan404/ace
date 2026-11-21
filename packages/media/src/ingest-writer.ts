@@ -70,6 +70,8 @@ export class IngestWriter {
   #pending: Uint8Array | undefined;
   /** The armed deadline: over budget while open, or a finish in progress. */
   #deadline: (() => void) | undefined;
+  /** Still in the constructor: a failure now is reported once the caller holds the writer. */
+  #constructing = true;
 
   constructor(options: IngestWriterOptions) {
     this.#options = options;
@@ -80,6 +82,7 @@ export class IngestWriter {
     this.#socket.on("drain", () => this.#room());
     this.#write(encodeMediaFrame({ ...control(5), payload: options.token.slice() }));
     options.token.fill(0);
+    this.#constructing = false;
   }
 
   /** The connection is gone, or finishing. */
@@ -162,7 +165,10 @@ export class IngestWriter {
     if (!this.#move({ kind: "cut" })) return;
     this.#stop();
     this.#socket.destroy();
-    this.#options.onClosed(reason);
+    // A socket that fails at once (no such path) fails inside the constructor, before its caller
+    // could tell this writer from an older one.
+    if (this.#constructing) queueMicrotask(() => this.#options.onClosed(reason));
+    else this.#options.onClosed(reason);
   }
 
   #stop(): void {
