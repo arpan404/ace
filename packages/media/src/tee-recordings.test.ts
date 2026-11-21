@@ -3,8 +3,10 @@ import { decodeMediaFrame } from "./frame.ts";
 import { recoveryMs } from "./recordings.ts";
 import type { MediaHealth } from "./supervision-policy.ts";
 import { ManualClock } from "./supervisor-test-support.ts";
+import { readGapMs } from "./epochs.ts";
 import {
   ingestLossGraceMs,
+  pictureKeyframeMs,
   recordingStartMs,
   restartLossGraceMs,
   syncMs,
@@ -30,6 +32,10 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
     synced: true,
     /** ace-media agreed to the optional features; an older binary didn't. */
     speaks: true,
+    /** ace-media's probe found a picture encoder. */
+    encoder: true,
+    /** The recorded source is private now. */
+    secret: false,
   };
   let needs = 0;
   let next = 0;
@@ -60,6 +66,7 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
     health: () => state.health,
     reason: () => state.reason,
     speaks: () => state.speaks,
+    pictureCodecs: () => (state.encoder ? ["avc1.42E033"] : []),
     connect: () => {
       const closes: (() => void)[] = [];
       const socket: IngestSocket = {
@@ -417,8 +424,9 @@ it("ingest lost while the stop's barrier is pending stays a failure when ace-med
   await expect(stopping).resolves.toEqual({ ok: false, reason: "ingest-closed", parts: [part(0)] });
 });
 
-const pictureSpec = (): TeeRecordingSpec => ({
+const pictureSpec = (m?: ReturnType<typeof media>): TeeRecordingSpec => ({
   ...spec(),
+  private: () => m?.state.secret ?? false,
   origin: { kind: "tab-pictures" },
   encode: { codec: "avc1.42E033", width: 1280, height: 720, fps: 15, bitrate: 4_000_000 },
 });
@@ -509,4 +517,96 @@ it("refuses a picture recording, saying why, on an ace-media that can't encode p
   });
   expect(m.types()).toEqual([]);
   expect(m.needs()).toBe(0);
+});
+
+it("holds a picture recording's encode after a restart until the new ace-media found an encoder", async () => {
+  const m = media();
+  m.up();
+  await started(m, pictureSpec());
+  const encodes = () => m.sent.filter((message) => message.type === "source.encodes").length;
+  expect(encodes()).toBe(1);
+  // The new process reports its last-resort encoder only after `ready`: an encode asked before
+  // that would end the source.
+  m.crash();
+  m.state.encoder = false;
+  m.up();
+  await Promise.resolve();
+  expect(encodes()).toBe(1);
+  m.state.encoder = true;
+  m.recordings.message({ type: "capabilities.changed", capabilities: [] });
+  expect(encodes()).toBe(2);
+});
+
+it("waits for ace-media's encoder before a picture recording starts, and refuses without one", async () => {
+  const m = media();
+  m.state.encoder = false;
+  m.up();
+  const waiting = m.recordings.start(pictureSpec());
+  await m.clock.advance(recordingStartMs);
+  expect(await waiting).toEqual({
+    ok: false,
+    reason: "ace-media isn't available to record: it found no video encoder on this computer",
+  });
+  const late = m.recordings.start(pictureSpec());
+  await Promise.resolve();
+  m.state.encoder = true;
+  m.recordings.message({ type: "capabilities.changed", capabilities: [] });
+  expect((await late).ok).toBe(true);
+});
+
+it("stamps a picture recording's pictures with a new epoch only once ace-media applied it", async () => {
+  const m = media();
+  m.up();
+  const { recording } = await started(m, pictureSpec());
+  const open = m.sent.find((message) => message.type === "source.open");
+  if (open?.type !== "source.open") throw new Error("no source.open");
+  const pictureEpochs = () =>
+    m.written
+      .map((bytes) => decodeMediaFrame(bytes))
+      .filter((f) => f.kind === 3)
+      .map((f) => f.epoch);
+  recording.privacy();
+  const told = m.sent.filter((message) => message.type === "source.epoch");
+  expect(told).toEqual([
+    { type: "source.epoch", source: open.source, seq: 0, epoch: 2, followsPrivate: false },
+  ]);
+  // ace-media hasn't applied epoch 2 yet: a picture read now keeps epoch 1.
+  recording.push(jpeg);
+  m.recordings.message({ type: "epoch.applied", source: open.source, seq: 0, epoch: 2 });
+  recording.push(jpeg);
+  expect(pictureEpochs()).toEqual([1, 2]);
+});
+
+it("asks a picture recording's encode for a keyframe regularly, and once a resume's read gap passed", async () => {
+  const m = media();
+  m.up();
+  const { recording } = await started(m, pictureSpec(m));
+  const open = m.sent.find((message) => message.type === "source.open");
+  if (open?.type !== "source.open") throw new Error("no source.open");
+  const keys = () => m.sent.filter((message) => message.type === "source.key").length;
+  const before = keys();
+  await m.clock.advance(pictureKeyframeMs);
+  expect(keys()).toBe(before + 1);
+  // Private, then public again: once ace-media applied the epoch after the private one, a
+  // keyframe is asked as soon as pictures read are past the read gap.
+  m.state.secret = true;
+  recording.privacy();
+  m.state.secret = false;
+  recording.privacy();
+  const followsPrivate = m.sent.findLast((message) => message.type === "source.epoch");
+  if (followsPrivate?.type !== "source.epoch") throw new Error("no source.epoch");
+  expect(followsPrivate.followsPrivate).toBe(true);
+  m.recordings.message({
+    type: "epoch.applied",
+    source: open.source,
+    seq: followsPrivate.seq,
+    epoch: followsPrivate.epoch,
+  });
+  await m.clock.advance(readGapMs);
+  expect(keys()).toBe(before + 1);
+  await m.clock.advance(100);
+  expect(keys()).toBe(before + 2);
+  void recording.stop();
+  await m.clock.advance(pictureKeyframeMs * 2);
+  expect(keys()).toBe(before + 2);
 });

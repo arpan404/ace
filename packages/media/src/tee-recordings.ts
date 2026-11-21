@@ -3,9 +3,19 @@ import { MediaRecording, type RecordedPart, type RecordingEnd } from "./recordin
 import type { MediaClock } from "./supervisor-host.ts";
 import type { MediaHealth } from "./supervision-policy.ts";
 import { MediaTee, type IngestSocket, type TeeUnit } from "./tee.ts";
+import { readGapMs, type IssuedEpoch } from "./epochs.ts";
 import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
 type EncodeSpec = Extract<ToMedia, { type: "source.encodes" }>["encodes"][number];
+/**
+ * How often a picture recording's encode makes a keyframe. Its encoder makes one only when
+ * asked, and a part is written a group at a time: this bounds what a crash can lose, and how
+ * long a recording waits to resume at a clear keyframe when an earlier ask fell in an epoch it
+ * discarded (around a restart, or a private stretch).
+ */
+export const pictureKeyframeMs = 2_000;
+/** How long past the read gap a resumed picture recording asks its encode for a keyframe. */
+const resumeMarginMs = 50;
 /** The encode id a picture recording's one encode runs under. */
 const recordingEncode = 1;
 /** Origins whose units are JPEG pictures ace-media encodes. */
@@ -36,6 +46,11 @@ export type TeeRecordingsPort = {
   reason(): string | undefined;
   /** Whether the running ace-media agreed to an optional feature (`ready.features`). */
   speaks(feature: MediaFeature): boolean;
+  /**
+   * The codecs ace-media encodes pictures in here now, best first: empty until its probe found
+   * an encoder (the last-resort one reports after `ready`, as `capabilities.changed`).
+   */
+  pictureCodecs(): readonly string[];
   connect(path: string): IngestSocket;
   /** A source handle never used before in this ace-media process. */
   handle(): number;
@@ -95,6 +110,8 @@ export class TeeRecordings {
   readonly #port: TeeRecordingsPort;
   readonly #live = new Set<TeeRecording>();
   readonly #waiters = new Set<Waiter>();
+  /** Picture recordings waiting for ace-media's probe to find an encoder. */
+  readonly #encoders = new Set<{ done(ok: boolean): void }>();
   /** ace-media is running with both lanes, and has been replayed. */
   #up = false;
 
@@ -133,6 +150,10 @@ export class TeeRecordings {
         reason: unavailable("this ace-media is too old to record pictures; update ace"),
       };
     }
+    if (pictures && !(await this.#encoder())) {
+      release();
+      return { ok: false, reason: unavailable("it found no video encoder on this computer") };
+    }
     const recording = new TeeRecording(port, spec, release, (it) => this.#live.delete(it));
     if (!recording.begin()) {
       recording.abandon();
@@ -157,6 +178,24 @@ export class TeeRecordings {
 
   message(message: FromMedia): void {
     for (const recording of this.#live) recording.message(message);
+    if (message.type === "capabilities.changed" && encodesPictures(this.#port))
+      for (const waiter of this.#encoders) waiter.done(true);
+  }
+
+  /** True once ace-media can encode pictures here, false if it can't within the start's wait. */
+  #encoder(): Promise<boolean> {
+    if (encodesPictures(this.#port)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const waiter = {
+        done: (ok: boolean) => {
+          if (!this.#encoders.delete(waiter)) return;
+          cancel();
+          resolve(ok);
+        },
+      };
+      this.#encoders.add(waiter);
+      const cancel = this.#port.clock.setTimeout(() => waiter.done(false), recordingStartMs);
+    });
   }
 
   /** ace-media exited. A restart replays; a recording stopping meanwhile ends with what it has. */
@@ -189,6 +228,11 @@ export class TeeRecordings {
       );
     });
   }
+}
+
+/** Whether ace-media encodes pictures as H.264 here now: what every picture recording is. */
+function encodesPictures(port: Pick<TeeRecordingsPort, "pictureCodecs">): boolean {
+  return port.pictureCodecs().some((codec) => codec.startsWith("avc1"));
 }
 
 /** `work`'s result, or false once `ms` pass first. */
@@ -234,6 +278,22 @@ export class TeeRecording implements ActiveRecording {
   #down = false;
   readonly #source: string;
   readonly #send: (message: ToMedia) => boolean;
+  readonly #encodable: () => boolean;
+  /** The current open's encode went to ace-media. */
+  #encoding = false;
+  /**
+   * A picture source's epochs issued but not yet stamped: ace-media keeps pictures only of
+   * epochs it was told (`source.epoch`), so the tee stamps one only once ace-media applied it.
+   */
+  #issued: IssuedEpoch[] = [];
+  /** `source.epoch`'s sequence in the running ace-media, from 0 after each start. */
+  #epochSeq = 0;
+  /** ace-media answered the current open: an epoch sent now can't overtake it. */
+  #openAnswered = false;
+  /** Cancels the keyframe owed once a resume's read gap has passed. */
+  #resume: (() => void) | undefined;
+  /** Cancels the next regular keyframe. */
+  #beat: (() => void) | undefined;
 
   constructor(
     port: TeeRecordingsPort,
@@ -249,6 +309,7 @@ export class TeeRecording implements ActiveRecording {
     const source = `recording:${id}`;
     this.#source = source;
     this.#send = (message) => port.send(message);
+    this.#encodable = () => encodesPictures(port);
     this.#tee = new MediaTee(
       {
         source,
@@ -275,8 +336,7 @@ export class TeeRecording implements ActiveRecording {
       clock: port.clock,
       private: () => spec.private(),
       epoch: 1,
-      // The tee stamps with an epoch from the moment it has it, so it acknowledges at once.
-      issue: (issued) => this.#media.acknowledged(this.#tee.epoch(issued)),
+      issue: (issued) => this.#issue(issued),
       keyframe: () => this.#keyframe(),
       part: (part) => spec.part?.(part),
       // ace-media answers once it took every frame written and decided the last epoch.
@@ -296,16 +356,85 @@ export class TeeRecording implements ActiveRecording {
 
   /** @internal Opens the source and starts the recording; false when ace-media refused. */
   begin(): boolean {
-    return this.#open() && this.#media.start();
+    if (!this.#open() || !this.#media.start()) return false;
+    if (this.#spec.encode) this.#keyframes();
+    return true;
+  }
+
+  /** A picture recording's regular keyframes, for as long as it runs. */
+  #keyframes(): void {
+    this.#beat = this.#clock.setTimeout(() => {
+      if (this.#done || this.#stopping) return;
+      this.#keyframe();
+      this.#keyframes();
+    }, pictureKeyframeMs);
+  }
+
+  /**
+   * A new epoch for what the tee reads from now on. An encoded source's tee stamps with it at
+   * once and so acknowledges it at once. A picture source's pictures are ace-media's to keep
+   * only up to the epochs it was told, so the tee tells it first and stamps with the epoch once
+   * ace-media applied it (`epoch.applied`): no picture is ever stamped ahead of what it knows.
+   */
+  #issue(issued: IssuedEpoch): void {
+    if (!this.#spec.encode) {
+      this.#media.acknowledged(this.#tee.epoch(issued));
+      return;
+    }
+    this.#issued.push(issued);
+    if (this.#openAnswered) this.#announce(issued);
+  }
+
+  #announce(issued: IssuedEpoch): void {
+    this.#send({
+      type: "source.epoch",
+      source: this.#source,
+      seq: this.#epochSeq++,
+      epoch: issued.epoch,
+      followsPrivate: issued.followsPrivate,
+    });
+  }
+
+  /**
+   * ace-media applied `epoch`: the tee stamps with it, and every one before it, in order. After
+   * a private stretch the recording resumes only at a keyframe of a clear epoch, and the encode
+   * makes one only when asked: it is asked once pictures read now are past the read gap.
+   */
+  #applied(epoch: number): void {
+    let resumed = false;
+    while (this.#issued[0] && this.#issued[0].epoch <= epoch) {
+      const issued = this.#issued.shift();
+      if (!issued) break;
+      this.#media.acknowledged(this.#tee.epoch(issued));
+      resumed ||= issued.followsPrivate;
+    }
+    if (!resumed || this.#done) return;
+    this.#resume?.();
+    this.#resume = this.#clock.setTimeout(() => {
+      this.#resume = undefined;
+      if (!this.#done) this.#keyframe();
+    }, readGapMs + resumeMarginMs);
   }
 
   /** Opens the source in the running ace-media, with a picture source's encode. */
   #open(): boolean {
+    this.#encoding = false;
+    this.#openAnswered = false;
+    this.#epochSeq = 0;
     if (!this.#tee.open()) return false;
+    this.#encode();
+    return true;
+  }
+
+  /**
+   * A picture source's own encode, whatever the live views want: it runs while nobody watches.
+   * After a restart it waits for the new process's probe to find an encoder again, since an
+   * encode asked before then ends the source.
+   */
+  #encode(): void {
     const encode = this.#spec.encode;
-    if (!encode) return true;
-    // Its own encode, whatever the live views want: it runs while nobody watches.
-    return this.#send({
+    if (!encode || this.#encoding || !this.#encodable()) return;
+    this.#encoding = this.#send({
       type: "source.encodes",
       source: this.#source,
       encodes: [{ ...encode, id: recordingEncode }],
@@ -347,6 +476,16 @@ export class TeeRecording implements ActiveRecording {
 
   /** @internal */
   message(message: FromMedia): void {
+    if (message.type === "capabilities.changed") return this.#encode();
+    if ("source" in message && message.source === this.#source && this.#spec.encode) {
+      if (message.type === "epoch.applied") return this.#applied(message.epoch);
+      // ace-media's first word on the open: the epochs waiting for it go now, in order. The
+      // open carried the epoch the tee stamps with; every one after it is still owed.
+      if (message.type === "source.status" && !this.#openAnswered) {
+        this.#openAnswered = true;
+        for (const issued of this.#issued) this.#announce(issued);
+      }
+    }
     this.#tee.message(message);
     this.#media.message(message);
   }
@@ -442,6 +581,8 @@ export class TeeRecording implements ActiveRecording {
     if (this.#done) return;
     this.#done = true;
     this.#loss?.cancel();
+    this.#resume?.();
+    this.#beat?.();
     this.#tee.close();
     this.#forget(this);
     this.#release();

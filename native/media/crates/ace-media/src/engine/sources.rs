@@ -944,6 +944,10 @@ impl Sources {
         source
             .egress
             .unit(&source.id, source.handle, &frame, egress, out);
+        // A recording is of encoded samples: a picture (one no encoder took) is for stills.
+        if frame.kind == KIND_PICTURE {
+            return;
+        }
         let Some(recording) = &mut source.recording else {
             return;
         };

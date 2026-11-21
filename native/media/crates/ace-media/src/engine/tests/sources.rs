@@ -654,3 +654,26 @@ fn a_sync_waits_while_clear_audio_is_still_held_for_a_video_fragment() {
     assert!(synced(&sync(&mut engine, 0, 1, 1)).is_empty());
     assert!(written(&log).is_empty());
 }
+
+#[test]
+fn a_picture_sources_jpeg_with_no_encoder_running_never_reaches_its_recording() {
+    let log = Log::default();
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
+    send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "s1", "handle": 1, "epoch": 1,
+                "origin": { "kind": "tab-pictures" } }),
+        &[9; 32],
+        NOW,
+    );
+    start(&mut engine, "r1", "/tmp/r");
+    hello(&mut engine, 1, 9);
+    // Its encode isn't running yet (after a restart it waits for the probe): the JPEG is a
+    // picture for stills, never a sample the recorder would refuse.
+    let mut picture = frame(3, 1, 1, vec![0xff, 0xd8, 0xff, 0xd9]);
+    picture.codec = 7;
+    let mut effects = ingest(&mut engine, 1, picture, NOW);
+    effects.extend(decide(&mut engine, 0, 1, json!([[1, 1]]), json!([]), NOW));
+    assert!(failures(&effects).is_empty(), "{:?}", failures(&effects));
+    assert!(written(&log).is_empty(), "{:?}", written(&log));
+}

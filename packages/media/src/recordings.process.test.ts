@@ -275,3 +275,82 @@ it.runIf(binary)(
   },
   60_000,
 );
+
+const still = readFileSync(
+  new URL("../../../packages/screen/src/testing/phone-screen.jpg", import.meta.url),
+);
+
+/** The video samples each part holds, from its moof/trun boxes (ISO/IEC 14496-12). */
+function samples(path: string): number {
+  const file = readFileSync(path);
+  expect(file.toString("latin1", 4, 8)).toBe("ftyp");
+  let count = 0;
+  for (let at = 0; at + 8 <= file.length;) {
+    const size = file.readUInt32BE(at);
+    if (size < 8) break;
+    if (file.toString("latin1", at + 4, at + 8) === "moof") {
+      const trun = file.indexOf("trun", at, "latin1");
+      if (trun > 0 && trun < at + size) count += file.readUInt32BE(trun + 8);
+    }
+    at += size;
+  }
+  return count;
+}
+
+it.runIf(binary)(
+  "records JPEG pictures through ace-media's own encode with nobody watching, never while private",
+  async () => {
+    const exits: MediaExit[] = [];
+    const { media: runtime, directory } = makeRuntime(exits);
+    let secret = true;
+    const start = await runtime.recordings.start({
+      origin: { kind: "tab-pictures" },
+      encode: { codec: "avc1.42E033", width: 390, height: 844, fps: 15, bitrate: 1_000_000 },
+      directory,
+      maxBytes: 1 << 20,
+      private: () => secret,
+    });
+    if (!start.ok) throw new Error(start.reason);
+    const recording = start.recording;
+    const picture = {
+      kind: "picture",
+      keyframe: true,
+      codec: 7,
+      width: 390,
+      height: 844,
+      payload: still,
+    } as const;
+    const play = async (count: number) => {
+      for (let n = 0; n < count; n++) {
+        recording.push(picture);
+        await sleep(60);
+      }
+    };
+    // Private from the start: nothing of it may be written.
+    await play(10);
+    secret = false;
+    recording.privacy();
+    await play(60);
+    // ace-media killed mid-recording: the recording continues in a new part.
+    const pid = runtime.supervisor.snapshot().pid ?? 0;
+    process.kill(pid, "SIGKILL");
+    await until(() => exits.length === 1);
+    await until(
+      () => runtime.supervisor.health() === "healthy" && runtime.supervisor.snapshot().pid !== pid,
+    );
+    await sleep(300);
+    await play(60);
+    const end = await recording.stop();
+    expect(end.ok, JSON.stringify(end)).toBe(true);
+    expect(end.parts.length).toBeGreaterThanOrEqual(2);
+    const written = end.parts.map((part) => samples(part.path));
+    expect(
+      written.every((count) => count > 0),
+      JSON.stringify(written),
+    ).toBe(true);
+    // Each process saw 60 public pictures, the first ten private ones before them: at most the
+    // public ones were written.
+    expect(Math.max(...written)).toBeLessThanOrEqual(60);
+  },
+  90_000,
+);
