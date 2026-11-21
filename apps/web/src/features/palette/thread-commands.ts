@@ -120,6 +120,8 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
     },
   });
 
+  const ownFound = ownShown ? found.data : undefined;
+
   return useMemo(() => {
     const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
     const onMachine = new Map(online.map((machine) => [machine.id, machine]));
@@ -194,7 +196,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       ];
     });
     const seen = new Set(threads.map((thread) => thread.id));
-    for (const hit of ownShown ? (found.data ?? []) : []) {
+    for (const hit of ownFound ?? []) {
       const id = `thread-${hit.threadId}`;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -388,8 +390,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
     others,
     online,
     elsewhere,
-    found.data,
-    ownShown,
+    ownFound,
     directoryProjects,
     state,
     now,

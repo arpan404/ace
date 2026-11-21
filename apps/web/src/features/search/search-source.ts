@@ -108,7 +108,7 @@ export function useSearch(
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const query = text.trim();
-  const shown = usePrimaryInSpace();
+  const ownShown = usePrimaryInSpace();
   const space = spaceKey(useSpaceScope());
   const progress = useDaemonQuery({
     queryKey: ["search-status"],
@@ -121,7 +121,7 @@ export function useSearch(
   });
   const result = useInfiniteQuery({
     queryKey: ["search", space, query, kind ?? "all", filters, progress.data?.generation],
-    enabled: ready && shown && query.length > 0,
+    enabled: ready && ownShown && query.length > 0,
     placeholderData: keepPreviousData,
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: Page) => last.cursor ?? undefined,
@@ -129,7 +129,7 @@ export function useSearch(
   });
   const hits = useMemo(() => result.data?.pages.flatMap((page) => page.hits), [result.data]);
   return {
-    hits: shown ? hits : noHits,
+    hits: ownShown ? hits : noHits,
     progress: progress.data,
     error: result.error,
     isError: result.isError,
