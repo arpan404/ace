@@ -131,7 +131,6 @@ function AppDetail(props: { app: StoreApp }) {
         <section className="st-section" aria-label="Disconnect">
           <Button
             variant="ghost"
-            tone="danger"
             disabled={leaving}
             onClick={() => void remove()}
           >

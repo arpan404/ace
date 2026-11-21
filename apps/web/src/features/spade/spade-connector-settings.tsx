@@ -209,7 +209,6 @@ function ConnectorRow(props: {
         <Button
           size="sm"
           variant="ghost"
-          tone="danger"
           aria-label={`Disconnect ${connector.name}`}
           disabled={busy || connect.busy}
           onClick={() => void remove()}
