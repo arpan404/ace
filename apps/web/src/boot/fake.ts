@@ -265,6 +265,8 @@ export function bootFake(): {
     clock: () => Date.now(),
     hostId: serverId,
     displayName: "Build server",
+    // Its full-text search finds its own threads, not the catalog This Mac answers with.
+    searchCorpus: "titles",
     projectScheduler: (callback) => void setTimeout(callback, 700),
   });
   server.projects.seedFolders("/home/ci", [

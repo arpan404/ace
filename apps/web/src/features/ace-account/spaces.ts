@@ -87,3 +87,27 @@ export function orgOfHost(
   if (hostId === undefined) return undefined;
   return spaces.find((space) => hostsOf.get(space.id)?.has(hostId));
 }
+
+/** A name as its owner: "Acme Robotics'", "Dana's". */
+export const possessive = (name: string): string => (name.endsWith("s") ? `${name}'` : `${name}'s`);
+
+/**
+ * Why a new thread can't start in the window's space, in one sentence, or undefined when it can
+ * (ADR 0206 §2.4): a thread in an organization's space starts only on one of its machines, never
+ * on this one in its place. `reachable` counts the space's machines this window lists.
+ */
+export function spaceStartBlock(
+  space: ShownSpace | undefined,
+  hostsOf: ReadonlyMap<string, ReadonlySet<string>>,
+  reachable: number,
+): string | undefined {
+  if (space === undefined) return "Loading this organization's machines…";
+  const org = space.org;
+  if (!org) return undefined;
+  const hosts = hostsOf.get(org.id);
+  if (hosts === undefined) return `Loading ${possessive(org.name)} machines…`;
+  if (hosts.size === 0) return `${org.name} has no machines yet.`;
+  if (reachable === 0)
+    return `None of ${possessive(org.name)} machines are connected to this window.`;
+  return undefined;
+}

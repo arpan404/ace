@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { fakeOrgHostId } from "@/boot/fake-orgs.ts";
+import { fakeOrgHostId, fakeOrgs } from "@/boot/fake-orgs.ts";
 import { harness } from "./harness.tsx";
 import { orgBackend } from "./org-backend.ts";
 
@@ -13,11 +13,19 @@ export const orgThread = "Add rate limits to the api";
  * This Mac, the person's own machine, with its weather project and a thread there; and the build
  * server, Acme Robotics' host (ADR 0206 §2.4), with its api project and a thread there.
  */
-export function world(options: { space?: string } = {}) {
-  const account = orgBackend(options);
+export function world(
+  options: { space?: string; acmeHosts?: readonly { hostId: string; name: string }[] } = {},
+) {
+  const extra = options.acmeHosts ?? [];
+  const account = orgBackend({
+    ...(options.space ? { space: options.space } : {}),
+    hosts: {
+      [fakeOrgs.acme]: extra.map((host) => ({ ...host, platform: "linux", lastSeenAt: 0 })),
+    },
+  });
   const made = harness({
     account: account.backend,
-    machines: [{ hostId: fakeOrgHostId, name: "Build server" }],
+    machines: [{ hostId: fakeOrgHostId, name: "Build server" }, ...extra],
   });
   made.daemon.projects.seedFolders("/Users/dev", [{ path: "/Users/dev/code/weather", git: true }]);
   made.daemon.projects.command({ type: "workspace.add", path: "/Users/dev/code/weather" });

@@ -3,7 +3,7 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { SpaceScopeProvider, type SpaceScope } from "@/lib/space-scope.ts";
 import { useSpace } from "./space-context.tsx";
-import { machinesInSpace } from "./spaces.ts";
+import { machinesInSpace, spaceStartBlock } from "./spaces.ts";
 
 /**
  * The window's machines that belong to its space (ADR 0206 §1.5): an organization's hosts in its
@@ -46,4 +46,11 @@ export function SpaceScopeHost(props: { children: ReactNode }) {
     [space, ids],
   );
   return <SpaceScopeProvider value={scope}>{props.children}</SpaceScopeProvider>;
+}
+
+/** Why a new thread can't start in the window's space right now (`spaceStartBlock`). */
+export function useSpaceStartBlock(): string | undefined {
+  const machines = useSpaceMachines();
+  const { shown, hostsOf } = useSpace();
+  return spaceStartBlock(shown, hostsOf, machines.length);
 }

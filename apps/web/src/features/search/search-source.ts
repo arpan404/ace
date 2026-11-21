@@ -7,10 +7,10 @@
 import type { ClientApi } from "@ace/client";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { ThreadId, type ProviderKind, type SearchQuery } from "@ace/protocol";
-import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQueries } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { usePrimaryInSpace } from "@/lib/machines.ts";
+import { useMachinesInSpace, usePrimaryInSpace, type Machine } from "@/lib/machines.ts";
 import { spaceKey, useSpaceScope } from "@/lib/space-scope.ts";
 
 export type SearchKind = "thread" | "message" | "tool_call" | "artifact" | "html";
@@ -24,6 +24,8 @@ export interface SearchHit {
   kind: SearchKind;
   createdAt: number;
   snippet: { text: string; highlights: readonly { start: number; end: number }[] };
+  /** Another machine of the window's space the hit is on; none for this window's own. */
+  machine?: { id: string; name: string } | undefined;
 }
 
 const shownKinds: SearchKind[] = ["thread", "message", "tool_call", "artifact", "html"];
@@ -93,12 +95,67 @@ async function readPage(
 }
 
 const noHits: SearchHit[] = [];
+const noMachines: readonly Machine[] = [];
+/** How long another machine's search may take before its hits are left out. */
+const machineTimeoutMs = 15_000;
+
+interface MachineResults {
+  /** Each machine's first page, once it answered; undefined while asked or when it failed. */
+  hits: (SearchHit[] | undefined)[];
+  /** Some machine answered or failed: what answered can be shown. */
+  settled: boolean;
+  updating: boolean;
+}
+const combineMachines = (
+  results: readonly {
+    data?: SearchHit[] | undefined;
+    isError: boolean;
+    isPlaceholderData: boolean;
+  }[],
+): MachineResults => ({
+  hits: results.map((result) => result.data),
+  settled: results.some((result) => result.data !== undefined || result.isError),
+  updating: results.some((result) => result.isPlaceholderData),
+});
+
+/**
+ * The first page of hits from each other machine of the window's space (ADR 0206 §2.4), as the
+ * palette asks them for threads: each is cached under the space and its host id, marked with its
+ * machine, and one that fails or doesn't answer in time leaves only its own hits out.
+ */
+function useMachineSearch(
+  machines: readonly Machine[],
+  query: string,
+  kind: SearchKind | undefined,
+  filters: SearchQuery["filters"],
+  space: string,
+): MachineResults {
+  return useQueries({
+    queries: machines.map((machine) => ({
+      queryKey: ["search", space, machine.id, query, kind ?? "all", filters],
+      enabled: query.length > 0 && machine.client !== undefined,
+      placeholderData: keepPreviousData,
+      retry: false,
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
+        if (!machine.client) return [];
+        const within = AbortSignal.any([signal, AbortSignal.timeout(machineTimeoutMs)]);
+        const page = await readPage(machine.client, query, kind, filters, undefined, within);
+        const on = { id: machine.id, name: machine.name };
+        // Each hit is this query's own object, so it is marked in place.
+        for (const hit of page.hits) hit.machine = on;
+        return page.hits;
+      },
+    })),
+    combine: combineMachines,
+  });
+}
 
 /**
  * The hits for `text`, a page at a time. While a new query loads the last results stay, marked
- * `updating`, so the list never blanks between keystrokes. This daemon is searched only in the
- * space it belongs to (ADR 0206 §2.4): elsewhere nothing is found, and the hits are kept per
- * space, so one space's never show in another.
+ * `updating`, so the list never blanks between keystrokes. Every machine of the window's space is
+ * searched (ADR 0206 §2.4): this daemon while it is one of them, page by page, then the first
+ * page of each other one online. The hits are kept per space, so one space's never show in
+ * another. A project filter names one of this daemon's projects, so it asks this daemon alone.
  */
 export function useSearch(
   text: string,
@@ -110,6 +167,13 @@ export function useSearch(
   const query = text.trim();
   const ownShown = usePrimaryInSpace();
   const space = spaceKey(useSpaceScope());
+  const inSpace = useMachinesInSpace();
+  const others = useMemo(() => {
+    if (filters.workspaceId) return noMachines;
+    const online = inSpace.filter((machine) => !machine.primary && machine.client);
+    return online.length ? online : noMachines;
+  }, [inSpace, filters.workspaceId]);
+  const elsewhere = useMachineSearch(others, query, kind, filters, space);
   const progress = useDaemonQuery({
     queryKey: ["search-status"],
     read: async (api, signal) => {
@@ -127,14 +191,21 @@ export function useSearch(
     getNextPageParam: (last: Page) => last.cursor ?? undefined,
     queryFn: ({ pageParam, signal }) => readPage(client, query, kind, filters, pageParam, signal),
   });
-  const hits = useMemo(() => result.data?.pages.flatMap((page) => page.hits), [result.data]);
+  const own = useMemo(() => result.data?.pages.flatMap((page) => page.hits), [result.data]);
+  const hits = useMemo(() => {
+    const theirs = elsewhere.hits.flatMap((each) => each ?? []);
+    if (ownShown) return own && (theirs.length ? [...own, ...theirs] : own);
+    if (!others.length) return noHits;
+    // Nothing yet while every machine is still asked; then whatever answered.
+    return elsewhere.settled ? theirs : undefined;
+  }, [ownShown, own, others, elsewhere]);
   return {
-    hits: ownShown ? hits : noHits,
-    progress: progress.data,
+    hits,
+    progress: ownShown ? progress.data : undefined,
     error: result.error,
     isError: result.isError,
     refetch: result.refetch,
-    updating: result.isPlaceholderData,
+    updating: result.isPlaceholderData || elsewhere.updating,
     hasMore: result.hasNextPage,
     loadingMore: result.isFetchingNextPage,
     loadMore: () => void result.fetchNextPage(),

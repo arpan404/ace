@@ -25,6 +25,7 @@ import { usePhone } from "@/lib/breakpoints.ts";
 import { useKeys } from "@/lib/keybindings.ts";
 import { describeKeys } from "@/lib/keymap.ts";
 import { NewThreadGroups, addProjectChoice } from "./new-thread-groups.tsx";
+import { useSpaceStartBlock } from "@/features/ace-account/index.ts";
 
 type Chosen = Pick<Machine, "id" | "name" | "primary">;
 
@@ -59,6 +60,7 @@ export function NewThreadIn(props: {
 }) {
   // Only the window's space's machines (ADR 0206 §2.4).
   const machines = useMachinesInSpace();
+  const blocked = useSpaceStartBlock();
   const navigate = useNavigate();
   const { storage } = useLayout();
   const [chosen, setChosen] = useState<Chosen | undefined>(() => {
@@ -90,6 +92,9 @@ export function NewThreadIn(props: {
     [machines],
   );
 
+  // A space with no machine to start on starts nothing, and says why (ADR 0206 §2.4).
+  if (blocked)
+    return <Projects choices={noChoices} empty={blocked} chip={undefined} onBack={props.onBack} />;
   if (!machine) return null;
   if ((several || everywhere) && picking)
     return (
@@ -242,6 +247,8 @@ function MachineProjects(props: {
     />
   );
 }
+
+const noChoices: readonly CommandChoice[] = [];
 
 function Projects(props: {
   choices: readonly CommandChoice[];

@@ -2,6 +2,7 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { flakyCheckout } from "@ace/fake-daemon";
+import { fakeOrgs } from "@/boot/fake-orgs.ts";
 import { orgBackend } from "@/test/org-backend.ts";
 import { openSearchSheet } from "@/test/open-search.ts";
 import { orgThread, personalThread, sidebarText, switchTo, world } from "@/test/space-world.ts";
@@ -52,4 +53,35 @@ test("search finds only the threads of the window's space", async () => {
   await userEvent.type(again, "retry budget");
   const results = await screen.findByRole("listbox", { name: "Results" });
   expect(within(results).getAllByRole("option").length).toBeGreaterThan(0);
+});
+
+test("search in an organization asks its machines, and shows what answered when one doesn't", async () => {
+  const labRig = { hostId: `LABRIG${"A".repeat(46)}`, name: "Lab rig" };
+  const { made } = world({ space: fakeOrgs.acme, acmeHosts: [labRig] });
+  const rig = made.machines.get(labRig.hostId);
+  if (!rig) throw new Error("no lab rig");
+  rig.projects.seedFolders("/srv", [{ path: "/srv/firmware", git: true }]);
+  rig.projects.command({ type: "workspace.add", path: "/srv/firmware" });
+  const firmware = rig.projects.list().workspaces[0];
+  if (!firmware) throw new Error("no firmware project");
+  rig.createThread({
+    id: "thread-rig-limits",
+    provider: "codex",
+    hasSentMessage: true,
+    workspaceId: firmware.id,
+    title: "Rate limits for the motor bus",
+    details: { workspace: firmware },
+  });
+  // The lab rig never answers a search.
+  rig.holdRequests("search.query");
+  await made.open("/new");
+  await waitFor(async () => expect(await sidebarText()).toContain(orgThread));
+  const field = await openSearchSheet();
+  await userEvent.type(field, "rate limits");
+
+  const results = await screen.findByRole("listbox", { name: "Results" });
+  const found = await within(results).findByRole("option", { name: new RegExp(orgThread) });
+  expect(found.textContent).toContain("Build server");
+  expect(within(results).queryByText(/motor bus/)).toBeNull();
+  expect(within(results).queryByText(personalThread)).toBeNull();
 });

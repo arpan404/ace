@@ -1,5 +1,6 @@
 import { aceAccountClient } from "@ace/client/ace-account";
 import { aceOrgClient } from "@ace/client/ace-org";
+import type { AceMachine } from "@ace/protocol/ace-account";
 import { fakeHostIds, fakeOrigin, fakePerson } from "@/boot/fake-account.ts";
 import { fakeOrgRoutes, fakeOrgs } from "@/boot/fake-orgs.ts";
 import { memoryKeyValue } from "./harness.tsx";
@@ -9,7 +10,9 @@ import { memoryKeyValue } from "./harness.tsx";
  * fake person owns Acme Robotics and is a member of Night Shift Labs. Every call is recorded as
  * `METHOD /path?query` with its body; `hold` keeps answers to matching calls until released.
  */
-export function orgBackend(options: { space?: string } = {}) {
+export function orgBackend(
+  options: { space?: string; hosts?: Readonly<Record<string, readonly AceMachine[]>> } = {},
+) {
   const storage = memoryKeyValue();
   const now = Date.now;
   const session = { token: "f".repeat(43), expiresAt: now() + 86_400_000, account: fakePerson };
@@ -19,7 +22,13 @@ export function orgBackend(options: { space?: string } = {}) {
     { hostId: fakeHostIds.studio, name: "Studio", platform: "darwin", lastSeenAt: now() - 60_000 },
     { hostId: fakeHostIds.laptop, name: "Travel laptop", platform: "linux", lastSeenAt: now() },
   ];
-  const routes = fakeOrgRoutes({ person: fakePerson, now, personal: () => personal, world: "org" });
+  const routes = fakeOrgRoutes({
+    person: fakePerson,
+    now,
+    personal: () => personal,
+    world: "org",
+    ...(options.hosts ? { hosts: options.hosts } : {}),
+  });
   const calls: { call: string; body: unknown }[] = [];
   const held: { match: (call: string) => boolean; gate: Promise<void> }[] = [];
   const fetch: typeof globalThis.fetch = async (input, init) => {

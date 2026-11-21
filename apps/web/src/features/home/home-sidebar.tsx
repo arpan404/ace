@@ -30,6 +30,7 @@ import { PanelPagingContext, usePanelRows } from "./use-panel-rows.ts";
 import { ThreadsTabs } from "./threads-tabs.tsx";
 import { spaceKey, useSpaceScope } from "@/lib/space-scope.ts";
 import { useEmptyOrgSpace, useSpaceChecking } from "./org-space-empty.ts";
+import { possessive } from "@/features/ace-account/index.ts";
 import { PanelTitleSearch } from "@/components/ui/panel-title-search.tsx";
 import {
   useOrganizer,
@@ -144,7 +145,7 @@ export function HomeSidebar() {
             className="shrink-0 justify-start pt-6"
             icon={TrayIcon}
             title={`No projects in ${emptyOrg} yet`}
-            description={`Projects on ${emptyOrg}'s machines show here.`}
+            description={`Projects on ${possessive(emptyOrg)} machines show here.`}
           />
         ) : empty && searching ? (
           <div className="px-2">

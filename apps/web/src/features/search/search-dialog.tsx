@@ -21,6 +21,8 @@ import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
 import { Select } from "@/components/ui/select.tsx";
 import { WorkspaceId } from "@ace/protocol";
 import { useProjectChoices } from "@/lib/projects.ts";
+import { threadOn } from "@/lib/machine-routes.ts";
+import { useMachinesInSpace, usePrimaryInSpace } from "@/lib/machines.ts";
 import { useNow } from "@/lib/time.ts";
 import { useRecentSearches } from "./search-recent.ts";
 import { SearchStart } from "./search-start.tsx";
@@ -42,7 +44,9 @@ const filters = [
 ] as const satisfies readonly { value: KindFilter; label: string }[];
 
 /** One key per hit: the item (or the thread, for a title) and what kind of hit it is. */
-const hitKey = (hit: SearchHit) => `${hit.itemId ?? hit.threadId}\u0000${hit.kind}`;
+const noIds: readonly string[] = [];
+const hitKey = (hit: SearchHit) =>
+  `${hit.machine?.id ?? ""}\u0000${hit.itemId ?? hit.threadId}\u0000${hit.kind}`;
 
 /** Plain text with highlighted ranges (half-open UTF-16 offsets) as <mark>. */
 function Snippet(props: { snippet: SearchHit["snippet"] }) {
@@ -115,6 +119,10 @@ function SearchBody(props: { initial: string; onClose(): void }) {
   const now = useNow();
   const projects = useProjectChoices();
   const projectName = projects.name;
+  // This machine's projects filter only while its work is the space's (ADR 0206 §2.4).
+  const ownShown = usePrimaryInSpace();
+  const projectIds = ownShown ? projects.ids : noIds;
+  const machines = useMachinesInSpace();
   const [project, setProject] = useState("");
   const [date, setDate] = useState("all");
   const [after, setAfter] = useState<number>();
@@ -141,7 +149,9 @@ function SearchBody(props: { initial: string; onClose(): void }) {
     setActive(0);
   };
   const hits = query ? (results.hits ?? []) : [];
-  const activeThreadId = hits[active]?.threadId;
+  // This machine's threads warm ahead of opening; another machine's open on its own.
+  const activeHit = hits[active];
+  const activeThreadId = activeHit && !activeHit.machine ? activeHit.threadId : undefined;
   useEffect(() => {
     if (activeThreadId) warmThread(client, activeThreadId);
   }, [client, activeThreadId]);
@@ -162,10 +172,13 @@ function SearchBody(props: { initial: string; onClose(): void }) {
     opening.current = true;
     setOpening(true);
     recent.remember(query);
+    // A hit on another machine of the space opens there, and is placed by that machine's search.
+    const on = hit.machine && machines.find((machine) => machine.id === hit.machine?.id);
+    const place = hit.machine ? threadOn(hit.machine.id, hit.threadId) : undefined;
     const target = {
       to: "/t/$threadId" as const,
       params: { threadId: hit.threadId },
-      search: query ? { q: query } : {},
+      search: { ...place?.search, ...(query ? { q: query } : {}) },
     };
     // Open the thread immediately; locating an older item can require several pages.
     await navigate(target);
@@ -173,9 +186,10 @@ function SearchBody(props: { initial: string; onClose(): void }) {
     props.onClose();
     // The person picked where to go: the caret waits in that thread's message box.
     focusComposerSoon();
-    const seq = await hitSeq(client, hit, query);
+    const searcher = hit.machine ? on?.client : client;
+    const seq = searcher ? await hitSeq(searcher, hit, query) : undefined;
     if (seq !== undefined && router.state.location === location)
-      void navigate({ ...target, search: { q: query, seq }, replace: true });
+      void navigate({ ...target, search: { ...target.search, q: query, seq }, replace: true });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
@@ -258,7 +272,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
             value={project}
             options={[
               { value: "", label: "All projects" },
-              ...projects.ids.map((value) => ({ value, label: projectName(value) })),
+              ...projectIds.map((value) => ({ value, label: projectName(value) })),
             ]}
             className="min-w-0 flex-1"
             onValueChange={(value) => {
@@ -366,7 +380,8 @@ function SearchBody(props: { initial: string; onClose(): void }) {
                       {hit.threadTitle}
                       <span className="text-xs text-muted-foreground">
                         {" "}
-                        · {projectName(hit.workspaceId)} · {formatAge(hit.createdAt, now)}
+                        · {hit.machine ? hit.machine.name : projectName(hit.workspaceId)} ·{" "}
+                        {formatAge(hit.createdAt, now)}
                       </span>
                     </p>
                     <Snippet snippet={hit.snippet} />
