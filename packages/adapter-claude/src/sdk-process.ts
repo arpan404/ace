@@ -34,6 +34,11 @@ export function spawnSdkProcess(
       ...(hooks.lease ? { lease: hooks.lease } : {}),
       ...(hooks.outputFlow ? { outputFlow: hooks.outputFlow } : {}),
       maxLineBytes: 16 * 1024 * 1024,
+      // MCP servers' logs pass through stderr; a long one is noted, never fatal to the turn.
+      onStderrLineDropped: (line) => {
+        if (line.phase !== "start")
+          hooks.onStderr(`ace dropped a stderr line of ${line.bytes} bytes`);
+      },
       ...(hooks.maxOutputBytes === undefined ? {} : { maxOutputBytes: hooks.maxOutputBytes }),
     });
   } catch (error) {
