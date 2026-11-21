@@ -13,6 +13,20 @@ export interface MarketWords {
   readonly now: number;
 }
 
+/** The short words a link names a type by, as the web's `?market=` does. */
+const linkWords: Readonly<Record<string, string>> = {
+  suit: "suit",
+  "spade-bot": "bot",
+  "spade-skill": "skill",
+  "spade-plugin": "plugin",
+};
+
+/** `ace://market?at=skill/triage-mail`, with `@git:…` for a git catalog's entry. */
+function linkOf(summary: MarketEntrySummary): string {
+  const at = `${linkWords[summary.type] ?? summary.type}/${summary.name}`;
+  return `ace://market?at=${summary.source === "market" ? at : `${at}@${summary.source}`}`;
+}
+
 /** A listing as a row: its key, its words, and what its trailing button starts as. */
 export function entryRow(summary: MarketEntrySummary) {
   return {
@@ -32,6 +46,8 @@ export function entryRow(summary: MarketEntrySummary) {
     picture: summary.previews?.[0] ?? null,
     /** A type this build can't install reads so, and has no Get (spec item 8). */
     block: summary.supported ? null : "Needs a newer ace",
+    /** What Share link sends. */
+    link: linkOf(summary),
   };
 }
 

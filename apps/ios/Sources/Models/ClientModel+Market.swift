@@ -10,19 +10,31 @@ private struct MarketOutcome: Decodable {
     let code: String?
     let message: String?
     let way: MarketWay?
+    let reason: String?
 }
 
 extension ClientModel {
     /// One market operation, its answer decoded as `T` or its refusal thrown as `MarketRefusal`.
     func market<T: Decodable>(_ operation: [String: Any], as type: T.Type, fresh: Bool = false) async throws -> T {
         let payload = marketPayload(operation, fresh: fresh)
+        let changes = marketChanges(operation["op"])
+        // Not connected: a change can't leave the phone, so nothing changed.
+        if changes, connection != "ready" {
+            throw MarketRefusal(code: "offline", message: "Your machine is offline. Nothing was changed.", way: .retry, offline: true)
+        }
         do {
+            // A change waits past the bridge's own check of a lost reply (`bridge/market.ts`).
             let value = marketKept(operation["op"]) ? try await read(payload, as: ServiceValue.self)
-                : try await service(payload, as: ServiceValue.self)
+                : try await service(payload, as: ServiceValue.self, timeout: changes ? .seconds(90) : .seconds(30))
             return try marketAnswer(value, as: type)
         } catch let refusal as MarketRefusal { throw refusal }
         catch is CancellationError { throw CancellationError() }
         catch let failure as ServiceFailure where failure.transport {
+            // A change sent and then lost may have happened: never say it didn't, or offer Retry.
+            if changes {
+                throw MarketRefusal(code: "unconfirmed", message: "Couldn't confirm it: your machine stopped answering. Check again when it's back.",
+                                    way: .reread, offline: true)
+            }
             throw MarketRefusal(code: "offline", message: "Your machine is offline.", way: .retry, offline: true)
         }
     }
@@ -34,23 +46,33 @@ extension ClientModel {
     var marketGeneration: Int { familyGeneration("market") }
 
     // Browse (#2500).
-    func marketDiscover() async throws -> MarketDiscover { try await market(["op": "discover"], as: MarketDiscover.self) }
+    func marketDiscover(fresh: Bool = false) async throws -> MarketDiscover {
+        try await market(["op": "discover"], as: MarketDiscover.self, fresh: fresh)
+    }
+    var keptMarketDiscover: MarketDiscover? { keptMarket(["op": "discover"], as: MarketDiscover.self) }
     func marketHome(fresh: Bool = false) async throws -> MarketHome { try await market(["op": "home"], as: MarketHome.self, fresh: fresh) }
     var keptMarketHome: MarketHome? { keptMarket(["op": "home"], as: MarketHome.self) }
-    func marketSearch(query: String, type: String? = nil, category: String? = nil, offset: Int = 0) async throws -> MarketSearchPage {
+    func marketSearch(query: String, type: String? = nil, category: String? = nil, offset: Int = 0,
+                      fresh: Bool = false) async throws -> MarketSearchPage {
         var operation: [String: Any] = ["op": "search", "query": query, "offset": offset]
         if let type { operation["type"] = type }
         if let category { operation["category"] = category }
-        return try await market(operation, as: MarketSearchPage.self)
+        return try await market(operation, as: MarketSearchPage.self, fresh: fresh)
     }
-    func marketPublisher(_ handle: String) async throws -> MarketPublisherPage {
-        try await market(["op": "publisher", "handle": handle], as: MarketPublisherPage.self)
+    func marketPublisher(_ handle: String, fresh: Bool = false) async throws -> MarketPublisherPage {
+        try await market(["op": "publisher", "handle": handle], as: MarketPublisherPage.self, fresh: fresh)
+    }
+    func keptMarketPublisher(_ handle: String) -> MarketPublisherPage? {
+        keptMarket(["op": "publisher", "handle": handle], as: MarketPublisherPage.self)
     }
     /// A listing picture or an avatar by its hash; `kind` is `preview` or `avatar`.
     func marketPicture(_ hash: String, kind: String) async throws -> MarketPicture {
         try await market(["op": "picture", "kind": kind, "hash": hash], as: MarketPicture.self)
     }
-    func marketSources() async throws -> MarketSources { try await market(["op": "sources"], as: MarketSources.self) }
+    func marketSources(fresh: Bool = false) async throws -> MarketSources {
+        try await market(["op": "sources"], as: MarketSources.self, fresh: fresh)
+    }
+    var keptMarketSources: MarketSources? { keptMarket(["op": "sources"], as: MarketSources.self) }
     func marketAddSource(_ address: String) async throws -> MarketSources {
         try await market(["op": "addSource", "address": address], as: MarketSources.self)
     }
@@ -117,6 +139,12 @@ extension ClientModel {
     }
 }
 
+/// The operations that change the machine; the rest only read or hold a review.
+private func marketChanges(_ op: Any?) -> Bool {
+    guard let op = op as? String else { return false }
+    return ["install", "cancel", "remove", "turnOn", "turnOnForBots", "addSource", "removeSource", "setSource", "refresh"].contains(op)
+}
+
 /// The reads the bridge keeps (`bridge/read-policy.ts` `marketReads`).
 private func marketKept(_ op: Any?) -> Bool {
     guard let op = op as? String else { return false }
@@ -127,7 +155,7 @@ private func marketAnswer<T: Decodable>(_ value: ServiceValue, as type: T.Type) 
     let outcome = try value.decode(MarketOutcome.self)
     guard outcome.ok else {
         throw MarketRefusal(code: outcome.code ?? "failed", message: outcome.message ?? "The machine refused that.",
-                            way: outcome.way, offline: outcome.offline ?? false)
+                            way: outcome.way, offline: outcome.offline ?? false, reason: outcome.reason)
     }
     return try value.decode(type)
 }

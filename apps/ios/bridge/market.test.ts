@@ -3,6 +3,7 @@ import type { MarketEntrySummary, MarketInstalled } from "@ace/protocol/marketpl
 import { MarketErrorCode } from "@ace/protocol/marketplace";
 import { afterEach, expect, test } from "vitest";
 import type { z } from "zod";
+import { ClientError } from "@ace/client";
 import { NativeMarket, NativeMarketRequest, refusalAnswer } from "./market.ts";
 import { sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -46,7 +47,16 @@ const install = (name: string, extra: Partial<MarketInstalled> = {}): MarketInst
 
 type Answer = Record<string, unknown> & { ok: boolean; offline?: boolean; message?: string };
 
-async function market() {
+/**
+ * How a change's reply goes missing: `committed` sends it and loses the answer, `dropped` loses
+ * it before the daemon sees it, and `gone` also fails every read after.
+ */
+type Loss = "committed" | "dropped" | "gone";
+interface MarketOptions {
+  lose?: { op: string; how: Loss };
+}
+
+async function market(options: MarketOptions = {}) {
   const { daemon, client } = sheetFixture();
   daemon.seedServices({
     marketplace: {
@@ -54,7 +64,29 @@ async function market() {
         listing("spade-skill", "triage-mail"),
         listing("suit", "harbour-dusk", { title: "Harbour dusk" }),
         listing("spade-bot", "future", { supported: false }),
+        listing("spade-skill", "refused-one"),
+        {
+          ...listing("spade-skill", "scanned"),
+          blocked: {
+            format: "ace-market-scan",
+            scanner: 1,
+            verdict: "block",
+            checks: [],
+            findings: [
+              {
+                check: "scripts",
+                rule: "download-exec",
+                level: "block",
+                message: "Pipes a download into a shell",
+              },
+            ],
+            runnable: true,
+            truncated: false,
+            read: { files: 1, textBytes: 10 },
+          },
+        },
       ],
+      refuse: { "spade-skill/refused-one": "Not signed by ace's market" },
       featured: [{ type: "suit", name: "harbour-dusk" }],
       categories: [{ id: "mail", title: "Mail" }],
       installed: [
@@ -68,7 +100,28 @@ async function market() {
   close = () => client.close();
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
-  const service = new NativeMarket(client, () => 6_000);
+  let lost = false;
+  const owner = {
+    get state() {
+      return client.state;
+    },
+    request: (async (message: { operation: { op: string } }, wait: unknown) => {
+      const loss = options.lose;
+      if (loss && (lost || message.operation.op === loss.op)) {
+        const first = !lost;
+        lost = true;
+        if (loss.how === "gone" && !first) throw new ClientError("offline");
+        if (first && loss.how !== "dropped") await client.request(message as never, wait as never);
+        if (first) throw new ClientError("timeout");
+      }
+      return client.request(message as never, wait as never);
+    }) as typeof client.request,
+  };
+  const service = new NativeMarket(
+    owner,
+    () => 6_000,
+    async () => {},
+  );
   const ask = async (operation: Record<string, unknown>) =>
     (await service.answer(
       NativeMarketRequest.parse({ type: "market.native", operation }),
@@ -83,7 +136,7 @@ test("the home lists featured rows with their words and says how many updates wa
     ok: true,
     offline: false,
     featured: [{ id: "market/suit/harbour-dusk", title: "Harbour dusk", typeWord: "Suit" }],
-    categories: [{ id: "mail", title: "Mail", countText: "3 entries" }],
+    categories: [{ id: "mail", title: "Mail", countText: "5 entries" }],
     updatesText: "1 update",
   });
 });
@@ -180,12 +233,12 @@ const unfinished = "The install didn't finish, and nothing was installed.";
 const refusals: Record<z.infer<typeof MarketErrorCode>, [string, string | null]> = {
   signed_out: ["Sign in to publish.", null],
   reauth: ["Sign in again to do this.", "confirm"],
-  blocked: ["ace's scan refused it. Fix what it found, then try again.", null],
+  blocked: ["ace's scan refused it. Fix what it found, then try again.", "computer"],
   suspended: ["Your publisher account is suspended.", null],
   quota: ["You've reached your publishing limit for now.", null],
   not_found: ["This entry isn't listed anymore.", null],
   invalid: [unfinished, null],
-  refused: [unfinished, null],
+  refused: [unfinished, "computer"],
   forbidden: ["This device can't make changes to the marketplace.", "computer"],
   unavailable: ["The marketplace can't be reached right now.", "retry"],
   conflict: ["The entry changed since its review. Review it again.", "reread"],
@@ -235,4 +288,138 @@ test("only the v1 operations are taken from the phone", () => {
     NativeMarketRequest.safeParse({ type: "market.native", operation: { op: "spadeSkills" } })
       .success,
   ).toBe(false);
+});
+
+test("an install whose reply was lost after the machine finished it reads as installed", async () => {
+  const { ask } = await market({ lose: { op: "install", how: "committed" } });
+  const prepared = await ask({
+    op: "prepare",
+    source: "market",
+    type: "suit",
+    name: "harbour-dusk",
+  });
+  const review = prepared.review as { id: string; hash: string };
+  await ask({ op: "readReview", id: review.id });
+  expect(await ask({ op: "install", id: review.id, hash: review.hash })).toMatchObject({
+    ok: true,
+    offline: false,
+    installed: { type: "suit", name: "harbour-dusk" },
+  });
+});
+
+test("an install whose reply was lost before it reached the machine says it didn't finish", async () => {
+  const { ask } = await market({ lose: { op: "install", how: "dropped" } });
+  const prepared = await ask({
+    op: "prepare",
+    source: "market",
+    type: "suit",
+    name: "harbour-dusk",
+  });
+  const review = prepared.review as { id: string; hash: string };
+  await ask({ op: "readReview", id: review.id });
+  expect(await ask({ op: "install", id: review.id, hash: review.hash })).toMatchObject({
+    ok: false,
+    code: "failed",
+    message: "The install didn't finish, and nothing was installed.",
+    way: "retry",
+  });
+});
+
+test("a lost removal the machine can't be asked about is never called unchanged or retried", async () => {
+  const { ask } = await market({ lose: { op: "remove", how: "gone" } });
+  const answer = await ask({ op: "remove", type: "spade-skill", name: "aaa-notes" });
+  expect(answer).toMatchObject({ ok: false, code: "unconfirmed", way: "reread" });
+  expect(answer.message).not.toContain("Nothing was changed");
+});
+
+test("a lost removal the machine did make reads as removed", async () => {
+  const { ask } = await market({ lose: { op: "remove", how: "committed" } });
+  expect(await ask({ op: "remove", type: "spade-skill", name: "aaa-notes" })).toEqual({
+    ok: true,
+    offline: false,
+    installed: null,
+  });
+});
+
+test("an entry refused by ace's checks says which check, and sends the person to the computer", async () => {
+  const { ask } = await market();
+  expect(
+    await ask({ op: "prepare", source: "market", type: "spade-skill", name: "refused-one" }),
+  ).toMatchObject({
+    ok: false,
+    code: "refused",
+    way: "computer",
+    reason: "Not signed by ace's market.",
+  });
+});
+
+test("an entry this device's scan blocks names what it found", async () => {
+  const { ask } = await market();
+  expect(
+    await ask({ op: "prepare", source: "market", type: "spade-skill", name: "scanned" }),
+  ).toMatchObject({
+    ok: false,
+    code: "blocked",
+    way: "computer",
+    reason: "Pipes a download into a shell.",
+  });
+});
+
+test("turning a skill on for bots after a newer version landed asks to look again", () => {
+  expect(refusalAnswer("conflict", "change", { op: "turnOnForBots" })).toMatchObject({
+    message: "A newer version of this skill was installed. Look at it again, then turn it on.",
+    way: "reread",
+  });
+});
+
+const takes = (operation: Record<string, unknown>) =>
+  NativeMarketRequest.safeParse({ type: "market.native", operation }).success;
+
+test("a review of an organization's registry isn't taken from the phone", () => {
+  const prepare = { op: "prepare", source: "market", type: "suit", name: "harbour-dusk" };
+  expect(takes(prepare)).toBe(true);
+  expect(takes({ ...prepare, registry: "acme" })).toBe(false);
+  expect(takes({ ...prepare, trustKey: "A".repeat(43) })).toBe(false);
+});
+
+test("offline, only the most recent searches are still kept", async () => {
+  const { ask, client } = await market();
+  const first = await ask({ op: "search", query: "q0" });
+  for (let n = 1; n <= 32; n++) await ask({ op: "search", query: `q${n}` });
+  const latest = await ask({ op: "search", query: "q32" });
+  await client.close();
+  expect(await ask({ op: "search", query: "q32" })).toEqual({ ...latest, offline: true });
+  expect(await ask({ op: "search", query: "q0" })).not.toEqual({ ...first, offline: true });
+});
+
+test("browse rows carry their button from what the machine has installed", async () => {
+  const { ask } = await market();
+  const buttonOf = async () =>
+    ((await ask({ op: "home" })).featured as { id: string; action: { word: string | null } }[])
+      .filter((row) => row.id === "market/suit/harbour-dusk")
+      .map((row) => row.action.word);
+  expect(await buttonOf()).toEqual(["Get"]);
+  const prepared = await ask({
+    op: "prepare",
+    source: "market",
+    type: "suit",
+    name: "harbour-dusk",
+  });
+  const review = prepared.review as { id: string; hash: string };
+  await ask({ op: "readReview", id: review.id });
+  await ask({ op: "install", id: review.id, hash: review.hash });
+  expect(await buttonOf()).toEqual(["Installed"]);
+});
+
+test("a catalog address that isn't https is refused on the phone, even with the machine away", async () => {
+  const { ask, client } = await market();
+  await client.close();
+  for (const address of ["http://example.com/c.git", "git@host:x.git", "https://"])
+    expect(await ask({ op: "addSource", address })).toEqual({
+      ok: false,
+      offline: false,
+      code: "invalid",
+      message: "That isn't a git catalog's https address.",
+      way: null,
+    });
 });
