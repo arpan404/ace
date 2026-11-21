@@ -15,20 +15,17 @@ async function storageHome(home: string) {
       time: { created: 1767225600000, updated: 1767225900000 },
       ...extra,
     });
-  const message = async (session: string, id: string, value: Record<string, unknown>) => {
-    await mkdir(join(home, "storage/message", session), { recursive: true });
-    await json(join(home, "storage/message", session, `${id}.json`), {
+  const message = async (owner: string, id: string, value: Record<string, unknown>) => {
+    await mkdir(join(home, "storage/message", owner), { recursive: true });
+    await json(join(home, "storage/message", owner, `${id}.json`), {
       id,
-      sessionID: session,
+      sessionID: owner,
       ...value,
     });
   };
-  const part = async (message: string, id: string, value: unknown, raw?: string) => {
-    await mkdir(join(home, "storage/part", message), { recursive: true });
-    await writeFile(
-      join(home, "storage/part", message, `${id}.json`),
-      raw ?? JSON.stringify(value),
-    );
+  const part = async (of: string, id: string, value: unknown, raw?: string) => {
+    await mkdir(join(home, "storage/part", of), { recursive: true });
+    await writeFile(join(home, "storage/part", of, `${id}.json`), raw ?? JSON.stringify(value));
   };
   await mkdir(join(home, "storage/session/proj"), { recursive: true });
   await session("ses_main", { title: "Storage session" });
@@ -197,57 +194,60 @@ function v2Home(home: string) {
   db.close();
 }
 
+const piHeader = (id: string, version: unknown) => ({
+  type: "session",
+  version,
+  id,
+  timestamp: "2026-01-01T00:00:00.000Z",
+  cwd,
+});
+const piMessage = (
+  id: string,
+  parentId: string | null,
+  role: string,
+  content: unknown,
+  at = "2026-01-01T00:01:00.000Z",
+) => ({
+  type: "message",
+  id,
+  parentId,
+  timestamp: at,
+  message: { role, content },
+});
+
 /** Pi sessions: a versioned header, names, model changes and a branching message tree. */
 async function piHome(home: string) {
   const dir = join(home, "sessions/--workspace-project--");
-  const header = (id: string, version: unknown) => ({
-    type: "session",
-    version,
-    id,
-    timestamp: "2026-01-01T00:00:00.000Z",
-    cwd,
-  });
-  const message = (
-    id: string,
-    parentId: string | null,
-    role: string,
-    content: unknown,
-    at = "2026-01-01T00:01:00.000Z",
-  ) => ({
-    type: "message",
-    id,
-    parentId,
-    timestamp: at,
-    message: { role, content },
-  });
   await jsonl(join(dir, "2026-01-01_pi-main.jsonl"), [
-    header("pi-main", 3),
+    piHeader("pi-main", 3),
     { type: "session_info", id: "i1", parentId: null, name: "Pi named session" },
     { type: "model_change", id: "c1", parentId: null, provider: "x", modelId: "pi-model" },
-    message("a", null, "user", [{ type: "text", text: "Start the Pi work" }]),
-    message("b", "a", "assistant", [
+    piMessage("a", null, "user", [{ type: "text", text: "Start the Pi work" }]),
+    piMessage("b", "a", "assistant", [
       { type: "thinking", thinking: "consider" },
       { type: "text", text: "On it" },
       { type: "toolCall", id: "call1", name: "bash", arguments: { command: "ls" } },
     ]),
-    message("c", "b", "toolResult", [{ type: "text", text: "listing" }]),
-    message("rewound", "b", "user", "a path not taken"),
-    message("d", "c", "user", "Continue", "2026-01-02T00:00:00.000Z"),
+    piMessage("c", "b", "toolResult", [{ type: "text", text: "listing" }]),
+    piMessage("rewound", "b", "user", "a path not taken"),
+    piMessage("d", "c", "user", "Continue", "2026-01-02T00:00:00.000Z"),
     { type: "compaction", id: "e", parentId: "d", summary: "compacted" },
   ]);
   await jsonl(join(dir, "2026-01-01_pi-old.jsonl"), [
-    header("pi-old", "2"),
-    message("a", null, "user", "An older format"),
+    piHeader("pi-old", "2"),
+    piMessage("a", null, "user", "An older format"),
   ]);
   await jsonl(join(dir, "2026-01-01_pi-future.jsonl"), [
-    header("pi-future", 9),
-    message("a", null, "user", "From the future"),
+    piHeader("pi-future", 9),
+    piMessage("a", null, "user", "From the future"),
   ]);
   await jsonl(join(dir, "2026-01-01_pi-headless.jsonl"), [
-    message("a", null, "user", [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }]),
+    piMessage("a", null, "user", [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }]),
     { type: "session", cwd },
   ]);
 }
+
+const nested = (depth: number): unknown => (depth === 0 ? "deep" : { n: nested(depth - 1) });
 
 /**
  * JSON JavaScript reads that serde_json's defaults refuse: nesting past 128 levels and integers
@@ -256,7 +256,6 @@ async function piHome(home: string) {
  */
 async function edgeHome(home: string) {
   const id = "33333333-3333-4333-8333-333333333333";
-  const nested = (depth: number): unknown => (depth === 0 ? "deep" : { n: nested(depth - 1) });
   const user = (text: string, extra: Record<string, unknown>) => ({
     type: "user",
     sessionId: id,
