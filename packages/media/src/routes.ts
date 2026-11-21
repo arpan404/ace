@@ -87,15 +87,15 @@ export function platformRouteCapabilities(platform: string): RouteCapabilities {
 /** The route for one source kind. Anything but a healthy ace-media makes every `auto` legacy. */
 export function sourceRoute(
   kind: SourceKind,
-  settings: MediaSettings,
+  /** Kept for the callers until the media settings go; no route reads them. */
+  _settings: MediaSettings,
   health: MediaHealth,
   capabilities: RouteCapabilities,
 ): SourceRoute {
   const healthy = health === "healthy";
-  const producer =
-    settings.encode === "auto" && healthy && capabilities.ingest.includes(kind)
-      ? "ace-media"
-      : "daemon";
+  // ace-media is the only media path: every producer that can stream into it does, while it is
+  // healthy, whatever any setting says.
+  const producer = healthy && capabilities.ingest.includes(kind) ? "ace-media" : "daemon";
   // ace-media delivers what its producer streams into it; the tee never feeds viewers.
   const deliverer = producer === "ace-media" && capabilities.delivery ? "ace-media" : "none";
   return {

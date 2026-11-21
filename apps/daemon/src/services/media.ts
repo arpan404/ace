@@ -31,9 +31,43 @@ import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
  * a recording refuses to start, saying why.
  */
 
-const MediaSetting = (value: unknown): "auto" | "legacy" => (value === "auto" ? "auto" : "legacy");
-/** `media.delivery` is only ever `auto` (X3), so only `media.encode` is read. */
-const mediaKeys = ["media.encode"] as const;
+/**
+ * What ace-media is started with: everything through it. No setting is read (ADR 0147: ace-media
+ * is the only media path); the wire still carries the values for older binaries.
+ */
+const mediaSettings: MediaSettings = { ...defaultMediaSettings, encode: "auto" };
+
+/** Why ace-media didn't start, for the person. */
+function mediaFailure(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return `Live video can't start: ace's media process didn't run (${detail.slice(0, 160)}).`;
+}
+
+/**
+ * Delivery while ace-media didn't start: every view is told why, a media connection is refused
+ * with the same reason, and asking for one tries to start ace-media again.
+ */
+export function failedDelivery(reason: string, retry: () => void): DaemonDelivery {
+  return {
+    serves: () => false,
+    unserved: () => reason,
+    sourceKinds: () => [],
+    bind: () => undefined,
+    granted: () => false,
+    poster: () => Promise.resolve(undefined),
+    configure: () => {},
+    pause: () => {},
+    regrant: () => {},
+    unbind: () => {},
+    connect: () => {
+      retry();
+      return Promise.resolve({ ok: false, code: "unavailable", message: reason });
+    },
+    sessionStarted: () => {},
+    sessionEnded: () => {},
+    sample: () => {},
+  };
+}
 
 /** The binary this daemon runs: the bundled one in a release, the Cargo build from source. */
 export function findMediaBinary(): string | undefined {
@@ -65,8 +99,9 @@ export type DaemonDelivery = MediaDeliveryPort & {
   sessionEnded(session: string): void;
   /** One round trip measured on a main session, with the bytes queued to it. */
   sample(session: string, rttMs: number, backlogBytes: number): void;
-  /** Relay media streams (D2): dials, hand-overs and relay hellos' tickets. */
-  relay: MediaRelayPort;
+  /** Relay media streams (D2): dials, hand-overs and relay hellos' tickets; none while ace-media
+   * didn't start. */
+  relay?: MediaRelayPort;
 };
 
 /** The daemon's ace-media as its producers see it. */
@@ -94,7 +129,12 @@ export const noMediaRecorder: MediaRecorder = refusingRecorder(
 /** One per daemon: the browser and the screen share it. */
 const started = new WeakMap<object, DaemonMedia | undefined>();
 
-export function startMedia(context: ServiceContext): DaemonMedia | undefined {
+/** What starting ace-media needs of the daemon: no setting among it. */
+export type MediaContext = Pick<ServiceContext, "services" | "id" | "resources" | "log"> & {
+  config: Pick<ServiceContext["config"], "dataDir">;
+};
+
+export function startMedia(context: MediaContext): DaemonMedia | undefined {
   if (started.has(context.services)) return started.get(context.services);
   const media = createMedia(context);
   started.set(context.services, media);
@@ -104,13 +144,14 @@ export function startMedia(context: ServiceContext): DaemonMedia | undefined {
   return media;
 }
 
-function createMedia(context: ServiceContext): DaemonMedia | undefined {
+function createMedia(context: MediaContext): DaemonMedia | undefined {
   if (process.platform === "win32") return undefined; // No lanes in the binary there yet.
   const binary = findMediaBinary();
   if (!binary) return undefined;
-  const { services, id, config, resources } = context;
-  let settings: MediaSettings = defaultMediaSettings;
+  const { id, config, resources } = context;
   let runtime: MediaRuntime | undefined;
+  /** Why ace-media didn't start, until a later try does: what live views and recordings say. */
+  let failure: string | undefined;
   let starting: Promise<void> | undefined;
   let closed = false;
   let runtimeDir: string | undefined;
@@ -133,7 +174,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         binary,
         runtimeDir,
         dataDir: config.dataDir,
-        settings: () => settings,
+        settings: () => mediaSettings,
         host: nodeMediaHost(process.env),
         clock: systemMediaClock,
         wallClock: systemWallClock,
@@ -153,27 +194,18 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         slot.source = runtime.sources.add(producer);
         if (slot.codecs) slot.source.codecs(slot.codecs);
       }
+      failure = undefined;
       runtime.settingsChanged();
     })().catch((error: unknown) => {
       starting = undefined;
+      failure = mediaFailure(error);
       context.log.log("warn", `ace-media is not available: ${String(error)}`);
     }));
 
-  const read = async () => {
-    const encode = MediaSetting((await services.settings?.get("media.encode"))?.value);
-    settings = { ...defaultMediaSettings, encode };
-    // ace-media delivers every live view, so its runtime exists whatever the settings.
-    await start();
-    runtime?.settingsChanged();
-  };
-  void read().catch(() => {});
-  const stop = services.settings?.onChange((layer, keys) => {
-    if (layer.kind === "global" && mediaKeys.some((key) => keys.includes(key)))
-      void read().catch(() => {});
-  });
+  // ace-media is the only media path: it starts with the daemon, reading no setting.
+  void start();
   resources.own(() => {
     closed = true;
-    stop?.();
     runtime?.dispose();
     if (runtimeDir) rmSync(runtimeDir, { recursive: true, force: true });
   });
@@ -189,7 +221,12 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         return runtime.recordings.start(spec);
       },
     },
-    delivery: () => (runtime && relayPort ? daemonDelivery(runtime, relayPort) : undefined),
+    delivery: () =>
+      runtime && relayPort
+        ? daemonDelivery(runtime, relayPort)
+        : failure
+          ? failedDelivery(failure, () => void start())
+          : undefined,
     acceleration,
     pid: () => runtime?.supervisor.snapshot().pid,
     add: (producer) => runtime?.sources.add(producer),

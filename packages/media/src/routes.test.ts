@@ -56,10 +56,10 @@ describe("every setting combination × capabilities is a complete route", () => 
               expect(route.deliverer, where).toBe("none");
             }
             if (route.deliverer === "ace-media") expect(capabilities.delivery, where).toBe(true);
-            if (route.producer === "ace-media") {
-              expect(settings.encode, where).toBe("auto");
-              expect(capabilities.ingest, where).toContain(kind);
-            }
+            // Every producer that can stream into a healthy ace-media does, whatever the settings.
+            expect(route.producer === "ace-media", where).toBe(
+              health === "healthy" && capabilities.ingest.includes(kind),
+            );
           }
         }
     });
@@ -68,7 +68,8 @@ describe("every setting combination × capabilities is a complete route", () => 
 it("tee and egress follow the plan's table (healthy, every capability)", () => {
   // encode → [producer, tee, egress]. No tee feeds viewers (X3); recordings tee on their own.
   const rows: [MediaSettings, [SourceRoute["producer"], boolean, boolean]][] = [
-    [settingsOf("legacy"), ["daemon", false, false]],
+    // No setting keeps a producer off ace-media: `encode` is read by nothing.
+    [settingsOf("legacy"), ["ace-media", false, true]],
     // Egress stays on: a recording takes the frames in the daemon until X2.
     [settingsOf("auto"), ["ace-media", false, true]],
   ];
@@ -79,12 +80,12 @@ it("tee and egress follow the plan's table (healthy, every capability)", () => {
 });
 
 describe("named routes", () => {
-  it("the default settings keep the producer on the daemon, where nobody delivers its pictures", () => {
+  it("with no media setting at all, a producer streams into ace-media, which delivers it", () => {
     expect(mediaRoutes(defaultMediaSettings, "healthy", everything).screen).toEqual({
-      producer: "daemon",
+      producer: "ace-media",
       tee: false,
-      egress: false,
-      deliverer: "none",
+      egress: true,
+      deliverer: "ace-media",
     });
   });
 
