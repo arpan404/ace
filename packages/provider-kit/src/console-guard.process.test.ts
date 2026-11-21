@@ -37,7 +37,8 @@ process.stdout.write(JSON.stringify({ reply: true }) + "\\n");
     stderr = "";
   child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
   child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
-  const code = await new Promise((resolve) => child.on("exit", resolve));
+  // "close" waits for both pipes to drain; output can still arrive after "exit".
+  const code = await new Promise((resolve) => child.on("close", resolve));
   return { code, stdout, stderr };
 }
 
