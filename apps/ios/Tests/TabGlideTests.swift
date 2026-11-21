@@ -57,6 +57,20 @@ struct TabGlideTests {
         #expect(abs(settled - phone.offset(following: x)) <= phone.slot / 2)
     }
 
+    @Test func aSlideEndingOnAnotherPlacePicksIt() {
+        #expect(phone.release(from: 40, at: 200, chosen: 0) == 2)
+    }
+
+    @Test func aTapPicksItsPlaceEvenWhenItIsAlreadyChosen() {
+        #expect(phone.release(from: 120, at: 120, chosen: 1) == 1)
+        #expect(phone.release(from: 120, at: 124, chosen: 1) == 1)
+    }
+
+    @Test func aSlideThatComesBackToTheChosenPlacePicksNothing() {
+        #expect(phone.release(from: 100, at: 130, chosen: 1) == nil)
+        #expect(phone.release(from: 100, at: 260, chosen: 1) == 3)
+    }
+
     @Test func anUnmeasuredBarKeepsTheFillOnTheFirstPlace() {
         let unmeasured = TabGlide(count: 4, width: 0, spacing: 0)
         #expect(unmeasured.index(at: 50) == 0)

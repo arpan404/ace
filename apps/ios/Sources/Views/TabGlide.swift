@@ -31,6 +31,17 @@ struct TabGlide: Equatable {
         return clamped(Int(((x + spacing / 2) / step).rounded(.down)))
     }
 
+    /// How far a finger may move along the bar and still count as a tap.
+    static let tapSlop: CGFloat = 10
+
+    /// What a finger lifted at `end`, having touched down at `start`, picks: the place under it;
+    /// nothing when a slide comes back to the place already chosen (`chosen`). A tap on that
+    /// place still picks it, which takes its list back to the top.
+    func release(from start: CGFloat, at end: CGFloat, chosen: Int) -> Int? {
+        let picked = index(at: end)
+        return picked != chosen || abs(end - start) < Self.tapSlop ? picked : nil
+    }
+
     private var step: CGFloat { slot + spacing }
     private func clamped(_ index: Int) -> Int { min(max(index, 0), max(count - 1, 0)) }
 }
