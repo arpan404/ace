@@ -34,6 +34,7 @@ export function fakeDelivery() {
       return viewer;
     },
     granted: () => true,
+    why: () => undefined,
     poster: () => Promise.resolve(undefined),
     configure: () => {},
     pause: () => {},

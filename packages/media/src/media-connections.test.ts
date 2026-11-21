@@ -499,3 +499,143 @@ test("a view counts as delivering only once ace-media plays it, and a refusal sa
     [false, "limit"],
   ]);
 });
+
+test("a view ace-media stops playing goes back to waiting, and stats from before can't revive it", async () => {
+  const h = harness();
+  const viewers = new MediaViewers({
+    connections: h.connections,
+    live: () => [],
+    send: () => true,
+    id: () => "view-id",
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  const grant = granted(await h.connections.connect(phone("a")));
+  const grants: [boolean, string | undefined][] = [];
+  const viewer =
+    viewers.bind({
+      requester: phone("a"),
+      connection: grant.connection,
+      target: { kind: "browser", threadId: "t1" },
+      codecs: ["avc1.42E033"],
+      viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
+      local: true,
+      audio: false,
+      shows: (p) => p.threadId === "t1",
+      onGrant: (on, refused) => grants.push([on, refused]),
+    }) ?? "";
+  const none = new Uint8Array(0);
+  viewers.live(producer("t1"), "source-1");
+  viewers.received({ type: "viewer.playing", viewer, playing: true }, none);
+  expect(viewers.granted(viewer)).toBe(true);
+  // ace-media dropped the view's encode: its fanout stopped. Waiting again, with why.
+  viewers.received({ type: "viewer.playing", viewer, playing: false }, none);
+  expect(viewers.granted(viewer)).toBe(false);
+  // Stats counting the frames sent before the stop never mark it live again.
+  viewers.received(
+    { type: "viewer.stats", viewer, rate: 1_000_000, fps: 30, dropped: 0, rttMs: 20 },
+    none,
+  );
+  expect(viewers.granted(viewer)).toBe(false);
+  // Playing again is ace-media's own word.
+  viewers.received({ type: "viewer.playing", viewer, playing: true }, none);
+  expect(viewers.granted(viewer)).toBe(true);
+  expect(grants).toEqual([
+    [true, undefined],
+    [false, "stopped"],
+    [true, undefined],
+  ]);
+});
+
+test("a hidden view that stops playing waits quietly: it was paused, nothing went wrong", async () => {
+  const h = harness();
+  const viewers = new MediaViewers({
+    connections: h.connections,
+    live: () => [],
+    send: () => true,
+    id: () => "view-id",
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  const grant = granted(await h.connections.connect(phone("a")));
+  const grants: boolean[] = [];
+  const viewer =
+    viewers.bind({
+      requester: phone("a"),
+      connection: grant.connection,
+      target: { kind: "browser", threadId: "t1" },
+      codecs: ["avc1.42E033"],
+      viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
+      local: true,
+      audio: false,
+      shows: (p) => p.threadId === "t1",
+      onGrant: (on) => grants.push(on),
+    }) ?? "";
+  const none = new Uint8Array(0);
+  viewers.live(producer("t1"), "source-1");
+  viewers.received({ type: "viewer.playing", viewer, playing: true }, none);
+  viewers.pause(viewer, true);
+  viewers.received({ type: "viewer.playing", viewer, playing: false }, none);
+  viewers.pause(viewer, false);
+  viewers.received({ type: "viewer.playing", viewer, playing: true }, none);
+  expect(grants).toEqual([true]);
+});
+
+test("a view refused at the viewer limit asks again when another view closes, and plays", async () => {
+  const h = harness();
+  let views = 0;
+  const viewers = new MediaViewers({
+    connections: h.connections,
+    live: () => [
+      { producer: producer("t1"), path: "source-1" },
+      { producer: producer("t2"), path: "source-2" },
+    ],
+    send: (message) => {
+      h.sent.push({ message, payload: new Uint8Array(0) });
+      return true;
+    },
+    id: () => `${++views}`,
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  const grant = granted(await h.connections.connect(phone("a")));
+  const grants: Record<string, [boolean, string | undefined][]> = {};
+  const bind = (threadId: string) =>
+    viewers.bind({
+      requester: phone("a"),
+      connection: grant.connection,
+      target: { kind: "browser", threadId },
+      codecs: ["avc1.42E033"],
+      viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
+      local: true,
+      audio: false,
+      shows: (p) => p.threadId === threadId,
+      onGrant: (on, why) => (grants[threadId] ??= []).push([on, why]),
+    }) ?? "";
+  const none = new Uint8Array(0);
+  const opens = (viewer: string) =>
+    h.sent.filter(({ message }) => message.type === "viewer.open" && message.viewer === viewer)
+      .length;
+  const playing = bind("t1");
+  viewers.received({ type: "viewer.playing", viewer: playing, playing: true }, none);
+  const refused = bind("t2");
+  viewers.received(
+    { type: "grant.refused", kind: "viewer.open", id: refused, reason: "limit" },
+    none,
+  );
+  // The refusal stays on the view, for the subscribe reply and every push after it.
+  expect(viewers.why(refused)).toBe("limit");
+  expect(opens(refused)).toBe(1);
+  // Closing the other view frees its slot: the refused one asks again, still waiting with why.
+  viewers.unbind(playing);
+  expect(opens(refused)).toBe(2);
+  expect(viewers.why(refused)).toBe("limit");
+  expect(viewers.granted(refused)).toBe(false);
+  viewers.received({ type: "viewer.playing", viewer: refused, playing: true }, none);
+  expect(viewers.granted(refused)).toBe(true);
+  expect(viewers.why(refused)).toBeUndefined();
+  expect(grants.t2).toEqual([
+    [false, "limit"],
+    [true, undefined],
+  ]);
+});

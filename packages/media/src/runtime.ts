@@ -198,6 +198,7 @@ export class MediaRuntime {
       sourceState: (shows) => this.sources.state(shows),
       bind: (intent) => this.viewers.bind(intent),
       granted: (viewer) => this.viewers.granted(viewer),
+      why: (viewer) => this.viewers.why(viewer),
       poster: (viewer) => this.viewers.poster(viewer),
       configure: (viewer, viewport, audio) => this.viewers.configure(viewer, viewport, audio),
       pause: (viewer, paused) => this.viewers.pause(viewer, paused),

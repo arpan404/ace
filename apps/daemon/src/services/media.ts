@@ -65,6 +65,7 @@ export function failedDelivery(reason: string, retry: () => void): DaemonDeliver
     sourceState: () => "failed",
     bind: () => undefined,
     granted: () => false,
+    why: () => undefined,
     poster: () => Promise.resolve(undefined),
     configure: () => {},
     pause: () => {},
