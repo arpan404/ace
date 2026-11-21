@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import sharp from "sharp";
 import { expect, onTestFinished, test } from "vitest";
@@ -116,4 +117,17 @@ test("Spade's refusal of a missing picture comes back as it is", async () => {
   const result = await get(`/v1/images/${"b".repeat(64)}?preview`);
 
   expect(result).toMatchObject({ kind: "response", status: 404 });
+});
+
+test("a HEIC picture is previewed as a PNG too, by the same decoder", async () => {
+  const heic = await readFile(
+    new URL("../../../../packages/context/fixtures/colours.heic", import.meta.url),
+  );
+  const { get } = await serving(heic, "image/heic");
+
+  const result = await get(`/v1/images/${hash}?preview`);
+
+  if (result.kind !== "response") throw new Error(result.message);
+  const preview = await sharp(Buffer.from(result.body, "base64")).metadata();
+  expect(preview).toMatchObject({ format: "png", width: 320, height: 240 });
 });
