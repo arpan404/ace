@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { Transferable, WorkerOptions } from "node:worker_threads";
 import { IdleWorker, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
-import { incompatibleData, revivedIncompatibleData } from "@ace/provider-kit/incompatible-data";
+import { IncompatibleDataError, incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { Reply, Envelope, Refusal } from "./contracts.ts";
 import { readerMemoryLimitCode } from "./reader-process.ts";
 
@@ -44,7 +44,8 @@ export class RecoveringWorker extends EventEmitter {
       if (this.worker !== worker) return;
       const refusal = Refusal.safeParse(input).data;
       if (refusal) {
-        failed(revivedIncompatibleData(refusal.refused));
+        // ace-history says what is wrong with the file; the shared error says what to do about it.
+        failed(new IncompatibleDataError(refusal.refused.path, refusal.refused.message));
         return;
       }
       const reply = Reply.safeParse(input).data;

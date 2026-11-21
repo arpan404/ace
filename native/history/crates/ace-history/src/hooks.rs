@@ -10,6 +10,7 @@
 //!   `dir/continue`;
 //! - `failRequests` answers every request but `close` with this error, as a broken reader would;
 //! - `clockShiftMs` moves the reader's clock forward, past the crash ledger's waits;
+//! - `startLog` appends each reader process's pid as it starts;
 //! - `readLog` appends each transcript opened for content to a file;
 //! - `snapshotLog` appends each private database snapshot staged;
 //! - `poison: { marker, bytes, signal?, once? }` makes decoding a record containing `marker` grow
@@ -100,6 +101,10 @@ mod enabled {
             .unwrap_or(0.0)
     }
 
+    pub fn started() {
+        append("startLog", &std::process::id().to_string());
+    }
+
     pub fn read(path: &Path) {
         append("readLog", &path.display().to_string());
     }
@@ -140,7 +145,7 @@ mod enabled {
 }
 
 #[cfg(feature = "test-hooks")]
-pub use enabled::{at, at_path, clock_shift, decoding, failure, read, snapshot};
+pub use enabled::{at, at_path, clock_shift, decoding, failure, read, snapshot, started};
 
 #[cfg(not(feature = "test-hooks"))]
 mod disabled {
@@ -160,6 +165,8 @@ mod disabled {
         0.0
     }
     #[inline(always)]
+    pub fn started() {}
+    #[inline(always)]
     pub fn read(_path: &std::path::Path) {}
     #[inline(always)]
     pub fn snapshot(_dir: &std::path::Path) {}
@@ -168,4 +175,4 @@ mod disabled {
 }
 
 #[cfg(not(feature = "test-hooks"))]
-pub use disabled::{at, at_path, clock_shift, decoding, failure, read, snapshot};
+pub use disabled::{at, at_path, clock_shift, decoding, failure, read, snapshot, started};
