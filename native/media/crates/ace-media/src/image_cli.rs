@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
-//! `ace-media --image`: one `image.job` control frame on stdin, its `image.done` or
-//! `image.failed` frame on stdout, then exit 0 (2 when stdin isn't one valid job). The same
-//! work as the image threads, for tests and tools that have no supervisor (ADR 0201 §8).
-use crate::engine::images::ImageWork;
+//! `ace-media --image [--root <dir>]`: one `image.job` control frame on stdin, its `image.done`
+//! or `image.failed` frame on stdout, then exit 0 (2 when stdin isn't one valid job). The same
+//! work as the image process's threads, for tests and tools that have no supervisor (ADR 0201
+//! §8). File inputs are read only inside `--root`.
+use crate::images::budget::{BUDGET_BYTES, Budget};
+use crate::images::files::FileRoot;
+use crate::images::jobs::ImageWork;
+use crate::images::pool::{Context, execute};
 use media_wire::control::{ControlFrame, FromMedia, ToMedia, lane};
 use std::io::{Read, Write};
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 use zeroize::Zeroizing;
 
 /// The answer frame for one job frame, or `None` when the bytes aren't one.
-pub fn answer(frame: &[u8], started: Instant) -> Option<Vec<u8>> {
+pub fn answer(frame: &[u8], started: Instant, root: Option<&Path>) -> Option<Vec<u8>> {
     let job = ControlFrame::<ToMedia>::decode(frame, lane("image.job")).ok()?;
     let ToMedia::ImageJob {
         request,
@@ -29,7 +35,12 @@ pub fn answer(frame: &[u8], started: Instant) -> Option<Vec<u8>> {
         deadline_us,
     };
     let expired = || started.elapsed().as_micros() as u64 >= deadline_us;
-    let (message, payload) = match crate::images::execute(&work, &expired) {
+    let context = Context {
+        clock: Arc::new(move || started.elapsed().as_micros() as u64),
+        files: FileRoot::new(root),
+        budget: Budget::new(BUDGET_BYTES),
+    };
+    let (message, payload) = match execute(&work, &context, &expired) {
         Ok(done) => (
             FromMedia::ImageDone {
                 request,
@@ -58,7 +69,7 @@ pub fn answer(frame: &[u8], started: Instant) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-pub fn run() -> i32 {
+pub fn run(root: Option<&Path>) -> i32 {
     let started = Instant::now();
     let mut frame = Vec::new();
     // One normal-lane frame at most: 8 MiB and its length field.
@@ -69,7 +80,7 @@ pub fn run() -> i32 {
     {
         return 2;
     }
-    let Some(bytes) = answer(&frame, started) else {
+    let Some(bytes) = answer(&frame, started, root) else {
         return 2;
     };
     let mut stdout = std::io::stdout().lock();

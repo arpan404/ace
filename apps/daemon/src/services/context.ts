@@ -12,7 +12,7 @@ import { deviceContextText } from "../thread-address/device-context.ts";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
-import { daemonImages } from "./media.ts";
+import { daemonImages } from "./media-images.ts";
 export async function startContext(runtime: ServiceContext): Promise<void> {
   const { config, store, now, id, resources, services, log, onListen } = runtime;
 

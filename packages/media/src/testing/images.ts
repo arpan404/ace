@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ImageError, type ImageJob, type ImageResult, type ImageWork } from "../images.ts";
 import { imagePayloadBytes, type ImageInput } from "../image-wire.ts";
@@ -25,14 +25,20 @@ export function testMediaBinary(env: NodeJS.ProcessEnv = process.env): string | 
   });
 }
 
-/** One job through `binary --image`. */
-export function binaryImages(binary: string): ImageWork {
+/**
+ * One job through `binary --image`. File inputs are read only inside `root` (by default the
+ * filesystem root: tests name their files where they made them).
+ */
+export function binaryImages(binary: string, options: { root?: string } = {}): ImageWork {
+  const args = ["--image", "--root", options.root ?? "/"];
   let next = 0;
   return {
     run: (job: ImageJob) => {
       const inputs: ImageInput[] = job.inputs.map((input) =>
         input.kind === "file"
-          ? input
+          ? // The process walks the path without following links; a test's temporary folder
+            // may sit behind one (macOS's /var), so it gets the resolved path.
+            { ...input, path: options.root ? input.path : resolved(input.path) }
           : input.kind === "rgba"
             ? { kind: "rgba", bytes: input.bytes.length, width: input.width, height: input.height }
             : { kind: "bytes", bytes: input.bytes.length },
@@ -53,7 +59,7 @@ export function binaryImages(binary: string): ImageWork {
       };
       const frame = encodeControl(message, payload, "normal");
       return new Promise<ImageResult>((resolve, reject) => {
-        const child = spawn(binary, ["--image"], { stdio: ["pipe", "pipe", "inherit"] });
+        const child = spawn(binary, args, { stdio: ["pipe", "pipe", "inherit"] });
         const chunks: Buffer[] = [];
         child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
         child.on("error", reject);
@@ -80,6 +86,14 @@ export function binaryImages(binary: string): ImageWork {
   };
 }
 
+function resolved(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
 /** Straight RGBA pixels of an encoded image, through `work`: for tests that look at them. */
 export async function imagePixels(
   work: ImageWork,
@@ -89,7 +103,7 @@ export async function imagePixels(
     inputs: [{ kind: "bytes", bytes }],
     op: {
       op: "fit",
-      maxPixels: 64 * 1024 * 1024,
+      maxPixels: 50_000_000,
       width: 8192,
       height: 8192,
       autoOrient: false,

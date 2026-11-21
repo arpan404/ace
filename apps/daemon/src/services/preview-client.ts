@@ -10,7 +10,7 @@ import { hostPreviewIdentity, pairedPreviewIdentity } from "../preview.ts";
 import { createPreviewSuggestions } from "../preview-suggestions/service.ts";
 import type { ServiceContext } from "./types.ts";
 import { iconImages } from "../icons/icon-image.ts";
-import { daemonImages } from "./media.ts";
+import { daemonImages } from "./media-images.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export function startPreviewClient(context: ServiceContext): void {
   const { services, resources, onListen, store, now, log } = context;

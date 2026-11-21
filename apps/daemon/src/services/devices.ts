@@ -15,7 +15,8 @@ import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
 import { mediaOwner } from "./media-connect.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 import { writeDeviceMessage } from "./device-write.ts";
-import { daemonImages, startMedia } from "./media.ts";
+import { startMedia } from "./media.ts";
+import { daemonImages } from "./media-images.ts";
 
 export async function startDevices(context: ServiceContext): Promise<void> {
   const { resources, services, options } = context;

@@ -33,53 +33,78 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
    `media.stills`, and a stored `legacy` reads as `auto`. ace-media is the only media path. The
    Wave 7 deletions (X1, X2, X3) land in one batch with this ADR. The acceptance tests each X row
    names still apply. Only the "after a release" condition is dropped.
+   - **The settings go entirely (owner, 2026-11-20).** The video pipeline is fully Rust. The
+     settings keys `media.encode`, `media.delivery`, `media.recordings` and `media.stills`, the
+     Settings â€º Beta media opt-in (web and iOS) and the setting-driven route table are removed,
+     not just their `legacy` values; stored values are ignored. A separate cleanup (X5) does
+     this once X2 and X3 have merged. Image jobs never depended on these settings, and never
+     will: the image process starts on the first image job whatever is stored.
 2. **ace-media also owns still images (X4).** Resizing and fitting, format conversion, decoding
    JPEG (baseline and progressive, with EXIF orientation), PNG, WebP, GIF (first frame), ICO
    (PNG entries and 24/32-bit bitmaps) and static SVG, compositing (device chrome, skins and body
    pieces, with masks), skin alpha, and icon images all move into ace-media. sharp and `Bun.Image`
    leave the code, every `package.json`, `bun.lock`, the desktop native-module lists and release
    staging. No TypeScript decodes or encodes pixels.
-3. **One-shot image jobs are control messages.** `image.job` (normal lane) carries one operation
-   (`probe`, `fit`, `alpha` or `compose`) and its inputs: bytes in the frame's payload, a file
-   ace wrote, or raw RGBA. ace-media answers once, with `image.done` (the encoded image as its
-   payload) or `image.failed` with a reason. `image.cancel` withdraws a job; its result is
-   dropped. The types are `media_wire::image` and `packages/media/src/image-wire.ts`, with shared
-   fixtures in `native/media/vectors/control` and op vectors in `native/media/vectors/image`.
+3. **Image work runs in a process of its own (owner, 2026-11-20, on review).** Image work must
+   never be able to take down live video or recordings. One-shot jobs run in ace-media's image
+   process, `ace-media --images --root <data dir>`, never in the media process: that one
+   answers `image.job` with `unsupported`. The image process holds no sockets, secrets or video;
+   its stdin and stdout are its only lane.
+   - `image.job` carries one operation (`probe`, `fit`, `alpha` or `compose`) and its inputs:
+     bytes in the frame's payload, a file ace wrote, or raw RGBA. The process answers once, with
+     `image.done` (the image as its payload) or `image.failed` with a reason.
+   - `image.cancel` withdraws a job: it leaves the queue at once, or stops at its next step.
+   - The types are `media_wire::image` and `packages/media/src/image-wire.ts`, with shared
+     fixtures in `native/media/vectors/control` and op vectors in `native/media/vectors/image`.
 4. **Where the work runs.** The pure `media-image` crate decodes and encodes on M5's CPU codecs:
    ace's JPEG decoder and encoder (with `zune-jpeg` for streams it doesn't take), the SIMD
    resampler, `png`, `image-webp`, `gif` and `resvg` (scripts, text, raster images and outside
    references off). Every one passes `cargo deny` under the existing `deny.toml`, with no
    IJG-licensed or libjpeg code. A JPEG to JPEG fit with no turn and no alpha takes M5's planar
-   transcode, never leaving YCbCr. Jobs run on a fixed pool of image threads, separate from the
-   still makers and never on the tokio threads. One-shot jobs don't use the hardware still paths:
-   their inputs aren't video, and at these sizes an upload costs more than M5's CPU path takes.
+   transcode, never leaving YCbCr. The image process runs jobs on up to four threads sharing one
+   queue. One-shot jobs don't use the hardware still paths: their inputs aren't video, and at
+   these sizes an upload costs more than M5's CPU path takes.
 5. **Bounds, and refusals with a reason.** Never filled with grey.
-   - An input over its byte bound (32 MiB for a file, the 8 MiB frame for a payload), over the
-     job's `maxPixels`, over 16,384 px a side or over 64 Mi pixels is refused (`too-large`).
-     It is refused before its pixels are decoded wherever the header gives the size.
-   - An SVG over 4 MiB or rendered past 4,096 px a side is refused too, and so is any output
-     that wouldn't fit one frame.
-   - A JPEG without its end marker or with its entropy data cut short, or a PNG, GIF, WebP or ICO
-     that ends early, fails `truncated`. Bytes no decoder takes fail `unsupported`, and a decode
-     error fails `decode-failed`.
-   - A decoder that panics is caught on its thread and fails the job (`decode-failed`). It never
-     takes ace-media down.
+   - **Pixels**, from real callers: at most 50 million an input and 16,384 px a side (a
+     48-megapixel phone photo is the largest picture ace is sent). Attachments are held to the
+     40 million an upload may have, screenshots and frames to 16 Mi. Past its job's bound an
+     input is refused (`too-large`) before its pixels are decoded, from its header.
+   - **Memory.** Each job reserves what it will hold at its peak, estimated from its inputs'
+     headers, from a 768 MiB budget shared by the threads, before it decodes anything; it waits
+     for room within its deadline. Decoders work in one buffer per picture. The process has a
+     1.5 GiB data limit (`RLIMIT_DATA`, on Linux), and the daemon kills it past 1.5 GiB resident
+     on every OS where it can read another process's memory. Either ends the image process only.
+   - **Queues.** The process holds at most 64 jobs, 32 of them waiting with at most 64 MiB of
+     inputs, and at most 48 MiB of answers waiting for the daemon to read them. The daemon holds
+     at most 32 MiB of inputs for jobs not yet answered. Past any of these a job is refused
+     `busy`, never queued without bound.
+   - **Files.** A file input is read only inside the root the daemon gave, walked one name at a
+     time from that directory's handle without following a link, opened without blocking and
+     read only if it is a regular file: at most 32 MiB a file and 64 MiB a job.
+   - **Containers.** A JPEG with more than one frame header is refused, and its decoder must read
+     the size its header was checked at. A JPEG without its end marker or with its entropy data
+     cut short, a PNG that ends before IEND (one that ends after IHDR included), a GIF that ends
+     before its trailer (one cut after a whole first frame included), and a WebP or ICO that
+     ends early fail `truncated`, at probe as at decode. Bytes no decoder takes fail
+     `unsupported`, and a decode error fails `decode-failed`.
+   - An SVG over 4 MiB or rendered past 4,096 px a side is refused, and so is any output that
+     wouldn't fit one frame.
+   - A decoder that panics fails its job (`decode-failed`). A step that runs 10 s past its
+     job's deadline ends the image process, which restarts.
    - Every refusal carries a sentence the caller can show.
-6. **When ace-media is starting, unavailable or crashed.** The daemon's `MediaImages` client
-   holds these rules. One-shot jobs never block agent state.
-   - **Lazy start, regardless of settings.** A job takes a use of the supervisor
-     (`MediaSupervisor.require()`), so ace-media starts on the first image even if nothing else
-     wants it, and stops 60 s after the last use.
-   - **Starting.** Jobs wait (at most 32) until both lanes are up. The job's own deadline covers
-     the start, so a slow start shows up as `deadline`, never as a hang.
-   - **Unavailable** (no binary, crash loop, exit 2, a platform where the daemon doesn't run
-     ace-media yet). Jobs fail at once with `unavailable` and the supervisor's reason.
-   - **Exited mid-job.** Every job ace-media held fails `exited`. It is not retried: an input
-     that crashed ace-media must not crash the next process too.
-   - **Deadlines and cancellation.** Each job carries `deadlineMs`, and ace-media checks it
-     before each step. At the deadline, or when the caller's `AbortSignal` fires, the daemon
-     sends `image.cancel` and settles the job at once (`deadline` or `cancelled`). A result
-     that arrives after that is dropped.
+6. **Supervision, on every OS.** The daemon supervises the image process on its own
+   (`ImageProcess` in `@ace/media`), apart from the media process and whatever that one does on
+   a platform: Windows included. One-shot jobs never block agent state.
+   - **Lazy start.** The first image job starts it, and it stops 60 s after the last one.
+   - **Unavailable** (no binary, or five failures in two minutes). Jobs fail at once with
+     `unavailable` and the reason, for ten minutes.
+   - **Exited mid-job.** Every job it held fails `exited`, and is not retried: an input that
+     crashed it must not crash the next process too. Jobs that hadn't reached it wait for the
+     restart (0.5 s backoff, doubling) within their deadlines.
+   - **Deadlines and cancellation.** Each job carries `deadlineMs`, checked before every step,
+     including before reading a file, probing or the planar path. At the deadline, or when the
+     caller's `AbortSignal` fires, the daemon sends `image.cancel` and settles the job at once
+     (`deadline` or `cancelled`). A result that arrives after that is dropped.
    - **What callers do.**
      - An attachment preview answers `unsupported` or `busy`, as an image it can't preview did.
      - An icon is "ask again later" (`later`) for any failure that may pass, and `none` for
@@ -94,8 +119,8 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
    and inlined as that copy. The stored original is untouched. When no copy fits, or
    ace-media can't make one, the image goes as its path, as before. Path-reading providers
    (Codex, OpenCode) read the original.
-8. **Tests and tools** decode through the same code: `ace-media --image` runs one job from
-   stdin to stdout (the `image.job` frame in, the `image.done` or `image.failed` frame out). Tests
+8. **Tests and tools** decode through the same code: `ace-media --image [--root <dir>]` runs one
+   job from stdin to stdout (the `image.job` frame in, the `image.done` or `image.failed` frame out). Tests
    that need real pixels run against the built binary (`ACE_MEDIA_TEST_BINARY`) from
    `check:media`.
 
@@ -105,9 +130,10 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
   JavaScript thread does no pixel work at all, so a large image can't hold it up.
 - The desktop app and releases ship no sharp or libvips. Packaging's native-module list loses an
   entry, and so do `verify-natives` and release staging.
-- Every image feature now needs ace-media. Where the daemon doesn't run it (Windows, until
-  `createMedia` starts it there), previews, icons, device chrome and screenshot fitting fail
-  with `unavailable` and the reason, and the callers above degrade. Starting ace-media on Windows
-  is the follow-up that closes this.
+- Every image feature needs ace-media's binary, not the media process: previews, icons, device
+  chrome and screenshot fitting work on Windows even where the daemon doesn't run the media
+  process there.
+- A crash, a memory runaway or a hung decoder in image work costs the jobs in flight and a
+  restart of the image process, never a live view or a recording.
 - Text in a composite comes from a built-in bitmap font (digits, Latin capitals and a few
   signs): enough for the filmstrip's timings, and no system font lookup.

@@ -38,7 +38,8 @@ export async function shotJpeg(source: Buffer, images: ImageWork): Promise<Devic
       inputs: [{ kind: "bytes", bytes: source }],
       op: {
         op: "fit",
-        maxPixels: 64 * 1024 * 1024,
+        // The largest device screens are a few megapixels (a 13-inch iPad is 5.7).
+        maxPixels: 16 * 1024 * 1024,
         width: maxWidth,
         height: maxHeight,
         autoOrient: false,

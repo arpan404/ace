@@ -28,7 +28,8 @@ import type { ServiceContext } from "./types.ts";
 import type { Store } from "../store.ts";
 import { grantOfCaller } from "../external-mcp/principals.ts";
 import { browserBackendMessage } from "./socket-message.ts";
-import { daemonImages, startMedia } from "./media.ts";
+import { startMedia } from "./media.ts";
+import { daemonImages } from "./media-images.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 
 /**

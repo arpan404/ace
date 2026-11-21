@@ -1,5 +1,6 @@
 import { ImageError, type ImageWork } from "@ace/media/images";
 import { ContextError } from "./errors.ts";
+import { defaultImageLimits } from "./media.ts";
 
 /*
  * Attachment pictures through ace-media (ADR 0201): the preview a client shows, and the copy an
@@ -19,7 +20,8 @@ export function thumbnailRenderer(images: ImageWork): (path: string) => Promise<
         inputs: [{ kind: "file", path, maxBytes: fileBound }],
         op: {
           op: "fit",
-          maxPixels: 40_000_000,
+          // What an upload may hold at most: the same bound, not a larger one.
+          maxPixels: defaultImageLimits.maxPixels,
           width: 512,
           height: 512,
           autoOrient: true,
@@ -60,7 +62,7 @@ export async function modelImageCopy(
         inputs: [{ kind: "file", path, maxBytes: fileBound }],
         op: {
           op: "fit",
-          maxPixels: 64 * 1024 * 1024,
+          maxPixels: defaultImageLimits.maxPixels,
           width: side,
           height: side,
           autoOrient: true,

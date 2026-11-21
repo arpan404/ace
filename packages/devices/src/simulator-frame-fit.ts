@@ -23,7 +23,7 @@ export async function fitImage(
     inputs: [{ kind: "bytes", bytes: source.input }],
     op: {
       op: "fit",
-      maxPixels: Math.min(source.maxPixels, 64 * 1024 * 1024),
+      maxPixels: Math.min(source.maxPixels, 16 * 1024 * 1024),
       width: box.width,
       height: box.height,
       autoOrient: source.autoOrient,

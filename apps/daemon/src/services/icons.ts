@@ -15,7 +15,7 @@ import { IconCache } from "../icons/icon-cache.ts";
 import { iconImages } from "../icons/icon-image.ts";
 import { IconService } from "../icons/icon-service.ts";
 import type { ServiceContext } from "./types.ts";
-import { daemonImages } from "./media.ts";
+import { daemonImages } from "./media-images.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export function startIcons(context: ServiceContext): void {

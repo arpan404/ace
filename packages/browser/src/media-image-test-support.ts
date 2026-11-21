@@ -24,7 +24,7 @@ export function decodedPixels(bytes: Uint8Array) {
 export async function imageWidth(bytes: Uint8Array): Promise<number> {
   const probe = await testImages().run({
     inputs: [{ kind: "bytes", bytes }],
-    op: { op: "probe", maxPixels: 64 * 1024 * 1024 },
+    op: { op: "probe", maxPixels: 50_000_000 },
     deadlineMs: 10_000,
   });
   return probe.width;

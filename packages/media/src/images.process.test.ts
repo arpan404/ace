@@ -1,19 +1,18 @@
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
+import { ImageProcess } from "./image-process.ts";
 import { ImageError, type ImageJobInput, type ImageResult, type ImageWork } from "./images.ts";
 import { ImageOp } from "./image-wire.ts";
-import { MediaRuntime } from "./runtime.ts";
-import { legacyMediaSettings, nodeMediaHost, systemMediaClock } from "./supervisor.ts";
+import { nodeMediaHost, systemMediaClock } from "./supervisor.ts";
 import { binaryImages, imagePixels, testMediaBinary } from "./testing/images.ts";
 
 /*
  * ADR 0201 against the built binary: every shared image vector answers the same through the
- * daemon's supervised ace-media as through `ace-media --image`, and image jobs start ace-media
- * lazily while every media setting is still `legacy`.
+ * daemon's supervised image process (`ace-media --images`) as through `ace-media --image`; file
+ * inputs are read only inside its root; and a killed image process fails its job and restarts.
  */
 
 const binary = testMediaBinary();
@@ -40,29 +39,26 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-function supervised(): MediaRuntime {
+/** The image process as the daemon runs it, its file root a fresh directory. */
+function supervised(): { images: ImageProcess; root: string } {
   if (!binary) throw new Error("no ace-media binary");
-  const runtimeDir = mkdtempSync(join(tmpdir(), "acem-x4-"));
+  const root = mkdtempSync(join(tmpdir(), "acem-x4-"));
   let ids = 0;
-  const runtime = new MediaRuntime({
-    version: execFileSync(binary, ["--version"]).toString().trim(),
+  const images = new ImageProcess({
     binary,
-    runtimeDir,
-    dataDir: runtimeDir,
-    // Every setting legacy: only image jobs want ace-media.
-    settings: () => legacyMediaSettings,
-    host: nodeMediaHost(process.env),
+    root,
+    spawn: (command, args) =>
+      nodeMediaHost(process.env, (path) => ({ command: path, args: [...args] })).spawn(command),
     clock: systemMediaClock,
+    nextId: () => `id-${++ids}`,
     random: Math.random,
-    listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
-    id: () => `id-${++ids}`,
     log: () => {},
   });
   cleanups.push(() => {
-    runtime.dispose();
-    rmSync(runtimeDir, { recursive: true, force: true });
+    images.dispose();
+    rmSync(root, { recursive: true, force: true });
   });
-  return runtime;
+  return { images, root };
 }
 
 function inputs(names: z.infer<typeof Case>["inputs"]): ImageJobInput[] {
@@ -126,27 +122,28 @@ it.skipIf(!binary)(
 );
 
 it.skipIf(!binary)(
-  "with every media setting legacy, an image job starts ace-media and every vector answers through the lanes",
+  "every image vector answers the same through the supervised image process",
   async () => {
     if (!binary) return;
-    const runtime = supervised();
-    expect(runtime.supervisor.snapshot().pid).toBeUndefined();
-    await replay(runtime.images, binaryImages(binary));
-    expect(runtime.supervisor.snapshot().phase).toBe("running");
-    expect(runtime.images.pending).toBe(0);
+    const { images } = supervised();
+    expect(images.pid()).toBeUndefined();
+    await replay(images, binaryImages(binary));
+    expect(images.pid()).toBeDefined();
+    expect(images.pending).toBe(0);
   },
   60_000,
 );
 
 it.skipIf(!binary)(
-  "a file ace wrote is read by ace-media, and one over its bound is refused",
+  "a file inside the root is read, one over its bound or outside the root is refused",
   async () => {
     if (!binary) return;
-    const runtime = supervised();
-    const directory = mkdtempSync(join(tmpdir(), "acem-x4-file-"));
-    cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
-    const path = join(directory, "red.jpg");
-    writeFileSync(path, readFileSync(new URL("inputs/red-64x48.jpg", vectors)));
+    const { images, root } = supervised();
+    const outside = mkdtempSync(join(tmpdir(), "acem-x4-outside-"));
+    cleanups.push(() => rmSync(outside, { recursive: true, force: true }));
+    const jpeg = readFileSync(new URL("inputs/red-64x48.jpg", vectors));
+    writeFileSync(join(root, "red.jpg"), jpeg);
+    writeFileSync(join(outside, "red.jpg"), jpeg);
     const op = {
       op: "fit",
       maxPixels: 1 << 20,
@@ -155,35 +152,39 @@ it.skipIf(!binary)(
       autoOrient: false,
       output: { format: "png" },
     } as const;
-    const fitted = await runtime.images.run({
-      inputs: [{ kind: "file", path, maxBytes: 4096 }],
-      op,
-      deadlineMs: 10_000,
+    const read = (path: string, maxBytes: number) =>
+      images
+        .run({ inputs: [{ kind: "file", path, maxBytes }], op, deadlineMs: 10_000 })
+        .catch((error: unknown) => error);
+    const fitted = await read(join(root, "red.jpg"), 4096);
+    expect(fitted instanceof ImageError ? fitted.message : fitted).toMatchObject({
+      width: 16,
+      height: 12,
+      format: "png",
     });
-    expect([fitted.width, fitted.height, fitted.format]).toEqual([16, 12, "png"]);
-    const refused = await runtime.images
-      .run({ inputs: [{ kind: "file", path, maxBytes: 100 }], op, deadlineMs: 10_000 })
-      .catch((error: unknown) => error);
-    expect(refused instanceof ImageError && refused.reason).toBe("too-large");
+    const big = await read(join(root, "red.jpg"), 100);
+    expect(big instanceof ImageError && big.reason).toBe("too-large");
+    const away = await read(join(outside, "red.jpg"), 4096);
+    expect(away instanceof ImageError && away.reason).toBe("unreadable");
   },
   30_000,
 );
 
 it.skipIf(!binary)(
-  "killing ace-media mid-job fails the job as exited, and the next job runs on the restart",
+  "killing the image process fails its job as exited, and the next job runs on a new one",
   async () => {
     if (!binary) return;
-    const runtime = supervised();
+    const { images } = supervised();
     const probe = {
       inputs: inputs(["red-64x48.jpg"]),
       op: { op: "probe", maxPixels: 1 << 20 } as const,
       deadlineMs: 20_000,
     };
-    await runtime.images.run(probe);
-    const pid = runtime.supervisor.snapshot().pid;
+    await images.run(probe);
+    const pid = images.pid();
     expect(pid).toBeDefined();
     // A job on the way when the process dies: it ends `exited`, never hanging to its deadline.
-    const held = runtime.images.run({
+    const held = images.run({
       ...probe,
       inputs: inputs(Array.from({ length: 40 }, () => "icon.ico")),
       op: {
@@ -207,10 +208,10 @@ it.skipIf(!binary)(
     process.kill(pid ?? 0, "SIGKILL");
     const error = await held.catch((e: unknown) => e);
     expect(error instanceof ImageError && error.reason).toBe("exited");
-    expect(runtime.images.pending).toBe(0);
-    const again = await runtime.images.run(probe);
+    expect(images.pending).toBe(0);
+    const again = await images.run(probe);
     expect([again.width, again.height]).toEqual([64, 48]);
-    expect(runtime.supervisor.snapshot().pid).not.toBe(pid);
+    expect(images.pid()).not.toBe(pid);
   },
   30_000,
 );

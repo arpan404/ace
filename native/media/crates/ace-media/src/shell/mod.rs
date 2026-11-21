@@ -297,17 +297,6 @@ async fn serve(
     if let Ok(threads) = threads {
         engine = engine.with_stills(Box::new(threads));
     }
-    let (image_tx, mut image_rx) = mpsc::unbounded_channel();
-    let images = crate::images::ImageThreads::new(
-        crate::images::thread_count(std::thread::available_parallelism().map_or(1, |n| n.get())),
-        Arc::new(move || started.elapsed().as_micros() as u64),
-        Arc::new(move |outcome| {
-            let _ = image_tx.send(outcome);
-        }),
-    );
-    let Ok(images) = images else {
-        return fail("the image threads did not start");
-    };
     let (relay_tx, mut relay_rx) = mpsc::channel(256);
     let mut relays = relay_sockets::RelaySockets::new(relay_tx, engine.relay_pool());
     let mut gate = priority_gate::PriorityGate::default();
@@ -387,7 +376,6 @@ async fn serve(
             gate: &mut gate,
                         media: &mut outboxes,
                         now_ms: clock.now().mono_ms,
-                        images: &images,
                     };
                     apply(&mut engine, &mut outputs);
                     break EXIT_OK;
@@ -431,7 +419,6 @@ async fn serve(
                 }
             }
             Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
-            Some(outcome) = image_rx.recv() => engine.image_finished(outcome),
             answer = gate.next(), if !gate.is_empty() => {
                 if let (Some(bytes), Some(priority)) = (answer, priority_out.as_ref())
                     && priority.send(bytes).is_err()
@@ -493,7 +480,6 @@ async fn serve(
             gate: &mut gate,
             media: &mut outboxes,
             now_ms: clock.now().mono_ms,
-            images: &images,
         };
         match apply(&mut engine, &mut outputs) {
             Step::Continue => {}

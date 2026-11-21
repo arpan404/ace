@@ -25,6 +25,25 @@ pub fn harden() {
     }
 }
 
+/// Caps the process's data (Linux `RLIMIT_DATA`: heap and private writable mappings) at
+/// `bytes`, so a runaway image job ends the image process and nothing else. Elsewhere the
+/// daemon's memory watchdog is the limit.
+pub fn limit_data(bytes: u64) {
+    #[cfg(target_os = "linux")]
+    {
+        let limit = libc::rlimit {
+            rlim_cur: bytes,
+            rlim_max: bytes,
+        };
+        // SAFETY: setrlimit reads one valid struct.
+        unsafe {
+            libc::setrlimit(libc::RLIMIT_DATA, &limit);
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = bytes;
+}
+
 /// Refuses a runtime directory another user could reach: it must be a real directory (not a
 /// symlink), owned by this process's user, with mode 0700.
 #[cfg(unix)]

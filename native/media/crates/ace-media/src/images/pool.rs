@@ -1,23 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The image threads (ADR 0201): a fixed set, separate from the still makers and never the
-//! tokio threads, running `media-image` jobs. A job reads its file inputs here (the only I/O),
-//! is stopped between steps once its deadline passes, and a decoder that panics fails only
+//! The image threads (ADR 0201): a fixed set in the image process, sharing one queue bounded in
+//! jobs and in payload bytes. A job that is stopped (cancelled or past its deadline) leaves the
+//! queue at once, or stops at its next step if it is running. A job reserves its peak memory
+//! from the shared [`Budget`] before it decodes anything, and a decoder that panics fails only
 //! its own job.
-use crate::engine::images::{ImageOutcome, ImageWork};
+use super::budget::Budget;
+use super::files::FileRoot;
+use super::jobs::{ImageOutcome, ImageWork};
 use media_image::{Failed, ImageFailure, Input};
 use media_wire::image::ImageInput;
-use std::io::Read;
+use std::collections::{HashMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 
-/// Jobs queued per thread before one is refused `busy`.
-pub const QUEUE: usize = 16;
-/// The most a file input may hold, whatever the job allows.
-pub const MAX_FILE_BYTES: u32 = 32 * 1024 * 1024;
+/// Jobs waiting for a thread before one is refused `busy`.
+pub const QUEUE_JOBS: usize = 32;
+/// Payload bytes waiting for a thread before a job is refused `busy`.
+pub const QUEUE_BYTES: usize = 64 * 1024 * 1024;
 
-/// ace-media's monotonic clock in µs, the one job deadlines are on.
+/// The image process's monotonic clock in µs, the one job deadlines are on.
 pub type ImageClock = Arc<dyn Fn() -> u64 + Send + Sync>;
 pub type DeliverImage = Arc<dyn Fn(ImageOutcome) + Send + Sync>;
 
@@ -26,78 +28,182 @@ pub fn thread_count(cores: usize) -> usize {
     cores.saturating_sub(1).clamp(1, 4)
 }
 
-struct Worker {
-    tx: SyncSender<ImageWork>,
-    queued: Arc<AtomicUsize>,
+struct Running {
+    stopped: Arc<AtomicBool>,
+    deadline_us: u64,
+}
+
+#[derive(Default)]
+struct Queue {
+    waiting: VecDeque<ImageWork>,
+    bytes: usize,
+    running: HashMap<u64, Running>,
+    closed: bool,
+}
+
+struct Shared {
+    queue: Mutex<Queue>,
+    ready: Condvar,
+}
+
+/// What every job reads from: the clock, the file root and the memory budget.
+pub struct Context {
+    pub clock: ImageClock,
+    pub files: FileRoot,
+    pub budget: Budget,
 }
 
 pub struct ImageThreads {
-    workers: Vec<Worker>,
+    shared: Arc<Shared>,
     deliver: DeliverImage,
 }
 
+fn busy(token: u64, message: &str) -> ImageOutcome {
+    ImageOutcome {
+        token,
+        result: Err(Failed::new(ImageFailure::Busy, message)),
+    }
+}
+
 impl ImageThreads {
-    pub fn new(count: usize, clock: ImageClock, deliver: DeliverImage) -> std::io::Result<Self> {
-        let mut workers = Vec::with_capacity(count);
+    pub fn new(
+        count: usize,
+        context: Arc<Context>,
+        deliver: DeliverImage,
+    ) -> std::io::Result<Self> {
+        let shared = Arc::new(Shared {
+            queue: Mutex::new(Queue::default()),
+            ready: Condvar::new(),
+        });
         for index in 0..count {
-            let (tx, rx) = mpsc::sync_channel::<ImageWork>(QUEUE);
-            let queued = Arc::new(AtomicUsize::new(0));
-            let (clock, deliver, left) = (clock.clone(), deliver.clone(), queued.clone());
+            let (shared, context, deliver) = (shared.clone(), context.clone(), deliver.clone());
             std::thread::Builder::new()
                 .name(format!("ace-media-image-{index}"))
-                .spawn(move || {
-                    while let Ok(work) = rx.recv() {
-                        left.fetch_sub(1, Ordering::Relaxed);
-                        let deadline = work.deadline_us;
-                        let clock = clock.clone();
-                        let result = execute(&work, &move || clock() >= deadline);
-                        deliver(ImageOutcome {
-                            token: work.token,
-                            result,
-                        });
-                    }
-                })?;
-            workers.push(Worker { tx, queued });
+                .spawn(move || work(&shared, &context, &deliver))?;
         }
-        Ok(Self { workers, deliver })
+        Ok(Self { shared, deliver })
     }
 
-    /// Hands `work` to the least busy thread. With every queue full it is refused at once.
+    /// Queues `work`, or refuses it at once with `busy` when the queue is full.
     pub fn submit(&self, work: ImageWork) {
-        let Some(worker) = self
-            .workers
-            .iter()
-            .min_by_key(|w| w.queued.load(Ordering::Relaxed))
-        else {
-            return self.refuse(work.token);
-        };
-        worker.queued.fetch_add(1, Ordering::Relaxed);
-        match worker.tx.try_send(work) {
-            Ok(()) => {}
-            Err(TrySendError::Full(work) | TrySendError::Disconnected(work)) => {
-                worker.queued.fetch_sub(1, Ordering::Relaxed);
-                self.refuse(work.token);
+        let token = work.token;
+        let refused = match self.shared.queue.lock() {
+            Ok(mut queue) => {
+                let bytes = work.payload.len();
+                if queue.waiting.len() >= QUEUE_JOBS || queue.bytes + bytes > QUEUE_BYTES {
+                    true
+                } else {
+                    queue.bytes += bytes;
+                    queue.waiting.push_back(work);
+                    self.shared.ready.notify_one();
+                    false
+                }
             }
+            Err(_) => true,
+        };
+        if refused {
+            (self.deliver)(busy(token, "ace-media's image queue is full."));
         }
     }
 
-    fn refuse(&self, token: u64) {
-        (self.deliver)(ImageOutcome {
-            token,
-            result: Err(Failed::new(
-                ImageFailure::Busy,
-                "ace-media's image threads are all busy.",
-            )),
+    /// Nobody waits for `token` now: off the queue if it hasn't started, else stopped at its
+    /// next step. Its queue slot is free for the next job at once.
+    pub fn stop(&self, token: u64) {
+        let Ok(mut queue) = self.shared.queue.lock() else {
+            return;
+        };
+        if let Some(at) = queue.waiting.iter().position(|w| w.token == token) {
+            if let Some(work) = queue.waiting.remove(at) {
+                queue.bytes -= work.payload.len();
+            }
+        } else if let Some(running) = queue.running.get(&token) {
+            running.stopped.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Whether a running job is still running `grace_us` past its deadline: a step that never
+    /// returns, which only a restart of the image process ends.
+    pub fn stuck(&self, now_us: u64, grace_us: u64) -> bool {
+        self.shared.queue.lock().is_ok_and(|queue| {
+            queue
+                .running
+                .values()
+                .any(|r| now_us > r.deadline_us.saturating_add(grace_us))
+        })
+    }
+
+    /// Jobs waiting and running.
+    pub fn load(&self) -> (usize, usize) {
+        self.shared
+            .queue
+            .lock()
+            .map_or((0, 0), |q| (q.waiting.len(), q.running.len()))
+    }
+}
+
+impl Drop for ImageThreads {
+    fn drop(&mut self) {
+        if let Ok(mut queue) = self.shared.queue.lock() {
+            queue.closed = true;
+        }
+        self.shared.ready.notify_all();
+    }
+}
+
+fn work(shared: &Shared, context: &Context, deliver: &DeliverImage) {
+    loop {
+        let (work, stopped) = {
+            let Ok(mut queue) = shared.queue.lock() else {
+                return;
+            };
+            loop {
+                if queue.closed {
+                    return;
+                }
+                if let Some(work) = queue.waiting.pop_front() {
+                    queue.bytes -= work.payload.len();
+                    let stopped = Arc::new(AtomicBool::new(false));
+                    queue.running.insert(
+                        work.token,
+                        Running {
+                            stopped: stopped.clone(),
+                            deadline_us: work.deadline_us,
+                        },
+                    );
+                    break (work, stopped);
+                }
+                queue = match shared.ready.wait(queue) {
+                    Ok(queue) => queue,
+                    Err(_) => return,
+                };
+            }
+        };
+        let (clock, deadline) = (context.clock.clone(), work.deadline_us);
+        let expired = move || stopped.load(Ordering::Relaxed) || clock() >= deadline;
+        let result = execute(&work, context, &expired);
+        if let Ok(mut queue) = shared.queue.lock() {
+            queue.running.remove(&work.token);
+        }
+        deliver(ImageOutcome {
+            token: work.token,
+            result,
         });
     }
 }
 
-/// One job, start to end: its inputs gathered, then `media-image`. A panic anywhere in the
-/// decoders is this job's failure.
-pub fn execute(work: &ImageWork, expired: &dyn Fn() -> bool) -> Result<media_image::Done, Failed> {
+/// One job, start to end: its files read, its peak memory reserved, then `media-image`. A
+/// panic anywhere in the decoders is this job's failure.
+pub fn execute(
+    work: &ImageWork,
+    context: &Context,
+    expired: &dyn Fn() -> bool,
+) -> Result<media_image::Done, Failed> {
     match catch_unwind(AssertUnwindSafe(|| {
-        let files = read_files(&work.inputs)?;
+        let files = context.files.read_all(&work.inputs, expired)?;
         let inputs = inputs(&work.inputs, &work.payload, &files)?;
+        let _held = context
+            .budget
+            .reserve(media_image::peak_bytes(&inputs, &work.op)?, expired)?;
         media_image::run(&inputs, &work.op, expired)
     })) {
         Ok(result) => result,
@@ -106,43 +212,6 @@ pub fn execute(work: &ImageWork, expired: &dyn Fn() -> bool) -> Result<media_ima
             "The image could not be decoded: its decoder stopped on it.",
         )),
     }
-}
-
-/// The bytes of each file input, in order.
-fn read_files(inputs: &[ImageInput]) -> Result<Vec<Vec<u8>>, Failed> {
-    inputs
-        .iter()
-        .filter_map(|input| match input {
-            ImageInput::File { path, max_bytes } => {
-                Some(read_file(path, (*max_bytes).min(MAX_FILE_BYTES)))
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-fn read_file(path: &str, max_bytes: u32) -> Result<Vec<u8>, Failed> {
-    let path = std::path::Path::new(path);
-    if !path.is_absolute() {
-        return Err(Failed::invalid("A file input needs an absolute path."));
-    }
-    let unreadable = |e: std::io::Error| {
-        Failed::new(
-            ImageFailure::Unreadable,
-            format!("The image file could not be read: {}.", e.kind()),
-        )
-    };
-    let file = std::fs::File::open(path).map_err(unreadable)?;
-    let mut bytes = Vec::new();
-    file.take(u64::from(max_bytes) + 1)
-        .read_to_end(&mut bytes)
-        .map_err(unreadable)?;
-    if bytes.len() > max_bytes as usize {
-        return Err(Failed::too_large(format!(
-            "The image file is larger than the {max_bytes} bytes allowed."
-        )));
-    }
-    Ok(bytes)
 }
 
 /// Each input as `media-image` takes it: payload slices in order, and the files read.
@@ -184,122 +253,150 @@ fn inputs<'a>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::budget::BUDGET_BYTES;
     use super::*;
     use media_wire::image::{ImageOp, ImageOutput};
+    use std::sync::mpsc;
+    use std::time::Duration;
     use zeroize::Zeroizing;
 
-    fn fit() -> ImageOp {
-        ImageOp::Fit {
-            max_pixels: 1 << 20,
-            width: 8,
-            height: 8,
-            auto_orient: false,
-            vector_scale: None,
-            output: ImageOutput::Png,
-        }
-    }
-
-    fn work(inputs: Vec<ImageInput>, payload: Vec<u8>) -> ImageWork {
+    fn work(token: u64, deadline_us: u64) -> ImageWork {
         ImageWork {
-            token: 1,
-            inputs,
-            op: fit(),
-            payload: Zeroizing::new(payload),
-            deadline_us: u64::MAX,
-        }
-    }
-
-    #[test]
-    fn payload_slices_and_files_become_the_jobs_inputs() {
-        let dir = std::env::temp_dir().join(format!("ace-media-images-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let svg = dir.join("one.svg");
-        let _ = std::fs::write(
-            &svg,
-            br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2"/>"#,
-        );
-        let job = work(
-            vec![ImageInput::File {
-                path: svg.to_string_lossy().into_owned(),
-                max_bytes: 4096,
-            }],
-            vec![],
-        );
-        let done = execute(&job, &|| false).map_err(|f| f.message);
-        assert_eq!(done.map(|d| (d.width, d.height)), Ok((4, 2)));
-        let small = work(
-            vec![ImageInput::File {
-                path: svg.to_string_lossy().into_owned(),
-                max_bytes: 8,
-            }],
-            vec![],
-        );
-        assert_eq!(
-            execute(&small, &|| false).err().map(|f| f.reason),
-            Some(ImageFailure::TooLarge)
-        );
-        let missing = work(
-            vec![ImageInput::File {
-                path: dir.join("none.png").to_string_lossy().into_owned(),
-                max_bytes: 8,
-            }],
-            vec![],
-        );
-        assert_eq!(
-            execute(&missing, &|| false).err().map(|f| f.reason),
-            Some(ImageFailure::Unreadable)
-        );
-        let rgba = work(
-            vec![ImageInput::Rgba {
+            token,
+            inputs: vec![ImageInput::Rgba {
                 bytes: 4,
                 width: 1,
                 height: 1,
             }],
-            vec![1, 2, 3, 255],
-        );
-        assert_eq!(execute(&rgba, &|| false).map(|d| d.width).ok(), Some(1));
-        let _ = std::fs::remove_dir_all(&dir);
+            op: ImageOp::Fit {
+                max_pixels: 1 << 20,
+                width: 8,
+                height: 8,
+                auto_orient: false,
+                vector_scale: None,
+                output: ImageOutput::Png,
+            },
+            payload: Zeroizing::new(vec![1, 2, 3, 255]),
+            deadline_us,
+        }
     }
 
-    #[test]
-    fn every_queue_full_refuses_at_once_with_busy() {
-        let (tx, rx) = mpsc::channel();
-        // A clock that blocks each thread's first job until the test lets it go.
+    /// One image thread whose clock blocks at every reading until the test opens the gate, so
+    /// the running job (and so the queue) is held exactly as long as the test says.
+    fn gated() -> (ImageThreads, mpsc::Receiver<ImageOutcome>, mpsc::Sender<()>) {
         let (gate_tx, gate_rx) = mpsc::channel::<()>();
-        let gate = Arc::new(std::sync::Mutex::new(gate_rx));
+        let gate = Mutex::new(gate_rx);
         let clock: ImageClock = Arc::new(move || {
             if let Ok(gate) = gate.lock() {
-                let _ = gate.recv_timeout(std::time::Duration::from_secs(5));
+                let _ = gate.recv_timeout(Duration::from_secs(10));
             }
             0
         });
+        let context = Arc::new(Context {
+            clock,
+            files: FileRoot::new(None),
+            budget: Budget::new(BUDGET_BYTES),
+        });
+        let (tx, rx) = mpsc::channel();
         let threads = ImageThreads::new(
             1,
-            clock,
+            context,
             Arc::new(move |o| {
                 let _ = tx.send(o);
             }),
         );
-        let Ok(threads) = threads else { return };
-        for token in 0..(QUEUE as u64 + 2) {
-            let mut job = work(
-                vec![ImageInput::Rgba {
-                    bytes: 4,
-                    width: 1,
-                    height: 1,
-                }],
-                vec![0, 0, 0, 255],
-            );
-            job.token = token;
-            threads.submit(job);
+        match threads {
+            Ok(threads) => (threads, rx, gate_tx),
+            Err(e) => panic!("no image thread: {e}"),
         }
-        let first = rx.recv_timeout(std::time::Duration::from_secs(5)).ok();
+    }
+
+    fn wait_running(threads: &ImageThreads) {
+        for _ in 0..1000 {
+            if threads.load().1 == 1 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        panic!("the first job never started");
+    }
+
+    fn open(gate: &mpsc::Sender<()>, readings: usize) {
+        for _ in 0..readings {
+            let _ = gate.send(());
+        }
+    }
+
+    #[test]
+    fn below_capacity_jobs_are_taken_at_capacity_refused_and_after_draining_taken_again() {
+        let (threads, rx, gate) = gated();
+        threads.submit(work(0, u64::MAX));
+        wait_running(&threads);
+        // The queue takes exactly its capacity: no answer comes for any of them yet.
+        for token in 1..=QUEUE_JOBS as u64 {
+            threads.submit(work(token, u64::MAX));
+        }
+        assert!(rx.try_recv().is_err(), "a job below capacity was refused");
+        assert_eq!(threads.load(), (QUEUE_JOBS, 1));
+        // One more is refused at once.
+        threads.submit(work(99, u64::MAX));
+        let refused = rx.recv_timeout(Duration::from_secs(5)).ok();
         assert_eq!(
-            first.and_then(|o| o.result.err()).map(|f| f.reason),
-            Some(ImageFailure::Busy)
+            refused.map(|o| (o.token, o.result.err().map(|f| f.reason))),
+            Some((99, Some(ImageFailure::Busy)))
         );
-        for _ in 0..(QUEUE + 2) {
-            let _ = gate_tx.send(());
+        // Drained, every held job succeeds, and the queue takes a new one that succeeds too.
+        open(&gate, (QUEUE_JOBS + 1) * 8);
+        for n in 0..=QUEUE_JOBS {
+            let outcome = rx.recv_timeout(Duration::from_secs(5)).ok();
+            assert!(
+                outcome.as_ref().is_some_and(|o| o.result.is_ok()),
+                "held job {n} didn't finish well"
+            );
         }
+        threads.submit(work(100, u64::MAX));
+        open(&gate, 8);
+        let again = rx.recv_timeout(Duration::from_secs(5)).ok();
+        assert_eq!(
+            again.map(|o| (o.token, o.result.is_ok())),
+            Some((100, true))
+        );
+    }
+
+    #[test]
+    fn a_stopped_queued_job_frees_its_slot_at_once_and_the_next_job_runs() {
+        let (threads, rx, gate) = gated();
+        threads.submit(work(0, u64::MAX));
+        wait_running(&threads);
+        for token in 1..=QUEUE_JOBS as u64 {
+            threads.submit(work(token, u64::MAX));
+        }
+        threads.stop(5);
+        assert_eq!(threads.load(), (QUEUE_JOBS - 1, 1));
+        // Its slot takes a new job instead of a refusal.
+        threads.submit(work(77, u64::MAX));
+        assert!(rx.try_recv().is_err(), "the freed slot refused a job");
+        // The running job is stopped too: it ends at its next step without finishing.
+        threads.stop(0);
+        open(&gate, (QUEUE_JOBS + 1) * 8);
+        let mut outcomes = Vec::new();
+        while outcomes.len() < QUEUE_JOBS + 1 {
+            match rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(o) => outcomes.push((o.token, o.result.err().map(|f| f.reason))),
+                Err(_) => break,
+            }
+        }
+        assert_eq!(outcomes.first(), Some(&(0, Some(ImageFailure::Deadline))));
+        assert!(outcomes.contains(&(77, None)));
+        assert!(!outcomes.iter().any(|(t, _)| *t == 5), "a stopped job ran");
+    }
+
+    #[test]
+    fn a_job_still_running_past_its_deadline_and_grace_is_stuck() {
+        let (threads, _rx, _gate) = gated();
+        threads.submit(work(0, 1_000));
+        wait_running(&threads);
+        assert!(!threads.stuck(1_500, 1_000));
+        assert!(threads.stuck(2_001, 1_000));
     }
 }

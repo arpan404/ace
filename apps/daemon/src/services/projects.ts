@@ -3,7 +3,7 @@ import { ProjectCommands, ProjectsResult } from "@ace/protocol";
 import { Projects } from "../projects.ts";
 import type { ServiceContext } from "./types.ts";
 import { iconImages } from "../icons/icon-image.ts";
-import { daemonImages } from "./media.ts";
+import { daemonImages } from "./media-images.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export function startProjects(context: ServiceContext): void {

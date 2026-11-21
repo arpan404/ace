@@ -68,6 +68,11 @@ export function unavailableImages(reason: string): ImageWork {
 export const maxImagePayload = 8 * 1024 * 1024 - 64 * 1024;
 /** Jobs that may wait for ace-media to come up. */
 export const maxQueuedImages = 32;
+/**
+ * Payload bytes the daemon may hold for jobs not yet answered, queued or written: past this a
+ * job is refused `busy`, so image work can't grow the daemon's memory or its lane's queue.
+ */
+export const maxHeldImageBytes = 32 * 1024 * 1024;
 
 export type MediaImagesOptions = {
   /** False when ace-media can't take the message now. */
@@ -83,6 +88,8 @@ export type MediaImagesOptions = {
 
 type Job = {
   id: string;
+  /** Its payload's size, held against `maxHeldImageBytes` until it settles. */
+  size: number;
   message: Extract<ToMedia, { type: "image.job" }>;
   payload: Uint8Array;
   sent: boolean;
@@ -92,6 +99,7 @@ type Job = {
 export class MediaImages implements ImageWork {
   readonly #options: MediaImagesOptions;
   readonly #jobs = new Map<string, Job>();
+  #held = 0;
 
   constructor(options: MediaImagesOptions) {
     this.#options = options;
@@ -125,6 +133,13 @@ export class MediaImages implements ImageWork {
       );
     if ([...this.#jobs.values()].filter((j) => !j.sent).length >= maxQueuedImages)
       return Promise.reject(new ImageError("busy", "Too many image jobs are waiting."));
+    if (this.#held + size > maxHeldImageBytes)
+      return Promise.reject(
+        new ImageError(
+          "busy",
+          "Too many image bytes are waiting for ace-media; try again shortly.",
+        ),
+      );
     const payload = new Uint8Array(size);
     let at = 0;
     for (const input of job.inputs)
@@ -150,8 +165,10 @@ export class MediaImages implements ImageWork {
         job.deadlineMs,
       );
       job.signal?.addEventListener("abort", abort, { once: true });
+      this.#held += size;
       this.#jobs.set(id, {
         id,
+        size,
         message,
         payload,
         sent: false,
@@ -218,6 +235,7 @@ export class MediaImages implements ImageWork {
     const job = this.#jobs.get(id);
     if (!job) return;
     this.#jobs.delete(id);
+    this.#held -= job.size;
     if (tell && job.sent)
       this.#options.send({ type: "image.cancel", request: id }, new Uint8Array(0));
     job.settle(result);

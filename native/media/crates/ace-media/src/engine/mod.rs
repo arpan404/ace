@@ -6,7 +6,6 @@ pub mod base64;
 pub mod delivery;
 pub mod egress;
 pub mod grants;
-pub mod images;
 pub mod ledger;
 pub mod pieces;
 pub mod recorder;
@@ -20,7 +19,6 @@ use crate::secret::Vault;
 use delivery::{Delivery, MediaOut, Open};
 use egress::EgressSink;
 use grants::{Grant, Grants};
-use images::{ImageOutcome, ImageWork, Images};
 use media_core::privacy::Decision;
 use media_wire::capability::Acceleration;
 use media_wire::control::{EncodeSpec, EpochRange, FromMedia, Id, Level, ToMedia};
@@ -55,8 +53,6 @@ pub enum Effect {
     Encode(EncodeEffect),
     /// A relay stream's socket (D2).
     Relay(RelayEffect),
-    /// A one-shot image job for the image threads (ADR 0201).
-    Image(ImageWork),
     /// Bookkeeping that must never forget is full: exit, so the supervisor restarts the
     /// process and every connection ends with it.
     Fatal(&'static str),
@@ -188,7 +184,6 @@ pub struct Engine {
     recorders: Box<dyn Recorders>,
     egress: Box<dyn EgressSink>,
     stills: Stills,
-    images: Images,
     relays: Relays,
     pool: Pool,
     delivery: Delivery,
@@ -205,7 +200,6 @@ impl Engine {
             recorders,
             egress,
             stills: Stills::new(Box::new(NoStills)),
-            images: Images::default(),
             relays: Relays::default(),
             pool: Pool::default(),
             delivery: Delivery::default(),
@@ -228,16 +222,6 @@ impl Engine {
     /// A still a maker finished.
     pub fn still_finished(&mut self, outcome: StillOutcome) {
         self.stills.finished(outcome, &mut self.out);
-    }
-
-    /// An image job an image thread finished (or refused).
-    pub fn image_finished(&mut self, outcome: ImageOutcome) {
-        self.images.finished(outcome, &mut self.out);
-    }
-
-    /// Image jobs waiting on the image threads.
-    pub fn images_waiting(&self) -> usize {
-        self.images.waiting()
     }
 
     /// Whether effects are waiting to be carried out.
@@ -644,15 +628,17 @@ impl Engine {
                 now.mono_ms,
                 out,
             ),
-            ToMedia::ImageJob {
-                request,
-                deadline_ms,
-                inputs,
-                op,
-            } => self
-                .images
-                .job(request, deadline_ms, inputs, op, payload, now.mono_ms, out),
-            ToMedia::ImageCancel { request } => self.images.cancel(&request, out),
+            // Image jobs run in the image process (`ace-media --images`, ADR 0201), never beside
+            // live video and recordings.
+            ToMedia::ImageJob { request, .. } => normal(
+                out,
+                FromMedia::ImageFailed {
+                    request,
+                    reason: media_wire::image::ImageFailure::Unsupported,
+                    message: "Image jobs go to ace-media's image process.".into(),
+                },
+            ),
+            ToMedia::ImageCancel { .. } => {}
         }
     }
 
@@ -907,7 +893,6 @@ impl Engine {
         self.sources
             .tick(now.mono_ms, self.egress.as_mut(), &mut self.out);
         self.stills.tick(now.mono_ms, &mut self.out);
-        self.images.tick(now.mono_ms, &mut self.out);
         self.grants
             .tick(&mut self.vault, now.wall_ms, &mut self.out);
         self.closed_connections(now);
@@ -918,7 +903,6 @@ impl Engine {
     pub fn finish(&mut self) {
         self.sources.finish_all(&mut self.out);
         self.stills.finish(&mut self.out);
-        self.images.finish(&mut self.out);
         self.grants
             .close_all("shutdown", &mut self.vault, &mut self.out);
         let now = Now {

@@ -1,6 +1,12 @@
 import { expect, test } from "vitest";
 import type { MediaPhase } from "./diagnostics.ts";
-import { ImageError, MediaImages, maxImagePayload, type ImageJob } from "./images.ts";
+import {
+  ImageError,
+  MediaImages,
+  maxHeldImageBytes,
+  maxImagePayload,
+  type ImageJob,
+} from "./images.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
 
 /** ace-media as the images client sees it: lanes up or not, a phase, uses held, and time. */
@@ -212,4 +218,25 @@ test("only a bounded number of jobs may wait for ace-media", async () => {
   expect((await failure(h.images.run(probe()))).reason).toBe("busy");
   h.advance(1000);
   for (const job of waiting) expect((await failure(job)).reason).toBe("deadline");
+});
+
+/** A job carrying the most payload one job may. */
+const big = (deadlineMs: number): ImageJob => ({
+  inputs: [{ kind: "bytes", bytes: new Uint8Array(maxImagePayload) }],
+  op: { op: "probe", maxPixels: 4096 },
+  deadlineMs,
+});
+
+test("image bytes held past the bound are refused busy, and room comes back as jobs settle", async () => {
+  const h = harness({ up: false, phase: "starting" });
+  const held = Math.floor(maxHeldImageBytes / maxImagePayload);
+  const first = h.images.run(big(100));
+  const rest = Array.from({ length: held - 1 }, () => h.images.run(big(1000)));
+  expect((await failure(h.images.run(big(1000)))).reason).toBe("busy");
+  // The first one's deadline frees its bytes: the same job is taken now.
+  h.advance(100);
+  expect((await failure(first)).reason).toBe("deadline");
+  const again = h.images.run(big(1000));
+  h.advance(1000);
+  for (const job of [...rest, again]) expect((await failure(job)).reason).toBe("deadline");
 });

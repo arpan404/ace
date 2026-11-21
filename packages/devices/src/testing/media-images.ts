@@ -71,7 +71,7 @@ export async function imageHeader(
 ): Promise<{ format: string; width: number; height: number }> {
   const { source } = await testImages.run({
     inputs: [{ kind: "bytes", bytes: image }],
-    op: { op: "probe", maxPixels: 64 * 1024 * 1024 },
+    op: { op: "probe", maxPixels: 50_000_000 },
     deadlineMs: 10_000,
   });
   return { format: source.format, width: source.width, height: source.height };
