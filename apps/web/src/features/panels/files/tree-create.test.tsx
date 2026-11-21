@@ -69,14 +69,13 @@ test("a new folder named with slashes makes each folder and shows the last one",
   expect((await row(tree, "drafts/")).getAttribute("aria-expanded")).toBe("true");
 });
 
-test("New file from the explorer's ⋯ starts in the open file's folder", async () => {
+test("New file in the explorer's header starts in the open file's folder", async () => {
   const { tree, outputs } = await renderTree();
   await expand(tree, ["apps/", "apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
   await userEvent.click(await row(tree, "apps/web/src/relay/socket.ts"));
   const panel = tree.closest("section");
   if (!panel) throw new Error("no panel");
-  await userEvent.click(within(panel).getByRole("button", { name: "Manage files" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "New file" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "New file" }));
   await userEvent.type(
     await within(tree).findByRole("textbox", { name: "New file name" }),
     "inbox.ts{Enter}",

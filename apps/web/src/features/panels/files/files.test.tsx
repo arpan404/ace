@@ -131,7 +131,7 @@ test("the tree's filter says when nothing in the checkout matches", async () => 
   if (!filter) throw new Error("no filter");
   await userEvent.type(filter, "zzqx");
   expect(await within(side).findByText("No files match “zzqx”.")).toBeTruthy();
-  await userEvent.click(within(side).getByRole("button", { name: "Clear search" }));
+  await userEvent.click(within(side).getByRole("button", { name: "Clear" }));
   expect(within(side).getByRole("tree", { name: "Checkout files" })).toBeTruthy();
 });
 

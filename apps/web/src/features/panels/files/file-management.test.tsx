@@ -52,10 +52,9 @@ async function manage(panel: HTMLElement, label: string) {
   await userEvent.click(await screen.findByRole("menuitem", { name: label }));
   return screen.findByRole("dialog", { name: label.replace("…", "") });
 }
-/** New file or New folder from the explorer's ⋯: named in the tree, made on Enter. */
+/** New file or New folder from the explorer's header: named in the tree, made on Enter. */
 async function create(panel: HTMLElement, label: "New file" | "New folder", path: string) {
-  await userEvent.click(within(panel).getByRole("button", { name: "Manage files" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: label }));
+  await userEvent.click(within(panel).getByRole("button", { name: label }));
   const field = await within(panel).findByRole("textbox", { name: `${label} name` });
   await userEvent.type(field, `${path}{Enter}`);
   await waitFor(() =>

@@ -156,7 +156,7 @@ test("a search pauses listing; clearing it lists only what changed meanwhile", a
   await new Promise((resolve) => setTimeout(resolve, 250));
   expect(folders.count("apps")).toBe(1);
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Clear search" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Clear" }));
   await within(panel).findByRole("tree", { name: "Checkout files" });
   await waitFor(() => expect(folders.count("apps")).toBe(2));
   expect(folders.count("")).toBe(1);

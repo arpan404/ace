@@ -15,6 +15,8 @@ const loadDialog = () =>
   });
 const LazyDialog = lazy(() => loadDialog().then((module) => ({ default: module.QuickOpenDialog })));
 
+const close = () => quickOpen.set(() => undefined);
+
 /** Overlays mounted per thread, so a remount doesn't count as leaving. */
 const mounted = new Map<string, number>();
 
@@ -25,7 +27,6 @@ export function QuickOpenOverlay(props: { scope: string }) {
     useCallback((scope: string | undefined) => scope === props.scope, [props.scope]),
   );
   useEffect(() => whenIdle(() => void loadDialog()), []);
-  const close = () => quickOpen.set(() => undefined);
   // Leaving the thread's screen puts its palette away; it doesn't wait there for a return. A
   // remount (Strict Mode, a kinds reload) mounts it again before the check runs.
   useEffect(() => {

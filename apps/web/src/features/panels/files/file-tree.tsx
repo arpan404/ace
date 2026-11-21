@@ -8,6 +8,7 @@ import {
   toggledFolders,
   type FolderRow,
 } from "@ace/ui-core";
+import { createPortal } from "react-dom";
 import {
   useCallback,
   useEffect,
@@ -36,6 +37,7 @@ import { FileRowItems } from "./file-row-items.tsx";
 import { isSecondClick } from "./second-click.ts";
 import { FileTreeRowView, type RowMark } from "./file-tree-row.tsx";
 import { FileTreeSearch } from "./file-tree-search.tsx";
+import { ExplorerHeader, FileTreeActions } from "./explorer-header.tsx";
 import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
 import { useExplorerFollows, useRevealRows, type RevealTarget } from "./file-tree-follow.ts";
 import { useInlineRename } from "./file-tree-rename.tsx";
@@ -82,6 +84,11 @@ export function FileTree(props: {
   openEditors?: ReactNode;
   /** Files an agent changed recently, by path: their rows carry the agent's mark. */
   marks?: ReadonlyMap<string, RowMark> | undefined;
+  /**
+   * The explorer's header row, where the tree's actions go (null until it mounts). Without one
+   * the tree draws its own header.
+   */
+  actionsIn?: HTMLElement | null | undefined;
 }) {
   const online = useConnectionState() === "ready";
   const { query, onQuery: setQuery } = props;
@@ -206,6 +213,17 @@ export function FileTree(props: {
   useEffect(() => {
     revealLater.current = reveal;
   });
+  // A new entry's field shows where it will land: scrolled to (and so mounted) once its folder
+  // is listed, however far down a long tree that is.
+  const draftAt = rows.findIndex((row) => row.key === draftKey);
+  const shownDraft = useRef<unknown>(undefined);
+  useEffect(() => {
+    if (draftAt < 0 || shownDraft.current === create.draft) return;
+    shownDraft.current = create.draft;
+    const field = list.current?.querySelector<HTMLElement>(`[data-row="${CSS.escape(draftKey)}"]`);
+    if (field) field.scrollIntoView?.({ block: "nearest" });
+    else rowsHandle.current?.scrollToIndex(draftAt, "auto");
+  }, [draftAt, create.draft]);
   const rename = useInlineRename(props.threadId, reveal);
   /** A folder the filter found: the filter clears and the tree opens down to it. */
   const showFolder = (path: string) => {
@@ -274,7 +292,10 @@ export function FileTree(props: {
     commands,
     selection,
     focusRow,
-    focusFilter: () => list.current?.parentElement?.parentElement?.querySelector("input")?.focus(),
+    focusFilter: () =>
+      list.current?.parentElement?.parentElement
+        ?.querySelector<HTMLInputElement>("input[type=search]")
+        ?.focus(),
     toggle,
     activate,
   };
@@ -308,8 +329,24 @@ export function FileTree(props: {
     );
   }, []);
 
+  const actions = (
+    <FileTreeActions
+      folder={currentFolder}
+      disabled={!online}
+      onOperation={commands.operation}
+      onUpload={props.onUpload}
+      onCollapseAll={() => commands.collapseBelow("")}
+      follows={follows}
+      onFollows={setFollows}
+    />
+  );
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {props.actionsIn === undefined ? (
+        <ExplorerHeader>{actions}</ExplorerHeader>
+      ) : (
+        props.actionsIn && createPortal(actions, props.actionsIn)
+      )}
       {/* Outside the tree's drop area: a drop there isn't an upload into the checkout. */}
       {props.openEditors}
       <div className="flex min-h-0 flex-1 flex-col" {...drag.area}>
@@ -317,11 +354,6 @@ export function FileTree(props: {
           query={query}
           onQuery={setQuery}
           pending={searching && search.pending}
-          folder={currentFolder}
-          disabled={!online}
-          onOperation={commands.operation}
-          onUpload={props.onUpload}
-          onCollapseAll={() => commands.collapseBelow("")}
           onFirstRow={() => (searching ? moveMatch(1) : focusRow(navigable[0]?.key))}
           onPrevious={() => searching && moveMatch(-1)}
           matches={
@@ -336,7 +368,10 @@ export function FileTree(props: {
             else props.onOpen(picked, "keep");
           }}
         />
-        <div ref={attachScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2">
+        <div
+          ref={attachScroll}
+          className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-1.5 pb-2"
+        >
           {searching && (
             <FileMatches
               id={matchList}
@@ -368,7 +403,7 @@ export function FileTree(props: {
               virtualAbove={virtualAbove}
               handle={rowsHandle}
               rowKey={(row) => row.key}
-              estimate={32}
+              estimate={28}
               render={(row, index) => (
                 <FileTreeRowView
                   row={row}

@@ -17,7 +17,7 @@ import type { LineCounts } from "./use-line-counts.ts";
 import { RenameField, type RowField } from "./file-tree-rename.tsx";
 
 const rowClass =
-  "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-sidebar-accent";
+  "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui outline-none select-none transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset aria-selected:bg-active";
 
 const noPositions: readonly number[] = [];
 
@@ -26,7 +26,7 @@ function RowIndent() {
   return (
     <>
       <span aria-hidden className="size-4 shrink-0" />
-      <span aria-hidden className="size-3.5 shrink-0" />
+      <span aria-hidden className="size-4 shrink-0" />
     </>
   );
 }
@@ -103,7 +103,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         aria-setsize={props.place?.size}
         tabIndex={-1}
         data-part="tree-status"
-        className="flex h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
+        className="flex h-7 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
         style={indent}
       >
         <RowIndent />
@@ -120,7 +120,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         aria-setsize={props.place?.size}
         tabIndex={-1}
         data-part="tree-status"
-        className="flex h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
+        className="flex h-7 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
         style={indent}
       >
         <RowIndent />
@@ -150,13 +150,13 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         data-path={row.key}
         data-row={row.key}
         style={indent}
-        className="flex min-h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui"
+        className="flex min-h-7 w-full min-w-0 items-center gap-1.5 pr-2 text-ui"
       >
         <span aria-hidden className="size-4 shrink-0" />
         <Icon
           icon={folder ? (row.expanded ? FolderOpenIcon : FolderIcon) : fileIcon(row.key)}
-          size={14}
-          className="shrink-0 self-start mt-2 text-subtle-foreground"
+          size={16}
+          className="mt-1.5 shrink-0 self-start text-subtle-foreground"
         />
         <RenameField
           name={field.name ?? (row.chain ? (row.name.split("/").at(-1) ?? row.name) : row.name)}
@@ -224,10 +224,9 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
           {folder && (
             <CaretRightIcon
               aria-hidden
-              size={10}
-              weight="bold"
+              size={12}
               className={cn(
-                "text-subtle-foreground transition-transform duration-(--motion-fast)",
+                "text-faint-foreground transition-[transform,color] duration-(--motion-fast) group-hover/file:text-subtle-foreground",
                 row.expanded && "rotate-90",
               )}
             />
@@ -235,8 +234,8 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         </span>
         <Icon
           icon={folder ? (row.expanded ? FolderOpenIcon : FolderIcon) : fileIcon(row.key)}
-          size={14}
-          className="text-subtle-foreground"
+          size={16}
+          className="shrink-0 text-subtle-foreground"
         />
         <MiddleName text={row.name} offset={0} positions={noPositions} />
         {props.counts && !folder && (

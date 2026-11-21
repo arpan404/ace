@@ -1,21 +1,16 @@
-import { MagnifyingGlassIcon, XIcon } from "@ace/icons";
-import { useRef } from "react";
+import { SearchField } from "@/components/search-field.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { FileMenu } from "./file-menu.tsx";
-import type { FileOperationDialog } from "./file-operation.ts";
 
-/** The tree's filter and its file menu; the field owns Enter (open the first file) and ↓. */
+/**
+ * The tree's filter, in ace's search field. The field keeps the keyboard while it filters: ↓ and
+ * ↑ move through the matches and Enter opens the highlighted one; with nothing typed, ↓ goes to
+ * the tree's first row. Escape clears it.
+ */
 export function FileTreeSearch(props: {
   query: string;
   onQuery(query: string): void;
   /** A search is on its way. */
   pending: boolean;
-  /** The current file's folder, without a trailing slash ("" at the root). */
-  folder: string;
-  disabled: boolean;
-  onOperation(operation: FileOperationDialog): void;
-  onUpload(files: readonly File[], folder: string): void;
-  onCollapseAll(): void;
   /** ↓: the tree's first row, or while filtering the next match. */
   onFirstRow(): void;
   /** ↑ while filtering: the previous match. */
@@ -24,73 +19,32 @@ export function FileTreeSearch(props: {
   matches?: { list: string; active: string } | undefined;
   onEnter(): void;
 }) {
-  const upload = useRef<HTMLInputElement>(null);
-  const folder = props.folder ? `${props.folder}/` : "";
   return (
-    <div className="flex h-10 shrink-0 items-center gap-1 px-2">
-      <label className="relative flex h-8 min-w-0 flex-1 items-center rounded-md bg-foreground/5 shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--motion-fast) focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
-        <MagnifyingGlassIcon
-          aria-hidden
-          size={14}
-          className="ml-2.5 shrink-0 text-subtle-foreground"
-        />
-        <input
-          type="search"
-          aria-label="Find files in the checkout"
-          placeholder="Find files…"
-          value={props.query}
-          aria-controls={props.matches?.list}
-          aria-activedescendant={props.matches?.active}
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(event) => props.onQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && props.query) {
-              event.preventDefault();
-              event.stopPropagation();
-              props.onQuery("");
-            } else if (event.key === "ArrowDown") {
-              event.preventDefault();
-              props.onFirstRow();
-            } else if (event.key === "ArrowUp" && props.query) {
-              event.preventDefault();
-              props.onPrevious();
-            } else if (event.key === "Enter") {
-              props.onEnter();
-            }
-          }}
-          className="h-full min-w-0 flex-1 bg-transparent pr-1 pl-2 text-ui text-foreground outline-none placeholder:text-subtle-foreground [&::-webkit-search-cancel-button]:hidden"
-        />
-        {props.pending && <Spinner className="mr-1.5" />}
-        {props.query && (
-          <button
-            type="button"
-            aria-label="Clear search"
-            onClick={() => props.onQuery("")}
-            className="mr-1 grid size-6 shrink-0 place-items-center rounded-sm text-subtle-foreground outline-none hover:bg-accent hover:text-foreground focus-ring"
-          >
-            <XIcon aria-hidden size={12} />
-          </button>
-        )}
-      </label>
-      <FileMenu
-        folder={props.folder}
-        disabled={props.disabled}
-        onOperation={props.onOperation}
-        onUpload={() => upload.current?.click()}
-        onCollapseAll={props.onCollapseAll}
-      />
-      <input
-        ref={upload}
-        type="file"
-        multiple
-        hidden
-        aria-hidden
-        tabIndex={-1}
-        onChange={(event) => {
-          const files = [...(event.target.files ?? [])];
-          event.target.value = "";
-          if (files.length) props.onUpload(files, folder);
+    <div className="shrink-0 px-2 pt-2 pb-1">
+      <SearchField
+        label="Find files in the checkout"
+        placeholder="Find files"
+        value={props.query}
+        onValueChange={props.onQuery}
+        aria-controls={props.matches?.list}
+        aria-activedescendant={props.matches?.active}
+        spellCheck={false}
+        autoComplete="off"
+        trailing={props.pending ? <Spinner className="mr-1.5" /> : undefined}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            // Clearing is the field's; with nothing typed, the keyboard stays here.
+            if (!props.query) event.preventDefault();
+            event.stopPropagation();
+          } else if (event.key === "ArrowDown") {
+            event.preventDefault();
+            props.onFirstRow();
+          } else if (event.key === "ArrowUp" && props.query) {
+            event.preventDefault();
+            props.onPrevious();
+          } else if (event.key === "Enter") {
+            props.onEnter();
+          }
         }}
       />
     </div>

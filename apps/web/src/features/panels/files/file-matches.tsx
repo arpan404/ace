@@ -91,13 +91,13 @@ export function FileMatches(props: {
                 activate("side");
               }}
               className={cn(
-                "flex h-8 w-full min-w-0 cursor-default items-center gap-1.5 rounded-sm pr-2 pl-2 text-ui select-none group-hover/file:pr-8",
+                "flex h-7 w-full min-w-0 cursor-default items-center gap-1.5 rounded-sm pr-2 pl-2 text-ui select-none group-hover/file:pr-8",
                 index === active ? "bg-active" : "hover:bg-hover",
               )}
             >
               <Icon
                 icon={folder ? FolderIcon : fileIcon(clean)}
-                size={14}
+                size={16}
                 className="shrink-0 text-subtle-foreground"
               />
               <MiddleName
@@ -107,14 +107,17 @@ export function FileMatches(props: {
                 positions={positions}
                 className="text-foreground"
               />
-              {parent && (
-                <MiddleText
-                  part="match-folder"
-                  text={parent}
-                  tail={16}
-                  className="shrink-[999] text-xs text-subtle-foreground"
-                />
-              )}
+              {/* The folder takes only the room the name leaves, so the name shows whole. */}
+              <span className="flex min-w-0 flex-1 overflow-hidden">
+                {parent && (
+                  <MiddleText
+                    part="match-folder"
+                    text={parent}
+                    tail={parent.length - parent.lastIndexOf("/")}
+                    className="text-xs text-subtle-foreground"
+                  />
+                )}
+              </span>
             </div>
           </FileRowMenu>
         );

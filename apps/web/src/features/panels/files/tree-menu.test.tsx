@@ -127,13 +127,12 @@ test("Reveal shows the file in the machine's file manager when ace runs on this 
   );
 });
 
-test("the explorer's ⋯ folds every open folder", async () => {
+test("Collapse all folders in the explorer's header folds every open folder", async () => {
   const { tree } = await renderTree();
   await expand(tree, ["apps/", "apps/web/", "apps/web/src/"]);
   const panel = tree.closest("section");
   if (!panel) throw new Error("no panel");
-  await userEvent.click(within(panel).getByRole("button", { name: "Manage files" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Collapse all folders" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Collapse all folders" }));
   await waitFor(() => expect(listedRow(tree, "apps/").getAttribute("aria-expanded")).toBe("false"));
   expect(tree.querySelector('[data-path="apps/web/"]')).toBeNull();
 });
