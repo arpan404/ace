@@ -6,6 +6,9 @@ import { accountBackend } from "./backend.ts";
 import { deviceGrantVerdict, provenStanding } from "./device-grant.ts";
 import { grantKeyCache } from "./grant-keys.ts";
 import { machineOwner } from "./owner.ts";
+import { memberGrantVerdict, provenMemberStanding, type Member } from "./member-grant.ts";
+import { orgEnrollment } from "./org-enrollment.ts";
+import { orgCredentialRefused, orgCredentialRequest } from "./org-credential.ts";
 import { encodeBase64url, type GrantKeySet } from "@ace/account-grant";
 import { shippedGrantKeys } from "@ace/account-grant/keys";
 import { afterAttempt, codeStep } from "./machine-code-policy.ts";
@@ -27,7 +30,16 @@ export type DeviceAdmission =
    * Admission gives admin, never the person's standing, which a socket proves on its own
    * (`proveStanding`, ADR 0190).
    */
-  | { admitted: true; account: string; expiresAt: number }
+  | {
+      admitted: true;
+      account: string;
+      expiresAt: number;
+      /**
+       * On an organization's host (ADR 0206 §2.2): the member the grant names, with their role,
+       * and the owner generation it was admitted under; a change of owner ends it.
+       */
+      member?: (Member & { generation: number }) | undefined;
+    }
   | { admitted: false; code: "unauthorized" | MachineCodeRefusal; message: string };
 
 const refusals: Record<MachineCodeRefusal, string> = {
@@ -71,6 +83,27 @@ const asCredential = (
   kind: "machine",
 });
 
+/** What the daemon keeps for its organization credential as an org host (ADR 0206 §2.1). */
+const asOrgCredential = (
+  origin: string,
+  credential: AceAccountGrant,
+  org: string,
+): StoredSession => ({
+  origin,
+  token: credential.token,
+  account: credential.account,
+  expiresAt: credential.expiresAt,
+  source: "org",
+  kind: "machine",
+  org,
+});
+/** Signing in as a person would replace the organization's own sign-in on its host. */
+const signedInAsOrg = () =>
+  new AccessError(
+    409,
+    "This machine signs in as its organization. Release it from the organization to sign in here.",
+  );
+
 /**
  * This daemon's ace account (ADR 0111): its one session, sign-in from this machine, machine
  * grants for ace's relay, device grant admission and the optional machine code. Fetch, clock,
@@ -107,6 +140,25 @@ export function machineAccount(options: {
   // Never keys from the session's origin, which the host token sets, or from ACE_ACCOUNT_URL.
   const personKeys = options.personKeys ?? shippedGrantKeys;
   const owner = machineOwner(options.dataDir);
+  const enrollment = orgEnrollment({
+    owner,
+    backend,
+    session: () => {
+      const current = active();
+      return current ? { origin: current.origin, token: current.token } : undefined;
+    },
+    relayKeys: options.relayKeys,
+    hostId: () => ownHostId(),
+    randomBytes: options.randomBytes,
+    now: options.now,
+    signal: () => request(),
+  });
+  const orgCredential = orgCredentialRequest({
+    backend,
+    relayKeys: options.relayKeys,
+    hostId: () => ownHostId(),
+    now: options.now,
+  });
   let stopRenewing: () => void = noop;
   let closed = false;
   // Closing gives up every request still out to the backend: shutdown never waits on it.
@@ -124,6 +176,8 @@ export function machineAccount(options: {
     },
   });
   const active = () => (session && session.expiresAt > options.now() ? session : undefined);
+  /** Whether `load` read the owner file: before then no owner means "not read yet". */
+  let ownerRead = false;
   const notify = () => {
     for (const listener of listeners) {
       try {
@@ -331,6 +385,13 @@ export function machineAccount(options: {
       await writePending(options.dataDir, null);
       return false;
     }
+    if (pending.source === "org") {
+      if (pending.org === undefined) {
+        await writePending(options.dataDir, null);
+        return false;
+      }
+      return takeOrg(pending.org, pending);
+    }
     let checked;
     try {
       checked = await client(pending.origin).session(pending.credential, request());
@@ -349,8 +410,55 @@ export function machineAccount(options: {
     return true;
   }
 
+  /**
+   * This org host's organization credential (ADR 0206 §2.1) in place of the sign-in it was
+   * enrolled with, whose person may sign out or leave: asked for with the host key, written to
+   * disk first so a lost answer is recovered (`pending`, when recovering one). The sign-in it
+   * replaces goes back. Called inside `oneSignIn`. True once it is the machine's sign-in.
+   */
+  async function takeOrg(org: string, pending?: PendingCredential): Promise<boolean> {
+    const current = session;
+    if (!current || owner.org() !== org) return false;
+    if (current.source === "org" && current.org === org) return true;
+    const credential = pending?.credential ?? newCredential();
+    if (!pending)
+      await writePending(options.dataDir, {
+        origin: current.origin,
+        credential,
+        source: "org",
+        predecessor: current.token,
+        org,
+      });
+    let issued: AceAccountGrant;
+    try {
+      issued = await orgCredential(current.origin, org, credential, request());
+    } catch (error) {
+      // Refused, so nothing was issued and nothing is left to recover; otherwise the next
+      // round asks again with the same credential.
+      if (orgCredentialRefused(error)) await writePending(options.dataDir, null);
+      return false;
+    }
+    const next = asOrgCredential(current.origin, issued, org);
+    return serial(async () => {
+      let taken = false;
+      // Signed in otherwise meanwhile, or released: the organization's credential goes back.
+      if (session !== current || owner.org() !== org) giveBack(next);
+      else {
+        await writeSession(options.dataDir, next);
+        session = next;
+        sessionId = newId();
+        giveBack(current);
+        notify();
+        taken = true;
+      }
+      await writePending(options.dataDir, null);
+      return taken;
+    });
+  }
+
   async function marketGrant(signal?: AbortSignal): Promise<string | undefined> {
-    if (!active()) return undefined;
+    // An organization's credential publishes nothing (ADR 0206 §2.1).
+    if (!active() || active()?.source === "org") return undefined;
     try {
       return await obtainGrant(await ownHostId(), "market-publish", signal);
     } catch (error) {
@@ -398,12 +506,17 @@ export function machineAccount(options: {
       const pending = await readPending(options.dataDir);
       if (pending && (await recover(pending))) return true;
       const current = session;
+      // An org host that took in its enrollment but not yet the organization's credential.
+      const org = owner.org();
+      if (current?.kind === "machine" && current.source !== "org" && org !== undefined)
+        return takeOrg(org);
       // Exchanging the session reads it at the backend too, which renews it.
       return current !== undefined && current.kind !== "machine" && (await migrate(current));
     });
     if (handled) return;
     const current = session;
     if (!current) return;
+    if (current.source === "org") return renewOrg(current);
     let checked;
     try {
       checked = await client(current.origin).session(current.token, request());
@@ -421,6 +534,29 @@ export function machineAccount(options: {
       const next = { ...current, account: checked.account, expiresAt: checked.expiresAt };
       await writeSession(options.dataDir, next);
       // The same session, renewed: conditional changes read before this still apply.
+      session = next;
+      if (!wasActive && next.expiresAt > options.now()) notify();
+    });
+  }
+  /**
+   * Renews the organization credential with the host key (ADR 0206 §2.1). Refused once the
+   * organization no longer holds this host (released, or enrolled again elsewhere): the machine
+   * is signed out and signs in again before it speaks for anyone.
+   */
+  async function renewOrg(current: StoredSession): Promise<void> {
+    if (current.org === undefined) return forget(current);
+    let renewed: AceAccountGrant;
+    try {
+      renewed = await orgCredential(current.origin, current.org, current.token, request());
+    } catch (error) {
+      if (!closed && orgCredentialRefused(error)) await forget(current);
+      return;
+    }
+    await serial(async () => {
+      if (closed || session !== current) return;
+      const wasActive = current.expiresAt > options.now();
+      const next = { ...current, account: renewed.account, expiresAt: renewed.expiresAt };
+      await writeSession(options.dataDir, next);
       session = next;
       if (!wasActive && next.expiresAt > options.now()) notify();
     });
@@ -445,16 +581,38 @@ export function machineAccount(options: {
       machineCode?: string | undefined;
     },
   ): Promise<DeviceAdmission> {
-    const verdict = deviceGrantVerdict(hello.grant, {
-      keys: published,
-      now: options.now(),
-      account: active()?.account.id,
-      deviceId: hello.deviceId,
-      host: await ownHostId(),
-    });
-    if (!verdict.accepted) return unauthorized();
-    const account = verdict.claims.account;
-    const expiresAt = verdict.claims.exp;
+    // An organization's host takes its members' grants only, and a person's machine never one
+    // (ADR 0206 §2.2): a device grant names the person's account, never a member.
+    const org = owner.org();
+    const generation = owner.generation();
+    let account: string;
+    let expiresAt: number;
+    let member: (Member & { generation: number }) | undefined;
+    if (org !== undefined) {
+      const verdict = memberGrantVerdict(hello.grant, {
+        keys: published,
+        now: options.now(),
+        org,
+        deviceId: hello.deviceId,
+        host: await ownHostId(),
+      });
+      if (!verdict.accepted || !owner.holds(generation)) return unauthorized();
+      account = verdict.member.account;
+      expiresAt = verdict.exp;
+      member = { ...verdict.member, generation };
+    } else {
+      const verdict = deviceGrantVerdict(hello.grant, {
+        keys: published,
+        now: options.now(),
+        account: active()?.account.id,
+        deviceId: hello.deviceId,
+        host: await ownHostId(),
+      });
+      if (!verdict.accepted) return unauthorized();
+      account = verdict.claims.account;
+      expiresAt = verdict.claims.exp;
+    }
+    const admitted = { admitted: true as const, account, expiresAt, ...(member ? { member } : {}) };
     // One code check at a time, so concurrent wrong codes all count toward the lock.
     const run = codeChecks.then(async (): Promise<DeviceAdmission> => {
       const code = options.codes.current();
@@ -465,10 +623,10 @@ export function machineAccount(options: {
         lock: options.codes.lock(),
         now: options.now(),
       });
-      if (step.kind === "admit") return { admitted: true, account, expiresAt };
+      if (step.kind === "admit") return admitted;
       if (step.kind === "refuse")
         return { admitted: false, code: step.reason, message: refusals[step.reason] };
-      if (!code) return { admitted: true, account, expiresAt };
+      if (!code) return admitted;
       const correct = await machineCodeMatches(step.code, code.hash);
       // The code changed while it was checked: the device enters the new one.
       if (options.codes.current()?.version !== code.version)
@@ -482,16 +640,23 @@ export function machineAccount(options: {
       if (next.step.kind === "refuse")
         return { admitted: false, code: next.step.reason, message: refusals[next.step.reason] };
       options.codes.rememberPass(hello.deviceId, account, code.version, options.now());
-      return { admitted: true, account, expiresAt };
+      return admitted;
     });
     codeChecks = run.catch(() => {});
     return run;
   }
+  const ownerStatus = () => {
+    const org = owner.org();
+    if (org !== undefined) return { org };
+    const account = owner.current();
+    return account === undefined ? null : { account };
+  };
   return {
     /** Reads the stored session, then keeps it renewed while the daemon runs. */
     async load(): Promise<void> {
       session = await readSession(options.dataDir);
       await owner.load();
+      ownerRead = true;
       // A local file, read once: the host id an app's enrollment ticket names (ADR 0190).
       await ownHostId().catch(() => undefined);
       sessionId = session ? newId() : null;
@@ -518,13 +683,15 @@ export function machineAccount(options: {
               origin: session.origin,
               account: session.account,
               expiresAt: session.expiresAt,
-              source: session.source,
+              // An organization's credential has no person's source: older apps read it as
+              // absent, and never hand a person's sign-in over it.
+              ...(session.source === "org" ? {} : { source: session.source }),
             }
           : {}),
         sessionId,
         ...(hostIdKnown ? { relayHostId: hostIdKnown } : {}),
         // Who the machine answers to (ADR 0190 §3a), so the person can see it and fix it.
-        owner: owner.current() === undefined ? null : { account: owner.current() },
+        owner: ownerStatus(),
         // A session from before machine credentials that couldn't be exchanged yet.
         ...(session && session.kind !== "machine" && !noCredentials
           ? { signInAgain: true as const }
@@ -545,6 +712,13 @@ export function machineAccount(options: {
       return active()?.account;
     },
     /**
+     * Signed in as its organization (ADR 0206 §2.1): the organization credential mints only
+     * this host's relay grant, nothing that acts for an account (Spade Cloud, the market).
+     */
+    signedInAsOrg(): boolean {
+      return active()?.source === "org";
+    },
+    /**
      * Take over the ace sign-in of another ace app on this machine: the daemon exchanges the
      * app's session for this machine's credential (ADR 0190) and keeps only that; the session
      * itself stays in memory for the exchange and is never written. A backend without machine
@@ -557,7 +731,9 @@ export function machineAccount(options: {
       from: { ticket: string } | { token: string },
       condition?: SessionCondition,
     ): Promise<MachineAccountStatus> {
+      if (session?.source === "org" && owner.org() !== undefined) throw signedInAsOrg();
       await oneSignIn(async () => {
+        if (session?.source === "org" && owner.org() !== undefined) throw signedInAsOrg();
         let taken: StoredSession;
         try {
           const credential = await exchangeKept(origin, from, {
@@ -604,6 +780,7 @@ export function machineAccount(options: {
     async startLogin(origin = options.defaultOrigin): Promise<MachineAccountStatus> {
       if (!origin)
         throw new AccessError(400, "No ace account address. Set ACE_ACCOUNT_URL or pass --origin.");
+      if (session?.source === "org" && owner.org() !== undefined) throw signedInAsOrg();
       stopLogin();
       // Closing the account gives the sign-in up too, from its first request on.
       const controller = new AbortController();
@@ -742,7 +919,8 @@ export function machineAccount(options: {
      * whose key isn't cached is refused now, and the key is fetched for the next attempt.
      */
     async admitDeviceCached(hello: { grant: string; deviceId: string }): Promise<DeviceAdmission> {
-      if (!active()) return unauthorized();
+      // An organization's members come through the full hello, never NK's first message.
+      if (!active() || owner.org() !== undefined) return unauthorized();
       const published = keys.cached(hello.grant);
       return published ? admitWith(published, hello) : unauthorized();
     },
@@ -763,7 +941,8 @@ export function machineAccount(options: {
       // grant names, from the window signed in as the person: never the account this machine is
       // signed in to, which the host token can switch first.
       const seen = owner.generation();
-      if (!owner.holds(seen)) return undefined;
+      // An organization's host has no person (ADR 0206 §2.1): its members prove their own.
+      if (!owner.holds(seen) || owner.org() !== undefined) return undefined;
       const proven = await provenStanding({
         ...input,
         account: owner.current(),
@@ -773,6 +952,88 @@ export function machineAccount(options: {
       });
       if (!proven || !(await owner.claim(proven.account, seen))) return undefined;
       return { until: proven.until, generation: seen };
+    },
+    /**
+     * A member's standing on this organization's host (ADR 0206 §2.2), proven on one socket as a
+     * person's is: their member grant for this host, signed by a key this build pins, and its
+     * device key's signature over this socket's nonce. Undefined on a person's machine, which
+     * refuses every member grant, and for any other organization's grant.
+     */
+    async proveMemberStanding(input: {
+      grant: string;
+      proof: string;
+      nonce: string;
+      binding: string | undefined;
+      deviceId: string;
+    }): Promise<{ until: number; generation: number; member: Member; policy: number } | undefined> {
+      const seen = owner.generation();
+      const org = owner.org();
+      if (!owner.holds(seen) || org === undefined) return undefined;
+      const proven = await provenMemberStanding({
+        ...input,
+        keys: personKeys,
+        now: options.now(),
+        org,
+        host: await ownHostId(),
+      });
+      if (!proven || !owner.holds(seen) || owner.org() !== org) return undefined;
+      return {
+        until: proven.until,
+        generation: seen,
+        member: proven.member,
+        policy: proven.policy,
+      };
+    },
+    /** The clock grants are checked against: a standing's `until` is on it. */
+    grantClock(): number {
+      return options.now();
+    },
+    /** The organization whose host this is (ADR 0206 §2.1), or undefined. */
+    ownerOrg(): string | undefined {
+      return owner.org();
+    },
+    /** Whether the owner was read from disk yet (`load`). */
+    ownerKnown(): boolean {
+      return ownerRead;
+    },
+    /**
+     * The sign-in an org host speaks for itself with (ADR 0206 §3, §4.3): its machine
+     * credential while the machine is an organization's host, and the organization's name as
+     * its own credential has it (undefined until it holds that credential).
+     */
+    orgHostSession(): { origin: string; token: string; name: string | undefined } | undefined {
+      const org = owner.org();
+      const current = active();
+      if (org === undefined || current?.kind !== "machine") return undefined;
+      return {
+        origin: current.origin,
+        token: current.token,
+        name: current.source === "org" && current.org === org ? current.account.name : undefined,
+      };
+    },
+    /** The account backend's grant keys this build pins: what Spade checks a policy with. */
+    grantKeys(): GrantKeySet {
+      return personKeys;
+    },
+    /**
+     * The machine's consent to become `org`'s host (ADR 0206 §2.1), for the owner `account` a
+     * socket proved under `generation`; the client enrolls with it.
+     */
+    enrollConsent: enrollment.consent,
+    /**
+     * The backend enrolled this machine as `org`'s host with the consent last given: the machine
+     * answers to `org` now. `drop` ends what is kept beyond a socket, as a release does.
+     */
+    async confirmEnrollment(org: string, drop: () => void): Promise<boolean> {
+      const done = await enrollment.confirm({ org, drop });
+      if (!done) return false;
+      notify();
+      // The organization's own credential, so the host no longer hangs on the enroller's
+      // session. Failing now, the renewal round asks again.
+      await oneSignIn(() => takeOrg(org)).catch((error: unknown) =>
+        options.log?.(error instanceof Error ? error : new Error(String(error))),
+      );
+      return true;
     },
     /** Whether standing proven under `generation` still counts (`MachineOwner.holds`). */
     standingHolds(generation: number): boolean {
@@ -792,11 +1053,25 @@ export function machineAccount(options: {
      */
     async releaseOwner(drop: () => void): Promise<void> {
       await owner.release(drop);
+      // The organization's credential speaks for nobody here any more: it goes back, and the
+      // machine signs in again before it speaks for anyone (ADR 0206 §2.1).
+      if (session?.source === "org") await adopt(undefined, () => {});
       notify();
     },
-    /** Whether an admitted account device keeps access: same account, current code passed. */
-    stillAdmitted(deviceId: string, account: string): boolean {
-      if (active()?.account.id !== account) return false;
+    /**
+     * Whether an admitted account device keeps access: same account, current code passed. A
+     * member (`member`) keeps it while the machine is still that organization's host, under the
+     * owner it was admitted under.
+     */
+    stillAdmitted(
+      deviceId: string,
+      account: string,
+      member?: { org: string; generation: number } | undefined,
+    ): boolean {
+      if (member) {
+        if (owner.org() !== member.org || !owner.holds(member.generation) || !active())
+          return false;
+      } else if (owner.org() !== undefined || active()?.account.id !== account) return false;
       const code = options.codes.current();
       return code === undefined || options.codes.passed(deviceId, account, code.version);
     },

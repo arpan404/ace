@@ -24,6 +24,9 @@ const no: Runnable = { runnable: false };
 
 /** An entry's runnable content, and why. */
 export function runnableContent(input: ScanInput): Runnable {
+  // A bot package's own code (ADR 0203 §5): held for a maintainer, whoever publishes it.
+  if (input.inspection?.type === "spade-bot" && (input.inspection.recipe.code?.length ?? 0) > 0)
+    return yes("it runs its own code (WebAssembly components)");
   // Any executable bit, or a binary that isn't recognised safe data, makes a version runnable:
   // the scanner never infers safety from unrecognised bytes.
   for (const file of input.files) {

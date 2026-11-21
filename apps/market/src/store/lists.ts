@@ -12,7 +12,7 @@ import { signedOf } from "./rows.ts";
  * The Worker checked each signature before calling.
  */
 
-export type ListTable = "blocklist" | "verified" | "official";
+export type ListTable = "blocklist" | "verified" | "official" | "notices";
 
 /** The database a signed list is kept in (ADR 0174 §16). */
 export function listDb(dbs: Databases, table: SignedTable): D1Database {
@@ -20,6 +20,7 @@ export function listDb(dbs: Databases, table: SignedTable): D1Database {
     case "blocklist":
       return dbs.moderation;
     case "withdrawn":
+    case "notices":
       return dbs.lists;
     default:
       return dbs.publishers;
@@ -91,6 +92,15 @@ export async function setBlocklist(
 ): Promise<ListStored> {
   await upsertSigned(db, "blocklist", list).run();
   return listOutcome(db, "blocklist", list);
+}
+
+/** Stores the terms notices (ADR 0205 §4) when newer than, and based on, the stored ones. */
+export async function setNotices(
+  db: D1Database,
+  list: { issued: number; signed: string; basedOn?: number | undefined },
+): Promise<ListStored> {
+  await upsertSigned(db, "notices", list).run();
+  return listOutcome(db, "notices", list);
 }
 
 /**

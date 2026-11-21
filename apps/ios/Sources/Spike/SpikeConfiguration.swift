@@ -76,7 +76,7 @@ enum SpikeConfiguration {
         return arguments.firstIndex(of: "--spike-focus").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
     }
     /// `--spike-port N` lets parallel fixtures share one Mac; loopback only.
-    private static var port: Int {
+    static var port: Int {
         let arguments = ProcessInfo.processInfo.arguments
         return arguments.firstIndex(of: "--spike-port").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil } ?? 9841
     }

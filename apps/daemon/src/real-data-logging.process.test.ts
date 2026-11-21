@@ -1,7 +1,6 @@
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Worker } from "node:worker_threads";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test, vi } from "vitest";
 import { createInstance, initialQuota } from "@ace/accounts";
@@ -68,11 +67,14 @@ test("failed past-session scans keep redacted log fields instead of omitted obje
     config: readConfig({ ACE_HOME: home }),
     options: {
       history: {
-        spawnWorker: () =>
-          new Worker(
-            `const { parentPort } = require('node:worker_threads'); parentPort.postMessage({ id: 0, value: true }); parentPort.on('message', (message) => { if (message && typeof message === 'object' && 'id' in message) parentPort.postMessage(message.request.op === 'close' ? { id: message.id, value: null } : { id: message.id, error: 'Synthetic saved-history worker failure' }); });`,
-            { eval: true },
-          ),
+        // A reader that fails every request (ace-history's failRequests test hook).
+        historyRuntime: {
+          readerEnv: {
+            ACE_HISTORY_TEST_HOOKS: JSON.stringify({
+              failRequests: "Synthetic saved-history reader failure",
+            }),
+          },
+        },
         instances: [{ id: "opencode", provider: "opencode", homeDir: openCode }],
       },
     },

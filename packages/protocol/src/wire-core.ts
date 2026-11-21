@@ -25,6 +25,7 @@ import { Run, Thread } from "./thread.ts";
 import { ListAttention, ListedThreadPlace, ThreadListResume } from "./thread-place.ts";
 import { EditorLaunch } from "./workspace-actions.ts";
 import { MachineCode } from "./machine-access.ts";
+import { AceOrgEnrollConsent, AceOrgId, AceOrgRole } from "./ace-org.ts";
 
 /*
  * The stream every client needs from its first frame (ADR 0042): hello and welcome,
@@ -334,7 +335,9 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * error code and live-end reason), `raw-on-demand` (items whose raw payloads clients
        * only show, in snapshots, pages, turn steps and live item events, come without them and
        * marked `rawOmitted`; `item.raw` reads them), `storage-hold` (accepts the `storage`
-       * admission hold; without it the daemon sends that hold as `user`, ADR 0176). Unknown
+       * admission hold; without it the daemon sends that hold as `user`, ADR 0176),
+       * `moved-status` (accepts the `moved` thread status; without it the daemon sends a moved
+       * thread as `waiting` on `upstream`, ADR 0191). Unknown
        * names are ignored; without a name the daemon sends the full shape.
        */
       trims: z.array(z.string().max(32)).max(16).optional(),
@@ -527,6 +530,26 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("account.owner.release"),
     requestId: z.string().min(1).max(128),
+  }),
+  /**
+   * The machine's owner asks for its consent to become `org`'s host (ADR 0206 §2.1): only from a
+   * socket that proved the owner's own grant. The client sends the consent with its own enrolling
+   * request (`POST /v1/orgs/{org}/hosts`). Answered with `account.owner.enroll.result`.
+   */
+  z.object({
+    type: z.literal("account.owner.enroll"),
+    requestId: z.string().min(1).max(128),
+    org: AceOrgId,
+  }),
+  /**
+   * The backend enrolled this machine with the consent it gave: the daemon checks that with its
+   * own credential, then answers to `org`. Every person's standing ends. Answered with
+   * `account.owner.enroll.confirm.result`.
+   */
+  z.object({
+    type: z.literal("account.owner.enroll.confirm"),
+    requestId: z.string().min(1).max(128),
+    org: AceOrgId,
   }),
 ]);
 export type CoreClientMessage = z.infer<typeof CoreClientMessage>;
@@ -763,13 +786,33 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     requestId: z.string(),
     ok: z.boolean(),
   }),
+  /** The answer to `account.owner.enroll`: the machine's consent, or why not. */
+  z.object({
+    type: z.literal("account.owner.enroll.result"),
+    requestId: z.string(),
+    result: z.discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true), consent: AceOrgEnrollConsent }),
+      z.object({ ok: z.literal(false), code: z.string().max(64), message: z.string().max(256) }),
+    ]),
+  }),
+  /** The answer to `account.owner.enroll.confirm`: whether the machine now answers to the org. */
+  z.object({
+    type: z.literal("account.owner.enroll.confirm.result"),
+    requestId: z.string(),
+    ok: z.boolean(),
+  }),
   /** The answer to `account.standing` (ADR 0190): until when this socket is the person's. */
   z.object({
     type: z.literal("account.standing.result"),
     requestId: z.string(),
     /** `until`: when the person's standing on this socket ends, unless proven again. */
     result: z.discriminatedUnion("ok", [
-      z.object({ ok: z.literal(true), until: z.number().int().positive() }),
+      z.object({
+        ok: z.literal(true),
+        until: z.number().int().positive(),
+        /** A member's standing on an org host (ADR 0206 §2.2), not the person's. */
+        member: z.object({ org: AceOrgId, role: AceOrgRole }).optional(),
+      }),
       z.object({ ok: z.literal(false), code: z.string().max(64), message: z.string().max(256) }),
     ]),
   }),

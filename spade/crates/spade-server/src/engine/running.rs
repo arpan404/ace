@@ -50,6 +50,7 @@ impl Engine {
                 agents: activity.ace_working,
             },
             spend: self.running_spend(agent)?,
+            code: activity.code.clone(),
             network: self.network_today(&agent.id),
             next_wake: running::sooner(self.next_wake(&activity), self.next_slot(&agent.id)?),
             workers: self.running_workers(id),

@@ -59,5 +59,62 @@
       "token": "not-a-grant",
       "kind": "machine"
     }
-  ]
+  ],
+  "member": {
+    "about": "Member grants (ADR 0206 §2.2): every member grant verifier must give these verdicts. Signed with Ed25519 seed 0x03 x 32; regenerate only when the format changes.",
+    "keys": {
+      "keys": [
+        {
+          "id": "k3",
+          "publicKey": "7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+        }
+      ]
+    },
+    "now": 1800000001000,
+    "valid": [
+      {
+        "token": "eyJ2IjozLCJraWQiOiJrMyIsImtpbmQiOiJtZW1iZXIiLCJhdWQiOiJhY2UtZGFlbW9uIiwic3RhbmRpbmciOiJtZW1iZXIiLCJvcmciOiJvcmdfMDFKU1BBREVURUFNIiwicm9sZSI6ImFkbWluIiwiYWNjb3VudCI6InVzZXJfMDFKU1BBREUiLCJzdWJqZWN0IjoiZGV2aWNlLTEiLCJob3N0IjoiSEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISCIsImtleSI6Imtra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2trayIsInBvbGljeSI6NCwiaWF0IjoxODAwMDAwMDAwMDAwLCJleHAiOjE4MDAwMDAzMDAwMDB9.3fJYj4BAMjPLWCar7d0w8NAsUze8-5qRCCN8nIv22Pb_tUzuVhXpgfCcUGHU7lR_iYSSwPcMLsnAeamMRYG1BQ",
+        "org": "org_01JSPADETEAM",
+        "role": "admin",
+        "account": "user_01JSPADE",
+        "host": "HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH",
+        "policy": 4
+      }
+    ],
+    "invalid": [
+      {
+        "why": "expired",
+        "token": "eyJ2IjozLCJraWQiOiJrMyIsImtpbmQiOiJtZW1iZXIiLCJhdWQiOiJhY2UtZGFlbW9uIiwic3RhbmRpbmciOiJtZW1iZXIiLCJvcmciOiJvcmdfMDFKU1BBREVURUFNIiwicm9sZSI6ImFkbWluIiwiYWNjb3VudCI6InVzZXJfMDFKU1BBREUiLCJzdWJqZWN0IjoiZGV2aWNlLTEiLCJob3N0IjoiSEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISCIsImtleSI6Imtra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2trayIsInBvbGljeSI6NCwiaWF0IjoxODAwMDAwMDAwMDAwLCJleHAiOjE4MDAwMDAzMDAwMDB9.3fJYj4BAMjPLWCar7d0w8NAsUze8-5qRCCN8nIv22Pb_tUzuVhXpgfCcUGHU7lR_iYSSwPcMLsnAeamMRYG1BQ",
+        "now": 1800000300000
+      },
+      {
+        "why": "respelled signature",
+        "token": "eyJ2IjozLCJraWQiOiJrMyIsImtpbmQiOiJtZW1iZXIiLCJhdWQiOiJhY2UtZGFlbW9uIiwic3RhbmRpbmciOiJtZW1iZXIiLCJvcmciOiJvcmdfMDFKU1BBREVURUFNIiwicm9sZSI6ImFkbWluIiwiYWNjb3VudCI6InVzZXJfMDFKU1BBREUiLCJzdWJqZWN0IjoiZGV2aWNlLTEiLCJob3N0IjoiSEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISCIsImtleSI6Imtra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2trayIsInBvbGljeSI6NCwiaWF0IjoxODAwMDAwMDAwMDAwLCJleHAiOjE4MDAwMDAzMDAwMDB9.3fJYj4BAMjPLWCar7d0w8NAsUze8-5qRCCN8nIv22Pb_tUzuVhXpgfCcUGHU7lR_iYSSwPcMLsnAeamMRYG1BR"
+      },
+      {
+        "why": "format 2 number",
+        "token": "eyJ2IjoyLCJraWQiOiJrMyIsImtpbmQiOiJtZW1iZXIiLCJhdWQiOiJhY2UtZGFlbW9uIiwic3RhbmRpbmciOiJtZW1iZXIiLCJvcmciOiJvcmdfMDFKU1BBREVURUFNIiwicm9sZSI6ImFkbWluIiwiYWNjb3VudCI6InVzZXJfMDFKU1BBREUiLCJzdWJqZWN0IjoiZGV2aWNlLTEiLCJob3N0IjoiSEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISCIsImtleSI6Imtra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2trayIsInBvbGljeSI6NCwiaWF0IjoxODAwMDAwMDAwMDAwLCJleHAiOjE4MDAwMDAzMDAwMDB9.fmeVByQAGrlsip7qW15YPsxu1Kyv0AVY_jsteZymJX4gze2xESx0qiigOUSbAnPlWqAfMumMPWDauTWKtQjcBw"
+      },
+      {
+        "why": "person standing",
+        "token": "eyJ2IjozLCJraWQiOiJrMyIsImtpbmQiOiJtZW1iZXIiLCJhdWQiOiJhY2UtZGFlbW9uIiwic3RhbmRpbmciOiJwZXJzb24iLCJvcmciOiJvcmdfMDFKU1BBREVURUFNIiwicm9sZSI6ImFkbWluIiwiYWNjb3VudCI6InVzZXJfMDFKU1BBREUiLCJzdWJqZWN0IjoiZGV2aWNlLTEiLCJob3N0IjoiSEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISCIsImtleSI6Imtra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2trayIsInBvbGljeSI6NCwiaWF0IjoxODAwMDAwMDAwMDAwLCJleHAiOjE4MDAwMDAzMDAwMDB9.vqsQHjLh3JqvJYmr5ZUFyfMx3jcK8YpEXNcfYMPNxfzlO-Z_GVLzngxCzxNEkxQEmfXZlst0RaZe6x_XKwLdCg"
+      },
+      {
+        "why": "no host",
+        "token": "eyJ2IjozLCJraWQiOiJrMyIsImtpbmQiOiJtZW1iZXIiLCJhdWQiOiJhY2UtZGFlbW9uIiwic3RhbmRpbmciOiJtZW1iZXIiLCJvcmciOiJvcmdfMDFKU1BBREVURUFNIiwicm9sZSI6ImFkbWluIiwiYWNjb3VudCI6InVzZXJfMDFKU1BBREUiLCJzdWJqZWN0IjoiZGV2aWNlLTEiLCJrZXkiOiJra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2siLCJwb2xpY3kiOjQsImlhdCI6MTgwMDAwMDAwMDAwMCwiZXhwIjoxODAwMDAwMzAwMDAwfQ.8EeEPWT95KVP0WMqNGe13rnHQzu7b1orP0E8W0n0NHkxSpk8ZEGXJiCrSUrO4I7EriTbTxmMKxVcCrLvqTtLCQ"
+      },
+      {
+        "why": "another audience",
+        "token": "eyJ2IjozLCJraWQiOiJrMyIsImtpbmQiOiJtZW1iZXIiLCJhdWQiOiJhY2UtcmVsYXkiLCJzdGFuZGluZyI6Im1lbWJlciIsIm9yZyI6Im9yZ18wMUpTUEFERVRFQU0iLCJyb2xlIjoiYWRtaW4iLCJhY2NvdW50IjoidXNlcl8wMUpTUEFERSIsInN1YmplY3QiOiJkZXZpY2UtMSIsImhvc3QiOiJISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhIIiwia2V5Ijoia2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2trIiwicG9saWN5Ijo0LCJpYXQiOjE4MDAwMDAwMDAwMDAsImV4cCI6MTgwMDAwMDMwMDAwMH0.UzxjFCOiKmi7_3d_2oD9yHpBikCTFtUtg05OCiK5HL6bdzJ_R-5rPaI6pdfM1BWPwoks-eNuI0Am_ZnNE-eDBQ"
+      },
+      {
+        "why": "issued for too long",
+        "token": "eyJ2IjozLCJraWQiOiJrMyIsImtpbmQiOiJtZW1iZXIiLCJhdWQiOiJhY2UtZGFlbW9uIiwic3RhbmRpbmciOiJtZW1iZXIiLCJvcmciOiJvcmdfMDFKU1BBREVURUFNIiwicm9sZSI6ImFkbWluIiwiYWNjb3VudCI6InVzZXJfMDFKU1BBREUiLCJzdWJqZWN0IjoiZGV2aWNlLTEiLCJob3N0IjoiSEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISCIsImtleSI6Imtra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2trayIsInBvbGljeSI6NCwiaWF0IjoxODAwMDAwMDAwMDAwLCJleHAiOjE4MDAwMDAzMDAwMDF9.3mf-ya_KVj88v5e-ic2p4tRT6gkuUcUt5Vh2yTDnsp2hPcHMt3ZOEoYoL6dkOBBhHSVVHhO7Hef1Urn3GduXCA"
+      },
+      {
+        "why": "unknown key",
+        "token": "eyJ2IjozLCJraWQiOiJrOSIsImtpbmQiOiJtZW1iZXIiLCJhdWQiOiJhY2UtZGFlbW9uIiwic3RhbmRpbmciOiJtZW1iZXIiLCJvcmciOiJvcmdfMDFKU1BBREVURUFNIiwicm9sZSI6ImFkbWluIiwiYWNjb3VudCI6InVzZXJfMDFKU1BBREUiLCJzdWJqZWN0IjoiZGV2aWNlLTEiLCJob3N0IjoiSEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISCIsImtleSI6Imtra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2trayIsInBvbGljeSI6NCwiaWF0IjoxODAwMDAwMDAwMDAwLCJleHAiOjE4MDAwMDAzMDAwMDB9.dBNHHurGd48Jvxkk1JyDXKJpNqmlbqkH64u47bwR5u_3Y7lLD1AncYMbtWAcZLd7dLdeQni9LJrWm96wok5ACQ"
+      }
+    ]
+  }
 }

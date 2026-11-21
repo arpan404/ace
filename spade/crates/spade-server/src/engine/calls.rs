@@ -358,15 +358,18 @@ pub(super) async fn handle_calls(
                         })
                     });
                     let target = spade_core::outward::target(&name, &arguments);
-                    // A driving step: where it acts, asked of ace now, whether that place is the
-                    // person's alone, and whether they allowed it for the bot (ADR 0171,
-                    // amendment 3).
+                    // The bot's Permissions, and the apps no bot uses (ADR 0171, amendment 7).
+                    let (permits, never_apps) = engine.permits(id);
+                    // A driving step: where it acts, asked of ace now, and whether it may act
+                    // there under the bot's switch (ADR 0171, amendments 3 and 7).
                     let driven = match declared {
                         Some(effect::Effect::Drive) => {
                             Some(engine.drive_step(id, &key, &name, &arguments).await)
                         }
                         _ => None,
                     };
+                    let screen = spade_core::permission::Switch::driving(&name)
+                        == Some(spade_core::permission::Switch::ComputerUse);
                     let drive =
                         driven
                             .as_ref()
@@ -376,16 +379,20 @@ pub(super) async fn handle_calls(
                                     .as_ref()
                                     .map(effect::drive::Place::shown)
                                     .map_err(|why| *why),
-                                sensitive: step.sensitive,
-                                granted: step
-                                    .place
-                                    .as_ref()
-                                    .is_ok_and(|place| engine.drive_granted(id, place)),
+                                never: screen
+                                    .then(|| {
+                                        spade_core::permission::never::listed(
+                                            &never_apps,
+                                            &step.names,
+                                        )
+                                    })
+                                    .flatten(),
                                 // An ace from before `expect` can't hold the step to its place.
                                 bound: step.place.as_ref().is_ok_and(|place| {
                                     !effect::drive::needs_binding(&name, &arguments, place)
                                         || engine.takes_expect(id, &name)
                                 }),
+                                placeless: effect::drive::placeless(&name, &arguments),
                             });
                     let acts_in = driven
                         .as_ref()
@@ -401,6 +408,8 @@ pub(super) async fn handle_calls(
                     // A packaged bot's declared effects, as the person left them on, for it and
                     // everything under it (ADR 0200 §3.4).
                     let ceiling = engine.ceiling(id);
+                    // A shared bot's organization, as its policy stands (ADR 0206 §3).
+                    let org = engine.org_gate(id);
                     let gate = effect::Call {
                         tool: &name,
                         rule,
@@ -437,6 +446,20 @@ pub(super) async fn handle_calls(
                                 allows: *allows,
                             }),
                         command: ceiling::outside_class(&classed),
+                        // A server's destructive hint asks each call (ADR 0202 §2).
+                        destructive: engine
+                            .tools
+                            .get_for(id, &name)
+                            .and_then(|tool| tool.hints())
+                            .is_some_and(effect::asks_each_call),
+                        org: org
+                            .as_ref()
+                            .map(|(name, policy)| spade_core::org::Gate { org: name, policy }),
+                        permits,
+                        connected: engine
+                            .tools
+                            .get_for(id, &name)
+                            .is_some_and(|tool| tool.connected_app()),
                     };
                     // The ceiling first, before any route of Spade's own: nothing a packaged bot
                     // does, a bot it makes for the person included, gets past what its package
@@ -490,9 +513,13 @@ pub(super) async fn handle_calls(
                     let mut stopped = None;
                     // What Spade's classifier read in it, when it raised it to the person.
                     let mut raised = None;
+                    // A driving step its switch let run is the person's standing say: no
+                    // classifier, reviewer or second review looks at it (ADR 0171, amendment 7).
+                    let switched = driven.is_some() && route == Route::Run;
                     // In Full access nothing is reviewed, but Spade's classifier may still raise a
                     // command outside the sandbox or an app's tool it reads as a hard stop.
                     let route = match route {
+                        route if switched => route,
                         route if incomplete => {
                             let route = escalate::incomplete(route);
                             if matches!(route, Route::Ask { .. }) {
@@ -653,6 +680,7 @@ pub(super) async fn handle_calls(
                     // A sandboxed call is the OS's to decide: no review of any kind (ADR 0171).
                     // In Full access the person chose no reviewer (ADR 0163, amendment 2).
                     if rule_ran
+                        && !switched
                         && mode == Mode::AutoReview
                         && (place != Place::Sandbox || remote)
                         && review::reviewed(def.risk, decision)
@@ -713,15 +741,13 @@ pub(super) async fn handle_calls(
                                 incomplete: false,
                             };
                             engine.authorize(&key, launch, warrant);
-                            // A driving step runs only where it was decided on.
+                            // A driving step runs only where it was decided on, and with no
+                            // person looking at the step itself, only where ace holds it there.
                             if let Some(place) = acts_in {
-                                // Run by the reviewer's word alone, unless an Always allow of
-                                // the person's let it through; in Full access by no one's, so
-                                // held to its place as strictly.
                                 engine.decide_place(
                                     &key,
                                     place,
-                                    !rule_ran || mode == Mode::FullAccess,
+                                    switched || !rule_ran || mode == Mode::FullAccess,
                                 );
                             }
                             runnable.push((pending.call, name, arguments));
@@ -739,21 +765,12 @@ pub(super) async fn handle_calls(
                                 continue;
                             }
                             waiting = true;
-                            // A driving step asked for any reason (its place, the reviewer, the
-                            // classifier) offers to allow its app or site, where that may be.
+                            // A driving step asked (a shared bot's approvers) keeps where it acts;
+                            // no app is offered to allow, since its switch decides the rest.
                             if driven.is_some() {
                                 ask = Some(effect::Ask::Drive);
                             }
-                            // Allowing the app is offered only where it would stop the asking.
-                            let app = acts_in
-                                .as_ref()
-                                .filter(|_| drive.sensitive.is_none() && drive.bound)
-                                .filter(|place| {
-                                    place.grant().is_some_and(|scope| {
-                                        spade_core::grant::check(&scope, &|_| None).is_ok()
-                                    })
-                                })
-                                .map(|place| place.shown().to_owned());
+                            let app = None;
                             let asked = Event::Known(Known::ApprovalRequested {
                                 reply: reply.to_owned(),
                                 call_id: pending.call.id.clone(),
@@ -859,6 +876,10 @@ pub(super) async fn handle_calls(
         }
     }
     for (call, name) in orphaned {
+        // What its code asked the person for waits on nothing now.
+        if spade_core::package::code::run::is_tool(&name) {
+            engine.close_code_asks(id, reply, &call.id);
+        }
         let unknown = ToolOutput::maybe_ran(context::MAYBE_RAN);
         finish_tool(engine, id, reply, &call, &name, unknown).await;
     }

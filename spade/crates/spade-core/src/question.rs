@@ -9,6 +9,7 @@ use crate::event::{Event, Known};
 
 mod check;
 pub mod connect;
+pub mod elicit;
 mod state;
 pub mod suggest;
 #[cfg(test)]
@@ -354,9 +355,10 @@ pub fn typed_answer(events: &[Event], message: &Event) -> Option<Event> {
     let Event::Known(Known::UserMessage { text, .. }) = message else {
         return None;
     };
+    // An app's form is the person's to answer on its card, never by a message.
     let waiting: Vec<View> = views(events)
         .into_iter()
-        .filter(|c| c.standing == Standing::Waiting)
+        .filter(|c| c.standing == Standing::Waiting && elicit::call_of(&c.call_id).is_none())
         .collect();
     let [card] = waiting.as_slice() else {
         return None;

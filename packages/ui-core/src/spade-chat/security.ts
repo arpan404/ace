@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { spadeJson, spadeRecord } from "./json.ts";
+import { parseSpadePermissions, type SpadePermissions } from "./permissions.ts";
 
 /*
  * Spade's security boundaries as its API sends them (ADR 0167, spade/docs/security.md): the
@@ -33,7 +34,7 @@ export type SpadeAutonomy = "auto_review" | "full_access";
  * list Spade's gate keeps, `spade_core::effect::full_access`).
  */
 export const spadeFullAccessSentence =
-  "It works without asking you or the reviewer, except that it still asks before it pays, sends anything in your name, changes sign-ins or who has access, first uses an app tool that doesn't say what it does, or acts on a device or in mail, chat, banking, password, sign-in, settings or social apps and sites; an app's writes are still reviewed after it reads something untrusted; and it never reads your secrets.";
+  "It works without asking you or the reviewer, except that it still asks before it pays, sends anything in your name, changes sign-ins or who has access, or first uses an app tool that doesn't say what it does; the screen, the browser and devices follow its Permissions; an app's writes are still reviewed after it reads something untrusted; and it never reads your secrets.";
 
 /** What every bot inherits unless it sets its own. */
 export interface SpadeBotDefaults {
@@ -57,6 +58,8 @@ export interface SpadeSecurityMachine {
   /** The hosts every listed-sites policy starts with. */
   defaults: string[];
   toolchainsFound: string[];
+  /** The Permissions every bot without its own follows; undefined from a Spade before them. */
+  permissions: SpadePermissions | undefined;
 }
 
 export type SpadeGrantScope =
@@ -94,6 +97,8 @@ export interface SpadeBotSecurity {
   grants: SpadeGrant[];
   effectiveGrants: SpadeGrant[];
   folders: { grant: string; path: string; write: boolean }[];
+  /** Its Permissions (ADR 0171, amendment 7); undefined from a Spade before them. */
+  permissions: SpadePermissions | undefined;
 }
 
 export interface SpadeCheckpoint {
@@ -145,6 +150,7 @@ const machineShape = z.object({
   contained: z.boolean().catch(false),
   defaults: texts.default([]),
   toolchains_found: texts.default([]),
+  permissions: z.unknown().optional(),
 });
 
 /** `GET /security`; undefined when the body isn't an object. */
@@ -168,6 +174,7 @@ export function parseSpadeSecurityMachine(body: string): SpadeSecurityMachine | 
     proxyProblem: value.proxy.problem ?? undefined,
     defaults: value.defaults,
     toolchainsFound: value.toolchains_found,
+    permissions: parseSpadePermissions(value.permissions),
   };
 }
 
@@ -244,6 +251,7 @@ export function parseSpadeBotSecurity(body: string): SpadeBotSecurity | undefine
     grants: grantsOf(raw.grants),
     effectiveGrants: grantsOf(raw.effective_grants),
     folders,
+    permissions: parseSpadePermissions(raw.permissions),
   };
 }
 

@@ -28,10 +28,11 @@ pub enum Module {
     Devices,
     Outward,
     Notify,
+    Code,
 }
 
 impl Module {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Task,
         Self::Memory,
         Self::Files,
@@ -43,6 +44,7 @@ impl Module {
         Self::Devices,
         Self::Outward,
         Self::Notify,
+        Self::Code,
     ];
 
     /// The word a package's `uses` names it by.
@@ -59,6 +61,7 @@ impl Module {
             Self::Devices => "devices",
             Self::Outward => "outward",
             Self::Notify => "notify",
+            Self::Code => "code",
         }
     }
 
@@ -96,6 +99,13 @@ impl Module {
                  the morning brief. A bot sends at most 3 an hour (more wait for the brief) and 12 \
                  a day (more are refused). The words are the bot's, shown as plain text."
             }
+            Self::Code => {
+                "The tools of the package's own WebAssembly components (ADR 0203), one per tool a \
+                 component gives, named `code_<component>_<tool>`. Each runs in the bot's \
+                 sandbox with no authority of its own: what it reaches through `spade:package/http` \
+                 and `spade:package/tools` Spade does after the gate, the ceiling first. A \
+                 component the person turned off gives no tools."
+            }
         }
     }
 }
@@ -109,6 +119,9 @@ pub enum Source {
     Ace(Effect),
     /// `call_tool`: the effect of the tool it calls.
     Called,
+    /// A code tool: the strongest effect among its component's imports, read from the binary,
+    /// and each `tools` call it makes gated as that tool (ADR 0203 §2).
+    Imports,
 }
 
 /// One tool of the API. A name ending in `*` stands for every tool with that prefix.
@@ -150,6 +163,9 @@ const fn ace(name: &'static str, module: Module, most: Effect) -> Tool {
 }
 
 use Module::{Agents, Apps, Devices, Files, Memory, Notify, Outward, Schedule, Task, Ui, Web};
+
+/// The build that adds code tools (ADR 0203).
+const CODE: &str = "0.0.25";
 
 /// `spade.v1`. Add a tool with the build that adds it; never remove or rename one, or give it a
 /// stronger effect, without an alias in [`ALIASES`] (that is `spade.v2`).
@@ -237,6 +253,12 @@ pub const TOOLS: &[Tool] = &[
     spade(super::ISSUE_COMMENT, Outward),
     spade(super::SEND_MESSAGE, Outward),
     added(crate::reach::notice::NOTIFY, Notify, PHASE_2),
+    Tool {
+        name: "code_*",
+        module: Module::Code,
+        source: Source::Imports,
+        since: CODE,
+    },
 ];
 
 /// Spade's tools in the gate's table that are not part of the API: they may change in any build.
@@ -300,7 +322,7 @@ pub fn effect(name: &str) -> Option<Effect> {
     match tool.source {
         Source::Table => super::table(tool.name),
         Source::Ace(most) => Some(most),
-        Source::Called => None,
+        Source::Called | Source::Imports => None,
     }
 }
 
@@ -333,6 +355,22 @@ pub fn markdown() -> String {
          - A test walks the table and fails when a v1 tool goes missing or its effect gets \
          stronger without an alias.\n\n",
     );
+    out.push_str(&modules());
+    out.push_str("## Aliases\n\n");
+    out.push_str(&aliases());
+    out.push_str(
+        "\n## Not part of the API\n\n\
+         Harness internals (compaction, titles, the check of done) and these tools, which may \
+         change in any build: ",
+    );
+    out.push_str(&internal());
+    out.push_str(".\n");
+    out
+}
+
+/// Each module's heading, its line and its tools' table, as the reference and the spec list them.
+pub fn modules() -> String {
+    let mut out = String::new();
     for module in Module::ALL {
         out.push_str(&format!("## `{}`\n\n{}\n\n", module.name(), module.about()));
         let tools: Vec<&Tool> = TOOLS.iter().filter(|t| t.module == module).collect();
@@ -341,50 +379,61 @@ pub fn markdown() -> String {
         }
         out.push_str("| Tool | Effect | Since |\n| --- | --- | --- |\n");
         for tool in tools {
-            let effect = match tool.source {
-                Source::Table => super::table(tool.name).map_or("?", Effect::name).to_owned(),
-                Source::Ace(Effect::Drive) => "`read`, or `drive` when it acts (ace's)".to_owned(),
-                Source::Ace(most) => format!("`{}` (ace's)", most.name()),
-                Source::Called => "the called tool's".to_owned(),
-            };
-            let effect = if effect.starts_with('`') || effect.contains(' ') {
-                effect
-            } else {
-                format!("`{effect}`")
-            };
             out.push_str(&format!(
-                "| `{}` | {effect} | {} |\n",
-                tool.name, tool.since
+                "| `{}` | {} | {} |\n",
+                tool.name,
+                effect_words(tool),
+                tool.since
             ));
         }
         out.push('\n');
     }
-    out.push_str("## Aliases\n\n");
-    if ALIASES.is_empty() {
-        out.push_str("None. `spade.v1` is the first version.\n");
-    } else {
-        out.push_str("| Old name | Now calls | Since | Kept until |\n| --- | --- | --- | --- |\n");
-        for alias in ALIASES {
-            out.push_str(&format!(
-                "| `{}` | `{}` | {} | {} |\n",
-                alias.name, alias.to, alias.from, alias.until
-            ));
-        }
-    }
-    out.push_str(
-        "\n## Not part of the API\n\n\
-         Harness internals (compaction, titles, the check of done) and these tools, which may \
-         change in any build: ",
-    );
-    out.push_str(
-        &INTERNAL
-            .iter()
-            .map(|name| format!("`{name}`"))
-            .collect::<Vec<_>>()
-            .join(", "),
-    );
-    out.push_str(".\n");
     out
+}
+
+/// A tool's effect as the reference writes it.
+pub fn effect_words(tool: &Tool) -> String {
+    let effect = match tool.source {
+        Source::Table => super::table(tool.name).map_or("?", Effect::name).to_owned(),
+        Source::Ace(Effect::Drive) => "`read`, or `drive` when it acts (ace's)".to_owned(),
+        Source::Ace(most) => format!("`{}` (ace's)", most.name()),
+        Source::Called => "the called tool's".to_owned(),
+        Source::Imports => {
+            "its imports': `network` with `http`, else `write_local` with `kv`, else `read`; each \
+             `tools` call the called tool's"
+                .to_owned()
+        }
+    };
+    if effect.starts_with('`') || effect.contains(' ') {
+        effect
+    } else {
+        format!("`{effect}`")
+    }
+}
+
+/// The aliases' table, or the line that there are none.
+pub fn aliases() -> String {
+    if ALIASES.is_empty() {
+        return "None. `spade.v1` is the first version.\n".to_owned();
+    }
+    let mut out =
+        String::from("| Old name | Now calls | Since | Kept until |\n| --- | --- | --- | --- |\n");
+    for alias in ALIASES {
+        out.push_str(&format!(
+            "| `{}` | `{}` | {} | {} |\n",
+            alias.name, alias.to, alias.from, alias.until
+        ));
+    }
+    out
+}
+
+/// The tools outside the API, in code, joined.
+pub fn internal() -> String {
+    INTERNAL
+        .iter()
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// What breaks a published version: each name in `published` must still be a tool whose effect,

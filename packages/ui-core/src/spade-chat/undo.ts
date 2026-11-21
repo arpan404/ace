@@ -4,7 +4,7 @@ import type { SpadeReplyPart } from "./fold.ts";
  * Undo in the conversation (ADR 0167, spade/docs/security.md "Undo in the conversation"): a step
  * that changed the bot's own files can be undone from the checkpoint Spade took before it, and a
  * reply's step line undoes its whole turn from its first such step. What a step did outside the
- * bot's box can't be undone, and the step says so plainly. Pure, so every client reads it the same.
+ * bot's box can't be undone. The confirmation lists those steps.
  */
 
 type CallPart = Extract<SpadeReplyPart, { kind: "call" }>;

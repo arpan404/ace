@@ -219,6 +219,7 @@ fn goal_set(goal: &str) -> Event {
         }],
         by: Author::Person,
         verifier: None,
+        run: None,
     })
 }
 

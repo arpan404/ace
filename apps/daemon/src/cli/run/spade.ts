@@ -166,7 +166,49 @@ async function move(context: CommandContext): Promise<void> {
   });
 }
 
+async function skillImport(context: CommandContext): Promise<void> {
+  const { importSkill } = await import("../spade-skills.ts");
+  const { option } = await import("../args.ts");
+  const { emit } = await import("../io.ts");
+  await spadeSession(context, async (call) => {
+    const imported = await importSkill(call, {
+      from: context.args.words[0] ?? ".",
+      git: context.args.flags["git"] === true,
+      path: option(context.args, "path"),
+      replace: context.args.flags["replace"] === true,
+    });
+    await emit(context.args, imported, {
+      human: (value) => [
+        `${value.name} is a Spade skill now, ${value.files} file${value.files === 1 ? "" : "s"}, from ${value.source}.`,
+        ...value.warnings.map((warning) => `! ${warning.message}`),
+        ...(value.skipped.length ? [`Left out, hidden: ${value.skipped.join(", ")}.`] : []),
+      ],
+      quiet: (value) => [value.id],
+    });
+  });
+}
+
+async function skillExport(context: CommandContext): Promise<void> {
+  const { exportSkill } = await import("../spade-skills.ts");
+  const { emit } = await import("../io.ts");
+  await spadeSession(context, async (call) => {
+    const exported = await exportSkill(
+      call,
+      context.args.words[0] ?? "",
+      context.args.words[1] ?? ".",
+    );
+    await emit(context.args, exported, {
+      human: (value) => [
+        `Wrote ${value.name} to ${value.path}, ${value.files} file${value.files === 1 ? "" : "s"}.`,
+      ],
+      quiet: (value) => [value.path],
+    });
+  });
+}
+
 export const spadeHandlers: Handlers = {
+  "spade.skill.import": skillImport,
+  "spade.skill.export": skillExport,
   "spade.move": move,
   "spade.status": status,
   "spade.on": (context) => switchSpade(context, true),

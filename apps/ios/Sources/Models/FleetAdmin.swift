@@ -6,7 +6,14 @@ struct FleetOverview: Decodable, Sendable {
     struct Choice: Decodable, Sendable, Identifiable, Hashable { let id: String; let label: String; let note: String }
     struct Lifetime: Decodable, Sendable, Identifiable, Hashable { let value: Int; let label: String; var id: Int { value } }
     struct Choices: Decodable, Sendable { let access: [Choice]; let extras: [Choice]; let linkLifetimes: [Lifetime]; let deviceLifetimes: [Lifetime] }
-    struct Link: Decodable, Sendable, Identifiable { let hostId: String?; let name: String; let profile: String; let status: String; let deviceId: String; let line: String; var id: String { profile } }
+    struct Link: Decodable, Sendable, Identifiable {
+        let hostId: String?; let name: String; let profile: String; let status: String; let deviceId: String; let line: String
+        /// Whether work can move there from this machine (ADR 0101); nil when that machine didn't say.
+        var projects: Bool? = nil
+        /// That in words: "Studio can continue threads and open projects there."
+        var projectsLine: String? = nil
+        var id: String { profile }
+    }
     struct Device: Decodable, Sendable, Identifiable { let id: String; let name: String; let `self`: Bool; let access: String; let lastSeenAt: Double; let expiresAt: Double? }
     struct Pairing: Decodable, Sendable, Identifiable { let id: String; let label: String; let line: String; let expiresAt: Double }
     let choices: Choices
@@ -30,7 +37,10 @@ struct FleetAnswer: Decodable, Sendable {
     var codeText: String? = nil
     var expiresAt: Double? = nil
     var count: Int? = nil
-    private enum Keys: String, CodingKey { case ok, code, message, id, url, expiresAt, count }
+    /// A link made without Projects there: how to allow them later.
+    var withoutProjects: Words? = nil
+    struct Words: Decodable, Sendable, Equatable { let title: String; let words: String }
+    private enum Keys: String, CodingKey { case ok, code, message, id, url, expiresAt, count, withoutProjects }
     init(ok: Bool, message: String? = nil) { self.ok = ok; self.message = message }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: Keys.self)
@@ -40,13 +50,49 @@ struct FleetAnswer: Decodable, Sendable {
         url = try values.decodeIfPresent(String.self, forKey: .url)
         expiresAt = try values.decodeIfPresent(Double.self, forKey: .expiresAt)
         count = try values.decodeIfPresent(Int.self, forKey: .count)
+        withoutProjects = try values.decodeIfPresent(Words.self, forKey: .withoutProjects)
         // A refusal's `code` is its reason; a pairing's is what a person types.
         let code = try values.decodeIfPresent(String.self, forKey: .code)
         if ok { codeText = code } else { self.code = code }
     }
 }
 
+/// What Allow projects can do for a sending machine's link here (`allowProjectsOffer`):
+/// `allow`, `held`, `viewOnly`, `settings` or `checking`, and its one sentence.
+struct AllowProjectsOffer: Decodable, Sendable, Equatable {
+    let offer: String
+    let words: String
+}
+
+/// Whether Allow or Don't allow projects on a link may send, from what the machine there said
+/// (`allowOffer`). Either change needs that machine's answer first: no answer, or one that says
+/// this phone can't change it there, sends nothing and says why.
+enum LinkProjectsChange: Equatable {
+    case send
+    /// Already as asked.
+    case done
+    case say(String)
+
+    static func decide(offer: AllowProjectsOffer?, allowed: Bool, machine: String) -> LinkProjectsChange {
+        guard let offer else { return .say("Couldn't check \(machine). Try again.") }
+        switch (offer.offer, allowed) {
+        case ("allow", true), ("held", false): return .send
+        case ("held", true), ("allow", false): return .done
+        default: return .say(offer.words)
+        }
+    }
+}
+
 extension ClientModel {
+    /// Asked of the machine work would go to, about the sending machine's link device there.
+    func allowProjectsOffer(deviceId: String, sender: String, machine: String) async -> AllowProjectsOffer? {
+        try? await service(["type": "native.fleet", "machine": machine, "request": ["op": "allowOffer", "deviceId": deviceId, "sender": sender]],
+                           as: AllowProjectsOffer.self)
+    }
+    /// Allow or stop allowing projects for a link's device on this machine; its credential stays.
+    func setLinkProjects(deviceId: String, allowed: Bool, machine: String) async -> FleetAnswer {
+        await fleet(["op": "scope", "commandId": UUID().uuidString, "deviceId": deviceId, "allowed": allowed], machine: machine)
+    }
     func fleetOverview(machine: String) async throws -> FleetOverview {
         try await service(["type": "native.fleet", "machine": machine, "request": ["op": "overview"]], as: FleetOverview.self)
     }

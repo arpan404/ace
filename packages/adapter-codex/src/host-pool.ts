@@ -131,7 +131,7 @@ function startHost(
         idleMs,
         schedule: io.schedule,
         onRetired: retired,
-        spawn: (flow, dropped) =>
+        spawn: (flow, dropped, stderrDropped) =>
           io.spawn({
             command,
             args: [
@@ -144,6 +144,8 @@ function startHost(
             cwd: dedicated ? ctx.cwd : io.homeDir(),
             outputFlow: flow,
             ...(!dedicated ? { onStdoutLineDropped: dropped } : {}),
+            // MCP servers' logs pass through stderr; a long one must not stop an active turn.
+            onStderrLineDropped: stderrDropped,
             elideStdout: codexElision,
             env: { ...env, ACE_MCP_BEARER_TOKEN: undefined },
             name: "ace-codex",

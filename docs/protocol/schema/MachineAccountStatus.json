@@ -52,17 +52,33 @@
     "owner": {
       "anyOf": [
         {
-          "properties": {
-            "account": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
+          "anyOf": [
+            {
+              "properties": {
+                "account": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "account"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "org": {
+                  "pattern": "^org_[A-Za-z0-9]{1,64}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "org"
+              ],
+              "type": "object"
             }
-          },
-          "required": [
-            "account"
-          ],
-          "type": "object"
+          ]
         },
         {
           "type": "null"

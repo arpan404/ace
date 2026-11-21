@@ -237,6 +237,7 @@ impl Store {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         for (key, value) in changes {
+            crate::watch::changing_in(&tx, &self.watching, key, *value)?;
             match value {
                 Some(value) => tx.execute(
                     "INSERT INTO settings (key, value) VALUES (?1, ?2)
@@ -251,6 +252,10 @@ impl Store {
     }
 
     pub fn set_setting(&self, key: &str, value: Option<&str>) -> Result<()> {
+        // A watched one writes its entries with it, in one transaction.
+        if self.watched(key) {
+            return self.set_settings(&[(key, value)]);
+        }
         let connection = self.lock()?;
         match value {
             Some(value) => connection.execute(

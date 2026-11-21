@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgSpace.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "directoryManaged": {
+      "type": "boolean"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/AceOrgId.json"
+    },
+    "name": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "noOwner": {
+      "type": "boolean"
+    },
+    "plan": {
+      "$ref": "https://ace.local/protocol/v1/AceOrgPlan.json"
+    },
+    "role": {
+      "$ref": "https://ace.local/protocol/v1/AceOrgRole.json"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "role",
+    "plan",
+    "directoryManaged"
+  ],
+  "type": "object"
+}

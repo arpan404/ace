@@ -1,6 +1,8 @@
 import { RailPins } from "@ace/ui-core";
 import { useDeviceSetting } from "./device-setting.ts";
 
+export const railPinsKey = "ace.usage.railPins";
+
 const none: RailPins = [];
 
 /*
@@ -8,5 +10,5 @@ const none: RailPins = [];
  * page pins them; the rail's bars and card show them, else the accounts used most this week.
  */
 export function useRailPins(): [RailPins, (pins: RailPins) => void] {
-  return useDeviceSetting("ace.usage.railPins", RailPins, none);
+  return useDeviceSetting(railPinsKey, RailPins, none);
 }

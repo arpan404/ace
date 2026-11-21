@@ -96,6 +96,9 @@ pub(super) struct NewAgent {
     /// A package's panel pages (ADR 0200 §5.2), by path: `panels/<id>/index.html` to its text.
     #[serde(default)]
     pages: std::collections::BTreeMap<String, String>,
+    /// A package's components (ADR 0203 §5), by path: `code/<name>.wasm` to its bytes in base64.
+    #[serde(default)]
+    code: std::collections::BTreeMap<String, String>,
     /// Made from one message: the bot names itself in its first reply, and is "New bot" until
     /// then when no name was given.
     #[serde(default)]
@@ -255,6 +258,17 @@ pub(super) fn agent_problem(error: &AgentError) -> Response {
         AgentError::NotFound => StatusCode::NOT_FOUND,
         AgentError::Invalid(_) | AgentError::Image(_) => StatusCode::BAD_REQUEST,
         AgentError::Main(_) | AgentError::HasWorkers(_) => StatusCode::CONFLICT,
+        // The person reads what the subscription means and ticks Use it (ADR 0205 §1).
+        AgentError::Terms { provider, text } => {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": text,
+                    "terms": { "provider": provider, "acknowledgement": text },
+                })),
+            )
+                .into_response();
+        }
         AgentError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     problem(status, &error.to_string())
@@ -343,6 +357,7 @@ impl NewAgent {
             envelope: self.envelope,
             switches: self.switches,
             pages: self.pages,
+            code: self.code,
             also: self.template.is_some() || self.first_message.is_some(),
         }
     }
@@ -483,8 +498,17 @@ pub(super) async fn update(
         why: body.task_why,
         by: None,
     };
+    let held = change.model.is_some() && state.engine.agent_held_by_terms(&id);
     match state.engine.update_agent(&id, change) {
-        Ok(view) => Json(json!({ "agent": agent_json(&view) })).into_response(),
+        Ok(view) => {
+            // Picked another model for a bot its subscription's terms held: what waited is
+            // answered now (ADR 0205 §4).
+            if held && let Err(error) = state.engine.release_terms_hold(&id) {
+                tracing::error!(%error, "a bot moved off a refused subscription didn't resume");
+            }
+            let view = state.engine.agent_view(&id).ok().flatten().unwrap_or(view);
+            Json(json!({ "agent": agent_json(&view) })).into_response()
+        }
         Err(error) => agent_problem(&error),
     }
 }
@@ -528,13 +552,22 @@ pub(super) async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
     axum::extract::Query(query): axum::extract::Query<DeleteQuery>,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
 ) -> Response {
-    let deleted = match query.workers.as_deref() {
-        None => state.engine.delete_agent(&id).await,
-        Some(word) => match crate::engine::Workers::parse(word) {
-            Some(workers) => state.engine.delete_agent_with(&id, workers).await,
-            None => return problem(StatusCode::BAD_REQUEST, "workers is stop or keep"),
-        },
+    // On an org host the member who deleted a shared bot is on its record (ADR 0206 §4.1).
+    let by = member.map(|axum::Extension(super::org_guard::Stamped(member))| member);
+    let deleted = crate::org::acting::scoped(by.as_ref(), async {
+        match query.workers.as_deref() {
+            None => Some(state.engine.delete_agent(&id).await),
+            Some(word) => match crate::engine::Workers::parse(word) {
+                Some(workers) => Some(state.engine.delete_agent_with(&id, workers).await),
+                None => None,
+            },
+        }
+    })
+    .await;
+    let Some(deleted) = deleted else {
+        return problem(StatusCode::BAD_REQUEST, "workers is stop or keep");
     };
     if let Err(AgentError::HasWorkers(count)) = &deleted {
         let error = AgentError::HasWorkers(*count).to_string();

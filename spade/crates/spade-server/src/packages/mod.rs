@@ -8,6 +8,9 @@
 pub mod apply;
 mod busy;
 pub mod envelope;
+pub mod folder;
+#[cfg(test)]
+mod folder_tests;
 pub mod held;
 pub mod panels;
 pub mod proof;
@@ -39,7 +42,8 @@ pub fn build() -> Build<'static> {
 
 /// Reads a posted manifest, its problems in one line.
 pub fn manifest(value: &Value) -> Result<Manifest, PackageError> {
-    read(value, build()).map_err(|problems| PackageError::Invalid(problems.join("; ")))
+    read(value, build())
+        .map_err(|problems| PackageError::Invalid(spade_core::rule::joined(&problems, "; ")))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -58,6 +62,12 @@ pub enum PackageError {
     Unproven(String),
     #[error("{0}")]
     Failed(String),
+    /// The organization's policy doesn't allow it on this host, in its own words.
+    #[error("{0}")]
+    Refused(String),
+    /// Only the person may make this change, and the request doesn't carry their say.
+    #[error("{0}")]
+    PersonOnly(&'static str),
 }
 
 fn failed(error: impl std::fmt::Display) -> PackageError {
@@ -179,6 +189,8 @@ pub struct Linking<'a> {
     pub transaction: Option<String>,
     pub routine_ids: BTreeMap<String, String>,
     pub notes: Vec<MadeNote>,
+    /// Its components' pins (name to sha256), their bytes kept before the bot is made.
+    pub code: BTreeMap<String, String>,
 }
 
 /// The link a bot from a version 3 package is made with, in the bot's own transaction: its
@@ -198,6 +210,7 @@ pub fn installing(manifest: &Manifest, linking: &Linking<'_>) -> Link {
         withdrawn_hashes: Vec::new(),
         pending: None,
         installing: true,
+        code: linking.code.clone(),
     }
 }
 
@@ -265,15 +278,26 @@ pub fn recover_installs(engine: &std::sync::Arc<Engine>) {
 
 /// The person turns one of the package's effects on or off in the bot's Security page. Only
 /// what the package declared can be turned on.
-pub fn set_switch(engine: &Engine, bot: &str, key: &str, on: bool) -> Result<Link, PackageError> {
+/// Turning one on lets the bot do more, so it runs only if `may_loosen` (the person's stamp, ADR
+/// 0171 amendment 7); turning one off never needs it.
+pub fn set_switch(
+    engine: &Engine,
+    bot: &str,
+    key: &str,
+    on: bool,
+    may_loosen: &dyn Fn() -> bool,
+) -> Result<Link, PackageError> {
     let _busy = engine.package_busy.hold(bot);
     let mut link = link_of(engine, bot)?;
-    if !link.manifest.effect_keys().iter().any(|k| k == key) {
+    if !link.manifest.switch_keys().iter().any(|k| k == key) {
         return Err(PackageError::Invalid(
-            "only an effect its package declares can be turned on".to_owned(),
+            "only an effect or a component its package declares can be turned on".to_owned(),
         ));
     }
     let before = link.on.clone();
+    if on && !before.contains(key) && !may_loosen() {
+        return Err(PackageError::PersonOnly(crate::security::attest::CONFIRM));
+    }
     let mut after = before.clone();
     if on {
         after.insert(key.to_owned());
@@ -281,6 +305,14 @@ pub fn set_switch(engine: &Engine, bot: &str, key: &str, on: bool) -> Result<Lin
         after.remove(key);
     }
     switches::commit(engine, bot, &mut link, &before, after)?;
+    // A component turned on or off: its bot's worker ends, and the next starts with exactly the
+    // components on (ADR 0203 §5).
+    if spade_core::package::code::run::switch_component(key).is_some()
+        && let Some(code) = engine.code()
+    {
+        code.retire(bot);
+        crate::code::warm(engine, bot);
+    }
     Ok(link)
 }
 
@@ -311,7 +343,10 @@ pub fn withdraw(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, P
 /// The person resumes a bot its package's withdrawal paused: the same Resume as the Running
 /// page's, so each wake that came due fires once and what waited is answered.
 pub fn resume(engine: &Arc<Engine>, bot: &str) -> Result<Link, PackageError> {
-    link_of(engine, bot)?;
+    // Not while its organization still blocks the version it runs.
+    if let Some(why) = engine.org_blocked(&link_of(engine, bot)?.package) {
+        return Err(PackageError::Refused(why));
+    }
     engine.resume_agent(bot).map_err(failed)?;
     // Resume forgets the withdrawal itself; one cut short is forgotten here.
     forget_withdrawal(engine, bot)?;
@@ -379,6 +414,14 @@ pub fn view(link: &Link) -> Value {
         "withdrawn": link.withdrawn.as_ref().map(|w| json!({ "reason": w.reason })),
         "updating": link.pending.as_ref().map(|p| p.package.version.clone()),
         "effects": effects,
+        // Its components (ADR 0203 §5), each with its switch and the bytes it is pinned to.
+        "code": link.manifest.code.iter().map(|c| json!({
+            "name": c.name,
+            "imports": c.imports,
+            "why": c.why,
+            "sha256": link.code.get(&c.name),
+            "on": link.on.contains(&spade_core::package::code::run::switch_key(&c.name)),
+        })).collect::<Vec<_>>(),
         "limits": link.manifest.limits,
         // Typed calls the person's other bots may make to it (ADR 0200 §7).
         "contracts": link.manifest.contracts.iter().map(|c| json!({

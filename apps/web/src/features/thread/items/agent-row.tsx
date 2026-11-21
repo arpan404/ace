@@ -49,6 +49,8 @@ export type AgentDetailKind = SubagentDetailKind;
 
 export interface AgentRowParts {
   mark: AgentMark;
+  /** Leads the row in the mark's place: a Spade bot's face, for a bot one started. */
+  lead?: ReactNode;
   name: string;
   /** "Opus 4.7 · High", "Delegated · GPT-5.5 · High", "New thread · ace-next". */
   meta?: string | undefined;
@@ -106,7 +108,7 @@ export function AgentRowContents(props: AgentRowParts) {
   return (
     <>
       <span aria-hidden className={agentRowStyles.mark}>
-        <AgentIcon {...props.mark} size={16} />
+        {props.lead ?? <AgentIcon {...props.mark} size={16} />}
       </span>
       <span className={agentRowStyles.main}>
         <span className={agentRowStyles.first}>

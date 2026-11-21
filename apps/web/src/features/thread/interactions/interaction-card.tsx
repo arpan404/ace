@@ -30,6 +30,7 @@ import { Dot } from "@/components/ui/dot.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { AnsweredQuestionCard } from "./answered-question.tsx";
 import { answerStore, useLocalAnswer, type LocalAnswer } from "./answers.ts";
+import { ConfirmPerson } from "@/features/ace-account/index.ts";
 import { useAnswerSender } from "./answer-sender.ts";
 import { QuestionForm } from "./question-form.tsx";
 import { Elicitation } from "./elicitation.tsx";
@@ -180,6 +181,7 @@ export function InteractionCard(props: {
       asker={asker}
       answer={answer}
       failed={failed}
+      confirm={sender.confirm}
       whole={whole}
       local={reopened ? undefined : (local ?? earlierAsLocal(earlier))}
       targeted={props.targeted}
@@ -212,6 +214,7 @@ function OpenRequest(props: {
   asker: string;
   answer: Answer;
   failed: string | undefined;
+  confirm: (() => void) | undefined;
   /** How much of the request is here: a summarized one takes only declines until read whole. */
   whole: WholeRequest | undefined;
   local: LocalAnswer | undefined;
@@ -390,6 +393,9 @@ function OpenRequest(props: {
         <p role="status" className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
           <Spinner /> Sending your answer…
         </p>
+      )}
+      {props.confirm && (
+        <ConfirmPerson className="mt-2 block text-sm" onConfirmed={props.confirm} />
       )}
       {failed && (
         <p role="alert" className="mt-2 text-sm text-status-failed">

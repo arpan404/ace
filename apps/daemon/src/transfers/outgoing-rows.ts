@@ -41,6 +41,11 @@ export const TransferPlan = z.object({
       z.object({ files: z.literal(0) }),
     ])
     .optional(),
+  /**
+   * The commit may have reached the target: from here only the target's own word that the
+   * transfer never passed its cutoff settles it, never its saying it has no such transfer.
+   */
+  committed: z.literal(true).optional(),
   /** A live move (ADR 0191): the turn was interrupted, so a failed move tells it to carry on. */
   interrupted: z.boolean().optional(),
   /** A live move, once stopped: the final payload and what the commit carries with it. */
@@ -60,6 +65,12 @@ export type TransferPlan = z.infer<typeof TransferPlan>;
 export const TransferRequest = z.object({
   hostId: HostId,
   profile: z.string(),
+  /**
+   * This machine's device there when the transfer started: an answer under another pairing
+   * (the machines linked again) can't speak for the rows that device made. Absent on rows from
+   * before this field.
+   */
+  deviceId: z.string().optional(),
   parent: z.string().optional(),
   includeChanges: z.boolean(),
   /** Send files Git ignores too; rows from before this existed send none. */

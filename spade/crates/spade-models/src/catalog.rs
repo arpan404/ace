@@ -17,6 +17,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::format::Format;
+use crate::known_good::KnownGood;
 
 /// What a call is for. Callers ask for a role; the catalogue's `roles` pick the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +178,8 @@ pub struct Resolved<'a> {
 pub struct Catalog {
     endpoints: Vec<Endpoint>,
     roles: Option<FileRoles>,
+    /// Local model families measured on ace's cases (ADR 0205 §3).
+    local: Vec<KnownGood>,
 }
 
 /// Everything wrong with a catalogue file.
@@ -211,6 +214,9 @@ struct File {
     #[serde(default)]
     roles: Option<FileRoles>,
     endpoints: Vec<FileEndpoint>,
+    /// Local model families ace measured on its own packages' cases.
+    #[serde(default)]
+    local: Vec<KnownGood>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -299,6 +305,11 @@ impl Catalog {
             .find(|m| m.id == id)
     }
 
+    /// The measured family local model `id` belongs to, if ace measured it.
+    pub fn known_good(&self, id: &str) -> Option<&KnownGood> {
+        self.local.iter().find(|family| family.covers(id))
+    }
+
     /// Finds `endpoint/model`.
     pub fn resolve(&self, reference: &str) -> Option<Resolved<'_>> {
         let (endpoint_id, model_id) = reference.split_once('/')?;
@@ -321,9 +332,17 @@ impl Catalog {
                 problems.push(format!("endpoint {} is listed more than once", endpoint.id));
             }
         }
+        let mut families = HashSet::new();
+        for family in &file.local {
+            problems.extend(family.problems());
+            if !families.insert(family.family.as_str()) {
+                problems.push(format!("local family {} is listed twice", family.family));
+            }
+        }
         let catalog = Self {
             endpoints,
             roles: file.roles,
+            local: file.local,
         };
         let roles = catalog.roles.iter().flat_map(|roles| {
             [

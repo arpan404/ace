@@ -4,7 +4,7 @@
 
 use base64::Engine as _;
 use serde::Serialize;
-use spade_store::SkillOrigin;
+use spade_store::{SkillOrigin, StoredSkill};
 
 use super::{SkillStore, files_of, folders};
 
@@ -40,10 +40,10 @@ pub enum PublishError {
 }
 
 /// A file is read back at most this large; the marketplace takes no larger file for a skill.
-const LARGEST_FILE: u64 = 4 * 1024 * 1024;
+pub(super) const LARGEST_FILE: u64 = 4 * 1024 * 1024;
 /// All of a skill's files together, and how many, at most (the marketplace's skill limits).
-const LARGEST_TOTAL: u64 = 16 * 1024 * 1024;
-const MOST_FILES: usize = 512;
+pub(super) const LARGEST_TOTAL: u64 = 16 * 1024 * 1024;
+pub(super) const MOST_FILES: usize = 512;
 
 impl SkillStore {
     /// The `spade` skill `id`'s files, for a draft in the marketplace.
@@ -56,6 +56,17 @@ impl SkillStore {
         if row.origin != SkillOrigin::Spade {
             return Err(PublishError::NotSpade);
         }
+        let files = self.files_out(&row)?;
+        Ok(PublishedSkill {
+            name: row.name,
+            files,
+        })
+    }
+
+    /// `row`'s `SKILL.md` and other files as the store keeps them, read through its folder
+    /// without links, within the marketplace's skill limits.
+    pub(super) fn files_out(&self, row: &StoredSkill) -> Result<Vec<PublishedFile>, PublishError> {
+        let id = row.id.as_str();
         let encode = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
         let refuse = |e: std::io::Error| PublishError::Refused(e.to_string());
         let text = folders::read_skill(&self.root, id).map_err(refuse)?;
@@ -65,7 +76,7 @@ impl SkillStore {
             executable: false,
             content: encode(text.as_bytes()),
         }];
-        let others = files_of(&row);
+        let others = files_of(row);
         if others.len() + 1 > MOST_FILES {
             return Err(PublishError::Refused(format!(
                 "the skill has more than {MOST_FILES} files"
@@ -87,9 +98,6 @@ impl SkillStore {
                 content: encode(&bytes),
             });
         }
-        Ok(PublishedSkill {
-            name: row.name,
-            files,
-        })
+        Ok(files)
     }
 }

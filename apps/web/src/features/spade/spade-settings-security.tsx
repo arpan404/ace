@@ -20,15 +20,21 @@ import {
   setMachineAutonomy,
   setMachineCommands,
   setMachineNetwork,
+  setMachinePermission,
+  setNeverApps,
   useSecurityMachine,
   type SpadeNetworkFor,
 } from "./spade-security-api.ts";
 import { LoadingRows } from "./spade-settings-loading.tsx";
+import { NeverApps } from "./spade-never-apps.tsx";
+import { PermissionRows } from "./spade-permissions.tsx";
 import { CouldNotRead, SpadeNotRunning, useSpadeRunning } from "./spade-settings-rows.tsx";
 
 /**
  * Settings › Spade › Security (ADR 0167, 0171): whether this machine seals commands off, said
- * once as the page's first line; then how bots decide (ADR 0163, amendment 2); then, for commands, where they run and what they may reach, and
+ * once as the page's first line; then the Permissions every bot follows unless it sets its own,
+ * with the apps bots never use under Computer use (ADR 0171, amendment 7); then how bots decide
+ * (ADR 0163, amendment 2); then, for commands, where they run and what they may reach, and
  * for plugins what they may reach: the rules every bot inherits. The sites listed by default
  * wait behind their count. Each bot's own rule, folders, grants and checkpoints are in its
  * profile.
@@ -73,6 +79,24 @@ export function SpadeSecuritySettings() {
       <p className="mb-6 text-ui text-muted-foreground">
         {spadeSandboxSentence(status)} Every bot uses these unless it sets its own.
       </p>
+      {status.permissions && (
+        <SettingSection label="Permissions" anchor="permissions">
+          <PermissionRows
+            permissions={status.permissions}
+            save={async (which, on) => {
+              if (on !== null) show(await setMachinePermission(client, which, on));
+            }}
+            under={{
+              computer_use: (
+                <NeverApps
+                  apps={status.permissions.neverApps}
+                  save={async (apps) => show(await setNeverApps(client, apps))}
+                />
+              ),
+            }}
+          />
+        </SettingSection>
+      )}
       <SettingSection label="Bots" anchor="bots">
         <AutonomyChoice
           title="How they decide"

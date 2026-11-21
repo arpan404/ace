@@ -163,7 +163,6 @@
     "packages/browser/src/page-edges.process.test.ts": "TODO cleanup (66.9s in the 2026-10 timing run)",
     "packages/browser/src/agent-errors.process.test.ts": "TODO cleanup (65.6s in the 2026-10 timing run)",
     "apps/daemon/src/remote-cli.process.test.ts": "TODO cleanup (65.1s in the 2026-10 timing run)",
-    "apps/daemon/src/relay.device.process.test.ts": "TODO cleanup (64.5s in the 2026-10 timing run)",
     "apps/daemon/src/external-mcp/revoke.process.test.ts": "TODO cleanup (63.8s in the 2026-10 timing run)",
     "packages/mcp-server/src/tool-guidance.process.test.ts": "TODO cleanup (61.8s in the 2026-10 timing run)",
     "apps/daemon/src/history-regressions.process.test.ts": "TODO cleanup (61.2s in the 2026-10 timing run)",

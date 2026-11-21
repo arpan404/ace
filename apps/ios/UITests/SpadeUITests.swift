@@ -5,7 +5,7 @@ import XCTest
 /// answered and a message sent, a card of questions answered (and locked while Spade's update is
 /// on its way, and kept as filled in through Answer later), and the tab gone once Settings ›
 /// Beta turns Spade off; a group's conversation with each member's face and name; a bot's
-/// profile sheet.
+/// profile sheet. New bot and Settings › Spade are `SpadeSetupUITests.swift`.
 @MainActor final class SpadeUITests: XCTestCase {
     private let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
     override func setUp() async throws {
@@ -15,22 +15,23 @@ import XCTest
         try await stage("on")
     }
 
-    private func launch() -> XCUIApplication {
+    /// `appearance` ("light", "dark") pins the app's own look, for screenshots of both.
+    func launch(appearance: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", port]
+        app.launchArguments = ["--spike", "--spike-port", port] + (appearance.map { ["-ace.appearance", $0] } ?? [])
         app.launchWithArguments()
         return app
     }
 
     /// Stages Spade on the fixture: `off`, `on` or `stream`.
-    private func stage(_ kind: String) async throws {
+    func stage(_ kind: String) async throws {
         var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/review/spade")))
         request.httpMethod = "POST"
         request.httpBody = Data("\"\(kind)\"".utf8)
         _ = try await URLSession.shared.data(for: request)
     }
 
-    private func openSpade(_ app: XCUIApplication) -> XCUIElement {
+    func openSpade(_ app: XCUIApplication) -> XCUIElement {
         let tab = app.homeTab("spade")
         XCTAssertTrue(tab.waitForExistence(timeout: 30))
         tab.tap()
@@ -271,7 +272,7 @@ import XCTest
         try await stage("on")
     }
 
-    private func screenshot(_ name: String) {
+    func screenshot(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = "ios-\(name)"
         attachment.lifetime = .keepAlways

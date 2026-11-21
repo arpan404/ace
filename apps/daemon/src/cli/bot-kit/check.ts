@@ -8,8 +8,11 @@ import {
   inlineContractFiles,
   latestPublished,
   marketOrigin,
+  readSkillMd,
+  unusedFields,
   type MarketReads,
 } from "@ace/marketplace";
+import { allowedToolsSentence, unusedFieldsSentence } from "@ace/ui-core/spade-chat";
 import type { CliProblem } from "@ace/protocol/cli-output";
 import type { CliBotCheck } from "@ace/protocol/cli-outputs";
 import { CliFailure } from "../output.ts";
@@ -98,14 +101,62 @@ export async function packageJson(path: string): Promise<unknown> {
 }
 
 /**
+ * What's worth knowing about a `SKILL.md` the checks accept (ADR 0202 §1): fields this Spade
+ * keeps and doesn't use, and `allowed-tools`, which grants nothing. Pure.
+ */
+export function skillWarnings(markdown: string): CliProblem[] {
+  const read = readSkillMd(markdown);
+  const unused = unusedFields(read);
+  return [
+    ...(unused.length ? [{ path: "SKILL.md", message: unusedFieldsSentence(unused) ?? "" }] : []),
+    ...(read.allowedTools.length
+      ? [{ path: "SKILL.md", message: allowedToolsSentence(read.allowedTools) ?? "" }]
+      : []),
+  ];
+}
+
+const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
+
+/** A skill folder's checks: the Agent Skills specification's and the market's (ADR 0202 §1). */
+async function checkSkillFolder(folder: string): Promise<CliBotCheck> {
+  const { readFile } = await import("node:fs/promises");
+  const name = folder.split(/[\\/]/).findLast(Boolean) ?? "";
+  const result = await checkFolder(folder, { type: "spade-skill", name });
+  if (result.problems.length > 0) {
+    const count = result.problems.length;
+    throw new CliFailure(
+      "failed",
+      `${name} has ${count} problem${count === 1 ? "" : "s"} to fix.`,
+      { ...result, warnings: [] },
+      { code: "check_failed", problems: result.problems },
+    );
+  }
+  const markdown = await readFile(resolve(folder, "SKILL.md"), "utf8");
+  return {
+    name,
+    hash: result.hash,
+    files: result.files,
+    bytes: result.bytes,
+    warnings: skillWarnings(markdown),
+  };
+}
+
+/**
  * The package's checks at `root`; a failure carrying every problem when there is one. `against`
- * is the version callers use, whose contracts this one may not break.
+ * is the version callers use, whose contracts this one may not break. A folder holding a
+ * `SKILL.md` and no `bot.json` is checked as a skill.
  */
 export async function checkPackage(
   root: string,
   options: { against?: string | undefined } = {},
 ): Promise<CliBotCheck> {
   const folder = resolve(root);
+  if (!(await exists(resolve(folder, "bot.json"))) && (await exists(resolve(folder, "SKILL.md"))))
+    return checkSkillFolder(folder);
   const name = slugOf(folder.split(/[\\/]/).findLast(Boolean) ?? "") || "package";
   const result = await checkFolder(folder, { type: "spade-bot", name });
   if (result.problems.length > 0) {

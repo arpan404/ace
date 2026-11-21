@@ -11,7 +11,10 @@ import { SpadeAgentScreen } from "@/features/spade/index.ts";
 export const Route = createFileRoute("/spade/$agentId")({
   validateSearch: z.object({
     on: z.string().optional().catch(undefined),
-    profile: z.enum(["details", "work", "library", "computer"]).optional().catch(undefined),
+    profile: z
+      .enum(["details", "work", "library", "computer", "permissions"])
+      .optional()
+      .catch(undefined),
     computer: z
       .enum(["browser", "screen", "terminal", "files", "services", "activity"])
       .optional()

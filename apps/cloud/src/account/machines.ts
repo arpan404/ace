@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { notDeleted } from "./tombstone.ts";
 import { AceMachine } from "@ace/protocol/ace-account";
 
 const Row = z.object({
@@ -11,21 +12,26 @@ const Row = z.object({
 /** The machine directory: which account each proven host id belongs to. */
 export function machineStore(db: D1Database) {
   return {
-    /** A machine signing in to another account moves to it. */
+    /**
+     * A machine signing in to another account moves to it. False, and nothing written, when the
+     * account was deleted: a grant from before the deletion can't put the machine back.
+     */
     async register(
       machine: { hostId: string; accountId: string; name: string; platform: string },
       now: number,
-    ) {
-      await db
+    ): Promise<boolean> {
+      const result = await db
         .prepare(
           `INSERT INTO machines (host_id, account_id, name, platform, created_at, last_seen_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?5
+           WHERE ${notDeleted("?2")}
            ON CONFLICT (host_id) DO UPDATE SET
              account_id = excluded.account_id, name = excluded.name,
              platform = excluded.platform, last_seen_at = excluded.last_seen_at`,
         )
         .bind(machine.hostId, machine.accountId, machine.name, machine.platform, now)
         .run();
+      return result.meta.changes > 0;
     },
     async seen(hostId: string, accountId: string, now: number) {
       await db

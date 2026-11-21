@@ -883,6 +883,33 @@ Turn a client's sign-in away.
 
 ## Spade and the market
 
+### `ace spade skill import FROM [flags]`
+
+Keep a SKILL.md folder, or one in a git repository, as a Spade skill.
+
+The folder must meet the Agent Skills specification: SKILL.md with name (the folder's name: lower-case letters, digits and single hyphens, at most 64) and description (at most 1,024 characters), and license, compatibility, metadata and allowed-tools as the specification has them. It passes the market's skill checks too: no secrets, within a skill's limits. Every file is kept as it came; hidden files are left out. Fields Spade doesn't use are kept and listed. allowed-tools grants nothing: Spade's gate still decides each call the skill's instructions lead to.
+
+- `FROM`: The skill's folder, or a git address (https, ssh or user@host:path)
+
+- `--path FOLDER`: With a git address, the skill's folder in the repository; its root otherwise
+- `--git`: Read FROM as a git repository, a local one's path included
+- `--replace`: Replace a skill written in Spade with the same name
+
+    ace spade skill import ./triage-mail
+    # A folder on this machine
+
+    ace spade skill import https://github.com/example/skills --path triage-mail
+    # One skill from a repository's folder
+
+### `ace spade skill export SKILL [DIR]`
+
+Write a Spade skill as a SKILL.md folder that meets the Agent Skills specification.
+
+The folder is DIR/<name>, which must not exist yet. SKILL.md keeps the specification's fields and its body as they were; fields the specification doesn't define move under metadata as spade.field.<name>, and metadata.spade.version and metadata.spade.source say how it was written and where the skill came from. Importing the folder again gives back the same skill. A plugin's skills export with their plugin.
+
+- `SKILL`: The skill's name or id
+- `DIR`: Where to write its folder; this folder when omitted
+
 ### `ace spade status`
 
 Whether Spade is on, and how it is.
@@ -1057,13 +1084,20 @@ The same reader Spade and the market use. Problems print as path: sentence and e
 
 - `--against PATH`: The version other bots call (its folder or bot.json): a contract change that breaks them is refused
 
-### `ace bot test [PATH]`
+### `ace bot test [PATH] [flags]`
 
 Run the package's scenario tests on Spade's engine with a scripted model, offline.
 
-Each scenario in tests/ runs on a throwaway Spade with spade-testkit's fake model: no network, no real model, nothing of yours. Needs Spade's program: the one this ace ships, or ACE_SPADE_BIN.
+Each scenario in tests/ runs on a throwaway Spade with spade-testkit's fake model: no network, no real model, nothing of yours. Needs Spade's program: the one this ace ships, or ACE_SPADE_BIN. With --cases, one of your bots' kept runs (Keep as a test) replay instead, on the version in PATH or the one the bot runs, through your Spade: free on the recorded steps, every outside call answered from the recording. --model replays them on one of your models, at your cost, said first.
 
 - `PATH`: The package's folder; this one when omitted
+
+- `--cases BOT`: Replay this bot's kept runs (by name or id) instead of the scenarios
+- `--model ROLE`: With --cases: replay on a model (current, a role like review, or endpoint/model), at your cost
+- `--spade DIR`: With --cases: a development Spade's data folder, reached directly instead of through ace
+
+    ace bot test --cases "Fare watcher" .
+    # Does this folder's version still do what Fare watcher's kept runs did?
 
 ### `ace bot dev [PATH] [flags]`
 
@@ -1431,6 +1465,35 @@ Apply for ace's verified mark.
 ### `ace market verification check`
 
 Check your proofs again now.
+
+### `ace org audit export [flags]`
+
+Write this org host's audit log as JSON Lines, with its signed checkpoints.
+
+The log Spade keeps on this host (ADR 0206 §4.2): a header naming the organization, the host and its audit key, then each entry chained to the one before and each checkpoint the host signed. --from and --to take a date or milliseconds since 1970; without them, the whole log. Nothing in it is message text or a bot's arguments.
+
+- `--from WHEN`: The first moment to include
+- `--to WHEN`: The last moment to include
+- `--out FILE`: Write it to FILE instead of standard output
+
+    ace org audit export --out audit.jsonl
+    # The whole log, to a file
+
+    ace org audit export --from 2026-11-01 --to 2026-12-01
+    # One month of it
+
+### `ace org audit verify FILE [flags]`
+
+Check an exported audit log's chain and signed checkpoints, offline.
+
+Every entry must chain to the one before and every checkpoint must be signed by the audit key over the chain's head at that point, so an entry changed or removed before the last checkpoint no longer matches. --key is the host's audit key as the organization registered it (base64url); without it, this machine's Spade gives its own, which proves only that the file is this host's log as it is now.
+
+- `FILE`: A file ace org audit export wrote
+
+- `--key KEY`: The host's registered audit key, base64url
+
+    ace org audit verify audit.jsonl --key 4YnbPAZLpD557zJQT9bDShIgb4lSIpvda8dHoDmZPM8
+    # Against the key the organization registered
 
 ## Agent tools
 
@@ -1808,6 +1871,8 @@ everywhere.
   appeals | appeal ID --answer TEXT --approve|--keep
   verify|unverify HANDLE --reason TEXT
   official add|remove ACCOUNT
+  notice PROVIDER allowed|unclear|refused --note TEXT
+                                       a subscription's terms change; devices only tighten
 
 The old ace market VERB spellings still work for now.
 ```

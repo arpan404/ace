@@ -1,7 +1,6 @@
-import { fleetRefusal } from "@ace/ui-core";
 import {
   allowProjectsOffer,
-  scopeChangeRefusal,
+  allowProjectsWords,
   type TransferMachine,
 } from "@ace/ui-core/transfers";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -71,18 +70,13 @@ export function AllowProjectsStep(props: {
     },
     onSuccess: props.onAllowed,
   });
-  const why = `${machine.name} doesn't take projects from ${sender.name} yet`;
   const refused = allow.isError ? refusalCode(allow.error) : undefined;
-  const words =
-    refused !== undefined
-      ? (scopeChangeRefusal(refused, machine.name) ?? fleetRefusal(refused, machine.name))
-      : offer === "viewOnly"
-        ? `${sender.name}'s link can only view on ${machine.name}, so it can't take projects; unlink and link them again in Settings › Fleet.`
-        : offer === "held"
-          ? `${machine.name} takes projects from ${sender.name} now.`
-          : offer === "settings"
-            ? `${why}; allow them on ${machine.name} in Settings › Fleet.`
-            : `${why}.`;
+  const words = allowProjectsWords({
+    offer,
+    machine: machine.name,
+    sender: sender.name,
+    refused,
+  });
   const settings = () => {
     props.onClose();
     void navigate({

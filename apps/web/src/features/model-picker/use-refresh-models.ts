@@ -3,6 +3,8 @@ import { useClient } from "@ace/client-react";
 import type { ProviderKind } from "@ace/protocol";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { isStandingRefusal, withStanding } from "@/boot/person-standing.ts";
+import { useConfirmPersonNotice } from "@/features/ace-account/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { daemonErrorCode, describeDaemonError, useDaemonReady } from "@/lib/daemon-command.ts";
 import { catalogKey } from "@/lib/model-catalog.ts";
@@ -37,20 +39,33 @@ export function useRefreshModels(): RefreshModels {
   const queryClient = useQueryClient();
   const daemon = useDaemonReady();
   const toast = useToast();
+  const confirm = useConfirmPersonNotice();
   const [forbidden, setForbidden] = useState(() => refused.has(client));
   const mutation = useMutation({
     mutationFn: async (
       request:
         | { provider?: ProviderKind | undefined; instance?: string | undefined }
-        | { load: string },
+        | { load: string; confirmed?: boolean },
     ) => {
       if (!("load" in request)) return client.request({ type: "models.refresh", filter: request });
-      const reply = await client.request({ type: "models.load", instance: request.load });
+      const reply = await withStanding(
+        client,
+        () => client.request({ type: "models.load", instance: request.load }),
+        ({ result }) => "ok" in result && !result.ok && isStandingRefusal(result.reason),
+      );
       // A refusal (not the person's device) is the daemon's own sentence.
       if ("ok" in reply.result && !reply.result.ok) throw new LoadRefused(reply.result.reason);
       return reply;
     },
-    onError: (error) => {
+    onError: (error, request) => {
+      if (
+        "load" in request &&
+        !request.confirmed &&
+        error instanceof LoadRefused &&
+        isStandingRefusal(error.message) &&
+        confirm(client, () => mutation.mutate({ ...request, confirmed: true }))
+      )
+        return;
       if (error instanceof LoadRefused)
         return toast.error({ title: "Couldn't load models", description: error.message });
       const code = daemonErrorCode(error);

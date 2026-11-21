@@ -1,0 +1,33 @@
+[package]
+name = "spade-wasm"
+version = "0.1.0"
+description = "Runs a package's WebAssembly components in a worker process inside the bot's sandbox (ADR 0203)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "spade-wasm"
+path = "src/main.rs"
+
+[dependencies]
+base64.workspace = true
+getrandom = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+spade-core = { path = "../spade-core" }
+spade-sandbox = { path = "../spade-sandbox" }
+tokio = { workspace = true, features = ["process", "io-util", "sync", "time", "rt"] }
+wasmtime.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process"] }
+wat = "=1.254.2"
+wit-component = { version = "0.254", features = ["dummy-module"] }
+wit-parser = "0.254"
+
+[lints]
+workspace = true

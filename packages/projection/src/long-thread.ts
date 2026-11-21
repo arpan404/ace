@@ -151,8 +151,12 @@ export function turnActivityStatus(
   return undefined;
 }
 
+/**
+ * Whether a turn's work is over. A state from a daemon newer than this build (`unknown`) may be
+ * work still going on, so it never reads as settled.
+ */
 export function turnIsSettled(status: ThreadStatus): boolean {
-  return status.state !== "working";
+  return status.state !== "working" && status.state !== "unknown";
 }
 
 export function approvalAutoReviewed(approval: Pick<Interaction, "autoReviewed">): boolean {

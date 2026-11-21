@@ -76,6 +76,8 @@ export function ModelSettingRow(props: {
   follows?: string | undefined;
   /** The picker beside the title at every width, as a bot's profile has it. */
   inline?: boolean;
+  /** It picks a model that runs bots: one that can't call tools can't be picked. */
+  forBots?: boolean | undefined;
   save(model: string | null): Promise<unknown>;
 }) {
   const id = useId();
@@ -107,6 +109,7 @@ export function ModelSettingRow(props: {
         value={shown}
         none={props.none}
         follows={props.follows}
+        forBots={props.forBots}
         onChange={(value) => void choose(value)}
       />
     </SettingRow>

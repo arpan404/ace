@@ -26,6 +26,9 @@ pub struct Held {
     /// What proves a market version (`proof`): it is applied only on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proof: Option<serde_json::Value>,
+    /// Its components' pins (name to sha256), kept with the step.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub code: std::collections::BTreeMap<String, String>,
 }
 
 impl Held {
@@ -36,6 +39,7 @@ impl Held {
             manifest: step.manifest.clone(),
             time_zone: step.time_zone.clone(),
             proof: step.proof.clone(),
+            code: step.code.clone(),
         }
     }
 
@@ -46,6 +50,7 @@ impl Held {
             transaction: self.transaction,
             time_zone: self.time_zone,
             proof: self.proof,
+            code: self.code,
         }
     }
 }
